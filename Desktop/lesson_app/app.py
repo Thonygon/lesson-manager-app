@@ -32,7 +32,6 @@ def load_students() -> list[str]:
     payments_df = load_table("payments")
 
     names = set()
-
     for df, col in [(students_df, "student"), (classes_df, "student"), (payments_df, "student")]:
         if not df.empty and col in df.columns:
             df[col] = df[col].astype(str).str.strip()
@@ -92,24 +91,64 @@ def rebuild_dashboard() -> pd.DataFrame:
     payments = payments.dropna(subset=["payment_date"])
 
     # Packages bought = count of payment rows per student
-    packages_bought = payments.groupby("student", as_index=False).size().rename(columns={"size": "Packages_Bought"})
+    packages_bought = (
+        payments.groupby("student", as_index=False)
+        .size()
+        .rename(columns={"size": "Packages_Bought"})
+    )
 
-    # Latest payment = current package
+    # Sort payments and compute previous payment date
+    payments_sorted = payments.sort_values(["student", "payment_date"]).copy()
+    payments_sorted["Prev_Payment_Date"] = payments_sorted.groupby("student")["payment_date"].shift(1)
+
+    # Latest payment = current package (include prev payment date)
     latest_payment = (
-        payments.sort_values("payment_date")
-        .groupby("student", as_index=False)
+        payments_sorted.groupby("student", as_index=False)
         .tail(1)
         .rename(columns={
             "number_of_lesson": "Lessons_Paid_Total",
             "paid_amount": "Total_Paid",
             "payment_date": "Payment_Date",
             "modality": "Modality"
-        })[["student","Lessons_Paid_Total","Total_Paid","Payment_Date","Modality"]]
+        })[["student","Lessons_Paid_Total","Total_Paid","Payment_Date","Modality","Prev_Payment_Date"]]
     )
 
-    # Lessons taken since latest payment date
-    merged = classes.merge(latest_payment[["student","Payment_Date"]], on="student", how="left")
-    current = merged[merged["Payment_Date"].notna() & (merged["lesson_date"] >= merged["Payment_Date"])]
+    # --- Package_Start_Date logic ---
+    # Package starts at first lesson AFTER the previous payment (or first lesson ever if no prev payment)
+    classes_tmp = classes.sort_values(["student", "lesson_date"]).copy()
+    classes_tmp = classes_tmp.merge(
+        latest_payment[["student", "Prev_Payment_Date"]],
+        on="student",
+        how="left"
+    )
+
+    mask = classes_tmp["Prev_Payment_Date"].isna() | (classes_tmp["lesson_date"] > classes_tmp["Prev_Payment_Date"])
+    package_start = (
+        classes_tmp[mask]
+        .groupby("student", as_index=False)["lesson_date"]
+        .min()
+        .rename(columns={"lesson_date": "Package_Start_Date"})
+    )
+
+    # If a student has no lessons after prev payment, fallback to Payment_Date
+    package_start = package_start.merge(
+        latest_payment[["student", "Payment_Date"]],
+        on="student",
+        how="right"
+    )
+    package_start["Package_Start_Date"] = package_start["Package_Start_Date"].fillna(package_start["Payment_Date"])
+
+    # Lessons taken for current package = lessons on/after Package_Start_Date
+    classes_for_count = classes.merge(
+        package_start[["student", "Package_Start_Date"]],
+        on="student",
+        how="left"
+    )
+
+    current = classes_for_count[
+        classes_for_count["Package_Start_Date"].notna()
+        & (classes_for_count["lesson_date"] >= classes_for_count["Package_Start_Date"])
+    ]
 
     lessons_taken = (
         current.groupby("student", as_index=False)["number_of_lesson"]
@@ -119,6 +158,7 @@ def rebuild_dashboard() -> pd.DataFrame:
 
     dash = (latest_payment
             .merge(packages_bought, on="student", how="left")
+            .merge(package_start[["student","Package_Start_Date"]], on="student", how="left")
             .merge(lessons_taken, on="student", how="left"))
 
     dash["Packages_Bought"] = dash["Packages_Bought"].fillna(0).astype(int)
@@ -136,10 +176,13 @@ def rebuild_dashboard() -> pd.DataFrame:
 
     dash = dash.sort_values("Lessons_Left").reset_index(drop=True)
     dash = dash.rename(columns={"student": "Student"})
+
     dash["Payment_Date"] = pd.to_datetime(dash["Payment_Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    dash["Package_Start_Date"] = pd.to_datetime(dash["Package_Start_Date"], errors="coerce").dt.strftime("%Y-%m-%d")
 
     return dash[[
         "Student","Packages_Bought","Lessons_Paid_Total","Total_Paid","Payment_Date",
+        "Package_Start_Date",
         "Lessons_Taken","Lessons_Left","Status","Modality"
     ]]
 
@@ -185,7 +228,6 @@ def show_student_history(student: str) -> tuple[pd.DataFrame, pd.DataFrame]:
             "modality": "Modality"
         })[["ID","Payment_Date","Lessons_Paid","Paid_Amount","Modality"]]
 
-    # Visual row numbering starting at 1 (does not affect IDs)
     lessons.index = range(1, len(lessons) + 1)
     pay.index = range(1, len(pay) + 1)
 
