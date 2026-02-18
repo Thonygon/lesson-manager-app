@@ -1,28 +1,335 @@
+# ============================================================
+# CLASS MANAGER (Single-file Streamlit App)
+# Dark HOME + Light APP + Persistent Top Nav
+# Includes: In-app "Show code with line numbers" helper
+# ============================================================
+
+# =========================
+# 00) IMPORTS
+# =========================
 import streamlit as st
 import pandas as pd
 from supabase import create_client
 from datetime import datetime, date, timedelta
 from typing import List, Tuple, Optional
+import math
+import json
+import streamlit.components.v1 as components
 
+# =========================
+# 01) PAGE CONFIG
+# =========================
+st.set_page_config(page_title="Class Manager", page_icon="🗓️", layout="wide")
 
-st.set_page_config(page_title="Lesson Manager", layout="wide")
+# =========================
+# 02) THEMES (DARK HOME + LIGHT APP)
+# =========================
+def load_css_home_dark():
+    st.markdown(
+        """
+        <style>
+        :root{
+          --bg:#0b1220;
+          --text:#e5e7eb;
+          --muted:rgba(229,231,235,0.72);
+          --shadow:0 18px 44px rgba(0,0,0,0.45);
+        }
+        .stApp{
+          background: radial-gradient(1200px 700px at 20% 0%, rgba(59,130,246,0.18), transparent 55%),
+                      radial-gradient(1000px 600px at 85% 15%, rgba(16,185,129,0.14), transparent 55%),
+                      var(--bg);
+          color: var(--text);
+        }
+        section[data-testid="stMain"] > div {
+          padding-top: 1.0rem;
+          padding-bottom: 2.2rem;
+          max-width: 1100px;
+        }
+        html, body, [class*="css"]{
+          font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        }
+        a { text-decoration: none; }
 
-# ---- Supabase connection (Streamlit Secrets) ----
+        .home-wrap{ margin-top: 1.6rem; display:flex; justify-content:center; }
+        .home-card{
+          width: min(820px, 94vw);
+          border-radius: 28px;
+          padding: 28px 22px 18px 22px;
+          box-shadow: var(--shadow);
+          background: rgba(255,255,255,0.035);
+          border: 1px solid rgba(255,255,255,0.08);
+          position: relative;
+          overflow:hidden;
+        }
+        .home-glow{
+          position:absolute; inset:-2px;
+          background: radial-gradient(600px 260px at 10% 10%, rgba(59,130,246,0.20), transparent 55%),
+                      radial-gradient(520px 240px at 90% 20%, rgba(16,185,129,0.14), transparent 60%);
+          pointer-events:none;
+        }
+        .home-title{
+          text-align:center;
+          font-size: clamp(2.0rem, 3.6vw, 3.0rem);
+          font-weight: 900;
+          letter-spacing: -0.045em;
+          margin: 0.6rem 0 0.35rem 0;
+        }
+        .home-sub{
+          text-align:center;
+          color: var(--muted);
+          margin: 0 0 1.4rem 0;
+          font-size: 0.98rem;
+        }
+.home-card a{
+target-new: none;
+}
+/* HOME pill links (reliable gradients) */
+.home-pill{
+  display:block;
+  width: 100%;
+  border-radius: 999px;
+  padding: 0.95rem 1.1rem;
+  margin: 0.95rem 0;
+  font-weight: 800;
+  text-align: center;
+  color: #ffffff !important;
+  border: 1px solid rgba(255,255,255,0.16);
+  box-shadow: 0 14px 30px rgba(0,0,0,0.35);
+  transition: transform 160ms ease, filter 160ms ease;
+}
+.home-pill:hover{
+  transform: translateY(-2px);
+  filter: brightness(1.05);
+}
+
+}
+
+.home-btn div[data-testid="stButton"] button:hover{
+  transform: translateY(-2px);
+  filter: brightness(1.05);
+}
+
+        .home-indicator{
+          width: 92px; height: 7px; border-radius: 999px;
+          background: rgba(255,255,255,0.22);
+          margin: 1.55rem auto 0.4rem auto;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+def load_css_app_light():
+    st.markdown(
+        """
+        <style>
+        :root{
+          --bg:#f6f7fb;
+          --panel:#ffffff;
+          --border:rgba(17,24,39,0.08);
+          --border2:rgba(17,24,39,0.10);
+          --text:#0f172a;
+          --muted:#475569;
+          --shadow:0 10px 26px rgba(15,23,42,0.08);
+          --shadow2:0 16px 42px rgba(15,23,42,0.10);
+        }
+        .stApp{
+          background: var(--bg);
+          color: var(--text);
+        }
+        section[data-testid="stMain"] > div {
+          padding-top: 1.0rem;
+          padding-bottom: 2.2rem;
+          max-width: 1200px;
+        }
+        html, body, [class*="css"]{
+          font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        }
+        h1,h2,h3{ letter-spacing:-0.02em; }
+        .stCaption, .stMarkdown p { color: var(--muted); }
+
+        /* Blocks */
+        div[data-testid="stVerticalBlockBorderWrapper"]{
+          background: var(--panel);
+          border: 1px solid var(--border);
+          border-radius: 18px;
+          padding: 18px;
+          box-shadow: var(--shadow);
+        }
+
+        /* Buttons */
+        div[data-testid="stButton"] button{
+          border-radius: 14px !important;
+          padding: 0.62rem 1.0rem !important;
+          border: 1px solid var(--border2) !important;
+          background: white !important;
+          color: var(--text) !important;
+          font-weight: 650 !important;
+          transition: all 160ms ease;
+        }
+        div[data-testid="stButton"] button:hover{
+          box-shadow: 0 0 0 4px rgba(59,130,246,0.12);
+          border-color: rgba(59,130,246,0.35) !important;
+          transform: translateY(-1px);
+        }
+
+        /* Inputs */
+        div[data-testid="stTextInput"] input,
+        div[data-testid="stTextArea"] textarea,
+        div[data-testid="stNumberInput"] input,
+        div[data-testid="stDateInput"] input,
+        div[data-testid="stSelectbox"] div{
+          border-radius: 14px !important;
+          background: white !important;
+          border: 1px solid var(--border2) !important;
+          color: var(--text) !important;
+        }
+
+        /* Dataframe */
+        div[data-testid="stDataFrame"]{
+          border-radius: 18px !important;
+          overflow: hidden !important;
+          border: 1px solid var(--border) !important;
+          box-shadow: var(--shadow);
+        }
+
+        /* Metrics */
+        div[data-testid="metric-container"]{
+          background: white;
+          border: 1px solid var(--border);
+          padding: 14px 16px;
+          border-radius: 18px;
+          box-shadow: var(--shadow);
+        }
+
+        /* Top nav */
+        /* TOP NAV BAR (buttons) */
+.topnav{
+  display:flex;
+  gap: 10px;
+  align-items:center;
+  justify-content:center;
+  margin: 0.2rem 0 1.1rem 0;
+}
+
+/* make the buttons look like pills */
+.topnav div[data-testid="stButton"] button{
+  border-radius: 999px !important;
+  padding: 0.55rem 0.95rem !important;
+  background: white !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+  font-weight: 650 !important;
+  box-shadow: var(--shadow) !important;
+}
+
+        .topnav a:hover{
+          transform: translateY(-1px);
+          box-shadow: var(--shadow2);
+        }
+        .topnav a.active{
+          border-color: rgba(59,130,246,0.35);
+          box-shadow: 0 0 0 4px rgba(59,130,246,0.10), var(--shadow);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+# =========================
+# 03) NAVIGATION (QUERY PARAM ROUTER + TOP NAV)
+# =========================
+PAGES = [
+    ("dashboard", "Dashboard", "linear-gradient(90deg,#3B82F6,#2563EB)"),
+    ("students",  "Students",  "linear-gradient(90deg,#10B981,#059669)"),
+    ("add_lesson","Lesson","linear-gradient(90deg,#F59E0B,#D97706)"),
+    ("add_payment","Payment","linear-gradient(90deg,#EF4444,#DC2626)"),
+    ("schedule",  "Schedule",  "linear-gradient(90deg,#8B5CF6,#7C3AED)"),
+    ("calendar",  "Calendar",  "linear-gradient(90deg,#06B6D4,#0891B2)"),
+    ("analytics", "Analytics", "linear-gradient(90deg,#F97316,#EA580C)"),
+]
+PAGE_KEYS = {"home"} | {k for k, _, _ in PAGES}
+
+def _get_query_page() -> str:
+    try:
+        qp = st.query_params
+        v = qp.get("page", "home")
+        if isinstance(v, list):
+            v = v[0] if v else "home"
+        return str(v)
+    except Exception:
+        qp = st.experimental_get_query_params()
+        v = qp.get("page", ["home"])
+        return str(v[0]) if v else "home"
+
+def _set_query_page(page: str) -> None:
+    try:
+        st.query_params["page"] = page
+    except Exception:
+        st.experimental_set_query_params(page=page)
+
+if "page" not in st.session_state:
+    st.session_state.page = "home"
+
+qp_page = _get_query_page()
+if qp_page in PAGE_KEYS:
+    st.session_state.page = qp_page
+else:
+    st.session_state.page = "home"
+    _set_query_page("home")
+
+def go_to(page_name: str):
+    if page_name not in PAGE_KEYS:
+        page_name = "home"
+    st.session_state.page = page_name
+    _set_query_page(page_name)
+
+def render_top_nav(active_page: str):
+    items = [("home", "Home")] + [(k, label) for (k, label, _) in PAGES]
+
+    st.markdown("<div class='topnav'>", unsafe_allow_html=True)
+
+    cols = st.columns(len(items))
+    for i, (k, label) in enumerate(items):
+        with cols[i]:
+            # Use a unique key for each nav button
+            clicked = st.button(label, key=f"nav_{k}", use_container_width=True)
+            if clicked:
+                go_to(k)
+                st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def page_header(title: str):
+    st.markdown(f"## {title}")
+
+# =========================
+# 04) SUPABASE CONNECTION  ✅ (THIS WAS MISSING IN YOUR FILE)
+# =========================
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # =========================
-# Helpers
+# 04B) DEBUG: SHOW CODE WITH LINE NUMBERS (in-app helper)
+# =========================
+def show_code_with_line_numbers():
+    with st.sidebar.expander("🧾 Show code with line numbers (debug)", expanded=False):
+        try:
+            with open(__file__, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            numbered = "".join([f"{i:04d} | {line}" for i, line in enumerate(lines, start=1)])
+            st.code(numbered, language="python")
+            st.caption("Use this when Streamlit reports: “line XXXX”.")
+        except Exception as e:
+            st.info(f"Could not read the source file for numbering.\n\n{e}")
+
+# =========================
+# 05) DATA ACCESS HELPERS
 # =========================
 def load_table(name: str, limit: int = 10000, page_size: int = 1000) -> pd.DataFrame:
-    """
-    Loads in pages so a single huge request doesn't fail.
-    Also gives a clear Streamlit error if Supabase returns HTML/500.
-    """
     all_rows = []
     offset = 0
-
     try:
         while offset < limit:
             resp = (
@@ -33,23 +340,18 @@ def load_table(name: str, limit: int = 10000, page_size: int = 1000) -> pd.DataF
             )
             batch = resp.data or []
             all_rows.extend(batch)
-
             if len(batch) < page_size:
                 break
             offset += page_size
-
         return pd.DataFrame(all_rows)
-
     except Exception as e:
         st.error(f"Supabase error loading table '{name}'.\n\n{e}")
         return pd.DataFrame()
-
 
 def norm_student(x: str) -> str:
     return str(x).strip().casefold()
 
 def ensure_student(student: str) -> None:
-    """Insert student into students table; ignore if it already exists."""
     student = str(student).strip()
     if not student:
         return
@@ -59,7 +361,6 @@ def ensure_student(student: str) -> None:
         pass
 
 def load_students() -> List[str]:
-    """Return sorted unique student names from students + classes + payments."""
     students_df = load_table("students")
     classes_df = load_table("classes")
     payments_df = load_table("payments")
@@ -70,35 +371,32 @@ def load_students() -> List[str]:
             df[col] = df[col].astype(str).str.strip()
             names.update(df[col].dropna().tolist())
 
-    names = sorted([n for n in names if n and n.lower() != "nan"])
-    return names
+    return sorted([n for n in names if n and n.lower() != "nan"])
 
 # =========================
-# Write helpers
+# 06) CRUD HELPERS
 # =========================
 def add_class(student: str, number_of_lesson: int, lesson_date: str, modality: str, note: str = "") -> None:
     student = str(student).strip()
     ensure_student(student)
-    data = {
+    supabase.table("classes").insert({
         "student": student,
         "number_of_lesson": int(number_of_lesson),
-        "lesson_date": lesson_date,  # YYYY-MM-DD
+        "lesson_date": lesson_date,
         "modality": str(modality).strip(),
         "note": str(note).strip() if note else ""
-    }
-    supabase.table("classes").insert(data).execute()
+    }).execute()
 
 def add_payment(student: str, number_of_lesson: int, payment_date: str, paid_amount: float, modality: str) -> None:
     student = str(student).strip()
     ensure_student(student)
-    data = {
+    supabase.table("payments").insert({
         "student": student,
         "number_of_lesson": int(number_of_lesson),
-        "payment_date": payment_date,  # YYYY-MM-DD
+        "payment_date": payment_date,
         "paid_amount": float(paid_amount),
         "modality": str(modality).strip(),
-    }
-    supabase.table("payments").insert(data).execute()
+    }).execute()
 
 def delete_row(table_name: str, row_id: int) -> None:
     supabase.table(table_name).delete().eq("id", int(row_id)).execute()
@@ -111,26 +409,8 @@ def update_student_profile(student: str, email: str, zoom_link: str, notes: str,
         "color": color
     }).eq("student", student).execute()
 
-def add_override(
-    student: str,
-    original_date: Optional[date],
-    new_datetime: datetime,
-    duration_minutes: int,
-    status: str,
-    note: str = ""
-) -> None:
-    data = {
-        "student": student,
-        "original_date": original_date.isoformat() if original_date else None,
-        "new_datetime": new_datetime.isoformat(),
-        "duration_minutes": int(duration_minutes),
-        "status": status,
-        "note": str(note).strip() if note else ""
-    }
-    supabase.table("calendar_overrides").insert(data).execute()
-
 # =========================
-# Schedule helpers
+# 07) SCHEDULE / OVERRIDES
 # =========================
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -138,26 +418,23 @@ def load_schedules() -> pd.DataFrame:
     df = load_table("schedules")
     if df.empty:
         return pd.DataFrame(columns=["id", "student", "weekday", "time", "duration_minutes", "active"])
-
     df["student"] = df["student"].astype(str).str.strip()
     df["weekday"] = pd.to_numeric(df["weekday"], errors="coerce").fillna(0).astype(int)
     df["duration_minutes"] = pd.to_numeric(df["duration_minutes"], errors="coerce").fillna(60).astype(int)
     df["active"] = df["active"].fillna(True).astype(bool)
     df["time"] = df["time"].astype(str).str.strip()
-
     return df
 
 def add_schedule(student: str, weekday: int, time_str: str, duration_minutes: int, active: bool = True) -> None:
     student = str(student).strip()
     ensure_student(student)
-    data = {
+    supabase.table("schedules").insert({
         "student": student,
-        "weekday": int(weekday),              # 0=Mon ... 6=Sun
-        "time": str(time_str).strip(),        # "HH:MM"
+        "weekday": int(weekday),
+        "time": str(time_str).strip(),
         "duration_minutes": int(duration_minutes),
         "active": bool(active),
-    }
-    supabase.table("schedules").insert(data).execute()
+    }).execute()
 
 def delete_schedule(schedule_id: int) -> None:
     supabase.table("schedules").delete().eq("id", int(schedule_id)).execute()
@@ -165,16 +442,13 @@ def delete_schedule(schedule_id: int) -> None:
 def load_overrides() -> pd.DataFrame:
     df = load_table("calendar_overrides")
     if df.empty:
-        return pd.DataFrame(columns=[
-            "id", "student", "original_date",
-            "new_datetime", "duration_minutes", "status", "note"
-        ])
+        return pd.DataFrame(columns=["id", "student", "original_date", "new_datetime", "duration_minutes", "status", "note"])
 
     df["student"] = df["student"].astype(str).str.strip()
     df["original_date"] = pd.to_datetime(df["original_date"], errors="coerce")
 
     new_dt = pd.to_datetime(df["new_datetime"], errors="coerce", utc=True)
-    df["new_datetime"] = new_dt.dt.tz_convert(None)  # tz-naive
+    df["new_datetime"] = new_dt.dt.tz_convert(None)
 
     df["duration_minutes"] = pd.to_numeric(df["duration_minutes"], errors="coerce").fillna(60).astype(int)
     df["status"] = df["status"].astype(str).str.strip()
@@ -185,7 +459,7 @@ def load_overrides() -> pd.DataFrame:
     return df
 
 # =========================
-# Student meta helpers
+# 08) STUDENT META (COLOR / ZOOM / EMAIL)
 # =========================
 def load_students_df() -> pd.DataFrame:
     df = load_table("students")
@@ -216,136 +490,19 @@ def student_meta_maps():
     s = load_students_df()
     if s.empty:
         return {}, {}, {}
-
     s["student_norm"] = s["student"].apply(norm_student)
-
     color_map = dict(zip(s["student_norm"], s["color"]))
-    zoom_map = dict(zip(s["student_norm"], s["zoom_link"]))
+    zoom_map  = dict(zip(s["student_norm"], s["zoom_link"]))
     email_map = dict(zip(s["student_norm"], s["email"]))
-
     return color_map, zoom_map, email_map
 
 # =========================
-# Calendar event generation
-# =========================
-def _parse_time_value(x) -> Tuple[int, int]:
-    """
-    Supabase may return time as 'HH:MM:SS' or 'HH:MM'.
-    Returns (hour, minute). Falls back to 0:00 if invalid.
-    """
-    if x is None:
-        return (0, 0)
-    s = str(x).strip()
-    if not s:
-        return (0, 0)
-    parts = s.split(":")
-    try:
-        h = int(parts[0])
-        m = int(parts[1]) if len(parts) > 1 else 0
-        return (h, m)
-    except Exception:
-        return (0, 0)
-
-def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
-    schedules = load_schedules()
-    overrides = load_overrides()
-    color_map, zoom_map, _ = student_meta_maps()
-
-    events = []
-
-    # 1) Generate recurring events from schedules
-    if not schedules.empty:
-        schedules_active = schedules[schedules["active"] == True].copy()
-
-        cur = start_day
-        while cur <= end_day:
-            wd = cur.weekday()
-            day_slots = schedules_active[schedules_active["weekday"] == wd]
-
-            for _, row in day_slots.iterrows():
-                h, m = _parse_time_value(row.get("time"))
-                dt = datetime(cur.year, cur.month, cur.day, h, m)
-
-                student = str(row.get("student", "")).strip()
-                k = norm_student(student)
-
-                duration = int(row.get("duration_minutes", 60))
-                color = color_map.get(k, "#3B82F6")
-                zoom = zoom_map.get(k, "")
-
-                events.append({
-                    "DateTime": dt,
-                    "Date": dt.date(),
-                    "Student": student,
-                    "Duration_Min": duration,
-                    "Color": color,
-                    "Zoom_Link": zoom,
-                    "Source": "recurring"
-                })
-
-            cur += timedelta(days=1)
-
-    events_df = pd.DataFrame(events)
-
-    # 2) Apply overrides
-    if not overrides.empty:
-        for _, row in overrides.iterrows():
-            student = str(row.get("student", "")).strip()
-            k = norm_student(student)
-
-            status = str(row.get("status", "")).strip()
-            new_dt = row.get("new_datetime")
-            original_date = row.get("original_date")
-            duration = int(row.get("duration_minutes", 60))
-
-            # Remove original recurring event if original_date specified
-            if pd.notna(original_date) and not events_df.empty:
-                try:
-                    od = original_date.date()
-                    events_df = events_df[
-                        ~(
-                            (events_df["Student"] == student) &
-                            (events_df["Date"] == od)
-                        )
-                    ]
-                except Exception:
-                    pass
-
-            # Add rescheduled / extra event
-            if status == "scheduled" and pd.notna(new_dt):
-                if start_day <= new_dt.date() <= end_day:
-                    add_row = pd.DataFrame([{
-                        "DateTime": new_dt,
-                        "Date": new_dt.date(),
-                        "Student": student,
-                        "Duration_Min": duration,
-                        "Color": color_map.get(k, "#3B82F6"),
-                        "Zoom_Link": zoom_map.get(k, ""),
-                        "Source": "override"
-                    }])
-                    events_df = pd.concat([events_df, add_row], ignore_index=True)
-
-    if events_df.empty:
-        return events_df
-
-    # Normalize datetime
-    events_df["DateTime"] = pd.to_datetime(events_df["DateTime"], errors="coerce")
-    events_df["DateTime"] = events_df["DateTime"].dt.tz_localize(None)
-
-    events_df = events_df.sort_values("DateTime").reset_index(drop=True)
-    events_df["Time"] = events_df["DateTime"].dt.strftime("%H:%M")
-    events_df["Date"] = events_df["DateTime"].dt.strftime("%Y-%m-%d")
-
-    return events_df
-
-# =========================
-# Analytics (Dashboard)
+# 09) DASHBOARD (PACKAGE STATUS)
 # =========================
 def rebuild_dashboard() -> pd.DataFrame:
     classes = load_table("classes")
     payments = load_table("payments")
 
-    # Guarantee required columns exist
     if classes.empty:
         classes = pd.DataFrame(columns=["student","number_of_lesson","lesson_date","modality","note"])
     else:
@@ -360,7 +517,6 @@ def rebuild_dashboard() -> pd.DataFrame:
             if c not in payments.columns:
                 payments[c] = None
 
-    # Clean types
     classes["student"] = classes["student"].astype(str).str.strip()
     payments["student"] = payments["student"].astype(str).str.strip()
 
@@ -372,26 +528,21 @@ def rebuild_dashboard() -> pd.DataFrame:
     payments["paid_amount"] = pd.to_numeric(payments["paid_amount"], errors="coerce").fillna(0.0)
 
     payments = payments.dropna(subset=["payment_date"])
-
     if payments.empty:
-        # No payments -> empty dashboard
         return pd.DataFrame(columns=[
             "Student","Packages_Bought","Lessons_Paid_Total","Total_Paid","Payment_Date",
             "Package_Start_Date","Lessons_Taken","Lessons_Left","Status","Modality"
         ])
 
-    # Packages bought = count of payment rows per student
     packages_bought = (
         payments.groupby("student", as_index=False)
         .size()
         .rename(columns={"size": "Packages_Bought"})
     )
 
-    # Sort payments and compute previous payment date
     payments_sorted = payments.sort_values(["student", "payment_date"]).copy()
     payments_sorted["Prev_Payment_Date"] = payments_sorted.groupby("student")["payment_date"].shift(1)
 
-    # Latest payment = current package
     latest_payment = (
         payments_sorted.groupby("student", as_index=False)
         .tail(1)
@@ -403,13 +554,8 @@ def rebuild_dashboard() -> pd.DataFrame:
         })[["student","Lessons_Paid_Total","Total_Paid","Payment_Date","Modality","Prev_Payment_Date"]]
     )
 
-    # Package starts at first lesson AFTER previous payment (or first lesson ever)
     classes_tmp = classes.sort_values(["student", "lesson_date"]).copy()
-    classes_tmp = classes_tmp.merge(
-        latest_payment[["student", "Prev_Payment_Date"]],
-        on="student",
-        how="left"
-    )
+    classes_tmp = classes_tmp.merge(latest_payment[["student", "Prev_Payment_Date"]], on="student", how="left")
 
     mask = classes_tmp["Prev_Payment_Date"].isna() | (classes_tmp["lesson_date"] > classes_tmp["Prev_Payment_Date"])
     package_start = (
@@ -419,21 +565,10 @@ def rebuild_dashboard() -> pd.DataFrame:
         .rename(columns={"lesson_date": "Package_Start_Date"})
     )
 
-    # If no lessons after prev payment, fallback to Payment_Date
-    package_start = package_start.merge(
-        latest_payment[["student", "Payment_Date"]],
-        on="student",
-        how="right"
-    )
+    package_start = package_start.merge(latest_payment[["student", "Payment_Date"]], on="student", how="right")
     package_start["Package_Start_Date"] = package_start["Package_Start_Date"].fillna(package_start["Payment_Date"])
 
-    # Lessons taken since Package_Start_Date
-    classes_for_count = classes.merge(
-        package_start[["student", "Package_Start_Date"]],
-        on="student",
-        how="left"
-    )
-
+    classes_for_count = classes.merge(package_start[["student", "Package_Start_Date"]], on="student", how="left")
     current = classes_for_count[
         classes_for_count["Package_Start_Date"].notna()
         & (classes_for_count["lesson_date"] >= classes_for_count["Package_Start_Date"])
@@ -445,10 +580,12 @@ def rebuild_dashboard() -> pd.DataFrame:
         .rename(columns={"number_of_lesson": "Lessons_Taken"})
     )
 
-    dash = (latest_payment
-            .merge(packages_bought, on="student", how="left")
-            .merge(package_start[["student","Package_Start_Date"]], on="student", how="left")
-            .merge(lessons_taken, on="student", how="left"))
+    dash = (
+        latest_payment
+        .merge(packages_bought, on="student", how="left")
+        .merge(package_start[["student","Package_Start_Date"]], on="student", how="left")
+        .merge(lessons_taken, on="student", how="left")
+    )
 
     dash["Packages_Bought"] = dash["Packages_Bought"].fillna(0).astype(int)
     dash["Lessons_Taken"] = dash["Lessons_Taken"].fillna(0).astype(int)
@@ -476,38 +613,23 @@ def rebuild_dashboard() -> pd.DataFrame:
 def show_student_history(student: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     student = str(student).strip()
 
-    classes_resp = (
-        supabase.table("classes")
-        .select("*")
-        .eq("student", student)
-        .limit(5000)
-        .execute()
-    )
-    payments_resp = (
-        supabase.table("payments")
-        .select("*")
-        .eq("student", student)
-        .limit(5000)
-        .execute()
-    )
+    classes_resp = supabase.table("classes").select("*").eq("student", student).limit(5000).execute()
+    payments_resp = supabase.table("payments").select("*").eq("student", student).limit(5000).execute()
 
     classes = pd.DataFrame(classes_resp.data or [])
     payments = pd.DataFrame(payments_resp.data or [])
 
-    # ---- Lessons ----
     if classes.empty:
         lessons = pd.DataFrame(columns=["ID","Lesson_Date","Number_of_Lesson","Modality","Note"])
     else:
         for c in ["id","lesson_date","number_of_lesson","modality","note"]:
             if c not in classes.columns:
                 classes[c] = None
-
         classes["lesson_date"] = pd.to_datetime(classes["lesson_date"], errors="coerce")
         classes["number_of_lesson"] = pd.to_numeric(classes["number_of_lesson"], errors="coerce").fillna(0).astype(int)
 
         lessons = classes.sort_values("lesson_date", ascending=False).copy()
         lessons["lesson_date"] = lessons["lesson_date"].dt.strftime("%Y-%m-%d")
-
         lessons = lessons.rename(columns={
             "id": "ID",
             "lesson_date": "Lesson_Date",
@@ -516,21 +638,18 @@ def show_student_history(student: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
             "note": "Note"
         })[["ID","Lesson_Date","Number_of_Lesson","Modality","Note"]]
 
-    # ---- Payments ----
     if payments.empty:
         pay = pd.DataFrame(columns=["ID","Payment_Date","Lessons_Paid","Paid_Amount","Modality"])
     else:
         for c in ["id","payment_date","number_of_lesson","paid_amount","modality"]:
             if c not in payments.columns:
                 payments[c] = None
-
         payments["payment_date"] = pd.to_datetime(payments["payment_date"], errors="coerce")
         payments["number_of_lesson"] = pd.to_numeric(payments["number_of_lesson"], errors="coerce").fillna(0).astype(int)
         payments["paid_amount"] = pd.to_numeric(payments["paid_amount"], errors="coerce").fillna(0.0)
 
         pay = payments.sort_values("payment_date", ascending=False).copy()
         pay["payment_date"] = pay["payment_date"].dt.strftime("%Y-%m-%d")
-
         pay = pay.rename(columns={
             "id": "ID",
             "payment_date": "Payment_Date",
@@ -539,13 +658,265 @@ def show_student_history(student: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
             "modality": "Modality"
         })[["ID","Payment_Date","Lessons_Paid","Paid_Amount","Modality"]]
 
-    # Visual row numbering
     lessons.index = range(1, len(lessons) + 1)
     pay.index = range(1, len(pay) + 1)
-
     return lessons, pay
-import json
-import streamlit.components.v1 as components
+
+# =========================
+# 10) INCOME ANALYTICS
+# =========================
+def build_income_analytics():
+    payments = load_table("payments")
+    classes = load_table("classes")
+
+    if payments.empty:
+        payments = pd.DataFrame(columns=["student","payment_date","paid_amount","number_of_lesson","modality"])
+
+    payments["student"] = payments.get("student", "").astype(str).str.strip()
+    payments["payment_date"] = pd.to_datetime(payments.get("payment_date"), errors="coerce")
+    payments["paid_amount"] = pd.to_numeric(payments.get("paid_amount"), errors="coerce").fillna(0.0)
+
+    payments = payments.dropna(subset=["payment_date"])
+    payments = payments[payments["student"].astype(str).str.len() > 0]
+
+    payments["Month"] = payments["payment_date"].dt.to_period("M").astype(str)
+
+    monthly_income = (
+        payments.groupby("Month", as_index=False)["paid_amount"]
+        .sum()
+        .rename(columns={"paid_amount": "Income"})
+        .sort_values("Month")
+        .reset_index(drop=True)
+    )
+
+    by_student = (
+        payments.groupby("student", as_index=False)
+        .agg(
+            Total_Paid=("paid_amount","sum"),
+            Packages=("paid_amount","size"),
+            Last_Payment=("payment_date","max"),
+        )
+        .rename(columns={"student":"Student"})
+        .sort_values("Total_Paid", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    if classes.empty:
+        classes = pd.DataFrame(columns=["student","lesson_date","number_of_lesson"])
+
+    classes["student"] = classes.get("student", "").astype(str).str.strip()
+    classes["lesson_date"] = pd.to_datetime(classes.get("lesson_date"), errors="coerce")
+    classes["number_of_lesson"] = pd.to_numeric(classes.get("number_of_lesson"), errors="coerce").fillna(0).astype(int)
+
+    today = pd.Timestamp.today().normalize()
+    last_30 = today - pd.Timedelta(days=30)
+
+    recent = classes.dropna(subset=["lesson_date"]).copy()
+    recent = recent[recent["lesson_date"] >= last_30]
+
+    lessons_30 = (
+        recent.groupby("student", as_index=False)["number_of_lesson"]
+        .sum()
+        .rename(columns={"student":"Student", "number_of_lesson":"Lessons_Last_30D"})
+    )
+
+    by_student = by_student.merge(lessons_30, on="Student", how="left")
+    by_student["Lessons_Last_30D"] = by_student["Lessons_Last_30D"].fillna(0).astype(int)
+    by_student["Lessons_per_Week"] = (by_student["Lessons_Last_30D"] / 4.2857).round(2)
+
+    income_all_time = float(payments["paid_amount"].sum()) if not payments.empty else 0.0
+    this_month_key = str(today.to_period("M"))
+    income_this_month = float(payments.loc[payments["Month"] == this_month_key, "paid_amount"].sum()) if not payments.empty else 0.0
+    income_last_30 = float(payments.loc[payments["payment_date"] >= last_30, "paid_amount"].sum()) if not payments.empty else 0.0
+
+    kpis = {
+        "income_all_time": income_all_time,
+        "income_this_month": income_this_month,
+        "income_last_30": income_last_30,
+    }
+
+    return kpis, monthly_income, by_student
+
+def money_fmt(x: float) -> str:
+    try:
+        return f"₺{x:,.0f}"
+    except Exception:
+        return str(x)
+
+# =========================
+# 11) FORECAST
+# =========================
+def build_forecast_table(payment_buffer_days: int = 0) -> pd.DataFrame:
+    dash = rebuild_dashboard().copy()
+    if dash.empty:
+        return pd.DataFrame(columns=[
+            "Student","Lessons_Left","Lessons_Per_Week",
+            "Estimated_Finish_Date","Estimated_Next_Payment_Date"
+        ])
+
+    dash["Student"] = dash["Student"].astype(str).str.strip()
+    dash["Lessons_Left"] = pd.to_numeric(dash["Lessons_Left"], errors="coerce").fillna(0).astype(int)
+
+    today = pd.Timestamp(date.today())
+
+    schedules = load_schedules()
+    if schedules.empty:
+        sched_rate = pd.DataFrame(columns=["Student","Lessons_Per_Week_Schedule"])
+    else:
+        s = schedules.copy()
+        s["student"] = s["student"].astype(str).str.strip()
+        s = s[s["active"] == True]
+        sched_rate = (
+            s.groupby("student", as_index=False)
+             .size()
+             .rename(columns={"student":"Student","size":"Lessons_Per_Week_Schedule"})
+        )
+
+    dash = dash.merge(sched_rate, on="Student", how="left")
+    dash["Lessons_Per_Week_Schedule"] = pd.to_numeric(dash.get("Lessons_Per_Week_Schedule"), errors="coerce").fillna(0).astype(float)
+
+    classes = load_table("classes")
+    if classes.empty:
+        hist_rate = pd.DataFrame(columns=["Student","Lessons_Per_Week_History"])
+    else:
+        c = classes.copy()
+        c["student"] = c.get("student", "").astype(str).str.strip()
+        c["lesson_date"] = pd.to_datetime(c.get("lesson_date"), errors="coerce")
+        c = c.dropna(subset=["lesson_date"])
+        if c.empty:
+            hist_rate = pd.DataFrame(columns=["Student","Lessons_Per_Week_History"])
+        else:
+            c = c.sort_values(["student","lesson_date"]).groupby("student").tail(8)
+            g = c.groupby("student")["lesson_date"].agg(["min","max","count"]).reset_index()
+            span_days = (g["max"] - g["min"]).dt.days.clip(lower=1)
+            g["Lessons_Per_Week_History"] = (g["count"] / (span_days / 7.0)).clip(lower=0.1)
+            hist_rate = g.rename(columns={"student":"Student"})[["Student","Lessons_Per_Week_History"]]
+
+    dash = dash.merge(hist_rate, on="Student", how="left")
+    dash["Lessons_Per_Week_History"] = pd.to_numeric(dash.get("Lessons_Per_Week_History"), errors="coerce").fillna(0.0)
+
+    dash["Lessons_Per_Week"] = dash["Lessons_Per_Week_Schedule"].where(
+        dash["Lessons_Per_Week_Schedule"] > 0,
+        dash["Lessons_Per_Week_History"]
+    )
+    dash["Lessons_Per_Week"] = dash["Lessons_Per_Week"].where(dash["Lessons_Per_Week"] > 0, 1.0)
+
+    def _weeks_needed(left: int, per_week: float) -> int:
+        if left <= 0:
+            return 0
+        return int(math.ceil(left / float(per_week)))
+
+    dash["Weeks_Needed"] = dash.apply(lambda r: _weeks_needed(r["Lessons_Left"], r["Lessons_Per_Week"]), axis=1)
+    dash["Estimated_Finish_Date"] = dash["Weeks_Needed"].apply(lambda w: today + pd.Timedelta(days=7*w))
+    dash["Estimated_Next_Payment_Date"] = dash["Estimated_Finish_Date"] - pd.Timedelta(days=int(payment_buffer_days))
+    dash.loc[dash["Estimated_Next_Payment_Date"] < today, "Estimated_Next_Payment_Date"] = today
+
+    out = dash[[
+        "Student","Lessons_Left","Lessons_Per_Week",
+        "Estimated_Finish_Date","Estimated_Next_Payment_Date"
+    ]].copy()
+
+    out["Estimated_Finish_Date"] = pd.to_datetime(out["Estimated_Finish_Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    out["Estimated_Next_Payment_Date"] = pd.to_datetime(out["Estimated_Next_Payment_Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+
+    return out.sort_values("Estimated_Next_Payment_Date").reset_index(drop=True)
+
+# =========================
+# 12) CALENDAR (EVENTS + RENDER)
+# =========================
+def _parse_time_value(x) -> Tuple[int, int]:
+    if x is None:
+        return (0, 0)
+    s = str(x).strip()
+    if not s:
+        return (0, 0)
+    parts = s.split(":")
+    try:
+        return (int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
+    except Exception:
+        return (0, 0)
+
+def best_text_color(hex_color: str) -> str:
+    try:
+        c = hex_color.lstrip("#")
+        r = int(c[0:2], 16)
+        g = int(c[2:4], 16)
+        b = int(c[4:6], 16)
+        lum = (0.299*r + 0.587*g + 0.114*b)
+        return "#0F172A" if lum > 160 else "#FFFFFF"
+    except Exception:
+        return "#0F172A"
+
+def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
+    schedules = load_schedules()
+    overrides = load_overrides()
+    color_map, zoom_map, _ = student_meta_maps()
+
+    events = []
+    if not schedules.empty:
+        schedules_active = schedules[schedules["active"] == True].copy()
+        cur = start_day
+        while cur <= end_day:
+            wd = cur.weekday()
+            day_slots = schedules_active[schedules_active["weekday"] == wd]
+            for _, row in day_slots.iterrows():
+                h, m = _parse_time_value(row.get("time"))
+                dt = datetime(cur.year, cur.month, cur.day, h, m)
+
+                student = str(row.get("student", "")).strip()
+                k = norm_student(student)
+
+                duration = int(row.get("duration_minutes", 60))
+                events.append({
+                    "DateTime": dt,
+                    "Date": dt.date(),
+                    "Student": student,
+                    "Duration_Min": duration,
+                    "Color": color_map.get(k, "#3B82F6"),
+                    "Zoom_Link": zoom_map.get(k, ""),
+                    "Source": "recurring"
+                })
+            cur += timedelta(days=1)
+
+    events_df = pd.DataFrame(events)
+
+    if not overrides.empty:
+        for _, row in overrides.iterrows():
+            student = str(row.get("student", "")).strip()
+            k = norm_student(student)
+
+            status = str(row.get("status", "")).strip()
+            new_dt = row.get("new_datetime")
+            original_date = row.get("original_date")
+            duration = int(row.get("duration_minutes", 60))
+
+            if pd.notna(original_date) and not events_df.empty:
+                try:
+                    od = original_date.date()
+                    events_df = events_df[~((events_df["Student"] == student) & (events_df["Date"] == od))]
+                except Exception:
+                    pass
+
+            if status == "scheduled" and pd.notna(new_dt):
+                if start_day <= new_dt.date() <= end_day:
+                    events_df = pd.concat([events_df, pd.DataFrame([{
+                        "DateTime": new_dt,
+                        "Date": new_dt.date(),
+                        "Student": student,
+                        "Duration_Min": duration,
+                        "Color": color_map.get(k, "#3B82F6"),
+                        "Zoom_Link": zoom_map.get(k, ""),
+                        "Source": "override"
+                    }])], ignore_index=True)
+
+    if events_df.empty:
+        return events_df
+
+    events_df["DateTime"] = pd.to_datetime(events_df["DateTime"], errors="coerce").dt.tz_localize(None)
+    events_df = events_df.sort_values("DateTime").reset_index(drop=True)
+    events_df["Time"] = events_df["DateTime"].dt.strftime("%H:%M")
+    events_df["Date"] = events_df["DateTime"].dt.strftime("%Y-%m-%d")
+    return events_df
 
 def render_fullcalendar(events: pd.DataFrame, height: int = 750):
     if events.empty:
@@ -556,38 +927,45 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
     df["DateTime"] = pd.to_datetime(df["DateTime"], errors="coerce")
     df = df.dropna(subset=["DateTime"])
 
-    df["end"] = df["DateTime"] + pd.to_timedelta(
-        df["Duration_Min"].fillna(60).astype(int),
-        unit="m"
-    )
+    df["end"] = df["DateTime"] + pd.to_timedelta(df["Duration_Min"].fillna(60).astype(int), unit="m")
 
     fc_events = []
     for _, r in df.iterrows():
         zoom = str(r.get("Zoom_Link", "") or "").strip()
         title = str(r.get("Student", "")).strip()
+        color = str(r.get("Color", "#3B82F6")).strip()
+        tc = best_text_color(color)
 
         fc_events.append({
             "title": title,
             "start": r["DateTime"].isoformat(),
             "end": r["end"].isoformat(),
-            "backgroundColor": str(r.get("Color", "#3B82F6")),
-            "borderColor": str(r.get("Color", "#3B82F6")),
-            "textColor": "#ffffff",
+            "backgroundColor": color,
+            "borderColor": color,
+            "textColor": tc,
             "url": zoom if zoom.startswith("http") else None,
         })
 
     payload = json.dumps(fc_events)
 
     html = f"""
-    <div id="calendar"></div>
-
+    <div id="calendar" style="background:#ffffff;border:1px solid rgba(17,24,39,0.10);border-radius:16px;padding:10px;"></div>
     <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
 
+    <style>
+      .fc {{ color:#0f172a; }}
+      .fc .fc-toolbar-title {{ color:#0f172a; font-weight:800; }}
+      .fc .fc-button {{ border-radius:10px; border:1px solid rgba(17,24,39,0.14); background:#fff; color:#0f172a; }}
+      .fc .fc-col-header-cell-cushion,
+      .fc .fc-daygrid-day-number {{ color:#0f172a; }}
+      .fc .fc-timegrid-slot-label-cushion {{ color:#334155; }}
+    </style>
+
     <script>
       const events = {payload};
-
       const calendarEl = document.getElementById('calendar');
+
       const calendar = new FullCalendar.Calendar(calendarEl, {{
         initialView: 'timeGridWeek',
         height: {height},
@@ -613,30 +991,72 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
       calendar.render();
     </script>
     """
-
-    components.html(html, height=height + 50, scrolling=True)
+    components.html(html, height=height + 70, scrolling=True)
 
 # =========================
-# UI
+# 13) HOME SCREEN UI (DARK)
 # =========================
-st.title("Lesson Manager")
+def render_home():
+    st.markdown(
+        "<div class='home-wrap'><div class='home-card'><div class='home-glow'></div>",
+        unsafe_allow_html=True
+    )
+
+    st.markdown("<div class='home-title'>CLASS MANAGER</div>", unsafe_allow_html=True)
+    st.markdown("<div class='home-sub'>Choose where you want to go</div>", unsafe_allow_html=True)
+
+    for key, label, grad in PAGES:
+        st.markdown(
+    f"""
+    <a class="home-pill home-{key}"
+       href="?page={key}"
+       target="_self"
+       rel="noopener noreferrer"
+       style="background:{grad};">
+      {label}
+    </a>
+    """,
+    unsafe_allow_html=True
+)
+
+    st.markdown("<div class='home-indicator'></div>", unsafe_allow_html=True)
+    st.markdown("</div></div>", unsafe_allow_html=True)
+
+# =========================
+# 14) APP ENTRYPOINT (ROUTER + THEME SWITCH)
+# =========================
+page = st.session_state.page
+
+if page == "home":
+    load_css_home_dark()
+else:
+    load_css_app_light()
+
+# debug helper (sidebar)
+show_code_with_line_numbers()
 
 students = load_students()
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-    ["Dashboard", "Students", "Add Lesson", "Add Payment", "Schedule", "Calendar"]
-)
+if page == "home":
+    render_home()
+    st.stop()
 
-# ---- Dashboard ----
-with tab1:
+render_top_nav(page)
+
+
+# =========================
+# 15) PAGE: DASHBOARD
+# =========================
+if page == "dashboard":
+    page_header("Dashboard")
     st.subheader("Current Package Dashboard")
     dash = rebuild_dashboard()
-    st.dataframe(dash, use_container_width=True)
+    st.dataframe(dash, use_container_width=True, hide_index=True)
 
     st.divider()
     st.subheader("Student History")
 
-    if len(students) == 0:
+    if not students:
         st.info("No students found yet.")
     else:
         selected = st.selectbox("Select a student", students, key="history_student")
@@ -665,11 +1085,13 @@ with tab1:
                 st.success("Payment deleted ✅")
                 st.rerun()
 
-# ---- Students ----
-with tab2:
-    st.subheader("Students")
-    st.caption("Manage student profiles, contact info and calendar color.")
+# =========================
+# 16) PAGE: STUDENTS
+# =========================
+elif page == "students":
+    page_header("Students")
 
+    st.caption("Manage student profiles, contact info and calendar color.")
     students_df = load_students_df()
 
     st.markdown("### Add New Student")
@@ -688,10 +1110,8 @@ with tab2:
         st.info("No students yet.")
     else:
         st.markdown("### Edit Student Profile")
-
         student_list = sorted(students_df["student"].unique().tolist())
         selected_student = st.selectbox("Select student", student_list, key="edit_student_select")
-
         student_row = students_df[students_df["student"] == selected_student].iloc[0]
 
         col1, col2 = st.columns(2)
@@ -711,11 +1131,14 @@ with tab2:
     st.markdown("### Current student list")
     st.write(sorted(students))
 
-# ---- Add Lesson ----
-with tab3:
-    st.subheader("Add a Lesson")
-    if len(students) == 0:
-        st.info("Add a student first in the Students tab.")
+# =========================
+# 17) PAGE: ADD LESSON
+# =========================
+elif page == "add_lesson":
+    page_header("Lesson")
+
+    if not students:
+        st.info("Add a student first in Students.")
     else:
         student = st.selectbox("Student", students, key="lesson_student")
         number = st.number_input("Number of lessons", min_value=1, max_value=10, value=1, step=1, key="lesson_number")
@@ -728,11 +1151,14 @@ with tab3:
             st.success("Lesson saved ✅")
             st.rerun()
 
-# ---- Add Payment ----
-with tab4:
-    st.subheader("Add a Payment (New Package)")
-    if len(students) == 0:
-        st.info("Add a student first in the Students tab.")
+# =========================
+# 18) PAGE: ADD PAYMENT
+# =========================
+elif page == "add_payment":
+    page_header("Payment")
+
+    if not students:
+        st.info("Add a student first in Students.")
     else:
         student_p = st.selectbox("Student", students, key="pay_student")
         lessons_paid = st.number_input("Lessons paid", min_value=1, max_value=500, value=44, step=1, key="pay_lessons_paid")
@@ -745,12 +1171,14 @@ with tab4:
             st.success("Payment saved ✅")
             st.rerun()
 
-# ---- Schedule ----
-with tab5:
-    st.subheader("Weekly Schedule")
-    st.caption("Create each student's weekly program (0 = Monday, 6 = Sunday).")
+# =========================
+# 19) PAGE: SCHEDULE
+# =========================
+elif page == "schedule":
+    page_header("Schedule")
 
-    if len(students) == 0:
+    st.caption("Create each student's weekly program (0 = Monday, 6 = Sunday).")
+    if not students:
         st.info("Add students first.")
     else:
         schedules = load_schedules()
@@ -761,11 +1189,7 @@ with tab5:
         with c1:
             sch_student = st.selectbox("Student", students, key="sch_student")
         with c2:
-            sch_weekday = st.selectbox(
-                "Weekday", list(range(7)),
-                format_func=lambda x: f"{x} ({WEEKDAYS[x]})",
-                key="sch_weekday"
-            )
+            sch_weekday = st.selectbox("Weekday", list(range(7)), format_func=lambda x: f"{x} ({WEEKDAYS[x]})", key="sch_weekday")
         with c3:
             sch_time = st.text_input("Time (HH:MM)", value="10:00", key="sch_time")
         with c4:
@@ -780,7 +1204,6 @@ with tab5:
 
         st.divider()
         st.markdown("### Current schedule (all students)")
-
         if schedules.empty:
             st.info("No schedule slots yet.")
         else:
@@ -794,7 +1217,6 @@ with tab5:
                 "duration_minutes": "Duration_Minutes",
                 "active": "Active"
             })[["ID", "Student", "Weekday", "Time", "Duration_Minutes", "Active"]].sort_values(["Student", "Weekday", "Time"])
-
             show.index = range(1, len(show) + 1)
             st.dataframe(show, use_container_width=True)
 
@@ -805,142 +1227,208 @@ with tab5:
                 st.success("Schedule deleted ✅")
                 st.rerun()
 
-# ---- Calendar ----
-with tab6:
-    st.subheader("Calendar")
-    st.caption("Generated from your weekly schedules (app is the master).")
+# =========================
+# 20) PAGE: CALENDAR
+# =========================
+elif page == "calendar":
+    page_header("Calendar")
 
-    view = st.radio(
-        "View",
-        ["Today", "This Week", "This Month"],
-        horizontal=True,
-        key="calendar_view"
-    )
-
-    today = date.today()
+    st.caption("Generated from weekly schedules (app is the master).")
+    view = st.radio("View", ["Today", "This Week", "This Month"], horizontal=True, key="calendar_view")
+    today_d = date.today()
 
     if view == "Today":
-        start_day = today
-        end_day = today
-
+        start_day = today_d
+        end_day = today_d
     elif view == "This Week":
-        start_day = today - timedelta(days=today.weekday())
+        start_day = today_d - timedelta(days=today_d.weekday())
         end_day = start_day + timedelta(days=6)
-
     else:
-        start_day = date(today.year, today.month, 1)
-        if today.month == 12:
-            next_month = date(today.year + 1, 1, 1)
-        else:
-            next_month = date(today.year, today.month + 1, 1)
+        start_day = date(today_d.year, today_d.month, 1)
+        next_month = date(today_d.year + 1, 1, 1) if today_d.month == 12 else date(today_d.year, today_d.month + 1, 1)
         end_day = next_month - timedelta(days=1)
 
     events = build_calendar_events(start_day, end_day)
 
     if events.empty:
-        st.info("No scheduled lessons in this range yet. Add them in the Schedule tab.")
+        st.info("No scheduled lessons in this range yet. Add them in Schedule.")
     else:
-        if "Zoom_Link" not in events.columns:
-            events["Zoom_Link"] = ""
-
         students_list = sorted(events["Student"].unique().tolist())
-        selected_students = st.multiselect(
-            "Filter students",
-            students_list,
-            default=students_list,
-            key="calendar_filter_students"
-        )
+        selected_students = st.multiselect("Filter students", students_list, default=students_list, key="calendar_filter_students")
         events = events[events["Student"].isin(selected_students)].copy()
 
-        # ✅ Show REAL calendar grid
         render_fullcalendar(events, height=780)
 
-        # Build display table
-        display = events.copy()
+# =========================
+# 21) PAGE: ANALYTICS
+# =========================
+elif page == "analytics":
+    page_header("Analytics")
 
-        # Make sure Color exists and is valid-ish
-        if "Color" not in display.columns:
-            display["Color"] = "#3B82F6"
-        display["Color"] = display["Color"].fillna("#3B82F6").astype(str).str.strip()
+    st.subheader("Income Analytics")
+    st.caption("Monthly income + most profitable students + lesson regularity (last 30 days).")
 
-        # Color square ONLY (no hex text)
-        display["Color"] = display["Color"].apply(
-            lambda c: f"<span title='{c}' style='display:inline-block;width:16px;height:16px;background:{c};"
-                      f"border-radius:4px;border:1px solid #999;'></span>"
-        )
+    kpis, monthly_income, by_student = build_income_analytics()
 
-        # Zoom clickable label instead of URL
-        # (leave blank if no link)
-        display["Zoom"] = display["Zoom_Link"].fillna("").astype(str).apply(
-            lambda z: f"<a href='{z}' target='_blank'>Zoom</a>" if z.strip().startswith("http") else ""
-        )
+    # -------------------------
+    # KPI CARDS
+    # -------------------------
+    c1, c2, c3 = st.columns(3)
+    c1.metric("All-time income", money_fmt(kpis.get("income_all_time", 0.0)))
+    c2.metric("This month", money_fmt(kpis.get("income_this_month", 0.0)))
+    c3.metric("Last 30 days", money_fmt(kpis.get("income_last_30", 0.0)))
 
-        display = display.rename(columns={"Duration_Min": "Duration (min)"})[
-            ["Date", "Time", "Student", "Duration (min)", "Color", "Zoom"]
-        ]
-
-        # Render as HTML so Color square + Zoom link work
-        st.markdown(
-            display.to_html(escape=False, index=False),
-            unsafe_allow_html=True
-        )
-
-        st.divider()
-        st.markdown("### Quick list (easy scanning)")
-        for _, row in events.iterrows():
-            zoom = row.get("Zoom_Link", "")
-            zoom_part = f" — [Zoom]({zoom})" if isinstance(zoom, str) and zoom.strip().startswith("http") else ""
-            st.markdown(
-                f"- **{row['Date']} {row['Time']}** — "
-                f"<span style='color:{row['Color']}; font-weight:700'>■</span> "
-                f"**{row['Student']}** ({row['Duration_Min']} min){zoom_part}",
-                unsafe_allow_html=True
-            )
-
+    # -------------------------
+    # MONTHLY INCOME (CHART + TABLE)
+    # -------------------------
     st.divider()
-    st.markdown("### Reschedule / Cancel a Lesson")
+    st.markdown("### Monthly income")
+    if monthly_income is None or monthly_income.empty:
+        st.info("No payments found yet.")
+    else:
+        mi = monthly_income.copy()
+        mi["Month"] = mi["Month"].astype(str)
+        mi["Income"] = pd.to_numeric(mi["Income"], errors="coerce").fillna(0.0)
 
-    if students:
-        selected_student = st.selectbox("Student", students, key="override_student")
-
-        is_extra = st.checkbox(
-            "This is an extra lesson (no original date)",
-            value=False,
-            key="override_is_extra"
+        chart_df = mi.set_index("Month")
+        st.line_chart(chart_df["Income"])
+        st.dataframe(
+            mi.rename(columns={"Income": "Income (₺)"}),
+            use_container_width=True,
+            hide_index=True
         )
 
-        if is_extra:
-            original_date = None
-            st.caption("Extra lesson: no original recurring lesson will be removed.")
-        else:
-            original_date = st.date_input("Original lesson date", key="override_original_date")
+    # -------------------------
+    # MOST PROFITABLE + REGULARITY (CHARTS + TABLE + INSIGHTS)
+    # -------------------------
+    st.divider()
+    st.markdown("### Most profitable students & regularity")
 
-        new_date = st.date_input("New date", key="override_new_date")
-        new_time = st.text_input("New time (HH:MM)", value="10:00", key="override_new_time")
+    if by_student is None or by_student.empty:
+        st.info("No student payment data yet.")
+    else:
+        df = by_student.copy()
 
-        duration = st.number_input(
-            "Duration (min)",
-            min_value=15,
-            max_value=360,
-            value=60,
-            step=15,
-            key="override_duration"
-        )
-        action = st.selectbox("Action", ["scheduled", "cancelled"], key="override_action")
-        note = st.text_input("Note (optional)", key="override_note")
+        # Ensure columns exist (defensive)
+        for col, default in [
+            ("Student", ""),
+            ("Total_Paid", 0.0),
+            ("Packages", 0),
+            ("Last_Payment", pd.NaT),
+            ("Lessons_Last_30D", 0),
+            ("Lessons_per_Week", 0.0),
+        ]:
+            if col not in df.columns:
+                df[col] = default
 
-        if st.button("Apply Override", key="btn_apply_override"):
-            h, m = _parse_time_value(new_time)
-            new_dt = datetime(new_date.year, new_date.month, new_date.day, h, m)
+        # Normalize / types
+        df["Student"] = df["Student"].astype(str).str.strip()
+        df = df[df["Student"].str.len() > 0].copy()
 
-            add_override(
-                selected_student,
-                original_date,
-                new_dt,
-                duration,
-                action,
-                note
+        df["Total_Paid"] = pd.to_numeric(df["Total_Paid"], errors="coerce").fillna(0.0)
+        df["Packages"] = pd.to_numeric(df["Packages"], errors="coerce").fillna(0).astype(int)
+        df["Lessons_Last_30D"] = pd.to_numeric(df["Lessons_Last_30D"], errors="coerce").fillna(0).astype(int)
+        df["Lessons_per_Week"] = pd.to_numeric(df["Lessons_per_Week"], errors="coerce").fillna(0.0)
+
+        df["Last_Payment"] = pd.to_datetime(df["Last_Payment"], errors="coerce")
+        df["Last Payment"] = df["Last_Payment"].dt.strftime("%Y-%m-%d")
+
+        # Controls
+        a1, a2, a3 = st.columns([2, 1, 1])
+        with a1:
+            search = st.text_input("Search student", value="", key="analytics_search")
+        with a2:
+            top_n = st.selectbox("Show top", [5, 10, 15, 25, 50], index=1, key="analytics_topn")
+        with a3:
+            sort_mode = st.selectbox(
+                "Sort by",
+                ["Total Paid", "Lessons/Week", "Lessons (30d)", "Last Payment"],
+                index=0,
+                key="analytics_sort"
             )
 
-            st.success("Override applied ✅")
-            st.rerun()
+        if search.strip():
+            df = df[df["Student"].str.contains(search.strip(), case=False, na=False)].copy()
+
+        if sort_mode == "Total Paid":
+            df = df.sort_values("Total_Paid", ascending=False)
+        elif sort_mode == "Lessons/Week":
+            df = df.sort_values("Lessons_per_Week", ascending=False)
+        elif sort_mode == "Lessons (30d)":
+            df = df.sort_values("Lessons_Last_30D", ascending=False)
+        else:
+            df = df.sort_values("Last_Payment", ascending=False)
+
+        # Charts
+        ch1, ch2 = st.columns(2)
+        with ch1:
+            st.caption("Top students by total paid")
+            top_paid = df.head(top_n).set_index("Student")[["Total_Paid"]]
+            st.bar_chart(top_paid)
+
+        with ch2:
+            st.caption("Top students by lesson regularity (lessons/week)")
+            top_reg = df.head(top_n).set_index("Student")[["Lessons_per_Week"]]
+            st.bar_chart(top_reg)
+
+        # Table
+        show_df = df.head(top_n).copy()
+        show_df["Total Paid (₺)"] = show_df["Total_Paid"].apply(lambda x: f"{float(x):,.0f}")
+        show_df = show_df.rename(columns={
+            "Packages": "Packages Bought",
+            "Lessons_Last_30D": "Lessons (Last 30 Days)",
+            "Lessons_per_Week": "Lessons/Week",
+        })
+
+        st.dataframe(
+            show_df[[
+                "Student",
+                "Total Paid (₺)",
+                "Packages Bought",
+                "Lessons (Last 30 Days)",
+                "Lessons/Week",
+                "Last Payment",
+            ]],
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # Quick insights
+        st.markdown("#### Quick insights")
+        most_profitable = df.sort_values("Total_Paid", ascending=False).head(1)
+        most_regular = df.sort_values("Lessons_per_Week", ascending=False).head(1)
+
+        if not most_profitable.empty:
+            st.write(
+                f"• **Most profitable:** {most_profitable.iloc[0]['Student']} "
+                f"({money_fmt(float(most_profitable.iloc[0]['Total_Paid']))})"
+            )
+        if not most_regular.empty:
+            st.write(
+                f"• **Most regular:** {most_regular.iloc[0]['Student']} "
+                f"({float(most_regular.iloc[0]['Lessons_per_Week']):.2f} lessons/week)"
+            )
+
+    # -------------------------
+    # FORECAST: Finish dates & expected next payments
+    # -------------------------
+    st.divider()
+    st.subheader("Forecast: Finish dates & expected next payments")
+    buffer_days = st.selectbox(
+        "Payment reminder buffer",
+        [0, 7, 14],
+        index=0,
+        format_func=lambda x: "On finish date" if x == 0 else f"{x} days before finish",
+        key="forecast_buffer"
+    )
+
+    forecast_df = build_forecast_table(payment_buffer_days=buffer_days)
+    if forecast_df is None or forecast_df.empty:
+        st.info("No forecast data yet. Add schedules + payments, then try again.")
+    else:
+        st.dataframe(forecast_df, use_container_width=True, hide_index=True)
+
+else:
+    go_to("home")
+    st.rerun()
+
