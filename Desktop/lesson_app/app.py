@@ -1,7 +1,7 @@
+```python
 # ============================================================
 # CLASS MANAGER (Single-file Streamlit App)
-# Dark HOME + Light APP + Persistent Top Nav
-# Includes: In-app "Show code with line numbers" helper
+# Dark HOME + Light APP + Sidebar "Menu" Expander Navigation
 # ============================================================
 
 # =========================
@@ -25,6 +25,7 @@ st.set_page_config(page_title="Class Manager", page_icon="🗓️", layout="wide
 # 02) THEMES (DARK HOME + LIGHT APP)
 # =========================
 def load_css_home_dark():
+    # ✅ FIXED: removed broken CSS braces and invalid target-new rule
     st.markdown(
         """
         <style>
@@ -80,34 +81,25 @@ def load_css_home_dark():
           margin: 0 0 1.4rem 0;
           font-size: 0.98rem;
         }
-.home-card a{
-target-new: none;
-}
-/* HOME pill links (reliable gradients) */
-.home-pill{
-  display:block;
-  width: 100%;
-  border-radius: 999px;
-  padding: 0.95rem 1.1rem;
-  margin: 0.95rem 0;
-  font-weight: 800;
-  text-align: center;
-  color: #ffffff !important;
-  border: 1px solid rgba(255,255,255,0.16);
-  box-shadow: 0 14px 30px rgba(0,0,0,0.35);
-  transition: transform 160ms ease, filter 160ms ease;
-}
-.home-pill:hover{
-  transform: translateY(-2px);
-  filter: brightness(1.05);
-}
 
-}
-
-.home-btn div[data-testid="stButton"] button:hover{
-  transform: translateY(-2px);
-  filter: brightness(1.05);
-}
+        /* HOME pill links (reliable gradients) */
+        .home-pill{
+          display:block;
+          width: 100%;
+          border-radius: 999px;
+          padding: 0.95rem 1.1rem;
+          margin: 0.95rem 0;
+          font-weight: 800;
+          text-align: center;
+          color: #ffffff !important;
+          border: 1px solid rgba(255,255,255,0.16);
+          box-shadow: 0 14px 30px rgba(0,0,0,0.35);
+          transition: transform 160ms ease, filter 160ms ease;
+        }
+        .home-pill:hover{
+          transform: translateY(-2px);
+          filter: brightness(1.05);
+        }
 
         .home-indicator{
           width: 92px; height: 7px; border-radius: 999px;
@@ -201,43 +193,13 @@ def load_css_app_light():
           border-radius: 18px;
           box-shadow: var(--shadow);
         }
-
-        /* Top nav */
-        /* TOP NAV BAR (buttons) */
-.topnav{
-  display:flex;
-  gap: 10px;
-  align-items:center;
-  justify-content:center;
-  margin: 0.2rem 0 1.1rem 0;
-}
-
-/* make the buttons look like pills */
-.topnav div[data-testid="stButton"] button{
-  border-radius: 999px !important;
-  padding: 0.55rem 0.95rem !important;
-  background: white !important;
-  border: 1px solid var(--border) !important;
-  color: var(--text) !important;
-  font-weight: 650 !important;
-  box-shadow: var(--shadow) !important;
-}
-
-        .topnav a:hover{
-          transform: translateY(-1px);
-          box-shadow: var(--shadow2);
-        }
-        .topnav a.active{
-          border-color: rgba(59,130,246,0.35);
-          box-shadow: 0 0 0 4px rgba(59,130,246,0.10), var(--shadow);
-        }
         </style>
         """,
         unsafe_allow_html=True
     )
 
 # =========================
-# 03) NAVIGATION (QUERY PARAM ROUTER + TOP NAV)
+# 03) NAVIGATION (QUERY PARAM ROUTER + SIDEBAR MENU)
 # =========================
 PAGES = [
     ("dashboard", "Dashboard", "linear-gradient(90deg,#3B82F6,#2563EB)"),
@@ -281,56 +243,33 @@ else:
 def go_to(page_name: str):
     if page_name not in PAGE_KEYS:
         page_name = "home"
-
-    # Always close sidebar menu on navigation
+    # ✅ FIX: always close expander after any navigation
     st.session_state.menu_open = False
-
     st.session_state.page = page_name
     _set_query_page(page_name)
 
-def render_top_nav(active_page: str):
-    items = [("home", "Home")] + [(k, label) for (k, label, _) in PAGES]
-
-    st.markdown("<div class='topnav'>", unsafe_allow_html=True)
-
-    cols = st.columns(len(items))
-    for i, (k, label) in enumerate(items):
-        with cols[i]:
-            # Use a unique key for each nav button
-            clicked = st.button(label, key=f"nav_{k}", use_container_width=True)
-            if clicked:
-                go_to(k)
-                st.rerun()
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
 def render_sidebar_nav(active_page: str):
+    # ✅ FIXED: indentation + expander controlled by session_state (no extra toggle button)
     items = [("home", "Home")] + [(k, label) for (k, label, _) in PAGES]
-if "menu_open" not in st.session_state:
+
+    if "menu_open" not in st.session_state:
         st.session_state.menu_open = False
 
-    with st.sidebar.expander("Menu", expanded=False):
+    with st.sidebar.expander("Menu", expanded=st.session_state.menu_open):
         for k, label in items:
             if k == active_page:
                 st.markdown(f"**👉 {label}**")
             else:
                 if st.button(label, key=f"side_{k}", use_container_width=True):
+                    st.session_state.menu_open = False
                     go_to(k)
                     st.rerun()
-
-if st.session_state.page != "home":
-    st.session_state.menu_open = False
-
-def close_menu():
-    st.session_state.menu_open = False
-
 
 def page_header(title: str):
     st.markdown(f"## {title}")
 
 # =========================
-# 04) SUPABASE CONNECTION  ✅ (THIS WAS MISSING IN YOUR FILE)
+# 04) SUPABASE CONNECTION
 # =========================
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
@@ -1019,17 +958,17 @@ def render_home():
 
     for key, label, grad in PAGES:
         st.markdown(
-    f"""
-    <a class="home-pill home-{key}"
-       href="?page={key}"
-       target="_self"
-       rel="noopener noreferrer"
-       style="background:{grad};">
-      {label}
-    </a>
-    """,
-    unsafe_allow_html=True
-)
+            f"""
+            <a class="home-pill home-{key}"
+               href="?page={key}"
+               target="_self"
+               rel="noopener noreferrer"
+               style="background:{grad};">
+              {label}
+            </a>
+            """,
+            unsafe_allow_html=True
+        )
 
     st.markdown("<div class='home-indicator'></div>", unsafe_allow_html=True)
     st.markdown("</div></div>", unsafe_allow_html=True)
@@ -1050,11 +989,8 @@ if page == "home":
     render_home()
     st.stop()
 
-if page != "home":
-    render_sidebar_nav(page)
-
-if st.session_state.page != "home":
-    st.session_state.menu_open = False
+# ✅ Sidebar nav on non-home pages
+render_sidebar_nav(page)
 
 # =========================
 # 15) PAGE: DASHBOARD
@@ -1147,7 +1083,7 @@ elif page == "students":
 # 17) PAGE: ADD LESSON
 # =========================
 elif page == "add_lesson":
-    page_header("Lesson")
+    page_header("Lessons")
 
     if not students:
         st.info("Add a student first in Students.")
@@ -1422,7 +1358,7 @@ elif page == "analytics":
             )
 
     # -------------------------
-    # FORECAST: Finish dates & expected next payments
+    # FORECAST
     # -------------------------
     st.divider()
     st.subheader("Forecast: Finish dates & expected next payments")
@@ -1443,4 +1379,4 @@ elif page == "analytics":
 else:
     go_to("home")
     st.rerun()
-
+```
