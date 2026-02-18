@@ -300,6 +300,18 @@ def render_top_nav(active_page: str):
 
     st.markdown("</div>", unsafe_allow_html=True)
 
+def render_sidebar_nav(active_page: str):
+    items = [("home", "Home")] + [(k, label) for (k, label, _) in PAGES]
+
+    with st.sidebar.expander("🧭 Navigation", expanded=False):
+        for k, label in items:
+            if k == active_page:
+                st.markdown(f"**✅ {label}**")
+            else:
+                if st.button(label, key=f"side_{k}", use_container_width=True):
+                    go_to(k)
+                    st.rerun()
+
 def page_header(title: str):
     st.markdown(f"## {title}")
 
@@ -1041,7 +1053,8 @@ if page == "home":
     render_home()
     st.stop()
 
-render_top_nav(page)
+if page != "home":
+    render_sidebar_nav(page)
 
 
 # =========================
