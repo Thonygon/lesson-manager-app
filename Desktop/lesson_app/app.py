@@ -1378,4 +1378,3 @@ elif page == "analytics":
 else:
     go_to("home")
     st.rerun()
-```
