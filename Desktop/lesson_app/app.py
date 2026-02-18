@@ -128,23 +128,24 @@ def load_css_app_light():
           --shadow:0 10px 26px rgba(15,23,42,0.08);
           --shadow2:0 16px 42px rgba(15,23,42,0.10);
         }
+
         .stApp{
           background: var(--bg);
           color: var(--text);
         }
+
         section[data-testid="stMain"] > div {
-  padding-top: 2.2rem;
-  padding-bottom: 2.2rem;
-  max-width: 1200px;
-}
-
-@media (max-width: 768px){
-  section[data-testid="stMain"] > div {
-    padding-top: 3.0rem; /* ✅ prevents the “cut” titles */
-  }
-}
-
+          padding-top: 2.2rem;
+          padding-bottom: 2.2rem;
+          max-width: 1200px;
         }
+
+        @media (max-width: 768px){
+          section[data-testid="stMain"] > div {
+            padding-top: 3.0rem; /* prevents “cut” titles on mobile */
+          }
+        }
+
         html, body, [class*="css"]{
           font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
         }
@@ -176,12 +177,34 @@ def load_css_app_light():
           transform: translateY(-1px);
         }
 
-        /* Inputs */
+        /* ✅ FIX: Widget labels should be plain text (no bubbles) */
+        label[data-testid="stWidgetLabel"]{
+          background: transparent !important;
+          border: 0 !important;
+          padding: 0 !important;
+          margin-bottom: .25rem !important;
+          border-radius: 0 !important;
+        }
+        label[data-testid="stWidgetLabel"] > div{
+          background: transparent !important;
+          border: 0 !important;
+          padding: 0 !important;
+          border-radius: 0 !important;
+        }
+
+        /* Inputs (text/number/date/textarea) */
         div[data-testid="stTextInput"] input,
         div[data-testid="stTextArea"] textarea,
         div[data-testid="stNumberInput"] input,
-        div[data-testid="stDateInput"] input,
-        div[data-testid="stSelectbox"] div{
+        div[data-testid="stDateInput"] input{
+          border-radius: 14px !important;
+          background: white !important;
+          border: 1px solid var(--border2) !important;
+          color: var(--text) !important;
+        }
+
+        /* ✅ FIX: Selectbox styling (target only the actual select control, not inner label divs) */
+        div[data-testid="stSelectbox"] [data-baseweb="select"] > div{
           border-radius: 14px !important;
           background: white !important;
           border: 1px solid var(--border2) !important;
@@ -813,6 +836,29 @@ def build_forecast_table(payment_buffer_days: int = 0) -> pd.DataFrame:
     return out.sort_values("Estimated_Next_Payment_Date").reset_index(drop=True)
 
 # =========================
+# 11.5) UI HELPERS (DATAFRAME FORMATTING)
+# =========================
+def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Make dataframe headers look premium: remove underscores, title case, keep acronyms."""
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+
+    out.columns = [
+        str(c)
+        .replace("_", " ")
+        .replace("  ", " ")
+        .strip()
+        .title()
+        .replace("Id", "ID")
+        .replace("Url", "URL")
+        for c in out.columns
+    ]
+
+    return out
+
+# =========================
 # 12) CALENDAR (EVENTS + RENDER)
 # =========================
 def _parse_time_value(x) -> Tuple[int, int]:
@@ -1045,7 +1091,7 @@ if page == "dashboard":
     page_header("Dashboard")
     st.subheader("Current Package Dashboard")
     dash = rebuild_dashboard()
-    st.dataframe(dash, use_container_width=True, hide_index=True)
+    st.dataframe(pretty_df(dash), use_container_width=True, hide_index=True)
 
     st.divider()
     st.subheader("Student History")
@@ -1059,7 +1105,7 @@ if page == "dashboard":
         colA, colB = st.columns(2)
         with colA:
             st.markdown("### Lessons")
-            st.dataframe(lessons_df, use_container_width=True)
+            st.dataframe(pretty_df(lessons_df), use_container_width=True)
 
             st.markdown("#### Delete a lesson record (by ID)")
             lesson_id = st.number_input("Lesson ID to delete", min_value=0, step=1, key="del_lesson_id")
@@ -1070,7 +1116,7 @@ if page == "dashboard":
 
         with colB:
             st.markdown("### Payments")
-            st.dataframe(payments_df, use_container_width=True)
+            st.dataframe(pretty_df(payments_df), use_container_width=True)
 
             st.markdown("#### Delete a payment record (by ID)")
             payment_id = st.number_input("Payment ID to delete", min_value=0, step=1, key="del_payment_id")
@@ -1233,7 +1279,7 @@ elif page == "schedule":
                 "active": "Active"
             })[["ID", "Student", "Weekday", "Time", "Duration_Minutes", "Active"]].sort_values(["Student", "Weekday", "Time"])
             show.index = range(1, len(show) + 1)
-            st.dataframe(show, use_container_width=True)
+            st.dataframe(pretty_df(show), use_container_width=True)
 
             st.markdown("#### Delete schedule slot (by ID)")
             del_id = st.number_input("Schedule ID to delete", min_value=0, step=1, key="del_schedule_id")
@@ -1298,7 +1344,125 @@ elif page == "calendar":
 # =========================
 elif page == "analytics":
     page_header("Analytics")
-    st.info("Analytics page content goes here...")  # keep your analytics code here
+
+    st.subheader("Income Analytics")
+    st.caption("Monthly income + most profitable students + lesson regularity (last 30 days).")
+
+    kpis, monthly_income, by_student = build_income_analytics()
+
+    # -------------------------
+    # KPI CARDS
+    # -------------------------
+    c1, c2, c3 = st.columns(3)
+    c1.metric("All-time income", money_fmt(kpis.get("income_all_time", 0.0)))
+    c2.metric("This month", money_fmt(kpis.get("income_this_month", 0.0)))
+    c3.metric("Last 30 days", money_fmt(kpis.get("income_last_30", 0.0)))
+
+    # -------------------------
+    # MONTHLY INCOME
+    # -------------------------
+    st.divider()
+    st.markdown("### Monthly income")
+
+    if monthly_income.empty:
+        st.info("No payments found yet.")
+    else:
+        mi = monthly_income.copy()
+        mi["Income"] = pd.to_numeric(mi["Income"], errors="coerce").fillna(0.0)
+        chart_df = mi.set_index("Month")
+
+        st.line_chart(chart_df["Income"])
+        st.dataframe(
+            pretty_df(mi.rename(columns={"Income": "Income (₺)"})),
+            use_container_width=True,
+            hide_index=True
+        )
+
+    # -------------------------
+    # MOST PROFITABLE + REGULARITY
+    # -------------------------
+    st.divider()
+    st.markdown("### Most profitable students & regularity")
+
+    if by_student.empty:
+        st.info("No student payment data yet.")
+    else:
+        df = by_student.copy()
+
+        # Clean types
+        df["Total_Paid"] = pd.to_numeric(df["Total_Paid"], errors="coerce").fillna(0.0)
+        df["Lessons_Last_30D"] = pd.to_numeric(df["Lessons_Last_30D"], errors="coerce").fillna(0)
+        df["Lessons_per_Week"] = pd.to_numeric(df["Lessons_per_Week"], errors="coerce").fillna(0.0)
+
+        # Controls
+        colA, colB, colC = st.columns([2,1,1])
+        with colA:
+            search = st.text_input("Search student", key="analytics_search")
+        with colB:
+            top_n = st.selectbox("Show top", [5,10,15,25,50], index=1)
+        with colC:
+            sort_mode = st.selectbox(
+                "Sort by",
+                ["Total Paid", "Lessons/Week", "Lessons (30d)"],
+                index=0
+            )
+
+        if search:
+            df = df[df["Student"].str.contains(search, case=False, na=False)]
+
+        if sort_mode == "Total Paid":
+            df = df.sort_values("Total_Paid", ascending=False)
+        elif sort_mode == "Lessons/Week":
+            df = df.sort_values("Lessons_per_Week", ascending=False)
+        else:
+            df = df.sort_values("Lessons_Last_30D", ascending=False)
+
+        # Charts
+        ch1, ch2 = st.columns(2)
+
+        with ch1:
+            st.caption("Top students by total paid")
+            top_paid = df.head(top_n).set_index("Student")[["Total_Paid"]]
+            st.bar_chart(top_paid)
+
+        with ch2:
+            st.caption("Top students by lesson regularity")
+            top_reg = df.head(top_n).set_index("Student")[["Lessons_per_Week"]]
+            st.bar_chart(top_reg)
+
+        # Table
+        show_df = df.head(top_n).copy()
+        show_df["Total_Paid"] = show_df["Total_Paid"].apply(lambda x: f"{float(x):,.0f}")
+
+        st.dataframe(
+            pretty_df(show_df),
+            use_container_width=True,
+            hide_index=True
+        )
+
+    # -------------------------
+    # FORECAST
+    # -------------------------
+    st.divider()
+    st.subheader("Forecast: Finish dates & expected next payments")
+
+    buffer_days = st.selectbox(
+        "Payment reminder buffer",
+        [0,7,14],
+        index=0,
+        format_func=lambda x: "On finish date" if x == 0 else f"{x} days before finish"
+    )
+
+    forecast_df = build_forecast_table(payment_buffer_days=buffer_days)
+
+    if forecast_df.empty:
+        st.info("No forecast data yet.")
+    else:
+        st.dataframe(
+            pretty_df(forecast_df),
+            use_container_width=True,
+            hide_index=True
+        )
 
 else:
     go_to("home")
