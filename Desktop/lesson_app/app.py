@@ -313,6 +313,10 @@ def render_sidebar_nav(active_page: str):
                     go_to(k)
                     st.rerun()
 
+if st.session_state.page != "home":
+    st.session_state.menu_open = False
+
+
 def page_header(title: str):
     st.markdown(f"## {title}")
 
