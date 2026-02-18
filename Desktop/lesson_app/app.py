@@ -281,6 +281,10 @@ else:
 def go_to(page_name: str):
     if page_name not in PAGE_KEYS:
         page_name = "home"
+
+    # Always close sidebar menu on navigation
+    st.session_state.menu_open = False
+
     st.session_state.page = page_name
     _set_query_page(page_name)
 
@@ -303,6 +307,8 @@ def render_top_nav(active_page: str):
 
 def render_sidebar_nav(active_page: str):
     items = [("home", "Home")] + [(k, label) for (k, label, _) in PAGES]
+if "menu_open" not in st.session_state:
+        st.session_state.menu_open = False
 
     with st.sidebar.expander("Menu", expanded=False):
         for k, label in items:
@@ -314,6 +320,9 @@ def render_sidebar_nav(active_page: str):
                     st.rerun()
 
 if st.session_state.page != "home":
+    st.session_state.menu_open = False
+
+def close_menu():
     st.session_state.menu_open = False
 
 
