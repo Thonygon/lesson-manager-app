@@ -957,31 +957,30 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
       const events = {payload};
       const calendarEl = document.getElementById('calendar');
 
-      const calendar = new FullCalendar.Calendar(calendarEl, {
+      const calendar = new FullCalendar.Calendar(calendarEl, {{
   initialView: 'timeGridWeek',
   height: {height},
   expandRows: true,
   nowIndicator: true,
   stickyHeaderDates: true,
   handleWindowResize: true,
-        nowIndicator: true,
-        firstDay: 1,
-        headerToolbar: {{
-          left: 'prev,next today',
-          center: 'title',
-          right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
-        }},
-        slotMinTime: '06:00:00',
-        slotMaxTime: '23:00:00',
-        allDaySlot: false,
-        events: events,
-        eventClick: function(info) {{
-          if (info.event.url) {{
-            info.jsEvent.preventDefault();
-            window.open(info.event.url, '_blank');
-          }}
-        }}
-      }});
+  firstDay: 1,
+  headerToolbar: {{
+    left: 'prev,next today',
+    center: 'title',
+    right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
+  }},
+  slotMinTime: '06:00:00',
+  slotMaxTime: '23:00:00',
+  allDaySlot: false,
+  events: events,
+  eventClick: function(info) {{
+    if (info.event.url) {{
+      info.jsEvent.preventDefault();
+      window.open(info.event.url, '_blank');
+    }}
+  }}
+}});
 
       calendar.render();
     </script>
