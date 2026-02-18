@@ -303,10 +303,10 @@ def render_top_nav(active_page: str):
 def render_sidebar_nav(active_page: str):
     items = [("home", "Home")] + [(k, label) for (k, label, _) in PAGES]
 
-    with st.sidebar.expander("🧭 Navigation", expanded=False):
+    with st.sidebar.expander("Menu", expanded=False):
         for k, label in items:
             if k == active_page:
-                st.markdown(f"**✅ {label}**")
+                st.markdown(f"**👉 {label}**")
             else:
                 if st.button(label, key=f"side_{k}", use_container_width=True):
                     go_to(k)
@@ -321,20 +321,6 @@ def page_header(title: str):
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# =========================
-# 04B) DEBUG: SHOW CODE WITH LINE NUMBERS (in-app helper)
-# =========================
-def show_code_with_line_numbers():
-    with st.sidebar.expander("🧾 Show code with line numbers (debug)", expanded=False):
-        try:
-            with open(__file__, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-            numbered = "".join([f"{i:04d} | {line}" for i, line in enumerate(lines, start=1)])
-            st.code(numbered, language="python")
-            st.caption("Use this when Streamlit reports: “line XXXX”.")
-        except Exception as e:
-            st.info(f"Could not read the source file for numbering.\n\n{e}")
 
 # =========================
 # 05) DATA ACCESS HELPERS
