@@ -304,21 +304,12 @@ def render_top_nav(active_page: str):
 def render_sidebar_nav(active_page: str):
     items = [("home", "Home")] + [(k, label) for (k, label, _) in PAGES]
 
-    if "menu_open" not in st.session_state:
-        st.session_state.menu_open = False
-
-    # explicit toggle control
-    if st.sidebar.button("Menu", use_container_width=True, key="menu_toggle"):
-        st.session_state.menu_open = not st.session_state.menu_open
-        st.rerun()
-
-    with st.sidebar.expander("Navigation", expanded=st.session_state.menu_open):
+    with st.sidebar.expander("Menu", expanded=False):
         for k, label in items:
             if k == active_page:
                 st.markdown(f"**👉 {label}**")
             else:
                 if st.button(label, key=f"side_{k}", use_container_width=True):
-                    st.session_state.menu_open = False
                     go_to(k)
                     st.rerun()
 
@@ -1049,6 +1040,8 @@ if page == "home":
 if page != "home":
     render_sidebar_nav(page)
 
+if st.session_state.page != "home":
+    st.session_state.menu_open = False
 
 # =========================
 # 15) PAGE: DASHBOARD
