@@ -248,21 +248,19 @@ def go_to(page_name: str):
     _set_query_page(page_name)
 
 def render_sidebar_nav(active_page: str):
-    # ✅ FIXED: indentation + expander controlled by session_state (no extra toggle button)
     items = [("home", "Home")] + [(k, label) for (k, label, _) in PAGES]
 
-    if "menu_open" not in st.session_state:
-        st.session_state.menu_open = False
+    with st.sidebar:
+        st.markdown("### Menu")
 
-    with st.sidebar.expander("Menu", expanded=st.session_state.menu_open):
         for k, label in items:
             if k == active_page:
                 st.markdown(f"**👉 {label}**")
             else:
                 if st.button(label, key=f"side_{k}", use_container_width=True):
-                    st.session_state.menu_open = False
                     go_to(k)
                     st.rerun()
+
 
 def page_header(title: str):
     st.markdown(f"## {title}")
