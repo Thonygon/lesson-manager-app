@@ -300,24 +300,27 @@ def render_top_nav(active_page: str):
 
     st.markdown("</div>", unsafe_allow_html=True)
 
+
 def render_sidebar_nav(active_page: str):
     items = [("home", "Home")] + [(k, label) for (k, label, _) in PAGES]
 
-    # persistent state for expander
     if "menu_open" not in st.session_state:
         st.session_state.menu_open = False
 
-    with st.sidebar.expander("Menu", expanded=st.session_state.menu_open):
+    # explicit toggle control
+    if st.sidebar.button("Menu", use_container_width=True, key="menu_toggle"):
+        st.session_state.menu_open = not st.session_state.menu_open
+        st.rerun()
+
+    with st.sidebar.expander("Navigation", expanded=st.session_state.menu_open):
         for k, label in items:
             if k == active_page:
-                st.markdown(f"**👉  {label}**")
+                st.markdown(f"**👉 {label}**")
             else:
                 if st.button(label, key=f"side_{k}", use_container_width=True):
-                    # close menu after click
                     st.session_state.menu_open = False
                     go_to(k)
                     st.rerun()
-
 
 def page_header(title: str):
     st.markdown(f"## {title}")
