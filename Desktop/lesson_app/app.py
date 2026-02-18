@@ -1,4 +1,3 @@
-```python
 # ============================================================
 # CLASS MANAGER (Single-file Streamlit App)
 # Dark HOME + Light APP + Sidebar "Menu" Expander Navigation
