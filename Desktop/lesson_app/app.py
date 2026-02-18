@@ -18,13 +18,17 @@ import streamlit.components.v1 as components
 # =========================
 # 01) PAGE CONFIG
 # =========================
-st.set_page_config(page_title="Class Manager", page_icon="🗓️", layout="wide")
+st.set_page_config(
+    page_title="Class Manager",
+    page_icon="🍎",
+    layout="wide",
+    initial_sidebar_state="collapsed",   # ✅ key fix
+)
 
 # =========================
 # 02) THEMES (DARK HOME + LIGHT APP)
 # =========================
 def load_css_home_dark():
-    # ✅ FIXED: removed broken CSS braces and invalid target-new rule
     st.markdown(
         """
         <style>
@@ -129,9 +133,17 @@ def load_css_app_light():
           color: var(--text);
         }
         section[data-testid="stMain"] > div {
-          padding-top: 1.0rem;
-          padding-bottom: 2.2rem;
-          max-width: 1200px;
+  padding-top: 2.2rem;
+  padding-bottom: 2.2rem;
+  max-width: 1200px;
+}
+
+@media (max-width: 768px){
+  section[data-testid="stMain"] > div {
+    padding-top: 3.0rem; /* ✅ prevents the “cut” titles */
+  }
+}
+
         }
         html, body, [class*="css"]{
           font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
@@ -242,7 +254,13 @@ else:
 def go_to(page_name: str):
     if page_name not in PAGE_KEYS:
         page_name = "home"
-    # ✅ FIX: always close expander after any navigation
+
+    st.session_state.page = page_name
+    _set_query_page(page_name)
+
+    # ✅ force close sidebar immediately after navigation
+    force_close_sidebar()
+
     st.session_state.menu_open = False
     st.session_state.page = page_name
     _set_query_page(page_name)
@@ -264,6 +282,31 @@ def render_sidebar_nav(active_page: str):
 
 def page_header(title: str):
     st.markdown(f"## {title}")
+
+def force_close_sidebar():
+    # Tries to click Streamlit’s collapse control if the sidebar is open.
+    components.html(
+        """
+        <script>
+        (function() {
+          const tryClose = () => {
+            // The collapse button exists when sidebar is open
+            const collapseBtn =
+              parent.document.querySelector('button[data-testid="collapsedControl"]') ||
+              parent.document.querySelector('button[title="Close sidebar"]') ||
+              parent.document.querySelector('button[aria-label="Close sidebar"]');
+
+            // Some Streamlit versions: collapsedControl toggles sidebar
+            if (collapseBtn) collapseBtn.click();
+          };
+          setTimeout(tryClose, 50);
+          setTimeout(tryClose, 200);
+          setTimeout(tryClose, 500);
+        })();
+        </script>
+        """,
+        height=0,
+    )
 
 # =========================
 # 04) SUPABASE CONNECTION
@@ -914,9 +957,13 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
       const events = {payload};
       const calendarEl = document.getElementById('calendar');
 
-      const calendar = new FullCalendar.Calendar(calendarEl, {{
-        initialView: 'timeGridWeek',
-        height: {height},
+      const calendar = new FullCalendar.Calendar(calendarEl, {
+  initialView: 'timeGridWeek',
+  height: {height},
+  expandRows: true,
+  nowIndicator: true,
+  stickyHeaderDates: true,
+  handleWindowResize: true,
         nowIndicator: true,
         firstDay: 1,
         headerToolbar: {{
@@ -974,6 +1021,9 @@ def render_home():
 # 14) APP ENTRYPOINT (ROUTER + THEME SWITCH)
 # =========================
 page = st.session_state.page
+
+if page != "home":
+    force_close_sidebar()
 
 if page == "home":
     load_css_home_dark()
@@ -1075,6 +1125,24 @@ elif page == "students":
     st.divider()
     st.markdown("### Current student list")
     st.write(sorted(students))
+
+st.divider()
+st.markdown("### Delete Student")
+
+if not students:
+    st.info("No students to delete.")
+else:
+    del_student = st.selectbox("Select a student to delete", students, key="delete_student_select")
+    confirm = st.checkbox("I understand this removes the student profile (does not delete classes/payments history).")
+
+    if st.button("Delete Student", type="primary", disabled=not confirm):
+        try:
+            supabase.table("students").delete().eq("student", del_student).execute()
+            st.success(f"Deleted student profile: {del_student}")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Could not delete student.\n\n{e}")
+
 
 # =========================
 # 17) PAGE: ADD LESSON
@@ -1202,7 +1270,34 @@ elif page == "calendar":
         selected_students = st.multiselect("Filter students", students_list, default=students_list, key="calendar_filter_students")
         events = events[events["Student"].isin(selected_students)].copy()
 
-        render_fullcalendar(events, height=780)
+        render_fullcalendar(events, height=1050)
+
+students_list = sorted(events["Student"].unique().tolist())
+
+# ✅ set default to ALL only if the widget hasn't been set yet
+if "calendar_filter_students" not in st.session_state:
+    st.session_state.calendar_filter_students = students_list
+
+# ✅ if student list changes, make sure all are included
+missing = [s for s in students_list if s not in st.session_state.calendar_filter_students]
+if missing:
+    st.session_state.calendar_filter_students = students_list
+
+colA, colB = st.columns([3,1])
+with colA:
+    selected_students = st.multiselect(
+        "Filter students",
+        students_list,
+        key="calendar_filter_students"
+    )
+with colB:
+    if st.button("Reset", use_container_width=True):
+        st.session_state.calendar_filter_students = students_list
+        st.rerun()
+
+events = events[events["Student"].isin(selected_students)].copy()
+render_fullcalendar(events, height=1050)
+
 
 # =========================
 # 21) PAGE: ANALYTICS
