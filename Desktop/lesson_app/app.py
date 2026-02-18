@@ -859,7 +859,7 @@ def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 # =========================
-# 12) CALENDAR (EVENTS + RENDER)
+# 12) CALENDAR (EVENTS + RENDER)  ✅ UPDATED (mobile-friendly + nicer title)
 # =========================
 def _parse_time_value(x) -> Tuple[int, int]:
     if x is None:
@@ -992,41 +992,86 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
 
     <style>
       .fc {{ color:#0f172a; }}
-      .fc .fc-toolbar-title {{ color:#0f172a; font-weight:800; }}
-      .fc .fc-button {{ border-radius:10px; border:1px solid rgba(17,24,39,0.14); background:#fff; color:#0f172a; }}
+      .fc .fc-button {{
+        border-radius:10px;
+        border:1px solid rgba(17,24,39,0.14);
+        background:#fff;
+        color:#0f172a;
+      }}
       .fc .fc-col-header-cell-cushion,
       .fc .fc-daygrid-day-number {{ color:#0f172a; }}
       .fc .fc-timegrid-slot-label-cushion {{ color:#334155; }}
+
+      /* ✅ Nicer title (less “messy”) */
+      .fc .fc-toolbar-title {{
+        color:#0f172a;
+        font-weight:800;
+        font-size:1.1rem;
+        line-height:1.15;
+      }}
+
+      /* ✅ Mobile: tighter title + smaller buttons */
+      @media (max-width: 768px){{
+        .fc .fc-toolbar-title {{ font-size:0.95rem; }}
+        .fc .fc-button {{
+          padding:0.35rem 0.55rem;
+          font-size:0.85rem;
+        }}
+      }}
     </style>
 
     <script>
       const events = {payload};
       const calendarEl = document.getElementById('calendar');
 
+      // ✅ Choose a compact toolbar on phones
+      const isMobile = () => window.innerWidth < 768;
+
+      const toolbarDesktop = {{
+        left: 'prev,next today',
+        center: 'title',
+        right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
+      }};
+
+      const toolbarMobile = {{
+        left: 'prev,next',
+        center: 'title',
+        right: 'timeGridDay,timeGridWeek,dayGridMonth'
+      }};
+
       const calendar = new FullCalendar.Calendar(calendarEl, {{
-  initialView: 'timeGridWeek',
-  height: {height},
-  expandRows: true,
-  nowIndicator: true,
-  stickyHeaderDates: true,
-  handleWindowResize: true,
-  firstDay: 1,
-  headerToolbar: {{
-    left: 'prev,next today',
-    center: 'title',
-    right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
-  }},
-  slotMinTime: '06:00:00',
-  slotMaxTime: '23:00:00',
-  allDaySlot: false,
-  events: events,
-  eventClick: function(info) {{
-    if (info.event.url) {{
-      info.jsEvent.preventDefault();
-      window.open(info.event.url, '_blank');
-    }}
-  }}
-}});
+        initialView: 'timeGridWeek',
+        height: {height},
+        expandRows: true,
+        nowIndicator: true,
+        stickyHeaderDates: true,
+        handleWindowResize: true,
+        firstDay: 1,
+
+        headerToolbar: isMobile() ? toolbarMobile : toolbarDesktop,
+
+        // ✅ Cleaner title / headers
+        titleFormat: {{ year: 'numeric', month: 'short', day: 'numeric' }},
+        dayHeaderFormat: {{ weekday: 'short' }},
+        slotLabelFormat: {{ hour: 'numeric', minute: '2-digit', meridiem: 'short' }},
+
+        // ✅ Adjust toolbar when rotating / resizing
+        windowResize: function() {{
+          calendar.setOption('headerToolbar', isMobile() ? toolbarMobile : toolbarDesktop);
+        }},
+
+        slotMinTime: '06:00:00',
+        slotMaxTime: '23:00:00',
+        allDaySlot: false,
+        events: events,
+
+        eventClick: function(info) {{
+          if (info.event.url) {{
+            info.jsEvent.preventDefault();
+            window.open(info.event.url, '_blank');
+          }}
+        }}
+      }});
 
       calendar.render();
     </script>
@@ -1168,8 +1213,20 @@ elif page == "students":
             st.rerun()
 
     st.divider()
-    st.markdown("### Current student list")
-    st.write(sorted(students))
+with st.expander("Current student list", expanded=False):
+    s_col1, s_col2 = st.columns([2, 1])
+    with s_col1:
+        q = st.text_input("Search", value="", placeholder="Type a name…", key="students_list_search")
+    with s_col2:
+        st.caption(f"Total: **{len(students)}**")
+
+    shown = students
+    if q.strip():
+        shown = [s for s in students if q.strip().lower() in s.lower()]
+
+    list_df = pd.DataFrame({"Student": shown})
+    st.dataframe(list_df, use_container_width=True, hide_index=True)
+
 
     # ✅ DELETE STUDENT (must stay INSIDE students page)
     st.divider()
