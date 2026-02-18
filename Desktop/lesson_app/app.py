@@ -1030,9 +1030,6 @@ if page == "home":
 else:
     load_css_app_light()
 
-# debug helper (sidebar)
-show_code_with_line_numbers()
-
 students = load_students()
 
 if page == "home":
