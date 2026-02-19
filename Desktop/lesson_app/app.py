@@ -653,6 +653,7 @@ def rebuild_dashboard() -> pd.DataFrame:
             "Package_Start_Date","Lessons_Taken","Lessons_Left","Status","Modality"
         ])
 
+    # packages bought = count of payment rows per student
     packages_bought = (
         payments.groupby("student", as_index=False)
         .size()
@@ -673,8 +674,13 @@ def rebuild_dashboard() -> pd.DataFrame:
         })[["student","Lessons_Paid_Total","Total_Paid","Payment_Date","Modality","Prev_Payment_Date"]]
     )
 
+    # package start = first class after previous payment date (or payment date if none)
     classes_tmp = classes.sort_values(["student", "lesson_date"]).copy()
-    classes_tmp = classes_tmp.merge(latest_payment[["student", "Prev_Payment_Date"]], on="student", how="left")
+    classes_tmp = classes_tmp.merge(
+        latest_payment[["student", "Prev_Payment_Date"]],
+        on="student",
+        how="left"
+    )
 
     mask = classes_tmp["Prev_Payment_Date"].isna() | (classes_tmp["lesson_date"] > classes_tmp["Prev_Payment_Date"])
     package_start = (
@@ -684,17 +690,23 @@ def rebuild_dashboard() -> pd.DataFrame:
         .rename(columns={"lesson_date": "Package_Start_Date"})
     )
 
-    package_start = package_start.merge(latest_payment[["student", "Payment_Date"]], on="student", how="right")
+    package_start = package_start.merge(
+        latest_payment[["student", "Payment_Date"]],
+        on="student",
+        how="right"
+    )
     package_start["Package_Start_Date"] = package_start["Package_Start_Date"].fillna(package_start["Payment_Date"])
 
+    # count lessons taken in CURRENT package
     classes_for_count = classes.merge(package_start[["student", "Package_Start_Date"]], on="student", how="left")
+
     today_dt = pd.Timestamp(date.today())
 
-current = classes_for_count[
-    classes_for_count["Package_Start_Date"].notna()
-    & (classes_for_count["lesson_date"] >= classes_for_count["Package_Start_Date"])
-    & (classes_for_count["lesson_date"] <= today_dt)
-]
+    current = classes_for_count[
+        classes_for_count["Package_Start_Date"].notna()
+        & (classes_for_count["lesson_date"] >= classes_for_count["Package_Start_Date"])
+        & (classes_for_count["lesson_date"] <= today_dt)   # ✅ only lessons up to today count as taken
+    ]
 
     lessons_taken = (
         current.groupby("student", as_index=False)["number_of_lesson"]
