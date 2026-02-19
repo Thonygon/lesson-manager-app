@@ -1014,24 +1014,24 @@ def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
                 duration = int(row.get("duration_minutes", 60))
 
                 events.append({
-    "DateTime": dt,
-    "Date": dt.date(),
-    "Student": student,
-    "Duration_Min": duration,
-    "Color": color_map.get(k, "#3B82F6"),
-    "Zoom_Link": zoom_map.get(k, ""),
-    "Source": "recurring",
-    "Override_ID": None,
-    "Original_Date": dt.date()
-})
+                    "DateTime": dt,
+                    "Date": dt.date(),
+                    "Student": student,
+                    "Duration_Min": duration,
+                    "Color": color_map.get(k, "#3B82F6"),
+                    "Zoom_Link": zoom_map.get(k, ""),
+                    "Source": "recurring",
+                    "Override_ID": None,
+                    "Original_Date": dt.date(),
+                })
             cur += timedelta(days=1)
 
     events_df = pd.DataFrame(events)
 
     # Apply overrides:
-    # - Always remove the original occurrence if original_date matches
+    # - Remove original occurrence if original_date matches
     # - If status == "scheduled", add new_datetime as an event
-    # - If status == "canceled", do not add anything (effectively cancels that occurrence)
+    # - If status == "canceled", do not add anything (cancels that occurrence)
     if not overrides.empty:
         for _, row in overrides.iterrows():
             student = str(row.get("student", "")).strip()
@@ -1050,18 +1050,24 @@ def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
                     pass
 
             if status == "scheduled" and pd.notna(new_dt):
-    if start_day <= new_dt.date() <= end_day:
-        events_df = pd.concat([events_df, pd.DataFrame([{
-            "DateTime": new_dt,
-            "Date": new_dt.date(),
-            "Student": student,
-            "Duration_Min": duration,
-            "Color": color_map.get(k, "#3B82F6"),
-            "Zoom_Link": zoom_map.get(k, ""),
-            "Source": "override",
-            "Override_ID": int(row.get("id")) if pd.notna(row.get("id")) else None,
-            "Original_Date": original_date.date() if pd.notna(original_date) else new_dt.date()
-        }])], ignore_index=True)
+                if start_day <= new_dt.date() <= end_day:
+                    events_df = pd.concat(
+                        [
+                            events_df,
+                            pd.DataFrame([{
+                                "DateTime": new_dt,
+                                "Date": new_dt.date(),
+                                "Student": student,
+                                "Duration_Min": duration,
+                                "Color": color_map.get(k, "#3B82F6"),
+                                "Zoom_Link": zoom_map.get(k, ""),
+                                "Source": "override",
+                                "Override_ID": int(row.get("id")) if pd.notna(row.get("id")) else None,
+                                "Original_Date": original_date.date() if pd.notna(original_date) else new_dt.date(),
+                            }])
+                        ],
+                        ignore_index=True
+                    )
 
     if events_df.empty:
         return events_df
