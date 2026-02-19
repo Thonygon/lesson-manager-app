@@ -9,8 +9,8 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client
-from datetime import datetime, date, timedelta
-from typing import List, Tuple
+from datetime import datetime, date, timedelta, timezone
+from typing import List, Tuple, Optional
 import math
 import json
 import re
@@ -474,11 +474,49 @@ def load_overrides() -> pd.DataFrame:
 
     df["duration_minutes"] = pd.to_numeric(df["duration_minutes"], errors="coerce").fillna(60).astype(int)
     df["status"] = df["status"].astype(str).str.strip()
+
     if "note" not in df.columns:
         df["note"] = ""
     df["note"] = df["note"].fillna("").astype(str)
 
     return df
+
+# --- Missing Override CRUD (RESTORED) ---
+def add_override(
+    student: str,
+    original_date: date,
+    new_dt: Optional[datetime],
+    duration_minutes: int = 60,
+    status: str = "scheduled",
+    note: str = ""
+) -> None:
+    """
+    Create an override for a single occurrence.
+    - status="scheduled": remove original occurrence + add new_datetime
+    - status="canceled": remove original occurrence only
+    """
+    student = str(student).strip()
+    ensure_student(student)
+
+    payload = {
+        "student": student,
+        "original_date": original_date.isoformat(),
+        "duration_minutes": int(duration_minutes),
+        "status": str(status).strip(),
+        "note": str(note or "").strip(),
+    }
+
+    if new_dt is not None:
+        if new_dt.tzinfo is None:
+            new_dt = new_dt.replace(tzinfo=timezone.utc)
+        payload["new_datetime"] = new_dt.astimezone(timezone.utc).isoformat()
+    else:
+        payload["new_datetime"] = None
+
+    supabase.table("calendar_overrides").insert(payload).execute()
+
+def delete_override(override_id: int) -> None:
+    supabase.table("calendar_overrides").delete().eq("id", int(override_id)).execute()
 
 # =========================
 # 08) STUDENT META (COLOR / ZOOM / EMAIL / PHONE)
@@ -919,6 +957,10 @@ def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
 
     events_df = pd.DataFrame(events)
 
+    # Apply overrides:
+    # - Always remove the original occurrence if original_date matches
+    # - If status == "scheduled", add new_datetime as an event
+    # - If status == "canceled", do not add anything (effectively cancels that occurrence)
     if not overrides.empty:
         for _, row in overrides.iterrows():
             student = str(row.get("student", "")).strip()
@@ -1133,7 +1175,6 @@ if page == "dashboard":
         almost_finished_count = int(((d["Lessons_Left"] > 0) & (d["Lessons_Left"] <= 3)).sum())
         due_soon_count = almost_finished_count
 
-        # KPI bubbles CSS (Dashboard)
         st.markdown(
             """
             <style>
@@ -1317,14 +1358,13 @@ Yüz yüze ders fiyatları:
         st.dataframe(pretty_df(dash), use_container_width=True, hide_index=True)
 
 # =========================
-# 16) PAGE: STUDENTS  (FIXED INDENT)
+# 16) PAGE: STUDENTS  (FIXED)
 # =========================
 elif page == "students":
     page_header("Students")
     st.caption("Manage student profiles, contact info and calendar color.")
     students_df = load_students_df()
 
-    # ✅ Add New Student (always visible at top)
     st.markdown("### Add New Student")
     new_student = st.text_input("New student name", key="new_student_name")
     if st.button("Add Student", key="btn_add_student"):
@@ -1337,7 +1377,6 @@ elif page == "students":
 
     st.divider()
 
-    # Edit Profile
     if students_df.empty:
         st.info("No students yet.")
     else:
@@ -1364,7 +1403,6 @@ elif page == "students":
                 st.success("Student updated ✅")
                 st.rerun()
 
-    # Current list
     with st.expander("Current student list", expanded=False):
         s_col1, s_col2 = st.columns([2, 1])
         with s_col1:
@@ -1381,7 +1419,6 @@ elif page == "students":
 
     st.divider()
 
-    # Student history (still here)
     with st.expander("Student History (Lessons + Payments)", expanded=False):
         if not students:
             st.info("No students found yet.")
@@ -1576,7 +1613,7 @@ elif page == "schedule":
                 st.rerun()
 
 # =========================
-# 20) PAGE: CALENDAR
+# 20) PAGE: CALENDAR  (RESCHEDULE/DELETE RESTORED)
 # =========================
 elif page == "calendar":
     page_header("Calendar")
@@ -1621,6 +1658,110 @@ elif page == "calendar":
         filtered = events[events["Student"].isin(selected_students)].copy()
         render_fullcalendar(filtered, height=1050)
 
+        # -------- RESCHEDULE / CANCEL UI (RESTORED) --------
+        st.divider()
+        st.subheader("Change a lesson (Reschedule / Cancel)")
+
+        sched_events = filtered[filtered.get("Source", "") == "recurring"].copy() if not filtered.empty else pd.DataFrame()
+        if sched_events.empty:
+            st.caption("No recurring lessons in this range to reschedule/cancel (only overrides or empty).")
+        else:
+            sched_events["__label"] = sched_events["Date"] + " • " + sched_events["Time"] + " • " + sched_events["Student"]
+
+            pick_label = st.selectbox(
+                "Pick the lesson occurrence to change",
+                sched_events["__label"].tolist(),
+                key="cal_pick_occurrence"
+            )
+
+            row = sched_events[sched_events["__label"] == pick_label].iloc[0]
+            pick_student = str(row["Student"]).strip()
+            pick_date_str = str(row["Date"])   # YYYY-MM-DD
+            pick_time_str = str(row["Time"])   # HH:MM
+            pick_duration = int(row.get("Duration_Min", 60))
+
+            original_date = datetime.strptime(pick_date_str, "%Y-%m-%d").date()
+
+            col1, col2, col3 = st.columns([1.2, 1, 1])
+            with col1:
+                action = st.radio("Action", ["Reschedule", "Cancel"], horizontal=True, key="cal_action")
+            with col2:
+                new_date = st.date_input("New date", value=original_date, key="cal_new_date")
+            with col3:
+                new_time = st.text_input("New time (HH:MM)", value=pick_time_str, key="cal_new_time")
+
+            new_duration = st.number_input(
+                "Duration (minutes)",
+                min_value=15,
+                max_value=360,
+                value=pick_duration,
+                step=15,
+                key="cal_new_duration"
+            )
+            note = st.text_input("Note (optional)", value="", key="cal_override_note")
+
+            if st.button("Apply change", type="primary", key="cal_apply_override"):
+                if action == "Cancel":
+                    add_override(
+                        student=pick_student,
+                        original_date=original_date,
+                        new_dt=None,
+                        duration_minutes=int(new_duration),
+                        status="canceled",
+                        note=note
+                    )
+                    st.success("Lesson canceled ✅")
+                    st.rerun()
+                else:
+                    try:
+                        hh, mm = new_time.strip().split(":")
+                        hh, mm = int(hh), int(mm)
+                        new_dt_local = datetime(new_date.year, new_date.month, new_date.day, hh, mm)
+                    except Exception:
+                        st.error("Time must be in HH:MM format (example: 18:30).")
+                        st.stop()
+
+                    # Store as UTC (keeps your load_overrides conversion consistent)
+                    new_dt_utc = new_dt_local.replace(tzinfo=timezone.utc)
+
+                    add_override(
+                        student=pick_student,
+                        original_date=original_date,
+                        new_dt=new_dt_utc,
+                        duration_minutes=int(new_duration),
+                        status="scheduled",
+                        note=note
+                    )
+                    st.success("Lesson rescheduled ✅")
+                    st.rerun()
+
+        st.divider()
+        with st.expander("Manage overrides (delete)", expanded=False):
+            ov = load_overrides()
+            if ov.empty:
+                st.caption("No overrides yet.")
+            else:
+                show = ov.copy()
+                show["original_date"] = pd.to_datetime(show["original_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+                show["new_datetime"] = pd.to_datetime(show["new_datetime"], errors="coerce").dt.strftime("%Y-%m-%d %H:%M")
+                show = show.rename(columns={
+                    "id": "ID",
+                    "student": "Student",
+                    "original_date": "Original_Date",
+                    "new_datetime": "New_DateTime",
+                    "duration_minutes": "Duration_Min",
+                    "status": "Status",
+                    "note": "Note"
+                })[["ID","Student","Original_Date","New_DateTime","Duration_Min","Status","Note"]]
+
+                st.dataframe(pretty_df(show), use_container_width=True, hide_index=True)
+
+                del_id = st.number_input("Override ID to delete", min_value=0, step=1, key="ov_del_id")
+                if st.button("Delete override", key="ov_btn_delete"):
+                    delete_override(del_id)
+                    st.success("Override deleted ✅")
+                    st.rerun()
+
 # =========================
 # 21) PAGE: ANALYTICS  (BUBBLES + THIS WEEK)
 # =========================
@@ -1628,11 +1769,10 @@ elif page == "analytics":
     page_header("Analytics")
 
     st.subheader("Income Analytics")
-    st.caption("Monthly income + most profitable students + lesson regularity.")
+    st.caption("Monthly income + most profitable students.")
 
     kpis, monthly_income, by_student = build_income_analytics()
 
-    # KPI bubbles CSS (Analytics)
     st.markdown(
         """
         <style>
@@ -1732,7 +1872,7 @@ elif page == "analytics":
         st.dataframe(pretty_df(mi.rename(columns={"Income": "Income (₺)"})), use_container_width=True, hide_index=True)
 
     st.divider()
-    st.markdown("### Most profitable students & regularity")
+    st.markdown("### Most profitable students")
 
     if by_student.empty:
         st.info("No student payment data yet.")
