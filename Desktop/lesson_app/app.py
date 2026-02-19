@@ -1904,7 +1904,7 @@ elif page == "analytics":
     page_header("Analytics")
 
     st.subheader("Income Analytics")
-    st.caption("Monthly income and Forecast.")
+    st.caption("Monthly income and forecast.")
 
     kpis, monthly_income, by_student = build_income_analytics()
 
@@ -1994,7 +1994,7 @@ elif page == "analytics":
     )
 
     st.divider()
-    st.markdown("### Monthly income")
+    st.markdown("### Monthly Income")
 
     if monthly_income.empty:
         st.info("No payments found yet.")
@@ -2006,7 +2006,7 @@ elif page == "analytics":
         st.dataframe(pretty_df(mi.rename(columns={"Income": "Income (₺)"})), use_container_width=True, hide_index=True)
 
     st.divider()
-    st.markdown("### Most profitable students")
+    st.markdown("### Most Profitable Students")
 
     if by_student.empty:
         st.info("No student payment data yet.")
