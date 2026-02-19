@@ -10,9 +10,11 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client
 from datetime import datetime, date, timedelta
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 import math
 import json
+import re
+import urllib.parse
 import streamlit.components.v1 as components
 
 # =========================
@@ -203,7 +205,7 @@ def load_css_app_light():
           color: var(--text) !important;
         }
 
-        /* ✅ FIX: Selectbox styling (target only the actual select control, not inner label divs) */
+        /* ✅ FIX: Selectbox styling */
         div[data-testid="stSelectbox"] [data-baseweb="select"] > div{
           border-radius: 14px !important;
           background: white !important;
@@ -238,8 +240,8 @@ def load_css_app_light():
 PAGES = [
     ("dashboard", "Dashboard", "linear-gradient(90deg,#3B82F6,#2563EB)"),
     ("students",  "Students",  "linear-gradient(90deg,#10B981,#059669)"),
-    ("add_lesson","Lesson","linear-gradient(90deg,#F59E0B,#D97706)"),
-    ("add_payment","Payment","linear-gradient(90deg,#EF4444,#DC2626)"),
+    ("add_lesson","Lesson",    "linear-gradient(90deg,#F59E0B,#D97706)"),
+    ("add_payment","Payment",  "linear-gradient(90deg,#EF4444,#DC2626)"),
     ("schedule",  "Schedule",  "linear-gradient(90deg,#8B5CF6,#7C3AED)"),
     ("calendar",  "Calendar",  "linear-gradient(90deg,#06B6D4,#0891B2)"),
     ("analytics", "Analytics", "linear-gradient(90deg,#F97316,#EA580C)"),
@@ -290,10 +292,8 @@ def go_to(page_name: str):
 
 def render_sidebar_nav(active_page: str):
     items = [("home", "Home")] + [(k, label) for (k, label, _) in PAGES]
-
     with st.sidebar:
         st.markdown("### Menu")
-
         for k, label in items:
             if k == active_page:
                 st.markdown(f"**👉 {label}**")
@@ -302,24 +302,19 @@ def render_sidebar_nav(active_page: str):
                     go_to(k)
                     st.rerun()
 
-
 def page_header(title: str):
     st.markdown(f"## {title}")
 
 def force_close_sidebar():
-    # Tries to click Streamlit’s collapse control if the sidebar is open.
     components.html(
         """
         <script>
         (function() {
           const tryClose = () => {
-            // The collapse button exists when sidebar is open
             const collapseBtn =
               parent.document.querySelector('button[data-testid="collapsedControl"]') ||
               parent.document.querySelector('button[title="Close sidebar"]') ||
               parent.document.querySelector('button[aria-label="Close sidebar"]');
-
-            // Some Streamlit versions: collapsedControl toggles sidebar
             if (collapseBtn) collapseBtn.click();
           };
           setTimeout(tryClose, 50);
@@ -388,6 +383,49 @@ def load_students() -> List[str]:
     return sorted([n for n in names if n and n.lower() != "nan"])
 
 # =========================
+# 05.5) WHATSAPP HELPERS
+# =========================
+def _digits_only(s: str) -> str:
+    return re.sub(r"\D+", "", str(s or ""))
+
+def normalize_phone_for_whatsapp(raw_phone: str) -> str:
+    """
+    Returns digits-only international number if we can be confident, otherwise "".
+    Flexible accepted input:
+      +90..., 90..., 0 5xx..., 5xx... (Turkey heuristics)
+      For non-TR numbers: best is +<countrycode>... or already includes country code digits.
+    """
+    d = _digits_only(raw_phone)
+    if not d:
+        return ""
+
+    # If starts with 00 (international prefix) -> strip it
+    if d.startswith("00") and len(d) > 2:
+        d = d[2:]
+
+    # Already looks like it includes a country code (11-15 digits typical)
+    if len(d) >= 11 and not d.startswith("0"):
+        return d
+
+    # Turkey heuristics (safe-ish):
+    # 0 5xx xxx xx xx (11 digits, starts with 0 and next is 5)
+    if len(d) == 11 and d.startswith("0") and d[1] == "5":
+        return "90" + d[1:]
+    # 5xx xxx xx xx (10 digits, starts with 5) -> assume TR
+    if len(d) == 10 and d.startswith("5"):
+        return "90" + d
+
+    # Otherwise: ambiguous (US 10-digit, KSA local, etc.)
+    return ""
+
+def build_whatsapp_url(message: str, raw_phone: str = "") -> str:
+    encoded = urllib.parse.quote(message or "")
+    phone = normalize_phone_for_whatsapp(raw_phone)
+    if phone:
+        return f"https://wa.me/{phone}?text={encoded}"
+    return f"https://wa.me/?text={encoded}"
+
+# =========================
 # 06) CRUD HELPERS
 # =========================
 def add_class(student: str, number_of_lesson: int, lesson_date: str, modality: str, note: str = "") -> None:
@@ -415,12 +453,13 @@ def add_payment(student: str, number_of_lesson: int, payment_date: str, paid_amo
 def delete_row(table_name: str, row_id: int) -> None:
     supabase.table(table_name).delete().eq("id", int(row_id)).execute()
 
-def update_student_profile(student: str, email: str, zoom_link: str, notes: str, color: str) -> None:
+def update_student_profile(student: str, email: str, zoom_link: str, notes: str, color: str, phone: str) -> None:
     supabase.table("students").update({
         "email": email,
         "zoom_link": zoom_link,
         "notes": notes,
-        "color": color
+        "color": color,
+        "phone": phone
     }).eq("student", student).execute()
 
 # =========================
@@ -473,12 +512,12 @@ def load_overrides() -> pd.DataFrame:
     return df
 
 # =========================
-# 08) STUDENT META (COLOR / ZOOM / EMAIL)
+# 08) STUDENT META (COLOR / ZOOM / EMAIL / PHONE)
 # =========================
 def load_students_df() -> pd.DataFrame:
     df = load_table("students")
     if df.empty:
-        return pd.DataFrame(columns=["student", "email", "zoom_link", "notes", "color"])
+        return pd.DataFrame(columns=["student", "email", "zoom_link", "notes", "color", "phone"])
 
     df["student"] = df["student"].astype(str).str.strip()
 
@@ -498,17 +537,22 @@ def load_students_df() -> pd.DataFrame:
         df["notes"] = ""
     df["notes"] = df["notes"].fillna("").astype(str)
 
+    if "phone" not in df.columns:
+        df["phone"] = ""
+    df["phone"] = df["phone"].fillna("").astype(str).str.strip()
+
     return df
 
 def student_meta_maps():
     s = load_students_df()
     if s.empty:
-        return {}, {}, {}
+        return {}, {}, {}, {}
     s["student_norm"] = s["student"].apply(norm_student)
     color_map = dict(zip(s["student_norm"], s["color"]))
     zoom_map  = dict(zip(s["student_norm"], s["zoom_link"]))
     email_map = dict(zip(s["student_norm"], s["email"]))
-    return color_map, zoom_map, email_map
+    phone_map = dict(zip(s["student_norm"], s["phone"]))
+    return color_map, zoom_map, email_map, phone_map
 
 # =========================
 # 09) DASHBOARD (PACKAGE STATUS)
@@ -839,12 +883,9 @@ def build_forecast_table(payment_buffer_days: int = 0) -> pd.DataFrame:
 # 11.5) UI HELPERS (DATAFRAME FORMATTING)
 # =========================
 def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Make dataframe headers look premium: remove underscores, title case, keep acronyms."""
     if df is None or df.empty:
         return df
-
     out = df.copy()
-
     out.columns = [
         str(c)
         .replace("_", " ")
@@ -855,11 +896,10 @@ def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
         .replace("Url", "URL")
         for c in out.columns
     ]
-
     return out
 
 # =========================
-# 12) CALENDAR (EVENTS + RENDER)  ✅ UPDATED (mobile-friendly + nicer title)
+# 12) CALENDAR (EVENTS + RENDER)
 # =========================
 def _parse_time_value(x) -> Tuple[int, int]:
     if x is None:
@@ -887,7 +927,7 @@ def best_text_color(hex_color: str) -> str:
 def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
     schedules = load_schedules()
     overrides = load_overrides()
-    color_map, zoom_map, _ = student_meta_maps()
+    color_map, zoom_map, _, _ = student_meta_maps()
 
     events = []
     if not schedules.empty:
@@ -963,7 +1003,6 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
     df = events.copy()
     df["DateTime"] = pd.to_datetime(df["DateTime"], errors="coerce")
     df = df.dropna(subset=["DateTime"])
-
     df["end"] = df["DateTime"] + pd.to_timedelta(df["Duration_Min"].fillna(60).astype(int), unit="m")
 
     fc_events = []
@@ -1001,16 +1040,12 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
       .fc .fc-col-header-cell-cushion,
       .fc .fc-daygrid-day-number {{ color:#0f172a; }}
       .fc .fc-timegrid-slot-label-cushion {{ color:#334155; }}
-
-      /* ✅ Nicer title (less “messy”) */
       .fc .fc-toolbar-title {{
         color:#0f172a;
         font-weight:800;
         font-size:1.1rem;
         line-height:1.15;
       }}
-
-      /* ✅ Mobile: tighter title + smaller buttons */
       @media (max-width: 768px){{
         .fc .fc-toolbar-title {{ font-size:0.95rem; }}
         .fc .fc-button {{
@@ -1023,8 +1058,6 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
     <script>
       const events = {payload};
       const calendarEl = document.getElementById('calendar');
-
-      // ✅ Choose a compact toolbar on phones
       const isMobile = () => window.innerWidth < 768;
 
       const toolbarDesktop = {{
@@ -1047,24 +1080,17 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
         stickyHeaderDates: true,
         handleWindowResize: true,
         firstDay: 1,
-
         headerToolbar: isMobile() ? toolbarMobile : toolbarDesktop,
-
-        // ✅ Cleaner title / headers
         titleFormat: {{ year: 'numeric', month: 'short', day: 'numeric' }},
         dayHeaderFormat: {{ weekday: 'short' }},
         slotLabelFormat: {{ hour: 'numeric', minute: '2-digit', meridiem: 'short' }},
-
-        // ✅ Adjust toolbar when rotating / resizing
         windowResize: function() {{
           calendar.setOption('headerToolbar', isMobile() ? toolbarMobile : toolbarDesktop);
         }},
-
         slotMinTime: '06:00:00',
         slotMaxTime: '23:00:00',
         allDaySlot: false,
         events: events,
-
         eventClick: function(info) {{
           if (info.event.url) {{
             info.jsEvent.preventDefault();
@@ -1086,7 +1112,6 @@ def render_home():
         "<div class='home-wrap'><div class='home-card'><div class='home-glow'></div>",
         unsafe_allow_html=True
     )
-
     st.markdown("<div class='home-title'>CLASS MANAGER</div>", unsafe_allow_html=True)
     st.markdown("<div class='home-sub'>Choose where you want to go</div>", unsafe_allow_html=True)
 
@@ -1126,7 +1151,6 @@ if page == "home":
     render_home()
     st.stop()
 
-# ✅ Sidebar nav on non-home pages
 render_sidebar_nav(page)
 
 # =========================
@@ -1134,87 +1158,199 @@ render_sidebar_nav(page)
 # =========================
 if page == "dashboard":
     page_header("Dashboard")
-    st.subheader("Current Package Dashboard")
+
     dash = rebuild_dashboard()
-    st.dataframe(pretty_df(dash), use_container_width=True, hide_index=True)
 
-    st.divider()
-    st.subheader("Student History")
-
-    if not students:
-        st.info("No students found yet.")
+    if dash.empty:
+        st.info("No payment data yet. Add payments to start the dashboard.")
     else:
-        selected = st.selectbox("Select a student", students, key="history_student")
-        lessons_df, payments_df = show_student_history(selected)
+        d = dash.copy()
+        d["Lessons_Left"] = pd.to_numeric(d["Lessons_Left"], errors="coerce").fillna(0).astype(int)
 
-        colA, colB = st.columns(2)
+        # -------------------------
+        # KPI CARDS
+        # -------------------------
+        total_students = int(len(d))
+        total_left = int(d["Lessons_Left"].sum())
+        finished = int((d["Status"] == "Finished").sum())
+        almost = int((d["Status"] == "Almost Finished").sum())
+        due_soon = int((d["Lessons_Left"] <= 3).sum())
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Students", total_students)
+        c2.metric("Lessons left (total)", total_left)
+        c3.metric("Finished", finished)
+        c4.metric("Almost finished", almost)
+        c5.metric("Due soon (≤3)", due_soon)
+
+        # -------------------------
+        # STATUS DISTRIBUTION CHART
+        # -------------------------
+        st.divider()
+        st.subheader("Status overview")
+        status_counts = (
+            d["Status"]
+            .value_counts()
+            .reindex(["Active", "Almost Finished", "Finished"])
+            .fillna(0)
+            .astype(int)
+        )
+        st.bar_chart(status_counts)
+
+        # -------------------------
+        # ACTION LIST + WHATSAPP
+        # -------------------------
+        st.divider()
+        st.subheader("Action: Payment due soon")
+
+        due_df = d[d["Lessons_Left"] <= 3].sort_values(["Lessons_Left", "Student"]).copy()
+        st.dataframe(
+            pretty_df(due_df[["Student","Lessons_Left","Status","Modality","Payment_Date"]]) if not due_df.empty else pd.DataFrame(),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.markdown("### WhatsApp payment reminder")
+
+        # Phone map from students
+        _, _, _, phone_map = student_meta_maps()
+
+        if due_df.empty:
+            st.caption("No students due soon right now.")
+        else:
+            pick = st.selectbox("Choose student", due_df["Student"].tolist(), key="dash_pick_student")
+            raw_phone = phone_map.get(norm_student(pick), "")
+
+            default_msg = f"""Hello. I hope you are fine. {pick} has finished his package. If (s/he) wishes to continue, here you have my current prices. Please let me know to plan accordingly. Thanks.
+
+Derslerim 50-60 dakika sürer. (1 saat).
+
+Çevrimiçi ders fiyatları:
+
+1 saat -》 2,000tl
+*her ders aynı gün ödenmelidir.
+
+Çevrimiçi Ders Ön ödemeli paketler:
+
+44 saat (tam seviye) ---》 46,200tl. (1,050 tl ders/ başı)
+20 ders / saat --》26,000tl. (1,300tl ders / başı)
+10 ders / saat ---》16,000tl. (1,600tl ders/ başı)
+5 ders / saat -》 9,000tl. (1,800tl ders/ başı)
+*kursa başlamadan önce ödeme yapılmalıdır. Dersler istediğiniz sıklıkta alınabilir. 
+
+Yüz yüze ders fiyatları:
+
+20 ders / saat ---》46,000tl. (2,300tl ders/ başı)
+10 ders / saat ---》26,000tl. (2,600tl ders/ başı)
+5 ders / saat -》 15,000tl. (3,000tl ders/ başı)
+*kursa başlamadan önce ödeme yapılmalıdır. Dersler istediğiniz sıklıkta alınabilir."""
+            msg = st.text_area("Editable WhatsApp message", value=default_msg, height=360, key="dash_wa_msg")
+
+            wa_url = build_whatsapp_url(msg, raw_phone=raw_phone)
+
+            st.markdown(
+                f"""
+                <a href="{wa_url}" target="_blank" style="text-decoration:none;">
+                    <button style="
+                        width:100%;
+                        padding:0.7rem 1rem;
+                        border-radius:14px;
+                        border:1px solid rgba(17,24,39,0.12);
+                        background:white;
+                        font-weight:700;
+                        cursor:pointer;">
+                        Open WhatsApp with message
+                    </button>
+                </a>
+                """,
+                unsafe_allow_html=True
+            )
+
+            if not raw_phone:
+                st.caption("Tip: Add the student’s WhatsApp phone in Students → Edit Student Profile for direct chat.")
+            else:
+                normed = normalize_phone_for_whatsapp(raw_phone)
+                if not normed:
+                    st.warning("This phone looks ambiguous. WhatsApp will open with the message, but you may need to pick the chat manually. Best: store international format like +90..., +1..., +966...")
+
+        # -------------------------
+        # MAIN TABLE (SCAN-FRIENDLY)
+        # -------------------------
+        st.divider()
+        st.subheader("Current Package Dashboard")
+
+        colA, colB, colC = st.columns([2, 1, 1])
         with colA:
-            st.markdown("### Lessons")
-            st.dataframe(pretty_df(lessons_df), use_container_width=True)
-
-            st.markdown("#### Delete a lesson record (by ID)")
-            lesson_id = st.number_input("Lesson ID to delete", min_value=0, step=1, key="del_lesson_id")
-            if st.button("Delete Lesson", key="btn_delete_lesson"):
-                delete_row("classes", lesson_id)
-                st.success("Lesson deleted ✅")
-                st.rerun()
-
+            q = st.text_input("Search student", key="dash_search")
         with colB:
-            st.markdown("### Payments")
-            st.dataframe(pretty_df(payments_df), use_container_width=True)
+            status_filter = st.selectbox("Filter status", ["All","Active","Almost Finished","Finished"], key="dash_status_filter")
+        with colC:
+            sort_by = st.selectbox("Sort by", ["Lessons Left","Payment Date","Student"], key="dash_sort")
 
-            st.markdown("#### Delete a payment record (by ID)")
-            payment_id = st.number_input("Payment ID to delete", min_value=0, step=1, key="del_payment_id")
-            if st.button("Delete Payment", key="btn_delete_payment"):
-                delete_row("payments", payment_id)
-                st.success("Payment deleted ✅")
-                st.rerun()
+        view_df = d.copy()
+        if q.strip():
+            view_df = view_df[view_df["Student"].str.contains(q, case=False, na=False)]
+        if status_filter != "All":
+            view_df = view_df[view_df["Status"] == status_filter]
+        if sort_by == "Lessons Left":
+            view_df = view_df.sort_values("Lessons_Left")
+        elif sort_by == "Payment Date":
+            view_df = view_df.sort_values("Payment_Date")
+        else:
+            view_df = view_df.sort_values("Student")
+
+        st.dataframe(pretty_df(view_df), use_container_width=True, hide_index=True)
 
 # =========================
 # 16) PAGE: STUDENTS
 # =========================
 elif page == "students":
     page_header("Students")
-
     st.caption("Manage student profiles, contact info and calendar color.")
     students_df = load_students_df()
 
-    st.markdown("### Add New Student")
-    new_student = st.text_input("New student name", key="new_student_name")
-    if st.button("Add Student", key="btn_add_student"):
-        if not new_student.strip():
-            st.error("Please enter a student name.")
-        else:
-            ensure_student(new_student)
-            st.success("Student added ✅")
-            st.rerun()
+    # -------- Add Student (expander) --------
+    with st.expander("Add New Student", expanded=False):
+        new_student = st.text_input("New student name", key="new_student_name")
+        if st.button("Add Student", key="btn_add_student"):
+            if not new_student.strip():
+                st.error("Please enter a student name.")
+            else:
+                ensure_student(new_student)
+                st.success("Student added ✅")
+                st.rerun()
 
     st.divider()
 
+    # -------- Edit Profile (expander) --------
     if students_df.empty:
         st.info("No students yet.")
     else:
-        st.markdown("### Edit Student Profile")
-        student_list = sorted(students_df["student"].unique().tolist())
-        selected_student = st.selectbox("Select student", student_list, key="edit_student_select")
-        student_row = students_df[students_df["student"] == selected_student].iloc[0]
+        with st.expander("Edit Student Profile", expanded=False):
+            student_list = sorted(students_df["student"].unique().tolist())
+            selected_student = st.selectbox("Select student", student_list, key="edit_student_select")
+            student_row = students_df[students_df["student"] == selected_student].iloc[0]
 
-        col1, col2 = st.columns(2)
-        with col1:
-            email = st.text_input("Email", value=student_row.get("email", ""), key="student_email")
-            zoom_link = st.text_input("Zoom Link", value=student_row.get("zoom_link", ""), key="student_zoom")
-        with col2:
-            color = st.color_picker("Calendar Color", value=student_row.get("color", "#3B82F6"), key="student_color")
-            notes = st.text_area("Notes", value=student_row.get("notes", ""), key="student_notes")
+            col1, col2 = st.columns(2)
+            with col1:
+                email = st.text_input("Email", value=student_row.get("email", ""), key="student_email")
+                zoom_link = st.text_input("Zoom Link", value=student_row.get("zoom_link", ""), key="student_zoom")
+                phone = st.text_input("WhatsApp phone (flexible format)", value=student_row.get("phone", ""), key="student_phone")
+                st.caption("Examples: +90 555 123 4567 | 0555 123 45 67 | 905551234567 | +1 212 555 0199 | +966 5X XXX XXXX")
+            with col2:
+                color = st.color_picker("Calendar Color", value=student_row.get("color", "#3B82F6"), key="student_color")
+                notes = st.text_area("Notes", value=student_row.get("notes", ""), key="student_notes")
 
-        if st.button("Save Changes", key="btn_save_student_profile"):
-            update_student_profile(selected_student, email, zoom_link, notes, color)
-            st.success("Student updated ✅")
-            st.rerun()
+            # Soft validation hint
+            if phone and not normalize_phone_for_whatsapp(phone) and len(_digits_only(phone)) < 11:
+                st.warning("This phone seems short/ambiguous. For direct WhatsApp chat, use international format (+countrycode...).")
 
-    # ✅ THIS WHOLE SECTION MUST BE INSIDE "students"
-    st.divider()
+            if st.button("Save Changes", key="btn_save_student_profile"):
+                update_student_profile(selected_student, email, zoom_link, notes, color, phone)
+                st.success("Student updated ✅")
+                st.rerun()
 
+    # -------- Current student list (expander) --------
     with st.expander("Current student list", expanded=False):
         s_col1, s_col2 = st.columns([2, 1])
         with s_col1:
@@ -1229,26 +1365,60 @@ elif page == "students":
         list_df = pd.DataFrame({"Student": shown})
         st.dataframe(list_df, use_container_width=True, hide_index=True)
 
-    # ✅ DELETE STUDENT (must stay INSIDE students page)
     st.divider()
-    st.markdown("### Delete Student")
 
-    if not students:
-        st.info("No students to delete.")
-    else:
-        del_student = st.selectbox("Select a student to delete", students, key="delete_student_select")
-        confirm = st.checkbox(
-            "I understand this removes the student profile (does not delete classes/payments history).",
-            key="delete_student_confirm"
-        )
+    # -------- Student History moved here (expander) --------
+    with st.expander("Student History (Lessons + Payments)", expanded=False):
+        if not students:
+            st.info("No students found yet.")
+        else:
+            hist_student = st.selectbox("Select a student", students, key="students_history_student")
+            lessons_df, payments_df = show_student_history(hist_student)
 
-        if st.button("Delete Student", type="primary", disabled=not confirm, key="btn_delete_student"):
-            try:
-                supabase.table("students").delete().eq("student", del_student).execute()
-                st.success(f"Deleted student profile: {del_student}")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Could not delete student.\n\n{e}")
+            colA, colB = st.columns(2)
+            with colA:
+                st.markdown("### Lessons")
+                st.dataframe(pretty_df(lessons_df), use_container_width=True)
+
+                st.markdown("#### Delete a lesson record (by ID)")
+                lesson_id = st.number_input("Lesson ID to delete", min_value=0, step=1, key="students_del_lesson_id")
+                if st.button("Delete Lesson", key="students_btn_delete_lesson"):
+                    delete_row("classes", lesson_id)
+                    st.success("Lesson deleted ✅")
+                    st.rerun()
+
+            with colB:
+                st.markdown("### Payments")
+                st.dataframe(pretty_df(payments_df), use_container_width=True)
+
+                st.markdown("#### Delete a payment record (by ID)")
+                payment_id = st.number_input("Payment ID to delete", min_value=0, step=1, key="students_del_payment_id")
+                if st.button("Delete Payment", key="students_btn_delete_payment"):
+                    delete_row("payments", payment_id)
+                    st.success("Payment deleted ✅")
+                    st.rerun()
+
+    st.divider()
+
+    # -------- Delete Student (expander) --------
+    with st.expander("Delete Student", expanded=False):
+        st.caption("Removes the student profile only (does not delete classes/payments history).")
+        if not students:
+            st.info("No students to delete.")
+        else:
+            del_student = st.selectbox("Select a student to delete", students, key="delete_student_select")
+            confirm = st.checkbox(
+                "I understand this removes the student profile (does not delete classes/payments history).",
+                key="delete_student_confirm"
+            )
+
+            if st.button("Delete Student", type="primary", disabled=not confirm, key="btn_delete_student"):
+                try:
+                    supabase.table("students").delete().eq("student", del_student).execute()
+                    st.success(f"Deleted student profile: {del_student}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Could not delete student.\n\n{e}")
 
 # =========================
 # 17) PAGE: ADD LESSON
@@ -1407,17 +1577,11 @@ elif page == "analytics":
 
     kpis, monthly_income, by_student = build_income_analytics()
 
-    # -------------------------
-    # KPI CARDS
-    # -------------------------
     c1, c2, c3 = st.columns(3)
     c1.metric("All-time income", money_fmt(kpis.get("income_all_time", 0.0)))
     c2.metric("This month", money_fmt(kpis.get("income_this_month", 0.0)))
     c3.metric("Last 30 days", money_fmt(kpis.get("income_last_30", 0.0)))
 
-    # -------------------------
-    # MONTHLY INCOME
-    # -------------------------
     st.divider()
     st.markdown("### Monthly income")
 
@@ -1427,7 +1591,6 @@ elif page == "analytics":
         mi = monthly_income.copy()
         mi["Income"] = pd.to_numeric(mi["Income"], errors="coerce").fillna(0.0)
         chart_df = mi.set_index("Month")
-
         st.line_chart(chart_df["Income"])
         st.dataframe(
             pretty_df(mi.rename(columns={"Income": "Income (₺)"})),
@@ -1435,9 +1598,6 @@ elif page == "analytics":
             hide_index=True
         )
 
-    # -------------------------
-    # MOST PROFITABLE + REGULARITY
-    # -------------------------
     st.divider()
     st.markdown("### Most profitable students & regularity")
 
@@ -1445,24 +1605,17 @@ elif page == "analytics":
         st.info("No student payment data yet.")
     else:
         df = by_student.copy()
-
-        # Clean types
         df["Total_Paid"] = pd.to_numeric(df["Total_Paid"], errors="coerce").fillna(0.0)
         df["Lessons_Last_30D"] = pd.to_numeric(df["Lessons_Last_30D"], errors="coerce").fillna(0)
         df["Lessons_per_Week"] = pd.to_numeric(df["Lessons_per_Week"], errors="coerce").fillna(0.0)
 
-        # Controls
         colA, colB, colC = st.columns([2,1,1])
         with colA:
             search = st.text_input("Search student", key="analytics_search")
         with colB:
             top_n = st.selectbox("Show top", [5,10,15,25,50], index=1)
         with colC:
-            sort_mode = st.selectbox(
-                "Sort by",
-                ["Total Paid", "Lessons/Week", "Lessons (30d)"],
-                index=0
-            )
+            sort_mode = st.selectbox("Sort by", ["Total Paid", "Lessons/Week", "Lessons (30d)"], index=0)
 
         if search:
             df = df[df["Student"].str.contains(search, case=False, na=False)]
@@ -1474,32 +1627,20 @@ elif page == "analytics":
         else:
             df = df.sort_values("Lessons_Last_30D", ascending=False)
 
-        # Charts
         ch1, ch2 = st.columns(2)
-
         with ch1:
             st.caption("Top students by total paid")
             top_paid = df.head(top_n).set_index("Student")[["Total_Paid"]]
             st.bar_chart(top_paid)
-
         with ch2:
             st.caption("Top students by lesson regularity")
             top_reg = df.head(top_n).set_index("Student")[["Lessons_per_Week"]]
             st.bar_chart(top_reg)
 
-        # Table
         show_df = df.head(top_n).copy()
         show_df["Total_Paid"] = show_df["Total_Paid"].apply(lambda x: f"{float(x):,.0f}")
+        st.dataframe(pretty_df(show_df), use_container_width=True, hide_index=True)
 
-        st.dataframe(
-            pretty_df(show_df),
-            use_container_width=True,
-            hide_index=True
-        )
-
-    # -------------------------
-    # FORECAST
-    # -------------------------
     st.divider()
     st.subheader("Forecast: Finish dates & expected next payments")
 
@@ -1515,11 +1656,7 @@ elif page == "analytics":
     if forecast_df.empty:
         st.info("No forecast data yet.")
     else:
-        st.dataframe(
-            pretty_df(forecast_df),
-            use_container_width=True,
-            hide_index=True
-        )
+        st.dataframe(pretty_df(forecast_df), use_container_width=True, hide_index=True)
 
 else:
     go_to("home")
