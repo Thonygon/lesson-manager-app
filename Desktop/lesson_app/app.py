@@ -1278,28 +1278,128 @@ Yüz yüze ders fiyatları:
         # -------------------------
         st.divider()
         st.subheader("Current Package Dashboard")
+dash = rebuild_dashboard()
 
-        colA, colB, colC = st.columns([2, 1, 1])
-        with colA:
-            q = st.text_input("Search student", key="dash_search")
-        with colB:
-            status_filter = st.selectbox("Filter status", ["All","Active","Almost Finished","Finished"], key="dash_status_filter")
-        with colC:
-            sort_by = st.selectbox("Sort by", ["Lessons Left","Payment Date","Student"], key="dash_sort")
+# Compute KPI values safely
+total_students = len(students)
 
-        view_df = d.copy()
-        if q.strip():
-            view_df = view_df[view_df["Student"].str.contains(q, case=False, na=False)]
-        if status_filter != "All":
-            view_df = view_df[view_df["Status"] == status_filter]
-        if sort_by == "Lessons Left":
-            view_df = view_df.sort_values("Lessons_Left")
-        elif sort_by == "Payment Date":
-            view_df = view_df.sort_values("Payment_Date")
-        else:
-            view_df = view_df.sort_values("Student")
+if dash is None or dash.empty:
+    lessons_left_total = 0
+    finished_count = 0
+    almost_finished_count = 0
+    due_soon_count = 0
+else:
+    dtmp = dash.copy()
+    dtmp["Lessons_Left"] = pd.to_numeric(dtmp.get("Lessons_Left"), errors="coerce").fillna(0).astype(int)
+    dtmp["Status"] = dtmp.get("Status", "").astype(str)
 
-        st.dataframe(pretty_df(view_df), use_container_width=True, hide_index=True)
+    lessons_left_total = int(dtmp["Lessons_Left"].sum())
+    finished_count = int((dtmp["Lessons_Left"] <= 0).sum())
+    # Almost finished in your app = 1 to 3 lessons left
+    almost_finished_count = int(((dtmp["Lessons_Left"] > 0) & (dtmp["Lessons_Left"] <= 3)).sum())
+    # Due soon (≤3) is basically the same group as "Almost finished" in your definition
+    due_soon_count = almost_finished_count
+
+# Bubble CSS + Layout
+st.markdown(
+    """
+    <style>
+      .kpi-wrap{
+        display:flex;
+        flex-wrap:wrap;
+        gap:18px;
+        align-items:center;
+        justify-content:flex-start;
+        margin: 8px 0 8px 0;
+      }
+      .kpi-bubble{
+        width: 170px;
+        height: 170px;
+        border-radius: 999px;
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        justify-content:center;
+        box-shadow: 0 14px 30px rgba(15,23,42,0.10);
+        border: 1px solid rgba(17,24,39,0.10);
+        background: white;
+      }
+      .kpi-num{
+        font-size: 44px;
+        font-weight: 900;
+        line-height: 1.0;
+        margin-bottom: 8px;
+      }
+      .kpi-label{
+        font-size: 14px;
+        font-weight: 700;
+        opacity: .9;
+        text-align:center;
+        padding: 0 14px;
+      }
+      .kpi-sub{
+        font-size: 12px;
+        opacity: .70;
+        margin-top: 6px;
+        text-align:center;
+        padding: 0 14px;
+      }
+
+      /* Color accents */
+      .b-blue   { background: radial-gradient(90px 90px at 30% 25%, rgba(59,130,246,.35), transparent 60%), #ffffff; }
+      .b-purple { background: radial-gradient(90px 90px at 30% 25%, rgba(139,92,246,.32), transparent 60%), #ffffff; }
+      .b-green  { background: radial-gradient(90px 90px at 30% 25%, rgba(16,185,129,.30), transparent 60%), #ffffff; }
+      .b-amber  { background: radial-gradient(90px 90px at 30% 25%, rgba(245,158,11,.30), transparent 60%), #ffffff; }
+      .b-red    { background: radial-gradient(90px 90px at 30% 25%, rgba(239,68,68,.26), transparent 60%), #ffffff; }
+
+      /* Mobile: smaller bubbles, centered */
+      @media (max-width: 768px){
+        .kpi-wrap{ justify-content:center; }
+        .kpi-bubble{ width: 150px; height: 150px; }
+        .kpi-num{ font-size: 40px; }
+      }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    f"""
+    <div class="kpi-wrap">
+      <div class="kpi-bubble b-blue">
+        <div class="kpi-num">{total_students}</div>
+        <div class="kpi-label">Total students</div>
+      </div>
+
+      <div class="kpi-bubble b-purple">
+        <div class="kpi-num">{lessons_left_total}</div>
+        <div class="kpi-label">Total lessons left</div>
+      </div>
+
+      <div class="kpi-bubble b-green">
+        <div class="kpi-num">{finished_count}</div>
+        <div class="kpi-label">Finished</div>
+      </div>
+
+      <div class="kpi-bubble b-amber">
+        <div class="kpi-num">{almost_finished_count}</div>
+        <div class="kpi-label">Almost finished</div>
+        <div class="kpi-sub">(1–3 lessons left)</div>
+      </div>
+
+      <div class="kpi-bubble b-red">
+        <div class="kpi-num">{due_soon_count}</div>
+        <div class="kpi-label">Due soon (≤3)</div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+st.divider()
+
+# Keep your table (status overview) as-is
+st.dataframe(pretty_df(dash), use_container_width=True, hide_index=True)
 
 # =========================
 # 16) PAGE: STUDENTS
