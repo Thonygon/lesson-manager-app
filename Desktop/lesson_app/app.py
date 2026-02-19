@@ -1347,7 +1347,7 @@ if page == "dashboard":
         )
 
         st.divider()
-        st.subheader("Status overview")
+        st.subheader("Status Overview")
         status_counts = (
             d["Status"]
             .value_counts()
@@ -1358,7 +1358,7 @@ if page == "dashboard":
         st.bar_chart(status_counts)
 
         st.divider()
-        st.subheader("Action: Payment due soon")
+        st.subheader("Take Action")
 
         due_df = d[d["Lessons_Left"] <= 3].sort_values(["Lessons_Left", "Student"]).copy()
         if due_df.empty:
@@ -1370,7 +1370,7 @@ if page == "dashboard":
                 hide_index=True
             )
 
-        st.markdown("### WhatsApp payment reminder")
+        st.markdown("### WhatsApp Payment Reminder")
         _, _, _, phone_map = student_meta_maps()
 
         if due_df.empty:
@@ -1432,7 +1432,7 @@ Yüz yüze ders fiyatları:
                     st.warning("This phone looks ambiguous. WhatsApp will open with the message, but you may need to pick the chat manually. Best: store international format like +90..., +1..., +966...")
 
         st.divider()
-        st.subheader("Current Package Dashboard")
+        st.subheader("Current Package")
         st.dataframe(pretty_df(dash), use_container_width=True, hide_index=True)
 
 # =========================
@@ -1582,7 +1582,7 @@ elif page == "add_lesson":
                 show_n_l = st.selectbox("Show last", [10, 20, 50, 100], index=1, key="lesson_hist_show_n")
                 st.dataframe(pretty_df(lessons_df.head(show_n_l)), use_container_width=True)
 
-                st.markdown("#### Delete a lesson record (by ID)")
+                st.markdown("#### Delete a lesson record")
                 del_lesson_id = st.number_input("Lesson ID to delete", min_value=0, step=1, key="lesson_page_del_lesson_id")
                 if st.button("Delete Lesson", key="lesson_page_btn_delete_lesson"):
                     delete_row("classes", del_lesson_id)
@@ -1645,7 +1645,7 @@ elif page == "schedule":
     else:
         schedules = load_schedules()
 
-        st.markdown("### Add a schedule slot")
+        st.markdown("### Add a Scheduled Lesson")
         c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 1])
 
         with c1:
@@ -1665,7 +1665,7 @@ elif page == "schedule":
             st.rerun()
 
         st.divider()
-        st.markdown("### Current schedule")
+        st.markdown("### Current Schedule")
         if schedules.empty:
             st.info("No schedule slots yet.")
         else:
@@ -1682,7 +1682,7 @@ elif page == "schedule":
             show.index = range(1, len(show) + 1)
             st.dataframe(pretty_df(show), use_container_width=True)
 
-            st.markdown("#### Delete schedule slot")
+            st.markdown("#### Delete a schedule lesson")
             del_id = st.number_input("Schedule ID to delete", min_value=0, step=1, key="del_schedule_id")
             if st.button("Delete Schedule", key="btn_delete_schedule"):
                 delete_schedule(del_id)
