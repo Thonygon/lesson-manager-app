@@ -24,7 +24,7 @@ st.set_page_config(
     page_title="Class Manager",
     page_icon="🍎",
     layout="wide",
-    initial_sidebar_state="collapsed",   # ✅ key fix
+    initial_sidebar_state="collapsed",
 )
 
 # =========================
@@ -87,7 +87,6 @@ def load_css_home_dark():
           font-size: 0.98rem;
         }
 
-        /* HOME pill links (reliable gradients) */
         .home-pill{
           display:block;
           width: 100%;
@@ -143,9 +142,7 @@ def load_css_app_light():
         }
 
         @media (max-width: 768px){
-          section[data-testid="stMain"] > div {
-            padding-top: 3.0rem; /* prevents “cut” titles on mobile */
-          }
+          section[data-testid="stMain"] > div { padding-top: 3.0rem; }
         }
 
         html, body, [class*="css"]{
@@ -154,7 +151,6 @@ def load_css_app_light():
         h1,h2,h3{ letter-spacing:-0.02em; }
         .stCaption, .stMarkdown p { color: var(--muted); }
 
-        /* Blocks */
         div[data-testid="stVerticalBlockBorderWrapper"]{
           background: var(--panel);
           border: 1px solid var(--border);
@@ -163,7 +159,6 @@ def load_css_app_light():
           box-shadow: var(--shadow);
         }
 
-        /* Buttons */
         div[data-testid="stButton"] button{
           border-radius: 14px !important;
           padding: 0.62rem 1.0rem !important;
@@ -179,7 +174,6 @@ def load_css_app_light():
           transform: translateY(-1px);
         }
 
-        /* ✅ FIX: Widget labels should be plain text (no bubbles) */
         label[data-testid="stWidgetLabel"]{
           background: transparent !important;
           border: 0 !important;
@@ -194,7 +188,6 @@ def load_css_app_light():
           border-radius: 0 !important;
         }
 
-        /* Inputs (text/number/date/textarea) */
         div[data-testid="stTextInput"] input,
         div[data-testid="stTextArea"] textarea,
         div[data-testid="stNumberInput"] input,
@@ -205,7 +198,6 @@ def load_css_app_light():
           color: var(--text) !important;
         }
 
-        /* ✅ FIX: Selectbox styling */
         div[data-testid="stSelectbox"] [data-baseweb="select"] > div{
           border-radius: 14px !important;
           background: white !important;
@@ -213,7 +205,6 @@ def load_css_app_light():
           color: var(--text) !important;
         }
 
-        /* Dataframe */
         div[data-testid="stDataFrame"]{
           border-radius: 18px !important;
           overflow: hidden !important;
@@ -221,7 +212,6 @@ def load_css_app_light():
           box-shadow: var(--shadow);
         }
 
-        /* Metrics */
         div[data-testid="metric-container"]{
           background: white;
           border: 1px solid var(--border);
@@ -276,35 +266,6 @@ else:
     st.session_state.page = "home"
     _set_query_page("home")
 
-def go_to(page_name: str):
-    if page_name not in PAGE_KEYS:
-        page_name = "home"
-
-    st.session_state.page = page_name
-    _set_query_page(page_name)
-
-    # ✅ force close sidebar immediately after navigation
-    force_close_sidebar()
-
-    st.session_state.menu_open = False
-    st.session_state.page = page_name
-    _set_query_page(page_name)
-
-def render_sidebar_nav(active_page: str):
-    items = [("home", "Home")] + [(k, label) for (k, label, _) in PAGES]
-    with st.sidebar:
-        st.markdown("### Menu")
-        for k, label in items:
-            if k == active_page:
-                st.markdown(f"**👉 {label}**")
-            else:
-                if st.button(label, key=f"side_{k}", use_container_width=True):
-                    go_to(k)
-                    st.rerun()
-
-def page_header(title: str):
-    st.markdown(f"## {title}")
-
 def force_close_sidebar():
     components.html(
         """
@@ -325,6 +286,31 @@ def force_close_sidebar():
         """,
         height=0,
     )
+
+def go_to(page_name: str):
+    if page_name not in PAGE_KEYS:
+        page_name = "home"
+    st.session_state.page = page_name
+    _set_query_page(page_name)
+    force_close_sidebar()
+    st.session_state.menu_open = False
+    st.session_state.page = page_name
+    _set_query_page(page_name)
+
+def render_sidebar_nav(active_page: str):
+    items = [("home", "Home")] + [(k, label) for (k, label, _) in PAGES]
+    with st.sidebar:
+        st.markdown("### Menu")
+        for k, label in items:
+            if k == active_page:
+                st.markdown(f"**👉 {label}**")
+            else:
+                if st.button(label, key=f"side_{k}", use_container_width=True):
+                    go_to(k)
+                    st.rerun()
+
+def page_header(title: str):
+    st.markdown(f"## {title}")
 
 # =========================
 # 04) SUPABASE CONNECTION
@@ -379,7 +365,6 @@ def load_students() -> List[str]:
         if not df.empty and col in df.columns:
             df[col] = df[col].astype(str).str.strip()
             names.update(df[col].dropna().tolist())
-
     return sorted([n for n in names if n and n.lower() != "nan"])
 
 # =========================
@@ -389,33 +374,17 @@ def _digits_only(s: str) -> str:
     return re.sub(r"\D+", "", str(s or ""))
 
 def normalize_phone_for_whatsapp(raw_phone: str) -> str:
-    """
-    Returns digits-only international number if we can be confident, otherwise "".
-    Flexible accepted input:
-      +90..., 90..., 0 5xx..., 5xx... (Turkey heuristics)
-      For non-TR numbers: best is +<countrycode>... or already includes country code digits.
-    """
     d = _digits_only(raw_phone)
     if not d:
         return ""
-
-    # If starts with 00 (international prefix) -> strip it
     if d.startswith("00") and len(d) > 2:
         d = d[2:]
-
-    # Already looks like it includes a country code (11-15 digits typical)
     if len(d) >= 11 and not d.startswith("0"):
         return d
-
-    # Turkey heuristics (safe-ish):
-    # 0 5xx xxx xx xx (11 digits, starts with 0 and next is 5)
     if len(d) == 11 and d.startswith("0") and d[1] == "5":
         return "90" + d[1:]
-    # 5xx xxx xx xx (10 digits, starts with 5) -> assume TR
     if len(d) == 10 and d.startswith("5"):
         return "90" + d
-
-    # Otherwise: ambiguous (US 10-digit, KSA local, etc.)
     return ""
 
 def build_whatsapp_url(message: str, raw_phone: str = "") -> str:
@@ -736,7 +705,6 @@ def build_income_analytics():
 
     payments = payments.dropna(subset=["payment_date"])
     payments = payments[payments["student"].astype(str).str.len() > 0]
-
     payments["Month"] = payments["payment_date"].dt.to_period("M").astype(str)
 
     monthly_income = (
@@ -792,7 +760,6 @@ def build_income_analytics():
         "income_this_month": income_this_month,
         "income_last_30": income_last_30,
     }
-
     return kpis, monthly_income, by_student
 
 def money_fmt(x: float) -> str:
@@ -880,7 +847,7 @@ def build_forecast_table(payment_buffer_days: int = 0) -> pd.DataFrame:
     return out.sort_values("Estimated_Next_Payment_Date").reset_index(drop=True)
 
 # =========================
-# 11.5) UI HELPERS (DATAFRAME FORMATTING)
+# 11.5) UI HELPERS
 # =========================
 def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
@@ -942,8 +909,8 @@ def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
 
                 student = str(row.get("student", "")).strip()
                 k = norm_student(student)
-
                 duration = int(row.get("duration_minutes", 60))
+
                 events.append({
                     "DateTime": dt,
                     "Date": dt.date(),
@@ -1108,10 +1075,7 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
 # 13) HOME SCREEN UI (DARK)
 # =========================
 def render_home():
-    st.markdown(
-        "<div class='home-wrap'><div class='home-card'><div class='home-glow'></div>",
-        unsafe_allow_html=True
-    )
+    st.markdown("<div class='home-wrap'><div class='home-card'><div class='home-glow'></div>", unsafe_allow_html=True)
     st.markdown("<div class='home-title'>CLASS MANAGER</div>", unsafe_allow_html=True)
     st.markdown("<div class='home-sub'>Choose where you want to go</div>", unsafe_allow_html=True)
 
@@ -1165,27 +1129,110 @@ if page == "dashboard":
         st.info("No payment data yet. Add payments to start the dashboard.")
     else:
         d = dash.copy()
-        d["Lessons_Left"] = pd.to_numeric(d["Lessons_Left"], errors="coerce").fillna(0).astype(int)
+        d["Lessons_Left"] = pd.to_numeric(d.get("Lessons_Left"), errors="coerce").fillna(0).astype(int)
+        d["Status"] = d.get("Status", "").astype(str)
 
-        # -------------------------
-        # KPI CARDS
-        # -------------------------
         total_students = int(len(d))
-        total_left = int(d["Lessons_Left"].sum())
-        finished = int((d["Status"] == "Finished").sum())
-        almost = int((d["Status"] == "Almost Finished").sum())
-        due_soon = int((d["Lessons_Left"] <= 3).sum())
+        lessons_left_total = int(d["Lessons_Left"].sum())
+        finished_count = int((d["Lessons_Left"] <= 0).sum())
+        almost_finished_count = int(((d["Lessons_Left"] > 0) & (d["Lessons_Left"] <= 3)).sum())
+        due_soon_count = almost_finished_count  # your definition aligns
 
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Students", total_students)
-        c2.metric("Lessons left (total)", total_left)
-        c3.metric("Finished", finished)
-        c4.metric("Almost finished", almost)
-        c5.metric("Due soon (≤3)", due_soon)
+        # ---- KPI BUBBLES (minimal + colorful) ----
+        st.markdown(
+            """
+            <style>
+              .kpi-wrap{
+                display:flex;
+                flex-wrap:wrap;
+                gap:18px;
+                align-items:center;
+                justify-content:flex-start;
+                margin: 8px 0 8px 0;
+              }
+              .kpi-bubble{
+                width: 170px;
+                height: 170px;
+                border-radius: 999px;
+                display:flex;
+                flex-direction:column;
+                align-items:center;
+                justify-content:center;
+                box-shadow: 0 14px 30px rgba(15,23,42,0.10);
+                border: 1px solid rgba(17,24,39,0.10);
+                background: white;
+              }
+              .kpi-num{
+                font-size: 44px;
+                font-weight: 900;
+                line-height: 1.0;
+                margin-bottom: 8px;
+              }
+              .kpi-label{
+                font-size: 14px;
+                font-weight: 700;
+                opacity: .9;
+                text-align:center;
+                padding: 0 14px;
+              }
+              .kpi-sub{
+                font-size: 12px;
+                opacity: .70;
+                margin-top: 6px;
+                text-align:center;
+                padding: 0 14px;
+              }
 
-        # -------------------------
-        # STATUS DISTRIBUTION CHART
-        # -------------------------
+              .b-blue   { background: radial-gradient(90px 90px at 30% 25%, rgba(59,130,246,.35), transparent 60%), #ffffff; }
+              .b-purple { background: radial-gradient(90px 90px at 30% 25%, rgba(139,92,246,.32), transparent 60%), #ffffff; }
+              .b-green  { background: radial-gradient(90px 90px at 30% 25%, rgba(16,185,129,.30), transparent 60%), #ffffff; }
+              .b-amber  { background: radial-gradient(90px 90px at 30% 25%, rgba(245,158,11,.30), transparent 60%), #ffffff; }
+              .b-red    { background: radial-gradient(90px 90px at 30% 25%, rgba(239,68,68,.26), transparent 60%), #ffffff; }
+
+              @media (max-width: 768px){
+                .kpi-wrap{ justify-content:center; }
+                .kpi-bubble{ width: 150px; height: 150px; }
+                .kpi-num{ font-size: 40px; }
+              }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.markdown(
+            f"""
+            <div class="kpi-wrap">
+              <div class="kpi-bubble b-blue">
+                <div class="kpi-num">{total_students}</div>
+                <div class="kpi-label">Total students</div>
+              </div>
+
+              <div class="kpi-bubble b-purple">
+                <div class="kpi-num">{lessons_left_total}</div>
+                <div class="kpi-label">Total lessons left</div>
+              </div>
+
+              <div class="kpi-bubble b-green">
+                <div class="kpi-num">{finished_count}</div>
+                <div class="kpi-label">Finished</div>
+              </div>
+
+              <div class="kpi-bubble b-amber">
+                <div class="kpi-num">{almost_finished_count}</div>
+                <div class="kpi-label">Almost finished</div>
+                <div class="kpi-sub">(1–3 lessons left)</div>
+              </div>
+
+              <div class="kpi-bubble b-red">
+                <div class="kpi-num">{due_soon_count}</div>
+                <div class="kpi-label">Due soon (≤3)</div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        # ---- Status overview chart ----
         st.divider()
         st.subheader("Status overview")
         status_counts = (
@@ -1197,22 +1244,21 @@ if page == "dashboard":
         )
         st.bar_chart(status_counts)
 
-        # -------------------------
-        # ACTION LIST + WHATSAPP
-        # -------------------------
+        # ---- Action list + WhatsApp ----
         st.divider()
         st.subheader("Action: Payment due soon")
 
         due_df = d[d["Lessons_Left"] <= 3].sort_values(["Lessons_Left", "Student"]).copy()
-        st.dataframe(
-            pretty_df(due_df[["Student","Lessons_Left","Status","Modality","Payment_Date"]]) if not due_df.empty else pd.DataFrame(),
-            use_container_width=True,
-            hide_index=True
-        )
+        if due_df.empty:
+            st.caption("No students due soon right now.")
+        else:
+            st.dataframe(
+                pretty_df(due_df[["Student","Lessons_Left","Status","Modality","Payment_Date"]]),
+                use_container_width=True,
+                hide_index=True
+            )
 
         st.markdown("### WhatsApp payment reminder")
-
-        # Phone map from students
         _, _, _, phone_map = student_meta_maps()
 
         if due_df.empty:
@@ -1273,133 +1319,10 @@ Yüz yüze ders fiyatları:
                 if not normed:
                     st.warning("This phone looks ambiguous. WhatsApp will open with the message, but you may need to pick the chat manually. Best: store international format like +90..., +1..., +966...")
 
-        # -------------------------
-        # MAIN TABLE (SCAN-FRIENDLY)
-        # -------------------------
+        # ---- Main table ----
         st.divider()
         st.subheader("Current Package Dashboard")
-dash = rebuild_dashboard()
-
-# Compute KPI values safely
-total_students = len(students)
-
-if dash is None or dash.empty:
-    lessons_left_total = 0
-    finished_count = 0
-    almost_finished_count = 0
-    due_soon_count = 0
-else:
-    dtmp = dash.copy()
-    dtmp["Lessons_Left"] = pd.to_numeric(dtmp.get("Lessons_Left"), errors="coerce").fillna(0).astype(int)
-    dtmp["Status"] = dtmp.get("Status", "").astype(str)
-
-    lessons_left_total = int(dtmp["Lessons_Left"].sum())
-    finished_count = int((dtmp["Lessons_Left"] <= 0).sum())
-    # Almost finished in your app = 1 to 3 lessons left
-    almost_finished_count = int(((dtmp["Lessons_Left"] > 0) & (dtmp["Lessons_Left"] <= 3)).sum())
-    # Due soon (≤3) is basically the same group as "Almost finished" in your definition
-    due_soon_count = almost_finished_count
-
-# Bubble CSS + Layout
-st.markdown(
-    """
-    <style>
-      .kpi-wrap{
-        display:flex;
-        flex-wrap:wrap;
-        gap:18px;
-        align-items:center;
-        justify-content:flex-start;
-        margin: 8px 0 8px 0;
-      }
-      .kpi-bubble{
-        width: 170px;
-        height: 170px;
-        border-radius: 999px;
-        display:flex;
-        flex-direction:column;
-        align-items:center;
-        justify-content:center;
-        box-shadow: 0 14px 30px rgba(15,23,42,0.10);
-        border: 1px solid rgba(17,24,39,0.10);
-        background: white;
-      }
-      .kpi-num{
-        font-size: 44px;
-        font-weight: 900;
-        line-height: 1.0;
-        margin-bottom: 8px;
-      }
-      .kpi-label{
-        font-size: 14px;
-        font-weight: 700;
-        opacity: .9;
-        text-align:center;
-        padding: 0 14px;
-      }
-      .kpi-sub{
-        font-size: 12px;
-        opacity: .70;
-        margin-top: 6px;
-        text-align:center;
-        padding: 0 14px;
-      }
-
-      /* Color accents */
-      .b-blue   { background: radial-gradient(90px 90px at 30% 25%, rgba(59,130,246,.35), transparent 60%), #ffffff; }
-      .b-purple { background: radial-gradient(90px 90px at 30% 25%, rgba(139,92,246,.32), transparent 60%), #ffffff; }
-      .b-green  { background: radial-gradient(90px 90px at 30% 25%, rgba(16,185,129,.30), transparent 60%), #ffffff; }
-      .b-amber  { background: radial-gradient(90px 90px at 30% 25%, rgba(245,158,11,.30), transparent 60%), #ffffff; }
-      .b-red    { background: radial-gradient(90px 90px at 30% 25%, rgba(239,68,68,.26), transparent 60%), #ffffff; }
-
-      /* Mobile: smaller bubbles, centered */
-      @media (max-width: 768px){
-        .kpi-wrap{ justify-content:center; }
-        .kpi-bubble{ width: 150px; height: 150px; }
-        .kpi-num{ font-size: 40px; }
-      }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    f"""
-    <div class="kpi-wrap">
-      <div class="kpi-bubble b-blue">
-        <div class="kpi-num">{total_students}</div>
-        <div class="kpi-label">Total students</div>
-      </div>
-
-      <div class="kpi-bubble b-purple">
-        <div class="kpi-num">{lessons_left_total}</div>
-        <div class="kpi-label">Total lessons left</div>
-      </div>
-
-      <div class="kpi-bubble b-green">
-        <div class="kpi-num">{finished_count}</div>
-        <div class="kpi-label">Finished</div>
-      </div>
-
-      <div class="kpi-bubble b-amber">
-        <div class="kpi-num">{almost_finished_count}</div>
-        <div class="kpi-label">Almost finished</div>
-        <div class="kpi-sub">(1–3 lessons left)</div>
-      </div>
-
-      <div class="kpi-bubble b-red">
-        <div class="kpi-num">{due_soon_count}</div>
-        <div class="kpi-label">Due soon (≤3)</div>
-      </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-st.divider()
-
-# Keep your table (status overview) as-is
-st.dataframe(pretty_df(dash), use_container_width=True, hide_index=True)
+        st.dataframe(pretty_df(dash), use_container_width=True, hide_index=True)
 
 # =========================
 # 16) PAGE: STUDENTS
@@ -1409,7 +1332,6 @@ elif page == "students":
     st.caption("Manage student profiles, contact info and calendar color.")
     students_df = load_students_df()
 
-    # -------- Add Student (expander) --------
     with st.expander("Add New Student", expanded=False):
         new_student = st.text_input("New student name", key="new_student_name")
         if st.button("Add Student", key="btn_add_student"):
@@ -1422,7 +1344,6 @@ elif page == "students":
 
     st.divider()
 
-    # -------- Edit Profile (expander) --------
     if students_df.empty:
         st.info("No students yet.")
     else:
@@ -1441,7 +1362,6 @@ elif page == "students":
                 color = st.color_picker("Calendar Color", value=student_row.get("color", "#3B82F6"), key="student_color")
                 notes = st.text_area("Notes", value=student_row.get("notes", ""), key="student_notes")
 
-            # Soft validation hint
             if phone and not normalize_phone_for_whatsapp(phone) and len(_digits_only(phone)) < 11:
                 st.warning("This phone seems short/ambiguous. For direct WhatsApp chat, use international format (+countrycode...).")
 
@@ -1450,7 +1370,6 @@ elif page == "students":
                 st.success("Student updated ✅")
                 st.rerun()
 
-    # -------- Current student list (expander) --------
     with st.expander("Current student list", expanded=False):
         s_col1, s_col2 = st.columns([2, 1])
         with s_col1:
@@ -1467,7 +1386,6 @@ elif page == "students":
 
     st.divider()
 
-    # -------- Student History moved here (expander) --------
     with st.expander("Student History (Lessons + Payments)", expanded=False):
         if not students:
             st.info("No students found yet.")
@@ -1500,7 +1418,6 @@ elif page == "students":
 
     st.divider()
 
-    # -------- Delete Student (expander) --------
     with st.expander("Delete Student", expanded=False):
         st.caption("Removes the student profile only (does not delete classes/payments history).")
         if not students:
@@ -1521,7 +1438,7 @@ elif page == "students":
                     st.error(f"Could not delete student.\n\n{e}")
 
 # =========================
-# 17) PAGE: ADD LESSON
+# 17) PAGE: ADD LESSON  (+ Lesson History added)
 # =========================
 elif page == "add_lesson":
     page_header("Lessons")
@@ -1540,8 +1457,32 @@ elif page == "add_lesson":
             st.success("Lesson saved ✅")
             st.rerun()
 
+        # ---- Lesson History (on this page too) ----
+        st.divider()
+        with st.expander("Lesson History", expanded=True):
+            hist_student_l = st.selectbox(
+                "Show history for",
+                students,
+                key="lesson_history_student",
+                index=students.index(student) if student in students else 0
+            )
+            lessons_df, _payments_df = show_student_history(hist_student_l)
+
+            if lessons_df is None or lessons_df.empty:
+                st.info("No lesson history for this student yet.")
+            else:
+                show_n_l = st.selectbox("Show last", [10, 20, 50, 100], index=1, key="lesson_hist_show_n")
+                st.dataframe(pretty_df(lessons_df.head(show_n_l)), use_container_width=True)
+
+                st.markdown("#### Delete a lesson record (by ID)")
+                del_lesson_id = st.number_input("Lesson ID to delete", min_value=0, step=1, key="lesson_page_del_lesson_id")
+                if st.button("Delete Lesson", key="lesson_page_btn_delete_lesson"):
+                    delete_row("classes", del_lesson_id)
+                    st.success("Lesson deleted ✅")
+                    st.rerun()
+
 # =========================
-# 18) PAGE: ADD PAYMENT
+# 18) PAGE: ADD PAYMENT  (+ Payment History added)
 # =========================
 elif page == "add_payment":
     page_header("Payment")
@@ -1560,13 +1501,37 @@ elif page == "add_payment":
             st.success("Payment saved ✅")
             st.rerun()
 
+        # ---- Payment History (on this page too) ----
+        st.divider()
+        with st.expander("Payment History", expanded=True):
+            hist_student_p = st.selectbox(
+                "Show history for",
+                students,
+                key="payment_history_student",
+                index=students.index(student_p) if student_p in students else 0
+            )
+            _lessons_df, payments_df = show_student_history(hist_student_p)
+
+            if payments_df is None or payments_df.empty:
+                st.info("No payment history for this student yet.")
+            else:
+                show_n_p = st.selectbox("Show last", [10, 20, 50, 100], index=1, key="pay_hist_show_n")
+                st.dataframe(pretty_df(payments_df.head(show_n_p)), use_container_width=True)
+
+                st.markdown("#### Delete a payment record (by ID)")
+                del_payment_id = st.number_input("Payment ID to delete", min_value=0, step=1, key="payment_page_del_payment_id")
+                if st.button("Delete Payment", key="payment_page_btn_delete_payment"):
+                    delete_row("payments", del_payment_id)
+                    st.success("Payment deleted ✅")
+                    st.rerun()
+
 # =========================
 # 19) PAGE: SCHEDULE
 # =========================
 elif page == "schedule":
     page_header("Schedule")
-
     st.caption("Create each student's weekly program (0 = Monday, 6 = Sunday).")
+
     if not students:
         st.info("Add students first.")
     else:
@@ -1621,8 +1586,8 @@ elif page == "schedule":
 # =========================
 elif page == "calendar":
     page_header("Calendar")
-
     st.caption("Generated from weekly schedules (app is the master).")
+
     view = st.radio("View", ["Today", "This Week", "This Month"], horizontal=True, key="calendar_view")
     today_d = date.today()
 
@@ -1653,11 +1618,7 @@ elif page == "calendar":
 
         colA, colB = st.columns([3, 1])
         with colA:
-            selected_students = st.multiselect(
-                "Filter students",
-                students_list,
-                key="calendar_filter_students"
-            )
+            selected_students = st.multiselect("Filter students", students_list, key="calendar_filter_students")
         with colB:
             if st.button("Reset", use_container_width=True, key="calendar_reset"):
                 st.session_state.calendar_filter_students = students_list
@@ -1692,11 +1653,7 @@ elif page == "analytics":
         mi["Income"] = pd.to_numeric(mi["Income"], errors="coerce").fillna(0.0)
         chart_df = mi.set_index("Month")
         st.line_chart(chart_df["Income"])
-        st.dataframe(
-            pretty_df(mi.rename(columns={"Income": "Income (₺)"})),
-            use_container_width=True,
-            hide_index=True
-        )
+        st.dataframe(pretty_df(mi.rename(columns={"Income": "Income (₺)"})), use_container_width=True, hide_index=True)
 
     st.divider()
     st.markdown("### Most profitable students & regularity")
