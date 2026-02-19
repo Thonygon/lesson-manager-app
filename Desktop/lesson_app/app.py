@@ -1443,7 +1443,7 @@ elif page == "students":
     st.caption("Manage student profiles, contact info and more.")
     students_df = load_students_df()
 
-    st.markdown("### Add New Student")
+    st.markdown("### New Student")
     new_student = st.text_input("New student name", key="new_student_name")
     if st.button("Add Student", key="btn_add_student"):
         if not new_student.strip():
@@ -1455,6 +1455,7 @@ elif page == "students":
 
     st.divider()
 
+    st.markdown("### See all Students")
     if students_df.empty:
         st.info("No students yet.")
     else:
@@ -1495,9 +1496,7 @@ elif page == "students":
         list_df = pd.DataFrame({"Student": shown})
         st.dataframe(list_df, use_container_width=True, hide_index=True)
 
-    st.divider()
-
-    with st.expander("Student History (Lessons + Payments)", expanded=False):
+    with st.expander("Student History", expanded=False):
         if not students:
             st.info("No students found yet.")
         else:
