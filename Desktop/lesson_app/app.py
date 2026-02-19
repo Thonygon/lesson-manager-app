@@ -1114,7 +1114,7 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
 def render_home():
     st.markdown("<div class='home-wrap'><div class='home-card'><div class='home-glow'></div>", unsafe_allow_html=True)
     st.markdown("<div class='home-title'>CLASS MANAGER</div>", unsafe_allow_html=True)
-    st.markdown("<div class='home-sub'>Choose where you want to go</div>", unsafe_allow_html=True)
+    st.markdown("<div class='home-sub'>Make your life easier</div>", unsafe_allow_html=True)
 
     for key, label, grad in PAGES:
         st.markdown(
@@ -1256,12 +1256,11 @@ if page == "dashboard":
               <div class="kpi-bubble b-amber">
                 <div class="kpi-num">{almost_finished_count}</div>
                 <div class="kpi-label">Almost finished</div>
-                <div class="kpi-sub">(1–3 lessons left)</div>
               </div>
 
               <div class="kpi-bubble b-red">
                 <div class="kpi-num">{due_soon_count}</div>
-                <div class="kpi-label">Due soon (≤3)</div>
+                <div class="kpi-label">Due soon</div>
               </div>
             </div>
             """,
@@ -1362,7 +1361,7 @@ Yüz yüze ders fiyatları:
 # =========================
 elif page == "students":
     page_header("Students")
-    st.caption("Manage student profiles, contact info and calendar color.")
+    st.caption("Manage student profiles, contact info and more.")
     students_df = load_students_df()
 
     st.markdown("### Add New Student")
@@ -1561,7 +1560,7 @@ elif page == "add_payment":
 # =========================
 elif page == "schedule":
     page_header("Schedule")
-    st.caption("Create each student's weekly program (0 = Monday, 6 = Sunday).")
+    st.caption("Create your students weekly program.")
 
     if not students:
         st.info("Add students first.")
@@ -1617,7 +1616,6 @@ elif page == "schedule":
 # =========================
 elif page == "calendar":
     page_header("Calendar")
-    st.caption("Generated from weekly schedules (app is the master).")
 
     view = st.radio("View", ["Today", "This Week", "This Month"], horizontal=True, key="calendar_view")
     today_d = date.today()
@@ -1769,7 +1767,7 @@ elif page == "analytics":
     page_header("Analytics")
 
     st.subheader("Income Analytics")
-    st.caption("Monthly income + most profitable students.")
+    st.caption("Monthly income and Forecast.")
 
     kpis, monthly_income, by_student = build_income_analytics()
 
@@ -1852,7 +1850,6 @@ elif page == "analytics":
           <div class="kpi-bubble b-purple">
             <div class="kpi-num">{money_fmt(kpis.get("income_this_week", 0.0))}</div>
             <div class="kpi-label">This week</div>
-            <div class="kpi-sub">({week_start} → {week_end})</div>
           </div>
         </div>
         """,
@@ -1900,7 +1897,7 @@ elif page == "analytics":
         st.dataframe(pretty_df(show_df), use_container_width=True, hide_index=True)
 
     st.divider()
-    st.subheader("Forecast: Finish dates & expected next payments")
+    st.subheader("Forecast")
 
     buffer_days = st.selectbox(
         "Payment reminder buffer",
