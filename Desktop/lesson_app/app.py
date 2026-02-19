@@ -734,32 +734,36 @@ def build_income_analytics():
     classes["lesson_date"] = pd.to_datetime(classes.get("lesson_date"), errors="coerce")
     classes["number_of_lesson"] = pd.to_numeric(classes.get("number_of_lesson"), errors="coerce").fillna(0).astype(int)
 
-    today = pd.Timestamp.today().normalize()
-    last_30 = today - pd.Timedelta(days=30)
+        today = pd.Timestamp.today().normalize()
 
-    recent = classes.dropna(subset=["lesson_date"]).copy()
-    recent = recent[recent["lesson_date"] >= last_30]
+    # ✅ Current week: Monday -> Sunday
+    week_start = today - pd.Timedelta(days=today.weekday())   # Monday
+    week_end = week_start + pd.Timedelta(days=6)              # Sunday (inclusive)
 
-    lessons_30 = (
-        recent.groupby("student", as_index=False)["number_of_lesson"]
-        .sum()
-        .rename(columns={"student":"Student", "number_of_lesson":"Lessons_Last_30D"})
-    )
-
-    by_student = by_student.merge(lessons_30, on="Student", how="left")
-    by_student["Lessons_Last_30D"] = by_student["Lessons_Last_30D"].fillna(0).astype(int)
-    by_student["Lessons_per_Week"] = (by_student["Lessons_Last_30D"] / 4.2857).round(2)
+    # ... keep your recent lesson logic if you want (not required for income KPIs)
 
     income_all_time = float(payments["paid_amount"].sum()) if not payments.empty else 0.0
     this_month_key = str(today.to_period("M"))
-    income_this_month = float(payments.loc[payments["Month"] == this_month_key, "paid_amount"].sum()) if not payments.empty else 0.0
-    income_last_30 = float(payments.loc[payments["payment_date"] >= last_30, "paid_amount"].sum()) if not payments.empty else 0.0
+    income_this_month = float(
+        payments.loc[payments["Month"] == this_month_key, "paid_amount"].sum()
+    ) if not payments.empty else 0.0
+
+    # ✅ This week income (Mon–Sun)
+    income_this_week = float(
+        payments.loc[
+            (payments["payment_date"] >= week_start) & (payments["payment_date"] <= week_end),
+            "paid_amount"
+        ].sum()
+    ) if not payments.empty else 0.0
 
     kpis = {
         "income_all_time": income_all_time,
         "income_this_month": income_this_month,
-        "income_last_30": income_last_30,
+        "income_this_week": income_this_week,
+        "week_start": week_start.strftime("%Y-%m-%d"),
+        "week_end": week_end.strftime("%Y-%m-%d"),
     }
+
     return kpis, monthly_income, by_student
 
 def money_fmt(x: float) -> str:
@@ -1332,15 +1336,16 @@ elif page == "students":
     st.caption("Manage student profiles, contact info and calendar color.")
     students_df = load_students_df()
 
-    with st.expander("Add New Student", expanded=False):
-        new_student = st.text_input("New student name", key="new_student_name")
-        if st.button("Add Student", key="btn_add_student"):
-            if not new_student.strip():
-                st.error("Please enter a student name.")
-            else:
-                ensure_student(new_student)
-                st.success("Student added ✅")
-                st.rerun()
+    # -------- Add New Student (always visible) --------
+st.markdown("### Add New Student")
+new_student = st.text_input("New student name", key="new_student_name")
+if st.button("Add Student", key="btn_add_student"):
+    if not new_student.strip():
+        st.error("Please enter a student name.")
+    else:
+        ensure_student(new_student)
+        st.success("Student added ✅")
+        st.rerun()
 
     st.divider()
 
@@ -1639,9 +1644,92 @@ elif page == "analytics":
     kpis, monthly_income, by_student = build_income_analytics()
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("All-time income", money_fmt(kpis.get("income_all_time", 0.0)))
-    c2.metric("This month", money_fmt(kpis.get("income_this_month", 0.0)))
-    c3.metric("Last 30 days", money_fmt(kpis.get("income_last_30", 0.0)))
+       # --- KPI Bubbles (Analytics) ---
+    st.markdown(
+        """
+        <style>
+          .kpi-wrap{
+            display:flex;
+            flex-wrap:wrap;
+            gap:18px;
+            align-items:center;
+            justify-content:flex-start;
+            margin: 8px 0 8px 0;
+          }
+          .kpi-bubble{
+            width: 190px;
+            height: 190px;
+            border-radius: 999px;
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            justify-content:center;
+            box-shadow: 0 14px 30px rgba(15,23,42,0.10);
+            border: 1px solid rgba(17,24,39,0.10);
+            background: white;
+          }
+          .kpi-num{
+            font-size: 34px;
+            font-weight: 900;
+            line-height: 1.05;
+            margin-bottom: 8px;
+            text-align:center;
+            padding: 0 10px;
+          }
+          .kpi-label{
+            font-size: 14px;
+            font-weight: 800;
+            opacity: .9;
+            text-align:center;
+            padding: 0 14px;
+          }
+          .kpi-sub{
+            font-size: 12px;
+            opacity: .70;
+            margin-top: 6px;
+            text-align:center;
+            padding: 0 14px;
+          }
+
+          .b-blue   { background: radial-gradient(100px 100px at 30% 25%, rgba(59,130,246,.35), transparent 60%), #ffffff; }
+          .b-green  { background: radial-gradient(100px 100px at 30% 25%, rgba(16,185,129,.30), transparent 60%), #ffffff; }
+          .b-purple { background: radial-gradient(100px 100px at 30% 25%, rgba(139,92,246,.32), transparent 60%), #ffffff; }
+
+          @media (max-width: 768px){
+            .kpi-wrap{ justify-content:center; }
+            .kpi-bubble{ width: 165px; height: 165px; }
+            .kpi-num{ font-size: 30px; }
+          }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    week_start = kpis.get("week_start", "")
+    week_end = kpis.get("week_end", "")
+
+    st.markdown(
+        f"""
+        <div class="kpi-wrap">
+          <div class="kpi-bubble b-blue">
+            <div class="kpi-num">{money_fmt(kpis.get("income_all_time", 0.0))}</div>
+            <div class="kpi-label">All-time income</div>
+          </div>
+
+          <div class="kpi-bubble b-green">
+            <div class="kpi-num">{money_fmt(kpis.get("income_this_month", 0.0))}</div>
+            <div class="kpi-label">This month</div>
+          </div>
+
+          <div class="kpi-bubble b-purple">
+            <div class="kpi-num">{money_fmt(kpis.get("income_this_week", 0.0))}</div>
+            <div class="kpi-label">This week</div>
+            <div class="kpi-sub">({week_start} → {week_end})</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     st.divider()
     st.markdown("### Monthly income")
