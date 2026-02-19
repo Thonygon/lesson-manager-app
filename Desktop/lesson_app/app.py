@@ -1741,7 +1741,7 @@ elif page == "calendar":
 
         # -------- RESCHEDULE / CANCEL / NO-SHOW --------
         st.divider()
-        st.subheader("Change a lesson (Reschedule / Cancel / No show)")
+        st.subheader("Modify Calendar")
 
         if filtered.empty:
             st.caption("No events.")
