@@ -1691,7 +1691,7 @@ elif page == "schedule":
                 st.rerun()
 
 # =========================
-# 20) PAGE: CALENDAR  (RESCHEDULE/DELETE RESTORED)
+# 20) PAGE: CALENDAR  (RESCHEDULE / CANCEL / NO-SHOW FIXED)
 # =========================
 elif page == "calendar":
     page_header("Calendar")
@@ -1726,7 +1726,11 @@ elif page == "calendar":
 
         colA, colB = st.columns([3, 1])
         with colA:
-            selected_students = st.multiselect("Filter students", students_list, key="calendar_filter_students")
+            selected_students = st.multiselect(
+                "Filter students",
+                students_list,
+                key="calendar_filter_students"
+            )
         with colB:
             if st.button("Reset", use_container_width=True, key="calendar_reset"):
                 st.session_state.calendar_filter_students = students_list
@@ -1735,175 +1739,163 @@ elif page == "calendar":
         filtered = events[events["Student"].isin(selected_students)].copy()
         render_fullcalendar(filtered, height=1050)
 
-        # -------- RESCHEDULE / CANCEL / NO-SHOW (FIXED) --------
-st.divider()
-st.subheader("Change a lesson (Reschedule / Cancel / No show)")
+        # -------- RESCHEDULE / CANCEL / NO-SHOW --------
+        st.divider()
+        st.subheader("Change a lesson (Reschedule / Cancel / No show)")
 
-if filtered.empty:
-    st.caption("No events.")
-else:
-    # Include BOTH recurring and override events (so you can reschedule the rescheduled one)
-    pick_df = filtered.copy()
+        if filtered.empty:
+            st.caption("No events.")
+        else:
+            pick_df = filtered.copy()
 
-    # Ensure these columns exist
-    if "Override_ID" not in pick_df.columns:
-        pick_df["Override_ID"] = None
-    if "Original_Date" not in pick_df.columns:
-        pick_df["Original_Date"] = pd.to_datetime(pick_df["Date"], errors="coerce").dt.date
+            if "Override_ID" not in pick_df.columns:
+                pick_df["Override_ID"] = None
+            if "Original_Date" not in pick_df.columns:
+                pick_df["Original_Date"] = pd.to_datetime(
+                    pick_df["Date"], errors="coerce"
+                ).dt.date
 
-    pick_df["DateTime"] = pd.to_datetime(pick_df["DateTime"], errors="coerce")
-    pick_df = pick_df.dropna(subset=["DateTime"]).sort_values("DateTime")
+            pick_df["DateTime"] = pd.to_datetime(pick_df["DateTime"], errors="coerce")
+            pick_df = pick_df.dropna(subset=["DateTime"]).sort_values("DateTime")
 
-    def _label_row(r):
-        src = "override" if str(r.get("Source","")) == "override" else "recurring"
-        return f'{r["DateTime"].strftime("%Y-%m-%d %H:%M")} • {r["Student"]} • ({src})'
+            def _label_row(r):
+                src = "override" if str(r.get("Source", "")) == "override" else "recurring"
+                return f'{r["DateTime"].strftime("%Y-%m-%d %H:%M")} • {r["Student"]} • ({src})'
 
-    pick_df["__label"] = pick_df.apply(_label_row, axis=1)
+            pick_df["__label"] = pick_df.apply(_label_row, axis=1)
 
-    pick_label = st.selectbox(
-        "Pick the lesson occurrence",
-        pick_df["__label"].tolist(),
-        key="cal_pick_occurrence_v2"
-    )
-    row = pick_df[pick_df["__label"] == pick_label].iloc[0]
+            pick_label = st.selectbox(
+                "Pick the lesson occurrence",
+                pick_df["__label"].tolist(),
+                key="cal_pick_occurrence_v2"
+            )
 
-    pick_student = str(row["Student"]).strip()
-    pick_dt = pd.to_datetime(row["DateTime"]).to_pydatetime()
-    pick_duration = int(row.get("Duration_Min", 60))
-    pick_source = str(row.get("Source", "recurring"))
-    pick_override_id = row.get("Override_ID")
-    pick_original_date = row.get("Original_Date")
+            row = pick_df[pick_df["__label"] == pick_label].iloc[0]
 
-    # Normalize original_date
-    if isinstance(pick_original_date, str):
-        try:
-            pick_original_date = datetime.strptime(pick_original_date, "%Y-%m-%d").date()
-        except Exception:
-            pick_original_date = pick_dt.date()
-    elif isinstance(pick_original_date, pd.Timestamp):
-        pick_original_date = pick_original_date.date()
-    elif not isinstance(pick_original_date, date):
-        pick_original_date = pick_dt.date()
+            pick_student = str(row["Student"]).strip()
+            pick_dt = pd.to_datetime(row["DateTime"]).to_pydatetime()
+            pick_duration = int(row.get("Duration_Min", 60))
+            pick_source = str(row.get("Source", "recurring"))
+            pick_override_id = row.get("Override_ID")
+            pick_original_date = row.get("Original_Date")
 
-    # Buttons
-    colA, colB, colC = st.columns(3)
+            if isinstance(pick_original_date, pd.Timestamp):
+                pick_original_date = pick_original_date.date()
+            if not isinstance(pick_original_date, date):
+                pick_original_date = pick_dt.date()
 
-    with colA:
-        action = st.radio("Action", ["Reschedule", "Cancel", "No show"], horizontal=False, key="cal_action_v2")
+            col1, col2, col3 = st.columns(3)
 
-    # Defaults for reschedule UI
-    with colB:
-        new_date = st.date_input("New date", value=pick_dt.date(), key="cal_new_date_v2")
-    with colC:
-        new_time = st.text_input("New time (HH:MM)", value=pick_dt.strftime("%H:%M"), key="cal_new_time_v2")
-
-    new_duration = st.number_input(
-        "Duration (minutes)",
-        min_value=15,
-        max_value=360,
-        value=pick_duration,
-        step=15,
-        key="cal_new_duration_v2"
-    )
-
-    note = st.text_input("Note (optional)", value="", key="cal_note_v2")
-
-    def _parse_hhmm(s: str) -> Tuple[int, int]:
-        hh, mm = s.strip().split(":")
-        return int(hh), int(mm)
-
-    if st.button("Commit", type="primary", key="cal_commit_v2"):
-        # Build datetimes
-        try:
-            hh, mm = _parse_hhmm(new_time)
-        except Exception:
-            st.error("Time must be HH:MM (example: 20:00).")
-            st.stop()
-
-        new_dt_local = datetime(new_date.year, new_date.month, new_date.day, hh, mm)
-
-        # For cancel we still store a valid new_datetime (use original datetime to satisfy NOT NULL)
-        cancel_dt = pick_dt
-
-        # --- Sync with CLASSES table (so history/dashboard update) ---
-        class_id = _find_class_id_for_student_on_date(pick_student, pick_original_date)
-
-        if action == "Reschedule":
-            # 1) Update/Insert override so calendar moves event
-            if pick_source == "override" and pd.notna(pick_override_id):
-                update_override(
-                    override_id=int(pick_override_id),
-                    new_dt=new_dt_local.replace(tzinfo=timezone.utc),
-                    duration_minutes=int(new_duration),
-                    status="scheduled",
-                    note=note
-                )
-            else:
-                add_override(
-                    student=pick_student,
-                    original_date=pick_original_date,
-                    new_dt=new_dt_local.replace(tzinfo=timezone.utc),
-                    duration_minutes=int(new_duration),
-                    status="scheduled",
-                    note=note
+            with col1:
+                action = st.radio(
+                    "Action",
+                    ["Reschedule", "Cancel", "No show"],
+                    key="cal_action_v2"
                 )
 
-            # 2) Move the class record date forward (so it won't count as taken today)
-            if class_id is not None:
-                _update_class_date(class_id, new_date)
-                tag = f"[Rescheduled] {pick_original_date.isoformat()} -> {new_date.isoformat()} ({new_time})"
-                if note:
-                    tag += f" | {note}"
-                _append_class_note(class_id, tag)
-
-            st.success("Rescheduled ✅ (calendar + classes updated when possible)")
-            st.rerun()
-
-        elif action == "Cancel":
-            # Calendar: remove occurrence by overriding status=canceled.
-            # Keep new_datetime valid (cancel_dt).
-            if pick_source == "override" and pd.notna(pick_override_id):
-                update_override(
-                    override_id=int(pick_override_id),
-                    new_dt=cancel_dt.replace(tzinfo=timezone.utc),
-                    duration_minutes=int(new_duration),
-                    status="canceled",
-                    note=note
-                )
-            else:
-                add_override(
-                    student=pick_student,
-                    original_date=pick_original_date,
-                    new_dt=cancel_dt.replace(tzinfo=timezone.utc),
-                    duration_minutes=int(new_duration),
-                    status="canceled",
-                    note=note
+            with col2:
+                new_date = st.date_input(
+                    "New date",
+                    value=pick_dt.date(),
+                    key="cal_new_date_v2"
                 )
 
-            # Classes: delete the class record so it does NOT count
-            if class_id is not None:
-                if note:
-                    _append_class_note(class_id, f"[Canceled] {note}")
-                _delete_class_row(class_id)
-
-            st.success("Canceled ✅ (not counted; class removed when found)")
-            st.rerun()
-
-        else:  # No show
-            # Calendar usually doesn't need an override. The point is: keep it counted but annotate.
-            if class_id is not None:
-                msg = "[NO SHOW]"
-                if note:
-                    msg += f" {note}"
-                _append_class_note(class_id, msg)
-                st.success("No show noted ✅ (lesson kept + counted; note added)")
-            else:
-                st.warning(
-                    "No show saved, but I couldn't find a matching class record on that date. "
-                    "If you want no-shows to always be tracked, we can also auto-create a class row here."
+            with col3:
+                new_time = st.text_input(
+                    "New time (HH:MM)",
+                    value=pick_dt.strftime("%H:%M"),
+                    key="cal_new_time_v2"
                 )
-            st.rerun()
 
+            new_duration = st.number_input(
+                "Duration (minutes)",
+                min_value=15,
+                max_value=360,
+                value=pick_duration,
+                step=15,
+                key="cal_new_duration_v2"
+            )
+
+            note = st.text_input("Note (optional)", key="cal_note_v2")
+
+            if st.button("Commit", type="primary", key="cal_commit_v2"):
+
+                try:
+                    hh, mm = new_time.strip().split(":")
+                    hh, mm = int(hh), int(mm)
+                except Exception:
+                    st.error("Time must be HH:MM (example: 20:00).")
+                    st.stop()
+
+                new_dt_local = datetime(
+                    new_date.year, new_date.month, new_date.day, hh, mm
+                )
+
+                class_id = _find_class_id_for_student_on_date(
+                    pick_student, pick_original_date
+                )
+
+                if action == "Reschedule":
+
+                    if pick_source == "override" and pd.notna(pick_override_id):
+                        update_override(
+                            override_id=int(pick_override_id),
+                            new_dt=new_dt_local.replace(tzinfo=timezone.utc),
+                            duration_minutes=int(new_duration),
+                            status="scheduled",
+                            note=note
+                        )
+                    else:
+                        add_override(
+                            student=pick_student,
+                            original_date=pick_original_date,
+                            new_dt=new_dt_local.replace(tzinfo=timezone.utc),
+                            duration_minutes=int(new_duration),
+                            status="scheduled",
+                            note=note
+                        )
+
+                    if class_id is not None:
+                        _update_class_date(class_id, new_date)
+
+                    st.success("Rescheduled ✅")
+                    st.rerun()
+
+                elif action == "Cancel":
+
+                    if pick_source == "override" and pd.notna(pick_override_id):
+                        update_override(
+                            override_id=int(pick_override_id),
+                            new_dt=pick_dt.replace(tzinfo=timezone.utc),
+                            duration_minutes=int(new_duration),
+                            status="canceled",
+                            note=note
+                        )
+                    else:
+                        add_override(
+                            student=pick_student,
+                            original_date=pick_original_date,
+                            new_dt=pick_dt.replace(tzinfo=timezone.utc),
+                            duration_minutes=int(new_duration),
+                            status="canceled",
+                            note=note
+                        )
+
+                    if class_id is not None:
+                        _delete_class_row(class_id)
+
+                    st.success("Canceled ✅")
+                    st.rerun()
+
+                else:  # No show
+
+                    if class_id is not None:
+                        _append_class_note(class_id, "[NO SHOW]")
+                        st.success("No show noted ✅")
+                    else:
+                        st.warning("No matching class record found.")
+
+                    st.rerun()
 
 # =========================
 # 21) PAGE: ANALYTICS  (BUBBLES + THIS WEEK)
