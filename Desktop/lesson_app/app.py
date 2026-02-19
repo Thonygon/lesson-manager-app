@@ -690,11 +690,10 @@ def show_student_history(student: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     return lessons, pay
 
 # =========================
-# 10) INCOME ANALYTICS
+# 10) INCOME ANALYTICS  (FIXED)
 # =========================
 def build_income_analytics():
     payments = load_table("payments")
-    classes = load_table("classes")
 
     if payments.empty:
         payments = pd.DataFrame(columns=["student","payment_date","paid_amount","number_of_lesson","modality"])
@@ -705,6 +704,7 @@ def build_income_analytics():
 
     payments = payments.dropna(subset=["payment_date"])
     payments = payments[payments["student"].astype(str).str.len() > 0]
+
     payments["Month"] = payments["payment_date"].dt.to_period("M").astype(str)
 
     monthly_income = (
@@ -727,28 +727,19 @@ def build_income_analytics():
         .reset_index(drop=True)
     )
 
-    if classes.empty:
-        classes = pd.DataFrame(columns=["student","lesson_date","number_of_lesson"])
-
-    classes["student"] = classes.get("student", "").astype(str).str.strip()
-    classes["lesson_date"] = pd.to_datetime(classes.get("lesson_date"), errors="coerce")
-    classes["number_of_lesson"] = pd.to_numeric(classes.get("number_of_lesson"), errors="coerce").fillna(0).astype(int)
-
-        today = pd.Timestamp.today().normalize()
+    today = pd.Timestamp.today().normalize()
 
     # ✅ Current week: Monday -> Sunday
-    week_start = today - pd.Timedelta(days=today.weekday())   # Monday
-    week_end = week_start + pd.Timedelta(days=6)              # Sunday (inclusive)
-
-    # ... keep your recent lesson logic if you want (not required for income KPIs)
+    week_start = today - pd.Timedelta(days=int(today.weekday()))   # Monday
+    week_end = week_start + pd.Timedelta(days=6)                   # Sunday inclusive
 
     income_all_time = float(payments["paid_amount"].sum()) if not payments.empty else 0.0
+
     this_month_key = str(today.to_period("M"))
     income_this_month = float(
         payments.loc[payments["Month"] == this_month_key, "paid_amount"].sum()
     ) if not payments.empty else 0.0
 
-    # ✅ This week income (Mon–Sun)
     income_this_week = float(
         payments.loc[
             (payments["payment_date"] >= week_start) & (payments["payment_date"] <= week_end),
@@ -1140,9 +1131,9 @@ if page == "dashboard":
         lessons_left_total = int(d["Lessons_Left"].sum())
         finished_count = int((d["Lessons_Left"] <= 0).sum())
         almost_finished_count = int(((d["Lessons_Left"] > 0) & (d["Lessons_Left"] <= 3)).sum())
-        due_soon_count = almost_finished_count  # your definition aligns
+        due_soon_count = almost_finished_count
 
-        # ---- KPI BUBBLES (minimal + colorful) ----
+        # KPI bubbles CSS (Dashboard)
         st.markdown(
             """
             <style>
@@ -1236,7 +1227,6 @@ if page == "dashboard":
             unsafe_allow_html=True
         )
 
-        # ---- Status overview chart ----
         st.divider()
         st.subheader("Status overview")
         status_counts = (
@@ -1248,7 +1238,6 @@ if page == "dashboard":
         )
         st.bar_chart(status_counts)
 
-        # ---- Action list + WhatsApp ----
         st.divider()
         st.subheader("Action: Payment due soon")
 
@@ -1323,32 +1312,32 @@ Yüz yüze ders fiyatları:
                 if not normed:
                     st.warning("This phone looks ambiguous. WhatsApp will open with the message, but you may need to pick the chat manually. Best: store international format like +90..., +1..., +966...")
 
-        # ---- Main table ----
         st.divider()
         st.subheader("Current Package Dashboard")
         st.dataframe(pretty_df(dash), use_container_width=True, hide_index=True)
 
 # =========================
-# 16) PAGE: STUDENTS
+# 16) PAGE: STUDENTS  (FIXED INDENT)
 # =========================
 elif page == "students":
     page_header("Students")
     st.caption("Manage student profiles, contact info and calendar color.")
     students_df = load_students_df()
 
-    # -------- Add New Student (always visible) --------
-st.markdown("### Add New Student")
-new_student = st.text_input("New student name", key="new_student_name")
-if st.button("Add Student", key="btn_add_student"):
-    if not new_student.strip():
-        st.error("Please enter a student name.")
-    else:
-        ensure_student(new_student)
-        st.success("Student added ✅")
-        st.rerun()
+    # ✅ Add New Student (always visible at top)
+    st.markdown("### Add New Student")
+    new_student = st.text_input("New student name", key="new_student_name")
+    if st.button("Add Student", key="btn_add_student"):
+        if not new_student.strip():
+            st.error("Please enter a student name.")
+        else:
+            ensure_student(new_student)
+            st.success("Student added ✅")
+            st.rerun()
 
     st.divider()
 
+    # Edit Profile
     if students_df.empty:
         st.info("No students yet.")
     else:
@@ -1375,6 +1364,7 @@ if st.button("Add Student", key="btn_add_student"):
                 st.success("Student updated ✅")
                 st.rerun()
 
+    # Current list
     with st.expander("Current student list", expanded=False):
         s_col1, s_col2 = st.columns([2, 1])
         with s_col1:
@@ -1391,6 +1381,7 @@ if st.button("Add Student", key="btn_add_student"):
 
     st.divider()
 
+    # Student history (still here)
     with st.expander("Student History (Lessons + Payments)", expanded=False):
         if not students:
             st.info("No students found yet.")
@@ -1443,7 +1434,7 @@ if st.button("Add Student", key="btn_add_student"):
                     st.error(f"Could not delete student.\n\n{e}")
 
 # =========================
-# 17) PAGE: ADD LESSON  (+ Lesson History added)
+# 17) PAGE: ADD LESSON (+ Lesson History)
 # =========================
 elif page == "add_lesson":
     page_header("Lessons")
@@ -1462,7 +1453,6 @@ elif page == "add_lesson":
             st.success("Lesson saved ✅")
             st.rerun()
 
-        # ---- Lesson History (on this page too) ----
         st.divider()
         with st.expander("Lesson History", expanded=True):
             hist_student_l = st.selectbox(
@@ -1487,7 +1477,7 @@ elif page == "add_lesson":
                     st.rerun()
 
 # =========================
-# 18) PAGE: ADD PAYMENT  (+ Payment History added)
+# 18) PAGE: ADD PAYMENT (+ Payment History)
 # =========================
 elif page == "add_payment":
     page_header("Payment")
@@ -1506,7 +1496,6 @@ elif page == "add_payment":
             st.success("Payment saved ✅")
             st.rerun()
 
-        # ---- Payment History (on this page too) ----
         st.divider()
         with st.expander("Payment History", expanded=True):
             hist_student_p = st.selectbox(
@@ -1633,18 +1622,17 @@ elif page == "calendar":
         render_fullcalendar(filtered, height=1050)
 
 # =========================
-# 21) PAGE: ANALYTICS
+# 21) PAGE: ANALYTICS  (BUBBLES + THIS WEEK)
 # =========================
 elif page == "analytics":
     page_header("Analytics")
 
     st.subheader("Income Analytics")
-    st.caption("Monthly income + most profitable students + lesson regularity (last 30 days).")
+    st.caption("Monthly income + most profitable students + lesson regularity.")
 
     kpis, monthly_income, by_student = build_income_analytics()
 
-    c1, c2, c3 = st.columns(3)
-       # --- KPI Bubbles (Analytics) ---
+    # KPI bubbles CSS (Analytics)
     st.markdown(
         """
         <style>
@@ -1751,36 +1739,21 @@ elif page == "analytics":
     else:
         df = by_student.copy()
         df["Total_Paid"] = pd.to_numeric(df["Total_Paid"], errors="coerce").fillna(0.0)
-        df["Lessons_Last_30D"] = pd.to_numeric(df["Lessons_Last_30D"], errors="coerce").fillna(0)
-        df["Lessons_per_Week"] = pd.to_numeric(df["Lessons_per_Week"], errors="coerce").fillna(0.0)
 
-        colA, colB, colC = st.columns([2,1,1])
+        colA, colB = st.columns([2, 1])
         with colA:
             search = st.text_input("Search student", key="analytics_search")
         with colB:
             top_n = st.selectbox("Show top", [5,10,15,25,50], index=1)
-        with colC:
-            sort_mode = st.selectbox("Sort by", ["Total Paid", "Lessons/Week", "Lessons (30d)"], index=0)
 
         if search:
             df = df[df["Student"].str.contains(search, case=False, na=False)]
 
-        if sort_mode == "Total Paid":
-            df = df.sort_values("Total_Paid", ascending=False)
-        elif sort_mode == "Lessons/Week":
-            df = df.sort_values("Lessons_per_Week", ascending=False)
-        else:
-            df = df.sort_values("Lessons_Last_30D", ascending=False)
+        df = df.sort_values("Total_Paid", ascending=False)
 
-        ch1, ch2 = st.columns(2)
-        with ch1:
-            st.caption("Top students by total paid")
-            top_paid = df.head(top_n).set_index("Student")[["Total_Paid"]]
-            st.bar_chart(top_paid)
-        with ch2:
-            st.caption("Top students by lesson regularity")
-            top_reg = df.head(top_n).set_index("Student")[["Lessons_per_Week"]]
-            st.bar_chart(top_reg)
+        st.caption("Top students by total paid")
+        top_paid = df.head(top_n).set_index("Student")[["Total_Paid"]]
+        st.bar_chart(top_paid)
 
         show_df = df.head(top_n).copy()
         show_df["Total_Paid"] = show_df["Total_Paid"].apply(lambda x: f"{float(x):,.0f}")
