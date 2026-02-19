@@ -1626,7 +1626,7 @@ elif page == "add_payment":
                 show_n_p = st.selectbox("Show last", [10, 20, 50, 100], index=1, key="pay_hist_show_n")
                 st.dataframe(pretty_df(payments_df.head(show_n_p)), use_container_width=True)
 
-                st.markdown("#### Delete a payment record (by ID)")
+                st.markdown("#### Delete a payment record")
                 del_payment_id = st.number_input("Payment ID to delete", min_value=0, step=1, key="payment_page_del_payment_id")
                 if st.button("Delete Payment", key="payment_page_btn_delete_payment"):
                     delete_row("payments", del_payment_id)
