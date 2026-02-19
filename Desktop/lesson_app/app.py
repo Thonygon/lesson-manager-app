@@ -1114,7 +1114,7 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
 def render_home():
     st.markdown("<div class='home-wrap'><div class='home-card'><div class='home-glow'></div>", unsafe_allow_html=True)
     st.markdown("<div class='home-title'>CLASS MANAGER</div>", unsafe_allow_html=True)
-    st.markdown("<div class='home-sub'>Make your life easier</div>", unsafe_allow_html=True)
+    st.markdown("<div class='home-sub'>Choose where you want to go</div>", unsafe_allow_html=True)
 
     for key, label, grad in PAGES:
         st.markdown(
