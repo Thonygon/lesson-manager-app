@@ -1443,7 +1443,7 @@ elif page == "students":
     st.caption("Manage student profiles, contact info and more.")
     students_df = load_students_df()
 
-    st.markdown("### New Student")
+    st.markdown("### Add Students")
     new_student = st.text_input("New student name", key="new_student_name")
     if st.button("Add Student", key="btn_add_student"):
         if not new_student.strip():
@@ -1453,9 +1453,7 @@ elif page == "students":
             st.success("Student added ✅")
             st.rerun()
 
-    st.divider()
-
-    st.markdown("### See all Students")
+    st.markdown("### See All Students")
     if students_df.empty:
         st.info("No students yet.")
     else:
@@ -1552,6 +1550,7 @@ elif page == "students":
 # =========================
 elif page == "add_lesson":
     page_header("Lessons")
+    st.caption("Add and manage your lessons.")
 
     if not students:
         st.info("Add a student first in Students.")
@@ -1595,6 +1594,7 @@ elif page == "add_lesson":
 # =========================
 elif page == "add_payment":
     page_header("Payment")
+    st.caption("Add and manage your payments.")
 
     if not students:
         st.info("Add a student first in Students.")
@@ -1665,7 +1665,7 @@ elif page == "schedule":
             st.rerun()
 
         st.divider()
-        st.markdown("### Current schedule (all students)")
+        st.markdown("### Current schedule")
         if schedules.empty:
             st.info("No schedule slots yet.")
         else:
@@ -1682,7 +1682,7 @@ elif page == "schedule":
             show.index = range(1, len(show) + 1)
             st.dataframe(pretty_df(show), use_container_width=True)
 
-            st.markdown("#### Delete schedule slot (by ID)")
+            st.markdown("#### Delete schedule slot")
             del_id = st.number_input("Schedule ID to delete", min_value=0, step=1, key="del_schedule_id")
             if st.button("Delete Schedule", key="btn_delete_schedule"):
                 delete_schedule(del_id)
@@ -1694,6 +1694,7 @@ elif page == "schedule":
 # =========================
 elif page == "calendar":
     page_header("Calendar")
+    st.caption("See and manage your timetable.")
 
     view = st.radio("View", ["Today", "This Week", "This Month"], horizontal=True, key="calendar_view")
     today_d = date.today()
