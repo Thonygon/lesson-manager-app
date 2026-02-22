@@ -1512,7 +1512,7 @@ def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
     ]
     return out
 
-def kpi_bubbles(values, colors, size=170):
+def kpi_bubbles(values, colors, size=180):
     """
     Mobile-safe KPI bubbles renderer.
     Responsive sizing via CSS clamp() so bubbles + numbers never overflow on phones.
@@ -2597,7 +2597,7 @@ elif page == "analytics":
             "background: radial-gradient(100px 100px at 30% 25%, rgba(245,158,11,.30), transparent 60%), #ffffff;",
             "background: radial-gradient(100px 100px at 30% 25%, rgba(139,92,246,.32), transparent 60%), #ffffff;",
         ],
-        size=170
+        size=180
     )
 
     st.divider()
