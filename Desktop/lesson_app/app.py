@@ -1650,16 +1650,25 @@ def kpi_bubbles(values, colors, size=170):
         """
     bubbles_html += "</div>"
 
-    # --- 6) Prevent cutting: give the iframe MORE height than needed ---
-    # Worst-case on phones is often 2 bubbles per row (sometimes 1).
-    # We overestimate rows so the last row never clips.
+    # --- 6) Prevent cutting (FIXED): phones often behave like 1-per-row because of big bubbles ---
     n = len(values)
-    per_row_est = 2 if compact else 4
-    rows_est = max(1, math.ceil(n / per_row_est))
-    # Add extra slack because bubble sizes vary now
-    height = int(rows_est * (max_bubble + gap) + 120)
+
+    if compact:
+        # Worst-case on phones: big bubble forces 1 per row sometimes.
+        # Overestimate rows to guarantee nothing gets clipped.
+        rows_est = n
+    else:
+        # Desktop usually fits 4 across comfortably
+        rows_est = max(1, math.ceil(n / 4))
+
+    # Use the biggest bubble for row height + generous slack
+    height = int(rows_est * (max_bubble + gap) + 220)
+
+    # Hard minimums (prevents edge cases from still clipping)
+    height = max(height, 620 if compact else 360)
 
     components.html(style + bubbles_html, height=height, scrolling=False)
+
 # =========================
 # 15) CALENDAR (EVENTS + RENDER)
 # =========================
