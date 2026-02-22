@@ -1513,40 +1513,83 @@ def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 def kpi_bubbles(values, colors, size=170):
+    """
+    Mobile-safe KPI bubbles renderer.
+    Responsive sizing via CSS clamp() so bubbles + numbers never overflow on phones.
+    """
+    # If compact mode is on, bias smaller
+    compact = bool(st.session_state.get("compact_mode", False))
+    base = int(size * (0.88 if compact else 1.0))
 
     style = f"""
     <style>
-      .kpi-wrap{{
-        display:flex;
-        flex-wrap:wrap;
-        gap:18px;
-        align-items:center;
-        justify-content:flex-start;
-        margin:10px 0;
+      .kpi-wrap {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        gap: 14px;
+        align-items: stretch;
+        margin: 10px 0 10px 0;
       }}
-      .kpi-bubble{{
-        width:{size}px;
-        height:{size}px;
-        border-radius:999px;
+
+      /* Bubble size becomes responsive:
+         - small phones: ~110–120px
+         - tablets: ~140–160px
+         - desktop: up to base size
+      */
+      .kpi-bubble {{
+        width: clamp(112px, 28vw, {base}px);
+        height: clamp(112px, 28vw, {base}px);
+        border-radius: 999px;
         display:flex;
         flex-direction:column;
         align-items:center;
         justify-content:center;
-        box-shadow:0 14px 30px rgba(15,23,42,0.10);
-        border:1px solid rgba(17,24,39,0.10);
-        background:white;
+        box-shadow: 0 14px 30px rgba(15,23,42,0.10);
+        border: 1px solid rgba(17,24,39,0.10);
+        background: white;
+        overflow: hidden;
+        padding: 10px;
+        box-sizing: border-box;
       }}
-      .kpi-num{{
-        font-weight:900;
-        line-height:1.0;
-        margin-bottom:6px;
-        text-align:center;
-        font-size:{int(size*0.26)}px;
+
+      /* Number scales down on mobile and never overflows */
+      .kpi-num {{
+        font-weight: 900;
+        line-height: 1.0;
+        text-align: center;
+        padding: 0 10px;
+        margin: 0 0 6px 0;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+
+        /* Key fix: responsive font size */
+        font-size: clamp(18px, 5.2vw, 44px);
+
+        /* Safety: prevent overflow */
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }}
-      .kpi-label{{
-        font-size:14px;
-        font-weight:800;
-        text-align:center;
+
+      .kpi-label {{
+        font-size: clamp(12px, 3.4vw, 14px);
+        font-weight: 800;
+        opacity: .9;
+        text-align: center;
+        padding: 0 12px;
+        line-height: 1.15;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+
+        /* Allow 2 lines, avoid cut-off */
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }}
+
+      @media (max-width: 380px) {{
+        .kpi-wrap {{
+          grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+          gap: 10px;
+        }}
       }}
     </style>
     """
@@ -1561,8 +1604,15 @@ def kpi_bubbles(values, colors, size=170):
         """
     bubbles_html += "</div>"
 
-    components.html(style + bubbles_html, height=size + 80)
+    # Height estimation: compute rows based on a conservative "2 bubbles per row" for mobile
+    n = len(values)
+    # On wide screens auto-fit handles it; for iframe height, assume up to 3 per row in practice
+    per_row = 2 if compact else 3
+    rows = max(1, math.ceil(n / per_row))
+    bubble_px = min(base, 180)
+    height = int(rows * (bubble_px + 28) + 40)
 
+    components.html(style + bubbles_html, height=height)
 # =========================
 # 15) CALENDAR (EVENTS + RENDER)
 # =========================
