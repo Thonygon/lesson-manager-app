@@ -2640,12 +2640,12 @@ elif page == "calendar":
                     st.error(f"Could not delete override.\n\n{e}")
 
 # =========================
-# 24) PAGE: ANALYTICS (CLICKABLE KPI CAPSULES + CLEAN EXPANDERS)
+# 24) PAGE: ANALYTICS (NATIVE "BUBBLES" USING RADIO + CSS)
 # =========================
 elif page == "analytics":
     page_header(t("analytics"))
 
-    # --- Read analytics view from query param (av) ---
+    # --- Query param helper (new + old Streamlit) ---
     def _get_qp(key: str, default=None):
         try:
             qp = st.query_params
@@ -2658,8 +2658,20 @@ elif page == "analytics":
             v = qp.get(key, [default])
             return v[0] if v else default
 
-    allowed_views = {"all_time", "year", "month", "week"}
+    def _set_qp(**kwargs):
+        try:
+            for k, v in kwargs.items():
+                st.query_params[k] = v
+        except Exception:
+            st.experimental_set_query_params(**kwargs)
 
+    allowed_views = ["all_time", "year", "month", "week"]
+
+    # Load analytics
+    kpis, income_table, by_student, sold_by_language, sold_by_modality = build_income_analytics(group="monthly")
+    today = pd.Timestamp.today().normalize()
+
+    # --- Determine current view ---
     if "analytics_view" not in st.session_state:
         st.session_state.analytics_view = "all_time"
 
@@ -2669,169 +2681,138 @@ elif page == "analytics":
 
     view = st.session_state.analytics_view
 
-    # ---------------------------------------
-    # Load analytics data (monthly base table)
-    # ---------------------------------------
-    kpis, income_table, by_student, sold_by_language, sold_by_modality = build_income_analytics(group="monthly")
-    today = pd.Timestamp.today().normalize()
-
-    # ---------------------------------------
-    # CLICKABLE KPI CAPSULES (rendered via components.html)
-    # - Capsules are the clickable element
-    # - Click navigates parent page (no "white button")
-    # - Auto-resize iframe height
-    # ---------------------------------------
-    def render_kpi_capsules(view_key: str, kpis_dict: dict):
-        # labels + values
-        items = [
-            ("all_time", t("all_time_income"), money_fmt(kpis_dict.get("income_all_time", 0.0)),
-             "radial-gradient(140px 140px at 20% 25%, rgba(59,130,246,.33), transparent 60%)"),
-            ("year",     t("this_year_income"), money_fmt(kpis_dict.get("income_this_year", 0.0)),
-             "radial-gradient(140px 140px at 20% 25%, rgba(16,185,129,.28), transparent 60%)"),
-            ("month",    t("this_month_income"), money_fmt(kpis_dict.get("income_this_month", 0.0)),
-             "radial-gradient(140px 140px at 20% 25%, rgba(245,158,11,.26), transparent 60%)"),
-            ("week",     t("this_week_income"), money_fmt(kpis_dict.get("income_this_week", 0.0)),
-             "radial-gradient(140px 140px at 20% 25%, rgba(139,92,246,.28), transparent 60%)"),
-        ]
-
-        cards = []
-        for key, lab, val, glow in items:
-            active = "active" if key == view_key else ""
-            # IMPORTANT: navigate the parent window so Streamlit URL changes correctly
-            href = f"?page=analytics&av={key}"
-            cards.append(f"""
-              <div class="kpi-pill {active}" role="button" tabindex="0"
-                   onclick="go('{href}')"
-                   onkeypress="if(event.key==='Enter') go('{href}')">
-                <div class="card">
-                  <div class="glow" style="background:{glow};"></div>
-                  <div class="val">{val}</div>
-                  <div class="lab">{lab}</div>
-                </div>
-              </div>
-            """)
-
-        html = f"""
-        <div class="kpi-nav">
-          {''.join(cards)}
-        </div>
-
-        <style>
-          .kpi-nav {{
-            display:flex;
-            gap:22px;
-            flex-wrap:wrap;
-            align-items:stretch;
-            margin: 10px 0 6px 0;
-          }}
-          .kpi-pill {{
-            flex: 1 1 220px;
-            min-width: 220px;
-            max-width: 360px;
-            cursor:pointer;
-            user-select:none;
-            outline:none;
-          }}
-          .kpi-pill .card {{
-            border-radius: 999px;
-            padding: 34px 18px;
-            background: #fff;
-            border: 1px solid rgba(17,24,39,0.10);
-            box-shadow: 0 18px 34px rgba(15,23,42,0.10);
-            transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
-            text-align:center;
-            position:relative;
-            overflow:hidden;
-          }}
-          .kpi-pill:hover .card {{
-            transform: translateY(-2px);
-            box-shadow: 0 22px 44px rgba(15,23,42,0.14);
-            border-color: rgba(59,130,246,0.35);
-          }}
-          .kpi-pill.active .card {{
-            border: 3px solid #2563EB;
-          }}
-          .kpi-pill .val {{
-            font-weight: 900;
-            font-size: 42px;
-            line-height: 1.0;
-            margin-bottom: 10px;
-            font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-            color:#0f172a;
-          }}
-          .kpi-pill .lab {{
-            font-weight: 800;
-            font-size: 16px;
-            opacity: .95;
-            font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-            color:#0f172a;
-          }}
-          .glow {{
-            position:absolute;
-            inset:-40px;
-            filter: blur(18px);
-            opacity: .9;
-            pointer-events:none;
-          }}
-          @media (max-width: 900px) {{
-            .kpi-pill {{ min-width: 200px; }}
-            .kpi-pill .val {{ font-size: 36px; }}
-          }}
-        </style>
-
-        <script>
-          function go(href) {{
-            try {{
-              // parent navigation is the key (so clicks are not trapped)
-              window.parent.location.href = href;
-            }} catch(e) {{
-              window.location.href = href;
-            }}
-          }}
-
-          // AUTO-RESIZE iframe
-          (function () {{
-            const post = (h) => {{
-              const msg = {{ type: "streamlit:setFrameHeight", height: h }};
-              if (window.parent) window.parent.postMessage(msg, "*");
-              if (window.top) window.top.postMessage(msg, "*");
-            }};
-            const measure = () => {{
-              const h1 = document.body ? document.body.scrollHeight : 0;
-              const h2 = document.documentElement ? document.documentElement.scrollHeight : 0;
-              const h3 = document.documentElement ? document.documentElement.offsetHeight : 0;
-              post(Math.max(h1,h2,h3));
-            }};
-            const burst = () => {{
-              measure();
-              requestAnimationFrame(measure);
-              setTimeout(measure, 60);
-              setTimeout(measure, 160);
-              setTimeout(measure, 420);
-            }};
-            burst();
-            window.addEventListener("resize", burst);
-          }})();
-        </script>
+    # -----------------------------
+    # KPI Bubbles CSS (Analytics only)
+    # -----------------------------
+    st.markdown(
         """
-        components.html(html, height=10, scrolling=False)
+        <style>
+        div[data-testid="stRadio"] div[role="radiogroup"]{
+            display:flex !important;
+            flex-wrap:wrap !important;
+            gap:22px !important;
+            align-items:stretch !important;
+            margin-top:-6px !important;
+        }
 
-    render_kpi_capsules(view, kpis)
+        div[data-testid="stRadio"] label[data-baseweb="radio"],
+        div[data-testid="stRadio"] label[data-baseweb="radio"] *{
+            font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif !important;
+        }
+
+        div[data-testid="stRadio"] label[data-baseweb="radio"]{
+            background:#ffffff !important;
+            border:1px solid rgba(17,24,39,0.10) !important;
+            box-shadow:0 18px 34px rgba(15,23,42,0.10) !important;
+            border-radius:999px !important;
+            padding:34px 22px !important;
+            min-width:220px !important;
+            max-width:360px !important;
+            flex:1 1 220px !important;
+            cursor:pointer !important;
+            user-select:none !important;
+            transition:transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease !important;
+            display:flex !important;
+            align-items:center !important;
+            justify-content:center !important;
+            position:relative !important;
+            overflow:hidden !important;
+        }
+
+        div[data-testid="stRadio"] label[data-baseweb="radio"]:hover{
+            transform:translateY(-2px) !important;
+            box-shadow:0 22px 44px rgba(15,23,42,0.14) !important;
+            border-color:rgba(59,130,246,0.35) !important;
+        }
+
+        div[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked){
+            border:3px solid #2563EB !important;
+        }
+
+        div[data-testid="stRadio"] label[data-baseweb="radio"] > div:first-child{
+            display:none !important;
+        }
+
+        div[data-testid="stRadio"] label[data-baseweb="radio"] > div:last-child{
+            width:100% !important;
+            text-align:center !important;
+            color:#0f172a !important;
+        }
+
+        div[data-testid="stRadio"] label[data-baseweb="radio"] > div:last-child div{
+            white-space:pre-line !important;
+            font-weight:900 !important;
+            font-size:42px !important;
+            line-height:1.05 !important;
+            margin-bottom:8px !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # ---------------------------------------
+    # KPI Options
+    # ---------------------------------------
+    opt_map = {
+        "all_time": (t("all_time_income"), money_fmt(kpis.get("income_all_time", 0.0))),
+        "year":     (t("this_year_income"), money_fmt(kpis.get("income_this_year", 0.0))),
+        "month":    (t("this_month_income"), money_fmt(kpis.get("income_this_month", 0.0))),
+        "week":     (t("this_week_income"), money_fmt(kpis.get("income_this_week", 0.0))),
+    }
+
+    options_display = []
+    key_from_display = {}
+
+    for k in allowed_views:
+        lab, val = opt_map[k]
+        disp = f"{k}__{lab}__{val}"
+        options_display.append(disp)
+        key_from_display[disp] = k
+
+    def _fmt(disp: str) -> str:
+        k = key_from_display[disp]
+        lab, val = opt_map[k]
+        return f"{val}\n{lab}"
+
+    default_disp = next(
+        (d for d in options_display if key_from_display[d] == view),
+        options_display[0]
+    )
+    default_index = options_display.index(default_disp)
+
+    picked_disp = st.radio(
+        label="",
+        options=options_display,
+        index=default_index,
+        format_func=_fmt,
+        horizontal=True,
+        key="analytics_view_radio",
+        label_visibility="collapsed",
+    )
+
+    picked_view = key_from_display.get(picked_disp, "all_time")
+
+    if picked_view != st.session_state.analytics_view:
+        st.session_state.analytics_view = picked_view
+        _set_qp(page="analytics", av=picked_view)
+        st.rerun()
+
+    view = st.session_state.analytics_view
     st.divider()
 
     # ============================================
-    # MAIN VIEW CONTENT (kept simple/clean)
+    # MAIN VIEW CONTENT
     # ============================================
     if view == "all_time":
         st.subheader("All Time – Monthly Income")
         if income_table.empty:
             st.info(t("no_data"))
         else:
-            chart_df = income_table.set_index("Key")[["Income"]]
-            st.line_chart(chart_df)
+            st.line_chart(income_table.set_index("Key")[["Income"]])
 
     elif view == "year":
-        st.subheader("This Year – Yearly Income (by year)")
+        st.subheader("This Year – Yearly Income")
         _, yearly_table, *_ = build_income_analytics(group="yearly")
         if yearly_table.empty:
             st.info(t("no_data"))
@@ -2839,127 +2820,30 @@ elif page == "analytics":
             st.bar_chart(yearly_table.set_index("Key")["Income"])
 
     elif view == "month":
-        st.subheader("This Month – Monthly Income (select year)")
+        st.subheader("This Month – Monthly Income")
         if income_table.empty:
             st.info(t("no_data"))
         else:
-            year_options = sorted(income_table["Key"].str[:4].dropna().unique().tolist(), reverse=True)
+            year_options = sorted(
+                income_table["Key"].str[:4].dropna().unique().tolist(),
+                reverse=True
+            )
             current_year = str(today.year)
             default_idx = year_options.index(current_year) if current_year in year_options else 0
 
-            selected_year = st.selectbox("Select year", year_options, index=default_idx, key="analytics_year_pick")
+            selected_year = st.selectbox(
+                "Select year",
+                year_options,
+                index=default_idx,
+                key="analytics_year_pick"
+            )
+
             monthly = income_table[income_table["Key"].str.startswith(selected_year)].copy()
 
             if monthly.empty:
                 st.info(t("no_data"))
             else:
                 st.line_chart(monthly.set_index("Key")[["Income"]])
-
-    elif view == "week":
-        st.subheader("This Week – Last 7 Days Income")
-        payments = load_table("payments")
-        if payments.empty:
-            st.info(t("no_data"))
-        else:
-            payments["payment_date"] = pd.to_datetime(payments.get("payment_date"), errors="coerce")
-            payments["paid_amount"] = pd.to_numeric(payments.get("paid_amount"), errors="coerce").fillna(0.0)
-            payments = payments.dropna(subset=["payment_date"])
-
-            week_cutoff = today - pd.Timedelta(days=6)
-            week_df = payments[payments["payment_date"] >= week_cutoff].copy()
-            week_df["Day"] = week_df["payment_date"].dt.strftime("%Y-%m-%d")
-
-            daily = (
-                week_df.groupby("Day", as_index=False)["paid_amount"]
-                .sum()
-                .rename(columns={"paid_amount":"Income"})
-                .sort_values("Day")
-            )
-
-            days = [(today - pd.Timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
-            daily = pd.DataFrame({"Day": days}).merge(daily, on="Day", how="left").fillna({"Income": 0.0})
-
-            st.bar_chart(daily.set_index("Day")["Income"])
-
-    # ============================================
-    # EXTRA SECTIONS (keep page clean)
-    # ============================================
-    st.divider()
-    with st.expander("More analytics", expanded=False):
-
-        # Top students (bars + table)
-        st.subheader(t("top_students"))
-        if by_student.empty:
-            st.info(t("no_data"))
-        else:
-            top = by_student.head(10).copy()
-            st.bar_chart(top.set_index("Student")["Total_Paid"])
-
-            top["Total_Paid"] = top["Total_Paid"].apply(money_fmt)
-            top["Last_Payment"] = pd.to_datetime(top["Last_Payment"], errors="coerce").dt.strftime("%Y-%m-%d")
-            st.dataframe(pretty_df(top), use_container_width=True, hide_index=True)
-
-        st.divider()
-        st.subheader(t("sold_by_language"))
-        if sold_by_language.empty:
-            st.info(t("no_data"))
-        else:
-            st.bar_chart(sold_by_language.set_index("Language")["Income"])
-
-        st.divider()
-        st.subheader(t("sold_by_modality"))
-        if sold_by_modality.empty:
-            st.info(t("no_data"))
-        else:
-            st.bar_chart(sold_by_modality.set_index("Modality")["Income"])
-
-        # Teaching charts
-        st.divider()
-        classes = load_table("classes")
-        if classes.empty:
-            st.info(t("no_data"))
-        else:
-            for c in ["student","lesson_language","modality","number_of_lesson","lesson_date","note"]:
-                if c not in classes.columns:
-                    classes[c] = None
-            classes["student"] = classes["student"].fillna("").astype(str).str.strip()
-            classes["lesson_language"] = classes["lesson_language"].fillna("").astype(str).str.strip()
-            classes["modality"] = classes["modality"].fillna("Online").astype(str).str.strip()
-            classes["number_of_lesson"] = pd.to_numeric(classes["number_of_lesson"], errors="coerce").fillna(0).astype(int)
-            classes = classes[classes["student"].astype(str).str.len() > 0].copy()
-
-            teach_lang = (
-                classes.assign(Lang=classes["lesson_language"].replace({"": "Unknown"}))
-                .groupby("Lang", as_index=False)["number_of_lesson"].sum()
-                .rename(columns={"number_of_lesson":"Units"})
-                .sort_values("Units", ascending=False)
-            )
-            st.subheader(t("teaching_by_language"))
-            st.bar_chart(teach_lang.set_index("Lang")["Units"])
-
-            teach_mod = (
-                classes.groupby("modality", as_index=False)["number_of_lesson"].sum()
-                .rename(columns={"modality":"Modality","number_of_lesson":"Units"})
-                .sort_values("Units", ascending=False)
-            )
-            st.subheader(t("teaching_by_modality"))
-            st.bar_chart(teach_mod.set_index("Modality")["Units"])
-
-        # Forecast
-        st.divider()
-        st.subheader(t("forecast"))
-        buffer_days = st.selectbox(
-            t("payment_buffer"),
-            [0, 7, 14],
-            index=0,
-            format_func=lambda x: t("on_finish") if x == 0 else f"{x} {t('days_before')}",
-            key="forecast_buffer"
-        )
-        forecast_df = build_forecast_table(payment_buffer_days=int(buffer_days))
-        if forecast_df.empty:
-            st.info(t("no_data"))
-        else:
-            st.dataframe(pretty_df(forecast_df), use_container_width=True, hide_index=True)
 
 # =========================
 # FALLBACK
