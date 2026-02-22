@@ -1508,7 +1508,7 @@ def kpi_bubbles(values, colors, size=170):
         display:flex;
         flex-wrap:wrap;
         gap:18px;
-        align-items:flex-start;
+        align-items:center;
         justify-content:flex-start;
         margin: 8px 0 8px 0;
       }}
@@ -1518,7 +1518,7 @@ def kpi_bubbles(values, colors, size=170):
         border-radius: 999px;
         display:flex;
         flex-direction:column;
-        align-items:flex-start;
+        align-items:center;
         justify-content:center;
         box-shadow: 0 14px 30px rgba(15,23,42,0.10);
         border: 1px solid rgba(17,24,39,0.10);
@@ -1538,7 +1538,7 @@ def kpi_bubbles(values, colors, size=170):
         font-size: 14px;
         font-weight: 700;
         opacity: .9;
-        text-align:flex-start;
+        text-align:center;
         padding: 0 14px;
         line-height: 1.15;
       }}
