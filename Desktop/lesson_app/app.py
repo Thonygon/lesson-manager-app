@@ -1498,23 +1498,95 @@ def build_forecast_table(payment_buffer_days: int = 0) -> pd.DataFrame:
 # =========================
 def kpi_bubbles(values, colors, size=170):
     """
-    Bubble-like KPI layout (flex-wrap) with mobile sizing.
-    Organic rows: 3/2/1 depending on space.
-    Prevents clipping by giving the iframe enough height.
+    Dynamic KPI bubbles:
+    - Bubble size scales with numeric value
+    - Font size scales with bubble size
+    - Organic "real bubble" layout via flex-wrap
+    - Prevents iframe clipping on mobile by overestimating height
+    - Forces a modern font (no Times New Roman fallback)
     """
+    import math
+    import re
+
+    compact = bool(st.session_state.get("compact_mode", False))
+
+    # --- 1) Sizing controls (YOU can tweak these) ---
+    # Base sizes for desktop; mobile uses slightly smaller caps
+    min_size = 130 if not compact else 120   # smallest bubble
+    max_size = 220 if not compact else 190   # largest bubble
+    gap = 18 if not compact else 14
+
+    # If you pass size=170/180 in calls, treat it as the "typical" bubble
+    # (not strictly required but keeps your old calls meaningful)
+    # We'll center the dynamic sizes around this typical size.
+    typical = int(size)
+
+    # --- 2) Parse numeric value from the string shown in the bubble ---
+    def _parse_value(v) -> float:
+        """
+        Accepts: "1,4M", "100K", "48,5K", "₺1,200,000", "1200"
+        Returns a float numeric value used for scaling.
+        """
+        s = str(v or "").strip()
+
+        # Normalize: remove currency and spaces
+        s = s.replace("₺", "").replace("$", "").replace("€", "").replace(" ", "")
+
+        # Handle suffixes K / M (upper or lower)
+        # Allow comma decimal style (48,5K)
+        m = re.match(r"^([0-9]+([.,][0-9]+)?)\s*([kKmM])?$", s)
+        if m:
+            num = m.group(1).replace(",", ".")
+            try:
+                x = float(num)
+            except Exception:
+                x = 0.0
+            suf = m.group(3)
+            if suf in ("k", "K"):
+                return x * 1_000
+            if suf in ("m", "M"):
+                return x * 1_000_000
+            return x
+
+        # Fallback: strip non-digits and parse
+        digits = re.sub(r"[^0-9]", "", s)
+        try:
+            return float(digits) if digits else 0.0
+        except Exception:
+            return 0.0
+
+    nums = [_parse_value(val) for (_, val) in values]
+    max_val = max(nums) if nums else 0.0
+    max_val = max(max_val, 1.0)  # avoid divide-by-zero
+
+    # --- 3) Map value -> bubble size (sqrt scaling feels natural) ---
+    # Bubble size grows with value, but not too aggressively.
+    def _bubble_size(x: float) -> int:
+        r = max(0.0, float(x) / float(max_val))
+        scaled = math.sqrt(r)  # smoother than linear
+        s = min_size + (max_size - min_size) * scaled
+
+        # Nudge towards your old "typical" size for mid values
+        # (makes the set feel consistent)
+        s = (s * 0.85) + (typical * 0.15)
+        return int(round(s))
+
+    sizes = [_bubble_size(x) for x in nums]
+    max_bubble = max(sizes) if sizes else typical
+
+    # --- 4) CSS (force a modern font + organic layout) ---
     style = f"""
     <style>
       .kpi-wrap{{
         display:flex;
         flex-wrap:wrap;
-        gap:18px;
-        align-items:center;
+        gap:{gap}px;
+        align-items:flex-start;
         justify-content:flex-start;
-        margin: 8px 0 8px 0;
+        margin: 10px 0 10px 0;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       }}
       .kpi-bubble{{
-        width: {size}px;
-        height: {size}px;
         border-radius: 999px;
         display:flex;
         flex-direction:column;
@@ -1527,52 +1599,67 @@ def kpi_bubbles(values, colors, size=170):
         box-sizing:border-box;
       }}
       .kpi-num{{
-        font-size: {int(size*0.26)}px;
         font-weight: 900;
         line-height: 1.0;
-        margin-bottom: 8px;
         text-align:center;
         padding: 0 12px;
+        margin: 0 0 6px 0;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        overflow-wrap:anywhere;
+        word-break:break-word;
+        max-width:100%;
       }}
       .kpi-label{{
-        font-size: 14px;
-        font-weight: 700;
+        font-weight: 800;
         opacity: .9;
         text-align:center;
         padding: 0 14px;
         line-height: 1.15;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        overflow-wrap:anywhere;
+        word-break:break-word;
+        max-width:100%;
       }}
 
+      /* Mobile: center the bubbles so they look natural, not cut */
       @media (max-width: 768px){{
         .kpi-wrap{{ justify-content:center; }}
-        .kpi-bubble{{ width: 150px; height: 150px; }}
-        .kpi-num{{ font-size: 40px; }}
       }}
     </style>
     """
 
+    # --- 5) Build HTML with per-bubble size + proportional fonts ---
     bubbles_html = '<div class="kpi-wrap">'
-    for (label, val), bg in zip(values, colors):
+    for i, ((label, val), bg) in enumerate(zip(values, colors)):
+        b = sizes[i]
+
+        # Font sizes proportional to bubble size
+        # You can tweak these multipliers if desired:
+        num_px = int(round(b * 0.28))   # ~28% of bubble
+        lab_px = int(round(b * 0.085))  # ~8.5% of bubble
+
+        # Clamp fonts so they never look crazy
+        num_px = max(18, min(num_px, 54))
+        lab_px = max(12, min(lab_px, 16))
+
         bubbles_html += f"""
-          <div class="kpi-bubble" style="{bg}">
-            <div class="kpi-num">{val}</div>
-            <div class="kpi-label">{label}</div>
+          <div class="kpi-bubble" style="{bg} width:{b}px; height:{b}px;">
+            <div class="kpi-num" style="font-size:{num_px}px;">{val}</div>
+            <div class="kpi-label" style="font-size:{lab_px}px;">{label}</div>
           </div>
         """
     bubbles_html += "</div>"
 
-    # ---- KEY FIX: iframe height so last row never gets clipped ----
-    # Assume mobile: ~2 bubbles per row; desktop: ~4 per row
-    compact = bool(st.session_state.get("compact_mode", False))
-    per_row = 2 if compact else 4
-    rows = max(1, math.ceil(len(values) / per_row))
+    # --- 6) Prevent cutting: give the iframe MORE height than needed ---
+    # Worst-case on phones is often 2 bubbles per row (sometimes 1).
+    # We overestimate rows so the last row never clips.
+    n = len(values)
+    per_row_est = 2 if compact else 4
+    rows_est = max(1, math.ceil(n / per_row_est))
+    # Add extra slack because bubble sizes vary now
+    height = int(rows_est * (max_bubble + gap) + 120)
 
-    # Use mobile size in height calc because that's where clipping is most noticeable
-    bubble_h = 150 if compact else size
-    height = int(rows * (bubble_h + 18) + 60)
-
-    components.html(style + bubbles_html, height=height)
-
+    components.html(style + bubbles_html, height=height, scrolling=False)
 # =========================
 # 15) CALENDAR (EVENTS + RENDER)
 # =========================
