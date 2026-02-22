@@ -1667,7 +1667,28 @@ def kpi_bubbles(values, colors, size=170):
     # Hard minimums (prevents edge cases from still clipping)
     height = max(height, 620 if compact else 360)
 
-    components.html(style + bubbles_html, height=height, scrolling=False)
+    html = style + bubbles_html + """
+    <script>
+    (function () {
+      // Ask Streamlit to resize this component iframe to the actual content height
+      const sendHeight = () => {
+        const h = document.documentElement.scrollHeight || document.body.scrollHeight;
+        // streamlit:componentReady + setFrameHeight are supported patterns in Streamlit components
+        window.parent.postMessage({type: "streamlit:componentReady"}, "*");
+        window.parent.postMessage({type: "streamlit:setFrameHeight", height: h}, "*");
+    };
+
+      // Run multiple times because fonts/layout settle after paint
+      setTimeout(sendHeight, 50);
+      setTimeout(sendHeight, 150);
+      setTimeout(sendHeight, 350);
+      window.addEventListener("resize", sendHeight);
+   })();
+   </script>
+   """
+
+    # Give a safe initial height; JS will shrink/expand to perfect size
+    components.html(html, height=600, scrolling=False)
 
 # =========================
 # 15) CALENDAR (EVENTS + RENDER)
