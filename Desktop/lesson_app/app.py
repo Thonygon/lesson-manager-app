@@ -1604,10 +1604,10 @@ def kpi_bubbles(values, colors, size=170):
         """
     bubbles_html += "</div>"
 
-    # Height estimation: compute rows based on a conservative "2 bubbles per row" for mobile
+    # Height estimation: compute rows based on a conservative "3 bubbles per row" for mobile
     n = len(values)
-    # On wide screens auto-fit handles it; for iframe height, assume up to 3 per row in practice
-    per_row = 2 if compact else 3
+    # On wide screens auto-fit handles it; for iframe height, assume up to 4 per row in practice
+    per_row = 3 if compact else 4
     rows = max(1, math.ceil(n / per_row))
     bubble_px = min(base, 180)
     height = int(rows * (bubble_px + 28) + 40)
