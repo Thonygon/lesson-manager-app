@@ -2640,94 +2640,133 @@ elif page == "calendar":
                     st.error(f"Could not delete override.\n\n{e}")
 
 # =========================
-# 24) PAGE: ANALYTICS
-# =========================
-# =========================
-# 24) PAGE: ANALYTICS (CLICKABLE KPI NAVIGATION)
+# 24) PAGE: ANALYTICS (CLICKABLE KPI CAPSULES - NO WHITE BUTTONS)
 # =========================
 elif page == "analytics":
     page_header(t("analytics"))
 
-    # ---------------------------------------
-    # Default selected analytics view
-    # ---------------------------------------
+    # --- Read analytics view from query param (av) ---
+    try:
+        qp = st.query_params
+        av = qp.get("av", None)
+        if isinstance(av, list):
+            av = av[0] if av else None
+        av = str(av) if av else None
+    except Exception:
+        qp = st.experimental_get_query_params()
+        av = qp.get("av", [None])[0]
+
+    allowed_views = {"all_time", "year", "month", "week"}
+
     if "analytics_view" not in st.session_state:
         st.session_state.analytics_view = "all_time"
 
+    if av in allowed_views:
+        st.session_state.analytics_view = av
+
+    view = st.session_state.analytics_view
+
     # ---------------------------------------
-    # Load analytics data
+    # Load analytics data (monthly base table)
     # ---------------------------------------
     kpis, income_table, by_student, sold_by_language, sold_by_modality = build_income_analytics(group="monthly")
 
     # ---------------------------------------
-    # Clickable KPI bubbles (styled buttons)
+    # Clickable KPI capsules via HTML <a> tags
+    # (capsules ARE the clickable element)
     # ---------------------------------------
-    col1, col2, col3, col4 = st.columns(4)
+    st.markdown(
+        """
+        <style>
+          .kpi-nav{
+            display:flex;
+            gap:22px;
+            flex-wrap:wrap;
+            align-items:stretch;
+            margin: 10px 0 6px 0;
+          }
+          .kpi-pill{
+            flex: 1 1 220px;
+            min-width: 220px;
+            max-width: 360px;
+            text-decoration:none !important;
+            color:#0f172a !important;
+          }
+          .kpi-pill .card{
+            border-radius: 999px;
+            padding: 34px 18px;
+            background: #fff;
+            border: 1px solid rgba(17,24,39,0.10);
+            box-shadow: 0 18px 34px rgba(15,23,42,0.10);
+            transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+            text-align:center;
+            position:relative;
+            overflow:hidden;
+          }
+          .kpi-pill:hover .card{
+            transform: translateY(-2px);
+            box-shadow: 0 22px 44px rgba(15,23,42,0.14);
+            border-color: rgba(59,130,246,0.35);
+          }
+          .kpi-pill.active .card{
+            border: 3px solid #2563EB;
+          }
+          .kpi-pill .val{
+            font-weight: 900;
+            font-size: 42px;
+            line-height: 1.0;
+            margin-bottom: 10px;
+          }
+          .kpi-pill .lab{
+            font-weight: 800;
+            font-size: 16px;
+            opacity: .95;
+          }
+          .glow{
+            position:absolute;
+            inset:-40px;
+            filter: blur(18px);
+            opacity: .9;
+            pointer-events:none;
+          }
+          @media (max-width: 900px){
+            .kpi-pill{ min-width: 200px; }
+            .kpi-pill .val{ font-size: 36px; }
+          }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
 
-    def bubble_button(label, value, key, color):
-        active = st.session_state.analytics_view == key
-
-        style = f"""
-            <div style="
-                background:{color};
-                border-radius:999px;
-                padding:35px 10px;
-                text-align:center;
-                cursor:pointer;
-                border: {'3px solid #2563EB' if active else '1px solid rgba(0,0,0,0.08)'};
-                box-shadow:0 8px 20px rgba(0,0,0,0.08);
-            ">
-                <div style="font-size:28px;font-weight:900;">
-                    {value}
-                </div>
-                <div style="font-size:14px;font-weight:700;margin-top:6px;">
-                    {label}
-                </div>
+    def pill(label: str, value: str, key: str, glow_css: str) -> str:
+        active_class = "active" if view == key else ""
+        href = f"?page=analytics&av={key}"
+        return f"""
+          <a class="kpi-pill {active_class}" href="{href}">
+            <div class="card">
+              <div class="glow" style="{glow_css}"></div>
+              <div class="val">{value}</div>
+              <div class="lab">{label}</div>
             </div>
+          </a>
         """
 
-        if st.button("", key=f"btn_{key}", use_container_width=True):
-            st.session_state.analytics_view = key
-            st.rerun()
-
-        st.markdown(style, unsafe_allow_html=True)
-
-
-    with col1:
-        bubble_button(
-            t("all_time_income"),
-            money_fmt(kpis["income_all_time"]),
-            "all_time",
-            "radial-gradient(100px 100px at 30% 25%, rgba(59,130,246,.35), transparent 60%), #ffffff"
-        )
-
-    with col2:
-        bubble_button(
-            t("this_year_income"),
-            money_fmt(kpis["income_this_year"]),
-            "year",
-            "radial-gradient(100px 100px at 30% 25%, rgba(16,185,129,.30), transparent 60%), #ffffff"
-        )
-
-    with col3:
-        bubble_button(
-            t("this_month_income"),
-            money_fmt(kpis["income_this_month"]),
-            "month",
-            "radial-gradient(100px 100px at 30% 25%, rgba(245,158,11,.30), transparent 60%), #ffffff"
-        )
-
-    with col4:
-        bubble_button(
-            t("this_week_income"),
-            money_fmt(kpis["income_this_week"]),
-            "week",
-            "radial-gradient(100px 100px at 30% 25%, rgba(139,92,246,.32), transparent 60%), #ffffff"
-        )
+    pills_html = f"""
+      <div class="kpi-nav">
+        {pill(t("all_time_income"), money_fmt(kpis.get("income_all_time", 0.0)), "all_time",
+              "background: radial-gradient(140px 140px at 20% 25%, rgba(59,130,246,.33), transparent 60%);")}
+        {pill(t("this_year_income"), money_fmt(kpis.get("income_this_year", 0.0)), "year",
+              "background: radial-gradient(140px 140px at 20% 25%, rgba(16,185,129,.28), transparent 60%);")}
+        {pill(t("this_month_income"), money_fmt(kpis.get("income_this_month", 0.0)), "month",
+              "background: radial-gradient(140px 140px at 20% 25%, rgba(245,158,11,.26), transparent 60%);")}
+        {pill(t("this_week_income"), money_fmt(kpis.get("income_this_week", 0.0)), "week",
+              "background: radial-gradient(140px 140px at 20% 25%, rgba(139,92,246,.28), transparent 60%);")}
+      </div>
+    """
+    st.markdown(pills_html, unsafe_allow_html=True)
 
     st.divider()
 
-    view = st.session_state.analytics_view
     today = pd.Timestamp.today().normalize()
 
     # ============================================
@@ -2735,7 +2774,9 @@ elif page == "analytics":
     # ============================================
     if view == "all_time":
         st.subheader("All Time – Monthly Income")
-        if not income_table.empty:
+        if income_table.empty:
+            st.info(t("no_data"))
+        else:
             chart_df = income_table.set_index("Key")[["Income"]]
             st.line_chart(chart_df)
 
@@ -2743,52 +2784,52 @@ elif page == "analytics":
     # YEAR → Yearly grouped income (bar)
     # ============================================
     elif view == "year":
-        st.subheader("Yearly Income")
+        st.subheader("This Year – Yearly Income (by year)")
 
-        kpis_year, yearly_table, *_ = build_income_analytics(group="yearly")
-
-        if not yearly_table.empty:
+        _, yearly_table, *_ = build_income_analytics(group="yearly")
+        if yearly_table.empty:
+            st.info(t("no_data"))
+        else:
             st.bar_chart(yearly_table.set_index("Key")["Income"])
 
     # ============================================
-    # MONTH → Monthly income of selected year
+    # MONTH → Monthly income of selected year (default current year)
     # ============================================
     elif view == "month":
-        st.subheader("Monthly Income by Year")
+        st.subheader("This Month – Monthly Income (select year)")
 
-        year_options = sorted(
-            income_table["Key"].str[:4].unique(),
-            reverse=True
-        )
+        if income_table.empty:
+            st.info(t("no_data"))
+        else:
+            year_options = sorted(income_table["Key"].str[:4].dropna().unique().tolist(), reverse=True)
+            current_year = str(today.year)
+            default_idx = year_options.index(current_year) if current_year in year_options else 0
 
-        selected_year = st.selectbox(
-            "Select year",
-            year_options,
-            index=0
-        )
+            selected_year = st.selectbox("Select year", year_options, index=default_idx, key="analytics_year_pick")
 
-        monthly = income_table[
-            income_table["Key"].str.startswith(selected_year)
-        ].copy()
-
-        if not monthly.empty:
-            monthly = monthly.set_index("Key")
-            st.line_chart(monthly["Income"])
+            monthly = income_table[income_table["Key"].str.startswith(selected_year)].copy()
+            if monthly.empty:
+                st.info(t("no_data"))
+            else:
+                monthly = monthly.set_index("Key")[["Income"]]
+                st.line_chart(monthly)
 
     # ============================================
-    # WEEK → Last 7 days income
+    # WEEK → Last 7 days income (bar)
     # ============================================
     elif view == "week":
-        st.subheader("Last 7 Days Income")
+        st.subheader("This Week – Last 7 Days Income")
 
         payments = load_table("payments")
-        if not payments.empty:
-            payments["payment_date"] = pd.to_datetime(payments["payment_date"], errors="coerce")
-            payments["paid_amount"] = pd.to_numeric(payments["paid_amount"], errors="coerce").fillna(0.0)
+        if payments.empty:
+            st.info(t("no_data"))
+        else:
+            payments["payment_date"] = pd.to_datetime(payments.get("payment_date"), errors="coerce")
+            payments["paid_amount"] = pd.to_numeric(payments.get("paid_amount"), errors="coerce").fillna(0.0)
+            payments = payments.dropna(subset=["payment_date"])
 
             week_cutoff = today - pd.Timedelta(days=6)
             week_df = payments[payments["payment_date"] >= week_cutoff].copy()
-
             week_df["Day"] = week_df["payment_date"].dt.strftime("%Y-%m-%d")
 
             daily = (
@@ -2798,10 +2839,16 @@ elif page == "analytics":
                 .sort_values("Day")
             )
 
-            if not daily.empty:
-                st.bar_chart(daily.set_index("Day")["Income"])
+            # Optional: ensure 7 days always show (even if 0)
+            days = [(today - pd.Timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
+            daily = pd.DataFrame({"Day": days}).merge(daily, on="Day", how="left").fillna({"Income": 0.0})
+
+            st.bar_chart(daily.set_index("Day")["Income"])
 
     st.divider()
+
+    # (Keep your remaining analytics sections below if you want:
+    # top students, sold_by_language, sold_by_modality, teaching charts, forecast, etc.)
 
     # Keep the rest of your analytics (language/modality/forecast)
 
