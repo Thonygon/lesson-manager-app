@@ -2642,45 +2642,168 @@ elif page == "calendar":
 # =========================
 # 24) PAGE: ANALYTICS
 # =========================
+# =========================
+# 24) PAGE: ANALYTICS (CLICKABLE KPI NAVIGATION)
+# =========================
 elif page == "analytics":
     page_header(t("analytics"))
 
-    group = st.selectbox(
-        t("group_by"),
-        options=["monthly", "yearly"],
-        format_func=lambda x: t("monthly") if x == "monthly" else t("yearly"),
-        index=0,
-        key="analytics_group"
-    )
+    # ---------------------------------------
+    # Default selected analytics view
+    # ---------------------------------------
+    if "analytics_view" not in st.session_state:
+        st.session_state.analytics_view = "all_time"
 
-    kpis, income_table, by_student, sold_by_language, sold_by_modality = build_income_analytics(group=group)
+    # ---------------------------------------
+    # Load analytics data
+    # ---------------------------------------
+    kpis, income_table, by_student, sold_by_language, sold_by_modality = build_income_analytics(group="monthly")
 
-    kpi_bubbles(
-        values=[
-            (t("all_time_income"), money_fmt(kpis.get("income_all_time", 0.0))),
-            (t("this_year_income"), money_fmt(kpis.get("income_this_year", 0.0))),
-            (t("this_month_income"), money_fmt(kpis.get("income_this_month", 0.0))),
-            (t("this_week_income"), money_fmt(kpis.get("income_this_week", 0.0))),
-        ],
-        colors=[
-            "background: radial-gradient(100px 100px at 30% 25%, rgba(59,130,246,.35), transparent 60%), #ffffff;",
-            "background: radial-gradient(100px 100px at 30% 25%, rgba(16,185,129,.30), transparent 60%), #ffffff;",
-            "background: radial-gradient(100px 100px at 30% 25%, rgba(245,158,11,.30), transparent 60%), #ffffff;",
-            "background: radial-gradient(100px 100px at 30% 25%, rgba(139,92,246,.32), transparent 60%), #ffffff;",
-        ],
-        size=180
-    )
+    # ---------------------------------------
+    # Clickable KPI bubbles (styled buttons)
+    # ---------------------------------------
+    col1, col2, col3, col4 = st.columns(4)
+
+    def bubble_button(label, value, key, color):
+        active = st.session_state.analytics_view == key
+
+        style = f"""
+            <div style="
+                background:{color};
+                border-radius:999px;
+                padding:35px 10px;
+                text-align:center;
+                cursor:pointer;
+                border: {'3px solid #2563EB' if active else '1px solid rgba(0,0,0,0.08)'};
+                box-shadow:0 8px 20px rgba(0,0,0,0.08);
+            ">
+                <div style="font-size:28px;font-weight:900;">
+                    {value}
+                </div>
+                <div style="font-size:14px;font-weight:700;margin-top:6px;">
+                    {label}
+                </div>
+            </div>
+        """
+
+        if st.button("", key=f"btn_{key}", use_container_width=True):
+            st.session_state.analytics_view = key
+            st.rerun()
+
+        st.markdown(style, unsafe_allow_html=True)
+
+
+    with col1:
+        bubble_button(
+            t("all_time_income"),
+            money_fmt(kpis["income_all_time"]),
+            "all_time",
+            "radial-gradient(100px 100px at 30% 25%, rgba(59,130,246,.35), transparent 60%), #ffffff"
+        )
+
+    with col2:
+        bubble_button(
+            t("this_year_income"),
+            money_fmt(kpis["income_this_year"]),
+            "year",
+            "radial-gradient(100px 100px at 30% 25%, rgba(16,185,129,.30), transparent 60%), #ffffff"
+        )
+
+    with col3:
+        bubble_button(
+            t("this_month_income"),
+            money_fmt(kpis["income_this_month"]),
+            "month",
+            "radial-gradient(100px 100px at 30% 25%, rgba(245,158,11,.30), transparent 60%), #ffffff"
+        )
+
+    with col4:
+        bubble_button(
+            t("this_week_income"),
+            money_fmt(kpis["income_this_week"]),
+            "week",
+            "radial-gradient(100px 100px at 30% 25%, rgba(139,92,246,.32), transparent 60%), #ffffff"
+        )
 
     st.divider()
-    st.subheader(t("income_table"))
-    if income_table.empty:
-        st.info(t("no_data"))
-    else:
-        chart_df = income_table.set_index("Key")[["Income"]]
-        st.line_chart(chart_df)
-        show_table = income_table.copy()
-        show_table["Income"] = show_table["Income"].apply(money_fmt)
-        st.dataframe(pretty_df(show_table.rename(columns={"Key": "Period"})), use_container_width=True, hide_index=True)
+
+    view = st.session_state.analytics_view
+    today = pd.Timestamp.today().normalize()
+
+    # ============================================
+    # ALL TIME → Monthly income from oldest month
+    # ============================================
+    if view == "all_time":
+        st.subheader("All Time – Monthly Income")
+        if not income_table.empty:
+            chart_df = income_table.set_index("Key")[["Income"]]
+            st.line_chart(chart_df)
+
+    # ============================================
+    # YEAR → Yearly grouped income (bar)
+    # ============================================
+    elif view == "year":
+        st.subheader("Yearly Income")
+
+        kpis_year, yearly_table, *_ = build_income_analytics(group="yearly")
+
+        if not yearly_table.empty:
+            st.bar_chart(yearly_table.set_index("Key")["Income"])
+
+    # ============================================
+    # MONTH → Monthly income of selected year
+    # ============================================
+    elif view == "month":
+        st.subheader("Monthly Income by Year")
+
+        year_options = sorted(
+            income_table["Key"].str[:4].unique(),
+            reverse=True
+        )
+
+        selected_year = st.selectbox(
+            "Select year",
+            year_options,
+            index=0
+        )
+
+        monthly = income_table[
+            income_table["Key"].str.startswith(selected_year)
+        ].copy()
+
+        if not monthly.empty:
+            monthly = monthly.set_index("Key")
+            st.line_chart(monthly["Income"])
+
+    # ============================================
+    # WEEK → Last 7 days income
+    # ============================================
+    elif view == "week":
+        st.subheader("Last 7 Days Income")
+
+        payments = load_table("payments")
+        if not payments.empty:
+            payments["payment_date"] = pd.to_datetime(payments["payment_date"], errors="coerce")
+            payments["paid_amount"] = pd.to_numeric(payments["paid_amount"], errors="coerce").fillna(0.0)
+
+            week_cutoff = today - pd.Timedelta(days=6)
+            week_df = payments[payments["payment_date"] >= week_cutoff].copy()
+
+            week_df["Day"] = week_df["payment_date"].dt.strftime("%Y-%m-%d")
+
+            daily = (
+                week_df.groupby("Day", as_index=False)["paid_amount"]
+                .sum()
+                .rename(columns={"paid_amount": "Income"})
+                .sort_values("Day")
+            )
+
+            if not daily.empty:
+                st.bar_chart(daily.set_index("Day")["Income"])
+
+    st.divider()
+
+    # Keep the rest of your analytics (language/modality/forecast)
 
     # ✅ Missing piece: Top profitable students
     st.divider()
