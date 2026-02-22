@@ -1950,28 +1950,44 @@ if page == "home":
 render_sidebar_nav(page)
 
 # =========================
+# =========================
 # 18) PAGE: DASHBOARD
 # =========================
 if page == "dashboard":
     page_header(t("dashboard"))
 
+    # Rebuild dashboard table (package status)
     dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
 
-    if dash.empty:
+    if dash is None or dash.empty:
         st.info(t("no_data"))
         st.stop()
 
     d = dash.copy()
-    d["Is_Active_6m"] = d.get("Is_Active_6m", False).fillna(False).astype(bool)
-    d["Status"] = d.get("Status", "").fillna("").astype(str)
 
+    # Defensive typing
+    if "Is_Active_6m" in d.columns:
+        d["Is_Active_6m"] = d["Is_Active_6m"].fillna(False).astype(bool)
+    else:
+        d["Is_Active_6m"] = False
+
+    if "Status" in d.columns:
+        d["Status"] = d["Status"].fillna("").astype(str)
+    else:
+        d["Status"] = ""
+
+    # Keep dashboard focused (hide Dropout)
     d = d[d["Status"] != "Dropout"].copy()
+
+    # Keep only meaningful rows:
+    # - Active / Almost Finished / Mismatch
+    # - Finished only if active within last 6 months
     d = d[
-        (d["Status"].isin(["Active", "Almost Finished"])) |
-        ((d["Status"] == "Finished") & (d["Is_Active_6m"] == True)) |
-        (d["Status"] == "Mismatch")
+        (d["Status"].isin(["Active", "Almost Finished", "Mismatch"])) |
+        ((d["Status"] == "Finished") & (d["Is_Active_6m"] == True))
     ].copy()
 
+    # KPIs
     total_students = int(len(d))
     active_count = int((d["Status"] == "Active").sum())
     finish_soon_count = int((d["Status"] == "Almost Finished").sum())
@@ -1996,6 +2012,9 @@ if page == "dashboard":
         size=170,
     )
 
+    # --------------------------------
+    # Status overview chart
+    # --------------------------------
     st.divider()
     st.subheader(t("status_overview"))
     status_order = ["Active", "Almost Finished", "Finished", "Mismatch"]
@@ -2008,21 +2027,30 @@ if page == "dashboard":
     )
     st.bar_chart(status_counts)
 
+    # --------------------------------
+    # Finish soon + WhatsApp
+    # --------------------------------
     st.divider()
     st.subheader(t("action_finish_soon"))
 
     due_df = d[d["Status"] == "Almost Finished"].copy()
-    due_df["Lessons_Left"] = pd.to_numeric(due_df.get("Lessons_Left_Units"), errors="coerce").fillna(0).astype(int)
-    due_df = due_df.sort_values(["Lessons_Left", "Student"])
+    if "Lessons_Left_Units" in due_df.columns:
+        due_df["Lessons_Left"] = pd.to_numeric(due_df["Lessons_Left_Units"], errors="coerce").fillna(0).astype(int)
+    else:
+        due_df["Lessons_Left"] = 0
+
+    due_df = due_df.sort_values(["Lessons_Left", "Student"], ascending=[True, True])
 
     if due_df.empty:
         st.caption(t("no_data"))
     else:
-        cols_due = ["Student","Lessons_Left","Status","Modality","Languages","Payment_Date","Last_Lesson_Date"]
+        cols_due = ["Student", "Lessons_Left", "Status", "Modality", "Languages", "Payment_Date", "Last_Lesson_Date"]
         cols_due = [c for c in cols_due if c in due_df.columns]
         st.dataframe(pretty_df(due_df[cols_due]), use_container_width=True, hide_index=True)
 
+        # WhatsApp helper
         _, _, _, phone_map = student_meta_maps()
+
         pick = st.selectbox(t("select_student"), due_df["Student"].tolist(), key="dash_pick_student")
         raw_phone = phone_map.get(norm_student(pick), "")
 
@@ -2045,28 +2073,48 @@ if page == "dashboard":
             unsafe_allow_html=True,
         )
 
+    # --------------------------------
+    # Current students table
+    # --------------------------------
     st.divider()
     st.subheader(t("current_students"))
     st.dataframe(pretty_df(d), use_container_width=True, hide_index=True)
 
+    # --------------------------------
+    # Mismatch section + Normalize action
+    # --------------------------------
     st.divider()
     st.subheader(t("mismatches"))
+
     mismatch_df = d[d["Status"] == "Mismatch"].copy()
     if mismatch_df.empty:
         st.caption(t("no_data"))
     else:
         cols_mm = [
-            "Student","Overused_Units","Lessons_Taken_Units","Lessons_Paid_Total",
-            "Payment_Date","Package_Start_Date","Modality","Languages","Payment_ID","Normalize_Allowed"
+            "Student",
+            "Overused_Units",
+            "Lessons_Taken_Units",
+            "Lessons_Paid_Total",
+            "Payment_Date",
+            "Package_Start_Date",
+            "Modality",
+            "Languages",
+            "Payment_ID",
+            "Normalize_Allowed",
         ]
         cols_mm = [c for c in cols_mm if c in mismatch_df.columns]
         st.dataframe(pretty_df(mismatch_df[cols_mm]), use_container_width=True, hide_index=True)
 
         pick_m = st.selectbox(t("select_student"), mismatch_df["Student"].tolist(), key="dash_mismatch_student")
         rowm = mismatch_df[mismatch_df["Student"] == pick_m].iloc[0]
-        pid = int(rowm.get("Payment_ID", 0))
+
+        pid = int(rowm.get("Payment_ID", 0) or 0)
         can_norm = bool(rowm.get("Normalize_Allowed", False))
-        norm_note = st.text_input(t("normalized_note"), value=t("normalized_default_note"), key="dash_norm_note")
+        norm_note = st.text_input(
+            t("normalized_note"),
+            value=t("normalized_default_note"),
+            key="dash_norm_note",
+        )
 
         if st.button(t("normalize"), disabled=not can_norm, key="dash_mismatch_norm"):
             ok = normalize_latest_package(pick_m, pid, note=norm_note)
@@ -2640,211 +2688,117 @@ elif page == "calendar":
                     st.error(f"Could not delete override.\n\n{e}")
 
 # =========================
-# 24) PAGE: ANALYTICS (NATIVE "BUBBLES" USING RADIO + CSS)
+# 24) PAGE: ANALYTICS
 # =========================
 elif page == "analytics":
+
     page_header(t("analytics"))
 
-    # --- Query param helper (new + old Streamlit) ---
-    def _get_qp(key: str, default=None):
-        try:
-            qp = st.query_params
-            v = qp.get(key, default)
-            if isinstance(v, list):
-                v = v[0] if v else default
-            return v if v is not None else default
-        except Exception:
-            qp = st.experimental_get_query_params()
-            v = qp.get(key, [default])
-            return v[0] if v else default
-
-    def _set_qp(**kwargs):
-        try:
-            for k, v in kwargs.items():
-                st.query_params[k] = v
-        except Exception:
-            st.experimental_set_query_params(**kwargs)
-
-    allowed_views = ["all_time", "year", "month", "week"]
-
-    # Load analytics
+    # -------------------------
+    # LOAD DATA
+    # -------------------------
     kpis, income_table, by_student, sold_by_language, sold_by_modality = build_income_analytics(group="monthly")
-    today = pd.Timestamp.today().normalize()
 
-    # --- Determine current view ---
+    # -------------------------
+    # KPI VIEW SELECTOR (BUBBLES)
+    # -------------------------
     if "analytics_view" not in st.session_state:
         st.session_state.analytics_view = "all_time"
 
-    av = _get_qp("av", None)
-    if av in allowed_views:
-        st.session_state.analytics_view = av
+    col1, col2, col3, col4 = st.columns(4)
+
+    def kpi_button(label, key):
+        if st.button(label, use_container_width=True):
+            st.session_state.analytics_view = key
+
+    with col1:
+        kpi_button(t("all_time_income"), "all_time")
+    with col2:
+        kpi_button(t("this_year_income"), "year")
+    with col3:
+        kpi_button(t("this_month_income"), "month")
+    with col4:
+        kpi_button(t("this_week_income"), "week")
 
     view = st.session_state.analytics_view
 
-    # -----------------------------
-    # KPI Bubbles CSS (Analytics only)
-    # -----------------------------
-    st.markdown(
-        """
-        <style>
-        div[data-testid="stRadio"] div[role="radiogroup"]{
-            display:flex !important;
-            flex-wrap:wrap !important;
-            gap:22px !important;
-            align-items:stretch !important;
-            margin-top:-6px !important;
-        }
-
-        div[data-testid="stRadio"] label[data-baseweb="radio"],
-        div[data-testid="stRadio"] label[data-baseweb="radio"] *{
-            font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif !important;
-        }
-
-        div[data-testid="stRadio"] label[data-baseweb="radio"]{
-            background:#ffffff !important;
-            border:1px solid rgba(17,24,39,0.10) !important;
-            box-shadow:0 18px 34px rgba(15,23,42,0.10) !important;
-            border-radius:999px !important;
-            padding:34px 22px !important;
-            min-width:220px !important;
-            max-width:360px !important;
-            flex:1 1 220px !important;
-            cursor:pointer !important;
-            user-select:none !important;
-            transition:transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease !important;
-            display:flex !important;
-            align-items:center !important;
-            justify-content:center !important;
-            position:relative !important;
-            overflow:hidden !important;
-        }
-
-        div[data-testid="stRadio"] label[data-baseweb="radio"]:hover{
-            transform:translateY(-2px) !important;
-            box-shadow:0 22px 44px rgba(15,23,42,0.14) !important;
-            border-color:rgba(59,130,246,0.35) !important;
-        }
-
-        div[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked){
-            border:3px solid #2563EB !important;
-        }
-
-        div[data-testid="stRadio"] label[data-baseweb="radio"] > div:first-child{
-            display:none !important;
-        }
-
-        div[data-testid="stRadio"] label[data-baseweb="radio"] > div:last-child{
-            width:100% !important;
-            text-align:center !important;
-            color:#0f172a !important;
-        }
-
-        div[data-testid="stRadio"] label[data-baseweb="radio"] > div:last-child div{
-            white-space:pre-line !important;
-            font-weight:900 !important;
-            font-size:42px !important;
-            line-height:1.05 !important;
-            margin-bottom:8px !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-    # ---------------------------------------
-    # KPI Options
-    # ---------------------------------------
-    opt_map = {
-        "all_time": (t("all_time_income"), money_fmt(kpis.get("income_all_time", 0.0))),
-        "year":     (t("this_year_income"), money_fmt(kpis.get("income_this_year", 0.0))),
-        "month":    (t("this_month_income"), money_fmt(kpis.get("income_this_month", 0.0))),
-        "week":     (t("this_week_income"), money_fmt(kpis.get("income_this_week", 0.0))),
-    }
-
-    options_display = []
-    key_from_display = {}
-
-    for k in allowed_views:
-        lab, val = opt_map[k]
-        disp = f"{k}__{lab}__{val}"
-        options_display.append(disp)
-        key_from_display[disp] = k
-
-    def _fmt(disp: str) -> str:
-        k = key_from_display[disp]
-        lab, val = opt_map[k]
-        return f"{val}\n{lab}"
-
-    default_disp = next(
-        (d for d in options_display if key_from_display[d] == view),
-        options_display[0]
-    )
-    default_index = options_display.index(default_disp)
-
-    picked_disp = st.radio(
-        label="",
-        options=options_display,
-        index=default_index,
-        format_func=_fmt,
-        horizontal=True,
-        key="analytics_view_radio",
-        label_visibility="collapsed",
-    )
-
-    picked_view = key_from_display.get(picked_disp, "all_time")
-
-    if picked_view != st.session_state.analytics_view:
-        st.session_state.analytics_view = picked_view
-        _set_qp(page="analytics", av=picked_view)
-        st.rerun()
-
-    view = st.session_state.analytics_view
     st.divider()
 
-    # ============================================
-    # MAIN VIEW CONTENT
-    # ============================================
+    # -------------------------
+    # KPI VALUE DISPLAY
+    # -------------------------
     if view == "all_time":
-        st.subheader("All Time – Monthly Income")
-        if income_table.empty:
-            st.info(t("no_data"))
-        else:
-            st.line_chart(income_table.set_index("Key")[["Income"]])
-
+        value = kpis["income_all_time"]
     elif view == "year":
-        st.subheader("This Year – Yearly Income")
-        _, yearly_table, *_ = build_income_analytics(group="yearly")
-        if yearly_table.empty:
-            st.info(t("no_data"))
-        else:
-            st.bar_chart(yearly_table.set_index("Key")["Income"])
-
+        value = kpis["income_this_year"]
     elif view == "month":
-        st.subheader("This Month – Monthly Income")
-        if income_table.empty:
-            st.info(t("no_data"))
-        else:
-            year_options = sorted(
-                income_table["Key"].str[:4].dropna().unique().tolist(),
-                reverse=True
-            )
-            current_year = str(today.year)
-            default_idx = year_options.index(current_year) if current_year in year_options else 0
+        value = kpis["income_this_month"]
+    else:
+        value = kpis["income_this_week"]
 
-            selected_year = st.selectbox(
-                "Select year",
-                year_options,
-                index=default_idx,
-                key="analytics_year_pick"
-            )
+    st.metric(
+        label="",
+        value=money_fmt(value)
+    )
 
-            monthly = income_table[income_table["Key"].str.startswith(selected_year)].copy()
+    st.divider()
 
-            if monthly.empty:
-                st.info(t("no_data"))
-            else:
-                st.line_chart(monthly.set_index("Key")[["Income"]])
+    # -------------------------
+    # GROUP BY OPTION
+    # -------------------------
+    group = st.radio(
+        t("group_by"),
+        options=["monthly", "yearly"],
+        horizontal=True
+    )
 
+    kpis, income_table, by_student, sold_by_language, sold_by_modality = build_income_analytics(group=group)
+
+    # -------------------------
+    # INCOME TABLE
+    # -------------------------
+    st.subheader(t("income_table"))
+
+    if income_table.empty:
+        st.info(t("no_data"))
+    else:
+        st.dataframe(pretty_df(income_table), use_container_width=True)
+
+    st.divider()
+
+    # -------------------------
+    # TOP STUDENTS
+    # -------------------------
+    st.subheader(t("top_students"))
+
+    if by_student.empty:
+        st.info(t("no_data"))
+    else:
+        st.dataframe(pretty_df(by_student.head(10)), use_container_width=True)
+
+    st.divider()
+
+    # -------------------------
+    # SOLD BY LANGUAGE
+    # -------------------------
+    st.subheader(t("sold_by_language"))
+
+    if sold_by_language.empty:
+        st.info(t("no_data"))
+    else:
+        st.dataframe(pretty_df(sold_by_language), use_container_width=True)
+
+    st.divider()
+
+    # -------------------------
+    # SOLD BY MODALITY
+    # -------------------------
+    st.subheader(t("sold_by_modality"))
+
+    if sold_by_modality.empty:
+        st.info(t("no_data"))
+    else:
+        st.dataframe(pretty_df(sold_by_modality), use_container_width=True)
 # =========================
 # FALLBACK
 # =========================
