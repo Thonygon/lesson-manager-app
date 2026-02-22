@@ -2702,7 +2702,7 @@ elif page == "analytics":
             cards.append(f"""
               <div class="kpi-pill {active}" role="button" tabindex="0"
                    onclick="go('{href}')"
-                   onkeypress="if(event.key==='Enter'){go('{href}')}}">
+                   onkeypress="if(event.key==='Enter'){{go('{href}')}}">
                 <div class="card">
                   <div class="glow" style="background:{glow};"></div>
                   <div class="val">{val}</div>
