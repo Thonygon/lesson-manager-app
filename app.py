@@ -401,7 +401,7 @@ def load_css_home_dark():
           font-size: clamp(2.0rem, 3.6vw, 3.0rem);
           font-weight: 900;
           letter-spacing: -0.045em;
-          margin: 0.65rem 0 0.35rem 0;
+          margin: 0rem 0 0rem 0;
         }
         .home-sub{
           text-align:center;
@@ -414,8 +414,8 @@ def load_css_home_dark():
           display:block;
           width: 100%;
           border-radius: 999px;
-          padding: 0.95rem 1.1rem;
-          margin: 0.95rem 0;
+          padding: 0.85rem 1.1rem;
+          margin: 0.85rem 0;
           font-weight: 800;
           text-align: center;
           color: #ffffff !important;
@@ -427,11 +427,7 @@ def load_css_home_dark():
           transform: translateY(-2px);
           filter: brightness(1.05);
         }
-        .home-indicator{
-          width: 92px; height: 7px; border-radius: 999px;
-          background: rgba(255,255,255,0.22);
-          margin: 1.55rem auto 0.4rem auto;
-        }
+  
         </style>
         """,
         unsafe_allow_html=True
