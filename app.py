@@ -647,9 +647,14 @@ def page_header(title: str):
 # =========================
 # 05) SUPABASE CONNECTION
 # =========================
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+try:
+    SUPABASE_URL = st.secrets["SUPABASE_URL"]
+    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+except Exception as e:
+    st.error("Missing or invalid Streamlit secrets: SUPABASE_URL / SUPABASE_KEY")
+    st.code(str(e))
+    st.stop()
 
 # =========================
 # 06) DATA ACCESS HELPERS
@@ -2756,23 +2761,17 @@ elif page == "analytics":
     kpis, income_table, by_student, sold_by_language, sold_by_modality = build_income_analytics(group="monthly")
     today = pd.Timestamp.today().normalize()
 
-      # ---------------------------------------
+    # ---------------------------------------
     # KPI "CAPSULES" (NATIVE STREAMLIT RADIO + NICE CSS)
-    # - No iframe / no JS navigation
-    # - Click updates tables/charts correctly
-    # - Syncs query params (av) so refresh/back works
     # ---------------------------------------
 
     def _set_qp(**kwargs):
         try:
-            # Streamlit >= 1.30-ish
             for k, v in kwargs.items():
                 st.query_params[k] = v
         except Exception:
-            # Older Streamlit
             st.experimental_set_query_params(**kwargs)
 
-    # Build pretty labels with KPI values
     opt_map = {
         "all_time": (t("all_time_income"), money_fmt(kpis.get("income_all_time", 0.0))),
         "year":     (t("this_year_income"), money_fmt(kpis.get("income_this_year", 0.0))),
@@ -2782,9 +2781,9 @@ elif page == "analytics":
 
     options = ["all_time", "year", "month", "week"]
 
-    # Unique internal strings so Streamlit treats each option as unique
     options_display = []
     key_from_display = {}
+
     for k in options:
         lab, val = opt_map[k]
         disp = f"{k}__{lab}__{val}"
@@ -2796,17 +2795,16 @@ elif page == "analytics":
         lab, val = opt_map[k]
         return f"{val}\n{lab}"
 
-    default_disp = next((d for d in options_display if key_from_display[d] == view), options_display[0])
+    default_disp = next(
+        (d for d in options_display if key_from_display[d] == view),
+        options_display[0]
+    )
     default_index = options_display.index(default_disp)
-
-    # Scoped wrapper so CSS only affects this radio group
-    st.markdown('<div class="analytics-kpi-scope">', unsafe_allow_html=True)
 
     st.markdown(
         """
         <style>
-        /* Scope everything under analytics-kpi-scope so we don't break other radios */
-        .analytics-kpi-scope div[data-testid="stRadio"] div[role="radiogroup"]{
+        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) div[role="radiogroup"]{
             display:flex !important;
             flex-wrap:wrap !important;
             gap:22px !important;
@@ -2814,8 +2812,7 @@ elif page == "analytics":
             margin-top:-6px !important;
         }
 
-        /* Each capsule (radio label) */
-        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"]{
+        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"]{
             background:#ffffff !important;
             border:1px solid rgba(17,24,39,0.10) !important;
             box-shadow:0 18px 34px rgba(15,23,42,0.10) !important;
@@ -2835,34 +2832,29 @@ elif page == "analytics":
             text-align:center !important;
         }
 
-        /* Remove underline / link-like effects (some Streamlit themes) */
-        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"],
-        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"] *{
+        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"],
+        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"] *{
             text-decoration:none !important;
             font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif !important;
             color:#0f172a !important;
         }
 
-        /* Hover */
-        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"]:hover{
+        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"]:hover{
             transform:translateY(-2px) !important;
             box-shadow:0 22px 44px rgba(15,23,42,0.14) !important;
             border-color:rgba(59,130,246,0.35) !important;
         }
 
-        /* Hide the tiny radio circle */
-        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"] > div:first-child{
+        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"] > div:first-child{
             display:none !important;
         }
 
-        /* Text container */
-        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"] > div:last-child{
+        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"] > div:last-child{
             width:100% !important;
             text-align:center !important;
         }
 
-        /* Big value (first line) */
-        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"] > div:last-child div{
+        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"] > div:last-child div{
             white-space:pre-line !important;
             font-weight:900 !important;
             font-size:42px !important;
@@ -2870,62 +2862,39 @@ elif page == "analytics":
             margin-bottom:8px !important;
         }
 
-        /* Active ring */
-        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked){
+        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"]:has(input:checked){
             border:3px solid #2563EB !important;
         }
 
-        /* Glow per capsule (by position) */
-        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"]:nth-child(1)::before{
-            content:"";
-            position:absolute;
-            width:140px;
-            height:140px;
-            top:15%;
-            left:20%;
+        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"]:nth-child(1)::before{
+            content:""; position:absolute; width:140px; height:140px; top:15%; left:20%;
             background:radial-gradient(circle, rgba(59,130,246,.30), transparent 70%);
-            filter:blur(12px);
-            opacity:.9;
+            filter:blur(12px); opacity:.9;
         }
-        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"]:nth-child(2)::before{
-            content:"";
-            position:absolute;
-            width:140px;
-            height:140px;
-            top:15%;
-            left:20%;
+
+        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"]:nth-child(2)::before{
+            content:""; position:absolute; width:140px; height:140px; top:15%; left:20%;
             background:radial-gradient(circle, rgba(16,185,129,.28), transparent 70%);
-            filter:blur(12px);
-            opacity:.9;
+            filter:blur(12px); opacity:.9;
         }
-        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"]:nth-child(3)::before{
-            content:"";
-            position:absolute;
-            width:140px;
-            height:140px;
-            top:15%;
-            left:20%;
+
+        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"]:nth-child(3)::before{
+            content:""; position:absolute; width:140px; height:140px; top:15%; left:20%;
             background:radial-gradient(circle, rgba(245,158,11,.26), transparent 70%);
-            filter:blur(12px);
-            opacity:.9;
+            filter:blur(12px); opacity:.9;
         }
-        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"]:nth-child(4)::before{
-            content:"";
-            position:absolute;
-            width:140px;
-            height:140px;
-            top:15%;
-            left:20%;
+
+        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"]:nth-child(4)::before{
+            content:""; position:absolute; width:140px; height:140px; top:15%; left:20%;
             background:radial-gradient(circle, rgba(139,92,246,.28), transparent 70%);
-            filter:blur(12px);
-            opacity:.9;
+            filter:blur(12px); opacity:.9;
         }
 
         @media (max-width: 900px){
-            .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"]{
+            div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"]{
                 min-width:200px !important;
             }
-            .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"] > div:last-child div{
+            div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"] > div:last-child div{
                 font-size:36px !important;
             }
         }
@@ -2944,11 +2913,8 @@ elif page == "analytics":
         label_visibility="collapsed",
     )
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
     picked_view = key_from_display.get(picked_disp, "all_time")
 
-    # Apply selection (URL + session)
     if picked_view != st.session_state.analytics_view:
         st.session_state.analytics_view = picked_view
         _set_qp(page="analytics", av=picked_view)
