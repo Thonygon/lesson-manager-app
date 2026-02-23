@@ -532,6 +532,7 @@ def load_css_app_light(compact: bool = False):
           border-radius: 18px;
           box-shadow: var(--shadow);
         }}
+
         /* === SIDEBAR TOP SPACING FIX === */
         section[data-testid="stSidebar"] > div:first-child {{
             padding-top: 0rem !important;
@@ -539,7 +540,26 @@ def load_css_app_light(compact: bool = False):
 
         section[data-testid="stSidebar"] .block-container {{
             padding-top: 0rem !important;
-            margin-top: -0.5rem !important;
+            margin-top: -60rem !important;
+        }}
+
+        /* Move sidebar content up */
+        section[data-testid="stSidebar"] .cm-sidebar{{
+          margin-top: -60px !important; 
+          padding-top: 0px !important;
+        }}
+
+        /* Remove top white space on app pages */
+        header {{ 
+          display: none !important; 
+        }}
+
+        section[data-testid="stMain"] > div {{
+          padding-top: 0rem !important;
+        }}
+
+        div.block-container {{
+          padding-top: 0rem !important;
         }}
 
         {compact_css}
@@ -622,7 +642,8 @@ def go_to(page_name: str):
 def render_sidebar_nav(active_page: str):
     items = [("home", t("home"))] + [(k, t(label_key)) for (k, label_key, _) in PAGES]
     with st.sidebar:
-        st.markdown(f"### {t('menu')}")
+        st.markdown('<div class="cm-sidebar">', unsafe_allow_html=True)
+        st.markdown(f"# {t('menu')}")
         st.radio(
             t("language_ui"),
             options=["en", "es"],
@@ -636,7 +657,6 @@ def render_sidebar_nav(active_page: str):
             key="compact_mode"
         )
 
-        st.divider()
         for k, label in items:
             if k == active_page:
                 st.markdown(f"**👉 {label}**")
@@ -644,6 +664,7 @@ def render_sidebar_nav(active_page: str):
                 if st.button(label, key=f"side_{k}", use_container_width=True):
                     go_to(k)
                     st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
 def page_header(title: str):
     st.markdown(f"## {title}")
@@ -1732,7 +1753,7 @@ def kpi_bubbles(values, colors, size=170):
     n = len(values)
     bubbles_per_row = 4 if not compact else 2   # safe assumption
     rows = max(1, math.ceil(n / bubbles_per_row))
-    frame_h = rows * (max_size + gap) + 40      # padding safety
+    frame_h = rows * (max_size + gap) + -200   # padding safety
 
     components.html(html, height=int(frame_h), scrolling=False)
 # =========================
@@ -2047,19 +2068,6 @@ if page == "dashboard":
         size=170,
     )
 
-    st.divider()
-    st.subheader(t("Status Overview"))
-    status_order = ["Active", "Almost Finished", "Finished", "Mismatch"]
-    status_counts = (
-        d["Status"]
-        .value_counts()
-        .reindex(status_order)
-        .fillna(0)
-        .astype(int)
-    )
-    st.bar_chart(status_counts)
-
-    st.divider()
     st.subheader(t("Take Action"))
 
     due_df = d[d["Status"] == "Almost Finished"].copy()
