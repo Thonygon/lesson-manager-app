@@ -540,7 +540,7 @@ def load_css_app_light(compact: bool = False):
 
         section[data-testid="stSidebar"] .block-container {{
             padding-top: 0rem !important;
-            margin-top: -60rem !important;
+            margin-top: -0.5rem !important;
         }}
 
         /* Move sidebar content up */
@@ -1753,7 +1753,7 @@ def kpi_bubbles(values, colors, size=170):
     n = len(values)
     bubbles_per_row = 4 if not compact else 2   # safe assumption
     rows = max(1, math.ceil(n / bubbles_per_row))
-    frame_h = rows * (max_size + gap) + -200   # padding safety
+    frame_h = rows * (max_size + gap) + 10   # padding safety
 
     components.html(html, height=int(frame_h), scrolling=False)
 # =========================
