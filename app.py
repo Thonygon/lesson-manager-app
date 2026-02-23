@@ -24,6 +24,9 @@ import json
 import re
 import urllib.parse
 import streamlit.components.v1 as components
+from zoneinfo import ZoneInfo
+LOCAL_TZ = ZoneInfo("Europe/Istanbul")
+UTC_TZ = timezone.utc
 
 # =========================
 # 00.5) SMALL UI HELPERS
@@ -38,6 +41,23 @@ def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
         if out[c].dtype == "object":
             out[c] = out[c].astype(str).str.strip()
     return out
+
+def to_dt_naive(x, utc: bool = True):
+    """
+    Parse to pandas datetime and return tz-naive timestamps.
+    - If utc=True: interpret/convert as UTC then drop tz.
+    - If utc=False: parse without forcing UTC, then drop tz if any exists.
+    """
+    s = pd.to_datetime(x, errors="coerce", utc=utc)
+    try:
+        return s.dt.tz_convert(None)
+    except Exception:
+        # If s is not a dt Series with tz, just return as-is
+        return s
+
+def ts_today_naive() -> pd.Timestamp:
+    # Always tz-naive "today" at midnight
+    return pd.Timestamp.now().normalize().tz_localize(None)
 
 # =========================
 # 01) PAGE CONFIG
@@ -916,10 +936,10 @@ def show_student_history(student: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     lessons_df = classes[classes["student"] == student].copy()
     payments_df = payments[payments["student"] == student].copy()
 
-    lessons_df["lesson_date"] = pd.to_datetime(lessons_df["lesson_date"], errors="coerce")
-    payments_df["payment_date"] = pd.to_datetime(payments_df["payment_date"], errors="coerce")
-    payments_df["package_start_date"] = pd.to_datetime(payments_df["package_start_date"], errors="coerce")
-    payments_df["package_expiry_date"] = pd.to_datetime(payments_df["package_expiry_date"], errors="coerce")
+    lessons_df["lesson_date"] = to_dt_naive(lessons_df["lesson_date"], utc=True)
+    payments_df["payment_date"] = to_dt_naive(payments_df["payment_date"], utc=True)
+    payments_df["package_start_date"] = to_dt_naive(payments_df["package_start_date"], utc=True)
+    payments_df["package_expiry_date"] = to_dt_naive(payments_df["package_expiry_date"], utc=True)
 
     lessons_df["number_of_lesson"] = pd.to_numeric(lessons_df["number_of_lesson"], errors="coerce").fillna(0).astype(int)
     payments_df["number_of_lesson"] = pd.to_numeric(payments_df["number_of_lesson"], errors="coerce").fillna(0).astype(int)
@@ -956,10 +976,10 @@ def show_student_history(student: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         "Adjustment_Units","Package_Normalized","Normalized_Note","Normalized_At"
     ]]
 
-    lessons_df["Lesson_Date"] = pd.to_datetime(lessons_df["Lesson_Date"], errors="coerce").dt.strftime("%Y-%m-%d")
-    payments_df["Payment_Date"] = pd.to_datetime(payments_df["Payment_Date"], errors="coerce").dt.strftime("%Y-%m-%d")
-    payments_df["Package_Start_Date"] = pd.to_datetime(payments_df["Package_Start_Date"], errors="coerce").dt.strftime("%Y-%m-%d")
-    payments_df["Package_Expiry_Date"] = pd.to_datetime(payments_df["Package_Expiry_Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    lessons_df["Lesson_Date"] = to_dt_naive(lessons_df["Lesson_Date"], utc=True).dt.strftime("%Y-%m-%d")
+    payments_df["Payment_Date"] = to_dt_naive(payments_df["Payment_Date"], utc=True).dt.strftime("%Y-%m-%d")
+    payments_df["Package_Start_Date"] = to_dt_naive(payments_df["Package_Start_Date"], utc=True).dt.strftime("%Y-%m-%d")
+    payments_df["Package_Expiry_Date"] = to_dt_naive(payments_df["Package_Expiry_Date"], utc=True).dt.strftime("%Y-%m-%d")
 
     return lessons_df, payments_df
 
@@ -999,10 +1019,14 @@ def load_overrides() -> pd.DataFrame:
         return pd.DataFrame(columns=["id", "student", "original_date", "new_datetime", "duration_minutes", "status", "note"])
 
     df["student"] = df["student"].astype(str).str.strip()
-    df["original_date"] = pd.to_datetime(df["original_date"], errors="coerce")
+    df["original_date"] = to_dt_naive(df["original_date"], utc=True)
 
     new_dt = pd.to_datetime(df["new_datetime"], errors="coerce", utc=True)
-    df["new_datetime"] = new_dt.dt.tz_convert(None)
+
+    # ✅ Only convert rows that actually have a datetime
+    df["new_datetime"] = pd.NaT
+    mask = new_dt.notna()
+    df.loc[mask, "new_datetime"] = new_dt.loc[mask].dt.tz_convert(LOCAL_TZ).dt.tz_localize(None)
 
     df["duration_minutes"] = pd.to_numeric(df["duration_minutes"], errors="coerce").fillna(60).astype(int)
     df["status"] = df["status"].astype(str).str.strip()
@@ -1014,28 +1038,46 @@ def load_overrides() -> pd.DataFrame:
     return df
 
 def _to_utc_iso(dt: datetime) -> str:
+    """
+    Convert a datetime to a UTC ISO string for storage.
+    - If naive: assume LOCAL_TZ (Europe/Istanbul)
+    - If aware: respect its tz
+    """
+    if dt is None:
+        return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc).isoformat()
+        dt = dt.replace(tzinfo=LOCAL_TZ)
+    return dt.astimezone(UTC_TZ).isoformat()
 
 def add_override(
     student: str,
     original_date: date,
-    new_dt: datetime,
+    new_dt: Optional[datetime],
     duration_minutes: int = 60,
     status: str = "scheduled",
     note: str = ""
-) -> None:
+    ) -> None:
     student = str(student).strip()
     ensure_student(student)
+
+    status_clean = str(status).strip().lower()
+
     payload = {
         "student": student,
         "original_date": original_date.isoformat(),
-        "new_datetime": _to_utc_iso(new_dt),
         "duration_minutes": int(duration_minutes),
-        "status": str(status).strip(),
+        "status": status_clean,
         "note": str(note or "").strip(),
     }
+
+    # ✅ IMPORTANT:
+    # scheduled  -> must store new_datetime
+    # cancelled  -> must store NULL new_datetime
+    if status_clean == "scheduled":
+        payload["new_datetime"] = _to_utc_iso(new_dt) if new_dt else None
+    else:
+        payload["new_datetime"] = None
+
     supabase.table("calendar_overrides").insert(payload).execute()
 
 def delete_override(override_id: int) -> None:
@@ -1116,10 +1158,10 @@ def rebuild_dashboard(active_window_days: int = 183, expiry_days: int = 365, gra
     classes["student"] = classes["student"].astype(str).str.strip()
     payments["student"] = payments["student"].astype(str).str.strip()
 
-    classes["lesson_date"] = pd.to_datetime(classes["lesson_date"], errors="coerce")
-    payments["payment_date"] = pd.to_datetime(payments["payment_date"], errors="coerce")
-    payments["package_start_date"] = pd.to_datetime(payments["package_start_date"], errors="coerce")
-    payments["package_expiry_date"] = pd.to_datetime(payments["package_expiry_date"], errors="coerce")
+    classes["lesson_date"] = to_dt_naive(classes["lesson_date"], utc=True)
+    payments["payment_date"] = to_dt_naive(payments["payment_date"], utc=True)
+    payments["package_start_date"] = to_dt_naive(payments["package_start_date"], utc=True)
+    payments["package_expiry_date"] = to_dt_naive(payments["package_expiry_date"], utc=True)
 
     classes["number_of_lesson"] = pd.to_numeric(classes["number_of_lesson"], errors="coerce").fillna(0).astype(int)
     payments["number_of_lesson"] = pd.to_numeric(payments["number_of_lesson"], errors="coerce").fillna(0).astype(int)
@@ -1142,7 +1184,7 @@ def rebuild_dashboard(active_window_days: int = 183, expiry_days: int = 365, gra
             "Payment_ID","Normalize_Allowed","Languages"
         ])
 
-    today = pd.Timestamp(date.today())
+    today = ts_today_naive()
     active_cutoff = today - pd.Timedelta(days=int(active_window_days))
     expiry_cutoff = today - pd.Timedelta(days=int(expiry_days))
     _ = grace_days
@@ -1337,7 +1379,7 @@ def build_income_analytics(group: str = "monthly"):
         payments = pd.DataFrame(columns=["student","payment_date","paid_amount","number_of_lesson","modality","languages"])
 
     payments["student"] = payments.get("student", "").astype(str).str.strip()
-    payments["payment_date"] = pd.to_datetime(payments.get("payment_date"), errors="coerce")
+    payments["payment_date"] = to_dt_naive(payments.get("payment_date"), utc=True)
     payments["paid_amount"] = pd.to_numeric(payments.get("paid_amount"), errors="coerce").fillna(0.0)
     payments["languages"] = payments.get("languages", LANG_ES).fillna(LANG_ES).astype(str)
     payments["modality"] = payments.get("modality", "Online").fillna("Online").astype(str)
@@ -1345,7 +1387,7 @@ def build_income_analytics(group: str = "monthly"):
     payments = payments.dropna(subset=["payment_date"])
     payments = payments[payments["student"].astype(str).str.len() > 0]
 
-    today = pd.Timestamp.today().normalize()
+    today = ts_today_naive()
     week_start = today - pd.Timedelta(days=int(today.weekday()))
     week_end = week_start + pd.Timedelta(days=6)
 
@@ -1437,12 +1479,12 @@ def build_forecast_table(
                 classes[c] = None
 
     classes["student"] = classes["student"].fillna("").astype(str).str.strip()
-    classes["lesson_date"] = pd.to_datetime(classes["lesson_date"], errors="coerce")
+    classes["lesson_date"] = to_dt_naive(classes["lesson_date"], utc=True)
     classes["number_of_lesson"] = pd.to_numeric(classes["number_of_lesson"], errors="coerce").fillna(0).astype(int)
     classes["modality"] = classes["modality"].fillna("Online").astype(str).str.strip()
     classes["note"] = classes["note"].fillna("").astype(str)
 
-    today = pd.Timestamp(date.today())
+    today = ts_today_naive()
     active_cutoff = today - pd.Timedelta(days=int(active_window_days))
     finished_cutoff = today - pd.Timedelta(days=int(finished_keep_days))
     rate_cutoff = today - pd.Timedelta(days=int(lookback_days_for_rate))
@@ -1788,7 +1830,7 @@ def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
     if events_df.empty:
         return events_df
 
-    events_df["DateTime"] = pd.to_datetime(events_df["DateTime"], errors="coerce").dt.tz_localize(None)
+    events_df["DateTime"] = to_dt_naive(events_df["DateTime"], utc=False)
     events_df = events_df.sort_values("DateTime").reset_index(drop=True)
     events_df["Time"] = events_df["DateTime"].dt.strftime("%H:%M")
     events_df["Date"] = events_df["DateTime"].dt.strftime("%Y-%m-%d")
@@ -1953,7 +1995,8 @@ render_sidebar_nav(page)
 # 18) PAGE: DASHBOARD
 # =========================
 if page == "dashboard":
-    page_header(t("dashboard"))
+    page_header(t("Dashboard"))
+    st.caption(t("Manage your current activities"))
 
     dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
 
@@ -1997,7 +2040,7 @@ if page == "dashboard":
     )
 
     st.divider()
-    st.subheader(t("status_overview"))
+    st.subheader(t("Status Overview"))
     status_order = ["Active", "Almost Finished", "Finished", "Mismatch"]
     status_counts = (
         d["Status"]
@@ -2009,7 +2052,7 @@ if page == "dashboard":
     st.bar_chart(status_counts)
 
     st.divider()
-    st.subheader(t("action_finish_soon"))
+    st.subheader(t("Take Action"))
 
     due_df = d[d["Status"] == "Almost Finished"].copy()
     due_df["Lessons_Left"] = pd.to_numeric(due_df.get("Lessons_Left_Units"), errors="coerce").fillna(0).astype(int)
@@ -2046,11 +2089,11 @@ if page == "dashboard":
         )
 
     st.divider()
-    st.subheader(t("current_students"))
+    st.subheader(t("Current Packages"))
     st.dataframe(pretty_df(d), use_container_width=True, hide_index=True)
 
     st.divider()
-    st.subheader(t("mismatches"))
+    st.subheader(t("Mismatches"))
     mismatch_df = d[d["Status"] == "Mismatch"].copy()
     if mismatch_df.empty:
         st.caption(t("no_data"))
@@ -2080,10 +2123,11 @@ if page == "dashboard":
 # 19) PAGE: STUDENTS
 # =========================
 elif page == "students":
-    page_header(t("students"))
+    page_header(t("Students"))
+    st.caption(t("Add and manage your students"))
     students_df = load_students_df()
 
-    st.markdown(f"### {t('add_students')}")
+    st.markdown(f"### {t('Add Students')}")
     new_student = st.text_input(t("new_student_name"), key="new_student_name")
     if st.button(f"{t('add')} {t('students')}", key="btn_add_student"):
         if not new_student.strip():
@@ -2093,11 +2137,11 @@ elif page == "students":
             st.success("Saved ✅")
             st.rerun()
 
-    st.markdown(f"### {t('see_all_students')}")
+    st.markdown(f"### {t('See All Students')}")
     if students_df.empty:
         st.info(t("no_students"))
     else:
-        with st.expander(t("student_profile"), expanded=False):
+        with st.expander(t("Student Profile"), expanded=False):
             student_list = sorted(students_df["student"].unique().tolist())
             selected_student = st.selectbox(t("select_student"), student_list, key="edit_student_select")
             student_row = students_df[students_df["student"] == selected_student].iloc[0]
@@ -2120,7 +2164,7 @@ elif page == "students":
                 st.success("Saved ✅")
                 st.rerun()
 
-    with st.expander(t("current_student_list"), expanded=False):
+    with st.expander(t("Student List"), expanded=False):
         s_col1, s_col2 = st.columns([2, 1])
         with s_col1:
             q = st.text_input(t("search"), value="", placeholder="Type a name…", key="students_list_search")
@@ -2134,7 +2178,7 @@ elif page == "students":
         list_df = pd.DataFrame({"Student": shown})
         st.dataframe(list_df, use_container_width=True, hide_index=True)
 
-    with st.expander(t("student_history"), expanded=False):
+    with st.expander(t("Student History"), expanded=False):
         if not students:
             st.info(t("no_students"))
         else:
@@ -2167,7 +2211,7 @@ elif page == "students":
                     st.rerun()
 
     st.divider()
-    with st.expander(t("delete_student"), expanded=False):
+    with st.expander(t("Delete Student"), expanded=False):
         st.caption(t("delete_student_warning"))
         if not students:
             st.info(t("no_students"))
@@ -2186,8 +2230,8 @@ elif page == "students":
 # 20) PAGE: ADD LESSON
 # =========================
 elif page == "add_lesson":
-    page_header(t("lesson"))
-    st.caption(t("add_lesson_title"))
+    page_header(t("Lesson"))
+    st.caption(t("Add and manage your lessons"))
 
     if not students:
         st.info(t("no_students"))
@@ -2219,7 +2263,7 @@ elif page == "add_lesson":
             st.rerun()
 
         st.divider()
-        with st.expander(t("lessons_editor"), expanded=True):
+        with st.expander(t("Lesson Editor"), expanded=True):
             st.caption(t("warning_apply"))
             classes = load_table("classes")
             if classes.empty:
@@ -2286,8 +2330,8 @@ elif page == "add_lesson":
 # 21) PAGE: ADD PAYMENT
 # =========================
 elif page == "add_payment":
-    page_header(t("payment"))
-    st.caption(t("add_payment_title"))
+    page_header(t("Payments"))
+    st.caption(t("Add and manage your payments"))
 
     if not students:
         st.info(t("no_students"))
@@ -2321,7 +2365,8 @@ elif page == "add_payment":
             pkg_expiry = st.date_input(t("package_expiry"), value=date.today(), key="pay_pkg_expiry")
 
         st.divider()
-        st.markdown(f"### {t('advanced_optional')}")
+        st.caption(t("Normalize mismatches"))
+        st.markdown(f"### {t('Advance Adjustment')}")
 
         lesson_adjustment_units = st.number_input(
             t("adjust_units"),
@@ -2352,7 +2397,7 @@ elif page == "add_payment":
             st.rerun()
 
         st.divider()
-        with st.expander(t("payments_editor"), expanded=True):
+        with st.expander(t("Payment Editor"), expanded=True):
             st.caption(t("warning_apply"))
 
             payments = load_table("payments")
@@ -2460,8 +2505,8 @@ elif page == "add_payment":
 # 22) PAGE: SCHEDULE
 # =========================
 elif page == "schedule":
-    page_header(t("schedule"))
-    st.caption(t("create_weekly_program"))
+    page_header(t("Schedule"))
+    st.caption(t("Create weekly programs"))
 
     if not students:
         st.info(t("no_students"))
@@ -2488,7 +2533,7 @@ elif page == "schedule":
             st.rerun()
 
         st.divider()
-        st.markdown("### Current schedule")
+        st.markdown("### Current Schedule")
         if schedules.empty:
             st.info(t("no_data"))
         else:
@@ -2504,8 +2549,8 @@ elif page == "schedule":
             })[["ID", "Student", "Weekday", "Time", "Duration_Minutes", "Active"]].sort_values(["Student", "Weekday", "Time"])
             st.dataframe(pretty_df(show), use_container_width=True, hide_index=True)
 
-            st.markdown("#### Delete a schedule lesson")
-            st.caption("Be careful: this deletes permanently.")
+            st.markdown("#### Delete a Scheduled Lesson")
+            st.caption("Be careful! This deletes permanently.")
             del_id = st.number_input("Schedule ID", min_value=0, step=1, key="del_schedule_id")
             if st.button(t("delete"), key="btn_delete_schedule"):
                 delete_schedule(del_id)
@@ -2516,10 +2561,15 @@ elif page == "schedule":
 # 23) PAGE: CALENDAR
 # =========================
 elif page == "calendar":
-    page_header(t("calendar"))
-    st.caption(t("see_timetable"))
+    page_header(t("Calendar"))
+    st.caption(t("See your timetable"))
 
-    view = st.radio(t("view"), [t("today"), t("this_week"), t("this_month")], horizontal=True, key="calendar_view")
+    view = st.radio(
+        t("view"),
+        [t("today"), t("this_week"), t("this_month")],
+        horizontal=True,
+        key="calendar_view"
+    )
     today_d = date.today()
 
     if view == t("today"):
@@ -2530,7 +2580,11 @@ elif page == "calendar":
         end_day = start_day + timedelta(days=6)
     else:
         start_day = date(today_d.year, today_d.month, 1)
-        next_month = date(today_d.year + 1, 1, 1) if today_d.month == 12 else date(today_d.year, today_d.month + 1, 1)
+        next_month = (
+            date(today_d.year + 1, 1, 1)
+            if today_d.month == 12
+            else date(today_d.year, today_d.month + 1, 1)
+        )
         end_day = next_month - timedelta(days=1)
 
     events = build_calendar_events(start_day, end_day)
@@ -2549,7 +2603,11 @@ elif page == "calendar":
 
         colA, colB = st.columns([3, 1])
         with colA:
-            selected_students = st.multiselect(t("filter_students"), students_list, key="calendar_filter_students")
+            selected_students = st.multiselect(
+                t("filter_students"),
+                students_list,
+                key="calendar_filter_students"
+            )
         with colB:
             if st.button(t("reset"), use_container_width=True, key="calendar_reset"):
                 st.session_state.calendar_filter_students = students_list
@@ -2558,32 +2616,43 @@ elif page == "calendar":
         filtered = events[events["Student"].isin(selected_students)].copy()
         render_fullcalendar(filtered, height=980 if st.session_state.get("compact_mode", False) else 1050)
 
-    # --- Calendar overrides UI (the missing part you asked for) ---
+    # --- Calendar overrides UI ---
     st.divider()
-    st.subheader(t("calendar_overrides"))
+    st.subheader(t("Modify Calendar"))
 
     overrides = load_overrides()
     students_master = load_students()
 
-    with st.expander(t("override_add"), expanded=False):
+    with st.expander(t("Cancel or reschedule a lesson"), expanded=False):
         if not students_master:
             st.info(t("no_students"))
         else:
             c1, c2 = st.columns(2)
             with c1:
                 ov_student = st.selectbox(t("override_student"), students_master, key="ov_student")
-                ov_original_date = st.date_input(t("override_original_date"), value=today_d, key="ov_original_date")
+                ov_original_date = st.date_input(
+                    t("override_original_date"),
+                    value=today_d,
+                    key="ov_original_date"
+                )
                 ov_status = st.selectbox(
                     t("override_status"),
                     options=["scheduled", "cancelled"],
                     format_func=lambda x: t("override_scheduled") if x == "scheduled" else t("override_cancel"),
                     key="ov_status"
                 )
+
             with c2:
-                # new datetime only relevant if scheduled
                 ov_new_dt = st.date_input("New date", value=today_d, key="ov_new_date")
                 ov_new_time = st.text_input("New time (HH:MM)", value="10:00", key="ov_new_time")
-                ov_duration = st.number_input(t("override_duration"), min_value=15, max_value=360, value=60, step=15, key="ov_duration")
+                ov_duration = st.number_input(
+                    t("override_duration"),
+                    min_value=15,
+                    max_value=360,
+                    value=60,
+                    step=15,
+                    key="ov_duration"
+                )
 
             ov_note = st.text_input(t("override_note"), value="", key="ov_note")
 
@@ -2592,16 +2661,15 @@ elif page == "calendar":
                 hh, mm = _parse_time_value(ov_new_time)
                 new_dt = datetime(ov_new_dt.year, ov_new_dt.month, ov_new_dt.day, hh, mm)
 
-            if st.button(t("override_add_btn"), key="ov_add_btn"):
+            if st.button(t("Change"), key="ov_add_btn"):
                 try:
                     if ov_status == "scheduled" and new_dt is None:
                         st.error("Please select a new date & time.")
                     else:
-                        # Always insert a new override row (simple and robust)
                         add_override(
                             student=ov_student,
                             original_date=ov_original_date,
-                            new_dt=new_dt if new_dt else datetime(ov_original_date.year, ov_original_date.month, ov_original_date.day, 0, 0),
+                            new_dt=new_dt if ov_status == "scheduled" else None,
                             duration_minutes=int(ov_duration),
                             status=ov_status,
                             note=ov_note
@@ -2611,13 +2679,21 @@ elif page == "calendar":
                 except Exception as e:
                     st.error(f"Could not save override.\n\n{e}")
 
-    with st.expander(t("override_list"), expanded=True):
+    with st.expander(t("Previous changes"), expanded=True):
         if overrides.empty:
             st.caption(t("no_data"))
         else:
             show = overrides.copy()
             show["original_date"] = pd.to_datetime(show["original_date"], errors="coerce").dt.strftime("%Y-%m-%d")
-            show["new_datetime"] = pd.to_datetime(show["new_datetime"], errors="coerce").dt.strftime("%Y-%m-%d %H:%M")
+
+            show["new_datetime"] = pd.to_datetime(show["new_datetime"], errors="coerce")
+
+            # Hide placeholder datetime for cancelled overrides
+            mask_cancel = show["status"].astype(str).str.strip().str.lower().eq("cancelled")
+            show.loc[mask_cancel, "new_datetime"] = pd.NaT
+
+            show["new_datetime"] = show["new_datetime"].dt.strftime("%Y-%m-%d %H:%M").fillna("—")
+
             show = show.rename(columns={
                 "id": "ID",
                 "student": "Student",
@@ -2626,12 +2702,14 @@ elif page == "calendar":
                 "duration_minutes": "Duration_Min",
                 "status": "Status",
                 "note": "Note"
-            })[["ID","Student","Original_Date","New_Datetime","Duration_Min","Status","Note"]].sort_values(["Original_Date","Student"])
+            })[
+                ["ID", "Student", "Original_Date", "New_Datetime", "Duration_Min", "Status", "Note"]
+            ].sort_values(["Original_Date", "Student"])
 
             st.dataframe(pretty_df(show), use_container_width=True, hide_index=True)
 
             del_id = st.number_input("Override ID", min_value=0, step=1, key="ov_del_id")
-            if st.button(t("override_delete_btn"), key="ov_del_btn"):
+            if st.button(t("Delete"), key="ov_del_btn"):
                 try:
                     delete_override(del_id)
                     st.success("Deleted ✅")
@@ -2643,7 +2721,10 @@ elif page == "calendar":
 # 24) PAGE: ANALYTICS (CLICKABLE KPI CAPSULES + CLEAN EXPANDERS)
 # =========================
 elif page == "analytics":
-    page_header(t("analytics"))
+    page_header(t("Analytics"))
+    st.caption(t("View your income and business activities"))
+
+    st.markdown(f"### {t('Income')}")
 
     # --- Read analytics view from query param (av) ---
     def _get_qp(key: str, default=None):
@@ -2670,160 +2751,217 @@ elif page == "analytics":
     view = st.session_state.analytics_view
 
     # ---------------------------------------
-    # Load analytics data (monthly base table)
+    # Load analytics data
     # ---------------------------------------
     kpis, income_table, by_student, sold_by_language, sold_by_modality = build_income_analytics(group="monthly")
     today = pd.Timestamp.today().normalize()
 
+      # ---------------------------------------
+    # KPI "CAPSULES" (NATIVE STREAMLIT RADIO + NICE CSS)
+    # - No iframe / no JS navigation
+    # - Click updates tables/charts correctly
+    # - Syncs query params (av) so refresh/back works
     # ---------------------------------------
-    # CLICKABLE KPI CAPSULES (rendered via components.html)
-    # - Capsules are the clickable element
-    # - Click navigates parent page (no "white button")
-    # - Auto-resize iframe height
-    # ---------------------------------------
-    def render_kpi_capsules(view_key: str, kpis_dict: dict):
-        # labels + values
-        items = [
-            ("all_time", t("all_time_income"), money_fmt(kpis_dict.get("income_all_time", 0.0)),
-             "radial-gradient(140px 140px at 20% 25%, rgba(59,130,246,.33), transparent 60%)"),
-            ("year",     t("this_year_income"), money_fmt(kpis_dict.get("income_this_year", 0.0)),
-             "radial-gradient(140px 140px at 20% 25%, rgba(16,185,129,.28), transparent 60%)"),
-            ("month",    t("this_month_income"), money_fmt(kpis_dict.get("income_this_month", 0.0)),
-             "radial-gradient(140px 140px at 20% 25%, rgba(245,158,11,.26), transparent 60%)"),
-            ("week",     t("this_week_income"), money_fmt(kpis_dict.get("income_this_week", 0.0)),
-             "radial-gradient(140px 140px at 20% 25%, rgba(139,92,246,.28), transparent 60%)"),
-        ]
 
-        cards = []
-        for key, lab, val, glow in items:
-            active = "active" if key == view_key else ""
-            # IMPORTANT: navigate the parent window so Streamlit URL changes correctly
-            href = f"?page=analytics&av={key}"
-            cards.append(f"""
-              <div class="kpi-pill {active}" role="button" tabindex="0"
-                   onclick="go('{href}')"
-                   onkeypress="if(event.key==='Enter'){go('{href}')}">
-                <div class="card">
-                  <div class="glow" style="background:{glow};"></div>
-                  <div class="val">{val}</div>
-                  <div class="lab">{lab}</div>
-                </div>
-              </div>
-            """)
+    def _set_qp(**kwargs):
+        try:
+            # Streamlit >= 1.30-ish
+            for k, v in kwargs.items():
+                st.query_params[k] = v
+        except Exception:
+            # Older Streamlit
+            st.experimental_set_query_params(**kwargs)
 
-        html = f"""
-        <div class="kpi-nav">
-          {''.join(cards)}
-        </div>
+    # Build pretty labels with KPI values
+    opt_map = {
+        "all_time": (t("all_time_income"), money_fmt(kpis.get("income_all_time", 0.0))),
+        "year":     (t("this_year_income"), money_fmt(kpis.get("income_this_year", 0.0))),
+        "month":    (t("this_month_income"), money_fmt(kpis.get("income_this_month", 0.0))),
+        "week":     (t("this_week_income"), money_fmt(kpis.get("income_this_week", 0.0))),
+    }
 
-        <style>
-          .kpi-nav {{
-            display:flex;
-            gap:22px;
-            flex-wrap:wrap;
-            align-items:stretch;
-            margin: 10px 0 6px 0;
-          }}
-          .kpi-pill {{
-            flex: 1 1 220px;
-            min-width: 220px;
-            max-width: 360px;
-            cursor:pointer;
-            user-select:none;
-            outline:none;
-          }}
-          .kpi-pill .card {{
-            border-radius: 999px;
-            padding: 34px 18px;
-            background: #fff;
-            border: 1px solid rgba(17,24,39,0.10);
-            box-shadow: 0 18px 34px rgba(15,23,42,0.10);
-            transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
-            text-align:center;
-            position:relative;
-            overflow:hidden;
-          }}
-          .kpi-pill:hover .card {{
-            transform: translateY(-2px);
-            box-shadow: 0 22px 44px rgba(15,23,42,0.14);
-            border-color: rgba(59,130,246,0.35);
-          }}
-          .kpi-pill.active .card {{
-            border: 3px solid #2563EB;
-          }}
-          .kpi-pill .val {{
-            font-weight: 900;
-            font-size: 42px;
-            line-height: 1.0;
-            margin-bottom: 10px;
-            font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-            color:#0f172a;
-          }}
-          .kpi-pill .lab {{
-            font-weight: 800;
-            font-size: 16px;
-            opacity: .95;
-            font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-            color:#0f172a;
-          }}
-          .glow {{
-            position:absolute;
-            inset:-40px;
-            filter: blur(18px);
-            opacity: .9;
-            pointer-events:none;
-          }}
-          @media (max-width: 900px) {{
-            .kpi-pill {{ min-width: 200px; }}
-            .kpi-pill .val {{ font-size: 36px; }}
-          }}
-        </style>
+    options = ["all_time", "year", "month", "week"]
 
-        <script>
-          function go(href) {{
-            try {{
-              // parent navigation is the key (so clicks are not trapped)
-              window.parent.location.href = href;
-            }} catch(e) {{
-              window.location.href = href;
-            }}
-          }}
+    # Unique internal strings so Streamlit treats each option as unique
+    options_display = []
+    key_from_display = {}
+    for k in options:
+        lab, val = opt_map[k]
+        disp = f"{k}__{lab}__{val}"
+        options_display.append(disp)
+        key_from_display[disp] = k
 
-          // AUTO-RESIZE iframe
-          (function () {{
-            const post = (h) => {{
-              const msg = {{ type: "streamlit:setFrameHeight", height: h }};
-              if (window.parent) window.parent.postMessage(msg, "*");
-              if (window.top) window.top.postMessage(msg, "*");
-            }};
-            const measure = () => {{
-              const h1 = document.body ? document.body.scrollHeight : 0;
-              const h2 = document.documentElement ? document.documentElement.scrollHeight : 0;
-              const h3 = document.documentElement ? document.documentElement.offsetHeight : 0;
-              post(Math.max(h1,h2,h3));
-            }};
-            const burst = () => {{
-              measure();
-              requestAnimationFrame(measure);
-              setTimeout(measure, 60);
-              setTimeout(measure, 160);
-              setTimeout(measure, 420);
-            }};
-            burst();
-            window.addEventListener("resize", burst);
-          }})();
-        </script>
+    def _fmt(disp: str) -> str:
+        k = key_from_display[disp]
+        lab, val = opt_map[k]
+        return f"{val}\n{lab}"
+
+    default_disp = next((d for d in options_display if key_from_display[d] == view), options_display[0])
+    default_index = options_display.index(default_disp)
+
+    # Scoped wrapper so CSS only affects this radio group
+    st.markdown('<div class="analytics-kpi-scope">', unsafe_allow_html=True)
+
+    st.markdown(
         """
-        components.html(html, height=10, scrolling=False)
+        <style>
+        /* Scope everything under analytics-kpi-scope so we don't break other radios */
+        .analytics-kpi-scope div[data-testid="stRadio"] div[role="radiogroup"]{
+            display:flex !important;
+            flex-wrap:wrap !important;
+            gap:22px !important;
+            align-items:stretch !important;
+            margin-top:-6px !important;
+        }
 
-    render_kpi_capsules(view, kpis)
+        /* Each capsule (radio label) */
+        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"]{
+            background:#ffffff !important;
+            border:1px solid rgba(17,24,39,0.10) !important;
+            box-shadow:0 18px 34px rgba(15,23,42,0.10) !important;
+            border-radius:999px !important;
+            padding:34px 22px !important;
+            min-width:220px !important;
+            max-width:360px !important;
+            flex:1 1 220px !important;
+            cursor:pointer !important;
+            user-select:none !important;
+            transition:transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease !important;
+            display:flex !important;
+            align-items:center !important;
+            justify-content:center !important;
+            position:relative !important;
+            overflow:hidden !important;
+            text-align:center !important;
+        }
+
+        /* Remove underline / link-like effects (some Streamlit themes) */
+        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"],
+        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"] *{
+            text-decoration:none !important;
+            font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif !important;
+            color:#0f172a !important;
+        }
+
+        /* Hover */
+        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"]:hover{
+            transform:translateY(-2px) !important;
+            box-shadow:0 22px 44px rgba(15,23,42,0.14) !important;
+            border-color:rgba(59,130,246,0.35) !important;
+        }
+
+        /* Hide the tiny radio circle */
+        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"] > div:first-child{
+            display:none !important;
+        }
+
+        /* Text container */
+        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"] > div:last-child{
+            width:100% !important;
+            text-align:center !important;
+        }
+
+        /* Big value (first line) */
+        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"] > div:last-child div{
+            white-space:pre-line !important;
+            font-weight:900 !important;
+            font-size:42px !important;
+            line-height:1.05 !important;
+            margin-bottom:8px !important;
+        }
+
+        /* Active ring */
+        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked){
+            border:3px solid #2563EB !important;
+        }
+
+        /* Glow per capsule (by position) */
+        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"]:nth-child(1)::before{
+            content:"";
+            position:absolute;
+            width:140px;
+            height:140px;
+            top:15%;
+            left:20%;
+            background:radial-gradient(circle, rgba(59,130,246,.30), transparent 70%);
+            filter:blur(12px);
+            opacity:.9;
+        }
+        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"]:nth-child(2)::before{
+            content:"";
+            position:absolute;
+            width:140px;
+            height:140px;
+            top:15%;
+            left:20%;
+            background:radial-gradient(circle, rgba(16,185,129,.28), transparent 70%);
+            filter:blur(12px);
+            opacity:.9;
+        }
+        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"]:nth-child(3)::before{
+            content:"";
+            position:absolute;
+            width:140px;
+            height:140px;
+            top:15%;
+            left:20%;
+            background:radial-gradient(circle, rgba(245,158,11,.26), transparent 70%);
+            filter:blur(12px);
+            opacity:.9;
+        }
+        .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"]:nth-child(4)::before{
+            content:"";
+            position:absolute;
+            width:140px;
+            height:140px;
+            top:15%;
+            left:20%;
+            background:radial-gradient(circle, rgba(139,92,246,.28), transparent 70%);
+            filter:blur(12px);
+            opacity:.9;
+        }
+
+        @media (max-width: 900px){
+            .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"]{
+                min-width:200px !important;
+            }
+            .analytics-kpi-scope div[data-testid="stRadio"] label[data-baseweb="radio"] > div:last-child div{
+                font-size:36px !important;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    picked_disp = st.radio(
+        label="",
+        options=options_display,
+        index=default_index,
+        format_func=_fmt,
+        horizontal=True,
+        key="analytics_view_radio",
+        label_visibility="collapsed",
+    )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    picked_view = key_from_display.get(picked_disp, "all_time")
+
+    # Apply selection (URL + session)
+    if picked_view != st.session_state.analytics_view:
+        st.session_state.analytics_view = picked_view
+        _set_qp(page="analytics", av=picked_view)
+        st.rerun()
+
+    view = st.session_state.analytics_view
     st.divider()
 
     # ============================================
     # MAIN VIEW CONTENT (kept simple/clean)
     # ============================================
     if view == "all_time":
-        st.subheader("All Time – Monthly Income")
+        st.subheader("All Time Monthly Income")
         if income_table.empty:
             st.info(t("no_data"))
         else:
@@ -2831,15 +2969,30 @@ elif page == "analytics":
             st.line_chart(chart_df)
 
     elif view == "year":
-        st.subheader("This Year – Yearly Income (by year)")
+        st.subheader("Yearly Income")
         _, yearly_table, *_ = build_income_analytics(group="yearly")
         if yearly_table.empty:
             st.info(t("no_data"))
         else:
-            st.bar_chart(yearly_table.set_index("Key")["Income"])
+            yt = yearly_table.copy()
+            yt["Year"] = yt["Key"].astype(str).str[:4]
+            current_year = str(ts_today_naive().year)
+
+            years = yt["Year"].tolist()
+            incomes = yt["Income"].astype(float).tolist()
+
+            colors = ["#2563EB" if y != current_year else "#7C3AED" for y in years]
+
+            import matplotlib.pyplot as plt
+            fig, ax = plt.subplots()
+            ax.bar(years, incomes, color=colors)
+            ax.set_ylabel("Income")
+            ax.set_xlabel("Year")
+            ax.set_title("Yearly totals (current year highlighted)")
+            st.pyplot(fig, clear_figure=True)
 
     elif view == "month":
-        st.subheader("This Month – Monthly Income (select year)")
+        st.subheader("Monthly Income")
         if income_table.empty:
             st.info(t("no_data"))
         else:
@@ -2856,7 +3009,7 @@ elif page == "analytics":
                 st.line_chart(monthly.set_index("Key")[["Income"]])
 
     elif view == "week":
-        st.subheader("This Week – Last 7 Days Income")
+        st.subheader("Weekly Income")
         payments = load_table("payments")
         if payments.empty:
             st.info(t("no_data"))
@@ -2882,39 +3035,33 @@ elif page == "analytics":
             st.bar_chart(daily.set_index("Day")["Income"])
 
     # ============================================
-    # EXTRA SECTIONS (keep page clean)
+    # EXTRA SECTIONS (each chart/section gets its own expander)
     # ============================================
     st.divider()
-    with st.expander("More analytics", expanded=False):
 
-        # Top students (bars + table)
-        st.subheader(t("top_students"))
+    with st.expander(t("Most profitable students"), expanded=False):
         if by_student.empty:
             st.info(t("no_data"))
         else:
             top = by_student.head(10).copy()
             st.bar_chart(top.set_index("Student")["Total_Paid"])
-
             top["Total_Paid"] = top["Total_Paid"].apply(money_fmt)
             top["Last_Payment"] = pd.to_datetime(top["Last_Payment"], errors="coerce").dt.strftime("%Y-%m-%d")
             st.dataframe(pretty_df(top), use_container_width=True, hide_index=True)
 
-        st.divider()
-        st.subheader(t("sold_by_language"))
+    with st.expander(t("Packages by language"), expanded=False):
         if sold_by_language.empty:
             st.info(t("no_data"))
         else:
             st.bar_chart(sold_by_language.set_index("Language")["Income"])
 
-        st.divider()
-        st.subheader(t("sold_by_modality"))
+    with st.expander(t("Packages by modality"), expanded=False):
         if sold_by_modality.empty:
             st.info(t("no_data"))
         else:
             st.bar_chart(sold_by_modality.set_index("Modality")["Income"])
 
-        # Teaching charts
-        st.divider()
+    with st.expander(t("Lessons by language"), expanded=False):
         classes = load_table("classes")
         if classes.empty:
             st.info(t("no_data"))
@@ -2934,20 +3081,30 @@ elif page == "analytics":
                 .rename(columns={"number_of_lesson":"Units"})
                 .sort_values("Units", ascending=False)
             )
-            st.subheader(t("teaching_by_language"))
             st.bar_chart(teach_lang.set_index("Lang")["Units"])
+
+    with st.expander(t("Lessons by modality"), expanded=False):
+        classes = load_table("classes")
+        if classes.empty:
+            st.info(t("no_data"))
+        else:
+            for c in ["student","lesson_language","modality","number_of_lesson","lesson_date","note"]:
+                if c not in classes.columns:
+                    classes[c] = None
+            classes["student"] = classes["student"].fillna("").astype(str).str.strip()
+            classes["lesson_language"] = classes["lesson_language"].fillna("").astype(str).str.strip()
+            classes["modality"] = classes["modality"].fillna("Online").astype(str).str.strip()
+            classes["number_of_lesson"] = pd.to_numeric(classes["number_of_lesson"], errors="coerce").fillna(0).astype(int)
+            classes = classes[classes["student"].astype(str).str.len() > 0].copy()
 
             teach_mod = (
                 classes.groupby("modality", as_index=False)["number_of_lesson"].sum()
                 .rename(columns={"modality":"Modality","number_of_lesson":"Units"})
                 .sort_values("Units", ascending=False)
             )
-            st.subheader(t("teaching_by_modality"))
             st.bar_chart(teach_mod.set_index("Modality")["Units"])
 
-        # Forecast
-        st.divider()
-        st.subheader(t("forecast"))
+    with st.expander(t("forecast"), expanded=False):
         buffer_days = st.selectbox(
             t("payment_buffer"),
             [0, 7, 14],
@@ -2960,7 +3117,6 @@ elif page == "analytics":
             st.info(t("no_data"))
         else:
             st.dataframe(pretty_df(forecast_df), use_container_width=True, hide_index=True)
-
 # =========================
 # FALLBACK
 # =========================
