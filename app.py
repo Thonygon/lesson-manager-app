@@ -491,6 +491,7 @@ def load_css_app_light(compact: bool = False):
           font-weight: 650 !important;
           transition: all 160ms ease;
         }}
+
         div[data-testid="stButton"] button:hover{{
           box-shadow: 0 0 0 4px rgba(59,130,246,0.12);
           border-color: rgba(59,130,246,0.35) !important;
@@ -530,6 +531,15 @@ def load_css_app_light(compact: bool = False):
           padding: 14px 16px;
           border-radius: 18px;
           box-shadow: var(--shadow);
+        }}
+        /* === SIDEBAR TOP SPACING FIX === */
+        section[data-testid="stSidebar"] > div:first-child {{
+            padding-top: 0rem !important;
+        }}
+
+        section[data-testid="stSidebar"] .block-container {{
+            padding-top: 0rem !important;
+            margin-top: -0.5rem !important;
         }}
 
         {compact_css}
