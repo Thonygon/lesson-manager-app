@@ -387,7 +387,7 @@ def load_css_home_dark():
         }
         a { text-decoration: none; }
 
-        .home-wrap{ margin-top: 0rem; padding-top: 1.5rem; display:flex; justify-content:center; }
+        .home-wrap{ margin-top: 0rem; padding-top: 0.5rem; display:flex; justify-content:center; }
 
         .home-glow{
           position:absolute; inset:-2px;
@@ -400,7 +400,7 @@ def load_css_home_dark():
           font-size: clamp(2.0rem, 3.6vw, 3.0rem);
           font-weight: 900;
           letter-spacing: -0.045em;
-          margin: 0.6rem 0 0.35rem 0;
+          margin: 0.35rem 0 0.35rem 0;
         }
         .home-sub{
           text-align:center;
