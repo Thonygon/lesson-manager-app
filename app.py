@@ -105,7 +105,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "no_students": "No students found yet.",
         "no_events": "No events to show.",
 
-        "compact_mode": "Compact mode (mobile friendly)",
+        "compact_mode": "Mobile mode",
 
         "status_overview": "Status overview",
         "action_finish_soon": "Finish soon",
@@ -242,7 +242,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "no_students": "Aún no hay estudiantes.",
         "no_events": "No hay eventos para mostrar.",
 
-        "compact_mode": "Modo compacto (móvil)",
+        "compact_mode": "Modo móvil",
 
         "status_overview": "Resumen de estado",
         "action_finish_soon": "Por terminar",
@@ -375,8 +375,10 @@ def load_css_home_dark():
                       var(--bg);
           color: var(--text);
         }
+        header { visibility: hidden; }
+
         section[data-testid="stMain"] > div {
-          padding-top: 1.0rem;
+          padding-top: 0rem !important;
           padding-bottom: 2.2rem;
           max-width: 1100px;
         }
@@ -385,17 +387,8 @@ def load_css_home_dark():
         }
         a { text-decoration: none; }
 
-        .home-wrap{ margin-top: 1.6rem; display:flex; justify-content:center; }
-        .home-card{
-          width: min(820px, 94vw);
-          border-radius: 28px;
-          padding: 28px 22px 18px 22px;
-          box-shadow: var(--shadow);
-          background: rgba(255,255,255,0.035);
-          border: 1px solid rgba(255,255,255,0.08);
-          position: relative;
-          overflow:hidden;
-        }
+        .home-wrap{ margin-top: 0rem; padding-top: 1.5rem; display:flex; justify-content:center; }
+
         .home-glow{
           position:absolute; inset:-2px;
           background: radial-gradient(600px 260px at 10% 10%, rgba(59,130,246,0.20), transparent 55%),
@@ -465,9 +458,10 @@ def load_css_app_light(compact: bool = False):
         }}
 
         .stApp{{ background: var(--bg); color: var(--text); }}
-
+        header { visibility: hidden; }
+        
         section[data-testid="stMain"] > div {{
-          padding-top: 1.2rem;
+          padding-top: 0rem !important;
           padding-bottom: 1.6rem;
           max-width: 1200px;
         }}
@@ -550,8 +544,8 @@ def load_css_app_light(compact: bool = False):
 PAGES = [
     ("dashboard", "dashboard", "linear-gradient(90deg,#3B82F6,#2563EB)"),
     ("students",  "students",  "linear-gradient(90deg,#10B981,#059669)"),
-    ("add_lesson","lesson",    "linear-gradient(90deg,#F59E0B,#D97706)"),
-    ("add_payment","payment",  "linear-gradient(90deg,#EF4444,#DC2626)"),
+    ("add_lesson","lessons",    "linear-gradient(90deg,#F59E0B,#D97706)"),
+    ("add_payment","payments",  "linear-gradient(90deg,#EF4444,#DC2626)"),
     ("schedule",  "schedule",  "linear-gradient(90deg,#8B5CF6,#7C3AED)"),
     ("calendar",  "calendar",  "linear-gradient(90deg,#06B6D4,#0891B2)"),
     ("analytics", "analytics", "linear-gradient(90deg,#F97316,#EA580C)"),
@@ -2136,7 +2130,7 @@ elif page == "students":
     new_student = st.text_input(t("new_student_name"), key="new_student_name")
     if st.button(f"{t('add')} {t('students')}", key="btn_add_student"):
         if not new_student.strip():
-            st.error("Please enter a student name.")
+            st.error("Please enter the student's name.")
         else:
             ensure_student(new_student)
             st.success("Saved ✅")
@@ -2195,7 +2189,7 @@ elif page == "students":
                 st.markdown("### Lessons")
                 st.dataframe(pretty_df(lessons_df), use_container_width=True)
 
-                st.markdown("#### Delete a lesson record (by ID)")
+                st.markdown("#### Delete a lesson record")
                 st.caption("Be careful: this deletes permanently.")
                 lesson_id = st.number_input("Lesson ID", min_value=0, step=1, key="students_del_lesson_id")
                 if st.button(t("delete"), key="students_btn_delete_lesson"):
@@ -2207,7 +2201,7 @@ elif page == "students":
                 st.markdown("### Payments")
                 st.dataframe(pretty_df(payments_df), use_container_width=True)
 
-                st.markdown("#### Delete a payment record (by ID)")
+                st.markdown("#### Delete a payment record")
                 st.caption("Be careful: this deletes permanently.")
                 payment_id = st.number_input("Payment ID", min_value=0, step=1, key="students_del_payment_id")
                 if st.button(t("delete"), key="students_btn_delete_payment"):
