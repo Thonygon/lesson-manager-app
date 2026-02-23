@@ -427,7 +427,11 @@ def load_css_home_dark():
           transform: translateY(-2px);
           filter: brightness(1.05);
         }
-  
+        .home-indicator{
+          width: 92px; height: 7px; border-radius: 999px;
+          background: rgba(255,255,255,0.22);
+          margin: 1.55rem auto 0.4rem auto;
+        }
         </style>
         """,
         unsafe_allow_html=True
@@ -1961,7 +1965,7 @@ def render_home():
             """,
             unsafe_allow_html=True
         )
-
+    st.markdown("<div class='home-indicator'></div>", unsafe_allow_html=True)
     st.markdown("</div></div>", unsafe_allow_html=True)
 
 # =========================
