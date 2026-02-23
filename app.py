@@ -376,10 +376,11 @@ def load_css_home_dark():
           color: var(--text);
         }
         header { visibility: hidden; }
+        header { display:none !important; }
 
         section[data-testid="stMain"] > div {
           padding-top: 0rem !important;
-          padding-bottom: 2.2rem;
+          padding-bottom: 0rem;
           max-width: 1100px;
         }
         html, body, [class*="css"]{
@@ -387,7 +388,7 @@ def load_css_home_dark():
         }
         a { text-decoration: none; }
 
-        .home-wrap{ margin-top: 0rem; padding-top: 0.5rem; display:flex; justify-content:center; }
+        .home-wrap{ margin-top: 0rem; padding-top: 0rem; display:flex; justify-content:center; }
 
         .home-glow{
           position:absolute; inset:-2px;
@@ -400,7 +401,7 @@ def load_css_home_dark():
           font-size: clamp(2.0rem, 3.6vw, 3.0rem);
           font-weight: 900;
           letter-spacing: -0.045em;
-          margin: 0.35rem 0 0.35rem 0;
+          margin: 0.65rem 0 0.35rem 0;
         }
         .home-sub{
           text-align:center;
@@ -458,10 +459,9 @@ def load_css_app_light(compact: bool = False):
         }}
 
         .stApp{{ background: var(--bg); color: var(--text); }}
-        header { visibility: hidden; }
         
         section[data-testid="stMain"] > div {{
-          padding-top: 0rem !important;
+          padding-top: 1.6rem;
           padding-bottom: 1.6rem;
           max-width: 1200px;
         }}
@@ -1948,7 +1948,7 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
 # 16) HOME SCREEN UI (DARK)
 # =========================
 def render_home():
-    st.markdown("<div class='home-wrap'><div class='home-card'><div class='home-glow'></div>", unsafe_allow_html=True)
+    st.markdown("<div class='home-wrap'><div class='home-card'>", unsafe_allow_html=True)
     st.markdown("<div class='home-title'>CLASS MANAGER</div>", unsafe_allow_html=True)
     st.markdown("<div class='home-sub'>Choose where you want to go</div>", unsafe_allow_html=True)
 
@@ -1966,7 +1966,6 @@ def render_home():
             unsafe_allow_html=True
         )
 
-    st.markdown("<div class='home-indicator'></div>", unsafe_allow_html=True)
     st.markdown("</div></div>", unsafe_allow_html=True)
 
 # =========================
