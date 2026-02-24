@@ -2176,7 +2176,7 @@ if page != "home":
 # =========================
 if page == "dashboard":
     page_header(t("Dashboard"))
-    st.caption(t("Manage your current activities"))
+    st.caption(t("Manage your current students"))
 
     dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
 
@@ -3032,9 +3032,9 @@ elif page == "analytics":
       filter:blur(12px); opacity:.9;
     }
 
-    @media (max-width: 900px){
-      .cm-capsule{ min-width:200px; }
-      .cm-capsule-value{ font-size:36px; }
+    @media (max-width: 400px){
+      .cm-capsule{ min-width:70px; }
+      .cm-capsule-value{ font-size:12px; }
     }
     </style>
 
