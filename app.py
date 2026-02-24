@@ -3210,7 +3210,6 @@ elif page == "analytics":
     st.markdown(caps_html, unsafe_allow_html=True)
 
     view = current_view
-    st.divider()
 
     # ---------------------------------------
     # Helpers for charts with explicit colors
