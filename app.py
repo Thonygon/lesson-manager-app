@@ -2216,7 +2216,7 @@ if page == "dashboard":
             "background: radial-gradient(90px 90px at 30% 25%, rgba(139,92,246,.32), transparent 60%), #ffffff;",
             "background: radial-gradient(90px 90px at 30% 25%, rgba(239,68,68,.26), transparent 60%), #ffffff;",
         ],
-        size=170,
+        size=100,
     )
 
     st.subheader(t("Take Action"))
@@ -3032,9 +3032,9 @@ elif page == "analytics":
       filter:blur(12px); opacity:.9;
     }
 
-    @media (max-width: 400px){
-      .cm-capsule{ min-width:70px; }
-      .cm-capsule-value{ font-size:12px; }
+    @media (max-width: 900px){
+      .cm-capsule{ min-width:200px; }
+      .cm-capsule-value{ font-size:36px; }
     }
     </style>
 
