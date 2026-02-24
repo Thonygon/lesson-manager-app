@@ -59,6 +59,29 @@ def ts_today_naive() -> pd.Timestamp:
     # Always tz-naive "today" at midnight
     return pd.Timestamp.now().normalize().tz_localize(None)
 
+def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Light formatting helper used across the app."""
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+
+    # Strip whitespace from object columns
+    for c in out.columns:
+        if out[c].dtype == "object":
+            out[c] = out[c].astype(str).str.strip()
+
+    # Clean column headers (snake_case → Title Case)
+    def clean_col(c):
+        c = str(c).replace("_", " ").strip().title()
+        c = c.replace("Id", "ID")
+        c = c.replace("Url", "URL")
+        return c
+
+    out.columns = [clean_col(c) for c in out.columns]
+
+    return out
+
 # =========================
 # 01) PAGE CONFIG
 # =========================
@@ -86,7 +109,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "language_ui": "Language",
         "english": "English",
         "spanish": "Spanish",
-        "both": "English + Spanish",
+        "both": "English & Spanish",
 
         "add": "Add",
         "save": "Save",
@@ -209,6 +232,43 @@ I18N: Dict[str, Dict[str, str]] = {
         "override_delete_btn": "Delete override",
         "override_cancel": "cancelled",
         "override_scheduled": "scheduled",
+        
+        "take_action": "Take Action",
+        "current_packages": "Current Packages",
+        "manage_current_students": "Manage your current students",
+        "add_and_manage_students": "Add and manage your students",
+        "add_new": "Add New",
+        "manage_students": "Manage Students",
+        "student_list": "Student List",
+        "lessons": "Lessons",
+        "payments": "Payments",
+        "record_attendance": "Record Attendance",
+        "units": "Units",
+        "date": "Date",
+        "time": "Time",
+        "weekday": "Weekday",
+        "active_flag": "Active",
+        "current_schedule": "Current Schedule",
+        "delete_payment": "Delete Payment",
+        "delete_lesson": "Delete Lesson",
+        "modify_calendar": "Modify Calendar",
+        "cancel_or_reschedule": "Cancel or reschedule a lesson",
+        "previous_changes": "Previous changes",
+        "change": "Change",
+        "income": "Income",
+        "yearly": "Yearly",
+        "monthly": "Monthly",
+        "weekly": "Weekly",
+        "most_profitable_students": "Most profitable students",
+        "packages_by_language": "Packages by language",
+        "packages_by_modality": "Packages by modality",
+        "lessons_by_language": "Lessons by language",
+        "lessons_by_modality": "Lessons by modality",
+        "select_year": "Select year",
+        "contact_student": "Contact the student",
+        "all_good_no_action": "All good! No action required ✅",
+        "unknown": "Unknown",
+        "choose_where_to_go": "Choose where you want to go",
     },
     "es": {
         "menu": "Menú",
@@ -223,7 +283,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "language_ui": "Idioma",
         "english": "Inglés",
         "spanish": "Español",
-        "both": "Inglés + Español",
+        "both": "Inglés & Español",
 
         "add": "Añadir",
         "save": "Guardar",
@@ -346,6 +406,42 @@ I18N: Dict[str, Dict[str, str]] = {
         "override_delete_btn": "Eliminar ajuste",
         "override_cancel": "cancelado",
         "override_scheduled": "programado",
+        "take_action": "Acción requerida",
+        "current_packages": "Paquetes actuales",
+        "manage_current_students": "Gestiona tus estudiantes actuales",
+        "add_and_manage_students": "Añade y gestiona tus estudiantes",
+        "add_new": "Añadir nuevo",
+        "manage_students": "Gestionar estudiantes",
+        "student_list": "Lista de estudiantes",
+        "lessons": "Clases",
+        "payments": "Pagos",
+        "record_attendance": "Registrar asistencia",
+        "units": "Unidades",
+        "date": "Fecha",
+        "time": "Hora",
+        "weekday": "Día de la semana",
+        "active_flag": "Activo",
+        "current_schedule": "Horario actual",
+        "delete_payment": "Eliminar pago",
+        "delete_lesson": "Eliminar clase",
+        "modify_calendar": "Modificar calendario",
+        "cancel_or_reschedule": "Cancelar o reprogramar una clase",
+        "previous_changes": "Cambios anteriores",
+        "change": "Cambiar",
+        "income": "Ingresos",
+        "yearly": "Anual",
+        "monthly": "Mensual",
+        "weekly": "Semanal",
+        "most_profitable_students": "Estudiantes más rentables",
+        "packages_by_language": "Paquetes por idioma",
+        "packages_by_modality": "Paquetes por modalidad",
+        "lessons_by_language": "Clases por idioma",
+        "lessons_by_modality": "Clases por modalidad",
+        "select_year": "Seleccionar año",
+        "contact_student": "Contactar al estudiante",
+        "all_good_no_action": "¡Todo bien! No se requiere acción ✅",
+        "unknown": "Desconocido",
+        "choose_where_to_go": "Elige a dónde quieres ir",
     }
 }
 
@@ -354,7 +450,30 @@ if "ui_lang" not in st.session_state:
 
 def t(key: str) -> str:
     lang = st.session_state.get("ui_lang", "en")
-    return I18N.get(lang, I18N["en"]).get(key, key)
+    d = I18N.get(lang, I18N["en"])
+
+    k = str(key or "").strip()
+    if not k:
+        return ""
+
+    # 1) exact match
+    if k in d:
+        return d[k]
+
+    # 2) normalized match: "Most profitable students" -> "most_profitable_students"
+    k2 = k.casefold().replace(" ", "_")
+    if k2 in d:
+        return d[k2]
+
+    # 3) fallback to English dict
+    d_en = I18N["en"]
+    if k in d_en:
+        return d_en[k]
+    if k2 in d_en:
+        return d_en[k2]
+
+    # 4) final fallback
+    return k
 
 # =========================
 # 03) THEMES (DARK HOME + LIGHT APP + COMPACT)
@@ -363,6 +482,10 @@ def load_css_home_dark():
     st.markdown(
         """
         <style>
+        /* 🔵 FORCE DARK MODE (so iPhone doesn't override it) */
+        :root{ color-scheme: dark; }
+        html, body{ color-scheme: dark; }
+
         :root{
           --bg:#0b1220;
           --text:#e5e7eb;
@@ -448,6 +571,14 @@ def load_css_app_light(compact: bool = False):
     st.markdown(
         f"""
         <style>
+        /* 🔵 FORCE LIGHT MODE (fix iPhone dark mode issues) */
+        :root {{
+          color-scheme: light !important;
+        }}
+        html, body {{
+          color-scheme: light !important;
+        }}
+
         :root{{
           --bg:#f6f7fb;
           --panel:#ffffff;
@@ -459,6 +590,19 @@ def load_css_app_light(compact: bool = False):
         }}
 
         .stApp{{ background: var(--bg); color: var(--text); }}
+        /* Force readable text everywhere */
+        .stApp, .stApp * {{
+          color: var(--text);
+        }}
+        .stCaption, .stMarkdown p, .stMarkdown span, .stMarkdown li {{
+          color: var(--muted) !important;
+        }}
+        .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {{
+          color: var(--text) !important;
+        }}
+        label, label * {{
+          color: var(--text) !important;
+        }}
         
         section[data-testid="stMain"] > div {{
           padding-top: 1.6rem;
@@ -1932,6 +2076,9 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
 
     <style>
       .fc {{ color:#0f172a; }}
+      /* 🔵 Fix iPhone dark mode text disappearing */
+      #calendar, #calendar * {{ color: #0f172a !important; }}
+
       .fc .fc-button {{
         border-radius:10px;
         border:1px solid rgba(17,24,39,0.14);
@@ -2011,7 +2158,7 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
 def render_home():
     st.markdown("<div class='home-wrap'><div class='home-card'>", unsafe_allow_html=True)
     st.markdown("<div class='home-title'>CLASS MANAGER</div>", unsafe_allow_html=True)
-    st.markdown("<div class='home-sub'>Choose where you want to go</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='home-sub'>{t('choose_where_to_go')}</div>", unsafe_allow_html=True)
 
     for key, label_key, grad in PAGES:
         st.markdown(
@@ -2041,13 +2188,13 @@ def render_top_nav(active_page: str):
         current_lang = "en"
 
     items = [
-        ("home",       "Home",      "🏠"),
-        ("dashboard",  "Dashboard", "📊"),
-        ("students",   "Students",  "👥"),
-        ("add_lesson", "Lessons",    "🗓️"),
-        ("add_payment","Payments",   "💳"),
-        ("calendar",   "Calendar",  "📅"),
-        ("analytics",  "Analytics", "📈"),
+        ("home",       t("home"),      "🏠"),
+        ("dashboard",  t("dashboard"), "📊"),
+        ("students",   t("students"),  "👥"),
+        ("add_lesson", t("lessons"),   "🗓️"),
+        ("add_payment",t("payments"),  "💳"),
+        ("calendar",   t("calendar"),  "📅"),
+        ("analytics",  t("analytics"), "📈"),
     ]
 
     # Build links with ZERO indentation (important)
@@ -3103,7 +3250,7 @@ elif page == "analytics":
     current_view = st.session_state.get("analytics_view", "all_time")
 
     capsules = [
-        ("all_time", t("All time"), money_fmt(kpis.get("income_all_time", 0.0))),
+        ("all_time", t("all_time_income"), money_fmt(kpis.get("income_all_time", 0.0))),
         ("year",     t("Yearly"),   money_fmt(kpis.get("income_this_year", 0.0))),
         ("month",    t("Monthly"),  money_fmt(kpis.get("income_this_month", 0.0))),
         ("week",     t("Weekly"),   money_fmt(kpis.get("income_this_week", 0.0))),
