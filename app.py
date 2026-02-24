@@ -2304,7 +2304,7 @@ elif page == "students":
     st.caption(t("Add and manage your students"))
     students_df = load_students_df()
 
-    st.markdown(f"### {t('Add Students')}")
+    st.markdown(f"### {t('Add New')}")
     new_student = st.text_input(t("new_student_name"), key="new_student_name")
     if st.button(f"{t('add')} {t('students')}", key="btn_add_student"):
         if not new_student.strip():
@@ -2314,7 +2314,7 @@ elif page == "students":
             st.success("Saved ✅")
             st.rerun()
 
-    st.markdown(f"### {t('See All Students')}")
+    st.markdown(f"### {t('Manage Students')}")
     if students_df.empty:
         st.info(t("no_students"))
     else:
@@ -2387,7 +2387,6 @@ elif page == "students":
                     st.success("Deleted ✅")
                     st.rerun()
 
-    st.divider()
     with st.expander(t("Delete Student"), expanded=False):
         st.caption(t("delete_student_warning"))
         if not students:
