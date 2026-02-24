@@ -2261,7 +2261,7 @@ if page == "dashboard":
             "background: radial-gradient(90px 90px at 30% 25%, rgba(139,92,246,.32), transparent 60%), #ffffff;",
             "background: radial-gradient(90px 90px at 30% 25%, rgba(239,68,68,.26), transparent 60%), #ffffff;",
         ],
-        size=100,
+        size=70,
     )
 
     with st.expander(t("Current Packages"), expanded=False):
