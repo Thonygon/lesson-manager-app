@@ -414,8 +414,8 @@ def load_css_home_dark():
           display:block;
           width: 100%;
           border-radius: 999px;
-          padding: 0.85rem 1.1rem;
-          margin: 0.85rem 0;
+          padding: 0.95rem 1.1rem;
+          margin: 0.95rem 0;
           font-weight: 800;
           text-align: center;
           color: #ffffff !important;
@@ -576,7 +576,6 @@ PAGES = [
     ("students",  "students",  "linear-gradient(90deg,#10B981,#059669)"),
     ("add_lesson","lessons",   "linear-gradient(90deg,#F59E0B,#D97706)"),
     ("add_payment","payments", "linear-gradient(90deg,#EF4444,#DC2626)"),
-    ("schedule",  "schedule",  "linear-gradient(90deg,#8B5CF6,#7C3AED)"),
     ("calendar",  "calendar",  "linear-gradient(90deg,#06B6D4,#0891B2)"),
     ("analytics", "analytics", "linear-gradient(90deg,#F97316,#EA580C)"),
 ]
@@ -762,6 +761,7 @@ LANG_EN = "English"
 LANG_ES = "Spanish"
 LANG_BOTH = "English,Spanish"
 ALLOWED_LANGS = {LANG_EN, LANG_ES, LANG_BOTH}
+ALLOWED_LESSON_LANGS = {LANG_EN, LANG_ES, LANG_BOTH}
 DEFAULT_PACKAGE_LANGS = [LANG_ES]
 
 def pack_languages(selected: List[str]) -> str:
@@ -783,8 +783,12 @@ def unpack_languages(value: str) -> List[str]:
 
 def allowed_lesson_language_from_package(languages_value: str) -> Tuple[List[str], Optional[str]]:
     langs = unpack_languages(languages_value)
+
+    # Package is single-language → auto-pick it
     if len(langs) == 1:
-        return langs, langs[0]
+        return [langs[0]], langs[0]
+
+    # Package is both → lesson must be EN or ES (user chooses)
     return [LANG_EN, LANG_ES], None
 
 # =========================
@@ -1482,7 +1486,7 @@ def build_income_analytics(group: str = "monthly"):
     )
 
     sold_by_language = (
-        payments.assign(_lang=payments["languages"].replace({LANG_BOTH: "English+Spanish"}))
+        payments.assign(_lang=payments["languages"].replace({LANG_BOTH: "English & Spanish"}))
         .groupby("_lang", as_index=False)["paid_amount"].sum()
         .rename(columns={"_lang":"Language","paid_amount":"Income"})
         .sort_values("Income", ascending=False)
@@ -2042,7 +2046,6 @@ def render_top_nav(active_page: str):
         ("students",   "Students",  "👥"),
         ("add_lesson", "Lessons",    "🗓️"),
         ("add_payment","Payments",   "💳"),
-        ("schedule",   "Schedule",  "🧭"),
         ("calendar",   "Calendar",  "📅"),
         ("analytics",  "Analytics", "📈"),
     ]
@@ -2411,6 +2414,7 @@ elif page == "add_lesson":
 
         if lang_default is not None:
             lesson_lang = lang_default
+            st.caption(f"{t('lesson_language')}: **{lesson_lang}**")
         else:
             lesson_lang = st.selectbox(t("lesson_language"), lang_options, key="lesson_lang_select")
 
@@ -2427,7 +2431,7 @@ elif page == "add_lesson":
             st.rerun()
 
         st.divider()
-        with st.expander(t("Lesson Editor"), expanded=True):
+        with st.expander(t("Lesson Editor"), expanded=False):
             st.caption(t("warning_apply"))
             classes = load_table("classes")
             if classes.empty:
@@ -2561,7 +2565,7 @@ elif page == "add_payment":
             st.rerun()
 
         st.divider()
-        with st.expander(t("Payment Editor"), expanded=True):
+        with st.expander(t("Payment Editor"), expanded=False):
             st.caption(t("warning_apply"))
 
             payments = load_table("payments")
@@ -2669,57 +2673,8 @@ elif page == "add_payment":
 # 22) PAGE: SCHEDULE
 # =========================
 elif page == "schedule":
-    page_header(t("Schedule"))
-    st.caption(t("Create weekly programs"))
-
-    if not students:
-        st.info(t("no_students"))
-    else:
-        schedules = load_schedules()
-
-        st.markdown(f"### {t('add')} {t('schedule')}")
-        c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 1])
-
-        with c1:
-            sch_student = st.selectbox(t("select_student"), students, key="sch_student")
-        with c2:
-            sch_weekday = st.selectbox("Weekday", list(range(7)), format_func=lambda x: f"{x} ({WEEKDAYS[x]})", key="sch_weekday")
-        with c3:
-            sch_time = st.text_input("Time (HH:MM)", value="10:00", key="sch_time")
-        with c4:
-            sch_duration = st.number_input("Duration (min)", min_value=15, max_value=360, value=60, step=15, key="sch_duration")
-        with c5:
-            sch_active = st.checkbox("Active", value=True, key="sch_active")
-
-        if st.button(t("add"), key="btn_add_schedule"):
-            add_schedule(sch_student, sch_weekday, sch_time, sch_duration, sch_active)
-            st.success("Saved ✅")
-            st.rerun()
-
-        st.divider()
-        st.markdown("### Current Schedule")
-        if schedules.empty:
-            st.info(t("no_data"))
-        else:
-            show = schedules.copy()
-            show["weekday"] = show["weekday"].apply(lambda x: f"{int(x)} ({WEEKDAYS[int(x)]})")
-            show = show.rename(columns={
-                "id": "ID",
-                "student": "Student",
-                "weekday": "Weekday",
-                "time": "Time",
-                "duration_minutes": "Duration_Minutes",
-                "active": "Active"
-            })[["ID", "Student", "Weekday", "Time", "Duration_Minutes", "Active"]].sort_values(["Student", "Weekday", "Time"])
-            st.dataframe(pretty_df(show), use_container_width=True, hide_index=True)
-
-            st.markdown("#### Delete a Scheduled Lesson")
-            st.caption("Be careful! This deletes permanently.")
-            del_id = st.number_input("Schedule ID", min_value=0, step=1, key="del_schedule_id")
-            if st.button(t("delete"), key="btn_delete_schedule"):
-                delete_schedule(del_id)
-                st.success("Deleted ✅")
-                st.rerun()
+    go_to("calendar")
+    st.rerun()
 
 # =========================
 # 23) PAGE: CALENDAR
@@ -2731,6 +2686,7 @@ elif page == "calendar":
     view = st.radio(
         t("view"),
         [t("today"), t("this_week"), t("this_month")],
+        index=1,
         horizontal=True,
         key="calendar_view"
     )
@@ -2779,6 +2735,73 @@ elif page == "calendar":
 
         filtered = events[events["Student"].isin(selected_students)].copy()
         render_fullcalendar(filtered, height=980 if st.session_state.get("compact_mode", False) else 1050)
+
+    # =========================
+    # SCHEDULE (moved here)
+    # =========================
+    st.divider()
+    st.subheader(t("schedule"))
+    st.caption(t("create_weekly_program"))
+
+    if not students:
+        st.info(t("no_students"))
+    else:
+        schedules = load_schedules()
+
+        # Collapsed section: Add schedule
+        with st.expander(f"{t('add')} {t('schedule')}", expanded=False):
+            c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 1])
+
+            with c1:
+                sch_student = st.selectbox(t("select_student"), students, key="cal_sch_student")
+            with c2:
+                sch_weekday = st.selectbox(
+                    "Weekday",
+                    list(range(7)),
+                    format_func=lambda x: f"{x} ({WEEKDAYS[x]})",
+                    key="cal_sch_weekday"
+                )
+            with c3:
+                sch_time = st.text_input("Time (HH:MM)", value="10:00", key="cal_sch_time")
+            with c4:
+                sch_duration = st.number_input(
+                    "Duration (min)",
+                    min_value=15, max_value=360, value=60, step=15,
+                    key="cal_sch_duration"
+                )
+            with c5:
+                sch_active = st.checkbox("Active", value=True, key="cal_sch_active")
+
+            if st.button(t("add"), key="cal_btn_add_schedule"):
+                add_schedule(sch_student, sch_weekday, sch_time, sch_duration, sch_active)
+                st.success("Saved ✅")
+                st.rerun()
+
+        # Collapsed section: Current schedule + delete
+        with st.expander("Current Schedule", expanded=False):
+            if schedules.empty:
+                st.info(t("no_data"))
+            else:
+                show = schedules.copy()
+                show["weekday"] = show["weekday"].apply(lambda x: f"{int(x)} ({WEEKDAYS[int(x)]})")
+                show = show.rename(columns={
+                    "id": "ID",
+                    "student": "Student",
+                    "weekday": "Weekday",
+                    "time": "Time",
+                    "duration_minutes": "Duration_Minutes",
+                    "active": "Active"
+                })[["ID", "Student", "Weekday", "Time", "Duration_Minutes", "Active"]].sort_values(["Student", "Weekday", "Time"])
+
+                st.dataframe(pretty_df(show), use_container_width=True, hide_index=True)
+
+                st.markdown("#### Delete a Scheduled Lesson")
+                st.caption("Be careful! This deletes permanently.")
+                del_id = st.number_input("Schedule ID", min_value=0, step=1, key="cal_del_schedule_id")
+                if st.button(t("delete"), key="cal_btn_delete_schedule"):
+                    delete_schedule(del_id)
+                    st.success("Deleted ✅")
+                    st.rerun()
 
     # --- Calendar overrides UI ---
     st.divider()
@@ -2843,7 +2866,7 @@ elif page == "calendar":
                 except Exception as e:
                     st.error(f"Could not save override.\n\n{e}")
 
-    with st.expander(t("Previous changes"), expanded=True):
+    with st.expander(t("Previous changes"), expanded=False):
         if overrides.empty:
             st.caption(t("no_data"))
         else:
@@ -2920,166 +2943,121 @@ elif page == "analytics":
     kpis, income_table, by_student, sold_by_language, sold_by_modality = build_income_analytics(group="monthly")
     today = pd.Timestamp.today().normalize()
 
-    # ---------------------------------------
-    # KPI "CAPSULES" (NATIVE STREAMLIT RADIO + NICE CSS)
-    # ---------------------------------------
+    # =======================================
+    # CLICKABLE KPI CAPSULES (HTML LINKS)
+    # =======================================
+    current_lang = st.session_state.get("ui_lang", "en")
+    current_view = st.session_state.get("analytics_view", "all_time")
 
-    def _set_qp(**kwargs):
-        try:
-            for k, v in kwargs.items():
-                st.query_params[k] = v
-        except Exception:
-            st.experimental_set_query_params(**kwargs)
+    capsules = [
+        ("all_time", t("all_time_income"), money_fmt(kpis.get("income_all_time", 0.0))),
+        ("year",     t("this_year_income"), money_fmt(kpis.get("income_this_year", 0.0))),
+        ("month",    t("this_month_income"), money_fmt(kpis.get("income_this_month", 0.0))),
+        ("week",     t("this_week_income"), money_fmt(kpis.get("income_this_week", 0.0))),
+    ]
 
-    opt_map = {
-        "all_time": (t("all_time_income"), money_fmt(kpis.get("income_all_time", 0.0))),
-        "year":     (t("this_year_income"), money_fmt(kpis.get("income_this_year", 0.0))),
-        "month":    (t("this_month_income"), money_fmt(kpis.get("income_this_month", 0.0))),
-        "week":     (t("this_week_income"), money_fmt(kpis.get("income_this_week", 0.0))),
+    caps_html = """
+    <style>
+    .cm-caps-wrap{
+      display:flex;
+      flex-wrap:wrap;
+      gap:22px;
+      align-items:stretch;
+      margin-top:10px;
+      margin-bottom:6px;
+      padding-bottom: 6px;
+    }
+    .cm-capsule{
+      flex:1 1 220px;
+      min-width:220px;
+      max-width:360px;
+      background:#ffffff;
+      border:1px solid rgba(17,24,39,0.10);
+      border-radius:999px;
+      padding:34px 22px;
+      text-align:center;
+      text-decoration:none !important;
+      color:#0f172a !important;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      box-shadow:0 18px 34px rgba(15,23,42,0.10);
+      transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+      position:relative;
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+    }
+    .cm-capsule:hover{
+      transform:translateY(-2px);
+      box-shadow:0 22px 44px rgba(15,23,42,0.14);
+      border-color:rgba(59,130,246,0.35);
+    }
+    .cm-capsule.active{
+      border:3px solid #2563EB;
+      box-shadow:0 0 0 4px rgba(37,99,235,0.10), 0 18px 34px rgba(15,23,42,0.10);
+    }
+    .cm-capsule-value{
+      font-weight:900;
+      font-size:42px;
+      line-height:1.05;
+      margin-bottom:8px;
+      word-break:break-word;
+    }
+    .cm-capsule-label{
+      font-weight:800;
+      font-size:15px;
+      opacity:.9;
+      word-break:break-word;
     }
 
-    options = ["all_time", "year", "month", "week"]
+    /* subtle glows per capsule position */
+    .cm-capsule:nth-child(1)::before{
+      content:""; position:absolute; width:140px; height:140px; top:15%; left:20%;
+      background:radial-gradient(circle, rgba(59,130,246,.30), transparent 70%);
+      filter:blur(12px); opacity:.9;
+    }
+    .cm-capsule:nth-child(2)::before{
+      content:""; position:absolute; width:140px; height:140px; top:15%; left:20%;
+      background:radial-gradient(circle, rgba(16,185,129,.28), transparent 70%);
+      filter:blur(12px); opacity:.9;
+    }
+    .cm-capsule:nth-child(3)::before{
+      content:""; position:absolute; width:140px; height:140px; top:15%; left:20%;
+      background:radial-gradient(circle, rgba(245,158,11,.26), transparent 70%);
+      filter:blur(12px); opacity:.9;
+    }
+    .cm-capsule:nth-child(4)::before{
+      content:""; position:absolute; width:140px; height:140px; top:15%; left:20%;
+      background:radial-gradient(circle, rgba(139,92,246,.28), transparent 70%);
+      filter:blur(12px); opacity:.9;
+    }
 
-    options_display = []
-    key_from_display = {}
+    @media (max-width: 900px){
+      .cm-capsule{ min-width:200px; }
+      .cm-capsule-value{ font-size:36px; }
+    }
+    </style>
 
-    for k in options:
-        lab, val = opt_map[k]
-        disp = f"{k}__{lab}__{val}"
-        options_display.append(disp)
-        key_from_display[disp] = k
+    <div class="cm-caps-wrap">
+    """
 
-    def _fmt(disp: str) -> str:
-        k = key_from_display[disp]
-        lab, val = opt_map[k]
-        return f"{val}\n{lab}"
+    for k, label, val in capsules:
+        active_cls = "active" if k == current_view else ""
+        caps_html += (
+            f'<a class="cm-capsule {active_cls}" '
+            f'href="?page=analytics&av={k}&lang={current_lang}" target="_self" rel="noopener noreferrer">'
+            f'<div class="cm-capsule-value">{val}</div>'
+            f'<div class="cm-capsule-label">{label}</div>'
+            f'</a>'
+        )
 
-    default_disp = next(
-        (d for d in options_display if key_from_display[d] == view),
-        options_display[0]
-    )
-    default_index = options_display.index(default_disp)
+    caps_html += "</div>"
 
-    st.markdown(
-        """
-        <style>
-        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) div[role="radiogroup"]{
-            display:flex !important;
-            flex-wrap:wrap !important;
-            gap:22px !important;
-            align-items:stretch !important;
-            margin-top:-6px !important;
-        }
+    st.markdown(caps_html, unsafe_allow_html=True)
 
-        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"]{
-            background:#ffffff !important;
-            border:1px solid rgba(17,24,39,0.10) !important;
-            box-shadow:0 18px 34px rgba(15,23,42,0.10) !important;
-            border-radius:999px !important;
-            padding:34px 22px !important;
-            min-width:220px !important;
-            max-width:360px !important;
-            flex:1 1 220px !important;
-            cursor:pointer !important;
-            user-select:none !important;
-            transition:transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease !important;
-            display:flex !important;
-            align-items:center !important;
-            justify-content:center !important;
-            position:relative !important;
-            overflow:hidden !important;
-            text-align:center !important;
-        }
+    # ensure view reflects the current selection
+    view = current_view
 
-        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"],
-        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"] *{
-            text-decoration:none !important;
-            font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif !important;
-            color:#0f172a !important;
-        }
-
-        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"]:hover{
-            transform:translateY(-2px) !important;
-            box-shadow:0 22px 44px rgba(15,23,42,0.14) !important;
-            border-color:rgba(59,130,246,0.35) !important;
-        }
-
-        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"] > div:first-child{
-            display:none !important;
-        }
-
-        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"] > div:last-child{
-            width:100% !important;
-            text-align:center !important;
-        }
-
-        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"] > div:last-child div{
-            white-space:pre-line !important;
-            font-weight:900 !important;
-            font-size:42px !important;
-            line-height:1.05 !important;
-            margin-bottom:8px !important;
-        }
-
-        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"]:has(input:checked){
-            border:3px solid #2563EB !important;
-        }
-
-        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"]:nth-child(1)::before{
-            content:""; position:absolute; width:140px; height:140px; top:15%; left:20%;
-            background:radial-gradient(circle, rgba(59,130,246,.30), transparent 70%);
-            filter:blur(12px); opacity:.9;
-        }
-
-        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"]:nth-child(2)::before{
-            content:""; position:absolute; width:140px; height:140px; top:15%; left:20%;
-            background:radial-gradient(circle, rgba(16,185,129,.28), transparent 70%);
-            filter:blur(12px); opacity:.9;
-        }
-
-        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"]:nth-child(3)::before{
-            content:""; position:absolute; width:140px; height:140px; top:15%; left:20%;
-            background:radial-gradient(circle, rgba(245,158,11,.26), transparent 70%);
-            filter:blur(12px); opacity:.9;
-        }
-
-        div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"]:nth-child(4)::before{
-            content:""; position:absolute; width:140px; height:140px; top:15%; left:20%;
-            background:radial-gradient(circle, rgba(139,92,246,.28), transparent 70%);
-            filter:blur(12px); opacity:.9;
-        }
-
-        @media (max-width: 900px){
-            div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"]{
-                min-width:200px !important;
-            }
-            div[data-testid="stRadio"]:has(input[id*="analytics_view_radio"]) label[data-baseweb="radio"] > div:last-child div{
-                font-size:36px !important;
-            }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-    picked_disp = st.radio(
-        label="",
-        options=options_display,
-        index=default_index,
-        format_func=_fmt,
-        horizontal=True,
-        key="analytics_view_radio",
-        label_visibility="collapsed",
-    )
-
-    picked_view = key_from_display.get(picked_disp, "all_time")
-
-    if picked_view != st.session_state.analytics_view:
-        st.session_state.analytics_view = picked_view
-        _set_qp(page="analytics", av=picked_view)
-        st.rerun()
-
-    view = st.session_state.analytics_view
     st.divider()
 
     # ============================================
@@ -3113,7 +3091,7 @@ elif page == "analytics":
             ax.bar(years, incomes, color=colors)
             ax.set_ylabel("Income")
             ax.set_xlabel("Year")
-            ax.set_title("Yearly totals (current year highlighted)")
+            ax.set_title("Yearly totals")
             st.pyplot(fig, clear_figure=True)
 
     elif view == "month":
@@ -3242,6 +3220,7 @@ elif page == "analytics":
             st.info(t("no_data"))
         else:
             st.dataframe(pretty_df(forecast_df), use_container_width=True, hide_index=True)
+
 # =========================
 # FALLBACK
 # =========================
