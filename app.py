@@ -1783,7 +1783,7 @@ def kpi_bubbles(values, colors, size=170):
     n = len(values)
     bubbles_per_row = 3 if not compact else 2   # safe assumption
     rows = max(1, math.ceil(n / bubbles_per_row))
-    frame_h = rows * (max_size + gap) + 60   # padding safety
+    frame_h = rows * (max_size + gap) + 70   # padding safety
 
     components.html(html, height=int(frame_h), scrolling=False)
 # =========================
@@ -2237,7 +2237,6 @@ if page == "dashboard":
     # ---------------------------------------
     # CURRENT PACKAGES (BUBBLES HERE)
     # ---------------------------------------
-    st.divider()
     st.subheader(t("Current Packages"))
 
     total_students = int(len(d))
@@ -2270,12 +2269,11 @@ if page == "dashboard":
     # ---------------------------------------
     # MISMATCHES
     # ---------------------------------------
-    st.divider()
     st.subheader(t("Mismatches"))
 
     mismatch_df = d[d["Status"] == "Mismatch"].copy()
     if mismatch_df.empty:
-        st.caption(t("no_data"))
+        st.caption(t("All good! No action required"))
     else:
         cols_mm = [
             "Student","Overused_Units","Lessons_Taken_Units","Lessons_Paid_Total",
