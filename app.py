@@ -2207,12 +2207,12 @@ if page == "dashboard":
     if due_df.empty:
         st.caption(t("no_data"))
     else:
-        cols_due = ["Student","Lessons_Left","Status","Modality","Languages","Payment_Date","Last_Lesson_Date"]
+        cols_due = ["Student", "Lessons_Left", "Status", "Modality", "Languages", "Payment_Date", "Last_Lesson_Date"]
         cols_due = [c for c in cols_due if c in due_df.columns]
         st.dataframe(pretty_df(due_df[cols_due]), use_container_width=True, hide_index=True)
 
         _, _, _, phone_map = student_meta_maps()
-        pick = st.selectbox(t("Contact the student"), due_df["Student"].tolist(), key="dash_pick_student")
+        pick = st.selectbox("Contact the student", due_df["Student"].tolist(), key="dash_pick_student")
         raw_phone = phone_map.get(norm_student(pick), "")
 
         default_msg = (
@@ -2263,39 +2263,83 @@ if page == "dashboard":
         size=70,
     )
 
-    with st.expander(t("Overview Current Packages"), expanded=False):
+    with st.expander("Overview Current Packages", expanded=False):
         st.dataframe(pretty_df(d), use_container_width=True, hide_index=True)
 
     # ---------------------------------------
-    # MISMATCHES
+    # MISMATCHES (CLEAN WHEN NONE)
     # ---------------------------------------
     st.subheader(t("Mismatches"))
 
     mismatch_df = d[d["Status"] == "Mismatch"].copy()
+
     if mismatch_df.empty:
-        st.caption(t("All good! No action required"))
+        st.caption("All good! No action required ✅")
     else:
+        # --- "Alert-style" table like Take Action ---
         cols_mm = [
-            "Student","Overused_Units","Lessons_Taken_Units","Lessons_Paid_Total",
-            "Payment_Date","Package_Start_Date","Modality","Languages","Payment_ID","Normalize_Allowed"
+            "Student",
+            "Overused_Units",
+            "Lessons_Left_Units",
+            "Lessons_Taken_Units",
+            "Lessons_Paid_Total",
+            "Payment_Date",
+            "Package_Start_Date",
+            "Modality",
+            "Languages",
+            "Payment_ID",
+            "Normalize_Allowed",
         ]
         cols_mm = [c for c in cols_mm if c in mismatch_df.columns]
         st.dataframe(pretty_df(mismatch_df[cols_mm]), use_container_width=True, hide_index=True)
 
-        pick_m = st.selectbox(t("select_student"), mismatch_df["Student"].tolist(), key="dash_mismatch_student")
+        # --- Normalize Package (only visible when mismatch exists) ---
+        st.markdown("### Normalize Package")
+
+        # Only allow selecting students who actually have mismatch
+        pick_m = st.selectbox(
+            "Select a student to normalize",
+            mismatch_df["Student"].tolist(),
+            key="dash_norm_pick_student",
+        )
+
         rowm = mismatch_df[mismatch_df["Student"] == pick_m].iloc[0]
         pid = int(rowm.get("Payment_ID", 0))
         can_norm = bool(rowm.get("Normalize_Allowed", False))
-        norm_note = st.text_input(t("normalized_note"), value=t("normalized_default_note"), key="dash_norm_note")
 
-        if st.button(t("normalize"), disabled=not can_norm, key="dash_mismatch_norm"):
-            ok = normalize_latest_package(pick_m, pid, note=norm_note)
-            if ok:
-                st.success(t("done_ok"))
-                st.rerun()
-            else:
-                st.error(t("normalize_failed"))
+        # Inputs
+        st.caption("This adjusts the package balance without changing lesson history.")
+        adj_units = st.number_input(
+            "Adjustment units (use negative to subtract, positive to add)",
+            min_value=-1000,
+            max_value=1000,
+            value=0,
+            step=1,
+            key="dash_norm_adj_units",
+        )
+        norm_note = st.text_input(
+            "Normalization note",
+            value="Normalized mismatch (dashboard)",
+            key="dash_norm_note",
+        )
 
+        # Save (writes to the payment record)
+        if st.button("Normalize Package", disabled=not can_norm, key="dash_norm_save_btn"):
+            try:
+                updates = {
+                    "lesson_adjustment_units": int(adj_units),
+                    "package_normalized": True,
+                    "normalized_note": str(norm_note or "").strip(),
+                    "normalized_at": datetime.now(timezone.utc).isoformat(),
+                }
+                ok = update_payment_row(pid, updates)
+                if ok:
+                    st.success("Done ✅")
+                    st.rerun()
+                else:
+                    st.error("Normalize failed.")
+            except Exception as e:
+                st.error(f"Normalize failed.\n\n{e}")
 # =========================
 # 19) PAGE: STUDENTS
 # =========================
@@ -2306,7 +2350,7 @@ elif page == "students":
 
     st.markdown(f"### {t('Add New')}")
     new_student = st.text_input(t("new_student_name"), key="new_student_name")
-    if st.button(f"{t('add')} {t('students')}", key="btn_add_student"):
+    if st.button(f"{t('add')} {t('students')}", key="Add student"):
         if not new_student.strip():
             st.error("Please enter the student's name.")
         else:
@@ -2407,8 +2451,9 @@ elif page == "students":
 # =========================
 elif page == "add_lesson":
     page_header(t("Lessons"))
-    st.caption(t("Add and manage your lessons"))
+    st.caption(t("Keep track of your lessons"))
 
+    st.markdown(f"### {t('Record Attendance')}")
     if not students:
         st.info(t("no_students"))
     else:
@@ -2416,7 +2461,11 @@ elif page == "add_lesson":
         number = st.number_input("Units", min_value=1, max_value=10, value=1, step=1, key="lesson_number")
         lesson_date = st.date_input("Date", key="lesson_date")
         modality = st.selectbox(t("modality"), [t("online"), t("offline")], key="lesson_modality")
-        note = st.text_input(t("notes_optional"), key="lesson_note") if "notes_optional" in I18N["en"] else st.text_input("Note (optional)", key="lesson_note")
+        note = (
+            st.text_input(t("notes_optional"), key="lesson_note")
+            if ("en" in I18N and "notes_optional" in I18N["en"])
+            else st.text_input("Note (optional)", key="lesson_note")
+        )
 
         pkg_lang = latest_payment_languages_for_student(student)
         lang_options, lang_default = allowed_lesson_language_from_package(pkg_lang)
@@ -2434,24 +2483,50 @@ elif page == "add_lesson":
                 lesson_date=lesson_date.isoformat(),
                 modality=("Offline" if modality == t("offline") else "Online"),
                 note=note,
-                lesson_language=lesson_lang
+                lesson_language=lesson_lang,
             )
             st.success("Saved ✅")
             st.rerun()
 
-        st.divider()
+        # ----------------------------
+        # LESSON EDITOR (BULK + DELETE BY ID INSIDE)
+        # ----------------------------
         with st.expander(t("Lesson Editor"), expanded=False):
             st.caption(t("warning_apply"))
+
+            # Delete by ID (inside editor)
+            with st.expander("Delete Lesson", expanded=False):
+                st.caption("Use this if you registered a lesson by mistake.")
+                del_lesson_id = st.number_input(
+                    "Lesson ID to delete",
+                    min_value=1,
+                    step=1,
+                    key="del_lesson_id",
+                )
+                c1, c2 = st.columns([1, 2])
+                with c1:
+                    confirm_del = st.checkbox("I understand this cannot be undone", key="confirm_del_lesson")
+                with c2:
+                    if st.button("Delete Lesson", disabled=not confirm_del, key="btn_delete_lesson"):
+                        try:
+                            delete_row("classes", int(del_lesson_id))
+                            st.success("Lesson deleted ✅")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Delete failed: {e}")
+
+            st.divider()
+
             classes = load_table("classes")
             if classes.empty:
                 st.info(t("no_data"))
             else:
-                classes["student"] = classes.get("student","").astype(str).str.strip()
+                classes["student"] = classes.get("student", "").astype(str).str.strip()
                 classes = classes[classes["student"] == student].copy()
                 if classes.empty:
                     st.info(t("no_data"))
                 else:
-                    for c in ["id","lesson_date","number_of_lesson","modality","lesson_language","note"]:
+                    for c in ["id", "lesson_date", "number_of_lesson", "modality", "lesson_language", "note"]:
                         if c not in classes.columns:
                             classes[c] = None
 
@@ -2460,8 +2535,12 @@ elif page == "add_lesson":
                     classes["modality"] = classes["modality"].fillna("Online").astype(str)
                     classes["lesson_language"] = classes["lesson_language"].fillna("").astype(str)
 
-                    show_cols = ["id","lesson_date","number_of_lesson","modality","lesson_language","note"]
-                    ed = classes[show_cols].sort_values(["lesson_date","id"], ascending=[False, False]).reset_index(drop=True)
+                    show_cols = ["id", "lesson_date", "number_of_lesson", "modality", "lesson_language", "note"]
+                    ed = (
+                        classes[show_cols]
+                        .sort_values(["lesson_date", "id"], ascending=[False, False])
+                        .reset_index(drop=True)
+                    )
 
                     if lang_default is not None:
                         ed["lesson_language"] = ed["lesson_language"].replace({"": lang_default, None: lang_default})
@@ -2475,33 +2554,37 @@ elif page == "add_lesson":
                             "id": st.column_config.NumberColumn("ID", disabled=True),
                             "lesson_date": st.column_config.DateColumn("Date"),
                             "number_of_lesson": st.column_config.NumberColumn("Units", min_value=1, step=1),
-                            "modality": st.column_config.SelectboxColumn("Modality", options=["Online","Offline"]),
+                            "modality": st.column_config.SelectboxColumn("Modality", options=["Online", "Offline"]),
                             "lesson_language": st.column_config.SelectboxColumn("Lesson language", options=[LANG_EN, LANG_ES, ""]),
                             "note": st.column_config.TextColumn("Note"),
-                        }
+                        },
                     )
 
                     if st.button(t("apply_changes"), key="apply_class_bulk"):
                         ok_all = True
                         for _, r in edited.iterrows():
                             cid = int(r["id"])
-                            ll = str(r.get("lesson_language","") or "").strip()
+                            ll = str(r.get("lesson_language", "") or "").strip()
                             if lang_default is not None and not ll:
                                 ll = lang_default
                             updates = {
-                                "lesson_date": pd.to_datetime(r["lesson_date"]).date().isoformat() if pd.notna(r["lesson_date"]) else None,
+                                "lesson_date": pd.to_datetime(r["lesson_date"]).date().isoformat()
+                                if pd.notna(r["lesson_date"])
+                                else None,
                                 "number_of_lesson": int(r["number_of_lesson"]),
                                 "modality": str(r["modality"]).strip(),
-                                "note": str(r.get("note","") or "").strip(),
+                                "note": str(r.get("note", "") or "").strip(),
                                 "lesson_language": ll if ll in (LANG_EN, LANG_ES) else None,
                             }
                             if not update_class_row(cid, updates):
                                 ok_all = False
+
                         if ok_all:
                             st.success("Updated ✅")
                             st.rerun()
                         else:
                             st.error("Some updates failed.")
+
 
 # =========================
 # 21) PAGE: ADD PAYMENT
@@ -2514,47 +2597,44 @@ elif page == "add_payment":
         st.info(t("no_students"))
     else:
         student_p = st.selectbox(t("select_student"), students, key="pay_student")
-        lessons_paid = st.number_input(t("lessons_paid"), min_value=1, max_value=500, value=44, step=1, key="pay_lessons_paid")
+
+        lessons_paid = st.number_input(
+            t("lessons_paid"),
+            min_value=1,
+            max_value=500,
+            value=44,
+            step=1,
+            key="pay_lessons_paid",
+        )
         payment_date = st.date_input(t("payment_date"), key="pay_date")
-        paid_amount = st.number_input(t("paid_amount"), min_value=0.0, value=0.0, step=100.0, key="pay_amount")
+        paid_amount = st.number_input(
+            t("paid_amount"),
+            min_value=0.0,
+            value=0.0,
+            step=100.0,
+            key="pay_amount",
+        )
         modality_p = st.selectbox(t("modality"), [t("online"), t("offline")], key="pay_modality")
 
         langs_selected = st.multiselect(
             t("package_languages"),
             options=[LANG_EN, LANG_ES],
             default=DEFAULT_PACKAGE_LANGS,
-            key="pay_languages_multi"
+            key="pay_languages_multi",
         )
         languages_value = pack_languages(langs_selected)
 
-        st.divider()
-        st.markdown(f"### {t('package_dates')}")
-
-        use_custom_start = st.checkbox(t("starts_different"), value=False, key="pay_custom_start")
+        use_custom_start = st.checkbox(
+            "First lesson starts on a different date",
+            value=False,
+            key="pay_custom_start",
+        )
         if use_custom_start:
-            pkg_start = st.date_input(t("package_start"), value=payment_date, key="pay_pkg_start")
+            pkg_start = st.date_input("Package start date", value=payment_date, key="pay_pkg_start")
         else:
             pkg_start = payment_date
 
-        close_package = st.checkbox(t("close_package"), value=False, key="pay_has_expiry")
-        pkg_expiry = None
-        if close_package:
-            pkg_expiry = st.date_input(t("package_expiry"), value=date.today(), key="pay_pkg_expiry")
-
-        st.divider()
-        st.caption(t("Normalize mismatches"))
-        st.markdown(f"### {t('Advance Adjustment')}")
-
-        lesson_adjustment_units = st.number_input(
-            t("adjust_units"),
-            min_value=-1000,
-            max_value=1000,
-            value=0,
-            step=1,
-            key="pay_adjust_units"
-        )
-        package_normalized = st.checkbox(t("normalized_flag"), value=False, key="pay_norm_flag")
-        normalized_note = st.text_input(t("normalized_note"), value="", key="pay_norm_note")
+        pkg_expiry = None  # set elsewhere if your app uses expiry selection
 
         if st.button(t("save"), key="btn_save_payment"):
             add_payment(
@@ -2566,30 +2646,64 @@ elif page == "add_payment":
                 languages=languages_value,
                 package_start_date=pkg_start.isoformat() if pkg_start else payment_date.isoformat(),
                 package_expiry_date=pkg_expiry.isoformat() if pkg_expiry else None,
-                lesson_adjustment_units=int(lesson_adjustment_units),
-                package_normalized=bool(package_normalized),
-                normalized_note=normalized_note
+                # Advanced adjustment removed from Payments:
+                lesson_adjustment_units=0,
+                package_normalized=False,
+                normalized_note="",
             )
             st.success("Saved ✅")
             st.rerun()
 
-        st.divider()
+        # ----------------------------
+        # PAYMENT EDITOR (BULK + DELETE BY ID INSIDE)
+        # ----------------------------
         with st.expander(t("Payment Editor"), expanded=False):
             st.caption(t("warning_apply"))
+
+            # Delete by ID (inside editor)
+            with st.expander("Delete Payment", expanded=False):
+                st.caption("Use this if you registered a payment by mistake.")
+                del_payment_id = st.number_input(
+                    "Payment ID to delete",
+                    min_value=1,
+                    step=1,
+                    key="del_payment_id",
+                )
+                c1, c2 = st.columns([1, 2])
+                with c1:
+                    confirm_del_p = st.checkbox("I understand this cannot be undone", key="confirm_del_payment")
+                with c2:
+                    if st.button("Delete Payment", disabled=not confirm_del_p, key="btn_delete_payment"):
+                        try:
+                            delete_row("payments", int(del_payment_id))
+                            st.success("Payment deleted ✅")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Delete failed: {e}")
+
+            st.divider()
 
             payments = load_table("payments")
             if payments.empty:
                 st.info(t("no_data"))
             else:
-                payments["student"] = payments.get("student","").astype(str).str.strip()
+                payments["student"] = payments.get("student", "").astype(str).str.strip()
                 payments = payments[payments["student"] == student_p].copy()
                 if payments.empty:
                     st.info(t("no_data"))
                 else:
                     for c in [
-                        "id","payment_date","number_of_lesson","paid_amount","modality","languages",
-                        "package_start_date","package_expiry_date",
-                        "lesson_adjustment_units","package_normalized","normalized_note"
+                        "id",
+                        "payment_date",
+                        "number_of_lesson",
+                        "paid_amount",
+                        "modality",
+                        "languages",
+                        "package_start_date",
+                        "package_expiry_date",
+                        "lesson_adjustment_units",
+                        "package_normalized",
+                        "normalized_note",
                     ]:
                         if c not in payments.columns:
                             payments[c] = None
@@ -2604,11 +2718,23 @@ elif page == "add_payment":
                     payments["languages"] = payments["languages"].fillna(LANG_ES).astype(str)
 
                     show_cols = [
-                        "id","payment_date","number_of_lesson","paid_amount","modality","languages",
-                        "package_start_date","package_expiry_date",
-                        "lesson_adjustment_units","package_normalized","normalized_note"
+                        "id",
+                        "payment_date",
+                        "number_of_lesson",
+                        "paid_amount",
+                        "modality",
+                        "languages",
+                        "package_start_date",
+                        "package_expiry_date",
+                        "lesson_adjustment_units",
+                        "package_normalized",
+                        "normalized_note",
                     ]
-                    ed = payments[show_cols].sort_values(["payment_date","id"], ascending=[False, False]).reset_index(drop=True)
+                    ed = (
+                        payments[show_cols]
+                        .sort_values(["payment_date", "id"], ascending=[False, False])
+                        .reset_index(drop=True)
+                    )
 
                     edited = st.data_editor(
                         ed,
@@ -2620,14 +2746,14 @@ elif page == "add_payment":
                             "payment_date": st.column_config.DateColumn("Payment date"),
                             "number_of_lesson": st.column_config.NumberColumn("Lessons paid", min_value=1, step=1),
                             "paid_amount": st.column_config.NumberColumn("Amount", min_value=0.0, step=100.0),
-                            "modality": st.column_config.SelectboxColumn("Modality", options=["Online","Offline"]),
+                            "modality": st.column_config.SelectboxColumn("Modality", options=["Online", "Offline"]),
                             "languages": st.column_config.SelectboxColumn("Languages", options=[LANG_EN, LANG_ES, LANG_BOTH]),
                             "package_start_date": st.column_config.DateColumn("Start date"),
                             "package_expiry_date": st.column_config.DateColumn("Expiry date"),
                             "lesson_adjustment_units": st.column_config.NumberColumn("Adjustment units", step=1),
                             "package_normalized": st.column_config.CheckboxColumn("Normalized"),
                             "normalized_note": st.column_config.TextColumn("Note"),
-                        }
+                        },
                     )
 
                     if st.button(t("apply_changes"), key="apply_payment_bulk"):
@@ -2639,17 +2765,28 @@ elif page == "add_payment":
                                 languages_val = LANG_ES
 
                             updates = {
-                                "payment_date": pd.to_datetime(r["payment_date"]).date().isoformat() if pd.notna(r["payment_date"]) else None,
+                                "payment_date": pd.to_datetime(r["payment_date"]).date().isoformat()
+                                if pd.notna(r["payment_date"])
+                                else None,
                                 "number_of_lesson": int(r["number_of_lesson"]),
                                 "paid_amount": float(r["paid_amount"]),
                                 "modality": str(r["modality"]).strip(),
                                 "languages": languages_val,
-                                "package_start_date": pd.to_datetime(r["package_start_date"]).date().isoformat() if pd.notna(r["package_start_date"]) else None,
-                                "package_expiry_date": pd.to_datetime(r["package_expiry_date"]).date().isoformat() if pd.notna(r["package_expiry_date"]) else None,
+                                "package_start_date": pd.to_datetime(r["package_start_date"]).date().isoformat()
+                                if pd.notna(r["package_start_date"])
+                                else None,
+                                "package_expiry_date": pd.to_datetime(r["package_expiry_date"]).date().isoformat()
+                                if pd.notna(r["package_expiry_date"])
+                                else None,
                                 "lesson_adjustment_units": int(r.get("lesson_adjustment_units", 0)),
                                 "package_normalized": bool(r.get("package_normalized", False)),
-                                "normalized_note": str(r.get("normalized_note","") or "").strip(),
-                                "normalized_at": datetime.now(timezone.utc).isoformat() if (bool(r.get("package_normalized", False)) or str(r.get("normalized_note","") or "").strip()) else None,
+                                "normalized_note": str(r.get("normalized_note", "") or "").strip(),
+                                "normalized_at": datetime.now(timezone.utc).isoformat()
+                                if (
+                                    bool(r.get("package_normalized", False))
+                                    or str(r.get("normalized_note", "") or "").strip()
+                                )
+                                else None,
                             }
                             if not update_payment_row(pid, updates):
                                 ok_all = False
@@ -2661,12 +2798,14 @@ elif page == "add_payment":
                             try:
                                 cls = load_table("classes")
                                 if not cls.empty:
-                                    cls["student"] = cls.get("student","").astype(str).str.strip()
+                                    cls["student"] = cls.get("student", "").astype(str).str.strip()
                                     cls = cls[cls["student"] == student_p].copy()
                                     if "lesson_language" not in cls.columns:
                                         cls["lesson_language"] = None
                                     cls["lesson_language"] = cls["lesson_language"].fillna("").astype(str)
-                                    missing = cls[(cls["lesson_language"].str.strip() == "") | (cls["lesson_language"].isna())]
+                                    missing = cls[
+                                        (cls["lesson_language"].str.strip() == "") | (cls["lesson_language"].isna())
+                                    ]
                                     for _, rr in missing.iterrows():
                                         update_class_row(int(rr["id"]), {"lesson_language": single_default})
                             except Exception:
@@ -2690,7 +2829,7 @@ elif page == "schedule":
 # =========================
 elif page == "calendar":
     page_header(t("Calendar"))
-    st.caption(t("See your timetable"))
+    st.caption(t("Create and manage your weekly program"))
 
     view = st.radio(
         t("view"),
@@ -2746,11 +2885,9 @@ elif page == "calendar":
         render_fullcalendar(filtered, height=980 if st.session_state.get("compact_mode", False) else 1050)
 
     # =========================
-    # SCHEDULE (moved here)
+    # SCHEDULE
     # =========================
-    st.divider()
-    st.subheader(t("schedule"))
-    st.caption(t("create_weekly_program"))
+    st.subheader(t("Schedule"))
 
     if not students:
         st.info(t("no_students"))
@@ -2813,7 +2950,6 @@ elif page == "calendar":
                     st.rerun()
 
     # --- Calendar overrides UI ---
-    st.divider()
     st.subheader(t("Modify Calendar"))
 
     overrides = load_overrides()
@@ -2952,17 +3088,25 @@ elif page == "analytics":
     kpis, income_table, by_student, sold_by_language, sold_by_modality = build_income_analytics(group="monthly")
     today = pd.Timestamp.today().normalize()
 
+    # ---------------------------------------
+    # Capsule "theme" colors (match views)
+    # ---------------------------------------
+    BLUE   = "#2563EB"  # all_time capsule
+    GREEN  = "#10B981"  # yearly capsule
+    YELLOW = "#F59E0B"  # monthly capsule
+    PURPLE = "#8B5CF6"  # weekly capsule
+
     # =======================================
-    # CLICKABLE KPI CAPSULES (HTML LINKS)
+    # CLICKABLE KPI CAPSULES (HTML LINKS) - SMALLER / MOBILE FRIENDLY
     # =======================================
     current_lang = st.session_state.get("ui_lang", "en")
     current_view = st.session_state.get("analytics_view", "all_time")
 
     capsules = [
-        ("all_time", t("all_time_income"), money_fmt(kpis.get("income_all_time", 0.0))),
-        ("year",     t("this_year_income"), money_fmt(kpis.get("income_this_year", 0.0))),
-        ("month",    t("this_month_income"), money_fmt(kpis.get("income_this_month", 0.0))),
-        ("week",     t("this_week_income"), money_fmt(kpis.get("income_this_week", 0.0))),
+        ("all_time", t("All time"), money_fmt(kpis.get("income_all_time", 0.0))),
+        ("year",     t("Yearly"),   money_fmt(kpis.get("income_this_year", 0.0))),
+        ("month",    t("Monthly"),  money_fmt(kpis.get("income_this_month", 0.0))),
+        ("week",     t("Weekly"),   money_fmt(kpis.get("income_this_week", 0.0))),
     ]
 
     caps_html = """
@@ -2970,25 +3114,25 @@ elif page == "analytics":
     .cm-caps-wrap{
       display:flex;
       flex-wrap:wrap;
-      gap:22px;
+      gap:12px;
       align-items:stretch;
       margin-top:10px;
       margin-bottom:6px;
-      padding-bottom: 6px;
+      padding-bottom: 4px;
     }
     .cm-capsule{
-      flex:1 1 220px;
-      min-width:220px;
-      max-width:360px;
+      flex:1 1 160px;
+      min-width:160px;
+      max-width:280px;
       background:#ffffff;
       border:1px solid rgba(17,24,39,0.10);
       border-radius:999px;
-      padding:34px 22px;
+      padding:18px 14px;
       text-align:center;
       text-decoration:none !important;
       color:#0f172a !important;
       font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      box-shadow:0 18px 34px rgba(15,23,42,0.10);
+      box-shadow:0 14px 26px rgba(15,23,42,0.10);
       transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
       position:relative;
       overflow:hidden;
@@ -2997,56 +3141,58 @@ elif page == "analytics":
       justify-content:center;
     }
     .cm-capsule:hover{
-      transform:translateY(-2px);
-      box-shadow:0 22px 44px rgba(15,23,42,0.14);
+      transform:translateY(-1px);
+      box-shadow:0 18px 32px rgba(15,23,42,0.14);
       border-color:rgba(59,130,246,0.35);
     }
     .cm-capsule.active{
-      border:3px solid #2563EB;
-      box-shadow:0 0 0 4px rgba(37,99,235,0.10), 0 18px 34px rgba(15,23,42,0.10);
+      border:2px solid #2563EB;
+      box-shadow:0 0 0 3px rgba(37,99,235,0.10), 0 14px 26px rgba(15,23,42,0.10);
     }
     .cm-capsule-value{
       font-weight:900;
-      font-size:42px;
+      font-size:30px;
       line-height:1.05;
-      margin-bottom:8px;
+      margin-bottom:6px;
       word-break:break-word;
     }
     .cm-capsule-label{
       font-weight:800;
-      font-size:15px;
+      font-size:13px;
       opacity:.9;
       word-break:break-word;
     }
-
-    /* subtle glows per capsule position */
     .cm-capsule:nth-child(1)::before{
-      content:""; position:absolute; width:140px; height:140px; top:15%; left:20%;
-      background:radial-gradient(circle, rgba(59,130,246,.30), transparent 70%);
+      content:""; position:absolute; width:110px; height:110px; top:18%; left:22%;
+      background:radial-gradient(circle, rgba(59,130,246,.22), transparent 70%);
       filter:blur(12px); opacity:.9;
     }
     .cm-capsule:nth-child(2)::before{
-      content:""; position:absolute; width:140px; height:140px; top:15%; left:20%;
-      background:radial-gradient(circle, rgba(16,185,129,.28), transparent 70%);
+      content:""; position:absolute; width:110px; height:110px; top:18%; left:22%;
+      background:radial-gradient(circle, rgba(16,185,129,.20), transparent 70%);
       filter:blur(12px); opacity:.9;
     }
     .cm-capsule:nth-child(3)::before{
-      content:""; position:absolute; width:140px; height:140px; top:15%; left:20%;
-      background:radial-gradient(circle, rgba(245,158,11,.26), transparent 70%);
+      content:""; position:absolute; width:110px; height:110px; top:18%; left:22%;
+      background:radial-gradient(circle, rgba(245,158,11,.18), transparent 70%);
       filter:blur(12px); opacity:.9;
     }
     .cm-capsule:nth-child(4)::before{
-      content:""; position:absolute; width:140px; height:140px; top:15%; left:20%;
-      background:radial-gradient(circle, rgba(139,92,246,.28), transparent 70%);
+      content:""; position:absolute; width:110px; height:110px; top:18%; left:22%;
+      background:radial-gradient(circle, rgba(139,92,246,.20), transparent 70%);
       filter:blur(12px); opacity:.9;
     }
-
-    @media (max-width: 900px){
-      .cm-capsule{ min-width:200px; }
-      .cm-capsule-value{ font-size:36px; }
+    @media (max-width: 700px){
+      .cm-capsule{
+        flex:1 1 calc(50% - 12px);
+        min-width:140px;
+        max-width:none;
+        padding:14px 12px;
+      }
+      .cm-capsule-value{ font-size:24px; }
+      .cm-capsule-label{ font-size:12px; }
     }
     </style>
-
     <div class="cm-caps-wrap">
     """
 
@@ -3061,24 +3207,56 @@ elif page == "analytics":
         )
 
     caps_html += "</div>"
-
     st.markdown(caps_html, unsafe_allow_html=True)
 
-    # ensure view reflects the current selection
     view = current_view
-
     st.divider()
 
+    # ---------------------------------------
+    # Helpers for charts with explicit colors
+    # ---------------------------------------
+    def _monthly_line_chart(df: pd.DataFrame, title: str, line_color: str):
+        import matplotlib.pyplot as plt
+
+        if df.empty:
+            st.info(t("no_data"))
+            return
+
+        tmp = df.copy()
+        tmp["MonthKey"] = tmp["Key"].astype(str).str[:7]
+        tmp["Income"] = pd.to_numeric(tmp.get("Income"), errors="coerce").fillna(0.0).astype(float)
+        tmp = tmp.sort_values("MonthKey")
+
+        fig, ax = plt.subplots()
+        ax.plot(tmp["MonthKey"].tolist(), tmp["Income"].tolist(), color=line_color, marker="o", linewidth=2)
+        ax.set_title(title)
+        ax.set_xlabel("Month")
+        ax.set_ylabel("Income")
+        ax.tick_params(axis="x", labelrotation=45)
+        ax.margins(x=0.01)
+
+        st.pyplot(fig, clear_figure=True)
+
+    def _bar_chart_with_highlight(labels, values, highlight_label, base_color, highlight_color, title, xlabel, ylabel):
+        import matplotlib.pyplot as plt
+
+        colors = [highlight_color if l == highlight_label else base_color for l in labels]
+        fig, ax = plt.subplots()
+        ax.bar(labels, values, color=colors)
+        ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.tick_params(axis="x", labelrotation=45)
+        ax.margins(x=0.01)
+        st.pyplot(fig, clear_figure=True)
+
     # ============================================
-    # MAIN VIEW CONTENT (kept simple/clean)
+    # MAIN VIEW CONTENT (color-matched to capsules)
     # ============================================
     if view == "all_time":
+        # Keep "as it was" (line graph), but force BLUE line to match all-time capsule.
         st.subheader("All Time Monthly Income")
-        if income_table.empty:
-            st.info(t("no_data"))
-        else:
-            chart_df = income_table.set_index("Key")[["Income"]]
-            st.line_chart(chart_df)
+        _monthly_line_chart(income_table, "Monthly income", line_color=BLUE)
 
     elif view == "year":
         st.subheader("Yearly Income")
@@ -3088,37 +3266,59 @@ elif page == "analytics":
         else:
             yt = yearly_table.copy()
             yt["Year"] = yt["Key"].astype(str).str[:4]
-            current_year = str(ts_today_naive().year)
+            yt["Income"] = pd.to_numeric(yt.get("Income"), errors="coerce").fillna(0.0).astype(float)
+            yt = yt.sort_values("Year")
 
+            current_year = str(today.year)
             years = yt["Year"].tolist()
-            incomes = yt["Income"].astype(float).tolist()
+            incomes = yt["Income"].tolist()
 
-            colors = ["#2563EB" if y != current_year else "#7C3AED" for y in years]
-
-            import matplotlib.pyplot as plt
-            fig, ax = plt.subplots()
-            ax.bar(years, incomes, color=colors)
-            ax.set_ylabel("Income")
-            ax.set_xlabel("Year")
-            ax.set_title("Yearly totals")
-            st.pyplot(fig, clear_figure=True)
+            # Bars = BLUE, current year = GREEN (matches yearly capsule)
+            _bar_chart_with_highlight(
+                labels=years,
+                values=incomes,
+                highlight_label=current_year,
+                base_color=BLUE,
+                highlight_color=GREEN,
+                title="Yearly totals",
+                xlabel="Year",
+                ylabel="Income",
+            )
 
     elif view == "month":
         st.subheader("Monthly Income")
         if income_table.empty:
             st.info(t("no_data"))
         else:
-            year_options = sorted(income_table["Key"].str[:4].dropna().unique().tolist(), reverse=True)
+            year_options = sorted(income_table["Key"].astype(str).str[:4].dropna().unique().tolist(), reverse=True)
             current_year = str(today.year)
             default_idx = year_options.index(current_year) if current_year in year_options else 0
 
             selected_year = st.selectbox("Select year", year_options, index=default_idx, key="analytics_year_pick")
-            monthly = income_table[income_table["Key"].str.startswith(selected_year)].copy()
+            monthly = income_table[income_table["Key"].astype(str).str.startswith(selected_year)].copy()
 
             if monthly.empty:
                 st.info(t("no_data"))
             else:
-                st.line_chart(monthly.set_index("Key")[["Income"]])
+                monthly["MonthKey"] = monthly["Key"].astype(str).str[:7]
+                monthly["Income"] = pd.to_numeric(monthly.get("Income"), errors="coerce").fillna(0.0).astype(float)
+                monthly = monthly.sort_values("MonthKey")
+
+                labels = monthly["MonthKey"].tolist()
+                values = monthly["Income"].tolist()
+
+                # Bars = BLUE, current month = YELLOW (matches monthly capsule)
+                highlight_month = today.strftime("%Y-%m") if selected_year == str(today.year) else "__none__"
+                _bar_chart_with_highlight(
+                    labels=labels,
+                    values=values,
+                    highlight_label=highlight_month,
+                    base_color=BLUE,
+                    highlight_color=YELLOW,
+                    title=f"Monthly income ({selected_year})",
+                    xlabel="Month",
+                    ylabel="Income",
+                )
 
     elif view == "week":
         st.subheader("Weekly Income")
@@ -3137,17 +3337,30 @@ elif page == "analytics":
             daily = (
                 week_df.groupby("Day", as_index=False)["paid_amount"]
                 .sum()
-                .rename(columns={"paid_amount":"Income"})
+                .rename(columns={"paid_amount": "Income"})
                 .sort_values("Day")
             )
 
             days = [(today - pd.Timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
             daily = pd.DataFrame({"Day": days}).merge(daily, on="Day", how="left").fillna({"Income": 0.0})
+            labels = daily["Day"].tolist()
+            values = daily["Income"].astype(float).tolist()
 
-            st.bar_chart(daily.set_index("Day")["Income"])
+            # Bars = BLUE, "current" day in this 7-day window = PURPLE (matches weekly capsule)
+            highlight_day = today.strftime("%Y-%m-%d")
+            _bar_chart_with_highlight(
+                labels=labels,
+                values=values,
+                highlight_label=highlight_day,
+                base_color=BLUE,
+                highlight_color=PURPLE,
+                title="Last 7 days",
+                xlabel="Day",
+                ylabel="Income",
+            )
 
     # ============================================
-    # EXTRA SECTIONS (each chart/section gets its own expander)
+    # EXTRA SECTIONS (expanders)
     # ============================================
     st.divider()
 
@@ -3178,7 +3391,7 @@ elif page == "analytics":
         if classes.empty:
             st.info(t("no_data"))
         else:
-            for c in ["student","lesson_language","modality","number_of_lesson","lesson_date","note"]:
+            for c in ["student", "lesson_language", "modality", "number_of_lesson", "lesson_date", "note"]:
                 if c not in classes.columns:
                     classes[c] = None
             classes["student"] = classes["student"].fillna("").astype(str).str.strip()
@@ -3190,7 +3403,7 @@ elif page == "analytics":
             teach_lang = (
                 classes.assign(Lang=classes["lesson_language"].replace({"": "Unknown"}))
                 .groupby("Lang", as_index=False)["number_of_lesson"].sum()
-                .rename(columns={"number_of_lesson":"Units"})
+                .rename(columns={"number_of_lesson": "Units"})
                 .sort_values("Units", ascending=False)
             )
             st.bar_chart(teach_lang.set_index("Lang")["Units"])
@@ -3200,7 +3413,7 @@ elif page == "analytics":
         if classes.empty:
             st.info(t("no_data"))
         else:
-            for c in ["student","lesson_language","modality","number_of_lesson","lesson_date","note"]:
+            for c in ["student", "lesson_language", "modality", "number_of_lesson", "lesson_date", "note"]:
                 if c not in classes.columns:
                     classes[c] = None
             classes["student"] = classes["student"].fillna("").astype(str).str.strip()
@@ -3211,7 +3424,7 @@ elif page == "analytics":
 
             teach_mod = (
                 classes.groupby("modality", as_index=False)["number_of_lesson"].sum()
-                .rename(columns={"modality":"Modality","number_of_lesson":"Units"})
+                .rename(columns={"modality": "Modality", "number_of_lesson": "Units"})
                 .sort_values("Units", ascending=False)
             )
             st.bar_chart(teach_mod.set_index("Modality")["Units"])
@@ -3222,7 +3435,7 @@ elif page == "analytics":
             [0, 7, 14],
             index=0,
             format_func=lambda x: t("on_finish") if x == 0 else f"{x} {t('days_before')}",
-            key="forecast_buffer"
+            key="forecast_buffer_analytics",  # keep unique
         )
         forecast_df = build_forecast_table(payment_buffer_days=int(buffer_days))
         if forecast_df.empty:
@@ -3230,7 +3443,7 @@ elif page == "analytics":
         else:
             st.dataframe(pretty_df(forecast_df), use_container_width=True, hide_index=True)
 
-# =========================
+#=========================
 # FALLBACK
 # =========================
 else:
