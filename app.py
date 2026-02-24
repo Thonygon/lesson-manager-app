@@ -1783,7 +1783,7 @@ def kpi_bubbles(values, colors, size=170):
     n = len(values)
     bubbles_per_row = 3 if not compact else 2   # safe assumption
     rows = max(1, math.ceil(n / bubbles_per_row))
-    frame_h = rows * (max_size + gap) + 30   # padding safety
+    frame_h = rows * (max_size + gap) + 60   # padding safety
 
     components.html(html, height=int(frame_h), scrolling=False)
 # =========================
