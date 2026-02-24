@@ -1781,9 +1781,9 @@ def kpi_bubbles(values, colors, size=170):
 
     # ✅ Robust height (no JS needed)
     n = len(values)
-    bubbles_per_row = 4 if not compact else 2   # safe assumption
+    bubbles_per_row = 3 if not compact else 2   # safe assumption
     rows = max(1, math.ceil(n / bubbles_per_row))
-    frame_h = rows * (max_size + gap) + 170   # padding safety
+    frame_h = rows * (max_size + gap) + 0   # padding safety
 
     components.html(html, height=int(frame_h), scrolling=False)
 # =========================
@@ -2195,6 +2195,51 @@ if page == "dashboard":
         (d["Status"] == "Mismatch")
     ].copy()
 
+    # ---------------------------------------
+    # TAKE ACTION (TOP OF PAGE)
+    # ---------------------------------------
+    st.subheader(t("Take Action"))
+
+    due_df = d[d["Status"] == "Almost Finished"].copy()
+    due_df["Lessons_Left"] = pd.to_numeric(due_df.get("Lessons_Left_Units"), errors="coerce").fillna(0).astype(int)
+    due_df = due_df.sort_values(["Lessons_Left", "Student"])
+
+    if due_df.empty:
+        st.caption(t("no_data"))
+    else:
+        cols_due = ["Student","Lessons_Left","Status","Modality","Languages","Payment_Date","Last_Lesson_Date"]
+        cols_due = [c for c in cols_due if c in due_df.columns]
+        st.dataframe(pretty_df(due_df[cols_due]), use_container_width=True, hide_index=True)
+
+        _, _, _, phone_map = student_meta_maps()
+        pick = st.selectbox(t("Contact the student"), due_df["Student"].tolist(), key="dash_pick_student")
+        raw_phone = phone_map.get(norm_student(pick), "")
+
+        default_msg = (
+            f"Hello. I hope you are fine. {pick} has finished the package. "
+            "If (s/he) wishes to continue, here you have my current prices. "
+            "Please let me know to plan accordingly. Thanks."
+        )
+        msg = st.text_area(t("whatsapp_message"), value=default_msg, height=160, key="dash_wa_msg")
+
+        wa_url = build_whatsapp_url(msg, raw_phone=raw_phone)
+        st.markdown(
+            f"""
+            <a href="{wa_url}" target="_blank" style="text-decoration:none;">
+              <button style="width:100%;padding:0.7rem 1rem;border-radius:14px;border:1px solid rgba(17,24,39,0.12);background:white;font-weight:700;cursor:pointer;">
+                {t("open_whatsapp")}
+              </button>
+            </a>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # ---------------------------------------
+    # CURRENT PACKAGES (BUBBLES HERE)
+    # ---------------------------------------
+    st.divider()
+    st.subheader(t("Current Packages"))
+
     total_students = int(len(d))
     active_count = int((d["Status"] == "Active").sum())
     finish_soon_count = int((d["Status"] == "Almost Finished").sum())
@@ -2219,48 +2264,15 @@ if page == "dashboard":
         size=100,
     )
 
-    st.subheader(t("Take Action"))
+    with st.expander(t("Current Packages"), expanded=False):
+        st.dataframe(pretty_df(d), use_container_width=True, hide_index=True)
 
-    due_df = d[d["Status"] == "Almost Finished"].copy()
-    due_df["Lessons_Left"] = pd.to_numeric(due_df.get("Lessons_Left_Units"), errors="coerce").fillna(0).astype(int)
-    due_df = due_df.sort_values(["Lessons_Left", "Student"])
-
-    if due_df.empty:
-        st.caption(t("no_data"))
-    else:
-        cols_due = ["Student","Lessons_Left","Status","Modality","Languages","Payment_Date","Last_Lesson_Date"]
-        cols_due = [c for c in cols_due if c in due_df.columns]
-        st.dataframe(pretty_df(due_df[cols_due]), use_container_width=True, hide_index=True)
-
-        _, _, _, phone_map = student_meta_maps()
-        pick = st.selectbox(t("select_student"), due_df["Student"].tolist(), key="dash_pick_student")
-        raw_phone = phone_map.get(norm_student(pick), "")
-
-        default_msg = (
-            f"Hello. I hope you are fine. {pick} has finished the package. "
-            "If (s/he) wishes to continue, here you have my current prices. "
-            "Please let me know to plan accordingly. Thanks."
-        )
-        msg = st.text_area(t("whatsapp_message"), value=default_msg, height=160, key="dash_wa_msg")
-
-        wa_url = build_whatsapp_url(msg, raw_phone=raw_phone)
-        st.markdown(
-            f"""
-            <a href="{wa_url}" target="_blank" style="text-decoration:none;">
-              <button style="width:100%;padding:0.7rem 1rem;border-radius:14px;border:1px solid rgba(17,24,39,0.12);background:white;font-weight:700;cursor:pointer;">
-                {t("open_whatsapp")}
-              </button>
-            </a>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    st.divider()
-    st.subheader(t("Current Packages"))
-    st.dataframe(pretty_df(d), use_container_width=True, hide_index=True)
-
+    # ---------------------------------------
+    # MISMATCHES
+    # ---------------------------------------
     st.divider()
     st.subheader(t("Mismatches"))
+
     mismatch_df = d[d["Status"] == "Mismatch"].copy()
     if mismatch_df.empty:
         st.caption(t("no_data"))
