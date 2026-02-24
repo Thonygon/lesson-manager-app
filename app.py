@@ -574,41 +574,59 @@ def load_css_app_light(compact: bool = False):
 PAGES = [
     ("dashboard", "dashboard", "linear-gradient(90deg,#3B82F6,#2563EB)"),
     ("students",  "students",  "linear-gradient(90deg,#10B981,#059669)"),
-    ("add_lesson","lessons",    "linear-gradient(90deg,#F59E0B,#D97706)"),
-    ("add_payment","payments",  "linear-gradient(90deg,#EF4444,#DC2626)"),
+    ("add_lesson","lessons",   "linear-gradient(90deg,#F59E0B,#D97706)"),
+    ("add_payment","payments", "linear-gradient(90deg,#EF4444,#DC2626)"),
     ("schedule",  "schedule",  "linear-gradient(90deg,#8B5CF6,#7C3AED)"),
     ("calendar",  "calendar",  "linear-gradient(90deg,#06B6D4,#0891B2)"),
     ("analytics", "analytics", "linear-gradient(90deg,#F97316,#EA580C)"),
 ]
 PAGE_KEYS = {"home"} | {k for k, _, _ in PAGES}
 
-def _get_query_page() -> str:
+def _get_qp(key: str, default=None):
+    """Safe query param getter (new + old Streamlit)."""
     try:
         qp = st.query_params
-        v = qp.get("page", "home")
+        v = qp.get(key, default)
         if isinstance(v, list):
-            v = v[0] if v else "home"
-        return str(v)
+            v = v[0] if v else default
+        return v if v is not None else default
     except Exception:
         qp = st.experimental_get_query_params()
-        v = qp.get("page", ["home"])
-        return str(v[0]) if v else "home"
+        v = qp.get(key, [default])
+        return v[0] if v else default
+
+def _get_query_page() -> str:
+    v = _get_qp("page", "home")
+    return str(v) if v is not None else "home"
 
 def _set_query_page(page: str) -> None:
+    """Set page AND preserve language (?lang=) so top-nav + sidebar stay consistent."""
+    lang = st.session_state.get("ui_lang", "en")
     try:
         st.query_params["page"] = page
+        st.query_params["lang"] = lang
     except Exception:
-        st.experimental_set_query_params(page=page)
+        st.experimental_set_query_params(page=page, lang=lang)
+
+# --- Defaults ---
+if "ui_lang" not in st.session_state:
+    st.session_state.ui_lang = "en"
 
 if "page" not in st.session_state:
     st.session_state.page = "home"
 
+# --- Read from URL ---
 qp_page = _get_query_page()
 if qp_page in PAGE_KEYS:
     st.session_state.page = qp_page
 else:
     st.session_state.page = "home"
     _set_query_page("home")
+
+# --- Sync language from URL (?lang=en or ?lang=es) ---
+lang_qp = _get_qp("lang", None)
+if lang_qp in ("en", "es"):
+    st.session_state.ui_lang = lang_qp
 
 def force_close_sidebar():
     components.html(
@@ -644,13 +662,20 @@ def render_sidebar_nav(active_page: str):
     with st.sidebar:
         st.markdown('<div class="cm-sidebar">', unsafe_allow_html=True)
         st.markdown(f"# {t('menu')}")
-        st.radio(
+
+        # Language toggle (keeps URL in sync)
+        lang_choice = st.radio(
             t("language_ui"),
             options=["en", "es"],
             format_func=lambda x: "English" if x == "en" else "Español",
             horizontal=True,
             key="ui_lang",
         )
+        # If user changes language, preserve current page but update URL
+        if lang_choice != _get_qp("lang", lang_choice):
+            _set_query_page(st.session_state.page)
+            st.rerun()
+
         st.checkbox(
             t("compact_mode"),
             value=st.session_state.get("compact_mode", False),
@@ -664,6 +689,7 @@ def render_sidebar_nav(active_page: str):
                 if st.button(label, key=f"side_{k}", use_container_width=True):
                     go_to(k)
                     st.rerun()
+
         st.markdown("</div>", unsafe_allow_html=True)
 
 def page_header(title: str):
@@ -1753,7 +1779,7 @@ def kpi_bubbles(values, colors, size=170):
     n = len(values)
     bubbles_per_row = 4 if not compact else 2   # safe assumption
     rows = max(1, math.ceil(n / bubbles_per_row))
-    frame_h = rows * (max_size + gap) + 10   # padding safety
+    frame_h = rows * (max_size + gap) - 200   # padding safety
 
     components.html(html, height=int(frame_h), scrolling=False)
 # =========================
@@ -2002,10 +2028,127 @@ def render_home():
 # =========================
 # 17) APP ENTRYPOINT (ROUTER + THEME SWITCH)
 # =========================
-page = st.session_state.page
 
-if page != "home":
-    force_close_sidebar()
+# ---------- TOP NAV FUNCTION (DEFINE FIRST) ----------
+def render_top_nav(active_page: str):
+    # Keep current lang in URL
+    current_lang = st.session_state.get("ui_lang", "en")
+    if current_lang not in ("en", "es"):
+        current_lang = "en"
+
+    items = [
+        ("home",       "Home",      "🏠"),
+        ("dashboard",  "Dashboard", "📊"),
+        ("students",   "Students",  "👥"),
+        ("add_lesson", "Lessons",    "🗓️"),
+        ("add_payment","Payments",   "💳"),
+        ("schedule",   "Schedule",  "🧭"),
+        ("calendar",   "Calendar",  "📅"),
+        ("analytics",  "Analytics", "📈"),
+    ]
+
+    # Build links with ZERO indentation (important)
+    links_html = ""
+    for key, label, icon in items:
+        active_cls = "active" if key == active_page else ""
+        links_html += (
+            f'<a class="cm-nav-item {active_cls}" '
+            f'href="?page={key}&lang={current_lang}" target="_self" rel="noopener noreferrer">'
+            f'<span class="cm-nav-ico">{icon}</span>'
+            f'<span class="cm-nav-lab">{label}</span>'
+            f'</a>'
+        )
+
+    # Language toggles (also no indentation)
+    lang_buttons = (
+        f'<a class="cm-lang-btn {"on" if current_lang=="en" else ""}" href="?page={active_page}&lang=en" target="_self">EN</a>'
+        f'<a class="cm-lang-btn {"on" if current_lang=="es" else ""}" href="?page={active_page}&lang=es" target="_self">ES</a>'
+    )
+
+    st.markdown(
+        f"""
+<style>
+.cm-topnav {{
+  position: sticky; top: 0; z-index: 9999;
+  background: rgba(255,255,255,0.78);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(17,24,39,0.08);
+  box-shadow: 0 10px 26px rgba(15,23,42,0.06);
+  border-radius: 16px;
+  padding: 10px 12px;
+  margin: 0 0 14px 0;
+}}
+
+.cm-topnav-row {{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+}}
+
+.cm-nav-scroll {{
+  display:flex; gap:10px; align-items:center;
+  overflow-x:auto; -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+}}
+.cm-nav-scroll::-webkit-scrollbar {{ display:none; }}
+
+.cm-nav-item {{
+  display:inline-flex; align-items:center; gap:8px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(17,24,39,0.10);
+  background: rgba(255,255,255,0.85);
+  color:#0f172a !important;
+  text-decoration:none !important;
+  font-weight:700;
+  white-space:nowrap;
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}}
+.cm-nav-item:hover {{
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 4px rgba(59,130,246,0.10);
+  border-color: rgba(59,130,246,0.35);
+}}
+.cm-nav-item.active {{
+  border: 2px solid rgba(37,99,235,0.85);
+  box-shadow: 0 0 0 4px rgba(37,99,235,0.10);
+}}
+
+.cm-nav-ico {{ font-size:16px; line-height:1; }}
+.cm-nav-lab {{ font-size:14px; line-height:1; }}
+
+.cm-lang {{
+  display:flex; gap:8px; align-items:center;
+}}
+.cm-lang-btn {{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:44px; height:44px;
+  border-radius:999px;
+  border:1px solid rgba(17,24,39,0.12);
+  background: rgba(255,255,255,0.85);
+  color:#0f172a !important;
+  text-decoration:none !important;
+  font-weight:800;
+}}
+.cm-lang-btn.on {{
+  border:2px solid rgba(37,99,235,0.85);
+  box-shadow: 0 0 0 4px rgba(37,99,235,0.10);
+}}
+
+@media (max-width: 720px) {{
+  .cm-nav-lab {{ display:none; }}
+}}
+</style>
+
+<div class="cm-topnav">
+  <div class="cm-topnav-row">
+    <div class="cm-nav-scroll">{links_html}</div>
+    <div class="cm-lang">{lang_buttons}</div>
+  </div>
+</div>
+""",
+        unsafe_allow_html=True
+    )
+# ---------- ROUTER ----------
+page = st.session_state.page
 
 if page == "home":
     load_css_home_dark()
@@ -2018,7 +2161,12 @@ if page == "home":
     render_home()
     st.stop()
 
-render_sidebar_nav(page)
+if page != "home":
+    render_top_nav(page)
+
+# Optional: keep sidebar OR remove this line entirely
+# render_sidebar_nav(page)
+
 
 # =========================
 # 18) PAGE: DASHBOARD
@@ -2246,7 +2394,7 @@ elif page == "students":
 # 20) PAGE: ADD LESSON
 # =========================
 elif page == "add_lesson":
-    page_header(t("Lesson"))
+    page_header(t("Lessons"))
     st.caption(t("Add and manage your lessons"))
 
     if not students:
