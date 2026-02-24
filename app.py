@@ -1783,7 +1783,7 @@ def kpi_bubbles(values, colors, size=170):
     n = len(values)
     bubbles_per_row = 3 if not compact else 2   # safe assumption
     rows = max(1, math.ceil(n / bubbles_per_row))
-    frame_h = rows * (max_size + gap) + 70   # padding safety
+    frame_h = rows * (max_size + gap) + 80   # padding safety
 
     components.html(html, height=int(frame_h), scrolling=False)
 # =========================
@@ -2263,7 +2263,7 @@ if page == "dashboard":
         size=70,
     )
 
-    with st.expander(t("Current Packages"), expanded=False):
+    with st.expander(t("Overview Current Packages"), expanded=False):
         st.dataframe(pretty_df(d), use_container_width=True, hide_index=True)
 
     # ---------------------------------------
