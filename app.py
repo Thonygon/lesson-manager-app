@@ -96,30 +96,47 @@ def inject_pwa_head():
           const w = window.parent;
           const doc = w.document;
 
-          // --- Build correct base path (works on Streamlit Cloud + subpaths like /app) ---
-          // Example: https://share.streamlit.io/user/repo/app -> pathname includes "/app"
-          const basePath = (w.location.pathname || "").replace(/\\/+$/, "");
-          const manifestUrl = w.location.origin + basePath + "/static/manifest.webmanifest";
-          const appleIconUrl = w.location.origin + basePath + "/static/apple-touch-icon.png";
+          const icon192 = w.location.origin + "/app/static/icon-192.png";
+          const icon512 = w.location.origin + "/app/static/icon-512.png";
+          const apple180 = w.location.origin + "/app/static/apple-touch-icon.png";
 
-          // --- Manifest ---
+          // Remove old injected items
           doc.querySelectorAll('link[rel="manifest"][data-cm="1"]').forEach(el => el.remove());
+          doc.querySelectorAll('link[rel="apple-touch-icon"][data-cm="1"]').forEach(el => el.remove());
+
+          // Build manifest dynamically (avoids Streamlit static routing issues)
+          const manifest = {
+            name: "Classman",
+            short_name: "Classman",
+            start_url: w.location.origin + "/",
+            scope:w.location.origin + "/",
+            display: "standalone",
+            background_color: "#0b1220",
+            theme_color: "#0b1220",
+            icons: [
+              { src: icon192, sizes: "192x192", type: "image/png", purpose: "any" },
+              { src: icon512, sizes: "512x512", type: "image/png", purpose: "any" }
+            ]
+          };
+
+          const blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
+          const manifestURL = URL.createObjectURL(blob);
+
           const link = doc.createElement("link");
           link.rel = "manifest";
-          link.href = manifestUrl;
+          link.href = manifestURL;
           link.setAttribute("data-cm", "1");
           doc.head.appendChild(link);
 
-          // --- Apple touch icon (this is what iPhone uses for Home Screen icon) ---
-          doc.querySelectorAll('link[rel="apple-touch-icon"][data-cm="1"]').forEach(el => el.remove());
+          // Apple icon (for iPhone)
           const ati = doc.createElement("link");
           ati.rel = "apple-touch-icon";
-          ati.href = appleIconUrl;
+          ati.href = apple180;
           ati.sizes = "180x180";
           ati.setAttribute("data-cm", "1");
           doc.head.appendChild(ati);
 
-          // --- Meta tags ---
+          // Meta tags
           const metas = [
             { name: "apple-mobile-web-app-capable", content: "yes" },
             { name: "mobile-web-app-capable", content: "yes" },
