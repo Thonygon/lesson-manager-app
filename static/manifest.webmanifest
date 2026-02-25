@@ -1,0 +1,24 @@
+{
+  "name": "Class Manager",
+  "short_name": "ClassMgr",
+  "description": "Class Manager - student, payments, schedule and analytics",
+  "start_url": "/?page=home",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "icons": [
+    {
+      "src": "/app/static/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/app/static/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
