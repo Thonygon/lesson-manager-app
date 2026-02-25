@@ -23,25 +23,18 @@ import math
 import json
 import re
 import urllib.parse
+import base64
+import os
 import streamlit.components.v1 as components
 from zoneinfo import ZoneInfo
 LOCAL_TZ = ZoneInfo("Europe/Istanbul")
 UTC_TZ = timezone.utc
 
+
+
 # =========================
 # 00.5) SMALL UI HELPERS
 # =========================
-def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Light formatting helper used across the app."""
-    if df is None or df.empty:
-        return df
-    out = df.copy()
-    # Strip whitespace from object columns
-    for c in out.columns:
-        if out[c].dtype == "object":
-            out[c] = out[c].astype(str).str.strip()
-    return out
-
 def to_dt_naive(x, utc: bool = True):
     """
     Parse to pandas datetime and return tz-naive timestamps.
@@ -91,6 +84,64 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+# =========================
+# 01.5) PWA HEAD INJECTION
+# =========================
+# =========================
+# 01.5) PWA HEAD INJECTION (Base64 icons — works in Streamlit)
+# =========================
+def inject_pwa_head():
+    components.html(
+        """
+        <script>
+        (function () {
+          const w = window.parent;
+          const doc = w.document;
+
+          // Remove previous injected links
+          doc.querySelectorAll('link[rel="manifest"][data-cm="1"]').forEach(el => el.remove());
+
+          // Link to the static manifest file
+          const link = doc.createElement("link");
+          link.rel = "manifest";
+          link.href = "/app/static/manifest.webmanifest";
+          link.setAttribute("data-cm", "1");
+          doc.head.appendChild(link);
+
+          // Apple touch icon
+          doc.querySelectorAll('link[rel="apple-touch-icon"][data-cm="1"]').forEach(el => el.remove());
+          const ati = doc.createElement("link");
+          ati.rel = "apple-touch-icon";
+          ati.href = "/static/apple-touch-icon.png";
+          ati.setAttribute("data-cm", "1");
+          doc.head.appendChild(ati);
+
+          // iOS meta tags
+          const metas = [
+            { name: "apple-mobile-web-app-capable", content: "yes" },
+            { name: "mobile-web-app-capable", content: "yes" },  
+            { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+            { name: "apple-mobile-web-app-title", content: "Class Manager" },
+            { name: "theme-color", content: "#0b1220" }
+          ];
+
+          metas.forEach(m => {
+            let el = doc.querySelector('meta[name="' + m.name + '"][data-cm="1"]');
+            if (!el) {
+              el = doc.createElement("meta");
+              el.setAttribute("data-cm", "1");
+              el.name = m.name;
+              doc.head.appendChild(el);
+            }
+            el.content = m.content;
+          });
+        })();
+        </script>
+        """,
+        height=0,
+    )
+
+inject_pwa_head()
 
 # =========================
 # 02) I18N (EN/ES)
@@ -2210,10 +2261,13 @@ def render_top_nav(active_page: str):
         )
 
     # Language toggles (also no indentation)
+    en_on = "on" if current_lang == "en" else ""
+    es_on = "on" if current_lang == "es" else ""
+
     lang_buttons = (
-        f'<a class="cm-lang-btn {"on" if current_lang=="en" else ""}" href="?page={active_page}&lang=en" target="_self">EN</a>'
-        f'<a class="cm-lang-btn {"on" if current_lang=="es" else ""}" href="?page={active_page}&lang=es" target="_self">ES</a>'
-    )
+        f'<a class="cm-lang-btn {en_on}" href="?page={active_page}&lang=en" target="_self">EN</a>'
+        f'<a class="cm-lang-btn {es_on}" href="?page={active_page}&lang=es" target="_self">ES</a>'
+        )
 
     st.markdown(
         f"""
@@ -2323,7 +2377,7 @@ if page != "home":
 # =========================
 if page == "dashboard":
     page_header(t("Dashboard"))
-    st.caption(t("Manage your current students"))
+    st.caption(t("manage_current_students"))
 
     dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
 
