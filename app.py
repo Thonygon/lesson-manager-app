@@ -128,13 +128,21 @@ def inject_pwa_head():
           link.setAttribute("data-cm", "1");
           doc.head.appendChild(link);
 
-          // Apple icon (for iPhone)
+          doc.querySelectorAll('link[rel="apple-touch-icon"][data-cm="1"]').forEach(el => el.remove());
           const ati = doc.createElement("link");
           ati.rel = "apple-touch-icon";
           ati.href = apple180;
           ati.sizes = "180x180";
           ati.setAttribute("data-cm", "1");
           doc.head.appendChild(ati);
+
+          // Favicon override (forces iOS to stop using Streamlit icon)
+          doc.querySelectorAll('link[rel="icon"][data-cm="1"]').forEach(el => el.remove());
+          const fav = doc.createElement("link");
+          fav.rel = "icon";
+          fav.href = apple180;
+          fav.setAttribute("data-cm", "1");
+          doc.head.appendChild(fav);
 
           // Meta tags
           const metas = [
