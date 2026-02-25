@@ -84,9 +84,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-# =========================
-# 01.5) PWA HEAD INJECTION
-# =========================
+
 # =========================
 # 01.5) PWA HEAD INJECTION (Base64 icons — works in Streamlit)
 # =========================
@@ -98,28 +96,33 @@ def inject_pwa_head():
           const w = window.parent;
           const doc = w.document;
 
-          // Remove previous injected links
-          doc.querySelectorAll('link[rel="manifest"][data-cm="1"]').forEach(el => el.remove());
+          // --- Build correct base path (works on Streamlit Cloud + subpaths like /app) ---
+          // Example: https://share.streamlit.io/user/repo/app -> pathname includes "/app"
+          const basePath = (w.location.pathname || "").replace(/\\/+$/, "");
+          const manifestUrl = w.location.origin + basePath + "/static/manifest.webmanifest";
+          const appleIconUrl = w.location.origin + basePath + "/static/apple-touch-icon.png";
 
-          // Link to the static manifest file
+          // --- Manifest ---
+          doc.querySelectorAll('link[rel="manifest"][data-cm="1"]').forEach(el => el.remove());
           const link = doc.createElement("link");
           link.rel = "manifest";
-          link.href = "/app/static/manifest.webmanifest";
+          link.href = manifestUrl;
           link.setAttribute("data-cm", "1");
           doc.head.appendChild(link);
 
-          // Apple touch icon
+          // --- Apple touch icon (this is what iPhone uses for Home Screen icon) ---
           doc.querySelectorAll('link[rel="apple-touch-icon"][data-cm="1"]').forEach(el => el.remove());
           const ati = doc.createElement("link");
           ati.rel = "apple-touch-icon";
-          ati.href = "/static/apple-touch-icon.png";
+          ati.href = appleIconUrl;
+          ati.sizes = "180x180";
           ati.setAttribute("data-cm", "1");
           doc.head.appendChild(ati);
 
-          // iOS meta tags
+          // --- Meta tags ---
           const metas = [
             { name: "apple-mobile-web-app-capable", content: "yes" },
-            { name: "mobile-web-app-capable", content: "yes" },  
+            { name: "mobile-web-app-capable", content: "yes" },
             { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
             { name: "apple-mobile-web-app-title", content: "Class Manager" },
             { name: "theme-color", content: "#0b1220" }
@@ -135,6 +138,7 @@ def inject_pwa_head():
             }
             el.content = m.content;
           });
+
         })();
         </script>
         """,
