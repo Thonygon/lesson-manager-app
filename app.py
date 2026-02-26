@@ -3950,10 +3950,10 @@ elif page == "analytics":
             "show_raw_data": "Show raw data",
             "what_this_means": "What this means",
             "next_steps": "Next steps",
-            "avg_monthly_income": "Average monthly income (last 12 months)",
+            "avg_monthly_income": "Average monthly income",
             "avg_yearly_income": "Average yearly income",
-            "run_rate_annual": "Estimated yearly revenue (run rate)",
-            "effective_rate_unit": "Average income per lesson unit",
+            "run_rate_annual": "Estimated yearly revenue",
+            "effective_rate_unit": "Average income per lesson",
             "concentration_risk": "Income concentration",
             "top1_share": "Top student share",
             "top3_share": "Top 3 students share",
@@ -3986,9 +3986,10 @@ elif page == "analytics":
             "action_review_top": "Review your top students and plan renewals.",
             "action_compare_mix": "Compare language/modality mix with your pricing strategy.",
             "action_check_forecast": "Use the forecast to plan the next two weeks.",
+            "important": "Important"
         },
         "es": {
-            "insights_and_actions": "Insights y acciones",
+            "insights_and_actions": "Información Estratégica",
             "summary": "Resumen",
             "revenue_drivers": "Impulsores de ingresos",
             "teaching_activity": "Actividad docente",
@@ -3996,10 +3997,10 @@ elif page == "analytics":
             "show_raw_data": "Mostrar datos",
             "what_this_means": "Qué significa",
             "next_steps": "Próximos pasos",
-            "avg_monthly_income": "Ingreso mensual promedio (últimos 12 meses)",
+            "avg_monthly_income": "Ingreso mensual promedio",
             "avg_yearly_income": "Ingreso anual promedio",
-            "run_rate_annual": "Ingreso anual estimado (proyección)",
-            "effective_rate_unit": "Ingreso promedio por unidad de clase",
+            "run_rate_annual": "Proyección de ingreso anual",
+            "effective_rate_unit": "Ingreso promedio por clase",
             "concentration_risk": "Concentración de ingresos",
             "top1_share": "Participación del mejor estudiante",
             "top3_share": "Participación del top 3",
@@ -4032,6 +4033,7 @@ elif page == "analytics":
             "action_review_top": "Revisa tus estudiantes más rentables y planifica renovaciones.",
             "action_compare_mix": "Compara el mix de idioma/modalidad con tu estrategia de precios.",
             "action_check_forecast": "Usa el pronóstico para planificar las próximas dos semanas.",
+            "important": "Importante"
         },
     }
 
@@ -4392,8 +4394,6 @@ elif page == "analytics":
     # ============================================
     # INSIGHTS-FIRST SECTION (business oriented, teacher friendly)
     # ============================================
-    st.divider()
-
     # ---------- safe helpers ----------
     def _first_existing_col(df: pd.DataFrame, candidates):
         if df is None or df.empty:
@@ -4537,7 +4537,7 @@ elif page == "analytics":
 
         if top1_name:
             _callout(
-                t_a("what_this_means"),
+                t_a("important"),
                 t_a("takeaway_concentration", p1=_fmt_pct(top1_share), p3=_fmt_pct(top3_share)),
             )
         else:
