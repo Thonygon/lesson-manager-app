@@ -725,7 +725,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "delete_scheduled_lesson": "Eliminar una clase programada",
         "delete_schedule_warning": "¡Cuidado! Esto se elimina permanentemente.",
         "id": "ID", 
-        "student": "Studiante", 
+        "student": "estudiante", 
         "weekday": "Día de la sema", 
         "time": "Hora", 
         "duration_minutes": "Duración (min)", 
@@ -789,6 +789,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "normalized_default_note": "Paquete normalizado / ajuste aplicado.",
         "package_normalized": "Paquete normalizado",
         "packages_bought": "Paquetes comprados",
+        "add_student": "Añadir estudiante",
     },
 }
 if "ui_lang" not in st.session_state:
