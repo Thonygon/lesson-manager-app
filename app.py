@@ -526,12 +526,16 @@ I18N: Dict[str, Dict[str, str]] = {
         "packages_by_modality": "Packages by modality",
         "lessons_by_language": "Lessons by language",
         "lessons_by_modality": "Lessons by modality",
+        "estimated_finish_date": "Estimated finish date",
+        "reminder_date": "Reminder date",
+
 
         # forecast inside analytics
         "forecast": "Forecast",
         "payment_buffer": "Reminder buffer",
         "on_finish": "On finish date",
         "days_before": "days before",
+        "units_per_day": "Classes per day",
 
         # -------------------------
         # MISSING KEYS
@@ -621,7 +625,7 @@ I18N: Dict[str, Dict[str, str]] = {
         # DASHBOARD
         # -------------------------
         "manage_current_students": "Administra tus estudiantes y paquetes actuales",
-        "take_action": "Tomar acción",
+        "take_action": "Toma acción",
         "current_packages": "Paquetes actuales",
         "mismatches": "Descuadres",
         "normalize": "Normalizar",
@@ -679,7 +683,7 @@ I18N: Dict[str, Dict[str, str]] = {
         # LESSONS PAGE
         # -------------------------
         "keep_track_of_your_lessons": "Registra clases y controla la asistencia",
-        "record_attendance": "Registrar asistencia",
+        "record_attendance": "Registra asistencia",
         "lesson_editor": "Editor de clases",
         "delete_lesson": "Eliminar clase",
         "delete_lesson_help": "Usa esto si registraste una clase por error.",
@@ -767,6 +771,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "packages_by_modality": "Paquetes por modalidad",
         "lessons_by_language": "Clases por idioma",
         "lessons_by_modality": "Clases por modalidad",
+        "units_per_day": "Clases por día",
+        "estimated_finish_date": "Fecha de cierre estimada",
+        "reminder_date": "Fecha de recordatorio",
 
         # forecast inside analytics
         "forecast": "Proyección",
@@ -1996,7 +2003,7 @@ def money_fmt(x: float) -> str:
 def build_income_analytics(group: str = "monthly"):
     payments = load_table("payments")
 
-    if payments.empty:
+    if payments is None or payments.empty:
         payments = pd.DataFrame(columns=["student", "payment_date", "paid_amount", "number_of_lesson", "modality", "languages"])
 
     # ✅ Ensure needed columns exist
@@ -2045,7 +2052,6 @@ def build_income_analytics(group: str = "monthly"):
         "income_this_year": income_this_year,
         "income_this_month": income_this_month,
         "income_this_week": income_this_week,
-        # Optional helpers if you ever want to display the window
         "week_start": week_start.strftime("%Y-%m-%d"),
         "week_end": week_end.strftime("%Y-%m-%d"),
     }
@@ -2056,11 +2062,11 @@ def build_income_analytics(group: str = "monthly"):
     else:
         payments["Key"] = payments["payment_date"].dt.to_period("M").astype(str)
 
-    # ✅ Column names compatible with Section 24
+    # ✅ IMPORTANT: return columns that Section 24 expects
     income_table = (
         payments.groupby("Key", as_index=False)["paid_amount"]
         .sum()
-        .rename(columns={"paid_amount": "Income"})
+        .rename(columns={"paid_amount": "income"})   # <-- was Income
         .sort_values("Key")
         .reset_index(drop=True)
     )
@@ -2068,32 +2074,31 @@ def build_income_analytics(group: str = "monthly"):
     by_student = (
         payments.groupby("student", as_index=False)
         .agg(
-            Total_Paid=("paid_amount", "sum"),
-            Packages=("paid_amount", "size"),
-            Last_Payment=("payment_date", "max"),
+            total_paid=("paid_amount", "sum"),
+            packages=("paid_amount", "size"),
+            last_payment=("payment_date", "max"),
         )
-        .rename(columns={"student": "Student"})
-        .sort_values("Total_Paid", ascending=False)
+        .sort_values("total_paid", ascending=False)
         .reset_index(drop=True)
     )
 
+    # Keep original language normalization (but return expected col names)
     sold_by_language = (
-        payments.assign(Language=payments["languages"].replace({LANG_BOTH: "English & Spanish"}))
-        .groupby("Language", as_index=False)["paid_amount"].sum()
-        .rename(columns={"paid_amount": "Income"})
-        .sort_values("Income", ascending=False)
+        payments.assign(languages=payments["languages"].replace({LANG_BOTH: "English & Spanish"}))
+        .groupby("languages", as_index=False)["paid_amount"].sum()
+        .rename(columns={"paid_amount": "income"})
+        .sort_values("income", ascending=False)
         .reset_index(drop=True)
     )
 
     sold_by_modality = (
         payments.groupby("modality", as_index=False)["paid_amount"].sum()
-        .rename(columns={"modality": "Modality", "paid_amount": "Income"})
-        .sort_values("Income", ascending=False)
+        .rename(columns={"paid_amount": "income"})
+        .sort_values("income", ascending=False)
         .reset_index(drop=True)
     )
 
     return kpis, income_table, by_student, sold_by_language, sold_by_modality
-
 # =========================
 # 13) FORECAST (BEHAVIOR-BASED + ACTIVE-ONLY + FINISHED LAST 3 MONTHS)
 # =========================
@@ -3917,18 +3922,126 @@ elif page == "calendar":
                 st.rerun()
 
 # =========================
-# 24) PAGE: ANALYTICS (CLICKABLE KPI CAPSULES + CLEAN EXPANDERS)
+# 24) PAGE: ANALYTICS (CLICKABLE KPI CAPSULES + TEACHER-FRIENDLY INSIGHTS)
 # ✅ Section 12 compatible + Mon–Sun week
-# ✅ FIX: mobile-friendly monthly line chart (Plotly w/ range slider)
-# ✅ FIX: no chart_series keyword args (positional only)
-# ✅ FIX: safe "total_paid" handling (no KeyError)
-# ✅ FIX: charts + tables translatable
+# ✅ Keeps your capsule-based views + same graphs
+# ✅ Adds business-style (but teacher-friendly) Insights + Drivers + Operations + Forecast
+# ✅ Raw tables are optional (toggle), not the default
+# ✅ New micro-translator helper included (t_a)
+# ✅ FIX: Summary shows AVERAGE monthly + AVERAGE yearly (not duplicates of capsules)
 # =========================
 elif page == "analytics":
     page_header(t("analytics"))
     st.caption(t("view_your_income_and_business_indicators"))
 
     st.markdown(f"### {t('income')}")
+
+    # -------------------------
+    # Analytics-only translator
+    # (business oriented, teacher friendly)
+    # -------------------------
+    ANALYTICS_I18N = {
+        "en": {
+            "insights_and_actions": "Insights & Actions",
+            "summary": "Summary",
+            "revenue_drivers": "Revenue drivers",
+            "teaching_activity": "Teaching activity",
+            "risk_and_forecast": "Risk & forecast",
+            "show_raw_data": "Show raw data",
+            "what_this_means": "What this means",
+            "next_steps": "Next steps",
+            "avg_monthly_income": "Average monthly income (last 12 months)",
+            "avg_yearly_income": "Average yearly income",
+            "run_rate_annual": "Estimated yearly revenue (run rate)",
+            "effective_rate_unit": "Average income per lesson unit",
+            "concentration_risk": "Income concentration",
+            "top1_share": "Top student share",
+            "top3_share": "Top 3 students share",
+            "top10_revenue": "Top 10 income",
+            "top5_quick_view": "Top 5 quick view",
+            "segment_language": "Language segment",
+            "segment_modality": "Modality segment",
+            "total_revenue_language": "Total income by language",
+            "total_revenue_modality": "Total income by modality",
+            "top_segment_share": "Top segment share",
+            "total_units": "Total lesson units",
+            "top_language": "Top lesson language",
+            "top_modality": "Top lesson modality",
+            "students_in_forecast": "Students in forecast",
+            "expected_income": "Expected income",
+            "at_risk": "At risk",
+            "students_to_contact": "Students to contact",
+            "units_left": "units left",
+            "expected": "expected",
+            "takeaway_concentration": "Your top student contributes {p1} of all income; your top 3 students contribute {p3}.",
+            "takeaway_language": "Your strongest language segment is {name} ({share} of language income).",
+            "takeaway_modality": "Your strongest modality segment is {name} ({share} of modality income).",
+            "takeaway_activity_language": "Most of your teaching units are in {name} ({share} of units).",
+            "takeaway_activity_modality": "Most of your teaching units are delivered via {name} ({share} of units).",
+            "takeaway_profitable": "{name} is currently your strongest income source. Keeping your best students satisfied supports stable income.",
+            "takeaway_pipeline": "Use this section as a renewal list. Contact students before they reach zero units.",
+            "action_check_week": "No income recorded this week — check renewals and pending payments.",
+            "action_reduce_risk": "Income is concentrated — consider balancing your student base and pricing.",
+            "action_review_pricing": "Average income per unit looks low — review packages, discounts, or lesson pricing.",
+            "action_review_top": "Review your top students and plan renewals.",
+            "action_compare_mix": "Compare language/modality mix with your pricing strategy.",
+            "action_check_forecast": "Use the forecast to plan the next two weeks.",
+        },
+        "es": {
+            "insights_and_actions": "Insights y acciones",
+            "summary": "Resumen",
+            "revenue_drivers": "Impulsores de ingresos",
+            "teaching_activity": "Actividad docente",
+            "risk_and_forecast": "Riesgo y pronóstico",
+            "show_raw_data": "Mostrar datos",
+            "what_this_means": "Qué significa",
+            "next_steps": "Próximos pasos",
+            "avg_monthly_income": "Ingreso mensual promedio (últimos 12 meses)",
+            "avg_yearly_income": "Ingreso anual promedio",
+            "run_rate_annual": "Ingreso anual estimado (proyección)",
+            "effective_rate_unit": "Ingreso promedio por unidad de clase",
+            "concentration_risk": "Concentración de ingresos",
+            "top1_share": "Participación del mejor estudiante",
+            "top3_share": "Participación del top 3",
+            "top10_revenue": "Ingreso del top 10",
+            "top5_quick_view": "Vista rápida top 5",
+            "segment_language": "Segmento por idioma",
+            "segment_modality": "Segmento por modalidad",
+            "total_revenue_language": "Ingreso total por idioma",
+            "total_revenue_modality": "Ingreso total por modalidad",
+            "top_segment_share": "Participación del segmento líder",
+            "total_units": "Unidades de clase totales",
+            "top_language": "Idioma principal",
+            "top_modality": "Modalidad principal",
+            "students_in_forecast": "Estudiantes en pronóstico",
+            "expected_income": "Ingreso esperado",
+            "at_risk": "En riesgo",
+            "students_to_contact": "Estudiantes a contactar",
+            "units_left": "unidades restantes",
+            "expected": "esperado",
+            "takeaway_concentration": "Tu mejor estudiante aporta {p1} del ingreso total; tu top 3 aporta {p3}.",
+            "takeaway_language": "Tu segmento de idioma más fuerte es {name} ({share} del ingreso por idioma).",
+            "takeaway_modality": "Tu segmento de modalidad más fuerte es {name} ({share} del ingreso por modalidad).",
+            "takeaway_activity_language": "La mayoría de tus unidades de clase están en {name} ({share} de unidades).",
+            "takeaway_activity_modality": "La mayoría de tus unidades se imparten por {name} ({share} de unidades).",
+            "takeaway_profitable": "{name} es tu principal fuente de ingresos. Mantener satisfechos a tus mejores estudiantes ayuda a tener ingresos estables.",
+            "takeaway_pipeline": "Usa esta sección como lista de renovaciones. Contacta a los estudiantes antes de llegar a cero unidades.",
+            "action_check_week": "No hay ingresos registrados esta semana — revisa renovaciones y pagos pendientes.",
+            "action_reduce_risk": "El ingreso está concentrado — considera equilibrar tu base de estudiantes y precios.",
+            "action_review_pricing": "El ingreso promedio por unidad parece bajo — revisa paquetes, descuentos o precios.",
+            "action_review_top": "Revisa tus estudiantes más rentables y planifica renovaciones.",
+            "action_compare_mix": "Compara el mix de idioma/modalidad con tu estrategia de precios.",
+            "action_check_forecast": "Usa el pronóstico para planificar las próximas dos semanas.",
+        },
+    }
+
+    def t_a(key: str, **kwargs) -> str:
+        lang = st.session_state.get("ui_lang", "en")
+        s = ANALYTICS_I18N.get(lang, ANALYTICS_I18N["en"]).get(key, key)
+        try:
+            return s.format(**kwargs)
+        except Exception:
+            return s
 
     # --- Read analytics view from query param (av) ---
     def _get_qp_local(key: str, default=None):
@@ -4085,12 +4198,6 @@ elif page == "analytics":
     # Chart helpers
     # ---------------------------------------
     def _monthly_line_chart_plotly(df: pd.DataFrame, title: str):
-        """
-        Mobile-friendly all-time monthly line chart:
-        - Plotly interactive (zoom/pan)
-        - Range slider
-        - No cramped month labels
-        """
         import plotly.express as px
 
         if df is None or df.empty or "Key" not in df.columns:
@@ -4098,7 +4205,6 @@ elif page == "analytics":
             return
 
         tmp = df.copy()
-
         ycol = "income" if "income" in tmp.columns else ("Income" if "Income" in tmp.columns else None)
         if ycol is None:
             st.info(t("no_data"))
@@ -4144,7 +4250,6 @@ elif page == "analytics":
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
 
-        # De-crowd x axis
         if len(labels) > 12:
             step = max(1, len(labels) // 8)
             keep = set(range(0, len(labels), step))
@@ -4157,7 +4262,7 @@ elif page == "analytics":
         st.pyplot(fig, clear_figure=True)
 
     # ============================================
-    # MAIN VIEW CONTENT (color-matched to capsules)
+    # MAIN VIEW CONTENT (your existing capsule views)
     # ============================================
     if view == "all_time":
         st.subheader(t("all_time_monthly_income"))
@@ -4236,7 +4341,6 @@ elif page == "analytics":
     elif view == "week":
         st.subheader(t("weekly_income"))
 
-        # ✅ Mon–Sun week window (matches Section 12 KPI logic)
         week_start = today - pd.Timedelta(days=int(today.weekday()))
         week_end = week_start + pd.Timedelta(days=6)
 
@@ -4286,97 +4390,303 @@ elif page == "analytics":
             )
 
     # ============================================
-    # EXTRA SECTIONS (expanders) ✅ charts + tables translatable
+    # INSIGHTS-FIRST SECTION (business oriented, teacher friendly)
     # ============================================
     st.divider()
 
-    with st.expander(t("most_profitable_students"), expanded=False):
-        if by_student is None or by_student.empty:
+    # ---------- safe helpers ----------
+    def _first_existing_col(df: pd.DataFrame, candidates):
+        if df is None or df.empty:
+            return None
+        norm = {str(c).strip().casefold(): c for c in df.columns}
+        for cand in candidates:
+            k = str(cand).strip().casefold()
+            if k in norm:
+                return norm[k]
+        return None
+
+    def _safe_sum(df: pd.DataFrame, col: str) -> float:
+        if df is None or df.empty or col is None or col not in df.columns:
+            return 0.0
+        return float(pd.to_numeric(df[col], errors="coerce").fillna(0.0).sum())
+
+    def _pct(a: float, b: float) -> float:
+        b = float(b or 0.0)
+        if b == 0:
+            return 0.0
+        return float(a) / b * 100.0
+
+    def _fmt_pct(x: float) -> str:
+        try:
+            return f"{float(x):.1f}%"
+        except Exception:
+            return "0.0%"
+
+    def _callout(title: str, body: str):
+        st.markdown(
+            f"""
+            <div style="padding:10px 12px;border:1px solid rgba(15,23,42,.10);
+                        background:rgba(37,99,235,.04);border-radius:12px;">
+              <div style="font-weight:900;color:#0f172a;margin-bottom:4px;">{title}</div>
+              <div style="font-weight:600;color:#0f172a;opacity:.95;">{body}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    def _show_raw_toggle(df: pd.DataFrame, toggle_key: str):
+        show_raw = st.toggle(t_a("show_raw_data"), value=False, key=toggle_key)
+        if show_raw:
+            st.dataframe(
+                translate_df_headers(pretty_df(df)),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    # ---------- metrics (capsules already show totals; summary will show averages) ----------
+    total_all_time = float(kpis.get("income_all_time", 0.0) or 0.0)
+    total_month = float(kpis.get("income_this_month", 0.0) or 0.0)
+    total_week = float(kpis.get("income_this_week", 0.0) or 0.0)
+
+    # Run-rate (simple): this month × 12
+    run_rate = total_month * 12.0 if total_month else 0.0
+
+    # Effective rate (income per lesson unit) — uses all-time totals
+    classes_for_rate = load_table("classes")
+    total_units = 0.0
+    if classes_for_rate is not None and not classes_for_rate.empty:
+        if "number_of_lesson" in classes_for_rate.columns:
+            total_units = float(pd.to_numeric(classes_for_rate["number_of_lesson"], errors="coerce").fillna(0).sum())
+    eff_rate = (total_all_time / total_units) if (total_units and total_all_time) else 0.0
+
+    # --- Average monthly income (last 12 months) ---
+    avg_monthly_12m = 0.0
+    try:
+        if income_table is not None and not income_table.empty and "Key" in income_table.columns:
+            tmpm = income_table.copy()
+            ycol_m = "income" if "income" in tmpm.columns else ("Income" if "Income" in tmpm.columns else None)
+            if ycol_m:
+                tmpm["date"] = pd.to_datetime(tmpm["Key"].astype(str).str[:7] + "-01", errors="coerce")
+                tmpm = tmpm.dropna(subset=["date"])
+                tmpm["val"] = pd.to_numeric(tmpm[ycol_m], errors="coerce").fillna(0.0).astype(float)
+                tmpm = tmpm.sort_values("date")
+                cutoff = today - pd.Timedelta(days=365)
+                last12 = tmpm[tmpm["date"] >= cutoff]
+                if len(last12) >= 3:
+                    avg_monthly_12m = float(last12["val"].mean())
+                elif len(tmpm) >= 1:
+                    avg_monthly_12m = float(tmpm["val"].mean())
+    except Exception:
+        avg_monthly_12m = 0.0
+
+    # --- Average yearly income (average across available years) ---
+    avg_yearly = 0.0
+    try:
+        _, yearly_table_avg, *_ = build_income_analytics(group="yearly")
+        if yearly_table_avg is not None and not yearly_table_avg.empty and "Key" in yearly_table_avg.columns:
+            ytmp = yearly_table_avg.copy()
+            ycol_y = "income" if "income" in ytmp.columns else ("Income" if "Income" in ytmp.columns else None)
+            if ycol_y:
+                ytmp["val"] = pd.to_numeric(ytmp[ycol_y], errors="coerce").fillna(0.0).astype(float)
+                if len(ytmp) >= 1:
+                    avg_yearly = float(ytmp["val"].mean())
+    except Exception:
+        avg_yearly = 0.0
+
+    # Income concentration (top student / top 3)
+    top_income_col = _first_existing_col(by_student, ["total_paid", "Total_Paid", "income", "paid_amount", "Income"])
+    student_col = _first_existing_col(by_student, ["student", "Student"])
+    lastpay_col = _first_existing_col(by_student, ["last_payment", "Last_Payment"])
+
+    by_student_total = _safe_sum(by_student, top_income_col)
+    top1_share = 0.0
+    top3_share = 0.0
+    top1_name = None
+
+    if by_student is not None and not by_student.empty and top_income_col and student_col:
+        bs = by_student.copy()
+        bs[top_income_col] = pd.to_numeric(bs[top_income_col], errors="coerce").fillna(0.0).astype(float)
+        bs = bs.sort_values(top_income_col, ascending=False).reset_index(drop=True)
+
+        if len(bs) >= 1:
+            top1_name = str(bs.loc[0, student_col])
+            top1_share = _pct(float(bs.loc[0, top_income_col]), float(by_student_total))
+        if len(bs) >= 3:
+            top3_share = _pct(float(bs.loc[:2, top_income_col].sum()), float(by_student_total))
+        elif len(bs) >= 1:
+            top3_share = _pct(float(bs.loc[:, top_income_col].sum()), float(by_student_total))
+
+    st.markdown(f"### {t_a('insights_and_actions')}")
+    tab_summary, tab_rev, tab_delivery, tab_risk = st.tabs(
+        [t_a("summary"), t_a("revenue_drivers"), t_a("teaching_activity"), t_a("risk_and_forecast")]
+    )
+
+    # ======================
+    # TAB 1 — Summary
+    # ======================
+    with tab_summary:
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric(t_a("avg_yearly_income"), money_fmt(avg_yearly))
+        with c2:
+            st.metric(t_a("avg_monthly_income"), money_fmt(avg_monthly_12m))
+        with c3:
+            st.metric(t_a("run_rate_annual"), money_fmt(run_rate))
+        with c4:
+            st.metric(t_a("effective_rate_unit"), money_fmt(eff_rate))
+
+        if top1_name:
+            _callout(
+                t_a("what_this_means"),
+                t_a("takeaway_concentration", p1=_fmt_pct(top1_share), p3=_fmt_pct(top3_share)),
+            )
+        else:
+            _callout(
+                t_a("what_this_means"),
+                "This section explains your teaching business in simple numbers: income, stability, and what to do next.",
+            )
+
+        st.markdown(f"#### {t_a('next_steps')}")
+        actions = []
+        if total_week == 0 and total_month > 0:
+            actions.append(t_a("action_check_week"))
+        if top3_share >= 60:
+            actions.append(t_a("action_reduce_risk"))
+        if eff_rate and total_units and eff_rate < (total_all_time / max(1.0, total_units)):
+            actions.append(t_a("action_review_pricing"))
+        if not actions:
+            actions = [t_a("action_review_top"), t_a("action_compare_mix"), t_a("action_check_forecast")]
+
+        for a in actions[:5]:
+            st.write(f"• {a}")
+
+    # ======================
+    # TAB 2 — Revenue drivers
+    # ======================
+    with tab_rev:
+        st.markdown(f"#### {t('most_profitable_students')}")
+        if by_student is None or by_student.empty or not top_income_col or not student_col:
             st.info(t("no_data"))
         else:
-            top = by_student.head(10).copy()
+            bs = by_student.copy()
+            bs[top_income_col] = pd.to_numeric(bs[top_income_col], errors="coerce").fillna(0.0).astype(float)
+            bs = bs.sort_values(top_income_col, ascending=False).reset_index(drop=True)
+            top = bs.head(10).copy()
 
-            # detect income column safely
-            income_col = None
-            for c in top.columns:
-                if str(c).strip().casefold() in ["total_paid", "income", "paid_amount"]:
-                    income_col = c
-                    break
+            top_total = float(top[top_income_col].sum())
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric(t_a("top10_revenue"), money_fmt(top_total))
+            with c2:
+                st.metric(t_a("top1_share"), _fmt_pct(top1_share))
+            with c3:
+                st.metric(t_a("top3_share"), _fmt_pct(top3_share))
 
-            if income_col is None:
+            if top1_name:
+                _callout(t_a("what_this_means"), t_a("takeaway_profitable", name=top1_name),
+                )
+
+            ser = chart_series(top.rename(columns={student_col: "student"}), "student", top_income_col, "student", "income")
+            if ser is None:
                 st.info(t("no_data"))
             else:
-                # chart_series MUST be positional (no group_col= / value_col=)
-                ser = chart_series(top, "student", income_col, "student", "income")
+                st.bar_chart(ser)
+
+            st.markdown(f"##### {t_a('top5_quick_view')}")
+            top5 = top.head(5).copy()
+            cols = st.columns(5)
+            for i in range(min(5, len(top5))):
+                name = str(top5.loc[i, student_col])
+                val = float(top5.loc[i, top_income_col])
+                share = _fmt_pct(_pct(val, by_student_total))
+                with cols[i]:
+                    st.metric(name, money_fmt(val), share)
+
+            top_show = top.copy()
+            top_show[top_income_col] = top_show[top_income_col].apply(money_fmt)
+            if lastpay_col and lastpay_col in top_show.columns:
+                top_show[lastpay_col] = pd.to_datetime(top_show[lastpay_col], errors="coerce").dt.strftime("%Y-%m-%d")
+            _show_raw_toggle(top_show, "raw_top_students")
+
+        st.markdown(f"#### {t('packages_by_language')}")
+        if sold_by_language is None or sold_by_language.empty:
+            st.info(t("no_data"))
+        else:
+            lang_df = sold_by_language.copy()
+            lang_col = _first_existing_col(lang_df, ["languages", "Language"])
+            inc_col = _first_existing_col(lang_df, ["income", "Income", "paid_amount", "total_paid"])
+            if not lang_col or not inc_col:
+                st.info(t("no_data"))
+            else:
+                lang_df[lang_col] = lang_df[lang_col].astype(str).apply(translate_language_value)
+                lang_df[inc_col] = pd.to_numeric(lang_df[inc_col], errors="coerce").fillna(0.0).astype(float)
+                lang_df = lang_df.sort_values(inc_col, ascending=False).reset_index(drop=True)
+
+                total_lang = float(lang_df[inc_col].sum())
+                top_lang = str(lang_df.loc[0, lang_col]) if len(lang_df) else ""
+                top_lang_share = _fmt_pct(_pct(float(lang_df.loc[0, inc_col]) if len(lang_df) else 0.0, total_lang))
+
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.metric(t_a("total_revenue_language"), money_fmt(total_lang))
+                with c2:
+                    st.metric(t_a("top_segment_share"), top_lang_share)
+
+                if top_lang:
+                    _callout(t_a("what_this_means"), t_a("takeaway_language", name=top_lang, share=top_lang_share))
+
+                ser = chart_series(lang_df.rename(columns={lang_col: "languages"}), "languages", inc_col, "languages", "income")
                 if ser is None:
                     st.info(t("no_data"))
                 else:
                     st.bar_chart(ser)
 
-                # Table
-                top_show = top.copy()
-                top_show[income_col] = (
-                    pd.to_numeric(top_show[income_col], errors="coerce")
-                    .fillna(0.0)
-                    .apply(money_fmt)
-                )
-                if "last_payment" in top_show.columns:
-                    top_show["last_payment"] = (
-                        pd.to_datetime(top_show["last_payment"], errors="coerce")
-                        .dt.strftime("%Y-%m-%d")
-                    )
+                lang_show = lang_df.copy()
+                lang_show[inc_col] = lang_show[inc_col].apply(money_fmt)
+                _show_raw_toggle(lang_show, "raw_lang")
 
-                st.dataframe(
-                    translate_df_headers(pretty_df(top_show)),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-
-    with st.expander(t("packages_by_language"), expanded=False):
-        if sold_by_language is None or sold_by_language.empty:
-            st.info(t("no_data"))
-        else:
-            lang_df = sold_by_language.copy()
-
-            if "languages" in lang_df.columns:
-                lang_df["languages"] = lang_df["languages"].astype(str).apply(translate_language_value)
-
-            # chart_series positional
-            ser = chart_series(lang_df, "languages", "income", "languages", "income")
-            if ser is None:
-                st.info(t("no_data"))
-            else:
-                st.bar_chart(ser)
-
-            st.dataframe(
-                translate_df_headers(pretty_df(lang_df)),
-                use_container_width=True,
-                hide_index=True,
-            )
-
-    with st.expander(t("packages_by_modality"), expanded=False):
+        st.markdown(f"#### {t('packages_by_modality')}")
         if sold_by_modality is None or sold_by_modality.empty:
             st.info(t("no_data"))
         else:
             mod_df = sold_by_modality.copy()
-
-            if "modality" in mod_df.columns:
-                mod_df["modality"] = mod_df["modality"].astype(str).apply(translate_modality_value)
-
-            # chart_series positional
-            ser = chart_series(mod_df, "modality", "income", "modality", "income")
-            if ser is None:
+            mod_col = _first_existing_col(mod_df, ["modality", "Modality"])
+            inc_col = _first_existing_col(mod_df, ["income", "Income", "paid_amount", "total_paid"])
+            if not mod_col or not inc_col:
                 st.info(t("no_data"))
             else:
-                st.bar_chart(ser)
+                mod_df[mod_col] = mod_df[mod_col].astype(str).apply(translate_modality_value)
+                mod_df[inc_col] = pd.to_numeric(mod_df[inc_col], errors="coerce").fillna(0.0).astype(float)
+                mod_df = mod_df.sort_values(inc_col, ascending=False).reset_index(drop=True)
 
-            st.dataframe(
-                translate_df_headers(pretty_df(mod_df)),
-                use_container_width=True,
-                hide_index=True,
-            )
+                total_mod = float(mod_df[inc_col].sum())
+                top_mod = str(mod_df.loc[0, mod_col]) if len(mod_df) else ""
+                top_mod_share = _fmt_pct(_pct(float(mod_df.loc[0, inc_col]) if len(mod_df) else 0.0, total_mod))
 
-    with st.expander(t("lessons_by_language"), expanded=False):
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.metric(t_a("total_revenue_modality"), money_fmt(total_mod))
+                with c2:
+                    st.metric(t_a("top_segment_share"), top_mod_share)
+
+                if top_mod:
+                    _callout(t_a("what_this_means"), t_a("takeaway_modality", name=top_mod, share=top_mod_share))
+
+                ser = chart_series(mod_df.rename(columns={mod_col: "modality"}), "modality", inc_col, "modality", "income")
+                if ser is None:
+                    st.info(t("no_data"))
+                else:
+                    st.bar_chart(ser)
+
+                mod_show = mod_df.copy()
+                mod_show[inc_col] = mod_show[inc_col].apply(money_fmt)
+                _show_raw_toggle(mod_show, "raw_mod")
+
+    # ======================
+    # TAB 3 — Teaching activity
+    # ======================
+    with tab_delivery:
+        st.markdown(f"#### {t('lessons_by_language')}")
         classes = load_table("classes")
         if classes is None or classes.empty:
             st.info(t("no_data"))
@@ -4398,23 +4708,33 @@ elif page == "analytics":
                 .reset_index(drop=True)
             )
 
-            # translate lesson_language values for chart
             teach_lang["lesson_language"] = teach_lang["lesson_language"].astype(str).apply(translate_language_value)
 
-            # chart_series positional
+            total_u = float(pd.to_numeric(teach_lang["units"], errors="coerce").fillna(0.0).sum())
+            top_lang = str(teach_lang.loc[0, "lesson_language"]) if len(teach_lang) else ""
+            top_lang_units = float(teach_lang.loc[0, "units"]) if len(teach_lang) else 0.0
+            top_lang_share = _fmt_pct(_pct(top_lang_units, total_u))
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric(t_a("total_units"), f"{int(total_u)}")
+            with c2:
+                st.metric(t_a("top_language"), top_lang if top_lang else "-")
+            with c3:
+                st.metric(t_a("top_segment_share"), top_lang_share)
+
+            if top_lang:
+                _callout(t_a("what_this_means"), t_a("takeaway_activity_language", name=top_lang, share=top_lang_share))
+
             ser = chart_series(teach_lang, "lesson_language", "units", "lesson_language", "units")
             if ser is None:
                 st.info(t("no_data"))
             else:
                 st.bar_chart(ser)
 
-            st.dataframe(
-                translate_df_headers(pretty_df(teach_lang)),
-                use_container_width=True,
-                hide_index=True,
-            )
+            _show_raw_toggle(teach_lang, "raw_lessons_lang")
 
-    with st.expander(t("lessons_by_modality"), expanded=False):
+        st.markdown(f"#### {t('lessons_by_modality')}")
         classes = load_table("classes")
         if classes is None or classes.empty:
             st.info(t("no_data"))
@@ -4437,20 +4757,35 @@ elif page == "analytics":
 
             teach_mod["modality"] = teach_mod["modality"].astype(str).apply(translate_modality_value)
 
-            # chart_series positional
+            total_u = float(pd.to_numeric(teach_mod["units"], errors="coerce").fillna(0.0).sum())
+            top_mod = str(teach_mod.loc[0, "modality"]) if len(teach_mod) else ""
+            top_mod_units = float(teach_mod.loc[0, "units"]) if len(teach_mod) else 0.0
+            top_mod_share = _fmt_pct(_pct(top_mod_units, total_u))
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric(t_a("total_units"), f"{int(total_u)}")
+            with c2:
+                st.metric(t_a("top_modality"), top_mod if top_mod else "-")
+            with c3:
+                st.metric(t_a("top_segment_share"), top_mod_share)
+
+            if top_mod:
+                _callout(t_a("what_this_means"), t_a("takeaway_activity_modality", name=top_mod, share=top_mod_share))
+
             ser = chart_series(teach_mod, "modality", "units", "modality", "units")
             if ser is None:
                 st.info(t("no_data"))
             else:
                 st.bar_chart(ser)
 
-            st.dataframe(
-                translate_df_headers(pretty_df(teach_mod)),
-                use_container_width=True,
-                hide_index=True,
-            )
+            _show_raw_toggle(teach_mod, "raw_lessons_mod")
 
-    with st.expander(t("forecast"), expanded=False):
+    # ======================
+    # TAB 4 — Risk & forecast
+    # ======================
+    with tab_risk:
+        st.markdown(f"#### {t('forecast')}")
         buffer_days = st.selectbox(
             t("payment_buffer"),
             [0, 7, 14],
@@ -4458,15 +4793,70 @@ elif page == "analytics":
             format_func=lambda x: t("on_finish") if x == 0 else f"{x} {t('days_before')}",
             key="forecast_buffer_analytics",
         )
+
         forecast_df = build_forecast_table(payment_buffer_days=int(buffer_days))
         if forecast_df is None or forecast_df.empty:
             st.info(t("no_data"))
         else:
-            st.dataframe(
-                translate_df_headers(pretty_df(forecast_df)),
-                use_container_width=True,
-                hide_index=True,
-            )
+            money_like = _first_existing_col(forecast_df, ["expected_income", "income", "total_due", "amount_due", "paid_amount"])
+            left_like = _first_existing_col(forecast_df, ["lessons_left_units", "lessons_left", "units_left"])
+            student_like = _first_existing_col(forecast_df, ["student", "name", "Student"])
+
+            exp_total = _safe_sum(forecast_df, money_like)
+            at_risk_total = 0.0
+
+            ftmp = forecast_df.copy()
+            if money_like and money_like in ftmp.columns:
+                ftmp[money_like] = pd.to_numeric(ftmp[money_like], errors="coerce").fillna(0.0).astype(float)
+            if left_like and left_like in ftmp.columns:
+                ftmp[left_like] = pd.to_numeric(ftmp[left_like], errors="coerce").fillna(0.0).astype(float)
+
+            if money_like and left_like and money_like in ftmp.columns and left_like in ftmp.columns:
+                at_risk_total = float(ftmp.loc[ftmp[left_like] <= 2, money_like].sum())
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric(t_a("expected_income"), money_fmt(exp_total))
+            with c2:
+                st.metric(f"{t_a('at_risk')} (≤2 {t_a('units_left')})", money_fmt(at_risk_total))
+            with c3:
+                st.metric(t_a("students_in_forecast"), f"{len(ftmp)}")
+
+            _callout(t_a("what_this_means"), t_a("takeaway_pipeline"))
+
+            st.markdown(f"##### {t_a('students_to_contact')}")
+            contact_df = ftmp.copy()
+            if left_like and left_like in contact_df.columns:
+                contact_df = contact_df.sort_values(left_like, ascending=True)
+            elif money_like and money_like in contact_df.columns:
+                contact_df = contact_df.sort_values(money_like, ascending=False)
+
+            contact_df = contact_df.head(8).copy()
+
+            if student_like and student_like in contact_df.columns:
+                for _, row in contact_df.iterrows():
+                    sname = str(row.get(student_like, "")).strip() or "(student)"
+                    units_left = row.get(left_like, None) if left_like else None
+                    amt = row.get(money_like, None) if money_like else None
+
+                    parts = [sname]
+                    if units_left is not None and str(units_left) != "nan":
+                        try:
+                            parts.append(f"{t_a('units_left')}: {int(float(units_left))}")
+                        except Exception:
+                            pass
+                    if amt is not None and str(amt) != "nan":
+                        try:
+                            parts.append(f"{t_a('expected')}: {money_fmt(float(amt))}")
+                        except Exception:
+                            pass
+
+                    st.write("• " + " — ".join(parts))
+            else:
+                st.write("• " + t("no_data"))
+
+            _show_raw_toggle(forecast_df, "raw_forecast")
+
 
 # =========================
 # FALLBACK
