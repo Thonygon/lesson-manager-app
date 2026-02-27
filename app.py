@@ -26,11 +26,13 @@ import urllib.parse
 import base64
 import os
 import plotly.express as px
+import uuid
 import streamlit.components.v1 as components
 from zoneinfo import ZoneInfo
 
 LOCAL_TZ = ZoneInfo("Europe/Istanbul")
 UTC_TZ = timezone.utc
+
 
 # =========================
 # 00.5) SMALL UI HELPERS
@@ -197,6 +199,52 @@ def dash_chart_series(
 
     return s
 
+def upload_avatar_to_supabase(file, user_id: str) -> str:
+    """
+    Uploads an image file to Supabase Storage bucket 'avatars'
+    and returns a public URL.
+    """
+    if file is None:
+        return ""
+
+    # Basic content-type guard
+    if not (file.type or "").startswith("image/"):
+        raise ValueError("Please upload an image file.")
+
+    ext = (file.name.split(".")[-1] or "png").lower()
+    object_path = f"{user_id}/{uuid.uuid4().hex}.{ext}"
+
+    # Upload bytes
+    supabase.storage.from_("avatars").upload(
+        path=object_path,
+        file=file.getvalue(),
+        file_options={"content-type": file.type},
+    )
+
+    # Public URL (bucket must be public)
+    public_url = supabase.storage.from_("avatars").get_public_url(object_path)
+    return public_url
+
+def upload_avatar_to_supabase(file, user_id: str) -> str:
+    if file is None:
+        return ""
+
+    if not (file.type or "").startswith("image/"):
+        raise ValueError("Please upload an image file.")
+
+    ext = (file.name.split(".")[-1] or "png").lower()
+    object_path = f"{user_id}/{uuid.uuid4().hex}.{ext}"
+
+    # ✅ Upload using ADMIN client (bypasses RLS)
+    supabase_admin.storage.from_("avatars").upload(
+        path=object_path,
+        file=file.getvalue(),
+        file_options={"content-type": file.type, "upsert": "true"},
+    )
+
+    # If bucket is public:
+    return supabase_admin.storage.from_("avatars").get_public_url(object_path)
+
 # =========================
 # 01) PAGE CONFIG
 # =========================
@@ -326,6 +374,11 @@ I18N: Dict[str, Dict[str, str]] = {
         "spanish": "Spanish",
         "both": "English & Spanish",
         "compact_mode": "Mobile mode",
+        "welcome": "Welcome",
+        "alerts": "Alerts",
+        "settings": "Settings",
+        "home_slogan": "One student is all it takes to start",
+        "find_private_students": "Find private students",
 
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -607,6 +660,11 @@ I18N: Dict[str, Dict[str, str]] = {
         "spanish": "Español",
         "both": "Inglés & Español",
         "compact_mode": "Modo móvil",
+        "welcome": "Bienvenido",
+        "alerts": "Alertas",
+        "settings": "Ajustes",
+        "home_slogan": "Solo hace falta un estudiante para empezar",
+        "find_private_students": "Encuentra a tu primer estudiante",
 
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -896,9 +954,8 @@ def t(key: str) -> str:
 
     return k
 
-
 # =========================
-# 03) THEMES (DARK HOME + LIGHT APP + COMPACT)
+# 03) THEMES (DARK HOME) and (LIGHT NAV)
 # =========================
 def load_css_home_dark():
     st.markdown(
@@ -908,68 +965,357 @@ def load_css_home_dark():
         html, body{ color-scheme: dark; }
 
         :root{
-          --bg:#0b1220;
-          --text:#e5e7eb;
-          --muted:rgba(229,231,235,0.72);
-          --shadow:0 18px 44px rgba(0,0,0,0.45);
+          --bg:#07101d;
+          --text:#eaf0ff;
+          --muted:rgba(234,240,255,0.72);
+          --glass: rgba(255,255,255,0.06);
+          --glass2: rgba(255,255,255,0.08);
+          --stroke: rgba(255,255,255,0.12);
+          --stroke2: rgba(255,255,255,0.16);
+          --shadow: 0 18px 44px rgba(0,0,0,0.45);
+          --shadow2: 0 12px 26px rgba(0,0,0,0.28);
+          --blue: rgba(59,130,246,0.95);
+          --blueGlow: rgba(59,130,246,0.22);
+          --greenGlow: rgba(16,185,129,0.16);
         }
-        .stApp{
-          background: radial-gradient(1200px 700px at 20% 0%, rgba(59,130,246,0.18), transparent 55%),
-                      radial-gradient(1000px 600px at 85% 15%, rgba(16,185,129,0.14), transparent 55%),
-                      var(--bg);
-          color: var(--text);
-        }
-        header { display:none !important; }
 
+        /* Background like the picture: deep blue + soft floating glow */
+        .stApp{
+          background:
+            radial-gradient(900px 520px at 22% 6%, rgba(59,130,246,0.35), transparent 58%),
+            radial-gradient(760px 520px at 76% 14%, rgba(34,197,94,0.18), transparent 62%),
+            radial-gradient(820px 560px at 60% 86%, rgba(14,165,233,0.14), transparent 62%),
+            linear-gradient(180deg, #0a1c35 0%, #07101d 60%, #050b15 100%);
+          color: var(--text);
+          min-height: 100vh;
+        }
+
+        /* Hide Streamlit chrome */
+        header { display:none !important; }
+        div[data-testid="stDecoration"]{ display:none !important; }
+
+        /* Container sizing (phone-friendly) */
         section[data-testid="stMain"] > div {
           padding-top: 0rem !important;
-          padding-bottom: 0rem;
+          padding-bottom: 0rem !important;
           max-width: 1100px;
         }
+
         html, body, [class*="css"]{
           font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
         }
-        a { text-decoration: none; }
+        a { text-decoration:none !important; }
 
-        .home-wrap{ margin-top: 0rem; padding-top: 0rem; display:flex; justify-content:center; }
+        /* Home layout */
+        .home-wrap{ display:flex; justify-content:center; }
+        .home-card{
+          width: 100%;
+          max-width: 620px;
+          padding: 18px 16px 22px 16px;
+          position: relative;
+        }
 
-        .home-glow{
-          position:absolute; inset:-2px;
-          background: radial-gradient(600px 260px at 10% 10%, rgba(59,130,246,0.20), transparent 55%),
-                      radial-gradient(520px 240px at 90% 20%, rgba(16,185,129,0.14), transparent 60%);
+        /* Subtle floating particles vibe (very light) */
+        .home-card::before{
+          content:"";
+          position:absolute;
+          inset:100px -20px auto -20px;
+          height: 240px;
+          background:
+            radial-gradient(circle at 20% 40%, rgba(255,255,255,0.10), transparent 55%),
+            radial-gradient(circle at 55% 65%, rgba(255,255,255,0.08), transparent 58%),
+            radial-gradient(circle at 85% 35%, rgba(255,255,255,0.07), transparent 60%);
+          filter: blur(1px);
+          opacity: 0.70;
           pointer-events:none;
         }
+
+        /* --- Top bar: glass pill like the picture --- */
+        .home-topbar{
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:12px;
+          padding: 12px 12px;
+          border-radius: 22px;
+          background: linear-gradient(180deg, rgba(255,255,255,0.09), rgba(255,255,255,0.05));
+          border: 1px solid rgba(255,255,255,0.14);
+          box-shadow: var(--shadow2);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          margin-bottom: 14px;
+        }
+
+        .home-user{ display:flex; align-items:center; gap:12px; min-width:0; }
+        .home-avatar{
+          width:46px;
+          height:46px;
+          border-radius:999px;
+          overflow:hidden;
+          border: 1px solid rgba(255,255,255,0.18);
+          box-shadow: 0 0 0 6px rgba(59,130,246,0.10);
+          background-size: cover;
+          background-position: center;
+          background-repeat: no-repeat;
+          background-size: cover;
+          background-position: center;
+          background-repeat: no-repeat;
+        }
+          /* Clickable avatar wrapper */
+          .home-avatar-wrap{
+            position:relative;
+            display:inline-flex;
+            width:46px;
+            height:46px;
+            border-radius:999px;
+            flex: 0 0 auto;
+          }
+
+          /* Your avatar circle */
+          .home-avatar{
+            width:46px;
+            height:46px;
+            border-radius:999px;
+            overflow:hidden;
+            background-size:cover;
+            background-position:center;
+            background-repeat:no-repeat;
+            border: 1px solid rgba(255,255,255,0.18);
+            box-shadow: 0 0 0 6px rgba(59,130,246,0.10);
+          }
+
+          /* Small camera badge */
+          .home-avatar-badge{
+            position:absolute;
+            right:-6px;
+            bottom:-6px;
+            width:20px;
+            height:20px;
+            border-radius:999px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            font-size:12px;
+            background: rgba(0,0,0,0.55);
+            border:1px solid rgba(255,255,255,0.18);
+            box-shadow: 0 8px 18px rgba(0,0,0,0.35);
+          }
+
+        .home-usertext{ display:flex; flex-direction:column; line-height:1.05; min-width:0; }
+        .home-welcome{ font-size: 12px; color: rgba(234,240,255,0.72); font-weight: 750; }
+        .home-username{
+          font-size: 18px;
+          font-weight: 950;
+          letter-spacing:-0.02em;
+          white-space:nowrap;
+          overflow:hidden;
+          text-overflow:ellipsis;
+        }
+
+        .home-actions{ display:flex; align-items:center; gap:10px; flex: 0 0 auto; }
+
+        .home-iconbtn{ width:44px; height:44px;
+          display:flex; align-items:center; justify-content:center;
+          border-radius:999px;
+          border: 1px solid rgba(255,255,255,0.12);
+          background: rgba(0,0,0,0.18);
+          color:#fff !important;
+          box-sizing:border-box;
+          position:relative;
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+        }
+       .home-iconbtn .home-ico{
+          position:absolute;
+          top:50%;
+          left:50%;
+          transform: translate(-50%, -50%);
+          line-height:1;
+          font-size:19px;
+      }
+
+        .home-badge{
+          position:absolute;
+          top:-6px; right:-6px;
+          min-width: 18px; height: 18px;
+          padding: 0 5px;
+          border-radius: 999px;
+          background: rgba(239,68,68,0.95);
+          color: white;
+          font-size: 11px;
+          font-weight: 900;
+          display:flex; align-items:center; justify-content:center;
+          border: 2px solid rgba(7,16,29,0.95);
+        }
+
+        /* Segmented language control like the picture */
+        .home-lang{
+          display:inline-flex;
+          align-items:center;
+          border-radius: 999px;
+          background: rgba(0,0,0,0.18);
+          border: 1px solid rgba(255,255,255,0.12);
+          overflow:hidden;
+          height:44px;
+        }
+  
+        .home-langbtn{
+          width:56px; height:44px;
+          display:inline-flex; align-items:center; justify-content:center;
+          color:#fff !important;
+          font-weight: 950;
+          letter-spacing: 0.02em;
+          text-decoration:none !important;
+          box-sizing:border-box;
+        }
+        .home-langbtn.on{
+          background: rgba(59,130,246,0.28);
+          box-shadow: inset 0 0 0 2px rgba(59,130,246,0.85);
+        }
+
+        /* --- Title + hero glass card like the picture --- */
         .home-title{
           text-align:center;
-          font-size: clamp(2.0rem, 3.6vw, 3.0rem);
-          font-weight: 900;
+          font-size: clamp(2.0rem, 3.4vw, 2.8rem);
+          font-weight: 950;
           letter-spacing: -0.045em;
-          margin: 0rem 0 0rem 0;
+          margin: 8px 0 10px 0;
+          opacity: 0.95;
+        }
+
+        .home-hero{
+          margin: 10px 0 16px 0;
+          padding: 18px 16px;
+          border-radius: 22px;
+          background:
+            radial-gradient(520px 180px at 20% 10%, rgba(16,185,129,0.22), transparent 60%),
+            radial-gradient(520px 180px at 80% 20%, rgba(59,130,246,0.22), transparent 60%),
+            linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
+          border: 1px solid rgba(255,255,255,0.14);
+          box-shadow: var(--shadow2);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+        }
+
+        .home-slogan{
+          text-align:center;
+          font-size: 26px;
+          font-weight: 950;
+          letter-spacing: -0.03em;
+          margin-bottom: 8px;
+          text-shadow: 0 10px 30px rgba(0,0,0,0.35);
         }
         .home-sub{
           text-align:center;
-          color: rgba(229,231,235,0.72);
-          margin: 0 0 1.4rem 0;
-          font-size: 0.98rem;
+          color: rgba(234,240,255,0.72);
+          margin: 0;
+          font-size: 1.02rem;
         }
 
+        /* --- Lead source section --- */
+        .home-links{ margin: 16px 0 10px 0; position:relative; }
+        .home-links-title{
+          text-align:center;
+          font-size: 18px;
+          font-weight: 850;
+          letter-spacing: 0.02em;
+          color: rgba(234,240,255,0.68);
+          margin: 2px 0 12px 0;
+          position: relative;
+        }
+        .home-links-title:before,
+        .home-links-title:after{
+          content:"";
+          position:absolute;
+          top:50%;
+          width: 28%;
+          height: 1px;
+          background: rgba(255,255,255,0.12);
+        }
+        .home-links-title:before{ left: 0; }
+        .home-links-title:after{ right: 0; }
+
+        /* --- Horizontal scroll row (side carousel style) --- */
+        .home-links-row{
+          display:flex;
+          gap:14px;
+          overflow-x:auto;
+          overflow-y:hidden;
+          padding: 6px 2px 14px 2px;
+          scroll-snap-type: x mandatory;
+          -webkit-overflow-scrolling: touch;
+        }
+        .home-links-row::-webkit-scrollbar{ display:none; }
+        .home-links-row{ scrollbar-width:none; }
+
+        /* Link tile (single combined block) */
+        .home-linkchip{
+          flex: 0 0 220px;
+          scroll-snap-align: start;
+
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          gap:10px;
+          padding: 14px 12px;
+          border-radius: 16px;
+          border: 1px solid rgba(255,255,255,0.14);
+          background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
+          color:#fff !important;
+          font-weight: 900;
+          box-shadow: 0 14px 26px rgba(0,0,0,0.26);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+        }
+        .home-linkchip .dot{
+          width:12px; height:12px; border-radius:999px;
+          background: rgba(59,130,246,0.92);
+          box-shadow: 0 0 0 5px rgba(59,130,246,0.14);
+          display:inline-block;
+        }
+
+        /* Fade edge (premium carousel feel) */
+        .home-links::after{
+          content:"";
+          position:absolute;
+          right:0;
+          top:36px;
+          bottom:0;
+          width:44px;
+          background: linear-gradient(to left, rgba(7,16,29,1), transparent);
+          pointer-events:none;
+        }
+
+        /* --- Menu pills (glossy, big, like picture) --- */
         .home-pill{
           display:block;
           width: 100%;
           border-radius: 999px;
-          padding: 0.95rem 1.1rem;
+          padding: 1.05rem 1.15rem;
           margin: 0.95rem 0;
-          font-weight: 800;
+          font-weight: 950;
           text-align: center;
           color: #ffffff !important;
-          border: 1px solid rgba(255,255,255,0.16);
-          box-shadow: 0 14px 30px rgba(0,0,0,0.35);
+          border: 1px solid rgba(255,255,255,0.14);
+          box-shadow: 0 18px 34px rgba(0,0,0,0.30);
+          position: relative;
+          overflow:hidden;
           transition: transform 160ms ease, filter 160ms ease;
+        }
+        .home-pill::before{
+          content:"";
+          position:absolute;
+          inset: 0;
+          background: linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.02));
+          opacity: 0.22;
+          pointer-events:none;
         }
         .home-pill:hover{
           transform: translateY(-2px);
           filter: brightness(1.05);
         }
+
+        /* Bottom indicator */
         .home-indicator{
           position: fixed;
           left: 50%;
@@ -978,17 +1324,23 @@ def load_css_home_dark():
           width: 110px;
           height: 5px;
           border-radius: 999px;
-          opacity: 0.35;
+          opacity: 0.30;
           background: rgba(255,255,255,0.75);
           z-index: 9999;
           pointer-events: none;
         }
+
+        /* Mobile tightening */
+        @media (max-width: 520px){
+          .home-card{ padding: 16px 14px 20px 14px; }
+          .home-slogan{ font-size: 22px; }
+          .home-links-title:before, .home-links-title:after{ width: 24%; }
+        }
+
         </style>
         """,
         unsafe_allow_html=True
     )
-
-
 def load_css_app_light(compact: bool = False):
     compact_css = """
       section[data-testid="stMain"] > div { padding-top: 1.0rem !important; padding-bottom: 1.0rem !important; }
@@ -1124,9 +1476,8 @@ def mobile_fullscreen_css():
 if bool(st.session_state.get("compact_mode", False)):
     mobile_fullscreen_css()
 
-
 # =========================
-# 04) NAVIGATION (QUERY PARAM ROUTER) ✅ NO SIDEBAR
+# 04) NAVIGATION (QUERY PARAM ROUTER)
 # =========================
 PAGES = [
     ("dashboard", "dashboard", "linear-gradient(90deg,#3B82F6,#2563EB)"),
@@ -3084,29 +3435,173 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
     </script>
     """
     components.html(html, height=height + 70, scrolling=True)
+
 # =========================
-# 16) HOME SCREEN UI (DARK)
+# 16) HOME SCREEN UI (DARK) - upgraded (FIXED)
 # =========================
 def render_home():
-    st.markdown("<div class='home-wrap'><div class='home-card'>", unsafe_allow_html=True)
-    st.markdown("<div class='home-title'>CLASS MANAGER</div>", unsafe_allow_html=True)
-    st.markdown(f"<div class='home-sub'>{t('choose_where_to_go')}</div>", unsafe_allow_html=True)
-
     current_lang = st.session_state.get("ui_lang", "en")
     if current_lang not in ("en", "es"):
         current_lang = "en"
 
+    # In the future this comes from auth user profile:
+    user_name = st.session_state.get("user_name", "Anthony Miguel")
+
+    # Placeholder alert count (later read from DB)
+    alerts_count = int(st.session_state.get("alerts_count", 0))
+
+    # Avatar (if uploaded)
+    avatar_url = st.session_state.get("avatar_url", "")
+    avatar_style = f"background-image:url('{avatar_url}');" if avatar_url else ""
+
+    # Read panel from query params (you already have _get_qp helper in your app)
+    panel = _get_qp("panel", "")
+
+    # Open layout wrappers
+    st.markdown("<div class='home-wrap'><div class='home-card'>", unsafe_allow_html=True)
+
+    # --- Top bar (welcome + icons + language) ---
+    st.markdown(
+        f"""<div class="home-topbar">
+<div class="home-user">
+  <a class="home-avatar-wrap"
+     href="?page=home&lang={current_lang}&panel=photo"
+     target="_self"
+     rel="noopener noreferrer"
+     title="{t('settings')}">
+    <div class="home-avatar" style="{avatar_style}"></div>
+    <div class="home-avatar-badge">📷</div>
+  </a>
+
+  <div class="home-usertext">
+    <div class="home-welcome">{t('welcome').strip()},</div>
+    <div class="home-username">{user_name}</div>
+  </div>
+</div>
+
+<div class="home-actions">
+  <a class="home-iconbtn"
+     href="?page=home&lang={current_lang}&panel=alerts"
+     target="_self"
+     rel="noopener noreferrer"
+     title="{t('alerts')}">
+    <span class="home-ico">🔔</span>
+    {f'<span class="home-badge">{alerts_count}</span>' if alerts_count > 0 else ''}
+  </a>
+
+  <a class="home-iconbtn"
+     href="?page=home&lang={current_lang}&panel=settings"
+     target="_self"
+     rel="noopener noreferrer"
+     title="{t('settings')}">
+    <span class="home-ico">⚙️</span>
+  </a>
+
+  <div class="home-lang">
+    <a class="home-langbtn {('on' if current_lang=='en' else '')}"
+       href="?page=home&lang=en"
+       target="_self"
+       rel="noopener noreferrer">EN</a>
+    <a class="home-langbtn {('on' if current_lang=='es' else '')}"
+       href="?page=home&lang=es"
+       target="_self"
+       rel="noopener noreferrer">ES</a>
+  </div>
+</div>
+</div>""",
+        unsafe_allow_html=True,
+    )
+
+    # --- Avatar upload dialog/panel (opens when clicking avatar) ---
+    if panel == "photo":
+        try:
+            @st.dialog("Update profile photo")
+            def _photo_dialog():
+                up = st.file_uploader(
+                    "Choose a photo",
+                    type=["png", "jpg", "jpeg", "webp"],
+                    label_visibility="collapsed",
+                )
+                if up is not None:
+                    try:
+                        user_id = st.session_state.get("user_id", "demo_user")
+                        url = upload_avatar_to_supabase(up, user_id=user_id)
+                        st.session_state["avatar_url"] = url
+                        st.success("Profile photo updated ✅")
+
+                        # Clear panel param (keep page/lang)
+                        _set_query(page="home", lang=current_lang)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Upload failed: {e}")
+
+            _photo_dialog()
+        except Exception:
+            # Fallback if st.dialog isn't available in your Streamlit version
+            st.markdown("#### Update profile photo")
+            up = st.file_uploader(
+                "Choose a photo",
+                type=["png", "jpg", "jpeg", "webp"],
+                label_visibility="collapsed",
+            )
+            if up is not None:
+                try:
+                    user_id = st.session_state.get("user_id", "demo_user")
+                    url = upload_avatar_to_supabase(up, user_id=user_id)
+                    st.session_state["avatar_url"] = url
+                    _set_query(page="home", lang=current_lang)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Upload failed: {e}")
+
+    # --- Brand title ---
+    st.markdown("<div class='home-title'>CLASS MANAGER</div>", unsafe_allow_html=True)
+
+    # --- Slogan / hero ---
+    st.markdown(
+        f"""<div class="home-hero">
+<div class="home-slogan">{t('home_slogan')}</div>
+<div class="home-sub">{t('choose_where_to_go')}</div>
+</div>""",
+        unsafe_allow_html=True,
+    )
+
+    # --- Lead sources row (external links) ---
+    st.markdown(
+        """<div class="home-links">
+<div class="home-links-title">Find new students</div>
+<div class="home-links-row">
+<a class="home-linkchip" href="https://www.armut.com" target="_blank" rel="noopener noreferrer">
+    <span class="dot"></span> Armut
+  </a>
+<a class="home-linkchip" href="https://www.apprentus.com" target="_blank" rel="noopener noreferrer">
+    <span class="dot"></span> Apprentus
+  </a>
+  <a class="home-linkchip" href="https://www.superprof.com" target="_blank" rel="noopener noreferrer">
+    <span class="dot"></span> Superprof
+  </a>
+  <a class="home-linkchip" href="https://www.ozelders.com" target="_blank" rel="noopener noreferrer">
+    <span class="dot"></span> ÖzelDers
+  </a>
+  <a class="home-linkchip" href="https://preply.com" target="_blank" rel="noopener noreferrer">
+    <span class="dot"></span> Preply
+  </a>
+  <a class="home-linkchip" href="https://www.italki.com" target="_blank" rel="noopener noreferrer">
+    <span class="dot"></span> italki
+  </a>
+</div>
+</div>""",
+        unsafe_allow_html=True,
+    )
+
+    # --- Capsule menu (your existing PAGES loop) ---
     for key, label_key, grad in PAGES:
         st.markdown(
-            f"""
-            <a class="home-pill home-{key}"
-               href="?page={key}&lang={current_lang}"
-               target="_self"
-               rel="noopener noreferrer"
-               style="background:{grad};">
-              {t(label_key)}
-            </a>
-            """,
+            f"""<a class="home-pill home-{key}"
+href="?page={key}&lang={current_lang}"
+target="_self"
+rel="noopener noreferrer"
+style="background:{grad};">{t(label_key)}</a>""",
             unsafe_allow_html=True,
         )
 
@@ -3221,7 +3716,6 @@ def render_top_nav(active_page: str):
         unsafe_allow_html=True,
     )
 
-
 # ---------- ROUTER + THEME ----------
 page = st.session_state.page
 
@@ -3237,9 +3731,6 @@ if page == "home":
     st.stop()
 
 render_top_nav(page)
-
-# (Sidebar removed intentionally)
-
 
 # =========================
 # 18) PAGE: DASHBOARD
