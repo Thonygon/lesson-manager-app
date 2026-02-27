@@ -979,7 +979,11 @@ def load_css_home_dark():
           --greenGlow: rgba(16,185,129,0.16);
         }
 
-        /* Background like the picture: deep blue + soft floating glow */
+        /* ✅ IMPORTANT: prevent whole-page horizontal scrolling */
+        html, body, .stApp { overflow-x: hidden !important; }
+        /* (Keep vertical scroll normal) */
+
+        /* Background like the picture */
         .stApp{
           background:
             radial-gradient(900px 520px at 22% 6%, rgba(59,130,246,0.35), transparent 58%),
@@ -1013,9 +1017,10 @@ def load_css_home_dark():
           max-width: 620px;
           padding: 18px 16px 22px 16px;
           position: relative;
+          box-sizing: border-box;
         }
 
-        /* Subtle floating particles vibe (very light) */
+        /* Subtle floating particles vibe */
         .home-card::before{
           content:"";
           position:absolute;
@@ -1030,7 +1035,7 @@ def load_css_home_dark():
           pointer-events:none;
         }
 
-        /* --- Top bar: glass pill like the picture --- */
+        /* --- Top bar --- */
         .home-topbar{
           display:flex;
           align-items:center;
@@ -1044,65 +1049,55 @@ def load_css_home_dark():
           backdrop-filter: blur(12px);
           -webkit-backdrop-filter: blur(12px);
           margin-bottom: 14px;
+          box-sizing: border-box;
         }
 
         .home-user{ display:flex; align-items:center; gap:12px; min-width:0; }
+
+        /* Clickable avatar wrapper */
+        .home-avatar-wrap{
+          position:relative;
+          display:inline-flex;
+          width:46px;
+          height:46px;
+          border-radius:999px;
+          flex: 0 0 auto;
+        }
+
+        /* Avatar circle (single definition only) */
         .home-avatar{
           width:46px;
           height:46px;
           border-radius:999px;
           overflow:hidden;
+          background-size:cover;
+          background-position:center;
+          background-repeat:no-repeat;
           border: 1px solid rgba(255,255,255,0.18);
           box-shadow: 0 0 0 6px rgba(59,130,246,0.10);
-          background-size: cover;
-          background-position: center;
-          background-repeat: no-repeat;
-          background-size: cover;
-          background-position: center;
-          background-repeat: no-repeat;
+          box-sizing:border-box;
         }
-          /* Clickable avatar wrapper */
-          .home-avatar-wrap{
-            position:relative;
-            display:inline-flex;
-            width:46px;
-            height:46px;
-            border-radius:999px;
-            flex: 0 0 auto;
-          }
 
-          /* Your avatar circle */
-          .home-avatar{
-            width:46px;
-            height:46px;
-            border-radius:999px;
-            overflow:hidden;
-            background-size:cover;
-            background-position:center;
-            background-repeat:no-repeat;
-            border: 1px solid rgba(255,255,255,0.18);
-            box-shadow: 0 0 0 6px rgba(59,130,246,0.10);
-          }
-
-          /* Small camera badge */
-          .home-avatar-badge{
-            position:absolute;
-            right:-6px;
-            bottom:-6px;
-            width:20px;
-            height:20px;
-            border-radius:999px;
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            font-size:12px;
-            background: rgba(0,0,0,0.55);
-            border:1px solid rgba(255,255,255,0.18);
-            box-shadow: 0 8px 18px rgba(0,0,0,0.35);
-          }
+        /* Small camera badge */
+        .home-avatar-badge{
+          position:absolute;
+          right:-6px;
+          bottom:-6px;
+          width:20px;
+          height:20px;
+          border-radius:999px;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          font-size:12px;
+          background: rgba(0,0,0,0.55);
+          border:1px solid rgba(255,255,255,0.18);
+          box-shadow: 0 8px 18px rgba(0,0,0,0.35);
+          box-sizing:border-box;
+        }
 
         .home-usertext{ display:flex; flex-direction:column; line-height:1.05; min-width:0; }
-        .home-welcome{ font-size: 12px; color: rgba(234,240,255,0.72); font-weight: 750; }
+        .home-welcome{ font-size: 12px; color: rgba(234,240,255,0.72); font-weight: 750; white-space:nowrap; }
         .home-username{
           font-size: 18px;
           font-weight: 950;
@@ -1113,26 +1108,6 @@ def load_css_home_dark():
         }
 
         .home-actions{ display:flex; align-items:center; gap:10px; flex: 0 0 auto; }
-
-        .home-iconbtn{ width:44px; height:44px;
-          display:flex; align-items:center; justify-content:center;
-          border-radius:999px;
-          border: 1px solid rgba(255,255,255,0.12);
-          background: rgba(0,0,0,0.18);
-          color:#fff !important;
-          box-sizing:border-box;
-          position:relative;
-          backdrop-filter: blur(8px);
-          -webkit-backdrop-filter: blur(8px);
-        }
-       .home-iconbtn .home-ico{
-          position:absolute;
-          top:50%;
-          left:50%;
-          transform: translate(-50%, -50%);
-          line-height:1;
-          font-size:19px;
-      }
 
         .home-badge{
           position:absolute;
@@ -1146,9 +1121,10 @@ def load_css_home_dark():
           font-weight: 900;
           display:flex; align-items:center; justify-content:center;
           border: 2px solid rgba(7,16,29,0.95);
+          box-sizing:border-box;
         }
 
-        /* Segmented language control like the picture */
+        /* Segmented language control */
         .home-lang{
           display:inline-flex;
           align-items:center;
@@ -1157,8 +1133,8 @@ def load_css_home_dark():
           border: 1px solid rgba(255,255,255,0.12);
           overflow:hidden;
           height:44px;
+          flex: 0 0 auto;
         }
-  
         .home-langbtn{
           width:56px; height:44px;
           display:inline-flex; align-items:center; justify-content:center;
@@ -1173,7 +1149,7 @@ def load_css_home_dark():
           box-shadow: inset 0 0 0 2px rgba(59,130,246,0.85);
         }
 
-        /* --- Title + hero glass card like the picture --- */
+        /* --- Title + hero --- */
         .home-title{
           text-align:center;
           font-size: clamp(2.0rem, 3.4vw, 2.8rem);
@@ -1195,6 +1171,7 @@ def load_css_home_dark():
           box-shadow: var(--shadow2);
           backdrop-filter: blur(12px);
           -webkit-backdrop-filter: blur(12px);
+          box-sizing: border-box;
         }
 
         .home-slogan{
@@ -1235,7 +1212,7 @@ def load_css_home_dark():
         .home-links-title:before{ left: 0; }
         .home-links-title:after{ right: 0; }
 
-        /* --- Horizontal scroll row (side carousel style) --- */
+        /* ✅ Only this row scrolls horizontally */
         .home-links-row{
           display:flex;
           gap:14px;
@@ -1244,15 +1221,15 @@ def load_css_home_dark():
           padding: 6px 2px 14px 2px;
           scroll-snap-type: x mandatory;
           -webkit-overflow-scrolling: touch;
+          overscroll-behavior-x: contain;   /* ✅ prevents page swipe */
+          touch-action: pan-x;              /* ✅ allow horizontal pan only here */
         }
         .home-links-row::-webkit-scrollbar{ display:none; }
         .home-links-row{ scrollbar-width:none; }
 
-        /* Link tile (single combined block) */
         .home-linkchip{
           flex: 0 0 220px;
           scroll-snap-align: start;
-
           display:flex;
           align-items:center;
           justify-content:center;
@@ -1266,6 +1243,7 @@ def load_css_home_dark():
           box-shadow: 0 14px 26px rgba(0,0,0,0.26);
           backdrop-filter: blur(10px);
           -webkit-backdrop-filter: blur(10px);
+          box-sizing:border-box;
         }
         .home-linkchip .dot{
           width:12px; height:12px; border-radius:999px;
@@ -1274,19 +1252,19 @@ def load_css_home_dark():
           display:inline-block;
         }
 
-        /* Fade edge (premium carousel feel) */
+        /* Fade edge (keep, but not tall enough to affect whole page) */
         .home-links::after{
           content:"";
           position:absolute;
           right:0;
-          top:36px;
-          bottom:0;
+          top:44px;
+          height: 64px;
           width:44px;
           background: linear-gradient(to left, rgba(7,16,29,1), transparent);
           pointer-events:none;
         }
 
-        /* --- Menu pills (glossy, big, like picture) --- */
+        /* --- Menu pills --- */
         .home-pill{
           display:block;
           width: 100%;
@@ -1301,6 +1279,7 @@ def load_css_home_dark():
           position: relative;
           overflow:hidden;
           transition: transform 160ms ease, filter 160ms ease;
+          box-sizing:border-box;
         }
         .home-pill::before{
           content:"";
@@ -1341,6 +1320,7 @@ def load_css_home_dark():
         """,
         unsafe_allow_html=True
     )
+
 def load_css_app_light(compact: bool = False):
     compact_css = """
       section[data-testid="stMain"] > div { padding-top: 1.0rem !important; padding-bottom: 1.0rem !important; }
@@ -1617,6 +1597,33 @@ def load_students() -> List[str]:
             df[col] = df[col].astype(str).str.strip()
             names.update(df[col].dropna().tolist())
     return sorted([n for n in names if n and n.lower() != "nan"])
+
+def get_profile_avatar_url(user_id: str) -> str:
+    try:
+        resp = supabase_admin.table("profiles").select("avatar_url").eq("user_id", user_id).limit(1).execute()
+        rows = resp.data or []
+        return (rows[0].get("avatar_url") or "") if rows else ""
+    except Exception:
+        return ""
+
+def save_profile_avatar_url(user_id: str, avatar_url: str) -> None:
+    payload = {"user_id": user_id, "avatar_url": avatar_url}
+    supabase_admin.table("profiles").upsert(payload).execute()
+
+# =========================
+# QUERY PARAM HELPERS
+# =========================
+def _clear_qp(*keys: str) -> None:
+    """Remove query params safely (new + old Streamlit)."""
+    try:
+        for k in keys:
+            if k in st.query_params:
+                del st.query_params[k]
+    except Exception:
+        qp = st.experimental_get_query_params()
+        for k in keys:
+            qp.pop(k, None)
+        st.experimental_set_query_params(**qp)
 
 # =========================
 # 06.5) TODAY LESSONS HELPER
@@ -3437,7 +3444,7 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
     components.html(html, height=height + 70, scrolling=True)
 
 # =========================
-# 16) HOME SCREEN UI (DARK) - upgraded (FIXED)
+# 16) HOME SCREEN UI (DARK) - upgraded (FIXED + PERSISTENT AVATAR)
 # =========================
 def render_home():
     current_lang = st.session_state.get("ui_lang", "en")
@@ -3450,12 +3457,19 @@ def render_home():
     # Placeholder alert count (later read from DB)
     alerts_count = int(st.session_state.get("alerts_count", 0))
 
-    # Avatar (if uploaded)
-    avatar_url = st.session_state.get("avatar_url", "")
-    avatar_style = f"background-image:url('{avatar_url}');" if avatar_url else ""
+    # Your (future) auth user id
+    user_id = st.session_state.get("user_id", "demo_user")
 
     # Read panel from query params (you already have _get_qp helper in your app)
     panel = _get_qp("panel", "")
+
+    # ✅ Load avatar from DB once per session (so it persists after refresh)
+    if not st.session_state.get("avatar_url"):
+        st.session_state["avatar_url"] = get_profile_avatar_url(user_id)
+
+    # Avatar (if uploaded)
+    avatar_url = st.session_state.get("avatar_url", "")
+    avatar_style = f"background-image:url('{avatar_url}');" if avatar_url else ""
 
     # Open layout wrappers
     st.markdown("<div class='home-wrap'><div class='home-card'>", unsafe_allow_html=True)
@@ -3468,7 +3482,7 @@ def render_home():
      href="?page=home&lang={current_lang}&panel=photo"
      target="_self"
      rel="noopener noreferrer"
-     title="{t('settings')}">
+     title="Change photo">
     <div class="home-avatar" style="{avatar_style}"></div>
     <div class="home-avatar-badge">📷</div>
   </a>
@@ -3488,15 +3502,6 @@ def render_home():
     <span class="home-ico">🔔</span>
     {f'<span class="home-badge">{alerts_count}</span>' if alerts_count > 0 else ''}
   </a>
-
-  <a class="home-iconbtn"
-     href="?page=home&lang={current_lang}&panel=settings"
-     target="_self"
-     rel="noopener noreferrer"
-     title="{t('settings')}">
-    <span class="home-ico">⚙️</span>
-  </a>
-
   <div class="home-lang">
     <a class="home-langbtn {('on' if current_lang=='en' else '')}"
        href="?page=home&lang=en"
@@ -3512,8 +3517,11 @@ def render_home():
         unsafe_allow_html=True,
     )
 
-    # --- Avatar upload dialog/panel (opens when clicking avatar) ---
+    # --- Avatar upload dialog/panel (opens ONLY when clicking avatar) ---
     if panel == "photo":
+        # ✅ Clear panel immediately so refresh does NOT reopen the dialog
+        _clear_qp("panel")
+
         try:
             @st.dialog("Update profile photo")
             def _photo_dialog():
@@ -3522,20 +3530,31 @@ def render_home():
                     type=["png", "jpg", "jpeg", "webp"],
                     label_visibility="collapsed",
                 )
-                if up is not None:
-                    try:
-                        user_id = st.session_state.get("user_id", "demo_user")
-                        url = upload_avatar_to_supabase(up, user_id=user_id)
-                        st.session_state["avatar_url"] = url
-                        st.success("Profile photo updated ✅")
 
-                        # Clear panel param (keep page/lang)
-                        _set_query(page="home", lang=current_lang)
+                c1, c2 = st.columns(2)
+                with c1:
+                    cancel = st.button("Cancel")
+                with c2:
+                    save = st.button("Save", disabled=(up is None))
+
+                if cancel:
+                    st.rerun()
+
+                if save and up is not None:
+                    try:
+                        url = upload_avatar_to_supabase(up, user_id=user_id)
+
+                        # ✅ Persist in session AND database
+                        st.session_state["avatar_url"] = url
+                        save_profile_avatar_url(user_id, url)
+
+                        st.success("Profile photo updated ✅")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Upload failed: {e}")
 
             _photo_dialog()
+
         except Exception:
             # Fallback if st.dialog isn't available in your Streamlit version
             st.markdown("#### Update profile photo")
@@ -3544,16 +3563,20 @@ def render_home():
                 type=["png", "jpg", "jpeg", "webp"],
                 label_visibility="collapsed",
             )
-            if up is not None:
-                try:
-                    user_id = st.session_state.get("user_id", "demo_user")
-                    url = upload_avatar_to_supabase(up, user_id=user_id)
-                    st.session_state["avatar_url"] = url
-                    _set_query(page="home", lang=current_lang)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Upload failed: {e}")
 
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Close"):
+                    st.rerun()
+            with col2:
+                if st.button("Save", disabled=(up is None)) and up is not None:
+                    try:
+                        url = upload_avatar_to_supabase(up, user_id=user_id)
+                        st.session_state["avatar_url"] = url
+                        save_profile_avatar_url(user_id, url)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Upload failed: {e}")
     # --- Brand title ---
     st.markdown("<div class='home-title'>CLASS MANAGER</div>", unsafe_allow_html=True)
 
