@@ -3,6 +3,4 @@ __pycache__/
 *.pyc
 *.csv
 .streamlit/secrets.toml
-Desktop/
-lesson_app/
 .streamlit/
