@@ -32,7 +32,6 @@ from zoneinfo import ZoneInfo
 LOCAL_TZ = ZoneInfo("Europe/Istanbul")
 UTC_TZ = timezone.utc
 
-
 # =========================
 # 00.5) SMALL UI HELPERS
 # =========================
@@ -62,7 +61,6 @@ def to_dt_naive(x, utc: bool = True):
         return s
     except Exception:
         return s
-
 
 def ts_today_naive() -> pd.Timestamp:
     # Always tz-naive "today" at midnight
@@ -413,6 +411,12 @@ I18N: Dict[str, Dict[str, str]] = {
         "total_paid": "Price paid",
         "is_active_6m": "Active",
 
+        # today
+        "todays_lessons": "Today's lessons",
+        "open_link": "Join lesson",
+        "mark_done": "Mark as done",
+        "no_events_today": "No events for today. Take a cup of coffee ☕.",
+
         # -------------------------
         # STUDENTS PAGE
         # -------------------------
@@ -546,6 +550,36 @@ I18N: Dict[str, Dict[str, str]] = {
         "normalized_default_note": "Package normalized / adjustment applied.",
         "package_normalized": "Package normalized",
         "packages_bought": "Total packages",
+        # =========================
+        # PRICING SECTION
+        # =========================
+
+        "pricing_editor_title": "💳 Pricing & Packages",
+
+        "pricing_online_title": "Online lessons",
+        "pricing_offline_title": "Face-to-face lessons",
+
+        "pricing_hourly_caption": "Hourly (pay each lesson)",
+        "pricing_hourly_price_label": "Hourly price",
+        "pricing_hourly_updated": "Hourly price updated ✅",
+        "pricing_hourly_load_error": "Could not create/load hourly row. Check RLS/policies.",
+
+        "pricing_no_packages": "No packages yet. Add one below.",
+
+        "pricing_edit": "Edit",
+        "pricing_save": "Save",
+        "pricing_delete": "Delete",
+
+        "pricing_package_updated": "Package updated ✅",
+        "pricing_package_deleted": "Package deleted ✅",
+        "pricing_package_added": "Package added ✅",
+
+        "pricing_hours": "Hours",
+        "pricing_price_label": "Price (TL)",
+        "pricing_per_hour": "per hour",
+
+        "pricing_add_package": "Add a package",
+        "pricing_add": "Add",
     },
 
     "es": {
@@ -657,6 +691,12 @@ I18N: Dict[str, Dict[str, str]] = {
         "normalize_allowed": "Normalización permitida",
         "total_paid": "Monto pagado",
         "is_active_6m": "Activo",
+
+        # today
+        "todays_lessons": "Clases de hoy",
+        "open_link": "Conectate",
+        "mark_done": "Marcar como hecha",
+        "no_events_today": "No hay eventos hoy. Toma una taza de café ☕.",
 
         # -------------------------
         # STUDENTS PAGE
@@ -790,6 +830,37 @@ I18N: Dict[str, Dict[str, str]] = {
         "package_normalized": "Paquete normalizado",
         "packages_bought": "Paquetes comprados",
         "add_student": "Añadir estudiante",
+
+        # =========================
+        # PRICING SECTION
+        # =========================
+
+        "pricing_editor_title": "💳 Precios y Paquetes",
+
+        "pricing_online_title": "Clases en línea",
+        "pricing_offline_title": "Clases presenciales",
+
+        "pricing_hourly_caption": "Por hora (paga cada clase)",
+        "pricing_hourly_price_label": "Precio por hora",
+        "pricing_hourly_updated": "Precio por hora actualizado ✅",
+        "pricing_hourly_load_error": "No se pudo crear/cargar la tarifa por hora. Revisa RLS/políticas.",
+
+        "pricing_no_packages": "Aún no hay paquetes. Agrega uno abajo.",
+
+        "pricing_edit": "Editar",
+        "pricing_save": "Guardar",
+        "pricing_delete": "Eliminar",
+
+        "pricing_package_updated": "Paquete actualizado ✅",
+        "pricing_package_deleted": "Paquete eliminado ✅",
+        "pricing_package_added": "Paquete agregado ✅",
+
+        "pricing_hours": "Horas",
+        "pricing_price_label": "Precio (TL)",
+        "pricing_per_hour": "por hora",
+
+        "pricing_add_package": "Agregar un paquete",
+        "pricing_add": "Agregar",
     },
 }
 if "ui_lang" not in st.session_state:
@@ -1127,19 +1198,23 @@ def go_to(page_name: str):
 def page_header(title: str):
     st.markdown(f"## {title}")
 
-
 # =========================
 # 05) SUPABASE CONNECTION
 # =========================
 try:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
-    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]  # anon/public
+    SUPABASE_SERVICE_ROLE_KEY = st.secrets["SUPABASE_SERVICE_ROLE_KEY"]
 except Exception as e:
-    st.error("Missing or invalid Streamlit secrets: SUPABASE_URL / SUPABASE_KEY")
+    st.error("Missing Streamlit secrets: SUPABASE_URL / SUPABASE_KEY / SUPABASE_SERVICE_ROLE_KEY")
     st.code(str(e))
     st.stop()
 
+# Public client (RLS applies)
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# Admin client (bypasses RLS)
+supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 # =========================
 # 06) DATA ACCESS HELPERS
@@ -1192,6 +1267,27 @@ def load_students() -> List[str]:
             names.update(df[col].dropna().tolist())
     return sorted([n for n in names if n and n.lower() != "nan"])
 
+# =========================
+# 06.5) TODAY LESSONS HELPER
+# =========================
+def build_today_lessons() -> pd.DataFrame:
+    today = date.today()
+
+    events = build_calendar_events(today, today)
+    if events is None or events.empty:
+        return pd.DataFrame()
+
+    df = events.copy()
+
+    # Clean
+    df["Student"] = df["Student"].astype(str).str.strip()
+    df["Time"] = df["Time"].astype(str)
+    df["Duration_Min"] = pd.to_numeric(df["Duration_Min"], errors="coerce").fillna(60).astype(int)
+
+    # Optional: sort by time
+    df = df.sort_values("Time").reset_index(drop=True)
+
+    return df[["Student", "Time", "Duration_Min", "Source"]]
 
 # =========================
 # 06.5) LANGUAGE HELPERS
@@ -1342,6 +1438,7 @@ def add_payment(
         package_start_date = payment_date
 
     payload = {
+        "id": row["id"],
         "student": student,
         "number_of_lesson": int(number_of_lesson),
         "payment_date": payment_date,
@@ -1407,6 +1504,295 @@ def update_class_row(class_id: int, updates: dict) -> bool:
     except Exception:
         return False
 
+# =========================
+# 07.2) CRUD HELPERS (PRICING ITEMS) — I18N READY (EN/ES)
+# =========================
+
+def load_pricing_items() -> pd.DataFrame:
+    """
+    Loads pricing_items from Supabase.
+    Expected columns:
+      id, modality (online/offline), kind (hourly/package),
+      hours (NULL for hourly), price_try, active, sort_order
+    """
+    try:
+        res = supabase.table("pricing_items").select("*").order("sort_order").execute()
+        rows = res.data or []
+        df = pd.DataFrame(rows)
+    except Exception:
+        return pd.DataFrame(columns=["id", "modality", "kind", "hours", "price_try", "active", "sort_order"])
+
+    if df.empty:
+        return pd.DataFrame(columns=["id", "modality", "kind", "hours", "price_try", "active", "sort_order"])
+
+    # Ensure expected columns exist
+    defaults = {
+        "id": None,
+        "modality": "",
+        "kind": "",
+        "hours": None,
+        "price_try": 0,
+        "active": True,
+        "sort_order": 0,
+    }
+    for c, default in defaults.items():
+        if c not in df.columns:
+            df[c] = default
+
+    # Normalize
+    df["active"] = df["active"].fillna(True).astype(bool)
+    df["sort_order"] = pd.to_numeric(df["sort_order"], errors="coerce").fillna(0).astype(int)
+
+    df["modality"] = df["modality"].fillna("").astype(str).str.strip().str.lower()
+    df["kind"] = df["kind"].fillna("").astype(str).str.strip().str.lower()
+
+    df["price_try"] = pd.to_numeric(df["price_try"], errors="coerce").fillna(0).astype(int)
+    df["hours"] = pd.to_numeric(df["hours"], errors="coerce")  # keep NaN for hourly
+
+    return df
+
+
+def upsert_pricing_item(payload: dict) -> None:
+    """
+    No DB uniqueness restrictions required.
+    Upsert will UPDATE when payload includes id; otherwise INSERT.
+    """
+    if supabase_admin is None:
+        raise RuntimeError("Missing SUPABASE_SERVICE_ROLE_KEY in Streamlit secrets.")
+    supabase_admin.table("pricing_items").upsert(payload).execute()
+
+
+def delete_pricing_item(item_id: int) -> None:
+    if supabase_admin is None:
+        raise RuntimeError("Missing SUPABASE_SERVICE_ROLE_KEY in Streamlit secrets.")
+    supabase_admin.table("pricing_items").delete().eq("id", int(item_id)).execute()
+
+
+def money_try(x) -> str:
+    try:
+        return f"{int(round(float(x))):,} TL".replace(",", ".")
+    except Exception:
+        return str(x)
+
+
+def _pricing_section(df: pd.DataFrame, modality: str, title_key: str, hourly_default: int) -> None:
+    """
+    Renders one modality pricing editor (online/offline).
+    modality must be lowercase: "online" or "offline"
+    title_key must be a translation key.
+    """
+
+    st.markdown(f"### {t(title_key)}")
+
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["id", "modality", "kind", "hours", "price_try", "active", "sort_order"])
+    else:
+        df = df.copy()
+
+    # Ensure expected columns exist
+    defaults = {
+        "id": None,
+        "modality": "",
+        "kind": "",
+        "hours": None,
+        "price_try": 0,
+        "active": True,
+        "sort_order": 0,
+    }
+    for c, default in defaults.items():
+        if c not in df.columns:
+            df[c] = default
+
+    # Active only
+    df["active"] = df["active"].fillna(True).astype(bool)
+    df = df[df["active"] == True].copy()
+
+    # Normalize strings
+    df["modality"] = df["modality"].fillna("").astype(str).str.strip().str.lower()
+    df["kind"] = df["kind"].fillna("").astype(str).str.strip().str.lower()
+
+    # Numeric
+    df["price_try"] = pd.to_numeric(df["price_try"], errors="coerce").fillna(0).astype(int)
+    df["hours"] = pd.to_numeric(df["hours"], errors="coerce")  # NaN ok for hourly
+
+    # ---------- Hourly ----------
+    hourly = df[(df["modality"] == modality) & (df["kind"] == "hourly")].copy()
+
+    # Seed hourly if missing
+    if hourly.empty:
+        upsert_pricing_item(
+            {
+                "modality": modality,
+                "kind": "hourly",
+                "hours": None,
+                "price_try": int(hourly_default),
+                "active": True,
+                "sort_order": 0,
+            }
+        )
+        df = load_pricing_items()
+        df = df[df["active"] == True].copy()
+        hourly = df[(df["modality"] == modality) & (df["kind"] == "hourly")].copy()
+
+    if hourly.empty:
+        st.error(t("pricing_hourly_load_error"))
+        return
+
+    # If multiple hourly rows exist, use the first by sort_order then id
+    hourly = hourly.sort_values(["sort_order", "id"], na_position="last")
+    hourly_row = hourly.iloc[0].to_dict()
+
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        st.caption(t("pricing_hourly_caption"))
+    with c2:
+        new_hourly = st.number_input(
+            t("pricing_hourly_price_label"),
+            min_value=0,
+            step=50,
+            value=int(hourly_row.get("price_try") or 0),
+            key=f"hourly_price_{modality}",
+            label_visibility="collapsed",
+        )
+
+    if int(new_hourly) != int(hourly_row.get("price_try") or 0):
+        upsert_pricing_item(
+            {
+                "id": int(hourly_row["id"]),
+                "modality": modality,
+                "kind": "hourly",
+                "hours": None,
+                "price_try": int(new_hourly),
+                "active": True,
+                "sort_order": int(hourly_row.get("sort_order") or 0),
+            }
+        )
+        st.success(t("pricing_hourly_updated"))
+        st.rerun()
+
+    st.divider()
+
+    # ---------- Packages ----------
+    pk = df[(df["modality"] == modality) & (df["kind"] == "package")].copy()
+    pk["sort_order"] = pd.to_numeric(pk["sort_order"], errors="coerce").fillna(0).astype(int)
+    pk["hours"] = pd.to_numeric(pk["hours"], errors="coerce").fillna(0).astype(int)
+    pk = pk.sort_values(["sort_order", "hours", "id"], na_position="last")
+
+    if pk.empty:
+        st.info(t("pricing_no_packages"))
+    else:
+        # Use enumerate to guarantee unique Streamlit widget keys even if duplicate IDs appear
+        for i, (_, row) in enumerate(pk.iterrows(), start=1):
+            row_id = int(row.get("id") or 0)
+            hours = int(row.get("hours") or 0)
+            price = int(row.get("price_try") or 0)
+            per = int(round(price / hours)) if hours > 0 else 0
+
+            with st.container(border=True):
+                a, b, c = st.columns([2, 2, 1])
+
+                with a:
+                    st.markdown(f"**{hours} {t('pricing_hours')}**")
+                    st.caption(f"≈ {money_try(per)} {t('pricing_per_hour')}")
+
+                with b:
+                    st.markdown(f"**{money_try(price)}**")
+
+                with c:
+                    if st.button(t("pricing_edit"), key=f"edit_pkg_{modality}_{row_id}_{i}"):
+                        st.session_state[f"edit_price_id_{modality}"] = row_id
+
+                if st.session_state.get(f"edit_price_id_{modality}") == row_id:
+                    e1, e2, e3 = st.columns([1, 1, 1])
+                    with e1:
+                        new_hours = st.number_input(
+                            t("pricing_hours"),
+                            min_value=1,
+                            step=1,
+                            value=max(1, hours),
+                            key=f"pkg_hours_{modality}_{row_id}_{i}",
+                        )
+                    with e2:
+                        new_price = st.number_input(
+                            t("pricing_price_label"),
+                            min_value=0,
+                            step=50,
+                            value=price,
+                            key=f"pkg_price_{modality}_{row_id}_{i}",
+                        )
+                    with e3:
+                        if st.button(t("pricing_save"), key=f"save_pkg_{modality}_{row_id}_{i}"):
+                            upsert_pricing_item(
+                                {
+                                    "id": row_id,
+                                    "modality": modality,
+                                    "kind": "package",
+                                    "hours": int(new_hours),
+                                    "price_try": int(new_price),
+                                    "active": True,
+                                    "sort_order": int(row.get("sort_order") or new_hours),
+                                }
+                            )
+                            st.session_state[f"edit_price_id_{modality}"] = None
+                            st.success(t("pricing_package_updated"))
+                            st.rerun()
+
+                        if st.button(t("pricing_delete"), key=f"del_pkg_{modality}_{row_id}_{i}"):
+                            delete_pricing_item(row_id)
+                            st.session_state[f"edit_price_id_{modality}"] = None
+                            st.success(t("pricing_package_deleted"))
+                            st.rerun()
+
+    st.divider()
+
+    # ---------- Add package ----------
+    st.markdown(f"**{t('pricing_add_package')}**")
+    n1, n2, n3 = st.columns([1, 1, 1])
+
+    with n1:
+        add_hours = st.number_input(
+            t("pricing_hours"),
+            min_value=1,
+            step=1,
+            value=10,
+            key=f"add_pkg_hours_{modality}",
+        )
+    with n2:
+        add_price = st.number_input(
+            t("pricing_price_label"),
+            min_value=0,
+            step=50,
+            value=0,
+            key=f"add_pkg_price_{modality}",
+        )
+    with n3:
+        if st.button(t("pricing_add"), key=f"add_pkg_btn_{modality}"):
+            upsert_pricing_item(
+                {
+                    "modality": modality,
+                    "kind": "package",
+                    "hours": int(add_hours),
+                    "price_try": int(add_price),
+                    "active": True,
+                    "sort_order": int(add_hours),
+                }
+            )
+            st.success(t("pricing_package_added"))
+            st.rerun()
+
+
+def render_pricing_editor() -> None:
+    """
+    Pricing editor UI. Call this ONLY inside a page (e.g. add_payment).
+    """
+    with st.expander(t("pricing_editor_title"), expanded=False):
+        df = load_pricing_items()
+        _pricing_section(df, modality="online", title_key="pricing_online_title", hourly_default=2000)
+
+        st.divider()
+
+        df = load_pricing_items()
+        _pricing_section(df, modality="offline", title_key="pricing_offline_title", hourly_default=3500)
 
 # =========================
 # 07.5) PACKAGE/LANGUAGE LOOKUPS
@@ -2873,14 +3259,109 @@ if page == "dashboard":
     d["Status"] = d.get("Status", "").fillna("").astype(str).str.strip().str.casefold()
     d["Is_Active_6m"] = pd.Series(d.get("Is_Active_6m", False)).fillna(False).astype(bool)
 
-    # Keep useful subset (no hard-coded English labels)
-    # - We show: active, almost_finished, mismatch
-    # - Also show "finished" ONLY if still active (so you can follow up)
     d = d[
         (d["Status"].isin(["active", "almost_finished", "mismatch"])) |
         ((d["Status"] == "finished") & (d["Is_Active_6m"] == True))
     ].copy()
 
+    # ---------------------------------------
+    # TODAY'S LESSONS (row: done | student+time+badge | link)
+    # ---------------------------------------
+    st.subheader("📅 " + t("todays_lessons"))
+
+    st.markdown(
+        """
+        <style>
+          .tl-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+          .tl-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+          .tl-badge{
+            display:inline-flex; align-items:center;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 0.78rem;
+            font-weight: 900;
+            border: 1px solid rgba(15,23,42,0.12);
+          }
+          .b-rec{ background: rgba(59,130,246,0.12); color:#1d4ed8; border-color: rgba(59,130,246,0.25); }
+          .b-ovr{ background: rgba(245,158,11,0.14); color:#b45309; border-color: rgba(245,158,11,0.25); }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    today = date.today()
+    today_events = build_calendar_events(today, today)
+
+    if today_events is None or today_events.empty:
+        st.caption(t("no_events_today"))
+    else:
+        df = today_events.copy()
+        df["Student"] = df["Student"].astype(str).str.strip()
+        df["Time"] = df["Time"].astype(str).str.strip()
+        df["Zoom_Link"] = df.get("Zoom_Link", "").fillna("").astype(str).str.strip()
+        df["Source"] = df.get("Source", "").fillna("").astype(str).str.strip().str.lower()
+        df = df.sort_values("Time").reset_index(drop=True)
+
+        for _, r in df.iterrows():
+            student = str(r.get("Student", "")).strip()
+            when = str(r.get("Time", "")).strip()
+            link = str(r.get("Zoom_Link", "")).strip()
+            src = str(r.get("Source", "")).strip()
+
+            # Stable unique lesson key per event
+            lesson_id = f"{today.isoformat()}_{student}_{when}"
+            key_done = f"today_done_{lesson_id}"
+
+            st.markdown("<div class='tl-card'>", unsafe_allow_html=True)
+
+            # ✅ Row layout: Info | Done | Link
+            c_info, c_done, c_link = st.columns([0.55, 2.2, 1.3], vertical_alignment="center")
+
+            with c_done:
+                done_now = bool(st.session_state.get(key_done, False))
+                done_now = st.toggle( t("mark_done"), value=done_now, key=key_done,
+                )
+
+            # Styling AFTER the checkbox value is known
+            name_style = "font-weight:900;"
+            time_style = "font-weight:900;"
+            if done_now:
+                name_style += "text-decoration:line-through; opacity:0.55;"
+                time_style += "text-decoration:line-through; opacity:0.55;"
+
+            with c_info:
+                st.markdown(
+                    f"""
+                    <div class='tl-row'>
+                      <div class='tl-left'>
+                        <span style="{name_style}">{student}</span>
+                        <span style="{time_style}">{when}</span>
+                      </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+            with c_link:
+                # Link disappears when done (keeps dashboard clean)
+                if (not done_now) and link.startswith("http"):
+                    try:
+                        st.link_button(
+                            t("open_link"),
+                            link,
+                            use_container_width=True,
+                            key=f"today_link_{lesson_id}",
+                        )
+                    except Exception:
+                        st.markdown(
+                            f"<a href='{link}' target='_blank' style='text-decoration:none;'>"
+                            f"<button style='width:100%;padding:0.62rem 1.0rem;border-radius:14px;"
+                            f"border:1px solid rgba(17,24,39,0.12);background:white;font-weight:700;cursor:pointer;'>"
+                            f"{t('open_link')}</button></a>",
+                            unsafe_allow_html=True,
+                        )
+                else:
+                    st.markdown("<div style='height:38px;'></div>", unsafe_allow_html=True)
 
     # ---------------------------------------
     # TAKE ACTION
@@ -3191,7 +3672,7 @@ elif page == "add_lesson":
                 note=note,
                 lesson_language=lesson_lang,
             )
-            st.success(t("done_ok"))
+            st.success(t("saved"))
             st.rerun()
 
         with st.expander(t("lesson_editor"), expanded=False):
@@ -3294,6 +3775,8 @@ elif page == "add_lesson":
 elif page == "add_payment":
     page_header(t("payment"))
     st.caption(t("add_and_manage_your_payments"))
+    
+    render_pricing_editor()
 
     if not students:
         st.info(t("no_students"))
@@ -3546,7 +4029,6 @@ elif page == "add_payment":
                             st.rerun()
                         else:
                             st.error(t("some_updates_failed"))
-
 
 # =========================
 # 22) PAGE: SCHEDULE (legacy)
