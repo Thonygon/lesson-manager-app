@@ -255,37 +255,40 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 # =========================
-# 01) PAGE CONFIG
+# 01.1) PAGE CONFIG
 # =========================
 def remove_streamlit_top_spacing():
     st.markdown("""
     <style>
+    /* Kill all top padding/margins Streamlit adds */
+    html, body { margin: 0 !important; padding: 0 !important; }
 
-    .block-container {
-        padding-top: 0rem !important;
-        padding-bottom: 0rem !important;
+    [data-testid="stAppViewContainer"] { padding-top: 0 !important; margin-top: 0 !important; }
+    [data-testid="stMain"] { padding-top: 0 !important; margin-top: 0 !important; }
+
+    /* NEW Streamlit container (most important) */
+    div[data-testid="stMainBlockContainer"]{
+      padding-top: 0rem !important;
+      margin-top: 0rem !important;
     }
 
-    section.main > div {
-        padding-top: 0rem !important;
+    /* Older containers */
+    section[data-testid="stMain"] > div{
+      padding-top: 0rem !important;
+      margin-top: 0rem !important;
+    }
+    .block-container{
+      padding-top: 0rem !important;
+      margin-top: 0rem !important;
     }
 
-    html, body, [data-testid="stAppViewContainer"] {
-        margin-top: 0px !important;
-        padding-top: 0px !important;
-    }
-
-    [data-testid="stHeader"] {
-        height: 0rem !important;
-    }
-
-    [data-testid="stToolbar"] {
-        display: none !important;
-    }
-
+    /* Remove header/toolbar space */
+    header, [data-testid="stHeader"]{ display:none !important; height:0 !important; }
+    [data-testid="stToolbar"]{ display:none !important; }
+    div[data-testid="stDecoration"]{ display:none !important; }
     </style>
     """, unsafe_allow_html=True)
-remove_streamlit_top_spacing ()  
+remove_streamlit_top_spacing ()
 
 
 # =========================
@@ -1329,6 +1332,9 @@ def load_css_home_dark():
         .home-links-title:before{ left: 0; }
         .home-links-title:after{ right: 0; }
 
+        html, body { background: #07101d !important; }
+        [data-testid="stAppViewContainer"], .stApp { background: #07101d !important; }
+
         /* ✅ Only this row scrolls horizontally */
         .home-links-row{
           display:flex;
@@ -1483,6 +1489,9 @@ def load_css_app_light(compact: bool = False):
         @media (max-width: 768px){{
           section[data-testid="stMain"] > div {{ padding-top: 1.0rem; padding-bottom: 1.2rem; }}
         }}
+
+        html, body {{ background: #f6f7fb !important; }}
+        [data-testid="stAppViewContainer"], .stApp {{ background: #f6f7fb !important; }}
 
         html, body, [class*="css"]{{ font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }}
         h1,h2,h3{{ letter-spacing:-0.02em; }}
