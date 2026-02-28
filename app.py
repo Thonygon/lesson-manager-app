@@ -1017,383 +1017,161 @@ def inject_pwa_head():
 inject_pwa_head()
 
 # =========================
-# 05) THEMES (DARK HOME) and (LIGHT NAV) — FIXED (top gap + full height)
+# 05) THEMES (DARK HOME) and (LIGHT NAV)
 # =========================
 def load_css_home_dark():
     st.markdown(
         """
         <style>
-        :root{ color-scheme: dark; }
-        html, body{ color-scheme: dark; height:100%; margin:0 !important; padding:0 !important; }
 
+        /* ---------------- GLOBAL RESET ---------------- */
+        html, body {
+            margin:0 !important;
+            padding:0 !important;
+            height:100%;
+            overflow-x:hidden !important;
+            touch-action: pan-y !important; /* vertical scroll only */
+        }
+
+        header, [data-testid="stHeader"],
+        [data-testid="stToolbar"],
+        div[data-testid="stDecoration"]{
+            display:none !important;
+            height:0 !important;
+        }
+
+        [data-testid="stAppViewContainer"]{
+            padding-top:0 !important;
+            margin-top:0 !important;
+            min-height:100vh !important;
+            background:#07101d !important;
+            overflow-x:hidden !important;
+        }
+
+        [data-testid="stMain"],
+        div[data-testid="stMainBlockContainer"],
+        .block-container{
+            padding-top:0 !important;
+            margin-top:0 !important;
+            overflow-x:hidden !important;
+            max-width:100% !important;
+        }
+
+        * { box-sizing:border-box; }
+
+        /* ---------------- THEME ---------------- */
         :root{
           --bg:#07101d;
           --text:#eaf0ff;
           --muted:rgba(234,240,255,0.72);
-          --glass: rgba(255,255,255,0.06);
-          --glass2: rgba(255,255,255,0.08);
-          --stroke: rgba(255,255,255,0.12);
-          --stroke2: rgba(255,255,255,0.16);
-          --shadow: 0 18px 44px rgba(0,0,0,0.45);
-          --shadow2: 0 12px 26px rgba(0,0,0,0.28);
-          --blue: rgba(59,130,246,0.95);
-          --blueGlow: rgba(59,130,246,0.22);
-          --greenGlow: rgba(16,185,129,0.16);
+          --shadow2:0 12px 26px rgba(0,0,0,0.28);
         }
 
-        /* ✅ Kill Streamlit chrome + the “mystery” top gap */
-        header, [data-testid="stHeader"]{ display:none !important; height:0 !important; }
-        [data-testid="stToolbar"]{ display:none !important; }
-        div[data-testid="stDecoration"]{ display:none !important; }
-
-        /* ✅ These are the usual culprits for top padding in newer Streamlit */
-        [data-testid="stAppViewContainer"]{
-          padding-top: 0 !important;
-          margin-top: 0 !important;
-          min-height: 100vh !important;
-          background: #07101d !important;
-        }
-        [data-testid="stMain"]{
-          padding-top: 0 !important;
-          margin-top: 0 !important;
-        }
-        div[data-testid="stMainBlockContainer"]{
-          padding-top: 0rem !important;
-          margin-top: 0rem !important;
-          padding-bottom: 0rem !important;
-        }
-
-        /* Older wrapper name (still appears in some versions) */
-        .block-container{
-          padding-top: 0rem !important;
-          margin-top: 0rem !important;
-          padding-bottom: 0rem !important;
-          padding-left: 1rem !important;
-          padding-right: 1rem !important;
-          max-width: 1100px;
-        }
-
-        /* ✅ IMPORTANT: prevent whole-page horizontal scrolling */
-        html, body, .stApp { overflow-x: hidden !important; }
-
-        /* Background like the picture */
         .stApp{
           background:
             radial-gradient(900px 520px at 22% 6%, rgba(59,130,246,0.35), transparent 58%),
             radial-gradient(760px 520px at 76% 14%, rgba(34,197,94,0.18), transparent 62%),
             radial-gradient(820px 560px at 60% 86%, rgba(14,165,233,0.14), transparent 62%),
             linear-gradient(180deg, #0a1c35 0%, #07101d 60%, #050b15 100%);
-          color: var(--text);
-          min-height: 100vh;
+          color:var(--text);
+          min-height:100vh;
         }
 
         html, body, [class*="css"]{
-          font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+          font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
         }
 
-        /* ✅ Make ALL elements respect the screen width */
-        * { box-sizing: border-box; }
-
-        /* If any long row tries to exceed width, clamp it */
-        .home-wrap,
-        .home-card,
-        .home-topbar,
-        .home-hero { max-width: 100% !important; }
-
-        /* ✅ ONLY the external links row can scroll sideways */
-        .home-links-row {
-          overflow-x: auto !important;
-          overflow-y: hidden !important;
-          max-width: 100% !important;
-          overscroll-behavior-x: contain;
-          touch-action: pan-x;
-        }
-
-        a { text-decoration:none !important; }
-
-        /* Home layout */
+        /* ---------------- HOME LAYOUT ---------------- */
         .home-wrap{ display:flex; justify-content:center; width:100%; }
+
         .home-card{
-          width: 100%;
-          max-width: 620px;
-          padding: 18px 16px 22px 16px;
-          position: relative;
+          width:100%;
+          max-width:620px;
+          padding:18px 16px 22px 16px;
+          position:relative;
         }
 
-        /* Subtle floating particles vibe */
+        /* FIXED: removed negative horizontal inset (was causing sideways drag) */
         .home-card::before{
           content:"";
           position:absolute;
-          inset:100px -20px auto -20px;
-          height: 240px;
+          left:0;
+          right:0;
+          top:100px;
+          height:240px;
           background:
             radial-gradient(circle at 20% 40%, rgba(255,255,255,0.10), transparent 55%),
             radial-gradient(circle at 55% 65%, rgba(255,255,255,0.08), transparent 58%),
             radial-gradient(circle at 85% 35%, rgba(255,255,255,0.07), transparent 60%);
-          filter: blur(1px);
-          opacity: 0.70;
+          filter:blur(1px);
+          opacity:0.7;
           pointer-events:none;
         }
 
-        /* --- Top bar --- */
         .home-topbar{
           display:flex;
-          align-items:center;
           justify-content:space-between;
           gap:12px;
-          padding: 12px 12px;
-          border-radius: 22px;
-          background: linear-gradient(180deg, rgba(255,255,255,0.09), rgba(255,255,255,0.05));
-          border: 1px solid rgba(255,255,255,0.14);
-          box-shadow: var(--shadow2);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
-          margin-bottom: 14px;
-        }
-
-        .home-user{ display:flex; align-items:center; gap:12px; min-width:0; }
-
-        .home-avatar-wrap{
-          position:relative;
-          display:inline-flex;
-          width:46px;
-          height:46px;
-          border-radius:999px;
-          flex: 0 0 auto;
-        }
-
-        .home-avatar{
-          width:46px;
-          height:46px;
-          border-radius:999px;
-          overflow:hidden;
-          background-size:cover;
-          background-position:center;
-          background-repeat:no-repeat;
-          border: 1px solid rgba(255,255,255,0.18);
-          box-shadow: 0 0 0 6px rgba(59,130,246,0.10);
-        }
-
-        .home-avatar-badge{
-          position:absolute;
-          right:-6px;
-          bottom:-6px;
-          width:20px;
-          height:20px;
-          border-radius:999px;
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          font-size:12px;
-          background: rgba(0,0,0,0.55);
-          border:1px solid rgba(255,255,255,0.18);
-          box-shadow: 0 8px 18px rgba(0,0,0,0.35);
-        }
-
-        .home-usertext{ display:flex; flex-direction:column; line-height:1.05; min-width:0; }
-        .home-welcome{ font-size: 12px; color: rgba(234,240,255,0.72); font-weight: 750; white-space:nowrap; }
-        .home-username{
-          font-size: 18px;
-          font-weight: 950;
-          letter-spacing:-0.02em;
-          white-space:nowrap;
-          overflow:hidden;
-          text-overflow:ellipsis;
-        }
-
-        .home-actions{ display:flex; align-items:center; gap:10px; flex: 0 0 auto; }
-
-        .home-badge{
-          position:absolute;
-          top:-6px; right:-6px;
-          min-width: 18px; height: 18px;
-          padding: 0 5px;
-          border-radius: 999px;
-          background: rgba(239,68,68,0.95);
-          color: white;
-          font-size: 11px;
-          font-weight: 900;
-          display:flex; align-items:center; justify-content:center;
-          border: 2px solid rgba(7,16,29,0.95);
-        }
-
-        .home-lang{
-          display:inline-flex;
-          align-items:center;
-          border-radius: 999px;
-          background: rgba(0,0,0,0.18);
-          border: 1px solid rgba(255,255,255,0.12);
-          overflow:hidden;
-          height:44px;
-          flex: 0 0 auto;
-        }
-        .home-langbtn{
-          width:56px; height:44px;
-          display:inline-flex; align-items:center; justify-content:center;
-          color:#fff !important;
-          font-weight: 950;
-          letter-spacing: 0.02em;
-          text-decoration:none !important;
-        }
-        .home-langbtn.on{
-          background: rgba(59,130,246,0.28);
-          box-shadow: inset 0 0 0 2px rgba(59,130,246,0.85);
+          padding:12px;
+          border-radius:22px;
+          background:linear-gradient(180deg, rgba(255,255,255,0.09), rgba(255,255,255,0.05));
+          box-shadow:var(--shadow2);
+          margin-bottom:14px;
         }
 
         .home-title{
           text-align:center;
-          font-size: clamp(2.0rem, 3.4vw, 2.8rem);
-          font-weight: 950;
-          letter-spacing: -0.045em;
-          margin: 8px 0 10px 0;
-          opacity: 0.95;
+          font-size:clamp(2rem,3.4vw,2.8rem);
+          font-weight:950;
+          margin:8px 0 10px 0;
         }
 
         .home-hero{
-          margin: 10px 0 16px 0;
-          padding: 18px 16px;
-          border-radius: 22px;
+          margin:10px 0 16px 0;
+          padding:18px 16px;
+          border-radius:22px;
           background:
             radial-gradient(520px 180px at 20% 10%, rgba(16,185,129,0.22), transparent 60%),
             radial-gradient(520px 180px at 80% 20%, rgba(59,130,246,0.22), transparent 60%),
             linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
-          border: 1px solid rgba(255,255,255,0.14);
-          box-shadow: var(--shadow2);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
         }
 
-        .home-slogan{
-          text-align:center;
-          font-size: 26px;
-          font-weight: 950;
-          letter-spacing: -0.03em;
-          margin-bottom: 8px;
-          text-shadow: 0 10px 30px rgba(0,0,0,0.35);
-        }
-        .home-sub{
-          text-align:center;
-          color: rgba(234,240,255,0.72);
-          margin: 0;
-          font-size: 1.02rem;
-        }
-
-        .home-links{ margin: 16px 0 10px 0; position:relative; }
-        .home-links-title{
-          text-align:center;
-          font-size: 18px;
-          font-weight: 850;
-          letter-spacing: 0.02em;
-          color: rgba(234,240,255,0.68);
-          margin: 2px 0 12px 0;
-          position: relative;
-        }
-        .home-links-title:before,
-        .home-links-title:after{
-          content:"";
-          position:absolute;
-          top:50%;
-          width: 28%;
-          height: 1px;
-          background: rgba(255,255,255,0.12);
-        }
-        .home-links-title:before{ left: 0; }
-        .home-links-title:after{ right: 0; }
-
+        /* ---------------- LINKS ROW ---------------- */
         .home-links-row{
           display:flex;
           gap:14px;
-          overflow-x:auto;
-          overflow-y:hidden;
-          padding: 6px 2px 14px 2px;
-          scroll-snap-type: x mandatory;
-          -webkit-overflow-scrolling: touch;
+          overflow-x:auto !important;
+          overflow-y:hidden !important;
+          -webkit-overflow-scrolling:touch;
+          overscroll-behavior-x:contain;
+          touch-action:pan-x !important; /* only this row scrolls sideways */
+          scrollbar-width:none;
         }
         .home-links-row::-webkit-scrollbar{ display:none; }
-        .home-links-row{ scrollbar-width:none; }
 
         .home-linkchip{
-          flex: 0 0 220px;
-          scroll-snap-align: start;
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          gap:10px;
-          padding: 14px 12px;
-          border-radius: 16px;
-          border: 1px solid rgba(255,255,255,0.14);
-          background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
+          flex:0 0 220px;
+          padding:14px 12px;
+          border-radius:16px;
+          background:linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
+          font-weight:900;
           color:#fff !important;
-          font-weight: 900;
-          box-shadow: 0 14px 26px rgba(0,0,0,0.26);
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-        }
-        .home-linkchip .dot{
-          width:12px; height:12px; border-radius:999px;
-          background: rgba(59,130,246,0.92);
-          box-shadow: 0 0 0 5px rgba(59,130,246,0.14);
-          display:inline-block;
-        }
-
-        .home-links::after{
-          content:"";
-          position:absolute;
-          right:0;
-          top:44px;
-          height: 64px;
-          width:44px;
-          background: linear-gradient(to left, rgba(7,16,29,1), transparent);
-          pointer-events:none;
-        }
-
-        .home-pill{
-          display:block;
-          width: 100%;
-          border-radius: 999px;
-          padding: 1.05rem 1.15rem;
-          margin: 0.95rem 0;
-          font-weight: 950;
-          text-align: center;
-          color: #ffffff !important;
-          border: 1px solid rgba(255,255,255,0.14);
-          box-shadow: 0 18px 34px rgba(0,0,0,0.30);
-          position: relative;
-          overflow:hidden;
-          transition: transform 160ms ease, filter 160ms ease;
-        }
-        .home-pill::before{
-          content:"";
-          position:absolute;
-          inset: 0;
-          background: linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.02));
-          opacity: 0.22;
-          pointer-events:none;
-        }
-        .home-pill:hover{
-          transform: translateY(-2px);
-          filter: brightness(1.05);
         }
 
         .home-indicator{
-          position: fixed;
-          left: 50%;
-          transform: translateX(-50%);
-          bottom: calc(env(safe-area-inset-bottom) + 10px);
-          width: 110px;
-          height: 5px;
-          border-radius: 999px;
-          opacity: 0.30;
-          background: rgba(255,255,255,0.75);
-          z-index: 9999;
-          pointer-events: none;
+          position:fixed;
+          left:50%;
+          transform:translateX(-50%);
+          bottom:calc(env(safe-area-inset-bottom) + 10px);
+          width:110px;
+          height:5px;
+          border-radius:999px;
+          opacity:0.3;
+          background:rgba(255,255,255,0.75);
+          max-width:110px;
+          overflow:hidden;
         }
 
-        @media (max-width: 520px){
-          .home-card{ padding: 16px 14px 20px 14px; }
-          .home-slogan{ font-size: 22px; }
-          .home-links-title:before, .home-links-title:after{ width: 24%; }
-        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1401,108 +1179,48 @@ def load_css_home_dark():
 
 
 def load_css_app_light(compact: bool = False):
-    compact_css = """
-      div[data-testid="stMainBlockContainer"]{ padding-top: 0.75rem !important; padding-bottom: 1.0rem !important; }
-      div[data-testid="stVerticalBlockBorderWrapper"]{ padding: 12px !important; border-radius: 16px !important; }
-      div[data-testid="stButton"] button{ padding: 0.58rem 0.85rem !important; border-radius: 14px !important; }
-      div[data-testid="metric-container"]{ padding: 12px 14px !important; border-radius: 16px !important; }
-    """ if compact else ""
-
     st.markdown(
-        f"""
+        """
         <style>
-        :root {{ color-scheme: light !important; }}
-        html, body {{ color-scheme: light !important; height:100%; margin:0 !important; padding:0 !important; }}
 
-        :root{{
-          --bg:#f6f7fb;
-          --panel:#ffffff;
-          --border:rgba(17,24,39,0.08);
-          --border2:rgba(17,24,39,0.10);
-          --text:#0f172a;
-          --muted:#475569;
-          --shadow:0 10px 26px rgba(15,23,42,0.08);
-        }}
+        html, body{
+            margin:0 !important;
+            padding:0 !important;
+            height:100%;
+            overflow-x:hidden !important;
+        }
 
-        /* ✅ Kill Streamlit chrome + top gap */
-        header, [data-testid="stHeader"]{{ display:none !important; height:0 !important; }}
-        [data-testid="stToolbar"]{{ display:none !important; }}
-        div[data-testid="stDecoration"]{{ display:none !important; }}
-        [data-testid="stAppViewContainer"]{{ padding-top:0 !important; margin-top:0 !important; background: var(--bg) !important; min-height:100vh !important; }}
-        [data-testid="stMain"]{{ padding-top:0 !important; margin-top:0 !important; }}
-        div[data-testid="stMainBlockContainer"]{{ padding-top: 1.6rem; padding-bottom: 1.6rem; max-width: 1200px; }}
-        .block-container{{ padding-top: 0 !important; margin-top: 0 !important; }}
+        header, [data-testid="stHeader"],
+        [data-testid="stToolbar"],
+        div[data-testid="stDecoration"]{
+            display:none !important;
+            height:0 !important;
+        }
 
-        .stApp{{ background: var(--bg); color: var(--text); min-height: 100vh; }}
-        .stApp, .stApp * {{ color: var(--text); }}
-        .stCaption, .stMarkdown p, .stMarkdown span, .stMarkdown li {{ color: var(--muted) !important; }}
-        .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {{ color: var(--text) !important; }}
-        label, label * {{ color: var(--text) !important; }}
+        [data-testid="stAppViewContainer"]{
+            padding-top:0 !important;
+            margin-top:0 !important;
+            min-height:100vh !important;
+            background:#f6f7fb !important;
+        }
 
-        @media (max-width: 768px){{
-          div[data-testid="stMainBlockContainer"]{{ padding-top: 1.0rem; padding-bottom: 1.2rem; }}
-        }}
+        [data-testid="stMain"],
+        div[data-testid="stMainBlockContainer"]{
+            padding-top:1.6rem;
+            padding-bottom:1.6rem;
+            max-width:1200px;
+        }
 
-        html, body, [class*="css"]{{ font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }}
-        h1,h2,h3{{ letter-spacing:-0.02em; }}
+        .block-container{
+            padding-top:0 !important;
+            margin-top:0 !important;
+        }
 
-        div[data-testid="stVerticalBlockBorderWrapper"]{{
-          background: var(--panel);
-          border: 1px solid var(--border);
-          border-radius: 18px;
-          padding: 18px;
-          box-shadow: var(--shadow);
-        }}
+        .stApp{
+            background:#f6f7fb;
+            min-height:100vh;
+        }
 
-        div[data-testid="stButton"] button{{
-          border-radius: 14px !important;
-          padding: 0.62rem 1.0rem !important;
-          border: 1px solid var(--border2) !important;
-          background: white !important;
-          color: var(--text) !important;
-          font-weight: 650 !important;
-          transition: all 160ms ease;
-        }}
-
-        div[data-testid="stButton"] button:hover{{
-          box-shadow: 0 0 0 4px rgba(59,130,246,0.12);
-          border-color: rgba(59,130,246,0.35) !important;
-          transform: translateY(-1px);
-        }}
-
-        div[data-testid="stTextInput"] input,
-        div[data-testid="stTextArea"] textarea,
-        div[data-testid="stNumberInput"] input,
-        div[data-testid="stDateInput"] input{{
-          border-radius: 14px !important;
-          background: white !important;
-          border: 1px solid var(--border2) !important;
-          color: var(--text) !important;
-        }}
-
-        div[data-testid="stSelectbox"] [data-baseweb="select"] > div{{
-          border-radius: 14px !important;
-          background: white !important;
-          border: 1px solid var(--border2) !important;
-          color: var(--text) !important;
-        }}
-
-        div[data-testid="stDataFrame"]{{
-          border-radius: 18px !important;
-          overflow: hidden !important;
-          border: 1px solid var(--border) !important;
-          box-shadow: var(--shadow);
-        }}
-
-        div[data-testid="metric-container"]{{
-          background: white;
-          border: 1px solid var(--border);
-          padding: 14px 16px;
-          border-radius: 18px;
-          box-shadow: var(--shadow);
-        }}
-
-        {compact_css}
         </style>
         """,
         unsafe_allow_html=True,
@@ -1513,24 +1231,31 @@ def mobile_fullscreen_css():
     st.markdown(
         """
         <style>
-        html, body { height: 100%; margin: 0 !important; padding: 0 !important; }
-        [data-testid="stAppViewContainer"]{ padding-top: 0 !important; margin-top: 0 !important; min-height: 100vh !important; }
-        div[data-testid="stMainBlockContainer"], .block-container{
-            padding-top: 0rem !important;
-            padding-bottom: 0rem !important;
-            padding-left: 0rem !important;
-            padding-right: 0rem !important;
-            max-width: 100% !important;
+        html, body{
+            margin:0 !important;
+            padding:0 !important;
+            height:100%;
+            overflow-x:hidden !important;
         }
-        header, [data-testid="stHeader"]{ display:none !important; height:0 !important; }
-        div[data-testid="stDecoration"]{ display:none !important; }
+
+        [data-testid="stAppViewContainer"]{
+            padding-top:0 !important;
+            margin-top:0 !important;
+            min-height:100vh !important;
+        }
+
+        div[data-testid="stMainBlockContainer"],
+        .block-container{
+            padding-top:0 !important;
+            padding-bottom:0 !important;
+            max-width:100% !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
 
-# Only apply fullscreen “mobile” css when compact_mode is ON
 if bool(st.session_state.get("compact_mode", False)):
     mobile_fullscreen_css()
 
@@ -4045,10 +3770,10 @@ def render_top_nav(active_page: str):
 
 .cm-topnav {{
   position: fixed;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(1120px, calc(100vw - 24px));
+  top: 0px;
+  left: 0%;
+  transform: none;
+  width: 100vw;
   z-index: 99999;
 
   background: rgba(255,255,255,0.78);
@@ -4056,8 +3781,9 @@ def render_top_nav(active_page: str):
   -webkit-backdrop-filter: blur(10px);
 
   border: 1px solid rgba(17,24,39,0.08);
-  box-shadow: 0 10px 26px rgba(15,23,42,0.06);
-  border-radius: 16px;
+  border-bottom: 1px solid rgba(17,24,39,0.10);
+  box-shadow: 0 8px 18px rgba(15,23,42,0.08);
+  border-radius: 0px;
   padding: 10px 12px;
 }}
 
