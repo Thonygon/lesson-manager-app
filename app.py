@@ -286,10 +286,11 @@ def remove_streamlit_top_spacing():
     header, [data-testid="stHeader"]{ display:none !important; height:0 !important; }
     [data-testid="stToolbar"]{ display:none !important; }
     div[data-testid="stDecoration"]{ display:none !important; }
+                
+    body { padding-top: env(safe-area-inset-top) !important; }
     </style>
     """, unsafe_allow_html=True)
-remove_streamlit_top_spacing ()
-
+remove_streamlit_top_spacing()
 
 # =========================
 # 01.5) PWA HEAD INJECTION (Base64 icons — works in Streamlit)
@@ -1095,6 +1096,9 @@ def load_css_home_dark():
           width: 100% !important;
         }
 
+        html, body { background: #07101d !important; }
+        [data-testid="stAppViewContainer"], .stApp { background: #07101d !important; }
+
         .stApp, [data-testid="stAppViewContainer"] {
           overflow-x: hidden !important;
           width: 100% !important;
@@ -1331,9 +1335,6 @@ def load_css_home_dark():
         }
         .home-links-title:before{ left: 0; }
         .home-links-title:after{ right: 0; }
-
-        html, body { background: #07101d !important; }
-        [data-testid="stAppViewContainer"], .stApp { background: #07101d !important; }
 
         /* ✅ Only this row scrolls horizontally */
         .home-links-row{
