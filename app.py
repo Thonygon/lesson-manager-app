@@ -254,6 +254,38 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+# =========================
+# 01) PAGE CONFIG
+# =========================
+def remove_streamlit_top_spacing():
+    st.markdown("""
+    <style>
+
+    .block-container {
+        padding-top: 0rem !important;
+        padding-bottom: 0rem !important;
+    }
+
+    section.main > div {
+        padding-top: 0rem !important;
+    }
+
+    html, body, [data-testid="stAppViewContainer"] {
+        margin-top: 0px !important;
+        padding-top: 0px !important;
+    }
+
+    [data-testid="stHeader"] {
+        height: 0rem !important;
+    }
+
+    [data-testid="stToolbar"] {
+        display: none !important;
+    }
+
+    </style>
+    """, unsafe_allow_html=True)
+remove_streamlit_top_spacing ()  
 
 
 # =========================
@@ -380,7 +412,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "home_slogan": "One student is all it takes to start",
         "find_private_students": "Find private students",
         "home_find_students": "Find private students",
-        "home_menu_title": "Manage students, payments and more",
+        "home_menu_title": "Manage current students",
 
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -434,6 +466,7 @@ I18N: Dict[str, Dict[str, str]] = {
         # -------------------------
         "manage_current_students": "Manage your current students and packages",
         "take_action": "Take Action",
+        "academic_status": "Academic status",
         "current_packages": "Current packages",
         "mismatches": "Mismatches",
         "normalize": "Normalize",
@@ -449,7 +482,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "active": "Active",
         "finished": "Finished",
         "mismatch": "Mismatch",
-        "almost_finished": "Almost Finished",
+        "almost_finished": "Almost finished",
         "dropout": "Dropout",
         "action_finish_soon": "Finish soon",
 
@@ -643,9 +676,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "whatsapp_message_language": "Message language",
         "whatsapp_choose_template": "Choose a template",
 
-        "whatsapp_tpl_package": "1) Send the package offer",
-        "whatsapp_tpl_confirm": "2) Confirm today’s lesson",
-        "whatsapp_tpl_cancel": "3) Cancel today’s lesson",
+        "whatsapp_tpl_package": "1) Package offer",
+        "whatsapp_tpl_confirm": "2) Confirm lesson",
+        "whatsapp_tpl_cancel": "3) Cancel lesson",
 
         "whatsapp_no_students_for_template": "No students available for this template right now.",
     },
@@ -678,9 +711,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "welcome": "Bienvenido",
         "alerts": "Alertas",
         "settings": "Ajustes",
-        "home_slogan": "Solo hace falta un estudiante para empezar",
+        "home_slogan": "Con tan solo un estudiante puedes empezar",
         "home_find_students": "Encuentra estudiantes privados",
-        "home_menu_title": "Gestiona estudiantes, pagos y mas",
+        "home_menu_title": "Gestiona estudiantes actuales",
 
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -734,7 +767,8 @@ I18N: Dict[str, Dict[str, str]] = {
         # -------------------------
         "manage_current_students": "Administra tus estudiantes y paquetes actuales",
         "take_action": "Toma acción",
-        "current_packages": "Paquetes actuales",
+        "current_packages": "Packets actuales",
+        "academic_status": "Estado académico",
         "mismatches": "Descuadres",
         "normalize": "Normalizar",
         "all_good_no_action_required": "¡Todo bien! No se requiere acción ✅",
@@ -943,9 +977,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "whatsapp_message_language": "Idioma del mensaje",
         "whatsapp_choose_template": "Elige una plantilla",
 
-        "whatsapp_tpl_package": "1) Enviar paquete",
-        "whatsapp_tpl_confirm": "2) Confirmar la clase de hoy",
-        "whatsapp_tpl_cancel": "3) Cancelar la clase de hoy",
+        "whatsapp_tpl_package": "1) Enviar paquetes",
+        "whatsapp_tpl_confirm": "2) Confirmar clase",
+        "whatsapp_tpl_cancel": "3) Cancelar clase",
 
         "whatsapp_no_students_for_template": "No hay estudiantes disponibles para esta plantilla en este momento.",
     },
@@ -1399,10 +1433,16 @@ def load_css_home_dark():
           .home-links-title:before, .home-links-title:after{ width: 24%; }
         }
 
+        /* Remove default Streamlit padding */
+        .block-container {
+            padding-top: 0rem !important;
+            padding-bottom: 0rem !important;
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+        }
         </style>
-        """,
-        unsafe_allow_html=True
-    )
+        """, unsafe_allow_html=True
+        )
 
 def load_css_app_light(compact: bool = False):
     compact_css = """
@@ -1510,10 +1550,8 @@ def load_css_app_light(compact: bool = False):
         {compact_css}
         </style>
         """,
-        unsafe_allow_html=True
-    )
-
-
+        unsafe_allow_html=True)
+        
 def mobile_fullscreen_css():
     st.markdown(
         """
@@ -4380,9 +4418,9 @@ if page == "dashboard":
     )
 
     # ---------------------------------------
-    # CURRENT PACKAGES (BUBBLES)
+    # CURRENT STUDENTS AND PACKAGES (BUBBLES)
     # ---------------------------------------
-    st.subheader(t("current_packages"))
+    st.subheader(t("academic_status"))
 
     total_students = int(len(d))
     active_count = int((d["Status"] == "active").sum())
@@ -4496,6 +4534,7 @@ if page == "dashboard":
                     st.error(t("normalize_failed"))
             except Exception as e:
                 st.error(f"{t('normalize_failed')}\n\n{e}")
+
 # =========================
 # 19) PAGE: STUDENTS
 # =========================
@@ -4523,22 +4562,24 @@ elif page == "students":
         with st.expander(t("student_profile"), expanded=False):
             student_list = sorted(students_df["student"].unique().tolist())
             selected_student = st.selectbox(t("select_student"), student_list, key="edit_student_select")
-            student_row = students_df[students_df["student"] == selected_student].iloc[0]
+
+            student_row = students_df.loc[students_df["student"] == selected_student].iloc[0]
+            sid = norm_student(selected_student)  # stable per student
 
             col1, col2 = st.columns(2)
             with col1:
-                email = st.text_input(t("email"), value=student_row.get("email", ""), key="student_email")
-                zoom_link = st.text_input(t("zoom_link"), value=student_row.get("zoom_link", ""), key="student_zoom")
-                phone = st.text_input(t("whatsapp_phone"), value=student_row.get("phone", ""), key="student_phone")
+                email = st.text_input(t("email"), value=student_row.get("email", ""), key=f"student_email_{sid}")
+                zoom_link = st.text_input(t("zoom_link"), value=student_row.get("zoom_link", ""), key=f"student_zoom_{sid}")
+                phone = st.text_input(t("whatsapp_phone"), value=student_row.get("phone", ""), key=f"student_phone_{sid}")
                 st.caption(t("examples_phone"))
             with col2:
-                color = st.color_picker(t("calendar_color"), value=student_row.get("color", "#3B82F6"), key="student_color")
-                notes = st.text_area(t("notes"), value=student_row.get("notes", ""), key="student_notes")
+                color = st.color_picker(t("calendar_color"), value=student_row.get("color", "#3B82F6"), key=f"student_color_{sid}")
+                notes = st.text_area(t("notes"), value=student_row.get("notes", ""), key=f"student_notes_{sid}")
 
             if phone and not normalize_phone_for_whatsapp(phone) and len(_digits_only(phone)) < 11:
                 st.warning(t("examples_phone"))
 
-            if st.button(t("save"), key="btn_save_student_profile"):
+            if st.button(t("save"), key=f"btn_save_student_profile_{sid}"):
                 update_student_profile(selected_student, email, zoom_link, notes, color, phone)
                 st.success(t("done_ok"))
                 st.rerun()
@@ -6027,7 +6068,7 @@ elif page == "analytics":
                 st.metric(t_a("top3_share"), _fmt_pct(top3_share))
 
             if top1_name:
-                _callout(t_a("what_this_means"), t_a("takeaway_profitable", name=top1_name),
+                _callout(t_a("important"), t_a("takeaway_profitable", name=top1_name),
                 )
 
             ser = chart_series(top.rename(columns={student_col: "student"}), "student", top_income_col, "student", "income")
@@ -6077,7 +6118,7 @@ elif page == "analytics":
                     st.metric(t_a("top_segment_share"), top_lang_share)
 
                 if top_lang:
-                    _callout(t_a("what_this_means"), t_a("takeaway_language", name=top_lang, share=top_lang_share))
+                    _callout(t_a("important"), t_a("takeaway_language", name=top_lang, share=top_lang_share))
 
                 ser = chart_series(lang_df.rename(columns={lang_col: "languages"}), "languages", inc_col, "languages", "income")
                 if ser is None:
@@ -6114,7 +6155,7 @@ elif page == "analytics":
                     st.metric(t_a("top_segment_share"), top_mod_share)
 
                 if top_mod:
-                    _callout(t_a("what_this_means"), t_a("takeaway_modality", name=top_mod, share=top_mod_share))
+                    _callout(t_a("important"), t_a("takeaway_modality", name=top_mod, share=top_mod_share))
 
                 ser = chart_series(mod_df.rename(columns={mod_col: "modality"}), "modality", inc_col, "modality", "income")
                 if ser is None:
@@ -6168,7 +6209,7 @@ elif page == "analytics":
                 st.metric(t_a("top_segment_share"), top_lang_share)
 
             if top_lang:
-                _callout(t_a("what_this_means"), t_a("takeaway_activity_language", name=top_lang, share=top_lang_share))
+                _callout(t_a("important"), t_a("takeaway_activity_language", name=top_lang, share=top_lang_share))
 
             ser = chart_series(teach_lang, "lesson_language", "units", "lesson_language", "units")
             if ser is None:
@@ -6215,7 +6256,7 @@ elif page == "analytics":
                 st.metric(t_a("top_segment_share"), top_mod_share)
 
             if top_mod:
-                _callout(t_a("what_this_means"), t_a("takeaway_activity_modality", name=top_mod, share=top_mod_share))
+                _callout(t_a("important"), t_a("takeaway_activity_modality", name=top_mod, share=top_mod_share))
 
             ser = chart_series(teach_mod, "modality", "units", "modality", "units")
             if ser is None:
@@ -6266,7 +6307,7 @@ elif page == "analytics":
             with c3:
                 st.metric(t_a("students_in_forecast"), f"{len(ftmp)}")
 
-            _callout(t_a("what_this_means"), t_a("takeaway_pipeline"))
+            _callout(t_a("important"), t_a("takeaway_pipeline"))
 
             st.markdown(f"##### {t_a('students_to_contact')}")
             contact_df = ftmp.copy()
