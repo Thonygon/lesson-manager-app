@@ -1008,6 +1008,45 @@ def load_css_home_dark():
         html, body, [class*="css"]{
           font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
         }
+        /* ✅ Stop the whole Home page from scrolling left/right */
+        html, body {
+          overflow-x: hidden !important;
+          width: 100% !important;
+        }
+
+        .stApp, [data-testid="stAppViewContainer"] {
+          overflow-x: hidden !important;
+          width: 100% !important;
+        }
+
+        /* Streamlit main container can also cause overflow */
+        section[data-testid="stMain"],
+        section[data-testid="stMain"] > div,
+        div.block-container {
+          overflow-x: hidden !important;
+          max-width: 100% !important;
+        }
+
+        /* ✅ Make ALL elements respect the screen width */
+        * {
+          box-sizing: border-box;
+        }
+
+        /* If any long row tries to exceed width, clamp it */
+        .home-wrap,
+        .home-card,
+        .home-topbar,
+        .home-hero {
+          max-width: 100% !important;
+        }
+
+        /* ✅ ONLY the external links row can scroll sideways */
+        .home-links-row {
+          overflow-x: auto !important;
+          overflow-y: hidden !important;
+          max-width: 100% !important;
+        }
+
         a { text-decoration:none !important; }
 
         /* Home layout */
