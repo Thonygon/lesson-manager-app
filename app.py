@@ -49,28 +49,38 @@ def remove_streamlit_top_spacing():
     st.markdown(
         """
         <style>
-        html, body { margin: 0 !important; padding: 0 !important; }
+        /* --- Remove Streamlit chrome --- */
+        header, [data-testid="stHeader"] { display:none !important; height:0 !important; }
+        [data-testid="stToolbar"] { display:none !important; height:0 !important; }
+        div[data-testid="stDecoration"] { display:none !important; height:0 !important; }
 
-        [data-testid="stAppViewContainer"] { padding-top: 0 !important; margin-top: 0 !important; }
-        [data-testid="stMain"] { padding-top: 0 !important; margin-top: 0 !important; }
+        /* --- Kill top padding everywhere Streamlit may add it --- */
+        html, body { margin:0 !important; padding:0 !important; }
 
+        [data-testid="stAppViewContainer"] { padding-top:0 !important; margin-top:0 !important; }
+        [data-testid="stMain"] { padding-top:0 !important; margin-top:0 !important; }
+
+        /* Newer Streamlit main container */
         div[data-testid="stMainBlockContainer"]{
           padding-top: 0rem !important;
           margin-top: 0rem !important;
         }
 
-        section[data-testid="stMain"] > div{
+        /* Some builds wrap it differently */
+        section[data-testid="stMain"] > div {
           padding-top: 0rem !important;
           margin-top: 0rem !important;
         }
+
+        /* Legacy */
         .block-container{
           padding-top: 0rem !important;
           margin-top: 0rem !important;
         }
 
-        header, [data-testid="stHeader"]{ display:none !important; height:0 !important; }
-        [data-testid="stToolbar"]{ display:none !important; }
-        div[data-testid="stDecoration"]{ display:none !important; }
+        /* If Streamlit injects a top padding via inline style, force it off */
+        div.block-container { padding-top: 0rem !important; }
+
         </style>
         """,
         unsafe_allow_html=True,
@@ -698,7 +708,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "whatsapp_tpl_cancel": "3) Bugünkü dersi iptal et",
 
         "whatsapp_no_students_for_template": "Şu anda bu şablon için uygun öğrenci yok.",
-    },
+    }
  }
 if "ui_lang" not in st.session_state:
     st.session_state.ui_lang = "en"
@@ -1007,14 +1017,14 @@ def inject_pwa_head():
 inject_pwa_head()
 
 # =========================
-# 05) THEMES (DARK HOME) and (LIGHT NAV)
+# 05) THEMES (DARK HOME) and (LIGHT NAV) — FIXED (top gap + full height)
 # =========================
 def load_css_home_dark():
     st.markdown(
         """
         <style>
         :root{ color-scheme: dark; }
-        html, body{ color-scheme: dark; }
+        html, body{ color-scheme: dark; height:100%; margin:0 !important; padding:0 !important; }
 
         :root{
           --bg:#07101d;
@@ -1031,9 +1041,40 @@ def load_css_home_dark():
           --greenGlow: rgba(16,185,129,0.16);
         }
 
+        /* ✅ Kill Streamlit chrome + the “mystery” top gap */
+        header, [data-testid="stHeader"]{ display:none !important; height:0 !important; }
+        [data-testid="stToolbar"]{ display:none !important; }
+        div[data-testid="stDecoration"]{ display:none !important; }
+
+        /* ✅ These are the usual culprits for top padding in newer Streamlit */
+        [data-testid="stAppViewContainer"]{
+          padding-top: 0 !important;
+          margin-top: 0 !important;
+          min-height: 100vh !important;
+          background: #07101d !important;
+        }
+        [data-testid="stMain"]{
+          padding-top: 0 !important;
+          margin-top: 0 !important;
+        }
+        div[data-testid="stMainBlockContainer"]{
+          padding-top: 0rem !important;
+          margin-top: 0rem !important;
+          padding-bottom: 0rem !important;
+        }
+
+        /* Older wrapper name (still appears in some versions) */
+        .block-container{
+          padding-top: 0rem !important;
+          margin-top: 0rem !important;
+          padding-bottom: 0rem !important;
+          padding-left: 1rem !important;
+          padding-right: 1rem !important;
+          max-width: 1100px;
+        }
+
         /* ✅ IMPORTANT: prevent whole-page horizontal scrolling */
         html, body, .stApp { overflow-x: hidden !important; }
-        /* (Keep vertical scroll normal) */
 
         /* Background like the picture */
         .stApp{
@@ -1046,72 +1087,37 @@ def load_css_home_dark():
           min-height: 100vh;
         }
 
-        /* Hide Streamlit chrome */
-        header { display:none !important; }
-        div[data-testid="stDecoration"]{ display:none !important; }
-
-        /* Container sizing (phone-friendly) */
-        section[data-testid="stMain"] > div {
-          padding-top: 0rem !important;
-          padding-bottom: 0rem !important;
-          max-width: 1100px;
-        }
-
         html, body, [class*="css"]{
           font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
         }
-        /* ✅ Stop the whole Home page from scrolling left/right */
-        html, body {
-          overflow-x: hidden !important;
-          width: 100% !important;
-        }
-
-        html, body { background: #07101d !important; }
-        [data-testid="stAppViewContainer"] { background: #07101d !important; }
-
-        .stApp, [data-testid="stAppViewContainer"] {
-          overflow-x: hidden !important;
-          width: 100% !important;
-        }
-
-        /* Streamlit main container can also cause overflow */
-        section[data-testid="stMain"],
-        section[data-testid="stMain"] > div,
-        div.block-container {
-          overflow-x: hidden !important;
-          max-width: 100% !important;
-        }
 
         /* ✅ Make ALL elements respect the screen width */
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         /* If any long row tries to exceed width, clamp it */
         .home-wrap,
         .home-card,
         .home-topbar,
-        .home-hero {
-          max-width: 100% !important;
-        }
+        .home-hero { max-width: 100% !important; }
 
         /* ✅ ONLY the external links row can scroll sideways */
         .home-links-row {
           overflow-x: auto !important;
           overflow-y: hidden !important;
           max-width: 100% !important;
+          overscroll-behavior-x: contain;
+          touch-action: pan-x;
         }
 
         a { text-decoration:none !important; }
 
         /* Home layout */
-        .home-wrap{ display:flex; justify-content:center; }
+        .home-wrap{ display:flex; justify-content:center; width:100%; }
         .home-card{
           width: 100%;
           max-width: 620px;
           padding: 18px 16px 22px 16px;
           position: relative;
-          box-sizing: border-box;
         }
 
         /* Subtle floating particles vibe */
@@ -1143,12 +1149,10 @@ def load_css_home_dark():
           backdrop-filter: blur(12px);
           -webkit-backdrop-filter: blur(12px);
           margin-bottom: 14px;
-          box-sizing: border-box;
         }
 
         .home-user{ display:flex; align-items:center; gap:12px; min-width:0; }
 
-        /* Clickable avatar wrapper */
         .home-avatar-wrap{
           position:relative;
           display:inline-flex;
@@ -1158,7 +1162,6 @@ def load_css_home_dark():
           flex: 0 0 auto;
         }
 
-        /* Avatar circle (single definition only) */
         .home-avatar{
           width:46px;
           height:46px;
@@ -1169,10 +1172,8 @@ def load_css_home_dark():
           background-repeat:no-repeat;
           border: 1px solid rgba(255,255,255,0.18);
           box-shadow: 0 0 0 6px rgba(59,130,246,0.10);
-          box-sizing:border-box;
         }
 
-        /* Small camera badge */
         .home-avatar-badge{
           position:absolute;
           right:-6px;
@@ -1187,7 +1188,6 @@ def load_css_home_dark():
           background: rgba(0,0,0,0.55);
           border:1px solid rgba(255,255,255,0.18);
           box-shadow: 0 8px 18px rgba(0,0,0,0.35);
-          box-sizing:border-box;
         }
 
         .home-usertext{ display:flex; flex-direction:column; line-height:1.05; min-width:0; }
@@ -1215,10 +1215,8 @@ def load_css_home_dark():
           font-weight: 900;
           display:flex; align-items:center; justify-content:center;
           border: 2px solid rgba(7,16,29,0.95);
-          box-sizing:border-box;
         }
 
-        /* Segmented language control */
         .home-lang{
           display:inline-flex;
           align-items:center;
@@ -1236,14 +1234,12 @@ def load_css_home_dark():
           font-weight: 950;
           letter-spacing: 0.02em;
           text-decoration:none !important;
-          box-sizing:border-box;
         }
         .home-langbtn.on{
           background: rgba(59,130,246,0.28);
           box-shadow: inset 0 0 0 2px rgba(59,130,246,0.85);
         }
 
-        /* --- Title + hero --- */
         .home-title{
           text-align:center;
           font-size: clamp(2.0rem, 3.4vw, 2.8rem);
@@ -1265,7 +1261,6 @@ def load_css_home_dark():
           box-shadow: var(--shadow2);
           backdrop-filter: blur(12px);
           -webkit-backdrop-filter: blur(12px);
-          box-sizing: border-box;
         }
 
         .home-slogan{
@@ -1283,7 +1278,6 @@ def load_css_home_dark():
           font-size: 1.02rem;
         }
 
-        /* --- Lead source section --- */
         .home-links{ margin: 16px 0 10px 0; position:relative; }
         .home-links-title{
           text-align:center;
@@ -1306,7 +1300,6 @@ def load_css_home_dark():
         .home-links-title:before{ left: 0; }
         .home-links-title:after{ right: 0; }
 
-        /* ✅ Only this row scrolls horizontally */
         .home-links-row{
           display:flex;
           gap:14px;
@@ -1315,8 +1308,6 @@ def load_css_home_dark():
           padding: 6px 2px 14px 2px;
           scroll-snap-type: x mandatory;
           -webkit-overflow-scrolling: touch;
-          overscroll-behavior-x: contain;   /* ✅ prevents page swipe */
-          touch-action: pan-x;              /* ✅ allow horizontal pan only here */
         }
         .home-links-row::-webkit-scrollbar{ display:none; }
         .home-links-row{ scrollbar-width:none; }
@@ -1337,7 +1328,6 @@ def load_css_home_dark():
           box-shadow: 0 14px 26px rgba(0,0,0,0.26);
           backdrop-filter: blur(10px);
           -webkit-backdrop-filter: blur(10px);
-          box-sizing:border-box;
         }
         .home-linkchip .dot{
           width:12px; height:12px; border-radius:999px;
@@ -1346,7 +1336,6 @@ def load_css_home_dark():
           display:inline-block;
         }
 
-        /* Fade edge (keep, but not tall enough to affect whole page) */
         .home-links::after{
           content:"";
           position:absolute;
@@ -1358,7 +1347,6 @@ def load_css_home_dark():
           pointer-events:none;
         }
 
-        /* --- Menu pills --- */
         .home-pill{
           display:block;
           width: 100%;
@@ -1373,7 +1361,6 @@ def load_css_home_dark():
           position: relative;
           overflow:hidden;
           transition: transform 160ms ease, filter 160ms ease;
-          box-sizing:border-box;
         }
         .home-pill::before{
           content:"";
@@ -1388,7 +1375,6 @@ def load_css_home_dark():
           filter: brightness(1.05);
         }
 
-        /* Bottom indicator */
         .home-indicator{
           position: fixed;
           left: 50%;
@@ -1403,27 +1389,20 @@ def load_css_home_dark():
           pointer-events: none;
         }
 
-        /* Mobile tightening */
         @media (max-width: 520px){
           .home-card{ padding: 16px 14px 20px 14px; }
           .home-slogan{ font-size: 22px; }
           .home-links-title:before, .home-links-title:after{ width: 24%; }
         }
-
-        /* Remove default Streamlit padding */
-        .block-container {
-            padding-top: 0rem !important;
-            padding-bottom: 0rem !important;
-            padding-left: 1rem !important;
-            padding-right: 1rem !important;
-        }
         </style>
-        """, unsafe_allow_html=True
-        )
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 def load_css_app_light(compact: bool = False):
     compact_css = """
-      section[data-testid="stMain"] > div { padding-top: 1.0rem !important; padding-bottom: 1.0rem !important; }
+      div[data-testid="stMainBlockContainer"]{ padding-top: 0.75rem !important; padding-bottom: 1.0rem !important; }
       div[data-testid="stVerticalBlockBorderWrapper"]{ padding: 12px !important; border-radius: 16px !important; }
       div[data-testid="stButton"] button{ padding: 0.58rem 0.85rem !important; border-radius: 14px !important; }
       div[data-testid="metric-container"]{ padding: 12px 14px !important; border-radius: 16px !important; }
@@ -1433,7 +1412,7 @@ def load_css_app_light(compact: bool = False):
         f"""
         <style>
         :root {{ color-scheme: light !important; }}
-        html, body {{ color-scheme: light !important; }}
+        html, body {{ color-scheme: light !important; height:100%; margin:0 !important; padding:0 !important; }}
 
         :root{{
           --bg:#f6f7fb;
@@ -1445,24 +1424,24 @@ def load_css_app_light(compact: bool = False):
           --shadow:0 10px 26px rgba(15,23,42,0.08);
         }}
 
-        .stApp{{ background: var(--bg); color: var(--text); }}
+        /* ✅ Kill Streamlit chrome + top gap */
+        header, [data-testid="stHeader"]{{ display:none !important; height:0 !important; }}
+        [data-testid="stToolbar"]{{ display:none !important; }}
+        div[data-testid="stDecoration"]{{ display:none !important; }}
+        [data-testid="stAppViewContainer"]{{ padding-top:0 !important; margin-top:0 !important; background: var(--bg) !important; min-height:100vh !important; }}
+        [data-testid="stMain"]{{ padding-top:0 !important; margin-top:0 !important; }}
+        div[data-testid="stMainBlockContainer"]{{ padding-top: 1.6rem; padding-bottom: 1.6rem; max-width: 1200px; }}
+        .block-container{{ padding-top: 0 !important; margin-top: 0 !important; }}
+
+        .stApp{{ background: var(--bg); color: var(--text); min-height: 100vh; }}
         .stApp, .stApp * {{ color: var(--text); }}
         .stCaption, .stMarkdown p, .stMarkdown span, .stMarkdown li {{ color: var(--muted) !important; }}
         .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {{ color: var(--text) !important; }}
         label, label * {{ color: var(--text) !important; }}
 
-        section[data-testid="stMain"] > div {{
-          padding-top: 1.6rem;
-          padding-bottom: 1.6rem;
-          max-width: 1200px;
-        }}
-
         @media (max-width: 768px){{
-          section[data-testid="stMain"] > div {{ padding-top: 1.0rem; padding-bottom: 1.2rem; }}
+          div[data-testid="stMainBlockContainer"]{{ padding-top: 1.0rem; padding-bottom: 1.2rem; }}
         }}
-
-        html, body {{ background: #f6f7fb !important; }}
-        [data-testid="stAppViewContainer"], .stApp {{ background: #f6f7fb !important; }}
 
         html, body, [class*="css"]{{ font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }}
         h1,h2,h3{{ letter-spacing:-0.02em; }}
@@ -1523,35 +1502,33 @@ def load_css_app_light(compact: bool = False):
           box-shadow: var(--shadow);
         }}
 
-        header {{ display: none !important; }}
-        section[data-testid="stMain"] > div {{ padding-top: 0rem !important; }}
-        div.block-container {{ padding-top: 0rem !important; }}
-
         {compact_css}
         </style>
         """,
-        unsafe_allow_html=True)
-        
+        unsafe_allow_html=True,
+    )
+
+
 def mobile_fullscreen_css():
     st.markdown(
         """
         <style>
-        .main .block-container{
+        html, body { height: 100%; margin: 0 !important; padding: 0 !important; }
+        [data-testid="stAppViewContainer"]{ padding-top: 0 !important; margin-top: 0 !important; min-height: 100vh !important; }
+        div[data-testid="stMainBlockContainer"], .block-container{
             padding-top: 0rem !important;
             padding-bottom: 0rem !important;
             padding-left: 0rem !important;
             padding-right: 0rem !important;
             max-width: 100% !important;
         }
-
-        header[data-testid="stHeader"]{ height: 0px !important; }
+        header, [data-testid="stHeader"]{ display:none !important; height:0 !important; }
         div[data-testid="stDecoration"]{ display:none !important; }
-
-        html, body, [data-testid="stAppViewContainer"]{ height: 100%; }
         </style>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
+
 
 # Only apply fullscreen “mobile” css when compact_mode is ON
 if bool(st.session_state.get("compact_mode", False)):
