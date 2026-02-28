@@ -33,218 +33,6 @@ from zoneinfo import ZoneInfo
 LOCAL_TZ = ZoneInfo("Europe/Istanbul")
 UTC_TZ = timezone.utc
 
-
-# =========================
-# 00.5) SMALL UI HELPERS
-# =========================
-def to_dt_naive(x, utc: bool = True):
-    """
-    Parse to pandas datetime and return tz-naive timestamps.
-
-    - If x is a Series/array-like -> returns a Series[datetime64[ns]] (tz-naive)
-    - If x is scalar -> returns a Timestamp or NaT (tz-naive)
-    - If utc=True -> parse/convert to UTC then drop tz
-    """
-    s = pd.to_datetime(x, errors="coerce", utc=utc)
-
-    # Series path
-    if isinstance(s, pd.Series):
-        try:
-            # tz-aware series -> drop tz
-            return s.dt.tz_convert(None)
-        except Exception:
-            # already tz-naive or not datetimelike
-            return s
-
-    # Scalar path (Timestamp/NaT)
-    try:
-        if getattr(s, "tzinfo", None) is not None:
-            return s.tz_convert(None)
-        return s
-    except Exception:
-        return s
-
-def ts_today_naive() -> pd.Timestamp:
-    # Always tz-naive "today" at midnight
-    return pd.Timestamp.now().normalize().tz_localize(None)
-
-
-def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Light formatting helper used across the app (values only; keeps column names)."""
-    if df is None or df.empty:
-        return df
-
-    out = df.copy()
-
-    # Trim object columns
-    for c in out.columns:
-        if out[c].dtype == "object":
-            out[c] = out[c].astype(str).str.strip()
-
-    return out
-
-
-def translate_df_headers(df: pd.DataFrame) -> pd.DataFrame:
-    """Translate dataframe column headers using t() with robust normalization."""
-    if df is None or df.empty:
-        return df
-
-    out = df.copy()
-
-    def norm_key(col: str) -> str:
-        k = str(col or "").strip()
-
-        # normalize common display variants
-        k = k.replace("-", " ").replace("/", " ")
-        k = re.sub(r"\s+", " ", k)
-
-        # "Payment ID" / "Payment Id" -> "payment_id"
-        k = k.replace(" ID", " Id")
-        k = k.replace("Id", "ID")
-        k = k.replace("ID", " id ")
-
-        k = k.strip().casefold()
-        k = k.replace(" ", "_")
-        k = re.sub(r"__+", "_", k).strip("_")
-        return k
-
-    out.columns = [t(norm_key(c)) for c in out.columns]
-    return out
-
-
-def translate_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Translate headers + common coded values (Status/Modality/Languages) when present.
-    Works for snake_case or pretty title columns.
-    """
-    if df is None or df.empty:
-        return df
-
-    out = df.copy()
-
-    # headers
-    out = translate_df_headers(out)
-
-    cols = set(out.columns.astype(str))
-
-    # values
-    for status_col in [t("status"), "Status", "status"]:
-        if status_col in cols:
-            out[status_col] = (
-                out[status_col].astype(str).str.strip().str.casefold().apply(translate_status)
-            )
-
-    for mod_col in [t("modality"), "Modality", "modality"]:
-        if mod_col in cols:
-            out[mod_col] = out[mod_col].astype(str).apply(translate_modality_value)
-
-    for lang_col in [t("languages"), "Languages", "languages"]:
-        if lang_col in cols:
-            out[lang_col] = out[lang_col].astype(str).apply(translate_language_value)
-
-    return out
-
-def chart_series(df: pd.DataFrame, index_col: str, value_col: str, index_key: str, value_key: str):
-    """
-    Builds a Series for Streamlit charts with translated axis labels.
-    index_key/value_key are I18N keys (e.g., "student", "income").
-    """
-    if df is None or df.empty or index_col not in df.columns or value_col not in df.columns:
-        return None
-
-    s = df[[index_col, value_col]].copy()
-    s[index_col] = s[index_col].astype(str)
-    s[value_col] = pd.to_numeric(s[value_col], errors="coerce").fillna(0.0)
-
-    series = s.set_index(index_col)[value_col]
-    series.index.name = t(index_key)
-    series.name = t(value_key)
-    return series
-
-def dash_chart_series(
-    df: pd.DataFrame,
-    group_col: str,
-    group_key_for_label: str,
-    value_key_for_label: str,
-) -> Optional[pd.Series]:
-    """
-    Build a Series for st.bar_chart with translated:
-      - series name (e.g. "Students")
-      - index name (e.g. "Status", "Modality", "Languages")
-      - index values when they are coded (status/modality/languages)
-    """
-    if df is None or df.empty or group_col not in df.columns:
-        return None
-
-    tmp = df.copy()
-    tmp[group_col] = tmp[group_col].fillna("").astype(str).str.strip()
-    tmp = tmp[tmp[group_col].astype(str).str.len() > 0]
-    if tmp.empty:
-        return None
-
-    # Count students per category
-    s = tmp.groupby(group_col).size().sort_values(ascending=False)
-
-    # Translate index values when needed
-    if group_col.casefold() == "status":
-        s.index = [translate_status(x) for x in s.index.astype(str)]
-    elif group_col.casefold() == "modality":
-        s.index = [translate_modality_value(x) for x in s.index.astype(str)]
-    elif group_col.casefold() == "languages":
-        s.index = [translate_language_value(x) for x in s.index.astype(str)]
-
-    # Translate axis/series labels
-    s.index.name = t(group_key_for_label)          # e.g. t("status") / t("modality") / t("languages")
-    s.name = t(value_key_for_label)                # e.g. t("students")
-
-    return s
-
-def upload_avatar_to_supabase(file, user_id: str) -> str:
-    """
-    Uploads an image file to Supabase Storage bucket 'avatars'
-    and returns a public URL.
-    """
-    if file is None:
-        return ""
-
-    # Basic content-type guard
-    if not (file.type or "").startswith("image/"):
-        raise ValueError("Please upload an image file.")
-
-    ext = (file.name.split(".")[-1] or "png").lower()
-    object_path = f"{user_id}/{uuid.uuid4().hex}.{ext}"
-
-    # Upload bytes
-    supabase.storage.from_("avatars").upload(
-        path=object_path,
-        file=file.getvalue(),
-        file_options={"content-type": file.type},
-    )
-
-    # Public URL (bucket must be public)
-    public_url = supabase.storage.from_("avatars").get_public_url(object_path)
-    return public_url
-
-def upload_avatar_to_supabase(file, user_id: str) -> str:
-    if file is None:
-        return ""
-
-    if not (file.type or "").startswith("image/"):
-        raise ValueError("Please upload an image file.")
-
-    ext = (file.name.split(".")[-1] or "png").lower()
-    object_path = f"{user_id}/{uuid.uuid4().hex}.{ext}"
-
-    # ✅ Upload using ADMIN client (bypasses RLS)
-    supabase_admin.storage.from_("avatars").upload(
-        path=object_path,
-        file=file.getvalue(),
-        file_options={"content-type": file.type, "upsert": "true"},
-    )
-
-    # If bucket is public:
-    return supabase_admin.storage.from_("avatars").get_public_url(object_path)
-
 # =========================
 # 01) PAGE CONFIG
 # =========================
@@ -258,128 +46,37 @@ st.set_page_config(
 # 01.1) PAGE CONFIG
 # =========================
 def remove_streamlit_top_spacing():
-    st.markdown("""
-    <style>
-    /* Kill all top padding/margins Streamlit adds */
-    html, body { margin: 0 !important; padding: 0 !important; }
-
-    [data-testid="stAppViewContainer"] { padding-top: 0 !important; margin-top: 0 !important; }
-    [data-testid="stMain"] { padding-top: 0 !important; margin-top: 0 !important; }
-
-    /* NEW Streamlit container (most important) */
-    div[data-testid="stMainBlockContainer"]{
-      padding-top: 0rem !important;
-      margin-top: 0rem !important;
-    }
-
-    /* Older containers */
-    section[data-testid="stMain"] > div{
-      padding-top: 0rem !important;
-      margin-top: 0rem !important;
-    }
-    .block-container{
-      padding-top: 0rem !important;
-      margin-top: 0rem !important;
-    }
-
-    /* Remove header/toolbar space */
-    header, [data-testid="stHeader"]{ display:none !important; height:0 !important; }
-    [data-testid="stToolbar"]{ display:none !important; }
-    div[data-testid="stDecoration"]{ display:none !important; }
-                
-    body { padding-top: env(safe-area-inset-top) !important; }
-    </style>
-    """, unsafe_allow_html=True)
-remove_streamlit_top_spacing()
-
-# =========================
-# 01.5) PWA HEAD INJECTION (Base64 icons — works in Streamlit)
-# =========================
-def inject_pwa_head():
-    components.html(
+    st.markdown(
         """
-        <script>
-        (function () {
-          const w = window.parent;
-          const doc = w.document;
+        <style>
+        html, body { margin: 0 !important; padding: 0 !important; }
 
-          const icon192 = w.location.origin + "/app/static/icon-192.png";
-          const icon512 = w.location.origin + "/app/static/icon-512.png";
-          const apple180 = w.location.origin + "/app/static/apple-touch-icon.png";
+        [data-testid="stAppViewContainer"] { padding-top: 0 !important; margin-top: 0 !important; }
+        [data-testid="stMain"] { padding-top: 0 !important; margin-top: 0 !important; }
 
-          // Remove old injected items
-          doc.querySelectorAll('link[rel="manifest"][data-cm="1"]').forEach(el => el.remove());
-          doc.querySelectorAll('link[rel="apple-touch-icon"][data-cm="1"]').forEach(el => el.remove());
+        div[data-testid="stMainBlockContainer"]{
+          padding-top: 0rem !important;
+          margin-top: 0rem !important;
+        }
 
-          // Build manifest dynamically
-          const manifest = {
-            name: "Classman",
-            short_name: "Classman",
-            start_url: w.location.origin + "/",
-            scope: w.location.origin + "/",
-            display: "standalone",
-            background_color: "#0b1220",
-            theme_color: "#0b1220",
-            icons: [
-              { src: icon192, sizes: "192x192", type: "image/png", purpose: "any" },
-              { src: icon512, sizes: "512x512", type: "image/png", purpose: "any" }
-            ]
-          };
+        section[data-testid="stMain"] > div{
+          padding-top: 0rem !important;
+          margin-top: 0rem !important;
+        }
+        .block-container{
+          padding-top: 0rem !important;
+          margin-top: 0rem !important;
+        }
 
-          const blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
-          const manifestURL = URL.createObjectURL(blob);
-
-          const link = doc.createElement("link");
-          link.rel = "manifest";
-          link.href = manifestURL;
-          link.setAttribute("data-cm", "1");
-          doc.head.appendChild(link);
-
-          // Apple touch icon
-          doc.querySelectorAll('link[rel="apple-touch-icon"][data-cm="1"]').forEach(el => el.remove());
-          const ati = doc.createElement("link");
-          ati.rel = "apple-touch-icon";
-          ati.href = apple180;
-          ati.sizes = "180x180";
-          ati.setAttribute("data-cm", "1");
-          doc.head.appendChild(ati);
-
-          // Favicon override
-          doc.querySelectorAll('link[rel="icon"][data-cm="1"]').forEach(el => el.remove());
-          const fav = doc.createElement("link");
-          fav.rel = "icon";
-          fav.href = apple180;
-          fav.setAttribute("data-cm", "1");
-          doc.head.appendChild(fav);
-
-          // Meta tags
-          const metas = [
-            { name: "apple-mobile-web-app-capable", content: "yes" },
-            { name: "mobile-web-app-capable", content: "yes" },
-            { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
-            { name: "apple-mobile-web-app-title", content: "Class Manager" },
-            { name: "theme-color", content: "#0b1220" }
-          ];
-
-          metas.forEach(m => {
-            let el = doc.querySelector('meta[name="' + m.name + '"][data-cm="1"]');
-            if (!el) {
-              el = doc.createElement("meta");
-              el.setAttribute("data-cm", "1");
-              el.name = m.name;
-              doc.head.appendChild(el);
-            }
-            el.content = m.content;
-          });
-
-        })();
-        </script>
+        header, [data-testid="stHeader"]{ display:none !important; height:0 !important; }
+        [data-testid="stToolbar"]{ display:none !important; }
+        div[data-testid="stDecoration"]{ display:none !important; }
+        </style>
         """,
-        height=0,
+        unsafe_allow_html=True,
     )
 
-inject_pwa_head()
-
+remove_streamlit_top_spacing()
 
 # =========================
 # 02) I18N (EN/ES) ✅ (CURATED FULL APP DICTIONARY)
@@ -1037,7 +734,280 @@ def t(key: str) -> str:
     return k
 
 # =========================
-# 03) THEMES (DARK HOME) and (LIGHT NAV)
+# 03) SMALL UI HELPERS
+# =========================
+def to_dt_naive(x, utc: bool = True):
+    """
+    Parse to pandas datetime and return tz-naive timestamps.
+
+    - If x is a Series/array-like -> returns a Series[datetime64[ns]] (tz-naive)
+    - If x is scalar -> returns a Timestamp or NaT (tz-naive)
+    - If utc=True -> parse/convert to UTC then drop tz
+    """
+    s = pd.to_datetime(x, errors="coerce", utc=utc)
+
+    # Series path
+    if isinstance(s, pd.Series):
+        try:
+            # tz-aware series -> drop tz
+            return s.dt.tz_convert(None)
+        except Exception:
+            # already tz-naive or not datetimelike
+            return s
+
+    # Scalar path (Timestamp/NaT)
+    try:
+        if getattr(s, "tzinfo", None) is not None:
+            return s.tz_convert(None)
+        return s
+    except Exception:
+        return s
+
+def ts_today_naive() -> pd.Timestamp:
+    # Always tz-naive "today" at midnight
+    return pd.Timestamp.now().normalize().tz_localize(None)
+
+
+def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Light formatting helper used across the app (values only; keeps column names)."""
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+
+    # Trim object columns
+    for c in out.columns:
+        if out[c].dtype == "object":
+            out[c] = out[c].astype(str).str.strip()
+
+    return out
+
+
+def translate_df_headers(df: pd.DataFrame) -> pd.DataFrame:
+    """Translate dataframe column headers using t() with robust normalization."""
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+
+    def norm_key(col: str) -> str:
+        k = str(col or "").strip()
+
+        # normalize common display variants
+        k = k.replace("-", " ").replace("/", " ")
+        k = re.sub(r"\s+", " ", k)
+
+        # "Payment ID" / "Payment Id" -> "payment_id"
+        k = k.replace(" ID", " Id")
+        k = k.replace("Id", "ID")
+        k = k.replace("ID", " id ")
+
+        k = k.strip().casefold()
+        k = k.replace(" ", "_")
+        k = re.sub(r"__+", "_", k).strip("_")
+        return k
+
+    out.columns = [t(norm_key(c)) for c in out.columns]
+    return out
+
+
+def translate_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Translate headers + common coded values (Status/Modality/Languages) when present.
+    Works for snake_case or pretty title columns.
+    """
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+
+    # headers
+    out = translate_df_headers(out)
+
+    cols = set(out.columns.astype(str))
+
+    # values
+    for status_col in [t("status"), "Status", "status"]:
+        if status_col in cols:
+            out[status_col] = (
+                out[status_col].astype(str).str.strip().str.casefold().apply(translate_status)
+            )
+
+    for mod_col in [t("modality"), "Modality", "modality"]:
+        if mod_col in cols:
+            out[mod_col] = out[mod_col].astype(str).apply(translate_modality_value)
+
+    for lang_col in [t("languages"), "Languages", "languages"]:
+        if lang_col in cols:
+            out[lang_col] = out[lang_col].astype(str).apply(translate_language_value)
+
+    return out
+
+def chart_series(df: pd.DataFrame, index_col: str, value_col: str, index_key: str, value_key: str):
+    """
+    Builds a Series for Streamlit charts with translated axis labels.
+    index_key/value_key are I18N keys (e.g., "student", "income").
+    """
+    if df is None or df.empty or index_col not in df.columns or value_col not in df.columns:
+        return None
+
+    s = df[[index_col, value_col]].copy()
+    s[index_col] = s[index_col].astype(str)
+    s[value_col] = pd.to_numeric(s[value_col], errors="coerce").fillna(0.0)
+
+    series = s.set_index(index_col)[value_col]
+    series.index.name = t(index_key)
+    series.name = t(value_key)
+    return series
+
+def dash_chart_series(
+    df: pd.DataFrame,
+    group_col: str,
+    group_key_for_label: str,
+    value_key_for_label: str,
+) -> Optional[pd.Series]:
+    """
+    Build a Series for st.bar_chart with translated:
+      - series name (e.g. "Students")
+      - index name (e.g. "Status", "Modality", "Languages")
+      - index values when they are coded (status/modality/languages)
+    """
+    if df is None or df.empty or group_col not in df.columns:
+        return None
+
+    tmp = df.copy()
+    tmp[group_col] = tmp[group_col].fillna("").astype(str).str.strip()
+    tmp = tmp[tmp[group_col].astype(str).str.len() > 0]
+    if tmp.empty:
+        return None
+
+    # Count students per category
+    s = tmp.groupby(group_col).size().sort_values(ascending=False)
+
+    # Translate index values when needed
+    if group_col.casefold() == "status":
+        s.index = [translate_status(x) for x in s.index.astype(str)]
+    elif group_col.casefold() == "modality":
+        s.index = [translate_modality_value(x) for x in s.index.astype(str)]
+    elif group_col.casefold() == "languages":
+        s.index = [translate_language_value(x) for x in s.index.astype(str)]
+
+    # Translate axis/series labels
+    s.index.name = t(group_key_for_label)          # e.g. t("status") / t("modality") / t("languages")
+    s.name = t(value_key_for_label)                # e.g. t("students")
+
+    return s
+
+def upload_avatar_to_supabase(file, user_id: str) -> str:
+    if file is None:
+        return ""
+
+    if not (file.type or "").startswith("image/"):
+        raise ValueError("Please upload an image file.")
+
+    ext = (file.name.split(".")[-1] or "png").lower()
+    object_path = f"{user_id}/{uuid.uuid4().hex}.{ext}"
+
+    # ✅ Upload using ADMIN client (bypasses RLS)
+    supabase_admin.storage.from_("avatars").upload(
+        path=object_path,
+        file=file.getvalue(),
+        file_options={"content-type": file.type, "upsert": "true"},
+    )
+
+    # If bucket is public:
+    return supabase_admin.storage.from_("avatars").get_public_url(object_path)
+
+# =========================
+# 04) PWA HEAD INJECTION (Base64 icons — works in Streamlit)
+# =========================
+def inject_pwa_head():
+    components.html(
+        """
+        <script>
+        (function () {
+          const w = window.parent;
+          const doc = w.document;
+
+          const icon192 = w.location.origin + "/app/static/icon-192.png";
+          const icon512 = w.location.origin + "/app/static/icon-512.png";
+          const apple180 = w.location.origin + "/app/static/apple-touch-icon.png";
+
+          // Remove old injected items
+          doc.querySelectorAll('link[rel="manifest"][data-cm="1"]').forEach(el => el.remove());
+          doc.querySelectorAll('link[rel="apple-touch-icon"][data-cm="1"]').forEach(el => el.remove());
+
+          // Build manifest dynamically
+          const manifest = {
+            name: "Classman",
+            short_name: "Classman",
+            start_url: w.location.origin + "/",
+            scope: w.location.origin + "/",
+            display: "standalone",
+            background_color: "#0b1220",
+            theme_color: "#0b1220",
+            icons: [
+              { src: icon192, sizes: "192x192", type: "image/png", purpose: "any" },
+              { src: icon512, sizes: "512x512", type: "image/png", purpose: "any" }
+            ]
+          };
+
+          const blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
+          const manifestURL = URL.createObjectURL(blob);
+
+          const link = doc.createElement("link");
+          link.rel = "manifest";
+          link.href = manifestURL;
+          link.setAttribute("data-cm", "1");
+          doc.head.appendChild(link);
+
+          // Apple touch icon
+          doc.querySelectorAll('link[rel="apple-touch-icon"][data-cm="1"]').forEach(el => el.remove());
+          const ati = doc.createElement("link");
+          ati.rel = "apple-touch-icon";
+          ati.href = apple180;
+          ati.sizes = "180x180";
+          ati.setAttribute("data-cm", "1");
+          doc.head.appendChild(ati);
+
+          // Favicon override
+          doc.querySelectorAll('link[rel="icon"][data-cm="1"]').forEach(el => el.remove());
+          const fav = doc.createElement("link");
+          fav.rel = "icon";
+          fav.href = apple180;
+          fav.setAttribute("data-cm", "1");
+          doc.head.appendChild(fav);
+
+          // Meta tags
+          const metas = [
+            { name: "apple-mobile-web-app-capable", content: "yes" },
+            { name: "mobile-web-app-capable", content: "yes" },
+            { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+            { name: "apple-mobile-web-app-title", content: "Class Manager" },
+            { name: "theme-color", content: "#0b1220" }
+          ];
+
+          metas.forEach(m => {
+            let el = doc.querySelector('meta[name="' + m.name + '"][data-cm="1"]');
+            if (!el) {
+              el = doc.createElement("meta");
+              el.setAttribute("data-cm", "1");
+              el.name = m.name;
+              doc.head.appendChild(el);
+            }
+            el.content = m.content;
+          });
+
+        })();
+        </script>
+        """,
+        height=0,
+    )
+
+inject_pwa_head()
+
+# =========================
+# 05) THEMES (DARK HOME) and (LIGHT NAV)
 # =========================
 def load_css_home_dark():
     st.markdown(
@@ -1097,7 +1067,7 @@ def load_css_home_dark():
         }
 
         html, body { background: #07101d !important; }
-        [data-testid="stAppViewContainer"], .stApp { background: #07101d !important; }
+        [data-testid="stAppViewContainer"] { background: #07101d !important; }
 
         .stApp, [data-testid="stAppViewContainer"] {
           overflow-x: hidden !important;
@@ -1588,7 +1558,7 @@ if bool(st.session_state.get("compact_mode", False)):
     mobile_fullscreen_css()
 
 # =========================
-# 04) NAVIGATION (QUERY PARAM ROUTER)
+# 06) NAVIGATION (QUERY PARAM ROUTER)
 # =========================
 PAGES = [
     ("dashboard", "dashboard", "linear-gradient(90deg,#3B82F6,#2563EB)"),
@@ -1661,7 +1631,7 @@ def page_header(title: str):
     st.markdown(f"## {title}")
 
 # =========================
-# 05) SUPABASE CONNECTION
+# 07) SUPABASE CONNECTION
 # =========================
 try:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -1679,7 +1649,11 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 # =========================
-# 06) DATA ACCESS HELPERS
+# 07) HELPERS
+# =========================
+
+# =========================
+# 07.1) DATA ACCESS HELPERS
 # =========================
 def load_table(name: str, limit: int = 10000, page_size: int = 1000) -> pd.DataFrame:
     all_rows = []
@@ -1742,7 +1716,7 @@ def save_profile_avatar_url(user_id: str, avatar_url: str) -> None:
     supabase_admin.table("profiles").upsert(payload).execute()
 
 # =========================
-# QUERY PARAM HELPERS
+# 07.2) QUERY PARAM HELPERS
 # =========================
 def _clear_qp(*keys: str) -> None:
     """Remove query params safely (new + old Streamlit)."""
@@ -1757,7 +1731,7 @@ def _clear_qp(*keys: str) -> None:
         st.experimental_set_query_params(**qp)
 
 # =========================
-# 06.5) TODAY LESSONS HELPER
+# 07.3) TODAY LESSONS HELPER
 # =========================
 def build_today_lessons() -> pd.DataFrame:
     today = date.today()
@@ -1779,7 +1753,7 @@ def build_today_lessons() -> pd.DataFrame:
     return df[["Student", "Time", "Duration_Min", "Source"]]
 
 # =========================
-# 06.5) LANGUAGE HELPERS
+# 07.4) LANGUAGE HELPERS
 # =========================
 LANG_EN = "English"
 LANG_ES = "Spanish"
@@ -1851,7 +1825,7 @@ def translate_language_value(x: str) -> str:
 
 
 # =========================
-# 06.6) WHATSAPP HELPERS
+# 07.5) WHATSAPP HELPERS
 # =========================
 
 def _digits_only(s: str) -> str:
@@ -2150,7 +2124,7 @@ def build_pricing_block(lang: str = "tr") -> str:
 
     return "".join(out).strip() + "\n"
 # =========================
-# 07) CRUD HELPERS (CLASSES / PAYMENTS)
+# 07.6) CRUD HELPERS (CLASSES / PAYMENTS)
 # =========================
 def add_class(
     student: str,
@@ -2264,7 +2238,7 @@ def update_class_row(class_id: int, updates: dict) -> bool:
         return False
 
 # =========================
-# 07.2) CRUD HELPERS (PRICING ITEMS) — I18N READY (EN/ES)
+# 07.8) CRUD HELPERS (PRICING ITEMS) — I18N READY (EN/ES)
 # =========================
 
 def load_pricing_items() -> pd.DataFrame:
@@ -2554,7 +2528,7 @@ def render_pricing_editor() -> None:
         _pricing_section(df, modality="offline", title_key="pricing_offline_title", hourly_default=3500)
 
 # =========================
-# 07.5) PACKAGE/LANGUAGE LOOKUPS
+# 07.9) PACKAGE/LANGUAGE LOOKUPS
 # =========================
 def latest_payment_languages_for_student(student: str) -> str:
     try:
@@ -2591,7 +2565,7 @@ def _is_free_note(note: str) -> bool:
 
 
 # =========================
-# 08) HISTORY HELPERS
+# 07.10) HISTORY HELPERS
 # =========================
 def show_student_history(student: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     student = str(student).strip()
@@ -2674,9 +2648,8 @@ def show_student_history(student: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
     return lessons_df, payments_df
 
-
 # =========================
-# 09) SCHEDULE / OVERRIDES
+# 08) SCHEDULE / OVERRIDES
 # =========================
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -2786,7 +2759,7 @@ def delete_override(override_id: int) -> None:
 
 
 # =========================
-# 10) STUDENT META
+# 09) STUDENT META
 # =========================
 def load_students_df() -> pd.DataFrame:
     df = load_table("students")
@@ -2822,7 +2795,7 @@ def student_meta_maps():
 
 
 # =========================
-# 11) DASHBOARD (PACKAGE STATUS) ✅ + chart-translation helper
+# 10) DASHBOARD (PACKAGE STATUS) ✅ + chart-translation helper
 # =========================
 def dash_chart_series(
     df: pd.DataFrame,
@@ -3127,7 +3100,7 @@ def rebuild_dashboard(active_window_days: int = 183, expiry_days: int = 365, gra
     ]]
 
 # =========================
-# 12) ANALYTICS (INCOME + CHARTS) ✅ missing-columns safe (Section 24 compatible)
+# 11) ANALYTICS (INCOME + CHARTS) ✅ missing-columns safe (Section 24 compatible)
 # =========================
 def money_fmt(x: float) -> str:
     """Compact currency format for KPI bubbles."""
@@ -3246,7 +3219,7 @@ def build_income_analytics(group: str = "monthly"):
 
     return kpis, income_table, by_student, sold_by_language, sold_by_modality
 # =========================
-# 13) FORECAST (BEHAVIOR-BASED + ACTIVE-ONLY + FINISHED LAST 3 MONTHS)
+# 12) FORECAST (BEHAVIOR-BASED + ACTIVE-ONLY + FINISHED LAST 3 MONTHS)
 # =========================
 def build_forecast_table(
     payment_buffer_days: int = 0,
@@ -3403,7 +3376,7 @@ def build_forecast_table(
 
 
 # =========================
-# 14) KPI BUBBLES (ROBUST: NO AUTO-RESIZE DEPENDENCY)
+# 13) KPI BUBBLES (ROBUST: NO AUTO-RESIZE DEPENDENCY)
 # =========================
 def kpi_bubbles(values, colors, size=170):
     """
@@ -3531,7 +3504,7 @@ def kpi_bubbles(values, colors, size=170):
 
 
 # =========================
-# 15) CALENDAR (EVENTS + RENDER) ✅ bilingual-safe + tz-safe + FullCalendar i18n
+# 14) CALENDAR (EVENTS + RENDER) ✅ bilingual-safe + tz-safe + FullCalendar i18n
 # =========================
 def _parse_time_value(x) -> Tuple[int, int]:
     if x is None:
@@ -3845,7 +3818,7 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
     components.html(html, height=height + 70, scrolling=True)
 
 # =========================
-# 16) HOME SCREEN UI (DARK) - upgraded (FIXED + PERSISTENT AVATAR)
+# 15) HOME SCREEN UI (DARK) - upgraded (FIXED + PERSISTENT AVATAR)
 # =========================
 def render_home():
     current_lang = st.session_state.get("ui_lang", "en")
@@ -4051,7 +4024,7 @@ style="background:{grad};">{t(label_key)}</a>""",
 
 
 # =========================
-# 17) APP ENTRYPOINT (ROUTER + THEME SWITCH + TOP NAV)
+# 16) APP ENTRYPOINT (ROUTER + THEME SWITCH + TOP NAV)
 # =========================
 def render_top_nav(active_page: str):
     current_lang = st.session_state.get("ui_lang", "en")
@@ -4174,7 +4147,7 @@ if page == "home":
 render_top_nav(page)
 
 # =========================
-# 18) PAGE: DASHBOARD
+# 17) PAGE: DASHBOARD
 # =========================
 if page == "dashboard":
     page_header(t("dashboard"))
@@ -4546,7 +4519,7 @@ if page == "dashboard":
                 st.error(f"{t('normalize_failed')}\n\n{e}")
 
 # =========================
-# 19) PAGE: STUDENTS
+# 18) PAGE: STUDENTS
 # =========================
 elif page == "students":
     page_header(t("students"))
@@ -4639,7 +4612,7 @@ elif page == "students":
                     st.error(f"{t('delete')} failed.\n\n{e}")
 
 # =========================
-# 20) PAGE: ADD LESSON
+# 19) PAGE: ADD LESSON
 # =========================
 elif page == "add_lesson":
     page_header(t("lessons"))
@@ -4782,7 +4755,7 @@ elif page == "add_lesson":
                             st.error("Some updates failed.")  # add to dictionary if you want
 
 # =========================
-# 21) PAGE: ADD PAYMENT
+# 20) PAGE: ADD PAYMENT
 # =========================
 elif page == "add_payment":
     page_header(t("payment"))
@@ -5043,15 +5016,14 @@ elif page == "add_payment":
                             st.error(t("some_updates_failed"))
 
 # =========================
-# 22) PAGE: SCHEDULE (legacy)
+# 21) PAGE: SCHEDULE (legacy)
 # =========================
 elif page == "schedule":
     go_to("calendar")
     st.rerun()
 
-
 # =========================
-# 23) PAGE: CALENDAR
+# 21.1) PAGE: CALENDAR
 # =========================
 elif page == "calendar":
     page_header(t("calendar"))
@@ -5417,7 +5389,7 @@ elif page == "calendar":
                 st.rerun()
 
 # =========================
-# 24) PAGE: ANALYTICS (CLICKABLE KPI CAPSULES + TEACHER-FRIENDLY INSIGHTS)
+# 22) PAGE: ANALYTICS (CLICKABLE KPI CAPSULES + TEACHER-FRIENDLY INSIGHTS)
 # ✅ Section 12 compatible + Mon–Sun week
 # ✅ Keeps your capsule-based views + same graphs
 # ✅ Adds business-style (but teacher-friendly) Insights + Drivers + Operations + Forecast
@@ -6351,7 +6323,6 @@ elif page == "analytics":
                 st.write("• " + t("no_data"))
 
             _show_raw_toggle(forecast_df, "raw_forecast")
-
 
 # =========================
 # FALLBACK
