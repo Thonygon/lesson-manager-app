@@ -4003,6 +4003,7 @@ style="background:{grad};">{t(label_key)}</a>""",
 # =========================
 # 16) APP ENTRYPOINT (ROUTER + THEME SWITCH + TOP NAV)
 # =========================
+
 def render_top_nav(active_page: str):
     current_lang = st.session_state.get("ui_lang", "en")
     if current_lang not in ("en", "es"):
@@ -4023,7 +4024,7 @@ def render_top_nav(active_page: str):
         active_cls = "active" if key == active_page else ""
         links_html += (
             f'<a class="cm-nav-item {active_cls}" '
-            f'href="?page={key}&lang={current_lang}" target="_self" rel="noopener noreferrer">'
+            f'href="?page={key}&lang={current_lang}" target="_self">'
             f'<span class="cm-nav-ico">{icon}</span>'
             f'<span class="cm-nav-lab">{label}</span>'
             f"</a>"
@@ -4039,25 +4040,57 @@ def render_top_nav(active_page: str):
     st.markdown(
         f"""
 <style>
+
+/* ================= FIXED TOP NAV ================= */
+
 .cm-topnav {{
-  position: sticky; top: 0; z-index: 9999;
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(1120px, calc(100vw - 24px));
+  z-index: 99999;
+
   background: rgba(255,255,255,0.78);
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+
   border: 1px solid rgba(17,24,39,0.08);
   box-shadow: 0 10px 26px rgba(15,23,42,0.06);
   border-radius: 16px;
   padding: 10px 12px;
-  margin: 0 0 14px 0;
 }}
-.cm-topnav-row {{ display:flex; align-items:center; justify-content:space-between; gap:12px; }}
+
+/* Spacer to prevent overlap */
+.cm-topnav-spacer {{
+  height: 86px;
+}}
+
+/* Layout */
+.cm-topnav-row {{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}}
+
 .cm-nav-scroll {{
-  display:flex; gap:10px; align-items:center;
-  overflow-x:auto; -webkit-overflow-scrolling: touch;
+  display:flex;
+  gap:10px;
+  align-items:center;
+  overflow-x:auto;
+  -webkit-overflow-scrolling: touch;
   padding-bottom: 2px;
 }}
-.cm-nav-scroll::-webkit-scrollbar {{ display:none; }}
+
+.cm-nav-scroll::-webkit-scrollbar {{
+  display:none;
+}}
+
 .cm-nav-item {{
-  display:inline-flex; align-items:center; gap:8px;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
   padding: 10px 12px;
   border-radius: 999px;
   border: 1px solid rgba(17,24,39,0.10);
@@ -4066,23 +4099,44 @@ def render_top_nav(active_page: str):
   text-decoration:none !important;
   font-weight:700;
   white-space:nowrap;
-  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+  transition: transform 140ms ease,
+              box-shadow 140ms ease,
+              border-color 140ms ease;
 }}
+
 .cm-nav-item:hover {{
   transform: translateY(-1px);
   box-shadow: 0 0 0 4px rgba(59,130,246,0.10);
   border-color: rgba(59,130,246,0.35);
 }}
+
 .cm-nav-item.active {{
   border: 2px solid rgba(37,99,235,0.85);
   box-shadow: 0 0 0 4px rgba(37,99,235,0.10);
 }}
-.cm-nav-ico {{ font-size:16px; line-height:1; }}
-.cm-nav-lab {{ font-size:14px; line-height:1; }}
-.cm-lang {{ display:flex; gap:8px; align-items:center; }}
+
+.cm-nav-ico {{
+  font-size:16px;
+  line-height:1;
+}}
+
+.cm-nav-lab {{
+  font-size:14px;
+  line-height:1;
+}}
+
+.cm-lang {{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}}
+
 .cm-lang-btn {{
-  display:inline-flex; align-items:center; justify-content:center;
-  width:44px; height:44px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:44px;
+  height:44px;
   border-radius:999px;
   border:1px solid rgba(17,24,39,0.12);
   background: rgba(255,255,255,0.85);
@@ -4090,11 +4144,18 @@ def render_top_nav(active_page: str):
   text-decoration:none !important;
   font-weight:800;
 }}
+
 .cm-lang-btn.on {{
   border:2px solid rgba(37,99,235,0.85);
   box-shadow: 0 0 0 4px rgba(37,99,235,0.10);
 }}
-@media (max-width: 720px) {{ .cm-nav-lab {{ display:none; }} }}
+
+@media (max-width: 720px) {{
+  .cm-nav-lab {{
+    display:none;
+  }}
+}}
+
 </style>
 
 <div class="cm-topnav">
@@ -4103,9 +4164,12 @@ def render_top_nav(active_page: str):
     <div class="cm-lang">{lang_buttons}</div>
   </div>
 </div>
+
+<div class="cm-topnav-spacer"></div>
 """,
         unsafe_allow_html=True,
     )
+
 
 # ---------- ROUTER + THEME ----------
 page = st.session_state.page
@@ -4113,7 +4177,9 @@ page = st.session_state.page
 if page == "home":
     load_css_home_dark()
 else:
-    load_css_app_light(compact=bool(st.session_state.get("compact_mode", False)))
+    load_css_app_light(
+        compact=bool(st.session_state.get("compact_mode", False))
+    )
 
 students = load_students()
 
