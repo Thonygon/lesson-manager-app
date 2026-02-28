@@ -379,6 +379,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "settings": "Settings",
         "home_slogan": "One student is all it takes to start",
         "find_private_students": "Find private students",
+        "home_find_students": "Find private students",
+        "home_menu_title": "Manage students, payments and more",
 
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -495,7 +497,7 @@ I18N: Dict[str, Dict[str, str]] = {
         # LESSONS PAGE
         # -------------------------
         "keep_track_of_your_lessons": "Record lessons and keep track of attendance",
-        "record_attendance": "Record attendance",
+        "record_attendance": "Take attendance",
         "lesson_editor": "Lesson editor",
         "delete_lesson": "Delete lesson",
         "delete_lesson_help": "Use this if you registered a lesson by mistake.",
@@ -633,6 +635,19 @@ I18N: Dict[str, Dict[str, str]] = {
 
         "pricing_add_package": "Add a package",
         "pricing_add": "Add",
+        
+        # -------------------------
+        # WHATSAPP (DASHBOARD)
+        # -------------------------
+        "whatsapp_templates_title": "WhatsApp Templates",
+        "whatsapp_message_language": "Message language",
+        "whatsapp_choose_template": "Choose a template",
+
+        "whatsapp_tpl_package": "1) Send the package offer",
+        "whatsapp_tpl_confirm": "2) Confirm today’s lesson",
+        "whatsapp_tpl_cancel": "3) Cancel today’s lesson",
+
+        "whatsapp_no_students_for_template": "No students available for this template right now.",
     },
 
     "es": {
@@ -664,7 +679,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "alerts": "Alertas",
         "settings": "Ajustes",
         "home_slogan": "Solo hace falta un estudiante para empezar",
-        "find_private_students": "Encuentra a tu primer estudiante",
+        "home_find_students": "Encuentra estudiantes privados",
+        "home_menu_title": "Gestiona estudiantes, pagos y mas",
 
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -919,8 +935,36 @@ I18N: Dict[str, Dict[str, str]] = {
 
         "pricing_add_package": "Agregar un paquete",
         "pricing_add": "Agregar",
+        
+        # -------------------------
+        # WHATSAPP (DASHBOARD)
+        # -------------------------
+        "whatsapp_templates_title": "Plantillas de WhatsApp",
+        "whatsapp_message_language": "Idioma del mensaje",
+        "whatsapp_choose_template": "Elige una plantilla",
+
+        "whatsapp_tpl_package": "1) Enviar paquete",
+        "whatsapp_tpl_confirm": "2) Confirmar la clase de hoy",
+        "whatsapp_tpl_cancel": "3) Cancelar la clase de hoy",
+
+        "whatsapp_no_students_for_template": "No hay estudiantes disponibles para esta plantilla en este momento.",
     },
-}
+
+    "tr": {
+        # -------------------------
+        # WHATSAPP (DASHBOARD)
+        # -------------------------
+        "whatsapp_templates_title": "WhatsApp Şablonları",
+        "whatsapp_message_language": "Mesaj dili",
+        "whatsapp_choose_template": "Şablon seç",
+
+        "whatsapp_tpl_package": "1) Paket bitti / bitmek üzere",
+        "whatsapp_tpl_confirm": "2) Bugünkü dersi teyit et",
+        "whatsapp_tpl_cancel": "3) Bugünkü dersi iptal et",
+
+        "whatsapp_no_students_for_template": "Şu anda bu şablon için uygun öğrenci yok.",
+    },
+ }
 if "ui_lang" not in st.session_state:
     st.session_state.ui_lang = "en"
 
@@ -1761,22 +1805,45 @@ def translate_language_value(x: str) -> str:
 # =========================
 # 06.6) WHATSAPP HELPERS
 # =========================
+
 def _digits_only(s: str) -> str:
     return re.sub(r"\D+", "", str(s or ""))
 
 
 def normalize_phone_for_whatsapp(raw_phone: str) -> str:
+    """
+    WhatsApp expects international format digits only (no +).
+    Designed for Turkey numbers but tolerant of other formats.
+
+    Examples:
+      +90 5xx xxx xx xx  -> 905xxxxxxxxx
+      05xx xxx xx xx     -> 905xxxxxxxxx
+      5xx xxx xx xx      -> 905xxxxxxxxx
+      00<country><num>   -> <country><num>
+    """
     d = _digits_only(raw_phone)
     if not d:
         return ""
+
+    # Remove leading 00
     if d.startswith("00") and len(d) > 2:
         d = d[2:]
+
+    # Already looks like an international number (e.g., 90xxxxxxxxxx, 4917..., 1...)
+    # Keep as-is if >= 11 digits and doesn't start with trunk '0'
     if len(d) >= 11 and not d.startswith("0"):
         return d
+
+    # Turkey specific normalization
+    # 0 + 10 digits starting with 5xxxxxxxxx  -> add country code
     if len(d) == 11 and d.startswith("0") and d[1] == "5":
         return "90" + d[1:]
+
+    # 10 digits starting with 5xxxxxxxxx -> add country code
     if len(d) == 10 and d.startswith("5"):
         return "90" + d
+
+    # If we can't safely normalize, return empty (so we fall back to wa.me/?text=...)
     return ""
 
 
@@ -1787,6 +1854,253 @@ def build_whatsapp_url(message: str, raw_phone: str = "") -> str:
         return f"https://wa.me/{phone}?text={encoded}"
     return f"https://wa.me/?text={encoded}"
 
+
+def _msg_lang_label(lang: str) -> str:
+    return {"en": "English", "es": "Español", "tr": "Türkçe"}.get(lang, lang)
+
+
+def _package_status_text(status: str, lang: str) -> str:
+    """
+    status expected like: 'almost_finished', 'finished', etc.
+    We map 'almost'/'soon' variations → "almost finished"
+    """
+    s = str(status or "").strip().casefold()
+    is_almost = (
+        ("almost_finished" in s)
+        or ("almost" in s)
+        or ("finish_soon" in s)
+        or ("soon" in s)
+        or ("about" in s and "finish" in s)
+    )
+
+    if lang == "es":
+        return "por terminar" if is_almost else "finalizado"
+    if lang == "tr":
+        return "bitmek üzere" if is_almost else "tamamlandı"
+    return "almost finished" if is_almost else "finished"
+
+
+def build_msg_confirm(name: str, lang: str, time_text: str = "") -> str:
+    """
+    Template #2: confirm today's lesson (EN/ES/TR)
+    time_text optional; if empty, we omit time.
+    """
+    name = (name or "").strip()
+    tt = (time_text or "").strip()
+
+    if lang == "es":
+        return (
+            f"Hola {name}! Solo para confirmar nuestra clase de hoy"
+            f"{f' a las {tt}' if tt else ''}. ¿Todo bien por tu lado?"
+        )
+    if lang == "tr":
+        return (
+            f"Merhaba {name}! Bugünkü dersimizi"
+            f"{f' {tt} için' if tt else ''} teyit etmek istiyorum. Sizin için uygun mu?"
+        )
+    return (
+        f"Hi {name}! Just confirming our lesson today"
+        f"{f' at {tt}' if tt else ''}. Is everything okay for you?"
+    )
+
+
+def build_msg_cancel(name: str, lang: str) -> str:
+    """
+    Template #3: cancel today's lesson (EN/ES/TR)
+    """
+    name = (name or "").strip()
+
+    if lang == "es":
+        return f"Hola {name}. Lo siento, pero necesito cancelar la clase de hoy. ¿Quieres reprogramarla?"
+    if lang == "tr":
+        return f"Merhaba {name}. Üzgünüm, bugünkü dersi iptal etmem gerekiyor. Yeniden planlayalım mı?"
+    return f"Hi {name}. I’m sorry, but I need to cancel today’s lesson. Would you like to reschedule?"
+
+
+def build_msg_package_header(name: str, lang: str, status: str) -> str:
+    """
+    Template #1 header: finished / almost finished package (EN/ES/TR)
+    Pricing block is appended separately.
+    """
+    name = (name or "").strip()
+    stxt = _package_status_text(status, lang)
+
+    if lang == "es":
+        return (
+            f"Hola {name}! Espero que estés bien.\n"
+            f"Tu paquete actual está {stxt}. Si quieres continuar, aquí están mis precios actuales:\n"
+        )
+    if lang == "tr":
+        return (
+            f"Merhaba {name}, umarım iyisinizdir.\n"
+            f"Mevcut paketiniz {stxt}. Devam etmek isterseniz güncel fiyatlarım aşağıdadır:\n"
+        )
+    return (
+        f"Hi {name}! Hope you’re doing well.\n"
+        f"Your current package is {stxt}. If you’d like to continue, here are my current prices:\n"
+    )
+
+
+def _get_pricing_snapshot() -> dict:
+    """
+    Loads active pricing from Supabase via load_pricing_items().
+
+    Returns:
+      {
+        "online_hourly": int,
+        "offline_hourly": int,
+        "online_packages": [(hours:int, price:int, per:int), ...],
+        "offline_packages": [(hours:int, price:int, per:int), ...],
+      }
+    """
+    df = load_pricing_items()
+    if df is None or df.empty:
+        return {
+            "online_hourly": 0,
+            "offline_hourly": 0,
+            "online_packages": [],
+            "offline_packages": [],
+        }
+
+    df = df.copy()
+    if "active" in df.columns:
+        df = df[df["active"] == True].copy()
+
+    # normalize
+    df["modality"] = df["modality"].fillna("").astype(str).str.strip().str.lower()
+    df["kind"] = df["kind"].fillna("").astype(str).str.strip().str.lower()
+    df["price_try"] = pd.to_numeric(df["price_try"], errors="coerce").fillna(0).astype(int)
+    df["hours"] = pd.to_numeric(df["hours"], errors="coerce")  # NaN ok for hourly
+
+    def _hourly(mod: str) -> int:
+        h = df[(df["modality"] == mod) & (df["kind"] == "hourly")].copy()
+        if h.empty:
+            return 0
+        if "sort_order" in h.columns:
+            h["sort_order"] = pd.to_numeric(h["sort_order"], errors="coerce").fillna(0).astype(int)
+            h = h.sort_values(["sort_order", "id"], na_position="last")
+        return int(h.iloc[0].get("price_try") or 0)
+
+    def _packages(mod: str) -> list:
+        p = df[(df["modality"] == mod) & (df["kind"] == "package")].copy()
+        if p.empty:
+            return []
+        p["hours"] = pd.to_numeric(p["hours"], errors="coerce").fillna(0).astype(int)
+        p["sort_order"] = pd.to_numeric(p.get("sort_order", 0), errors="coerce").fillna(0).astype(int)
+
+        # Sort packages: sort_order ascending, then hours descending (e.g., 44, 20, 10, 5)
+        p = p.sort_values(["sort_order", "hours"], ascending=[True, False], na_position="last")
+
+        out = []
+        for _, r in p.iterrows():
+            hours = int(r.get("hours") or 0)
+            price = int(r.get("price_try") or 0)
+            if hours <= 0:
+                continue
+            per = int(round(price / hours))
+            out.append((hours, price, per))
+        return out
+
+    return {
+        "online_hourly": _hourly("online"),
+        "offline_hourly": _hourly("offline"),
+        "online_packages": _packages("online"),
+        "offline_packages": _packages("offline"),
+    }
+
+
+def build_pricing_block(lang: str = "tr") -> str:
+    """
+    WhatsApp-friendly pricing list built from pricing_items.
+    Prints both online and offline sections (matches your original Turkish message style).
+    """
+    s = _get_pricing_snapshot()
+
+    online_hourly = int(s.get("online_hourly") or 0)
+    offline_hourly = int(s.get("offline_hourly") or 0)
+    online_pk = s.get("online_packages") or []
+    offline_pk = s.get("offline_packages") or []
+
+    # ---- Text labels ----
+    if lang == "es":
+        header = "📌 Las clases duran 50–60 minutos (1 hora).\n"
+        online_title = "💻 Precios de clases online:\n"
+        offline_title = "🏫 Precios de clases presenciales:\n"
+        hourly_note = "*La clase se paga el mismo día.\n"
+        prepaid_title = "📦 Paquetes online (prepago):\n"
+        prepaid_note = "*El pago debe hacerse antes de empezar. Puedes tomar clases con la frecuencia que quieras.\n"
+        offline_pk_title = "📦 Paquetes presenciales (prepago):\n"
+        line_hourly = lambda price: f"1 hora → {money_try(price)}\n"
+        line_pkg = lambda h, price, per: f"{h} horas → {money_try(price)} (≈ {money_try(per)} / hora)\n"
+        no_online_hourly = "(No hay precio por hora online configurado)\n"
+        no_online_pk = "(No hay paquetes online)\n"
+        no_offline_pk = "(No hay paquetes presenciales)\n"
+
+    elif lang == "en":
+        header = "📌 Lessons are 50–60 minutes (1 hour).\n"
+        online_title = "💻 Online lesson prices:\n"
+        offline_title = "🏫 In-person lesson prices:\n"
+        hourly_note = "*Each lesson is paid on the same day.\n"
+        prepaid_title = "📦 Online prepaid packages:\n"
+        prepaid_note = "*Payment must be made before starting. Lessons can be taken as frequently as you want.\n"
+        offline_pk_title = "📦 In-person prepaid packages:\n"
+        line_hourly = lambda price: f"1 hour → {money_try(price)}\n"
+        line_pkg = lambda h, price, per: f"{h} hours → {money_try(price)} (≈ {money_try(per)} / hour)\n"
+        no_online_hourly = "(No online hourly price set)\n"
+        no_online_pk = "(No online packages)\n"
+        no_offline_pk = "(No in-person packages)\n"
+
+    else:  # TR default
+        header = "Derslerim 50-60 dakika sürer (1 saat).\n"
+        online_title = "Çevrimiçi ders fiyatları:\n"
+        offline_title = "Yüz yüze ders fiyatları:\n"
+        hourly_note = "*Her ders aynı gün ödenmelidir.\n"
+        prepaid_title = "Çevrimiçi Ders Ön ödemeli paketler:\n"
+        prepaid_note = "*Kursa başlamadan önce ödeme yapılmalıdır. Dersler istediğiniz sıklıkta alınabilir.\n"
+        offline_pk_title = "Yüz yüze Ders Ön ödemeli paketler:\n"
+        line_hourly = lambda price: f"1 saat → {money_try(price)}\n"
+        line_pkg = lambda h, price, per: f"{h} saat → {money_try(price)} (≈ {money_try(per)} ders/saati)\n"
+        no_online_hourly = "(Çevrimiçi saat ücreti ayarlanmamış)\n"
+        no_online_pk = "(Çevrimiçi paket yok)\n"
+        no_offline_pk = "(Yüz yüze paket yok)\n"
+
+    # ---- Build block ----
+    out = []
+    out.append(header)
+
+    # Online
+    out.append(online_title)
+    if online_hourly > 0:
+        out.append(line_hourly(online_hourly))
+        out.append(hourly_note)
+    else:
+        out.append(no_online_hourly)
+
+    out.append("\n" + prepaid_title)
+    if online_pk:
+        for h, price, per in online_pk:
+            out.append(line_pkg(h, price, per))
+        out.append(prepaid_note)
+    else:
+        out.append(no_online_pk)
+
+    # Offline
+    out.append("\n" + offline_title)
+
+    # Optional: include offline hourly in EN/ES only (as you had it)
+    if offline_hourly > 0 and lang in ("en", "es"):
+        out.append(line_hourly(offline_hourly))
+        out.append(hourly_note)
+
+    out.append("\n" + offline_pk_title)
+    if offline_pk:
+        for h, price, per in offline_pk:
+            out.append(line_pkg(h, price, per))
+        out.append(prepaid_note)
+    else:
+        out.append(no_offline_pk)
+
+    return "".join(out).strip() + "\n"
 # =========================
 # 07) CRUD HELPERS (CLASSES / PAYMENTS)
 # =========================
@@ -3630,29 +3944,46 @@ def render_home():
 
     # --- Lead sources row (external links) ---
     st.markdown(
-        """<div class="home-links">
-<div class="home-links-title">Find new students</div>
-<div class="home-links-row">
-<a class="home-linkchip" href="https://www.armut.com" target="_blank" rel="noopener noreferrer">
-    <span class="dot"></span> Armut
-  </a>
-<a class="home-linkchip" href="https://www.apprentus.com" target="_blank" rel="noopener noreferrer">
-    <span class="dot"></span> Apprentus
-  </a>
-  <a class="home-linkchip" href="https://www.superprof.com" target="_blank" rel="noopener noreferrer">
-    <span class="dot"></span> Superprof
-  </a>
-  <a class="home-linkchip" href="https://www.ozelders.com" target="_blank" rel="noopener noreferrer">
-    <span class="dot"></span> ÖzelDers
-  </a>
-  <a class="home-linkchip" href="https://preply.com" target="_blank" rel="noopener noreferrer">
-    <span class="dot"></span> Preply
-  </a>
-  <a class="home-linkchip" href="https://www.italki.com" target="_blank" rel="noopener noreferrer">
-    <span class="dot"></span> italki
-  </a>
-</div>
-</div>""",
+    f"""
+    <div class="home-links">
+
+      <div class="home-links-title">
+        {t("home_find_students")}
+      </div>
+
+      <div class="home-links-row">
+        <a class="home-linkchip" href="https://www.armut.com" target="_blank" rel="noopener noreferrer">
+          <span class="dot"></span> Armut
+        </a>
+        <a class="home-linkchip" href="https://www.apprentus.com" target="_blank" rel="noopener noreferrer">
+          <span class="dot"></span> Apprentus
+        </a>
+        <a class="home-linkchip" href="https://www.superprof.com" target="_blank" rel="noopener noreferrer">
+          <span class="dot"></span> Superprof
+        </a>
+        <a class="home-linkchip" href="https://www.ozelders.com" target="_blank" rel="noopener noreferrer">
+          <span class="dot"></span> ÖzelDers
+        </a>
+        <a class="home-linkchip" href="https://preply.com" target="_blank" rel="noopener noreferrer">
+          <span class="dot"></span> Preply
+        </a>
+        <a class="home-linkchip" href="https://www.italki.com" target="_blank" rel="noopener noreferrer">
+          <span class="dot"></span> italki
+        </a>
+      </div>
+
+    </div>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    # --- Section title between links and menu capsules ---
+    st.markdown(
+        f"""
+    <div class="home-links-title home-section-divider">
+      {t("home_menu_title")}
+    </div>
+    """,
         unsafe_allow_html=True,
     )
 
@@ -3818,7 +4149,7 @@ if page == "dashboard":
     ].copy()
 
     # ---------------------------------------
-    # TODAY'S LESSONS (row: done | student+time+badge | link)
+    # TODAY'S LESSONS (row: done | student+time | link)
     # ---------------------------------------
     st.subheader("📅 " + t("todays_lessons"))
 
@@ -3827,16 +4158,6 @@ if page == "dashboard":
         <style>
           .tl-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
           .tl-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-          .tl-badge{
-            display:inline-flex; align-items:center;
-            border-radius: 999px;
-            padding: 4px 10px;
-            font-size: 0.78rem;
-            font-weight: 900;
-            border: 1px solid rgba(15,23,42,0.12);
-          }
-          .b-rec{ background: rgba(59,130,246,0.12); color:#1d4ed8; border-color: rgba(59,130,246,0.25); }
-          .b-ovr{ background: rgba(245,158,11,0.14); color:#b45309; border-color: rgba(245,158,11,0.25); }
         </style>
         """,
         unsafe_allow_html=True,
@@ -3844,6 +4165,9 @@ if page == "dashboard":
 
     today = date.today()
     today_events = build_calendar_events(today, today)
+
+    # Keep a DF for WhatsApp templates (confirm/cancel)
+    today_df = pd.DataFrame()
 
     if today_events is None or today_events.empty:
         st.caption(t("no_events_today"))
@@ -3855,27 +4179,26 @@ if page == "dashboard":
         df["Source"] = df.get("Source", "").fillna("").astype(str).str.strip().str.lower()
         df = df.sort_values("Time").reset_index(drop=True)
 
+        # Save for WhatsApp Templates
+        today_df = df.copy()
+
         for _, r in df.iterrows():
             student = str(r.get("Student", "")).strip()
             when = str(r.get("Time", "")).strip()
             link = str(r.get("Zoom_Link", "")).strip()
-            src = str(r.get("Source", "")).strip()
 
             # Stable unique lesson key per event
             lesson_id = f"{today.isoformat()}_{student}_{when}"
             key_done = f"today_done_{lesson_id}"
 
-            st.markdown("<div class='tl-card'>", unsafe_allow_html=True)
-
-            # ✅ Row layout: Info | Done | Link
-            c_info, c_done, c_link = st.columns([0.55, 2.2, 1.3], vertical_alignment="center")
+            # ✅ Row layout: Done | Info | Link
+            c_done, c_info, c_link = st.columns([0.55, 2.2, 1.3], vertical_alignment="center")
 
             with c_done:
                 done_now = bool(st.session_state.get(key_done, False))
-                done_now = st.toggle( t("mark_done"), value=done_now, key=key_done,
-                )
+                done_now = st.toggle(t("mark_done"), value=done_now, key=key_done)
 
-            # Styling AFTER the checkbox value is known
+            # Styling AFTER the toggle value is known
             name_style = "font-weight:900;"
             time_style = "font-weight:900;"
             if done_now:
@@ -3938,37 +4261,123 @@ if page == "dashboard":
 
         st.dataframe(translate_df(pretty_df(show_due)), use_container_width=True, hide_index=True)
 
-        _, _, _, phone_map = student_meta_maps()
-        pick = st.selectbox(t("contact_student"), due_df["Student"].tolist(), key="dash_pick_student")
-        raw_phone = phone_map.get(norm_student(pick), "")
+    # ---------------------------------------
+    # WHATSAPP TEMPLATES (PACKAGE / CONFIRM / CANCEL)
+    # ---------------------------------------
+    st.divider()
+    st.subheader(t("whatsapp_templates_title"))
 
-        # Default message by UI language
-        if st.session_state.get("ui_lang", "en") == "es":
-            default_msg = (
-                f"Hola. Espero que estés bien. {pick} está por terminar su paquete. "
-                "Si desea continuar, aquí están mis precios actuales. "
-                "Avísame para poder planificar. Gracias."
-            )
-        else:
-            default_msg = (
-                f"Hello. I hope you are fine. {pick} is about to finish the package. "
-                "If you wish to continue, here are my current prices. "
-                "Please let me know to plan accordingly. Thanks."
-            )
+    # IMPORTANT: Streamlit widgets keep value by key.
+    # To ensure the message updates when user changes template/student/lang,
+    # we overwrite st.session_state["wa_msg_box_visible"] when signature changes.
 
-        msg = st.text_area(t("whatsapp_message"), value=default_msg, height=160, key="dash_wa_msg")
-        wa_url = build_whatsapp_url(msg, raw_phone=raw_phone)
+    # Language picker controls MESSAGE language
+    ui_lang = st.session_state.get("ui_lang", "en")
+    if ui_lang not in ("en", "es", "tr"):
+        ui_lang = "en"
 
-        st.markdown(
-            f"""
-            <a href="{wa_url}" target="_blank" style="text-decoration:none;">
-              <button style="width:100%;padding:0.7rem 1rem;border-radius:14px;border:1px solid rgba(17,24,39,0.12);background:white;font-weight:700;cursor:pointer;">
-                {t("open_whatsapp")}
-              </button>
-            </a>
-            """,
-            unsafe_allow_html=True,
+    wa_lang = st.selectbox(
+        t("whatsapp_message_language"),
+        ["en", "es", "tr"],
+        format_func=_msg_lang_label,
+        index=["en", "es", "tr"].index(ui_lang),
+        key="wa_lang_pick",
+    )
+
+    template_type = st.radio(
+        t("whatsapp_choose_template"),
+        ["package", "confirm_today", "cancel_today"],
+        format_func=lambda x: {
+            "package": t("whatsapp_tpl_package"),
+            "confirm_today": t("whatsapp_tpl_confirm"),
+            "cancel_today": t("whatsapp_tpl_cancel"),
+        }.get(x, x),
+        horizontal=True,
+        key="wa_template_type",
+    )
+
+    # Phone map
+    _, _, _, phone_map = student_meta_maps()
+
+    # Decide eligible list + pick student
+    pick = ""
+    default_msg = ""
+
+    if template_type == "package":
+        eligible = due_df.copy()
+        if eligible is None or eligible.empty or ("Student" not in eligible.columns):
+            st.info(t("whatsapp_no_students_for_template"))
+            # Ensure textbox doesn't keep stale content when nothing is eligible
+            st.session_state["wa_msg_box_visible"] = ""
+            st.stop()
+
+        pick = st.selectbox(
+            t("contact_student"),
+            eligible["Student"].tolist(),
+            key="wa_pick_student_package",
         )
+
+        st_row = eligible[eligible["Student"] == pick].iloc[0]
+        status_val = st_row.get("Status", "almost_finished")
+
+        default_msg = (
+            build_msg_package_header(pick, wa_lang, status_val)
+            + "\n"
+            + build_pricing_block(wa_lang)
+        )
+
+    else:
+        eligible = today_df.copy()
+        if eligible is None or eligible.empty or ("Student" not in eligible.columns):
+            st.info(t("whatsapp_no_students_for_template"))
+            st.session_state["wa_msg_box_visible"] = ""
+            st.stop()
+
+        pick = st.selectbox(
+            t("contact_student"),
+            eligible["Student"].tolist(),
+            key="wa_pick_student_today",
+        )
+
+        st_row = eligible[eligible["Student"] == pick].iloc[0]
+        time_text = str(st_row.get("Time", "") or "").strip()
+
+        if template_type == "confirm_today":
+            default_msg = build_msg_confirm(pick, wa_lang, time_text=time_text)
+        else:
+            default_msg = build_msg_cancel(pick, wa_lang)
+
+    raw_phone = phone_map.get(norm_student(pick), "")
+
+    # -------------------------------------------------
+    # Force refresh of textbox when selection changes
+    # -------------------------------------------------
+    sig_key = "wa_signature"
+    signature = f"{template_type}||{wa_lang}||{pick}"
+
+    if st.session_state.get(sig_key) != signature:
+        st.session_state[sig_key] = signature
+        st.session_state["wa_msg_box_visible"] = default_msg
+
+    # Editable message (bound to state key)
+    msg = st.text_area(
+        t("whatsapp_message"),
+        height=260,
+        key="wa_msg_box_visible",
+    )
+
+    wa_url = build_whatsapp_url(msg, raw_phone=raw_phone)
+
+    st.markdown(
+        f"""
+        <a href="{wa_url}" target="_blank" style="text-decoration:none;">
+          <button style="width:100%;padding:0.7rem 1rem;border-radius:14px;border:1px solid rgba(17,24,39,0.12);background:white;font-weight:700;cursor:pointer;">
+            {t("open_whatsapp")}
+          </button>
+        </a>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # ---------------------------------------
     # CURRENT PACKAGES (BUBBLES)
@@ -4087,7 +4496,6 @@ if page == "dashboard":
                     st.error(t("normalize_failed"))
             except Exception as e:
                 st.error(f"{t('normalize_failed')}\n\n{e}")
-
 # =========================
 # 19) PAGE: STUDENTS
 # =========================
