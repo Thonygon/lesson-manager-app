@@ -25,6 +25,7 @@ import os
 import plotly.express as px
 import uuid
 import streamlit.components.v1 as components
+import streamlit as st
 from zoneinfo import ZoneInfo
 from supabase import create_client
 from datetime import datetime, date, timedelta, timezone
@@ -42,6 +43,16 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+# =========================
+# 07) SUPABASE CONNECTION
+# =========================
+
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_ANON_KEY = st.secrets["SUPABASE_KEY"]  # anon public key
+supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+# Public client (RLS applies)
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # =========================
 # 01.1) PAGE CONFIG
 # =========================
@@ -756,6 +767,120 @@ def t(key: str) -> str:
 # =========================
 # 03) SMALL UI HELPERS
 # =========================
+
+# ============= AUTHENTICATION HELPERS =============#
+def _set_auth_session(auth_resp):
+    """
+    Stores session tokens in Streamlit session_state.
+    Works with supabase-py responses that expose session/access_token/refresh_token.
+    """
+    # Different supabase-py versions return slightly different structures
+    session = getattr(auth_resp, "session", None) or auth_resp.get("session") if isinstance(auth_resp, dict) else None
+    user = getattr(auth_resp, "user", None) or auth_resp.get("user") if isinstance(auth_resp, dict) else None
+
+    if session is None:
+        # Some versions return a session dict directly
+        session = auth_resp
+
+    access_token = getattr(session, "access_token", None) or (session.get("access_token") if isinstance(session, dict) else None)
+    refresh_token = getattr(session, "refresh_token", None) or (session.get("refresh_token") if isinstance(session, dict) else None)
+
+    if not access_token:
+        raise Exception("No access_token returned from Supabase auth")
+
+    st.session_state["sb_access_token"] = access_token
+    st.session_state["sb_refresh_token"] = refresh_token
+    # user id is handy for migrations + debugging
+    if user is not None:
+        uid = getattr(user, "id", None) or (user.get("id") if isinstance(user, dict) else None)
+        st.session_state["sb_user_id"] = uid
+
+
+def _apply_auth_to_client():
+    """
+    Ensures the global supabase client uses the logged-in session.
+    This is the key for RLS: requests must include the user's JWT.
+    """
+    at = st.session_state.get("sb_access_token")
+    rt = st.session_state.get("sb_refresh_token")
+    if not at:
+        return
+
+    try:
+        # Preferred if available in your supabase-py version
+        supabase.auth.set_session(at, rt)
+    except Exception:
+        # Fallback: if set_session isn't available, we can still proceed,
+        # but then you'd need to rebuild a client with auth headers.
+        pass
+
+
+def require_login():
+    """
+    Blocks the app unless user is logged in.
+    """
+    st.sidebar.title("Account")
+
+    # If already logged in, apply session and show logout
+    if st.session_state.get("sb_access_token"):
+        _apply_auth_to_client()
+        uid = st.session_state.get("sb_user_id")
+        st.sidebar.success("Logged in")
+        if uid:
+            st.sidebar.caption(f"User ID: {uid}")
+
+        if st.sidebar.button("Log out"):
+            # Clears local session; also sign out from Supabase if possible
+            try:
+                supabase.auth.sign_out()
+            except Exception:
+                pass
+            for k in ["sb_access_token", "sb_refresh_token", "sb_user_id"]:
+                st.session_state.pop(k, None)
+            st.rerun()
+
+        return  # allow app to continue
+
+    # Not logged in -> show login/signup
+    tab_login, tab_signup = st.tabs(["Log in", "Sign up"])
+
+    with tab_login:
+        email = st.text_input("Email", key="login_email")
+        password = st.text_input("Password", type="password", key="login_password")
+        if st.button("Log in"):
+            try:
+                resp = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                _set_auth_session(resp)
+                _apply_auth_to_client()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Login failed: {e}")
+
+        with st.expander("Forgot password?"):
+            reset_email = st.text_input("Email for reset link", key="reset_email")
+            if st.button("Send reset email"):
+                try:
+                    supabase.auth.reset_password_for_email(reset_email)
+                    st.success("Reset email sent. Check your inbox.")
+                except Exception as e:
+                    st.error(f"Reset failed: {e}")
+
+    with tab_signup:
+        email2 = st.text_input("Email", key="signup_email")
+        password2 = st.text_input("Password", type="password", key="signup_password")
+        if st.button("Create account"):
+            try:
+                resp = supabase.auth.sign_up({"email": email2, "password": password2})
+                st.success("Account created. If email confirmations are enabled, check your email. Then log in.")
+            except Exception as e:
+                st.error(f"Sign up failed: {e}")
+
+    st.stop()
+
+require_login()
+
+# ================== OTHER UI HELPERS ==================#
+
 def to_dt_naive(x, utc: bool = True):
     """
     Parse to pandas datetime and return tz-naive timestamps.
@@ -2451,24 +2576,6 @@ def page_header(title: str):
     st.markdown(f"## {title}")
 
 # =========================
-# 07) SUPABASE CONNECTION
-# =========================
-try:
-    SUPABASE_URL = st.secrets["SUPABASE_URL"]
-    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]  # anon/public
-    SUPABASE_SERVICE_ROLE_KEY = st.secrets["SUPABASE_SERVICE_ROLE_KEY"]
-except Exception as e:
-    st.error("Missing Streamlit secrets: SUPABASE_URL / SUPABASE_KEY / SUPABASE_SERVICE_ROLE_KEY")
-    st.code(str(e))
-    st.stop()
-
-# Public client (RLS applies)
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# Admin client (bypasses RLS)
-supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-
-# =========================
 # 07) HELPERS
 # =========================
 
@@ -3110,15 +3217,9 @@ def upsert_pricing_item(payload: dict) -> None:
     No DB uniqueness restrictions required.
     Upsert will UPDATE when payload includes id; otherwise INSERT.
     """
-    if supabase_admin is None:
-        raise RuntimeError("Missing SUPABASE_SERVICE_ROLE_KEY in Streamlit secrets.")
-    supabase_admin.table("pricing_items").upsert(payload).execute()
 
 
 def delete_pricing_item(item_id: int) -> None:
-    if supabase_admin is None:
-        raise RuntimeError("Missing SUPABASE_SERVICE_ROLE_KEY in Streamlit secrets.")
-    supabase_admin.table("pricing_items").delete().eq("id", int(item_id)).execute()
 
 
 def money_try(x) -> str:
