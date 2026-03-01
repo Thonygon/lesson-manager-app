@@ -124,6 +124,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "find_private_students": "Find private students",
         "home_find_students": "Find private students",
         "home_menu_title": "Manage current students",
+        "ytd_income": "YTD income",
         "next": "Next lesson",
         "goal": "Goal",
         "completed": "Completed",
@@ -432,6 +433,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "next": "Siguiente clase",
         "goal": "Meta",
         "completed": "Completado",
+        "ytd_income": "Ingreso del año",
 
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -1130,10 +1132,10 @@ def render_home_indicator(
 ):
     if items is None:
         items = [
-            ("Lessons", "0"),
-            ("Income", "₺0"),
-            ("Msgs", "0"),
-            ("Next", "no_events"),
+            ("students", "0"),
+            ("ydt_income", "₺0"),
+            ("goal", "0"),
+            ("next", "no_events"),
         ]
 
     if progress_label is None:
@@ -1660,7 +1662,7 @@ def load_css_home_dark():
         .home-wrap{ display:flex; justify-content:center; }
         .home-card{
           width: 100%;
-          max-width: 620px;
+          max-width: 680px;
           padding: 18px 16px 22px 16px;
           position: relative;
           box-sizing: border-box;
@@ -1677,7 +1679,7 @@ def load_css_home_dark():
             radial-gradient(circle at 55% 65%, rgba(255,255,255,0.08), transparent 58%),
             radial-gradient(circle at 85% 35%, rgba(255,255,255,0.07), transparent 60%);
           filter: blur(1px);
-          opacity: 0.70;
+          opacity: 0.10;
           pointer-events:none;
         }
 
@@ -1818,6 +1820,31 @@ def load_css_home_dark():
           backdrop-filter: blur(12px);
           -webkit-backdrop-filter: blur(12px);
           box-sizing: border-box;
+          position: relative;   /* IMPORTANT */
+        }
+        
+        .home-hero::after {
+          content: "";
+          position: absolute;
+          left: 19px;
+          right: 19px;
+          bottom: -2px;
+          height: 1.5px;
+          border-radius: 999px;
+
+          background: linear-gradient(90deg,#3B82F6,#60A5FA,#3B82F6);
+
+          box-shadow:
+              0 0 6px rgba(59,130,246,0.9),
+              0 0 14px rgba(59,130,246,0.6),
+              0 0 24px rgba(59,130,246,0.4);
+          animation: neonPulse 2.5s infinite ease-in-out;
+        }
+        
+        @keyframes neonPulse {
+        0% { opacity: 0.6; }
+        50% { opacity: 1; }
+        100% { opacity: 0.6; }
         }
 
         .home-slogan{
@@ -1910,38 +1937,100 @@ def load_css_home_dark():
           pointer-events:none;
         }
 
-        /* --- Menu pills --- */
+        /* --- Menu pills (PREMIUM GLASS + subtle neon) --- */
         .home-pill{
           display:block;
           width: 100%;
-          border-radius: 999px;
+          border-radius: 18px;
           padding: 1.05rem 1.15rem;
           margin: 0.95rem 0;
+
           font-weight: 950;
           text-align: center;
-          color: #ffffff !important;
-          border: 1px solid rgba(255,255,255,0.14);
-          box-shadow: 0 18px 34px rgba(0,0,0,0.30);
+          color: rgba(255,255,255,0.96) !important;
+
+          background:
+          radial-gradient(700px 90px at 20% 20%, rgba(59,130,246,0.18), transparent 60%),
+          radial-gradient(600px 80px at 80% 40%, rgba(16,185,129,0.10), transparent 62%),
+          linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04));
+
+          border: 1px solid rgba(255,255,255,0.16);
+          box-shadow:
+          0 18px 34px rgba(0,0,0,0.30),
+          inset 0 1px 0 rgba(255,255,255,0.10);
+
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+
           position: relative;
           overflow:hidden;
-          transition: transform 160ms ease, filter 160ms ease;
           box-sizing:border-box;
+
+          transition: transform 160ms ease, filter 160ms ease, box-shadow 200ms ease;
         }
+
         .home-pill::before{
           content:"";
           position:absolute;
           inset: 0;
           background: linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.02));
-          opacity: 0.22;
+          opacity: 0.18;
           pointer-events:none;
         }
+
+        .home-pill::after{
+          content:"";
+          position:absolute;
+          left: 16px;
+          right: 16px;
+          bottom: 8px;
+          height: 2px;
+          border-radius: 999px;
+
+          background: linear-gradient(90deg,
+          rgba(59,130,246,0.00),
+          rgba(59,130,246,0.65),
+          rgba(96,165,250,0.55),
+          gba(59,130,246,0.00)
+           );
+
+          box-shadow:
+          0 0 10px rgba(59,130,246,0.25),
+          0 0 22px rgba(59,130,246,0.14);
+
+          opacity: 0.55;
+          transform: translateX(-12%);
+          animation: pillNeon 4.8s ease-in-out infinite;
+          pointer-events:none;
+        }
+
         .home-pill:hover{
           transform: translateY(-2px);
-          filter: brightness(1.05);
+          filter: brightness(1.06);
+          box-shadow:
+          0 20px 40px rgba(0,0,0,0.34),
+          inset 0 1px 0 rgba(255,255,255,0.12);
+        }
+
+        .home-pill:hover::after{
+          opacity: 0.75;
+          box-shadow:
+          0 0 14px rgba(59,130,246,0.34),
+          0 0 26px rgba(59,130,246,0.18);
+        }
+
+        @keyframes pillNeon{
+          0%   { transform: translateX(-16%); opacity: 0.45; }
+          50%  { transform: translateX(16%);  opacity: 0.75; }
+          100% { transform: translateX(-16%); opacity: 0.45; }
+        }
+
+        @media (prefers-reduced-motion: reduce){
+        .home-pill::after{ animation: none; }
         }
 
         /* Bottom indicator */
-        .home-indicator{
+        .home-bottom-indicator {
           position: fixed;
           left: 50%;
           transform: translateX(-50%);
@@ -1997,10 +2086,7 @@ def load_css_app_light(compact: bool = False):
           --text:#0f172a;
           --muted:#475569;
           --shadow:0 10px 26px rgba(15,23,42,0.08);
-        }}
-        input, button, select, textarea {{
-          appearance: none !important;
-          -webkit-appearance: none !important;
+          --primary-color:#2563EB !important;
         }}
 
         /* Prevent iOS/system dark-mode from creating odd horizontal bars */
@@ -2120,7 +2206,7 @@ def load_css_app_light(compact: bool = False):
            ========================= */
 
         /* Toggle track (OFF) */
-        div[data-baseweb="checkbox"] [role="checkbox"]{{
+        div[data-baseweb="checkbox"] div[role="checkbox"]{{
           width: 42px;
           height: 24px;
           border-radius: 12px;   /* more capsule, less pill */
@@ -2131,13 +2217,13 @@ def load_css_app_light(compact: bool = False):
         }}
 
         /* Toggle track (ON) */
-        div[data-baseweb="checkbox"] [role="checkbox"][aria-checked="true"]{{
+        div[data-baseweb="checkbox"] div[role="checkbox"][aria-checked="true"]{{
           background: #1D4ED8 !important; /* Dark Blue */
           border-color: #1D4ED8 !important;
         }}
 
         /* White knob */
-        div[data-baseweb="checkbox"] [role="checkbox"]::after{{
+        div[data-baseweb="checkbox"] div[role="checkbox"]::after{{
           content: "";
           position: absolute;
           width: 18px;
@@ -2150,7 +2236,7 @@ def load_css_app_light(compact: bool = False):
         }}
         
         /* Move knob when ON */
-        div[data-baseweb="checkbox"] [role="checkbox"][aria-checked="true"]::after{{
+        div[data-baseweb="checkbox"] div[role="checkbox"][aria-checked="true"]::after{{
           transform: translateX(18px);
         }}
         
@@ -2160,13 +2246,62 @@ def load_css_app_light(compact: bool = False):
           color: var(--text) !important;
           -webkit-text-fill-color: var(--text) !important;
         }}
+        /* =========================
+           FORCE Streamlit st.toggle colors (Chrome-safe)
+           ========================= */
 
-        {compact_css}
+        /* Target ONLY Streamlit toggles */
+        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"]{{
+          width: 42px !important;
+          height: 24px !important;
+          border-radius: 12px !important;
+          background: #BFDBFE !important;  /* OFF = light blue */
+          border: 1px solid #93C5FD !important;
+          position: relative !important;
+          box-shadow: none !important;
+        }}
+
+        /* ON state */
+        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"][aria-checked="true"]{{
+          background: #1D4ED8 !important;  /* ON = dark blue */
+          border-color: #1D4ED8 !important;
+        }}
+
+        /* Knob */
+        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"]::after{{
+          content: "" !important;
+          position: absolute !important;
+          width: 18px !important;
+          height: 18px !important;
+          top: 2px !important;
+          left: 2px !important;
+          background: #ffffff !important;
+          border-radius: 8px !important;
+          transform: translateX(0) !important;
+          transition: transform 180ms ease !important;
+        }}
+
+        /* Move knob when ON */
+        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"][aria-checked="true"]::after{{
+          transform: translateX(18px) !important;
+        }}
+
+        /* Kill the red (it’s usually the check/icon or focus styles) */
+        div[data-testid="stToggle"] div[data-baseweb="checkbox"] svg,
+        div[data-testid="stToggle"] div[data-baseweb="checkbox"] svg path{{
+          fill: #ffffff !important;   /* ON icon white */
+        }}
+
+        /* Remove focus ring that sometimes shows as red */
+        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"]:focus,
+        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"]:focus-visible{{
+          outline: none !important;
+          box-shadow: none !important;
+        }}
         </style>
         """,
         unsafe_allow_html=True,
     )
-
 
 def mobile_fullscreen_css():
     st.markdown(
@@ -2197,11 +2332,11 @@ if bool(st.session_state.get("compact_mode", False)):
 # =========================
 PAGES = [
     ("dashboard", "dashboard", "linear-gradient(90deg,#3B82F6,#2563EB)"),
-    ("students",  "students",  "linear-gradient(90deg,#10B981,#059669)"),
-    ("add_lesson","lessons",   "linear-gradient(90deg,#F59E0B,#D97706)"),
-    ("add_payment","payments", "linear-gradient(90deg,#EF4444,#DC2626)"),
-    ("calendar",  "calendar",  "linear-gradient(90deg,#06B6D4,#0891B2)"),
-    ("analytics", "analytics", "linear-gradient(90deg,#F97316,#EA580C)"),
+    ("students",  "students",  "linear-gradient(90deg,#3B82F6,#2563EB)"),
+    ("add_lesson","lessons",   "linear-gradient(90deg,#3B82F6,#2563EB)"),
+    ("add_payment","payments", "linear-gradient(90deg,#3B82F6,#2563EB)"),
+    ("calendar",  "calendar",  "linear-gradient(90deg,#3B82F6,#2563EB)"),
+    ("analytics", "analytics", "linear-gradient(90deg,#3B82F6,#2563EB)"),
 ]
 PAGE_KEYS = {"home"} | {k for k, _, _ in PAGES}
 
@@ -4639,10 +4774,9 @@ def render_home():
         badge= t("today"),
         items=[
             (t("goal"), money_try(goal_val) if goal_val > 0 else "—"),
-            (t("next"), next_lesson),
+            (t("ytd_income"), money_try(income_this_year)),
             (t("students"), str(active_students)),
-            (t("yearly_income"), money_try(income_this_year)),
-             
+            (t("next"), next_lesson),
         ],
         progress=goal_progress,
         accent="#3B82F6",
@@ -4716,7 +4850,7 @@ style="background:{grad};">{t(label_key)}</a>""",
             unsafe_allow_html=True,
         )
 
-    st.markdown("<div class='home-indicator'></div>", unsafe_allow_html=True)
+    st.markdown("<div class='home-bottom-indicator'></div>", unsafe_allow_html=True)
     st.markdown("</div></div>", unsafe_allow_html=True)
 
 
@@ -4764,22 +4898,20 @@ def render_top_nav(active_page: str):
 /* ================= FIXED TOP NAV ================= */
 
 .cm-topnav {{
-  position: fixed;
-  top: 0px;
-  left: 0%;
-  transform: none;
-  width: 100vw;
-  z-index: 99999;
+ position: fixed;
+ top: 0px;
+ left: 0%;
+ width: 100vw;
+ z-index: 99999;
 
-  background: rgba(255,255,255,0.78);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-
-  border: 1px solid rgba(17,24,39,0.08);
-  border-bottom: 1px solid rgba(17,24,39,0.10);
-  box-shadow: 0 8px 18px rgba(15,23,42,0.08);
-  border-radius: 0px;
-  padding: 10px 12px;
+ /* 💎 Blue glass */
+ background:
+ linear-gradient(180deg,rgba(37,99,235,0.22), rgba(37,99,235,0.12));   
+ backdrop-filter: blur(14px);
+ -webkit-backdrop-filter: blur(14px);
+ border-bottom: 0.8px solid rgba(59,130,246,0.25);
+ box-shadow: 0 8px 24px rgba(37,99,235,0.18), 0 0 40px rgba(59,130,246,0.08);
+ padding: 10px 12px;
 }}
 
 /* Spacer to prevent overlap */
@@ -4815,7 +4947,8 @@ def render_top_nav(active_page: str):
   padding: 10px 12px;
   border-radius: 999px;
   border: 1px solid rgba(17,24,39,0.10);
-  background: rgba(255,255,255,0.85);
+  background: rgba(255,255,255,0.65);
+  backdrop-filter: blur(6px);
   color:#0f172a !important;
   text-decoration:none !important;
   font-weight:700;
