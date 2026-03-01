@@ -25,7 +25,6 @@ import os
 import plotly.express as px
 import uuid
 import streamlit.components.v1 as components
-import streamlit as st
 from zoneinfo import ZoneInfo
 from supabase import create_client
 from datetime import datetime, date, timedelta, timezone
@@ -43,16 +42,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-# =========================
-# 07) SUPABASE CONNECTION
-# =========================
-
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_ANON_KEY = st.secrets["SUPABASE_KEY"]  # anon public key
-supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-
-# Public client (RLS applies)
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # =========================
 # 01.1) PAGE CONFIG
 # =========================
@@ -769,32 +758,52 @@ def t(key: str) -> str:
 # =========================
 
 # ============= AUTHENTICATION HELPERS =============#
+# =========================
+# SUPABASE CONNECTION
+# =========================
+try:
+    SUPABASE_URL = st.secrets["SUPABASE_URL"]
+    SUPABASE_ANON_KEY = st.secrets["SUPABASE_KEY"]  # anon public key
+except Exception as e:
+    st.error("Missing Streamlit secrets: SUPABASE_URL / SUPABASE_KEY")
+    st.code(str(e))
+    st.stop()
+
+supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+def _has_admin():
+    return "supabase_admin" in globals() and globals()["supabase_admin"] is not None
+
 def _set_auth_session(auth_resp):
     """
     Stores session tokens in Streamlit session_state.
-    Works with supabase-py responses that expose session/access_token/refresh_token.
+    Works across supabase-py response shapes (object or dict).
     """
-    # Different supabase-py versions return slightly different structures
-    session = getattr(auth_resp, "session", None) or auth_resp.get("session") if isinstance(auth_resp, dict) else None
-    user = getattr(auth_resp, "user", None) or auth_resp.get("user") if isinstance(auth_resp, dict) else None
 
-    if session is None:
-        # Some versions return a session dict directly
-        session = auth_resp
+    if auth_resp is None:
+        raise Exception("Empty auth response from Supabase")
 
-    access_token = getattr(session, "access_token", None) or (session.get("access_token") if isinstance(session, dict) else None)
-    refresh_token = getattr(session, "refresh_token", None) or (session.get("refresh_token") if isinstance(session, dict) else None)
+    if isinstance(auth_resp, dict):
+        session = auth_resp.get("session") or auth_resp.get("data") or auth_resp
+        user = auth_resp.get("user") or auth_resp.get("data", {}).get("user") if isinstance(auth_resp.get("data"), dict) else None
+    else:
+        session = getattr(auth_resp, "session", None) or getattr(auth_resp, "data", None) or auth_resp
+        user = getattr(auth_resp, "user", None) or getattr(getattr(auth_resp, "session", None), "user", None)
+
+    # session can be dict or object
+    access_token = getattr(session, "access_token", None) if not isinstance(session, dict) else session.get("access_token")
+    refresh_token = getattr(session, "refresh_token", None) if not isinstance(session, dict) else session.get("refresh_token")
 
     if not access_token:
         raise Exception("No access_token returned from Supabase auth")
 
     st.session_state["sb_access_token"] = access_token
     st.session_state["sb_refresh_token"] = refresh_token
-    # user id is handy for migrations + debugging
-    if user is not None:
-        uid = getattr(user, "id", None) or (user.get("id") if isinstance(user, dict) else None)
-        st.session_state["sb_user_id"] = uid
 
+    uid = None
+    if user is not None:
+        uid = getattr(user, "id", None) if not isinstance(user, dict) else user.get("id")
+    st.session_state["sb_user_id"] = uid
 
 def _apply_auth_to_client():
     """
@@ -1037,7 +1046,6 @@ def dash_chart_series(
     s.name = t(value_key_for_label)
     return s
 
-
 # =========================
 # 03.1) APP SETTINGS (GOALS) HELPERS — upgraded
 # =========================
@@ -1155,34 +1163,22 @@ def load_app_setting(key: str, default=None, key_fallbacks: list[str] | None = N
 
 def save_app_setting(key: str, value, key_fallbacks: list[str] | None = None) -> bool:
     """
-    Upsert setting into `app_settings`.
-    If table has user_id, writes under current user.
+    Save or update an app setting.
+    Uses anon Supabase client (RLS will apply).
     """
-    try:
-        df = load_table("app_settings")
-    except Exception:
-        df = pd.DataFrame()
+    if not key:
+        return False
 
-    uid_col = _first_col(df, ["user_id", "uid", "owner_id"]) if (df is not None and not df.empty) else None
-    key_col = _first_col(df, ["key", "setting_key", "name"]) or "key"
-    val_col = _first_col(df, ["value", "setting_value", "val"]) or "value"
+    payload = {
+        "key": str(key),
+        "value": str(value),
+    }
 
-    payload = {key_col: str(key).strip(), val_col: value}
-    on_conflict = key_col
-
-    if uid_col:
-        payload[uid_col] = _guess_user_id()
-        on_conflict = f"{uid_col},{key_col}"
-
-    client = supabase_admin if ("supabase_admin" in globals() and supabase_admin is not None) else supabase
+    # If your table has unique constraint on key:
+    on_conflict = "key"
 
     try:
-        client.table("app_settings").upsert(payload, on_conflict=on_conflict).execute()
-        # if you use @st.cache_data anywhere, this forces fresh reads
-        try:
-            st.cache_data.clear()
-        except Exception:
-            pass
+        supabase.table("app_settings").upsert(payload, on_conflict=on_conflict).execute()
         return True
     except Exception:
         return False
@@ -1236,32 +1232,40 @@ def upload_avatar_to_supabase(file, user_id: str) -> str:
     ext = (file.name.split(".")[-1] or "png").lower()
     object_path = f"{user_id}/{uuid.uuid4().hex}.{ext}"
 
-    # ✅ Upload using ADMIN client (bypasses RLS)
-    supabase_admin.storage.from_("avatars").upload(
-        path=object_path,
-        file=file.getvalue(),
-        file_options={"content-type": file.type, "upsert": "true"},
-    )
-
-    # If bucket is public:
-    return supabase_admin.storage.from_("avatars").get_public_url(object_path)
+    # TODO: upload logic here
+    return ""  # safe fallback for now
 
 
 def render_home_indicator(
-    status: str = t("online"),
-    badge: str = t("today"),
+    status: str = None,
+    badge: str = None,
     items=None,                     # list[tuple[str,str]]
     progress: float | None = None,  # 0..1
     accent: str = "#3B82F6",
-    progress_label: str | None = None,  # e.g. "completed" / t("completed")
+    progress_label: str | None = None,  # e.g. t("completed")
 ):
+    # Avoid calling t() in default args (safer if t() is defined later)
+    if status is None:
+        status = t("online")
+    if badge is None:
+        badge = t("today")
+
     if items is None:
         items = [
-            ("students", "0"),
-            ("ydt_income", "₺0"),
-            ("goal", "0"),
-            ("next", "no_events"),
+            (t("students"), "0"),
+            (t("ytd_income"), "₺0"),   # fixed key (was "ydt_income")
+            (t("goal"), "0"),
+            (t("next"), t("no_events")),
         ]
+    else:
+        # If caller passed raw keys like ("students","0"), translate labels
+        cleaned = []
+        for lbl, val in items:
+            lbl_s = str(lbl or "").strip()
+            if lbl_s in I18N.get(st.session_state.get("ui_lang", "en"), {}) or lbl_s in I18N.get("en", {}):
+                lbl_s = t(lbl_s)
+            cleaned.append((lbl_s, val))
+        items = cleaned
 
     if progress_label is None:
         progress_label = t("completed")
@@ -1284,9 +1288,7 @@ def render_home_indicator(
         for (lbl, val) in items
     )
 
-    badge_html = ""
-    if badge:
-        badge_html = f'<span class="home-indicator-badge">{badge}</span>'
+    badge_html = f'<span class="home-indicator-badge">{badge}</span>' if badge else ""
 
     right_html = ""
     if pct is not None:
@@ -1328,21 +1330,21 @@ def render_home_indicator(
 .home-indicator {{
   display: flex;
   align-items: center;
-  justify-content: center-justified;
+  justify-content: space-between;
   gap: 14px;
 
   padding: 14px 16px;
   border-radius: 18px;
 
   background: linear-gradient(
-      135deg,
-      rgba(59,130,246,0.12),
-      rgba(255,255,255,0.10)
+    135deg,
+    rgba(59,130,246,0.12),
+    rgba(255,255,255,0.10)
   );
   border: 1px solid rgba(59,130,246,0.25);
   box-shadow: 0 10px 28px rgba(37,99,235,0.18);
-  color: rgba(255,255,255,0.95);   
-  }}
+  color: rgba(255,255,255,0.95);
+}}
 
 .home-indicator-left {{
   display: flex;
@@ -1382,33 +1384,34 @@ def render_home_indicator(
 
 .home-indicator-mid {{
   flex: 1;
-  display: flex;              
+  display: flex;
   align-items: center;
   gap: 14px;
-  overflow-x: auto;           
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }}
-/* Hide scrollbar but allow scroll */
+
 .home-indicator-mid::-webkit-scrollbar {{
   display: none;
 }}
 .home-indicator-mid {{
-  -ms-overflow-style: none;  /* IE */
-  scrollbar-width: none;     /* Firefox */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }}
 
 .home-indicator-kpi {{
   padding: 6px 12px;
-  border-radius: 14px;         /* ← change the size of the box*/
-  background: rgba(0,0,0,0.18); /* darker contrast */
+  border-radius: 14px;
+  background: rgba(0,0,0,0.18);
   border: 1px solid rgba(255,255,255,0.14);
-  flex: 0 0 130px;     /* ← all capsules same width */
+
+  flex: 0 0 130px;
   min-width: 130px;
   max-width: 130px;
 
-  /* keeps text tidy */
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;        /* prevents wrapping */
+  text-overflow: ellipsis;
 }}
 
 .home-indicator-kpi .k {{
@@ -1450,36 +1453,11 @@ def render_home_indicator(
   font-size: 0.78rem;
   opacity: 0.8;
 }}
-.home-indicator-mid{{
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: nowrap;
-}}
-
-.home-indicator-kpi{{
-  flex: 1 1 0;         /* ← equal widths */
-  min-width: 140px;    /* ← prevents tiny */
-  max-width: 220px;    /* ← prevents huge */
-  border-radius: 14px;
-}}
 
 @media (max-width: 820px) {{
   .home-indicator {{
     flex-direction: column;
     align-items: stretch;
-  }}
-
-@media (max-width: 820px){{
-  .home-indicator-mid{{
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }}
-}}
-  .home-indicator-mid {{
-    display: flex;
-    overflow-x: auto;
   }}
   .home-indicator-right {{
     align-items: flex-start;
@@ -1487,8 +1465,9 @@ def render_home_indicator(
 }}
 </style>
 """
-    components.html(html, height=160, scrolling=False)
-
+    # Height: allow more space on mobile when it stacks
+    height = 220 if bool(st.session_state.get("compact_mode", False)) else 160
+    components.html(html, height=height, scrolling=False)
 
 def get_next_lesson_display() -> str:
     """
@@ -1551,50 +1530,25 @@ def get_next_lesson_display() -> str:
 # 03.2) YEAR GOALS (PERSISTENT) — Supabase app_settings
 # =========================
 def _settings_client():
-    """
-    Prefer admin client if available; otherwise fall back to normal client.
-    """
-    return globals().get("supabase_admin") or globals().get("supabase")
+    return supabase
 
-
-def get_year_goal(year: int, scope: str = "global", default: float = 0.0) -> float:
+def get_year_goal(year: int) -> int:
+    key = f"year_goal_{year}"
     try:
-        client = _settings_client()
-        res = (
-            client.table("app_settings")
-            .select("value")
-            .eq("scope", scope)
-            .eq("key", "year_goal")
-            .eq("year", int(year))
-            .limit(1)
-            .execute()
-        )
+        res = supabase.table("app_settings").select("value").eq("key", key).limit(1).execute()
         rows = getattr(res, "data", None) or []
         if not rows:
-            return float(default)
-        v = rows[0].get("value", default)
-        return float(v or 0.0)
+            return 0
+        return int(rows[0].get("value") or 0)
     except Exception:
-        return float(default)
+        return 0
 
 
-def set_year_goal(year: int, goal_value: float, scope: str = "global") -> bool:
+def set_year_goal(year: int, value: int) -> bool:
+    key = f"year_goal_{year}"
+    payload = {"key": key, "value": int(value)}
     try:
-        client = _settings_client()
-        payload = {
-            "scope": scope,
-            "key": "year_goal",
-            "year": int(year),
-            "value": float(goal_value or 0.0),
-        }
-        client.table("app_settings").upsert(payload, on_conflict="scope,key,year").execute()
-
-        # If you use cached reads anywhere, clear them
-        try:
-            st.cache_data.clear()
-        except Exception:
-            pass
-
+        supabase.table("app_settings").upsert(payload, on_conflict="key").execute()
         return True
     except Exception:
         return False
@@ -2578,7 +2532,6 @@ def page_header(title: str):
 # =========================
 # 07) HELPERS
 # =========================
-
 # =========================
 # 07.1) DATA ACCESS HELPERS
 # =========================
@@ -2632,15 +2585,20 @@ def load_students() -> List[str]:
 
 def get_profile_avatar_url(user_id: str) -> str:
     try:
-        resp = supabase_admin.table("profiles").select("avatar_url").eq("user_id", user_id).limit(1).execute()
-        rows = resp.data or []
-        return (rows[0].get("avatar_url") or "") if rows else ""
+        res = supabase.table("profiles").select("avatar_url").eq("user_id", str(user_id)).limit(1).execute()
+        rows = getattr(res, "data", None) or []
+        if not rows:
+            return ""
+        return str(rows[0].get("avatar_url") or "")
     except Exception:
         return ""
 
 def save_profile_avatar_url(user_id: str, avatar_url: str) -> None:
-    payload = {"user_id": user_id, "avatar_url": avatar_url}
-    supabase_admin.table("profiles").upsert(payload).execute()
+    try:
+        payload = {"user_id": str(user_id), "avatar_url": str(avatar_url)}
+        supabase.table("profiles").upsert(payload, on_conflict="user_id").execute()
+    except Exception:
+        pass
 
 # =========================
 # 07.2) QUERY PARAM HELPERS
@@ -3098,7 +3056,6 @@ def add_payment(
         package_start_date = payment_date
 
     payload = {
-        "id": row["id"],
         "student": student,
         "number_of_lesson": int(number_of_lesson),
         "payment_date": payment_date,
@@ -3177,7 +3134,7 @@ def load_pricing_items() -> pd.DataFrame:
     """
     try:
         res = supabase.table("pricing_items").select("*").order("sort_order").execute()
-        rows = res.data or []
+        rows = getattr(res, "data", None) or []
         df = pd.DataFrame(rows)
     except Exception:
         return pd.DataFrame(columns=["id", "modality", "kind", "hours", "price_try", "active", "sort_order"])
@@ -3185,7 +3142,6 @@ def load_pricing_items() -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=["id", "modality", "kind", "hours", "price_try", "active", "sort_order"])
 
-    # Ensure expected columns exist
     defaults = {
         "id": None,
         "modality": "",
@@ -3199,27 +3155,39 @@ def load_pricing_items() -> pd.DataFrame:
         if c not in df.columns:
             df[c] = default
 
-    # Normalize
     df["active"] = df["active"].fillna(True).astype(bool)
     df["sort_order"] = pd.to_numeric(df["sort_order"], errors="coerce").fillna(0).astype(int)
-
     df["modality"] = df["modality"].fillna("").astype(str).str.strip().str.lower()
     df["kind"] = df["kind"].fillna("").astype(str).str.strip().str.lower()
-
     df["price_try"] = pd.to_numeric(df["price_try"], errors="coerce").fillna(0).astype(int)
     df["hours"] = pd.to_numeric(df["hours"], errors="coerce")  # keep NaN for hourly
 
     return df
 
-
 def upsert_pricing_item(payload: dict) -> None:
-    """
-    No DB uniqueness restrictions required.
-    Upsert will UPDATE when payload includes id; otherwise INSERT.
-    """
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be a dict")
 
+    table = "pricing_items"
+    item_id = payload.get("id")
+
+    # never send id on insert/update payload
+    clean = {k: v for k, v in payload.items() if k != "id"}
+
+    if item_id is not None and str(item_id).strip() != "":
+        resp = supabase.table(table).update(clean).eq("id", int(item_id)).execute()
+    else:
+        resp = supabase.table(table).insert(clean).execute()
+
+    if getattr(resp, "error", None):
+        raise RuntimeError(resp.error)
 
 def delete_pricing_item(item_id: int) -> None:
+    if item_id is None:
+        return
+    resp = supabase.table("pricing_items").delete().eq("id", int(item_id)).execute()
+    if getattr(resp, "error", None):
+        raise RuntimeError(resp.error)
 
 
 def money_try(x) -> str:
