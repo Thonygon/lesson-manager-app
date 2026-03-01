@@ -1530,29 +1530,44 @@ def get_next_lesson_display() -> str:
 # 03.2) YEAR GOALS (PERSISTENT) — Supabase app_settings
 # =========================
 def _settings_client():
+    # anon client with logged-in session applied via supabase.auth.set_session(...)
     return supabase
 
-def get_year_goal(year: int) -> int:
-    key = f"year_goal_{year}"
+
+def _year_goal_key(year: int, scope: str = "personal") -> str:
+    """
+    scope lets you separate goals if you ever want:
+      - "personal" (default)
+      - "business"
+      - etc
+    """
+    y = int(year)
+    s = str(scope or "personal").strip().casefold()
+    return f"year_goal_{y}_{s}"
+
+
+def get_year_goal(year: int, scope: str = "personal", default: float = 0.0) -> float:
+    key = _year_goal_key(year, scope=scope)
     try:
-        res = supabase.table("app_settings").select("value").eq("key", key).limit(1).execute()
+        res = _settings_client().table("app_settings").select("value").eq("key", key).limit(1).execute()
         rows = getattr(res, "data", None) or []
         if not rows:
-            return 0
-        return int(rows[0].get("value") or 0)
+            return float(default or 0.0)
+        v = rows[0].get("value")
+        # allow "150.000" etc
+        return float(_parse_float_loose(v, default or 0.0))
     except Exception:
-        return 0
+        return float(default or 0.0)
 
 
-def set_year_goal(year: int, value: int) -> bool:
-    key = f"year_goal_{year}"
-    payload = {"key": key, "value": int(value)}
+def set_year_goal(year: int, value: float, scope: str = "personal") -> bool:
+    key = _year_goal_key(year, scope=scope)
+    payload = {"key": key, "value": str(value)}
     try:
-        supabase.table("app_settings").upsert(payload, on_conflict="key").execute()
+        _settings_client().table("app_settings").upsert(payload, on_conflict="key").execute()
         return True
     except Exception:
         return False
-
 # =========================
 # 04) PWA HEAD INJECTION (Base64 icons — works in Streamlit)
 # =========================
