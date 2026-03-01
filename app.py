@@ -771,103 +771,117 @@ except Exception as e:
 
 supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-def _has_admin():
-    return "supabase_admin" in globals() and globals()["supabase_admin"] is not None
+# ============= AUTHENTICATION HELPERS =============#
 
-def _set_auth_session(auth_resp):
+def _has_tokens() -> bool:
+    return bool(st.session_state.get("sb_access_token"))
+
+def _set_auth_session(resp) -> None:
     """
-    Stores session tokens in Streamlit session_state.
-    Works across supabase-py response shapes (object or dict).
+    Robustly store Supabase session tokens + user id into st.session_state
+    Works with supabase-py v1/v2 response shapes.
     """
+    session = None
+    user = None
 
-    if auth_resp is None:
-        raise Exception("Empty auth response from Supabase")
+    # supabase-py v2: resp.session / resp.user
+    if hasattr(resp, "session"):
+        session = resp.session
+    if hasattr(resp, "user"):
+        user = resp.user
 
-    if isinstance(auth_resp, dict):
-        session = auth_resp.get("session") or auth_resp.get("data") or auth_resp
-        user = auth_resp.get("user") or auth_resp.get("data", {}).get("user") if isinstance(auth_resp.get("data"), dict) else None
+    # Sometimes resp is dict-like
+    if session is None and isinstance(resp, dict):
+        session = resp.get("session") or resp.get("data") or resp
+
+    if user is None:
+        # Try multiple places for user
+        if isinstance(resp, dict):
+            user = resp.get("user") or (resp.get("session", {}) if isinstance(resp.get("session"), dict) else None)
+        if user is None and hasattr(session, "user"):
+            user = session.user
+
+    # Extract tokens
+    access_token = None
+    refresh_token = None
+
+    if isinstance(session, dict):
+        access_token = session.get("access_token") or session.get("accessToken")
+        refresh_token = session.get("refresh_token") or session.get("refreshToken")
     else:
-        session = getattr(auth_resp, "session", None) or getattr(auth_resp, "data", None) or auth_resp
-        user = getattr(auth_resp, "user", None) or getattr(getattr(auth_resp, "session", None), "user", None)
-
-    # session can be dict or object
-    access_token = getattr(session, "access_token", None) if not isinstance(session, dict) else session.get("access_token")
-    refresh_token = getattr(session, "refresh_token", None) if not isinstance(session, dict) else session.get("refresh_token")
+        access_token = getattr(session, "access_token", None) or getattr(session, "accessToken", None)
+        refresh_token = getattr(session, "refresh_token", None) or getattr(session, "refreshToken", None)
 
     if not access_token:
-        raise Exception("No access_token returned from Supabase auth")
+        raise Exception("Login succeeded but no access_token was returned (cannot persist session).")
 
-    st.session_state["sb_access_token"] = access_token
-    st.session_state["sb_refresh_token"] = refresh_token
+    st.session_state["sb_access_token"] = str(access_token)
+    st.session_state["sb_refresh_token"] = str(refresh_token or "")
 
+    # Extract user id
     uid = None
-    if user is not None:
-        uid = getattr(user, "id", None) if not isinstance(user, dict) else user.get("id")
-    st.session_state["sb_user_id"] = uid
+    if isinstance(user, dict):
+        uid = user.get("id")
+    else:
+        uid = getattr(user, "id", None)
+
+    # Some shapes store user under session
+    if not uid:
+        if isinstance(session, dict):
+            u2 = session.get("user") if isinstance(session.get("user"), dict) else None
+            uid = (u2 or {}).get("id") if u2 else None
+        else:
+            u2 = getattr(session, "user", None)
+            uid = getattr(u2, "id", None) if u2 else None
+
+    st.session_state["sb_user_id"] = str(uid) if uid else None
+
 
 def _apply_auth_to_client():
     """
-    Ensures the global supabase client uses the logged-in session.
-    This is the key for RLS: requests must include the user's JWT.
+    Make the global supabase client use the stored session (JWT) so RLS works.
     """
     at = st.session_state.get("sb_access_token")
     rt = st.session_state.get("sb_refresh_token")
     if not at:
         return
-
     try:
-        # Preferred if available in your supabase-py version
         supabase.auth.set_session(at, rt)
     except Exception:
-        # Fallback: if set_session isn't available, we can still proceed,
-        # but then you'd need to rebuild a client with auth headers.
+        # If your supabase-py version doesn't support set_session, you can still
+        # proceed, but RLS may fail for reads/writes.
         pass
 
 
 def require_login():
     """
-    Blocks the app unless user is logged in.
+    Blocks the app unless a user is logged in.
     """
-    st.sidebar.title("Account")
-
-    # If already logged in, apply session and show logout
-    if st.session_state.get("sb_access_token"):
+    # If already logged in → apply session and continue
+    if _has_tokens():
         _apply_auth_to_client()
-        uid = st.session_state.get("sb_user_id")
-        st.sidebar.success("Logged in")
-        if uid:
-            st.sidebar.caption(f"User ID: {uid}")
+        return
 
-        if st.sidebar.button("Log out"):
-            # Clears local session; also sign out from Supabase if possible
-            try:
-                supabase.auth.sign_out()
-            except Exception:
-                pass
-            for k in ["sb_access_token", "sb_refresh_token", "sb_user_id"]:
-                st.session_state.pop(k, None)
-            st.rerun()
+    st.title("Log in")
 
-        return  # allow app to continue
-
-    # Not logged in -> show login/signup
     tab_login, tab_signup = st.tabs(["Log in", "Sign up"])
 
     with tab_login:
         email = st.text_input("Email", key="login_email")
         password = st.text_input("Password", type="password", key="login_password")
-        if st.button("Log in"):
+        if st.button("Log in", key="btn_login"):
             try:
                 resp = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 _set_auth_session(resp)
                 _apply_auth_to_client()
+                st.success("Logged in ✅")
                 st.rerun()
             except Exception as e:
                 st.error(f"Login failed: {e}")
 
         with st.expander("Forgot password?"):
             reset_email = st.text_input("Email for reset link", key="reset_email")
-            if st.button("Send reset email"):
+            if st.button("Send reset email", key="btn_reset"):
                 try:
                     supabase.auth.reset_password_for_email(reset_email)
                     st.success("Reset email sent. Check your inbox.")
@@ -877,16 +891,19 @@ def require_login():
     with tab_signup:
         email2 = st.text_input("Email", key="signup_email")
         password2 = st.text_input("Password", type="password", key="signup_password")
-        if st.button("Create account"):
+        if st.button("Create account", key="btn_signup"):
             try:
-                resp = supabase.auth.sign_up({"email": email2, "password": password2})
-                st.success("Account created. If email confirmations are enabled, check your email. Then log in.")
+                supabase.auth.sign_up({"email": email2, "password": password2})
+                st.success("Account created. If confirmations are enabled, check your email, then log in.")
             except Exception as e:
                 st.error(f"Sign up failed: {e}")
 
     st.stop()
 
+
+# Call this once near the top, before rendering pages
 require_login()
+st.caption(f"Session: {st.session_state.get('sb_user_id')} / token? {bool(st.session_state.get('sb_access_token'))}")
 
 # ================== OTHER UI HELPERS ==================#
 
@@ -1009,7 +1026,6 @@ def chart_series(df: pd.DataFrame, index_col: str, value_col: str, index_key: st
     series.index.name = t(index_key)
     series.name = t(value_key)
     return series
-
 
 def dash_chart_series(
     df: pd.DataFrame,
