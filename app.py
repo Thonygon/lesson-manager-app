@@ -427,7 +427,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "welcome": "Bienvenido",
         "alerts": "Alertas",
         "settings": "Ajustes",
-        "home_slogan": "Con tan solo un estudiante puedes empezar",
+        "home_slogan": "Solo un estudiante basta",
         "home_find_students": "Encuentra estudiantes privados",
         "home_menu_title": "Gestiona estudiantes actuales",
         "next": "Siguiente clase",
@@ -1947,34 +1947,45 @@ def load_css_home_dark():
 
           font-weight: 950;
           text-align: center;
-          color: rgba(255,255,255,0.96) !important;
+          color: #ffffff !important;
 
           background:
-          radial-gradient(700px 90px at 20% 20%, rgba(59,130,246,0.18), transparent 60%),
-          radial-gradient(600px 80px at 80% 40%, rgba(16,185,129,0.10), transparent 62%),
-          linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04));
+          linear-gradient(
+          180deg,
+          rgba(255,255,255,0.12),
+          rgba(255,255,255,0.05)
+          );
 
-          border: 1px solid rgba(255,255,255,0.16);
+          border: 1px solid rgba(255,255,255,0.18);
+
           box-shadow:
-          0 18px 34px rgba(0,0,0,0.30),
-          inset 0 1px 0 rgba(255,255,255,0.10);
+          0 18px 34px rgba(0,0,0,0.32),
+          inset 0 1px 0 rgba(255,255,255,0.12);
 
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
+          backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
 
           position: relative;
-          overflow:hidden;
-          box-sizing:border-box;
+          isolation: isolate;
+          overflow: hidden;
 
-          transition: transform 160ms ease, filter 160ms ease, box-shadow 200ms ease;
-        }
-
+          transition: transform 160ms ease,
+          box-shadow 200ms ease;
+       }
         .home-pill::before{
           content:"";
           position:absolute;
-          inset: 0;
-          background: linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.02));
-          opacity: 0.18;
+          inset:-1px;               /* slightly outside = border glow */
+          border-radius: 20px;
+          background: linear-gradient(90deg,
+            rgba(59,130,246,0.10),
+            rgba(96,165,250,0.55),
+            rgba(59,130,246,0.10)
+          );
+          filter: blur(10px);
+          opacity: 0.40;
+          z-index: -1;              /* behind the pill */
+         animation: pillGlow 5.2s ease-in-out infinite;
           pointer-events:none;
         }
 
@@ -1991,7 +2002,7 @@ def load_css_home_dark():
           rgba(59,130,246,0.00),
           rgba(59,130,246,0.65),
           rgba(96,165,250,0.55),
-          gba(59,130,246,0.00)
+          rgba(59,130,246,0.00)
            );
 
           box-shadow:
@@ -2019,14 +2030,39 @@ def load_css_home_dark():
           0 0 26px rgba(59,130,246,0.18);
         }
 
+        .home-pill::before{
+          content:"";
+          position:absolute;
+          inset:-1px;
+          border-radius: 20px;
+
+        background: linear-gradient(
+          90deg,
+          transparent,
+          var(--pill-glow),
+          transparent
+          );
+
+        filter: blur(12px);
+          opacity: 0.45;
+          z-index:-1;
+          animation: pillGlow 5s ease-in-out infinite;
+          pointer-events:none;
+       }
+
         @keyframes pillNeon{
           0%   { transform: translateX(-16%); opacity: 0.45; }
           50%  { transform: translateX(16%);  opacity: 0.75; }
           100% { transform: translateX(-16%); opacity: 0.45; }
         }
+        @keyframes pillGlow{
+          0%   { opacity: 0.25; filter: blur(12px); }
+          50%  { opacity: 0.55; filter: blur(9px); }
+          100% { opacity: 0.25; filter: blur(12px); }
+        }
 
         @media (prefers-reduced-motion: reduce){
-        .home-pill::after{ animation: none; }
+          .home-pill::after{ animation: none; }
         }
 
         /* Bottom indicator */
@@ -2044,6 +2080,18 @@ def load_css_home_dark():
           pointer-events: none;
         }
 
+        .home-dashboard { --pill-glow: rgba(59,130,246,0.75); }   /* blue */
+        .home-students  { --pill-glow: rgba(16,185,129,0.75); }   /* green */
+        .home-add_lesson{ --pill-glow: rgba(245,158,11,0.75); }   /* amber */
+        .home-add_payment{ --pill-glow: rgba(239,68,68,0.75); }   /* red */
+        .home-calendar  { --pill-glow: rgba(6,182,212,0.75); }    /* cyan */
+        .home-analytics { --pill-glow: rgba(168,85,247,0.75); }   /* purple */
+        @keyframes pillGlow{
+         0%   { opacity: 0.30; filter: blur(14px); }
+         50%  { opacity: 0.65; filter: blur(10px); }
+         100% { opacity: 0.30; filter: blur(14px); }
+    }
+
         /* Mobile tightening */
         @media (max-width: 520px){
           .home-card{ padding: 16px 14px 20px 14px; }
@@ -2058,6 +2106,8 @@ def load_css_home_dark():
           padding-left: 1rem !important;
           padding-right: 1rem !important;
         }
+
+
         </style>
         """,
         unsafe_allow_html=True,
@@ -2331,12 +2381,12 @@ if bool(st.session_state.get("compact_mode", False)):
 # 06) NAVIGATION (QUERY PARAM ROUTER)
 # =========================
 PAGES = [
-    ("dashboard", "dashboard", "linear-gradient(90deg,#3B82F6,#2563EB)"),
-    ("students",  "students",  "linear-gradient(90deg,#3B82F6,#2563EB)"),
-    ("add_lesson","lessons",   "linear-gradient(90deg,#3B82F6,#2563EB)"),
-    ("add_payment","payments", "linear-gradient(90deg,#3B82F6,#2563EB)"),
-    ("calendar",  "calendar",  "linear-gradient(90deg,#3B82F6,#2563EB)"),
-    ("analytics", "analytics", "linear-gradient(90deg,#3B82F6,#2563EB)"),
+    ("dashboard", "dashboard", "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.06))"),
+    ("students",  "students",  "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.06))"),
+    ("add_lesson","lessons",   "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.06))"),
+    ("add_payment","payments", "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.06))"),
+    ("calendar",  "calendar",  "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.06))"),
+    ("analytics", "analytics", "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.06))"),
 ]
 PAGE_KEYS = {"home"} | {k for k, _, _ in PAGES}
 
