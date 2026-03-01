@@ -2077,6 +2077,10 @@ def load_css_app_light(compact: bool = False):
           box-shadow: var(--shadow);
         }}
 
+        button, label, .stToggle, .stRadio {{
+        color: #0f172a !important;
+        }}
+
         {compact_css}
         </style>
         """,
@@ -4554,10 +4558,11 @@ def render_home():
         status= t("online"),
         badge= t("today"),
         items=[
+            (t("goal"), money_try(goal_val) if goal_val > 0 else "—"),
             (t("next"), next_lesson),
             (t("students"), str(active_students)),
             (t("yearly_income"), money_try(income_this_year)),
-            (t("goal"), money_try(goal_val) if goal_val > 0 else "—"), 
+             
         ],
         progress=goal_progress,
         accent="#3B82F6",
@@ -6134,6 +6139,7 @@ elif page == "analytics":
             "ytd_income": "YTD income",
             "remaining_to_goal": "Remaining to goal",
             "avg_needed_month": "Avg needed / month",
+            "expected_renewals": "Expected renewals",
 
             "takeaway_concentration": "Your top student contributes {p1} of all income; your top 3 students contribute {p3}.",
             "takeaway_language": "Your strongest language segment is {name} ({share} of language income).",
@@ -6195,6 +6201,7 @@ elif page == "analytics":
             "ytd_income": "Ingresos del año",
             "remaining_to_goal": "Falta para la meta",
             "avg_needed_month": "Promedio necesario / mes",
+            "expected_renewals": "Renovaciones esperadas",
 
             "takeaway_concentration": "Tu mejor estudiante aporta {p1} del ingreso total; tu top 3 aporta {p3}.",
             "takeaway_language": "Tu segmento de idioma más fuerte es {name} ({share} del ingreso por idioma).",
@@ -6867,8 +6874,10 @@ elif page == "analytics":
         with c4:
             st.metric(t_a("effective_rate_unit"), money_fmt(eff_rate))
 
-        st.caption(f"YTD: {money_fmt(ytd_cash)} • Expected renewals: {money_fmt(expected_future)}")
-
+        st.caption(
+            f"{t_a('ytd_income')}: {money_fmt(ytd_cash)} — "
+            f"{t_a('expected_renewals')}: {money_fmt(expected_future)}"
+        ) 
         # -------------------------
         # NEW: Yearly goal (persistent across devices)
         # -------------------------
