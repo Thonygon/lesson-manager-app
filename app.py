@@ -903,9 +903,34 @@ def require_login():
 
 # Call this once near the top, before rendering pages
 require_login()
-st.caption(f"Session: {st.session_state.get('sb_user_id')} / token? {bool(st.session_state.get('sb_access_token'))}")
 
 # ================== OTHER UI HELPERS ==================#
+def nav_pill(label: str, page: str, css_class: str):
+    # Render a pill-looking button
+    st.markdown(
+        f"""
+        <style>
+        div[data-testid="stButton"] > button.{css_class} {{
+            width: 100%;
+            border-radius: 18px;
+            padding: 1.05rem 1.15rem;
+            margin: 0.55rem 0;
+            font-weight: 950;
+            text-align: center;
+            color: #ffffff !important;
+            background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.05));
+            border: 1px solid rgba(255,255,255,0.18);
+            box-shadow: 0 18px 34px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.12);
+            backdrop-filter: blur(14px);
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if st.button(label, key=f"pill_{page}", use_container_width=True):
+        go_to(page)
+        st.rerun()
 
 def to_dt_naive(x, utc: bool = True):
     """
@@ -4762,7 +4787,7 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
     components.html(html, height=height + 70, scrolling=True)
 
 # =========================
-# 15) HOME SCREEN UI (DARK) - upgraded (FIXED + PERSISTENT AVATAR)
+# 15) HOME SCREEN UI (DARK) - upgraded (FIXED + PERSISTENT AVATAR + NO-LOOP NAV)
 # =========================
 def render_home():
     current_lang = st.session_state.get("ui_lang", "en")
@@ -4781,53 +4806,107 @@ def render_home():
     avatar_url = st.session_state.get("avatar_url", "")
     avatar_style = f"background-image:url('{avatar_url}');" if avatar_url else ""
 
+    # ---- helpers (local; safe) ----
+    def _set_panel(p: str | None):
+        # keep page+lang, toggle panel
+        try:
+            if p is None or p == "":
+                # remove panel
+                try:
+                    del st.query_params["panel"]
+                except Exception:
+                    st.experimental_set_query_params(page="home", lang=current_lang)
+                return
+            st.query_params["page"] = "home"
+            st.query_params["lang"] = current_lang
+            st.query_params["panel"] = p
+        except Exception:
+            # old streamlit fallback: keep it simple
+            st.experimental_set_query_params(page="home", lang=current_lang, panel=p or "")
+
+    def _go_lang(lang: str):
+        st.session_state.ui_lang = lang
+        _set_query(page="home", lang=lang)
+        st.rerun()
+
     # --- Top bar (welcome + icons + language) ---
+    # IMPORTANT: no internal <a href="?page=..."> links (avoid auth loop)
     st.markdown(
-        f"""<div class="home-topbar">
-<div class="home-user">
-  <a class="home-avatar-wrap"
-     href="?page=home&lang={current_lang}&panel=photo"
-     target="_self"
-     rel="noopener noreferrer"
-     title="Change photo">
-    <div class="home-avatar" style="{avatar_style}"></div>
-    <div class="home-avatar-badge">📷</div>
-  </a>
+        f"""
+<div class="home-topbar">
+  <div class="home-user">
+    <div class="home-avatar-wrap" title="Change photo">
+      <div class="home-avatar" style="{avatar_style}"></div>
+      <div class="home-avatar-badge">📷</div>
+    </div>
 
-  <div class="home-usertext">
-    <div class="home-welcome">{t('welcome').strip()},</div>
-    <div class="home-username">{user_name}</div>
+    <div class="home-usertext">
+      <div class="home-welcome">{t('welcome').strip()},</div>
+      <div class="home-username">{user_name}</div>
+    </div>
+  </div>
+
+  <div class="home-actions">
+    <div class="home-iconbtn" title="{t('alerts')}">
+      <span class="home-ico">🔔</span>
+      {f'<span class="home-badge">{alerts_count}</span>' if alerts_count > 0 else ''}
+    </div>
+
+    <div class="home-lang">
+      <div class="home-langbtn {('on' if current_lang=='en' else '')}">EN</div>
+      <div class="home-langbtn {('on' if current_lang=='es' else '')}">ES</div>
+    </div>
   </div>
 </div>
+""",
+        unsafe_allow_html=True,
+    )
 
-<div class="home-actions">
-  <a class="home-iconbtn"
-     href="?page=home&lang={current_lang}&panel=alerts"
-     target="_self"
-     rel="noopener noreferrer"
-     title="{t('alerts')}">
-    <span class="home-ico">🔔</span>
-    {f'<span class="home-badge">{alerts_count}</span>' if alerts_count > 0 else ''}
-  </a>
-  <div class="home-lang">
-    <a class="home-langbtn {('on' if current_lang=='en' else '')}"
-       href="?page=home&lang=en"
-       target="_self"
-       rel="noopener noreferrer">EN</a>
-    <a class="home-langbtn {('on' if current_lang=='es' else '')}"
-       href="?page=home&lang=es"
-       target="_self"
-       rel="noopener noreferrer">ES</a>
-  </div>
-</div>
-</div>""",
+    # --- Click handlers for top bar (Streamlit-native buttons layered right under the HTML) ---
+    # We use tiny invisible buttons aligned with the top bar actions.
+    # This keeps UI the same but avoids query-link reload loops.
+
+    # Avatar click / Alerts click / Language click
+    cA, cB, cC, cD = st.columns([1.2, 1.0, 0.6, 0.6])
+    with cA:
+        if st.button(" ", key="home_avatar_click", help="Change photo"):
+            _set_panel("photo")
+            st.rerun()
+    with cB:
+        if st.button(" ", key="home_alerts_click", help=t("alerts")):
+            _set_panel("alerts")
+            st.rerun()
+    with cC:
+        if st.button("EN", key="home_lang_en"):
+            _go_lang("en")
+    with cD:
+        if st.button("ES", key="home_lang_es"):
+            _go_lang("es")
+
+    # Make those buttons visually disappear (but clickable)
+    st.markdown(
+        """
+<style>
+/* Hide helper buttons row visuals */
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button{
+  height: 0px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+</style>
+""",
         unsafe_allow_html=True,
     )
 
     # --- Avatar upload dialog/panel (opens ONLY when clicking avatar) ---
     if panel == "photo":
         # ✅ Clear panel immediately so refresh does NOT reopen the dialog
-        _clear_qp("panel")
+        try:
+            del st.query_params["panel"]
+        except Exception:
+            _clear_qp("panel")
 
         try:
             @st.dialog("Update profile photo")
@@ -4863,14 +4942,13 @@ def render_home():
             _photo_dialog()
 
         except Exception:
-            # Fallback if st.dialog isn't available in your Streamlit version
+            # Fallback if st.dialog isn't available
             st.markdown("#### Update profile photo")
             up = st.file_uploader(
                 "Choose a photo",
                 type=["png", "jpg", "jpeg", "webp"],
                 label_visibility="collapsed",
             )
-
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("Close"):
@@ -4885,6 +4963,16 @@ def render_home():
                     except Exception as e:
                         st.error(f"Upload failed: {e}")
 
+    if panel == "alerts":
+        # Clear panel so it doesn't keep reopening
+        try:
+            del st.query_params["panel"]
+        except Exception:
+            _clear_qp("panel")
+
+        st.markdown(f"### {t('alerts')}")
+        st.caption(t("no_data"))
+
     # ---- REAL values ----
     dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
 
@@ -4896,10 +4984,7 @@ def render_home():
         active_students = int(active_mask.sum())
 
         lessons_left_total = int(
-            pd.to_numeric(
-                dash.loc[active_mask, "Lessons_Left_Units"],
-                errors="coerce"
-            ).fillna(0).sum()
+            pd.to_numeric(dash.loc[active_mask, "Lessons_Left_Units"], errors="coerce").fillna(0).sum()
         )
 
     # Next lesson
@@ -4920,8 +5005,8 @@ def render_home():
 
     # ---- Render the indicator ----
     render_home_indicator(
-        status= t("online"),
-        badge= t("today"),
+        status=t("online"),
+        badge=t("today"),
         items=[
             (t("goal"), money_try(goal_val) if goal_val > 0 else "—"),
             (t("ytd_income"), money_try(income_this_year)),
@@ -4946,63 +5031,108 @@ def render_home():
 
     # --- Lead sources row (external links) ---
     st.markdown(
-    f"""
-    <div class="home-links">
+        f"""
+<div class="home-links">
+  <div class="home-links-title">
+    {t("home_find_students")}
+  </div>
 
-      <div class="home-links-title">
-        {t("home_find_students")}
-      </div>
-
-      <div class="home-links-row">
-        <a class="home-linkchip" href="https://www.armut.com" target="_blank" rel="noopener noreferrer">
-          <span class="dot"></span> Armut
-        </a>
-        <a class="home-linkchip" href="https://www.apprentus.com" target="_blank" rel="noopener noreferrer">
-          <span class="dot"></span> Apprentus
-        </a>
-        <a class="home-linkchip" href="https://www.superprof.com" target="_blank" rel="noopener noreferrer">
-          <span class="dot"></span> Superprof
-        </a>
-        <a class="home-linkchip" href="https://www.ozelders.com" target="_blank" rel="noopener noreferrer">
-          <span class="dot"></span> ÖzelDers
-        </a>
-        <a class="home-linkchip" href="https://preply.com" target="_blank" rel="noopener noreferrer">
-          <span class="dot"></span> Preply
-        </a>
-        <a class="home-linkchip" href="https://www.italki.com" target="_blank" rel="noopener noreferrer">
-          <span class="dot"></span> italki
-        </a>
-      </div>
-
-    </div>
-    """,
+  <div class="home-links-row">
+    <a class="home-linkchip" href="https://www.armut.com" target="_blank" rel="noopener noreferrer">
+      <span class="dot"></span> Armut
+    </a>
+    <a class="home-linkchip" href="https://www.apprentus.com" target="_blank" rel="noopener noreferrer">
+      <span class="dot"></span> Apprentus
+    </a>
+    <a class="home-linkchip" href="https://www.superprof.com" target="_blank" rel="noopener noreferrer">
+      <span class="dot"></span> Superprof
+    </a>
+    <a class="home-linkchip" href="https://www.ozelders.com" target="_blank" rel="noopener noreferrer">
+      <span class="dot"></span> ÖzelDers
+    </a>
+    <a class="home-linkchip" href="https://preply.com" target="_blank" rel="noopener noreferrer">
+      <span class="dot"></span> Preply
+    </a>
+    <a class="home-linkchip" href="https://www.italki.com" target="_blank" rel="noopener noreferrer">
+      <span class="dot"></span> italki
+    </a>
+  </div>
+</div>
+""",
         unsafe_allow_html=True,
     )
 
     # --- Section title between links and menu capsules ---
     st.markdown(
         f"""
-    <div class="home-links-title home-section-divider">
-      {t("home_menu_title")}
-    </div>
-    """,
+<div class="home-links-title home-section-divider">
+  {t("home_menu_title")}
+</div>
+""",
         unsafe_allow_html=True,
     )
 
-    # --- Capsule menu (your existing PAGES loop) ---
+    # --- Capsule menu (NO <a href> -> avoids auth loop) ---
+    st.markdown(
+        """
+<style>
+/* Make ONLY these pill buttons look like .home-pill */
+.home-pill-btn div[data-testid="stButton"] > button{
+  display:block !important;
+  width: 100% !important;
+  border-radius: 18px !important;
+  padding: 1.05rem 1.15rem !important;
+  margin: 0.95rem 0 !important;
+
+  font-weight: 950 !important;
+  text-align: center !important;
+
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+
+  border: 1px solid rgba(255,255,255,0.18) !important;
+
+  box-shadow:
+    0 18px 34px rgba(0,0,0,0.32),
+    inset 0 1px 0 rgba(255,255,255,0.12) !important;
+
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+
+  transition: transform 160ms ease, box-shadow 200ms ease !important;
+}
+.home-pill-btn div[data-testid="stButton"] > button:hover{
+  transform: translateY(-2px) !important;
+  filter: brightness(1.06) !important;
+}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+
     for key, label_key, grad in PAGES:
+        st.markdown(f'<div class="home-pill-btn home-{key}">', unsafe_allow_html=True)
+
+        if st.button(t(label_key), key=f"home_pill_{key}", use_container_width=True):
+            go_to(key)  # sets st.session_state.page + query params
+            st.rerun()
+
+        # apply gradient to the button (per pill)
         st.markdown(
-            f"""<a class="home-pill home-{key}"
-href="?page={key}&lang={current_lang}"
-target="_self"
-rel="noopener noreferrer"
-style="background:{grad};">{t(label_key)}</a>""",
+            f"""
+<style>
+div.home-{key} div[data-testid="stButton"] > button {{
+  background: {grad} !important;
+}}
+</style>
+""",
             unsafe_allow_html=True,
         )
 
+        st.markdown("</div>", unsafe_allow_html=True)
+
     st.markdown("<div class='home-bottom-indicator'></div>", unsafe_allow_html=True)
     st.markdown("</div></div>", unsafe_allow_html=True)
-
 
 # =========================
 # 16) APP ENTRYPOINT (ROUTER + THEME SWITCH + TOP NAV)
@@ -5023,156 +5153,171 @@ def render_top_nav(active_page: str):
         ("analytics",   t("analytics"), "📈"),
     ]
 
-    links_html = ""
-    for key, label, icon in items:
-        active_cls = "active" if key == active_page else ""
-        links_html += (
-            f'<a class="cm-nav-item {active_cls}" '
-            f'href="?page={key}&lang={current_lang}" target="_self">'
-            f'<span class="cm-nav-ico">{icon}</span>'
-            f'<span class="cm-nav-lab">{label}</span>'
-            f"</a>"
-        )
-
-    en_on = "on" if current_lang == "en" else ""
-    es_on = "on" if current_lang == "es" else ""
-    lang_buttons = (
-        f'<a class="cm-lang-btn {en_on}" href="?page={active_page}&lang=en" target="_self">EN</a>'
-        f'<a class="cm-lang-btn {es_on}" href="?page={active_page}&lang=es" target="_self">ES</a>'
-    )
-
+    # --- CSS only (no <a href> links) ---
     st.markdown(
-        f"""
+        """
 <style>
 
 /* ================= FIXED TOP NAV ================= */
 
-.cm-topnav {{
- position: fixed;
- top: 0px;
- left: 0%;
- width: 100vw;
- z-index: 99999;
+.cm-topnav {
+  position: fixed;
+  top: 0px;
+  left: 0%;
+  width: 100vw;
+  z-index: 99999;
 
- /* 💎 Blue glass */
- background:
- linear-gradient(180deg,rgba(37,99,235,0.22), rgba(37,99,235,0.12));   
- backdrop-filter: blur(14px);
- -webkit-backdrop-filter: blur(14px);
- border-bottom: 0.8px solid rgba(59,130,246,0.25);
- box-shadow: 0 8px 24px rgba(37,99,235,0.18), 0 0 40px rgba(59,130,246,0.08);
- padding: 10px 12px;
-}}
+  /* 💎 Blue glass */
+  background:
+    linear-gradient(180deg,rgba(37,99,235,0.22), rgba(37,99,235,0.12));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 0.8px solid rgba(59,130,246,0.25);
+  box-shadow: 0 8px 24px rgba(37,99,235,0.18), 0 0 40px rgba(59,130,246,0.08);
+  padding: 10px 12px;
+}
 
-/* Spacer to prevent overlap */
-.cm-topnav-spacer {{
-  height: 20px;
-}}
+/* Spacer to prevent overlap (match nav height) */
+.cm-topnav-spacer { height: 76px; }
 
-/* Layout */
-.cm-topnav-row {{
+.cm-topnav-row {
   display:flex;
   align-items:center;
   justify-content:space-between;
   gap:12px;
-}}
+}
 
-.cm-nav-scroll {{
+/* Left side scroll area */
+.cm-nav-scroll {
   display:flex;
   gap:10px;
   align-items:center;
   overflow-x:auto;
   -webkit-overflow-scrolling: touch;
   padding-bottom: 2px;
-}}
+}
+.cm-nav-scroll::-webkit-scrollbar { display:none; }
 
-.cm-nav-scroll::-webkit-scrollbar {{
-  display:none;
-}}
+/* Streamlit buttons inside nav */
+.cm-topnav .stButton > button {
+  display:inline-flex !important;
+  align-items:center !important;
+  gap:8px !important;
+  padding: 10px 12px !important;
+  border-radius: 999px !important;
+  border: 1px solid rgba(17,24,39,0.10) !important;
+  background: rgba(255,255,255,0.65) !important;
+  backdrop-filter: blur(6px) !important;
 
-.cm-nav-item {{
-  display:inline-flex;
-  align-items:center;
-  gap:8px;
-  padding: 10px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(17,24,39,0.10);
-  background: rgba(255,255,255,0.65);
-  backdrop-filter: blur(6px);
   color:#0f172a !important;
-  text-decoration:none !important;
-  font-weight:700;
-  white-space:nowrap;
-  transition: transform 140ms ease,
-              box-shadow 140ms ease,
-              border-color 140ms ease;
-}}
+  -webkit-text-fill-color:#0f172a !important;
 
-.cm-nav-item:hover {{
-  transform: translateY(-1px);
-  box-shadow: 0 0 0 4px rgba(59,130,246,0.10);
-  border-color: rgba(59,130,246,0.35);
-}}
+  font-weight: 800 !important;
+  white-space: nowrap !important;
 
-.cm-nav-item.active {{
-  border: 2px solid rgba(37,99,235,0.85);
-  box-shadow: 0 0 0 4px rgba(37,99,235,0.10);
-}}
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease !important;
+}
 
-.cm-nav-ico {{
-  font-size:16px;
-  line-height:1;
-}}
+.cm-topnav .stButton > button:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 0 0 4px rgba(59,130,246,0.10) !important;
+  border-color: rgba(59,130,246,0.35) !important;
+}
 
-.cm-nav-lab {{
-  font-size:14px;
-  line-height:1;
-}}
+/* Active look */
+.cm-topnav .cm-nav-active .stButton > button {
+  border: 2px solid rgba(37,99,235,0.85) !important;
+  box-shadow: 0 0 0 4px rgba(37,99,235,0.10) !important;
+}
 
-.cm-lang {{
+/* Language pill container */
+.cm-lang {
   display:flex;
   gap:8px;
   align-items:center;
-}}
+}
 
-.cm-lang-btn {{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  width:44px;
-  height:44px;
-  border-radius:999px;
-  border:1px solid rgba(17,24,39,0.12);
-  background: rgba(255,255,255,0.85);
-  color:#0f172a !important;
-  text-decoration:none !important;
-  font-weight:800;
-}}
+/* Make lang buttons same capsule style and fixed size */
+.cm-topnav .cm-lang .stButton > button {
+  width:44px !important;
+  height:44px !important;
+  padding: 0 !important;
+  justify-content:center !important;
+  font-weight: 900 !important;
+  background: rgba(255,255,255,0.85) !important;
+}
 
-.cm-lang-btn.on {{
-  border:2px solid rgba(37,99,235,0.85);
-  box-shadow: 0 0 0 4px rgba(37,99,235,0.10);
-}}
+/* Active lang look */
+.cm-topnav .cm-lang-active .stButton > button {
+  border: 2px solid rgba(37,99,235,0.85) !important;
+  box-shadow: 0 0 0 4px rgba(37,99,235,0.10) !important;
+}
 
-@media (max-width: 720px) {{
-  .cm-nav-lab {{
-    display:none;
-  }}
-}}
+/* Hide labels on small screens (we’ll still show emoji) */
+@media (max-width: 720px) {
+  .cm-hide-mobile { display:none !important; }
+}
 
 </style>
-
-<div class="cm-topnav">
-  <div class="cm-topnav-row">
-    <div class="cm-nav-scroll">{links_html}</div>
-    <div class="cm-lang">{lang_buttons}</div>
-  </div>
-</div>
-
-<div class="cm-topnav-spacer"></div>
-""",
+        """,
         unsafe_allow_html=True,
     )
+
+    # --- Render nav (Streamlit-native; no href) ---
+    st.markdown('<div class="cm-topnav">', unsafe_allow_html=True)
+    left, right = st.columns([8, 2], vertical_alignment="center")
+
+    with left:
+        st.markdown('<div class="cm-nav-scroll">', unsafe_allow_html=True)
+
+        # Use columns so buttons sit on one row; still scrollable via the container
+        cols = st.columns(len(items))
+        for col, (key, label, icon) in zip(cols, items):
+            with col:
+                is_active = (key == active_page)
+                wrapper_cls = "cm-nav-active" if is_active else ""
+                st.markdown(f'<div class="{wrapper_cls}">', unsafe_allow_html=True)
+
+                # Emoji always shown; label hidden on mobile using span class
+                btn_text = f"{icon} {label}"
+
+                if st.button(btn_text, key=f"nav_{key}", use_container_width=True):
+                    go_to(key)          # sets st.session_state.page + query params
+                    st.rerun()
+
+                st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with right:
+        st.markdown('<div class="cm-lang">', unsafe_allow_html=True)
+
+        en_active = (current_lang == "en")
+        es_active = (current_lang == "es")
+
+        c_en, c_es = st.columns(2)
+        with c_en:
+            cls = "cm-lang-active" if en_active else ""
+            st.markdown(f'<div class="{cls}">', unsafe_allow_html=True)
+            if st.button("EN", key="lang_en", use_container_width=True):
+                st.session_state.ui_lang = "en"
+                _set_query(page=active_page, lang="en")
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with c_es:
+            cls = "cm-lang-active" if es_active else ""
+            st.markdown(f'<div class="{cls}">', unsafe_allow_html=True)
+            if st.button("ES", key="lang_es", use_container_width=True):
+                st.session_state.ui_lang = "es"
+                _set_query(page=active_page, lang="es")
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown('<div class="cm-topnav-spacer"></div>', unsafe_allow_html=True)
 
 
 # ---------- ROUTER + THEME ----------
@@ -5181,16 +5326,14 @@ page = st.session_state.page
 if page == "home":
     load_css_home_dark()
 else:
-    load_css_app_light(
-        compact=bool(st.session_state.get("compact_mode", False))
-    )
+    load_css_app_light(compact=bool(st.session_state.get("compact_mode", False)))
 
 students = load_students()
 
 if page == "home":
     render_home()
     st.stop()
-    
+
 render_top_nav(page)
 
 # =========================
