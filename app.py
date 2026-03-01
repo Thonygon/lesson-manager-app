@@ -1998,6 +1998,10 @@ def load_css_app_light(compact: bool = False):
           --muted:#475569;
           --shadow:0 10px 26px rgba(15,23,42,0.08);
         }}
+        input, button, select, textarea {{
+          appearance: none !important;
+          -webkit-appearance: none !important;
+        }}
 
         /* Prevent iOS/system dark-mode from creating odd horizontal bars */
         html, body {{ overflow-x: hidden !important; }}
@@ -2111,42 +2115,50 @@ def load_css_app_light(compact: bool = False):
           box-shadow: var(--shadow) !important;
         }}
 
-        /* ============================
-        FIX: iPhone Dark Mode makes st.toggle invisible
-        Streamlit toggle = BaseWeb checkbox
-        ============================ */
+        /* =========================
+           BLUE TOGGLES (OFF light / ON dark)
+           ========================= */
 
-          /* Make the label always visible */
-        div[data-baseweb="checkbox"] label,
-        div[data-baseweb="checkbox"] label span,
-        div[data-baseweb="checkbox"] label p,
-        div[data-baseweb="checkbox"] label div{{
-          color: #0f172a !important;
-          -webkit-text-fill-color: #0f172a !important;
-        }}
-
-        /* The clickable checkbox/toggle container */
+        /* Toggle track (OFF) */
         div[data-baseweb="checkbox"] [role="checkbox"]{{
-          background: #ffffff !important;
-          border: 1px solid rgba(17,24,39,0.22) !important;
+          width: 42px;
+          height: 24px;
+          border-radius: 12px;   /* more capsule, less pill */
+          background: #BFDBFE !important; /* Light Blue */
+          border: 1px solid #93C5FD !important;
+          position: relative;
+          transition: all 180ms ease;
         }}
 
-        /* The “checked” state background (make it visible) */
+        /* Toggle track (ON) */
         div[data-baseweb="checkbox"] [role="checkbox"][aria-checked="true"]{{
-          background: rgba(37,99,235,0.20) !important;
-          border-color: rgba(37,99,235,0.55) !important;
+          background: #1D4ED8 !important; /* Dark Blue */
+          border-color: #1D4ED8 !important;
         }}
 
-        /* The checkmark / icon inside */
-        div[data-baseweb="checkbox"] svg,
-        div[data-baseweb="checkbox"] svg path{{
-          fill: #2563EB !important;
+        /* White knob */
+        div[data-baseweb="checkbox"] [role="checkbox"]::after{{
+          content: "";
+          position: absolute;
+          width: 18px;
+          height: 18px;
+          top: 2px;
+          left: 2px;
+          background: #ffffff;
+          border-radius: 8px;
+          transition: transform 180ms ease;
         }}
-
-        /* Sometimes Streamlit uses pseudo elements; keep them visible */
-        div[data-baseweb="checkbox"] [role="checkbox"] *{{
-          color: #0f172a !important;
-          -webkit-text-fill-color: #0f172a !important;
+        
+        /* Move knob when ON */
+        div[data-baseweb="checkbox"] [role="checkbox"][aria-checked="true"]::after{{
+          transform: translateX(18px);
+        }}
+        
+        /* Label always visible */
+        div[data-baseweb="checkbox"] label,
+        div[data-baseweb="checkbox"] label *{{
+          color: var(--text) !important;
+          -webkit-text-fill-color: var(--text) !important;
         }}
 
         {compact_css}
