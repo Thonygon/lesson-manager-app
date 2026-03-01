@@ -16,9 +16,6 @@
 # =========================
 import streamlit as st
 import pandas as pd
-from supabase import create_client
-from datetime import datetime, date, timedelta, timezone
-from typing import List, Tuple, Optional, Dict
 import math
 import json
 import re
@@ -29,6 +26,9 @@ import plotly.express as px
 import uuid
 import streamlit.components.v1 as components
 from zoneinfo import ZoneInfo
+from supabase import create_client
+from datetime import datetime, date, timedelta, timezone
+from typing import List, Tuple, Optional, Dict
 
 LOCAL_TZ = ZoneInfo("Europe/Istanbul")
 UTC_TZ = timezone.utc
@@ -124,6 +124,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "find_private_students": "Find private students",
         "home_find_students": "Find private students",
         "home_menu_title": "Manage current students",
+        "next": "Next lesson",
+        "goal": "Meta",
+        "completed": "Completed",
 
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -215,6 +218,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "open_link": "Join lesson",
         "mark_done": "Mark as done",
         "no_events_today": "No events for today. Take a cup of coffee ☕.",
+        "online": "Online",
 
         # -------------------------
         # STUDENTS PAGE
@@ -425,6 +429,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "home_slogan": "Con tan solo un estudiante puedes empezar",
         "home_find_students": "Encuentra estudiantes privados",
         "home_menu_title": "Gestiona estudiantes actuales",
+        "next": "Siguiente clase",
+        "goal": "Meta",
+        "completed": "Completado",
 
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -516,6 +523,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "open_link": "Conectate",
         "mark_done": "Marcar como hecha",
         "no_events_today": "No hay eventos hoy. Toma una taza de café ☕.",
+        "online": "En línea",
 
         # -------------------------
         # STUDENTS PAGE
@@ -759,19 +767,18 @@ def to_dt_naive(x, utc: bool = True):
     # Series path
     if isinstance(s, pd.Series):
         try:
-            # tz-aware series -> drop tz
-            return s.dt.tz_convert(None)
+            return s.dt.tz_convert(None)  # tz-aware -> drop tz
         except Exception:
-            # already tz-naive or not datetimelike
-            return s
+            return s  # already tz-naive or not datetimelike
 
-    # Scalar path (Timestamp/NaT)
+    # Scalar path
     try:
         if getattr(s, "tzinfo", None) is not None:
             return s.tz_convert(None)
         return s
     except Exception:
         return s
+
 
 def ts_today_naive() -> pd.Timestamp:
     # Always tz-naive "today" at midnight
@@ -802,12 +809,10 @@ def translate_df_headers(df: pd.DataFrame) -> pd.DataFrame:
 
     def norm_key(col: str) -> str:
         k = str(col or "").strip()
-
-        # normalize common display variants
         k = k.replace("-", " ").replace("/", " ")
         k = re.sub(r"\s+", " ", k)
 
-        # "Payment ID" / "Payment Id" -> "payment_id"
+        # normalize common display variants
         k = k.replace(" ID", " Id")
         k = k.replace("Id", "ID")
         k = k.replace("ID", " id ")
@@ -839,9 +844,7 @@ def translate_df(df: pd.DataFrame) -> pd.DataFrame:
     # values
     for status_col in [t("status"), "Status", "status"]:
         if status_col in cols:
-            out[status_col] = (
-                out[status_col].astype(str).str.strip().str.casefold().apply(translate_status)
-            )
+            out[status_col] = out[status_col].astype(str).str.strip().str.casefold().apply(translate_status)
 
     for mod_col in [t("modality"), "Modality", "modality"]:
         if mod_col in cols:
@@ -852,6 +855,7 @@ def translate_df(df: pd.DataFrame) -> pd.DataFrame:
             out[lang_col] = out[lang_col].astype(str).apply(translate_language_value)
 
     return out
+
 
 def chart_series(df: pd.DataFrame, index_col: str, value_col: str, index_key: str, value_key: str):
     """
@@ -869,6 +873,7 @@ def chart_series(df: pd.DataFrame, index_col: str, value_col: str, index_key: st
     series.index.name = t(index_key)
     series.name = t(value_key)
     return series
+
 
 def dash_chart_series(
     df: pd.DataFrame,
@@ -891,7 +896,6 @@ def dash_chart_series(
     if tmp.empty:
         return None
 
-    # Count students per category
     s = tmp.groupby(group_col).size().sort_values(ascending=False)
 
     # Translate index values when needed
@@ -902,11 +906,198 @@ def dash_chart_series(
     elif group_col.casefold() == "languages":
         s.index = [translate_language_value(x) for x in s.index.astype(str)]
 
-    # Translate axis/series labels
-    s.index.name = t(group_key_for_label)          # e.g. t("status") / t("modality") / t("languages")
-    s.name = t(value_key_for_label)                # e.g. t("students")
-
+    s.index.name = t(group_key_for_label)
+    s.name = t(value_key_for_label)
     return s
+
+
+# =========================
+# 03.1) APP SETTINGS (GOALS) HELPERS — upgraded
+# =========================
+def _guess_user_id() -> str:
+    for k in ("user_id", "uid", "owner_id"):
+        v = st.session_state.get(k, None)
+        if v:
+            return str(v).strip()
+    return "default"
+
+
+def _first_col(df: pd.DataFrame, candidates) -> str | None:
+    if df is None or df.empty:
+        return None
+    norm = {str(c).strip().casefold(): c for c in df.columns}
+    for cand in candidates:
+        k = str(cand).strip().casefold()
+        if k in norm:
+            return norm[k]
+    return None
+
+
+def _parse_float_loose(v, default=0.0) -> float:
+    """
+    Parses numbers from: 150000, 150.000, 150,000, '150000 TL', Decimal, etc.
+    """
+    try:
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return float(default)
+        if isinstance(v, (int, float)):
+            return float(v)
+        s = str(v).strip()
+        if s == "":
+            return float(default)
+
+        # remove currency/text
+        s = re.sub(r"[^\d,.\-]", "", s)
+
+        # handle "150.000" as 150000 (common in TR) if no comma decimals pattern
+        # Strategy:
+        # - If both ',' and '.' exist -> assume thousand separators, remove both then parse
+        # - If only '.' exists and it's like 150.000 -> treat as thousands separator -> remove dots
+        # - If only ',' exists -> could be decimal OR thousands; for goals usually thousands -> remove commas
+        if "," in s and "." in s:
+            s = s.replace(".", "").replace(",", "")
+        elif "." in s:
+            # if dot groups of 3 at end -> thousands
+            if re.fullmatch(r"-?\d{1,3}(\.\d{3})+", s):
+                s = s.replace(".", "")
+        elif "," in s:
+            if re.fullmatch(r"-?\d{1,3}(,\d{3})+", s):
+                s = s.replace(",", "")
+            else:
+                # could be decimal comma, convert to dot
+                s = s.replace(",", ".")
+
+        return float(s)
+    except Exception:
+        return float(default)
+
+
+def load_app_setting(key: str, default=None, key_fallbacks: list[str] | None = None):
+    """
+    Reads setting from `app_settings`.
+    Supports schema:
+      - (key, value)
+      - (user_id, key, value)
+    Also supports flexible column names.
+    """
+    try:
+        df = load_table("app_settings")
+    except Exception:
+        return default
+
+    if df is None or df.empty:
+        return default
+
+    key_col = _first_col(df, ["key", "setting_key", "name"])
+    val_col = _first_col(df, ["value", "setting_value", "val"])
+    uid_col = _first_col(df, ["user_id", "uid", "owner_id"])
+
+    if not key_col or not val_col:
+        return default
+
+    keys_to_try = [str(key).strip()]
+    if key_fallbacks:
+        keys_to_try += [str(k).strip() for k in key_fallbacks if str(k).strip()]
+
+    tmp = df.copy()
+    tmp[key_col] = tmp[key_col].astype(str).str.strip()
+
+    # Prefer user-specific row if available; fallback to any if none found
+    if uid_col:
+        uid = _guess_user_id()
+        tmp[uid_col] = tmp[uid_col].astype(str).str.strip()
+
+        user_rows = tmp[(tmp[uid_col] == uid) & (tmp[key_col].isin(keys_to_try))]
+        if not user_rows.empty:
+            v = user_rows.iloc[0][val_col]
+            return _parse_float_loose(v, default) if isinstance(default, (int, float)) else v
+
+        any_rows = tmp[tmp[key_col].isin(keys_to_try)]
+        if any_rows.empty:
+            return default
+        v = any_rows.iloc[0][val_col]
+        return _parse_float_loose(v, default) if isinstance(default, (int, float)) else v
+
+    # no uid column
+    rows = tmp[tmp[key_col].isin(keys_to_try)]
+    if rows.empty:
+        return default
+    v = rows.iloc[0][val_col]
+    return _parse_float_loose(v, default) if isinstance(default, (int, float)) else v
+
+
+def save_app_setting(key: str, value, key_fallbacks: list[str] | None = None) -> bool:
+    """
+    Upsert setting into `app_settings`.
+    If table has user_id, writes under current user.
+    """
+    try:
+        df = load_table("app_settings")
+    except Exception:
+        df = pd.DataFrame()
+
+    uid_col = _first_col(df, ["user_id", "uid", "owner_id"]) if (df is not None and not df.empty) else None
+    key_col = _first_col(df, ["key", "setting_key", "name"]) or "key"
+    val_col = _first_col(df, ["value", "setting_value", "val"]) or "value"
+
+    payload = {key_col: str(key).strip(), val_col: value}
+    on_conflict = key_col
+
+    if uid_col:
+        payload[uid_col] = _guess_user_id()
+        on_conflict = f"{uid_col},{key_col}"
+
+    client = supabase_admin if ("supabase_admin" in globals() and supabase_admin is not None) else supabase
+
+    try:
+        client.table("app_settings").upsert(payload, on_conflict=on_conflict).execute()
+        # if you use @st.cache_data anywhere, this forces fresh reads
+        try:
+            st.cache_data.clear()
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def get_year_goal_progress_snapshot(year: int | None = None, goal_key: str = "yearly_income_goal") -> dict:
+    today = ts_today_naive()
+    yr = int(year or today.year)
+
+    goal = load_app_setting(
+        goal_key,
+        default=0.0,
+        key_fallbacks=["annual_income_goal", "year_income_goal", "income_goal_year"],
+    )
+    goal = _parse_float_loose(goal, 0.0)
+
+    # YTD income from payments
+    ytd = 0.0
+    try:
+        p = load_table("payments")
+        if p is not None and not p.empty:
+            if "payment_date" not in p.columns:
+                p["payment_date"] = None
+            if "paid_amount" not in p.columns:
+                p["paid_amount"] = 0.0
+
+            p = p.copy()
+            p["payment_date"] = to_dt_naive(p["payment_date"], utc=True)
+            p["paid_amount"] = pd.to_numeric(p["paid_amount"], errors="coerce").fillna(0.0).astype(float)
+            p = p.dropna(subset=["payment_date"])
+            p = p[p["payment_date"].dt.year == yr]
+            ytd = float(p["paid_amount"].sum())
+    except Exception:
+        ytd = 0.0
+
+    progress = 0.0
+    if goal > 0:
+        progress = max(0.0, min(1.0, ytd / goal))
+
+    remaining = max(0.0, goal - ytd)
+
+    return {"year": yr, "goal": float(goal), "ytd_income": float(ytd), "progress": float(progress), "remaining": float(remaining)}
 
 def upload_avatar_to_supabase(file, user_id: str) -> str:
     if file is None:
@@ -927,6 +1118,359 @@ def upload_avatar_to_supabase(file, user_id: str) -> str:
 
     # If bucket is public:
     return supabase_admin.storage.from_("avatars").get_public_url(object_path)
+
+
+def render_home_indicator(
+    status: str = t("online"),
+    badge: str = t("today"),
+    items=None,                     # list[tuple[str,str]]
+    progress: float | None = None,  # 0..1
+    accent: str = "#3B82F6",
+    progress_label: str | None = None,  # e.g. "completed" / t("completed")
+):
+    if items is None:
+        items = [
+            ("Lessons", "0"),
+            ("Income", "₺0"),
+            ("Msgs", "0"),
+            ("Next", "no_events"),
+        ]
+
+    if progress_label is None:
+        progress_label = t("completed")
+
+    # progress percent
+    pct = None
+    if progress is not None:
+        try:
+            pct = int(round(max(0.0, min(1.0, float(progress))) * 100))
+        except Exception:
+            pct = None
+
+    kpis_html = "".join(
+        f"""
+        <div class="home-indicator-kpi">
+          <div class="k">{lbl}</div>
+          <div class="v">{val}</div>
+        </div>
+        """
+        for (lbl, val) in items
+    )
+
+    badge_html = ""
+    if badge:
+        badge_html = f'<span class="home-indicator-badge">{badge}</span>'
+
+    right_html = ""
+    if pct is not None:
+        right_html = f"""
+        <div class="home-indicator-mini">{pct}% {progress_label}</div>
+        <div class="home-indicator-progress">
+          <div style="width:{pct}%;"></div>
+        </div>
+        """
+
+    html = f"""
+<div class="home-indicator-wrap">
+  <div class="home-indicator">
+
+    <div class="home-indicator-left">
+      <div class="home-indicator-dot"></div>
+      <div class="home-indicator-title">
+        <div class="s">{status} {badge_html}</div>
+      </div>
+    </div>
+
+    <div class="home-indicator-mid">
+      {kpis_html}
+    </div>
+
+    <div class="home-indicator-right">
+      {right_html}
+    </div>
+
+  </div>
+</div>
+
+<style>
+.home-indicator-wrap {{
+  width: 100%;
+  margin: 0.25rem 0 1.0rem 0;
+}}
+
+.home-indicator {{
+  display: flex;
+  align-items: center;
+  justify-content: center-justified;
+  gap: 14px;
+
+  padding: 14px 16px;
+  border-radius: 18px;
+
+  background: linear-gradient(
+      135deg,
+      rgba(59,130,246,0.12),
+      rgba(255,255,255,0.10)
+  );
+  border: 1px solid rgba(59,130,246,0.25);
+  box-shadow: 0 10px 28px rgba(37,99,235,0.18);
+  color: rgba(255,255,255,0.95);   
+  }}
+
+.home-indicator-left {{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 240px;
+}}
+
+.home-indicator-dot {{
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: {accent};
+  box-shadow: 0 0 0 6px rgba(59,130,246,0.18);
+}}
+
+.home-indicator-title {{
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}}
+
+.home-indicator-title .s {{
+  font-size: 0.82rem;
+  opacity: 0.78;
+}}
+
+.home-indicator-badge {{
+  margin-left: 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.14);
+}}
+
+.home-indicator-mid {{
+  flex: 1;
+  display: flex;              
+  align-items: center;
+  gap: 14px;
+  overflow-x: auto;           
+}}
+/* Hide scrollbar but allow scroll */
+.home-indicator-mid::-webkit-scrollbar {{
+  display: none;
+}}
+.home-indicator-mid {{
+  -ms-overflow-style: none;  /* IE */
+  scrollbar-width: none;     /* Firefox */
+}}
+
+.home-indicator-kpi {{
+  padding: 6px 12px;
+  border-radius: 14px;         /* ← change the size of the box*/
+  background: rgba(0,0,0,0.18); /* darker contrast */
+  border: 1px solid rgba(255,255,255,0.14);
+  flex: 0 0 130px;     /* ← all capsules same width */
+  min-width: 130px;
+  max-width: 130px;
+
+  /* keeps text tidy */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;        /* prevents wrapping */
+}}
+
+.home-indicator-kpi .k {{
+  font-size: 0.70rem;
+  opacity: 0.72;
+  margin-bottom: 2px;
+}}
+
+.home-indicator-kpi .v {{
+  font-size: 0.92rem;
+  font-weight: 900;
+}}
+
+.home-indicator-right {{
+  min-width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}}
+
+.home-indicator-progress {{
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.12);
+}}
+
+.home-indicator-progress > div {{
+  height: 100%;
+  background: linear-gradient(90deg, {accent}, rgba(255,255,255,0.25));
+  border-radius: 999px;
+  box-shadow: 0 0 18px rgba(59,130,246,0.22);
+}}
+
+.home-indicator-mini {{
+  font-size: 0.78rem;
+  opacity: 0.8;
+}}
+.home-indicator-mid{{
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+}}
+
+.home-indicator-kpi{{
+  flex: 1 1 0;         /* ← equal widths */
+  min-width: 140px;    /* ← prevents tiny */
+  max-width: 220px;    /* ← prevents huge */
+  border-radius: 14px;
+}}
+
+@media (max-width: 820px) {{
+  .home-indicator {{
+    flex-direction: column;
+    align-items: stretch;
+  }}
+
+@media (max-width: 820px){{
+  .home-indicator-mid{{
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }}
+}}
+  .home-indicator-mid {{
+    display: flex;
+    overflow-x: auto;
+  }}
+  .home-indicator-right {{
+    align-items: flex-start;
+  }}
+}}
+</style>
+"""
+    components.html(html, height=160, scrolling=False)
+
+
+def get_next_lesson_display() -> str:
+    """
+    Returns next lesson time like 'Tue 19:15' or '--:--' if none.
+    Uses schedules + overrides (scheduled only).
+    """
+    try:
+        sched = load_schedules()
+        ov = load_overrides()
+    except Exception:
+        return "--:--"
+
+    now = datetime.now()  # local
+    now_ts = pd.Timestamp(now).tz_localize(None)
+
+    candidates = []
+
+    # --- 1) Overrides: take upcoming scheduled new_datetime ---
+    if ov is not None and not ov.empty and "new_datetime" in ov.columns:
+        tmp = ov.copy()
+        tmp["status"] = tmp.get("status", "").astype(str).str.lower()
+        tmp = tmp[tmp["status"] == "scheduled"].copy()
+        tmp["new_datetime"] = pd.to_datetime(tmp["new_datetime"], errors="coerce")
+        tmp = tmp[tmp["new_datetime"].notna()].copy()
+        tmp["new_datetime"] = tmp["new_datetime"].dt.tz_localize(None)
+
+        upcoming = tmp[tmp["new_datetime"] >= now_ts].sort_values("new_datetime")
+        for _, r in upcoming.head(20).iterrows():
+            candidates.append(pd.Timestamp(r["new_datetime"]).to_pydatetime())
+
+    # --- 2) Weekly schedules: generate next occurrence for each active schedule ---
+    if sched is not None and not sched.empty:
+        s = sched.copy()
+        s = s[s.get("active", True) == True].copy()
+
+        # weekday: 0=Mon ... 6=Sun in your code
+        for _, r in s.iterrows():
+            try:
+                wd = int(r.get("weekday", 0))
+                time_str = str(r.get("time", "00:00")).strip()
+                hh, mm = [int(x) for x in time_str.split(":")[:2]]
+
+                days_ahead = (wd - now_ts.weekday()) % 7
+                dt = (now_ts + pd.Timedelta(days=days_ahead)).normalize() + pd.Timedelta(hours=hh, minutes=mm)
+
+                if dt < now_ts:
+                    dt = dt + pd.Timedelta(days=7)
+
+                candidates.append(dt.to_pydatetime())
+            except Exception:
+                continue
+
+    if not candidates:
+        return "--:--"
+
+    next_dt = min(candidates)
+    return next_dt.strftime("%a %H:%M")
+
+# =========================
+# 03.2) YEAR GOALS (PERSISTENT) — Supabase app_settings
+# =========================
+def _settings_client():
+    """
+    Prefer admin client if available; otherwise fall back to normal client.
+    """
+    return globals().get("supabase_admin") or globals().get("supabase")
+
+
+def get_year_goal(year: int, scope: str = "global", default: float = 0.0) -> float:
+    try:
+        client = _settings_client()
+        res = (
+            client.table("app_settings")
+            .select("value")
+            .eq("scope", scope)
+            .eq("key", "year_goal")
+            .eq("year", int(year))
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(res, "data", None) or []
+        if not rows:
+            return float(default)
+        v = rows[0].get("value", default)
+        return float(v or 0.0)
+    except Exception:
+        return float(default)
+
+
+def set_year_goal(year: int, goal_value: float, scope: str = "global") -> bool:
+    try:
+        client = _settings_client()
+        payload = {
+            "scope": scope,
+            "key": "year_goal",
+            "year": int(year),
+            "value": float(goal_value or 0.0),
+        }
+        client.table("app_settings").upsert(payload, on_conflict="scope,key,year").execute()
+
+        # If you use cached reads anywhere, clear them
+        try:
+            st.cache_data.clear()
+        except Exception:
+            pass
+
+        return True
+    except Exception:
+        return False
 
 # =========================
 # 04) PWA HEAD INJECTION (Base64 icons — works in Streamlit)
@@ -3226,7 +3770,7 @@ def build_income_analytics(group: str = "monthly"):
 
     return kpis, income_table, by_student, sold_by_language, sold_by_modality
 # =========================
-# 12) FORECAST (BEHAVIOR-BASED + ACTIVE-ONLY + FINISHED LAST 3 MONTHS)
+# 12) FORECAST (BEHAVIOR-BASED + PIPELINE-AWARE + FINISHED LAST 3 MONTHS)
 # =========================
 def build_forecast_table(
     payment_buffer_days: int = 0,
@@ -3234,13 +3778,6 @@ def build_forecast_table(
     finished_keep_days: int = 90,
     lookback_days_for_rate: int = 56,
 ) -> pd.DataFrame:
-    """
-    Forecast when each student's CURRENT package will finish based on recent behavior.
-
-    Notes for bilingual safety:
-    - Uses internal status codes from rebuild_dashboard(): dropout/finished/mismatch/almost_finished/active
-    - Translates display values (Status/Modality/Languages) at the end, so both UI languages work.
-    """
 
     dash = rebuild_dashboard(active_window_days=active_window_days, expiry_days=365, grace_days=0)
     if dash is None or dash.empty:
@@ -3248,7 +3785,7 @@ def build_forecast_table(
 
     # Need raw classes to estimate burn rate
     classes = load_table("classes")
-    if classes.empty:
+    if classes is None or classes.empty:
         classes = pd.DataFrame(columns=["student", "lesson_date", "number_of_lesson", "modality", "note"])
     else:
         for c in ["student", "lesson_date", "number_of_lesson", "modality", "note"]:
@@ -3268,13 +3805,28 @@ def build_forecast_table(
 
     # Work on dashboard output
     df = dash.copy()
-    df["Student"] = df["Student"].astype(str).str.strip()
+
+    # Defensive: ensure expected columns exist
+    for c in [
+        "Student", "Status", "Payment_Date", "Package_Start_Date", "Package_Expiry_Date",
+        "Last_Lesson_Date", "Lessons_Left_Units", "Overused_Units", "Modality", "Languages"
+    ]:
+        if c not in df.columns:
+            df[c] = None
+
+    df["Student"] = df["Student"].fillna("").astype(str).str.strip()
+    df = df[df["Student"].str.len() > 0].copy()
+    if df.empty:
+        return pd.DataFrame()
 
     # Parse dates (dashboard stores these as YYYY-MM-DD strings)
-    df["Payment_Date_dt"] = pd.to_datetime(df.get("Payment_Date"), errors="coerce")
-    df["Package_Start_dt"] = pd.to_datetime(df.get("Package_Start_Date"), errors="coerce")
-    df["Expiry_dt"] = pd.to_datetime(df.get("Package_Expiry_Date"), errors="coerce")
-    df["Last_Lesson_dt"] = pd.to_datetime(df.get("Last_Lesson_Date"), errors="coerce")
+    df["Payment_Date_dt"] = pd.to_datetime(df["Payment_Date"], errors="coerce")
+    df["Package_Start_dt"] = pd.to_datetime(df["Package_Start_Date"], errors="coerce")
+    df["Expiry_dt"] = pd.to_datetime(df["Package_Expiry_Date"], errors="coerce")
+    df["Last_Lesson_dt"] = pd.to_datetime(df["Last_Lesson_Date"], errors="coerce")
+
+    # Remaining units (dashboard column exists; be defensive)
+    df["Lessons_Left_Units"] = pd.to_numeric(df["Lessons_Left_Units"], errors="coerce").fillna(0).astype(int)
 
     # Determine active
     df["Has_Recent_Lesson"] = df["Last_Lesson_dt"].notna() & (df["Last_Lesson_dt"] >= active_cutoff)
@@ -3282,15 +3834,19 @@ def build_forecast_table(
     df["Is_Active"] = df["Has_Recent_Lesson"] | df["Has_Recent_Payment"]
 
     # Recent finished: status == finished (internal code) + last lesson (fallback: payment) in last N days
-    status_code = df.get("Status", "").astype(str).str.strip().str.casefold()
+    status_code = df["Status"].fillna("").astype(str).str.strip().str.casefold()
     df["Is_Finished"] = status_code.eq("finished")
     df["Finished_Recently"] = df["Is_Finished"] & (
         (df["Last_Lesson_dt"].notna() & (df["Last_Lesson_dt"] >= finished_cutoff)) |
         (df["Payment_Date_dt"].notna() & (df["Payment_Date_dt"] >= finished_cutoff))
     )
 
-    # Keep only active OR finished recently
-    df = df[df["Is_Active"] | df["Finished_Recently"]].copy()
+    # -------------------------
+    # NEW: pipeline-aware keep
+    # Keep if:
+    # - Active OR Finished_Recently OR has units left (>0)
+    # -------------------------
+    df = df[df["Is_Active"] | df["Finished_Recently"] | (df["Lessons_Left_Units"] > 0)].copy()
     if df.empty:
         return pd.DataFrame()
 
@@ -3302,26 +3858,32 @@ def build_forecast_table(
 
     recent = classes.dropna(subset=["lesson_date"]).copy()
     recent = recent[recent["lesson_date"] >= rate_cutoff]
+
     if not recent.empty:
         recent["Units_Last_Lookback"] = recent.apply(_units_row, axis=1)
         rate_tbl = (
             recent.groupby("student", as_index=False)["Units_Last_Lookback"].sum()
             .rename(columns={"student": "Student"})
         )
+        # Global median units/day (better fallback than constant)
+        lookback_days = float(max(1, int(lookback_days_for_rate)))
+        tmpu = rate_tbl["Units_Last_Lookback"] / lookback_days
+        global_median_upd = float(pd.to_numeric(tmpu, errors="coerce").replace([math.inf, -math.inf], 0).fillna(0).median())
     else:
         rate_tbl = pd.DataFrame(columns=["Student", "Units_Last_Lookback"])
+        global_median_upd = 0.0
 
     df = df.merge(rate_tbl, on="Student", how="left")
     df["Units_Last_Lookback"] = pd.to_numeric(df.get("Units_Last_Lookback"), errors="coerce").fillna(0.0)
 
     lookback_days = float(max(1, int(lookback_days_for_rate)))
-    df["Units_Per_Day"] = df["Units_Last_Lookback"] / lookback_days
+    df["Units_Per_Day"] = (df["Units_Last_Lookback"] / lookback_days).replace([math.inf, -math.inf], 0).fillna(0.0)
 
-    # Fallback burn rate if no recent lessons
-    df.loc[df["Units_Per_Day"] <= 0, "Units_Per_Day"] = 0.10
-
-    # Remaining units (dashboard column exists; be defensive)
-    df["Lessons_Left_Units"] = pd.to_numeric(df.get("Lessons_Left_Units"), errors="coerce").fillna(0).astype(int)
+    # Better fallback: global median, then constant
+    # (median might be 0 if there are no recent lessons in the lookback window)
+    if global_median_upd and global_median_upd > 0:
+        df.loc[df["Units_Per_Day"] <= 0, "Units_Per_Day"] = float(global_median_upd)
+    df.loc[df["Units_Per_Day"] <= 0, "Units_Per_Day"] = 0.10  # last resort
 
     # Estimate finish
     df["Days_To_Finish"] = (df["Lessons_Left_Units"] / df["Units_Per_Day"]).replace([math.inf, -math.inf], 0).fillna(0)
@@ -3346,6 +3908,11 @@ def build_forecast_table(
     out["Estimated_Finish_Date"] = pd.to_datetime(out["Estimated_Finish_Date_dt"], errors="coerce").dt.strftime("%Y-%m-%d")
     out["Reminder_Date"] = pd.to_datetime(out["Reminder_Date_dt"], errors="coerce").dt.strftime("%Y-%m-%d")
     out["Units_Per_Day"] = pd.to_numeric(out.get("Units_Per_Day"), errors="coerce").fillna(0).round(2)
+    out["Days_To_Finish"] = pd.to_numeric(out.get("Days_To_Finish"), errors="coerce").fillna(0).round(1)
+
+    # NEW: due flag for UI filtering (buffer becomes meaningful in Analytics)
+    out["_rem_dt"] = pd.to_datetime(out["Reminder_Date"], errors="coerce")
+    out["Due_Now"] = out["_rem_dt"].notna() & (out["_rem_dt"] <= today)
 
     # Translate coded values for bilingual UI
     out["Status"] = out.get("Status", "").astype(str).str.strip().str.casefold().apply(translate_status)
@@ -3364,8 +3931,10 @@ def build_forecast_table(
         "Package_Start_Date",
         "Package_Expiry_Date",
         "Units_Per_Day",
+        "Days_To_Finish",
         "Estimated_Finish_Date",
         "Reminder_Date",
+        "Due_Now",
     ]
     keep_cols = [c for c in keep_cols if c in out.columns]
     out = out[keep_cols].copy()
@@ -3380,7 +3949,6 @@ def build_forecast_table(
     )
 
     return out
-
 
 # =========================
 # 13) KPI BUBBLES (ROBUST: NO AUTO-RESIZE DEPENDENCY)
@@ -3832,28 +4400,17 @@ def render_home():
     if current_lang not in ("en", "es"):
         current_lang = "en"
 
-    # In the future this comes from auth user profile:
-    user_name = st.session_state.get("user_name", "Anthony Miguel")
-
-    # Placeholder alert count (later read from DB)
+    user_name = st.session_state.get("user_name", "Anthony Gonzalez")
     alerts_count = int(st.session_state.get("alerts_count", 0))
-
-    # Your (future) auth user id
     user_id = st.session_state.get("user_id", "demo_user")
-
-    # Read panel from query params (you already have _get_qp helper in your app)
     panel = _get_qp("panel", "")
 
     # ✅ Load avatar from DB once per session (so it persists after refresh)
     if not st.session_state.get("avatar_url"):
         st.session_state["avatar_url"] = get_profile_avatar_url(user_id)
 
-    # Avatar (if uploaded)
     avatar_url = st.session_state.get("avatar_url", "")
     avatar_style = f"background-image:url('{avatar_url}');" if avatar_url else ""
-
-    # Open layout wrappers
-    st.markdown("<div class='home-wrap'><div class='home-card'>", unsafe_allow_html=True)
 
     # --- Top bar (welcome + icons + language) ---
     st.markdown(
@@ -3958,6 +4515,54 @@ def render_home():
                         st.rerun()
                     except Exception as e:
                         st.error(f"Upload failed: {e}")
+
+    # ---- REAL values ----
+    dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
+
+    active_students = 0
+    lessons_left_total = 0
+
+    if dash is not None and not dash.empty:
+        active_mask = dash["Status"].isin(["active", "almost_finished", "mismatch"])
+        active_students = int(active_mask.sum())
+
+        lessons_left_total = int(
+            pd.to_numeric(
+                dash.loc[active_mask, "Lessons_Left_Units"],
+                errors="coerce"
+            ).fillna(0).sum()
+        )
+
+    # Next lesson
+    next_lesson = get_next_lesson_display()
+
+    # Income this year
+    kpis, *_ = build_income_analytics(group="monthly")
+    income_this_year = float(kpis.get("income_this_year", 0.0))
+
+    # Goal
+    scope = "global"
+    current_year = int(ts_today_naive().year)
+    goal_val = float(get_year_goal(current_year, scope=scope, default=0.0) or 0.0)
+
+    goal_progress = 0.0
+    if goal_val > 0:
+        goal_progress = max(0.0, min(1.0, income_this_year / goal_val))
+
+    # ---- Render the indicator ----
+    render_home_indicator(
+        status= t("online"),
+        badge= t("today"),
+        items=[
+            (t("next"), next_lesson),
+            (t("students"), str(active_students)),
+            (t("yearly_income"), money_try(income_this_year)),
+            (t("goal"), money_try(goal_val) if goal_val > 0 else "—"), 
+        ],
+        progress=goal_progress,
+        accent="#3B82F6",
+    )
+
     # --- Brand title ---
     st.markdown("<div class='home-title'>CLASS MANAGER</div>", unsafe_allow_html=True)
 
@@ -4094,7 +4699,7 @@ def render_top_nav(active_page: str):
 
 /* Spacer to prevent overlap */
 .cm-topnav-spacer {{
-  height: 86px;
+  height: 20px;
 }}
 
 /* Layout */
@@ -4217,7 +4822,7 @@ students = load_students()
 if page == "home":
     render_home()
     st.stop()
-
+    
 render_top_nav(page)
 
 # =========================
@@ -4359,7 +4964,6 @@ if page == "dashboard":
     # ---------------------------------------
     # WHATSAPP TEMPLATES (PACKAGE / CONFIRM / CANCEL)
     # ---------------------------------------
-    st.divider()
     st.subheader(t("whatsapp_templates_title"))
 
     # IMPORTANT: Streamlit widgets keep value by key.
@@ -5470,6 +6074,9 @@ elif page == "calendar":
 # ✅ Raw tables are optional (toggle), not the default
 # ✅ New micro-translator helper included (t_a)
 # ✅ FIX: Summary shows AVERAGE monthly + AVERAGE yearly (not duplicates of capsules)
+# ✅ UPGRADE: Estimated yearly revenue uses YTD + renewal pipeline (not this_month*12)
+# ✅ NEW: Yearly goal stored in Supabase app_settings + progress bar
+# ✅ FIX: Risk & Forecast buffer now changes who appears in "Students to contact"
 # =========================
 elif page == "analytics":
     page_header(t("analytics"))
@@ -5508,12 +6115,26 @@ elif page == "analytics":
             "total_units": "Total lesson units",
             "top_language": "Top lesson language",
             "top_modality": "Top lesson modality",
+
+            # Forecast (operational)
             "students_in_forecast": "Students in forecast",
-            "expected_income": "Expected income",
+            "due_now": "Due to contact now",
+            "finishing_14d": "Finishing in next 14 days",
             "at_risk": "At risk",
             "students_to_contact": "Students to contact",
             "units_left": "units left",
-            "expected": "expected",
+            "finish": "finish",
+            "remind": "remind",
+            "next_up": "Next up",
+
+            # Goal
+            "goal": "Goal",
+            "yearly_income_goal": "Yearly income goal",
+            "goal_progress": "Goal progress",
+            "ytd_income": "YTD income",
+            "remaining_to_goal": "Remaining to goal",
+            "avg_needed_month": "Avg needed / month",
+
             "takeaway_concentration": "Your top student contributes {p1} of all income; your top 3 students contribute {p3}.",
             "takeaway_language": "Your strongest language segment is {name} ({share} of language income).",
             "takeaway_modality": "Your strongest modality segment is {name} ({share} of modality income).",
@@ -5527,7 +6148,7 @@ elif page == "analytics":
             "action_review_top": "Review your top students and plan renewals.",
             "action_compare_mix": "Compare language/modality mix with your pricing strategy.",
             "action_check_forecast": "Use the forecast to plan the next two weeks.",
-            "important": "Important"
+            "important": "Important",
         },
         "es": {
             "insights_and_actions": "Información Estratégica",
@@ -5555,12 +6176,26 @@ elif page == "analytics":
             "total_units": "Unidades de clase totales",
             "top_language": "Idioma principal",
             "top_modality": "Modalidad principal",
+
+            # Forecast (operational)
             "students_in_forecast": "Estudiantes en pronóstico",
-            "expected_income": "Ingreso esperado",
+            "due_now": "Para contactar hoy",
+            "finishing_14d": "Terminan en los próximos 14 días",
             "at_risk": "En riesgo",
             "students_to_contact": "Estudiantes a contactar",
             "units_left": "unidades restantes",
-            "expected": "esperado",
+            "finish": "fin",
+            "remind": "recordar",
+            "next_up": "Próximos",
+
+            # Goal
+            "goal": "Meta",
+            "yearly_income_goal": "Meta anual de ingresos",
+            "goal_progress": "Progreso de la meta",
+            "ytd_income": "Ingresos del año",
+            "remaining_to_goal": "Falta para la meta",
+            "avg_needed_month": "Promedio necesario / mes",
+
             "takeaway_concentration": "Tu mejor estudiante aporta {p1} del ingreso total; tu top 3 aporta {p3}.",
             "takeaway_language": "Tu segmento de idioma más fuerte es {name} ({share} del ingreso por idioma).",
             "takeaway_modality": "Tu segmento de modalidad más fuerte es {name} ({share} del ingreso por modalidad).",
@@ -5574,7 +6209,7 @@ elif page == "analytics":
             "action_review_top": "Revisa tus estudiantes más rentables y planifica renovaciones.",
             "action_compare_mix": "Compara el mix de idioma/modalidad con tu estrategia de precios.",
             "action_check_forecast": "Usa el pronóstico para planificar las próximas dos semanas.",
-            "important": "Importante"
+            "important": "Importante",
         },
     }
 
@@ -5738,7 +6373,7 @@ elif page == "analytics":
     view = current_view
 
     # ---------------------------------------
-    # Chart helpers
+    # Chart helpers (UNCHANGED)
     # ---------------------------------------
     def _monthly_line_chart_plotly(df: pd.DataFrame, title: str):
         import plotly.express as px
@@ -5805,7 +6440,7 @@ elif page == "analytics":
         st.pyplot(fig, clear_figure=True)
 
     # ============================================
-    # MAIN VIEW CONTENT (your existing capsule views)
+    # MAIN VIEW CONTENT (UNCHANGED)
     # ============================================
     if view == "all_time":
         st.subheader(t("all_time_monthly_income"))
@@ -5984,20 +6619,163 @@ elif page == "analytics":
                 hide_index=True,
             )
 
+    # ---------- NEW: YTD + renewal pipeline projection (no more this_month*12) ----------
+    def _ytd_income(payments_df: pd.DataFrame, year: int) -> float:
+        if payments_df is None or payments_df.empty:
+            return 0.0
+        p = payments_df.copy()
+        if "payment_date" not in p.columns:
+            return 0.0
+        if "paid_amount" not in p.columns:
+            return 0.0
+        p["payment_date"] = to_dt_naive(p["payment_date"], utc=True)
+        p["paid_amount"] = pd.to_numeric(p["paid_amount"], errors="coerce").fillna(0.0).astype(float)
+        p = p.dropna(subset=["payment_date"])
+        p = p[p["payment_date"].dt.year == int(year)]
+        return float(p["paid_amount"].sum())
+
+    def _student_baseline_payment(payments_df: pd.DataFrame, student: str) -> float:
+        """
+        Student baseline renewal value = median of last up to 3 payments (safer than mean).
+        """
+        if payments_df is None or payments_df.empty:
+            return 0.0
+        if "student" not in payments_df.columns or "paid_amount" not in payments_df.columns:
+            return 0.0
+
+        p = payments_df.copy()
+        p["student"] = p["student"].fillna("").astype(str).str.strip()
+        p = p[p["student"] == str(student).strip()]
+        if p.empty:
+            return 0.0
+
+        if "payment_date" in p.columns:
+            p["payment_date"] = to_dt_naive(p["payment_date"], utc=True)
+            p = p.dropna(subset=["payment_date"]).sort_values("payment_date")
+        p["paid_amount"] = pd.to_numeric(p["paid_amount"], errors="coerce").fillna(0.0).astype(float)
+
+        tail = p["paid_amount"].tail(3)
+        if len(tail) == 0:
+            return 0.0
+        return float(tail.median())
+
+    def _estimate_typical_units_from_dashboard(student_name: str) -> float:
+        """
+        If dashboard has a total-paid-units column, we use it as package-size proxy.
+        Otherwise returns 0 (caller will fallback).
+        """
+        try:
+            dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=0)
+            if dash is None or dash.empty:
+                return 0.0
+            if "Student" not in dash.columns:
+                return 0.0
+            d = dash.copy()
+            d["Student"] = d["Student"].fillna("").astype(str).str.strip()
+            row = d[d["Student"] == str(student_name).strip()]
+            if row.empty:
+                return 0.0
+
+            # Common candidates across your app versions:
+            cand = _first_existing_col(row, ["Lessons_Paid_Total", "Lessons_Paid", "Paid_Units", "Package_Units"])
+            if not cand:
+                return 0.0
+            v = row.iloc[0].get(cand, 0)
+            v = float(pd.to_numeric(v, errors="coerce") or 0.0)
+            return max(0.0, v)
+        except Exception:
+            return 0.0
+
+    def estimate_year_projection_current_students(
+        today_ts: pd.Timestamp,
+        forecast_df: pd.DataFrame,
+        payments_df: pd.DataFrame,
+    ) -> dict:
+        """
+        Base projection (student-based):
+          projected = YTD cash + expected renewals (prob=1.0 baseline, refined later)
+
+        Renewals are simulated using:
+          - student's baseline payment value (median last 3 payments)
+          - next renewal = finish date
+          - renewal cycle length = max(typical_units, 10) / units_per_day
+        """
+        year = int(today_ts.year)
+        year_end = pd.Timestamp(year=year, month=12, day=31)
+
+        ytd = _ytd_income(payments_df, year=year)
+        if forecast_df is None or forecast_df.empty:
+            return {"ytd": ytd, "expected_future": 0.0, "projected": ytd, "counted": 0, "missing_baseline": 0}
+
+        # identify cols (from Section 12 output)
+        student_col = _first_existing_col(forecast_df, ["Student", "student"])
+        upd_col = _first_existing_col(forecast_df, ["Units_Per_Day", "units_per_day"])
+        left_col = _first_existing_col(forecast_df, ["Lessons_Left_Units", "lessons_left_units"])
+        finish_col = _first_existing_col(forecast_df, ["Estimated_Finish_Date", "estimated_finish_date"])
+
+        if not student_col or not upd_col:
+            return {"ytd": ytd, "expected_future": 0.0, "projected": ytd, "counted": 0, "missing_baseline": 0}
+
+        f = forecast_df.copy()
+        f[student_col] = f[student_col].fillna("").astype(str).str.strip()
+        f[upd_col] = pd.to_numeric(f[upd_col], errors="coerce").fillna(0.0).astype(float)
+        f.loc[f[upd_col] <= 0, upd_col] = 0.10
+
+        if left_col and left_col in f.columns:
+            f[left_col] = pd.to_numeric(f[left_col], errors="coerce").fillna(0.0).astype(float)
+        else:
+            f[left_col] = 0.0
+
+        f["_finish_dt"] = pd.to_datetime(f.get(finish_col), errors="coerce") if finish_col else pd.NaT
+
+        expected_future = 0.0
+        counted = 0
+        missing = 0
+
+        for _, r in f.iterrows():
+            s = str(r.get(student_col, "")).strip()
+            if not s:
+                continue
+
+            baseline_value = _student_baseline_payment(payments_df, s)
+            if baseline_value <= 0:
+                missing += 1
+                continue
+
+            units_per_day = float(r.get(upd_col, 0.10) or 0.10)
+            finish_dt = r.get("_finish_dt", pd.NaT)
+            if pd.isna(finish_dt):
+                continue
+
+            # typical units: prefer dashboard (if available), else fallback to current remaining, clamped
+            typical_units = _estimate_typical_units_from_dashboard(s)
+            if typical_units <= 0:
+                typical_units = float(r.get(left_col, 0.0) or 0.0)
+            typical_units = max(10.0, typical_units)
+
+            cycle_days = max(7, int(round(typical_units / max(0.01, units_per_day))))
+            next_dt = pd.Timestamp(finish_dt)
+
+            # simulate renewals until year end
+            while next_dt <= year_end:
+                expected_future += baseline_value
+                next_dt = next_dt + pd.Timedelta(days=cycle_days)
+
+            counted += 1
+
+        projected = ytd + expected_future
+        return {"ytd": float(ytd), "expected_future": float(expected_future), "projected": float(projected), "counted": int(counted), "missing_baseline": int(missing)}
+
     # ---------- metrics (capsules already show totals; summary will show averages) ----------
     total_all_time = float(kpis.get("income_all_time", 0.0) or 0.0)
     total_month = float(kpis.get("income_this_month", 0.0) or 0.0)
     total_week = float(kpis.get("income_this_week", 0.0) or 0.0)
 
-    # Run-rate (simple): this month × 12
-    run_rate = total_month * 12.0 if total_month else 0.0
-
     # Effective rate (income per lesson unit) — uses all-time totals
     classes_for_rate = load_table("classes")
     total_units = 0.0
-    if classes_for_rate is not None and not classes_for_rate.empty:
-        if "number_of_lesson" in classes_for_rate.columns:
-            total_units = float(pd.to_numeric(classes_for_rate["number_of_lesson"], errors="coerce").fillna(0).sum())
+    if classes_for_rate is not None and not classes_for_rate.empty and "number_of_lesson" in classes_for_rate.columns:
+        total_units = float(pd.to_numeric(classes_for_rate["number_of_lesson"], errors="coerce").fillna(0).sum())
     eff_rate = (total_all_time / total_units) if (total_units and total_all_time) else 0.0
 
     # --- Average monthly income (last 12 months) ---
@@ -6057,6 +6835,19 @@ elif page == "analytics":
         elif len(bs) >= 1:
             top3_share = _pct(float(bs.loc[:, top_income_col].sum()), float(by_student_total))
 
+    # ---------- NEW: compute projection inputs once (used in Summary + Goal) ----------
+    payments_all = load_table("payments")
+    forecast_for_projection = build_forecast_table(payment_buffer_days=0)
+
+    proj = estimate_year_projection_current_students(
+        today_ts=today,
+        forecast_df=forecast_for_projection,
+        payments_df=payments_all,
+    )
+    projected_year = float(proj.get("projected", 0.0) or 0.0)
+    ytd_cash = float(proj.get("ytd", 0.0) or 0.0)
+    expected_future = float(proj.get("expected_future", 0.0) or 0.0)
+
     st.markdown(f"### {t_a('insights_and_actions')}")
     tab_summary, tab_rev, tab_delivery, tab_risk = st.tabs(
         [t_a("summary"), t_a("revenue_drivers"), t_a("teaching_activity"), t_a("risk_and_forecast")]
@@ -6072,10 +6863,72 @@ elif page == "analytics":
         with c2:
             st.metric(t_a("avg_monthly_income"), money_fmt(avg_monthly_12m))
         with c3:
-            st.metric(t_a("run_rate_annual"), money_fmt(run_rate))
+            st.metric(t_a("run_rate_annual"), money_fmt(projected_year))
         with c4:
             st.metric(t_a("effective_rate_unit"), money_fmt(eff_rate))
 
+        st.caption(f"YTD: {money_fmt(ytd_cash)} • Expected renewals: {money_fmt(expected_future)}")
+
+        # -------------------------
+        # NEW: Yearly goal (persistent across devices)
+        # -------------------------
+        st.markdown(f"#### {t_a('goal')}")
+        scope = "global"
+        current_year = int(today.year)
+
+        if "year_goal_loaded" not in st.session_state:
+            st.session_state.year_goal_loaded = {}
+        if current_year not in st.session_state.year_goal_loaded:
+            st.session_state[f"year_goal_{current_year}"] = get_year_goal(current_year, scope=scope, default=0.0)
+            st.session_state.year_goal_loaded[current_year] = True
+
+        gcol1, gcol2 = st.columns([2, 1])
+        with gcol1:
+            new_goal = st.number_input(
+                f"{t_a('yearly_income_goal')} ({current_year})",
+                min_value=0.0,
+                value=float(st.session_state.get(f"year_goal_{current_year}", 0.0) or 0.0),
+                step=1000.0,
+                key=f"year_goal_input_{current_year}",
+            )
+        with gcol2:
+            if st.button("Save", key=f"save_goal_{current_year}", use_container_width=True):
+                ok = set_year_goal(current_year, float(new_goal), scope=scope)
+                if ok:
+                    st.session_state[f"year_goal_{current_year}"] = float(new_goal)
+                    try:
+                        st.cache_data.clear()
+                    except Exception:
+                        pass
+
+                    st.toast("Saved", icon="✅")
+                    st.rerun()   # ← forces refresh so Home reads updated value
+                else:
+                    st.toast("Could not save goal", icon="⚠️")
+
+        goal_val = float(st.session_state.get(f"year_goal_{current_year}", 0.0) or 0.0)
+        if goal_val > 0:
+            prog = max(0.0, min(1.0, ytd_cash / goal_val))
+            st.progress(prog)
+            st.write(f"**{prog*100.0:.1f}%** — {t_a('goal_progress')}")
+
+            remaining = max(0.0, goal_val - ytd_cash)
+            months_left = max(0, 12 - int(today.month))
+            avg_needed = (remaining / months_left) if months_left > 0 else remaining
+
+            g1, g2, g3 = st.columns(3)
+            with g1:
+                st.metric(t_a("ytd_income"), money_fmt(ytd_cash))
+            with g2:
+                st.metric(t_a("remaining_to_goal"), money_fmt(remaining))
+            with g3:
+                st.metric(t_a("avg_needed_month"), money_fmt(avg_needed))
+        else:
+            st.info("Set a yearly goal to see your progress bar.")
+
+        # -------------------------
+        # Summary callout + actions (unchanged)
+        # -------------------------
         if top1_name:
             _callout(
                 t_a("important"),
@@ -6093,8 +6946,6 @@ elif page == "analytics":
             actions.append(t_a("action_check_week"))
         if top3_share >= 60:
             actions.append(t_a("action_reduce_risk"))
-        if eff_rate and total_units and eff_rate < (total_all_time / max(1.0, total_units)):
-            actions.append(t_a("action_review_pricing"))
         if not actions:
             actions = [t_a("action_review_top"), t_a("action_compare_mix"), t_a("action_check_forecast")]
 
@@ -6105,6 +6956,7 @@ elif page == "analytics":
     # TAB 2 — Revenue drivers
     # ======================
     with tab_rev:
+        # (UNCHANGED from your current code)
         st.markdown(f"#### {t('most_profitable_students')}")
         if by_student is None or by_student.empty or not top_income_col or not student_col:
             st.info(t("no_data"))
@@ -6124,8 +6976,7 @@ elif page == "analytics":
                 st.metric(t_a("top3_share"), _fmt_pct(top3_share))
 
             if top1_name:
-                _callout(t_a("important"), t_a("takeaway_profitable", name=top1_name),
-                )
+                _callout(t_a("important"), t_a("takeaway_profitable", name=top1_name))
 
             ser = chart_series(top.rename(columns={student_col: "student"}), "student", top_income_col, "student", "income")
             if ser is None:
@@ -6227,6 +7078,7 @@ elif page == "analytics":
     # TAB 3 — Teaching activity
     # ======================
     with tab_delivery:
+        # (UNCHANGED from your current code)
         st.markdown(f"#### {t('lessons_by_language')}")
         classes = load_table("classes")
         if classes is None or classes.empty:
@@ -6323,10 +7175,11 @@ elif page == "analytics":
             _show_raw_toggle(teach_mod, "raw_lessons_mod")
 
     # ======================
-    # TAB 4 — Risk & forecast
+    # TAB 4 — Risk & forecast (UPGRADED)
     # ======================
     with tab_risk:
         st.markdown(f"#### {t('forecast')}")
+
         buffer_days = st.selectbox(
             t("payment_buffer"),
             [0, 7, 14],
@@ -6339,46 +7192,71 @@ elif page == "analytics":
         if forecast_df is None or forecast_df.empty:
             st.info(t("no_data"))
         else:
-            money_like = _first_existing_col(forecast_df, ["expected_income", "income", "total_due", "amount_due", "paid_amount"])
-            left_like = _first_existing_col(forecast_df, ["lessons_left_units", "lessons_left", "units_left"])
-            student_like = _first_existing_col(forecast_df, ["student", "name", "Student"])
-
-            exp_total = _safe_sum(forecast_df, money_like)
-            at_risk_total = 0.0
+            # Column picks (Section 12 output)
+            student_like = _first_existing_col(forecast_df, ["Student", "student", "name"])
+            left_like = _first_existing_col(forecast_df, ["Lessons_Left_Units", "lessons_left_units", "lessons_left", "units_left"])
+            remind_like = _first_existing_col(forecast_df, ["Reminder_Date", "reminder_date"])
+            finish_like = _first_existing_col(forecast_df, ["Estimated_Finish_Date", "estimated_finish_date"])
+            due_like = _first_existing_col(forecast_df, ["Due_Now", "due_now"])
 
             ftmp = forecast_df.copy()
-            if money_like and money_like in ftmp.columns:
-                ftmp[money_like] = pd.to_numeric(ftmp[money_like], errors="coerce").fillna(0.0).astype(float)
+
             if left_like and left_like in ftmp.columns:
                 ftmp[left_like] = pd.to_numeric(ftmp[left_like], errors="coerce").fillna(0.0).astype(float)
+            else:
+                ftmp[left_like or "_left_tmp"] = 0.0
+                left_like = left_like or "_left_tmp"
 
-            if money_like and left_like and money_like in ftmp.columns and left_like in ftmp.columns:
-                at_risk_total = float(ftmp.loc[ftmp[left_like] <= 2, money_like].sum())
+            # Parse dates
+            ftmp["_rem_dt"] = pd.to_datetime(ftmp.get(remind_like), errors="coerce") if remind_like else pd.NaT
+            ftmp["_fin_dt"] = pd.to_datetime(ftmp.get(finish_like), errors="coerce") if finish_like else pd.NaT
+
+            # Due logic: prefer Due_Now column from Forecast; else compute from reminder date
+            if due_like and due_like in ftmp.columns:
+                ftmp["_due_now"] = ftmp[due_like].astype(bool)
+            else:
+                ftmp["_due_now"] = ftmp["_rem_dt"].notna() & (ftmp["_rem_dt"] <= today)
+
+            # Count metrics
+            due_now_df = ftmp[ftmp["_due_now"]].copy()
+            finishing_14d_df = ftmp[ftmp["_fin_dt"].notna() & (ftmp["_fin_dt"] <= (today + pd.Timedelta(days=14)))].copy()
+            at_risk_count = int((ftmp[left_like] <= 2).sum())
 
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.metric(t_a("expected_income"), money_fmt(exp_total))
-            with c2:
-                st.metric(f"{t_a('at_risk')} (≤2 {t_a('units_left')})", money_fmt(at_risk_total))
-            with c3:
                 st.metric(t_a("students_in_forecast"), f"{len(ftmp)}")
+            with c2:
+                st.metric(t_a("due_now"), f"{len(due_now_df)}")
+            with c3:
+                st.metric(t_a("finishing_14d"), f"{len(finishing_14d_df)}")
+
+            # Smaller second row metric (still useful)
+            st.caption(f"{t_a('at_risk')} (≤2 {t_a('units_left')}): **{at_risk_count}**")
 
             _callout(t_a("important"), t_a("takeaway_pipeline"))
 
             st.markdown(f"##### {t_a('students_to_contact')}")
-            contact_df = ftmp.copy()
-            if left_like and left_like in contact_df.columns:
-                contact_df = contact_df.sort_values(left_like, ascending=True)
-            elif money_like and money_like in contact_df.columns:
-                contact_df = contact_df.sort_values(money_like, ascending=False)
 
-            contact_df = contact_df.head(8).copy()
+            # Show due now; if none, show next up (soonest reminders)
+            if not due_now_df.empty:
+                show_df = due_now_df.sort_values(["_rem_dt", left_like, student_like if student_like else "Student"]).head(10)
+                st.caption("Due now based on your reminder buffer.")
+            else:
+                upcoming = ftmp[ftmp["_rem_dt"].notna() & (ftmp["_rem_dt"] > today)].copy()
+                show_df = upcoming.sort_values(["_rem_dt", left_like, student_like if student_like else "Student"]).head(10)
+                if not show_df.empty:
+                    soonest = show_df["_rem_dt"].min()
+                    st.caption(f"{t_a('next_up')}: {soonest.strftime('%Y-%m-%d')}")
+                else:
+                    st.info("No upcoming reminders found.")
+                    show_df = pd.DataFrame()
 
-            if student_like and student_like in contact_df.columns:
-                for _, row in contact_df.iterrows():
+            if not show_df.empty and student_like and student_like in show_df.columns:
+                for _, row in show_df.iterrows():
                     sname = str(row.get(student_like, "")).strip() or "(student)"
-                    units_left = row.get(left_like, None) if left_like else None
-                    amt = row.get(money_like, None) if money_like else None
+                    units_left = row.get(left_like, None)
+                    rem = row.get("_rem_dt", None)
+                    fin = row.get("_fin_dt", None)
 
                     parts = [sname]
                     if units_left is not None and str(units_left) != "nan":
@@ -6386,17 +7264,16 @@ elif page == "analytics":
                             parts.append(f"{t_a('units_left')}: {int(float(units_left))}")
                         except Exception:
                             pass
-                    if amt is not None and str(amt) != "nan":
-                        try:
-                            parts.append(f"{t_a('expected')}: {money_fmt(float(amt))}")
-                        except Exception:
-                            pass
-
+                    if rem is not None and pd.notna(rem):
+                        parts.append(f"{t_a('remind')}: {pd.Timestamp(rem).strftime('%Y-%m-%d')}")
+                    if fin is not None and pd.notna(fin):
+                        parts.append(f"{t_a('finish')}: {pd.Timestamp(fin).strftime('%Y-%m-%d')}")
                     st.write("• " + " — ".join(parts))
             else:
                 st.write("• " + t("no_data"))
 
-            _show_raw_toggle(forecast_df, "raw_forecast")
+            # Raw toggle (keeps your pattern)
+            _show_raw_toggle(ftmp.drop(columns=["_rem_dt", "_fin_dt", "_due_now"], errors="ignore"), "raw_forecast")
 
 # =========================
 # FALLBACK
