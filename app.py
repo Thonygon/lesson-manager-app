@@ -2111,6 +2111,44 @@ def load_css_app_light(compact: bool = False):
           box-shadow: var(--shadow) !important;
         }}
 
+        /* ============================
+        FIX: iPhone Dark Mode makes st.toggle invisible
+        Streamlit toggle = BaseWeb checkbox
+        ============================ */
+
+          /* Make the label always visible */
+        div[data-baseweb="checkbox"] label,
+        div[data-baseweb="checkbox"] label span,
+        div[data-baseweb="checkbox"] label p,
+        div[data-baseweb="checkbox"] label div{{
+          color: #0f172a !important;
+          -webkit-text-fill-color: #0f172a !important;
+        }}
+
+        /* The clickable checkbox/toggle container */
+        div[data-baseweb="checkbox"] [role="checkbox"]{{
+          background: #ffffff !important;
+          border: 1px solid rgba(17,24,39,0.22) !important;
+        }}
+
+        /* The “checked” state background (make it visible) */
+        div[data-baseweb="checkbox"] [role="checkbox"][aria-checked="true"]{{
+          background: rgba(37,99,235,0.20) !important;
+          border-color: rgba(37,99,235,0.55) !important;
+        }}
+
+        /* The checkmark / icon inside */
+        div[data-baseweb="checkbox"] svg,
+        div[data-baseweb="checkbox"] svg path{{
+          fill: #2563EB !important;
+        }}
+
+        /* Sometimes Streamlit uses pseudo elements; keep them visible */
+        div[data-baseweb="checkbox"] [role="checkbox"] *{{
+          color: #0f172a !important;
+          -webkit-text-fill-color: #0f172a !important;
+        }}
+
         {compact_css}
         </style>
         """,
