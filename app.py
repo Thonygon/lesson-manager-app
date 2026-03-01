@@ -125,7 +125,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "home_find_students": "Find private students",
         "home_menu_title": "Manage current students",
         "next": "Next lesson",
-        "goal": "Meta",
+        "goal": "Goal",
         "completed": "Completed",
 
         # -------------------------
@@ -1999,11 +1999,34 @@ def load_css_app_light(compact: bool = False):
           --shadow:0 10px 26px rgba(15,23,42,0.08);
         }}
 
-        .stApp{{ background: var(--bg); color: var(--text); }}
-        .stApp, .stApp * {{ color: var(--text); }}
-        .stCaption, .stMarkdown p, .stMarkdown span, .stMarkdown li {{ color: var(--muted) !important; }}
-        .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {{ color: var(--text) !important; }}
-        label, label * {{ color: var(--text) !important; }}
+        /* Prevent iOS/system dark-mode from creating odd horizontal bars */
+        html, body {{ overflow-x: hidden !important; }}
+
+        .stApp{{ background: var(--bg) !important; color: var(--text) !important; }}
+        [data-testid="stAppViewContainer"], .stApp {{ background: var(--bg) !important; }}
+        .stApp {{ overflow-x: hidden !important; }}
+
+        /* Base text */
+        .stApp, .stApp * {{
+          color: var(--text);
+          -webkit-text-fill-color: var(--text) !important; /* iOS Safari dark-mode safeguard */
+        }}
+
+        /* Muted text for captions/paragraphs */
+        .stCaption, .stMarkdown p, .stMarkdown span, .stMarkdown li {{
+          color: var(--muted) !important;
+          -webkit-text-fill-color: var(--muted) !important;
+        }}
+
+        .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {{
+          color: var(--text) !important;
+          -webkit-text-fill-color: var(--text) !important;
+        }}
+
+        label, label * {{
+          color: var(--text) !important;
+          -webkit-text-fill-color: var(--text) !important;
+        }}
 
         section[data-testid="stMain"] > div {{
           padding-top: 1.6rem;
@@ -2012,21 +2035,23 @@ def load_css_app_light(compact: bool = False):
         }}
 
         @media (max-width: 768px){{
-          section[data-testid="stMain"] > div {{ padding-top: 1.0rem; padding-bottom: 1.2rem; }}
+          section[data-testid="stMain"] > div {{
+            padding-top: 1.0rem;
+            padding-bottom: 1.2rem;
+          }}
         }}
 
-        html, body {{ background: #f6f7fb !important; }}
-        [data-testid="stAppViewContainer"], .stApp {{ background: #f6f7fb !important; }}
-
-        html, body, [class*="css"]{{ font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }}
+        html, body, [class*="css"]{{
+          font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        }}
         h1,h2,h3{{ letter-spacing:-0.02em; }}
 
         div[data-testid="stVerticalBlockBorderWrapper"]{{
-          background: var(--panel);
-          border: 1px solid var(--border);
-          border-radius: 18px;
-          padding: 18px;
-          box-shadow: var(--shadow);
+          background: var(--panel) !important;
+          border: 1px solid var(--border) !important;
+          border-radius: 18px !important;
+          padding: 18px !important;
+          box-shadow: var(--shadow) !important;
         }}
 
         div[data-testid="stButton"] button{{
@@ -2035,6 +2060,7 @@ def load_css_app_light(compact: bool = False):
           border: 1px solid var(--border2) !important;
           background: white !important;
           color: var(--text) !important;
+          -webkit-text-fill-color: var(--text) !important;
           font-weight: 650 !important;
           transition: all 160ms ease;
         }}
@@ -2053,6 +2079,7 @@ def load_css_app_light(compact: bool = False):
           background: white !important;
           border: 1px solid var(--border2) !important;
           color: var(--text) !important;
+          -webkit-text-fill-color: var(--text) !important;
         }}
 
         div[data-testid="stSelectbox"] [data-baseweb="select"] > div{{
@@ -2060,25 +2087,28 @@ def load_css_app_light(compact: bool = False):
           background: white !important;
           border: 1px solid var(--border2) !important;
           color: var(--text) !important;
+          -webkit-text-fill-color: var(--text) !important;
+        }}
+
+        /* Radios + toggles disappearing on iPhone dark mode: force text fill */
+        .stRadio, .stRadio *, .stToggle, .stToggle * {{
+          color: var(--text) !important;
+          -webkit-text-fill-color: var(--text) !important;
         }}
 
         div[data-testid="stDataFrame"]{{
           border-radius: 18px !important;
           overflow: hidden !important;
           border: 1px solid var(--border) !important;
-          box-shadow: var(--shadow);
+          box-shadow: var(--shadow) !important;
         }}
 
         div[data-testid="metric-container"]{{
-          background: white;
-          border: 1px solid var(--border);
-          padding: 14px 16px;
-          border-radius: 18px;
-          box-shadow: var(--shadow);
-        }}
-
-        button, label, .stToggle, .stRadio {{
-        color: #0f172a !important;
+          background: white !important;
+          border: 1px solid var(--border) !important;
+          padding: 14px 16px !important;
+          border-radius: 18px !important;
+          box-shadow: var(--shadow) !important;
         }}
 
         {compact_css}
