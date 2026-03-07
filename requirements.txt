@@ -3,4 +3,5 @@ pandas
 supabase
 matplotlib
 plotly==5.24.1
+streamlit-extras
 
