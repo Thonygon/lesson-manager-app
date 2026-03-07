@@ -1,18 +1,9 @@
 # ============================================================
-# CLASS MANAGER (Single-file Streamlit App)
-# Dark HOME + Light APP + Top Nav (NO SIDEBAR)
-# + Bilingual UI (EN/ES)
-# + Bilingual payments (English/Spanish/English,Spanish)
-# + Lesson language (auto + manual when both)
-# + Bulk edit payments + bulk edit lessons
-# + Analytics upgrades
-# + Forecast fixed
-# + Calendar overrides UI (reschedule/cancel/notes)
-# + KPI bubbles fixed via components.html
-# ============================================================
+# CLASS MANAGER — CLEAN REBUILD (single-file Streamlit app)
+# ------------------------------------------------------------
 
 # =========================
-# 00) IMPORTS
+# 01) IMPORTS + CONSTANTS
 # =========================
 import streamlit as st
 import pandas as pd
@@ -34,7 +25,7 @@ LOCAL_TZ = ZoneInfo("Europe/Istanbul")
 UTC_TZ = timezone.utc
 
 # =========================
-# 01) PAGE CONFIG
+# 02) SESSION STATE INIT
 # =========================
 st.set_page_config(
     page_title="Class Manager",
@@ -42,9 +33,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-# =========================
-# 01.1) PAGE CONFIG
-# =========================
+
 def remove_streamlit_top_spacing():
     st.markdown(
         """
@@ -89,7 +78,22 @@ def remove_streamlit_top_spacing():
 remove_streamlit_top_spacing()
 
 # =========================
-# 02) I18N (EN/ES) ✅ (CURATED FULL APP DICTIONARY)
+# 03) QUERY PARAMS HELPERS
+# =========================
+def _clear_qp(*keys: str) -> None:
+    """Remove query params safely (new + old Streamlit)."""
+    try:
+        for k in keys:
+            if k in st.query_params:
+                del st.query_params[k]
+    except Exception:
+        qp = st.experimental_get_query_params()
+        for k in keys:
+            qp.pop(k, None)
+        st.experimental_set_query_params(**qp)
+
+# =========================
+# 04) I18N / TRANSLATIONS
 # =========================
 I18N: Dict[str, Dict[str, str]] = {
     "en": {
@@ -753,13 +757,822 @@ def t(key: str) -> str:
 
     return k
 
+ANALYTICS_I18N = {
+    "en": {
+        "insights_and_actions": "Insights & Actions",
+        "summary": "Summary",
+        "revenue_drivers": "Revenue drivers",
+        "teaching_activity": "Teaching activity",
+        "risk_and_forecast": "Risk & forecast",
+        "show_raw_data": "Show raw data",
+         "what_this_means": "What this means",
+        "next_steps": "Next steps",
+        "avg_monthly_income": "Average monthly income",
+        "avg_yearly_income": "Average yearly income",
+        "run_rate_annual": "Estimated yearly revenue",
+        "effective_rate_unit": "Average income per lesson",
+        "concentration_risk": "Income concentration",
+        "top1_share": "Top student share",
+        "top3_share": "Top 3 students share",
+        "top10_revenue": "Top 10 income",
+        "top5_quick_view": "Top 5 quick view",
+        "segment_language": "Language segment",
+        "segment_modality": "Modality segment",
+        "total_revenue_language": "Total income by language",
+        "total_revenue_modality": "Total income by modality",
+        "top_segment_share": "Top segment share",
+        "total_units": "Total lesson units",
+        "top_language": "Top lesson language",
+        "top_modality": "Top lesson modality",
+
+        # Forecast (operational)
+        "students_in_forecast": "Students in forecast",
+        "due_now": "Due to contact now",
+        "finishing_14d": "Finishing in next 14 days",
+        "at_risk": "At risk",
+        "students_to_contact": "Students to contact",
+        "units_left": "units left",
+        "finish": "finish",
+        "remind": "remind",
+        "next_up": "Next up",
+
+        # Goal
+        "goal": "Goal",
+        "yearly_income_goal": "Yearly income goal",
+        "goal_progress": "Goal progress",
+        "ytd_income": "YTD income",
+        "remaining_to_goal": "Remaining to goal",
+        "avg_needed_month": "Avg needed / month",
+        "expected_renewals": "Expected renewals",
+
+        "takeaway_concentration": "Your top student contributes {p1} of all income; your top 3 students contribute {p3}.",
+        "takeaway_language": "Your strongest language segment is {name} ({share} of language income).",
+        "takeaway_modality": "Your strongest modality segment is {name} ({share} of modality income).",
+        "takeaway_activity_language": "Most of your teaching units are in {name} ({share} of units).",
+        "takeaway_activity_modality": "Most of your teaching units are delivered via {name} ({share} of units).",
+        "takeaway_profitable": "{name} is currently your strongest income source. Keeping your best students satisfied supports stable income.",
+        "takeaway_pipeline": "Use this section as a renewal list. Contact students before they reach zero units.",
+        "action_check_week": "No income recorded this week — check renewals and pending payments.",
+        "action_reduce_risk": "Income is concentrated — consider balancing your student base and pricing.",
+        "action_review_pricing": "Average income per unit looks low — review packages, discounts, or lesson pricing.",
+        "action_review_top": "Review your top students and plan renewals.",
+        "action_compare_mix": "Compare language/modality mix with your pricing strategy.",
+        "action_check_forecast": "Use the forecast to plan the next two weeks.",
+        "important": "Important",
+    },
+    "es": {
+        "insights_and_actions": "Información Estratégica",
+        "summary": "Resumen",
+        "revenue_drivers": "Impulsores de ingresos",
+        "teaching_activity": "Actividad docente",
+        "risk_and_forecast": "Riesgo y pronóstico",
+        "show_raw_data": "Mostrar datos",
+        "what_this_means": "Qué significa",
+        "next_steps": "Próximos pasos",
+        "avg_monthly_income": "Ingreso mensual promedio",
+        "avg_yearly_income": "Ingreso anual promedio",
+        "run_rate_annual": "Proyección de ingreso anual",
+        "effective_rate_unit": "Ingreso promedio por clase",
+        "concentration_risk": "Concentración de ingresos",
+        "top1_share": "Participación del mejor estudiante",
+        "top3_share": "Participación del top 3",
+        "top10_revenue": "Ingreso del top 10",
+        "top5_quick_view": "Vista rápida top 5",
+        "segment_language": "Segmento por idioma",
+        "segment_modality": "Segmento por modalidad",
+        "total_revenue_language": "Ingreso total por idioma",
+        "total_revenue_modality": "Ingreso total por modalidad",
+        "top_segment_share": "Participación del segmento líder",
+        "total_units": "Unidades de clase totales",
+        "top_language": "Idioma principal",
+        "top_modality": "Modalidad principal",
+
+        # Forecast (operational)
+        "students_in_forecast": "Estudiantes en pronóstico",
+        "due_now": "Para contactar hoy",
+        "finishing_14d": "Terminan en los próximos 14 días",
+        "at_risk": "En riesgo",
+        "students_to_contact": "Estudiantes a contactar",
+        "units_left": "unidades restantes",
+        "finish": "fin",
+        "remind": "recordar",
+        "next_up": "Próximos",
+
+        # Goal
+        "goal": "Meta",
+        "yearly_income_goal": "Meta anual de ingresos",
+        "goal_progress": "Progreso de la meta",
+        "ytd_income": "Ingresos del año",
+        "remaining_to_goal": "Falta para la meta",
+        "avg_needed_month": "Promedio necesario / mes",
+        "expected_renewals": "Renovaciones esperadas",
+
+        "takeaway_concentration": "Tu mejor estudiante aporta {p1} del ingreso total; tu top 3 aporta {p3}.",
+        "takeaway_language": "Tu segmento de idioma más fuerte es {name} ({share} del ingreso por idioma).",
+        "takeaway_modality": "Tu segmento de modalidad más fuerte es {name} ({share} del ingreso por modalidad).",
+        "takeaway_activity_language": "La mayoría de tus unidades de clase están en {name} ({share} de unidades).",
+        "takeaway_activity_modality": "La mayoría de tus unidades se imparten por {name} ({share} de unidades).",
+        "takeaway_profitable": "{name} es tu principal fuente de ingresos. Mantener satisfechos a tus mejores estudiantes ayuda a tener ingresos estables.",
+        "takeaway_pipeline": "Usa esta sección como lista de renovaciones. Contacta a los estudiantes antes de llegar a cero unidades.",
+        "action_check_week": "No hay ingresos registrados esta semana — revisa renovaciones y pagos pendientes.",
+        "action_reduce_risk": "El ingreso está concentrado — considera equilibrar tu base de estudiantes y precios.",
+        "action_review_pricing": "El ingreso promedio por unidad parece bajo — revisa paquetes, descuentos o precios.",
+        "action_review_top": "Revisa tus estudiantes más rentables y planifica renovaciones.",
+        "action_compare_mix": "Compara el mix de idioma/modalidad con tu estrategia de precios.",
+        "action_check_forecast": "Usa el pronóstico para planificar las próximas dos semanas.",
+        "important": "Importante",
+    },
+}
+
+def t_a(key: str, **kwargs) -> str:
+    lang = st.session_state.get("ui_lang", "en")
+    s = ANALYTICS_I18N.get(lang, ANALYTICS_I18N["en"]).get(key, key)
+    try:
+        return s.format(**kwargs)
+    except Exception:
+        return s
+
 # =========================
-# 03) SMALL UI HELPERS
+# 05) CSS / THEME LOADERS
 # =========================
 
-# ============= AUTHENTICATION HELPERS =============#
+def load_css_home_dark():
+    st.markdown(
+        """
+        <style>
+        :root { color-scheme: dark; }
+        html, body { color-scheme: dark; }
+
+        :root{
+          --bg-1:#081120;
+          --bg-2:#0b1730;
+          --bg-3:#050b14;
+
+          --text:#eef4ff;
+          --muted:rgba(238,244,255,0.72);
+
+          --panel:rgba(255,255,255,0.07);
+          --panel-2:rgba(255,255,255,0.05);
+          --border:rgba(255,255,255,0.12);
+          --border-strong:rgba(255,255,255,0.18);
+
+          --primary:#60A5FA;
+          --primary-strong:#3B82F6;
+          --success:#34D399;
+          --danger:#F87171;
+
+          --shadow-lg:0 22px 55px rgba(0,0,0,0.42);
+          --shadow-md:0 12px 28px rgba(0,0,0,0.30);
+          --radius-xl:24px;
+          --radius-lg:18px;
+          --radius-md:14px;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body, .stApp,
+        [data-testid="stAppViewContainer"],
+        section[data-testid="stMain"],
+        section[data-testid="stMain"] > div,
+        div.block-container{
+          overflow-x:hidden !important;
+          max-width:100% !important;
+        }
+
+        html, body, [class*="css"]{
+          font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        }
+
+        .stApp{
+          background:
+            radial-gradient(900px 500px at 15% 5%, rgba(59,130,246,0.22), transparent 58%),
+            radial-gradient(800px 480px at 85% 10%, rgba(16,185,129,0.14), transparent 60%),
+            radial-gradient(700px 420px at 50% 100%, rgba(96,165,250,0.10), transparent 58%),
+            linear-gradient(180deg, var(--bg-2) 0%, var(--bg-1) 45%, var(--bg-3) 100%);
+          color: var(--text);
+          min-height:100vh;
+        }
+
+        html, body { background: var(--bg-1) !important; }
+        [data-testid="stAppViewContainer"] { background: transparent !important; }
+
+        header { display:none !important; }
+        div[data-testid="stDecoration"] { display:none !important; }
+
+        section[data-testid="stMain"] > div{
+          max-width: 1120px;
+          padding-top: 0rem !important;
+          padding-bottom: 0rem !important;
+        }
+
+        .block-container{
+          padding-top: 0rem !important;
+          padding-bottom: 0rem !important;
+          padding-left: 1rem !important;
+          padding-right: 1rem !important;
+        }
+
+        a { text-decoration:none !important; }
+
+        /* ---------- Shared layout shells ---------- */
+        .home-shell{
+          max-width: 760px;
+          margin: 0 auto;
+          padding: 18px 0 28px 0;
+        }
+
+        .home-panel{
+          background: linear-gradient(180deg, var(--panel), var(--panel-2));
+          border: 1px solid var(--border);
+          border-radius: var(--radius-xl);
+          box-shadow: var(--shadow-md);
+          backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
+        }
+
+        .home-panel-soft{
+          background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.035));
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          box-shadow: var(--shadow-md);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+        }
+
+        /* ---------- Titles ---------- */
+        .home-title{
+          text-align:center;
+          font-size: clamp(2.0rem, 3.2vw, 2.8rem);
+          font-weight: 900;
+          letter-spacing: -0.04em;
+          color: var(--text);
+          margin: 10px 0 12px 0;
+        }
+
+        .home-hero{
+          padding: 22px 18px;
+          margin: 12px 0 16px 0;
+          border-radius: var(--radius-xl);
+          background:
+            radial-gradient(420px 180px at 10% 0%, rgba(59,130,246,0.18), transparent 60%),
+            radial-gradient(420px 180px at 90% 0%, rgba(52,211,153,0.14), transparent 60%),
+            linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
+          border: 1px solid var(--border);
+          box-shadow: var(--shadow-md);
+          text-align: center;
+        }
+
+        .home-slogan{
+          font-size: clamp(1.45rem, 2.3vw, 2rem);
+          font-weight: 900;
+          letter-spacing: -0.03em;
+          margin-bottom: 8px;
+          color: var(--text);
+        }
+
+        .home-sub{
+          color: var(--muted);
+          font-size: 1rem;
+          line-height: 1.45;
+          margin: 0;
+        }
+
+        /* ---------- Section title ---------- */
+        .home-section-title{
+          text-align:center;
+          font-size: 0.95rem;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--muted);
+          margin: 16px 0 12px 0;
+        }
+
+        /* ---------- External links ---------- */
+        .home-links{
+          margin: 16px 0 10px 0;
+        }
+
+        .home-links-row{
+          display:flex;
+          gap:12px;
+          overflow-x:auto;
+          overflow-y:hidden;
+          padding: 4px 2px 12px 2px;
+          scrollbar-width:none;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior-x: contain;
+          touch-action: pan-x;
+        }
+
+        .home-links-row::-webkit-scrollbar{
+          display:none;
+        }
+
+        .home-linkchip{
+          flex: 0 0 210px;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          gap:10px;
+          padding: 14px 14px;
+          border-radius: 16px;
+          color:#fff !important;
+          font-weight:800;
+          background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
+          border:1px solid var(--border);
+          box-shadow: var(--shadow-md);
+        }
+
+        .home-linkchip .dot{
+          width:10px;
+          height:10px;
+          border-radius:999px;
+          background: var(--primary);
+          box-shadow: 0 0 0 5px rgba(96,165,250,0.16);
+          display:inline-block;
+        }
+
+        /* ---------- Generic modern button styling for HOME ---------- */
+        div[data-testid="stButton"] button{
+          width:100%;
+          border-radius:16px !important;
+          min-height:52px !important;
+          border:1px solid var(--border) !important;
+          background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.05)) !important;
+          color: var(--text) !important;
+          font-weight: 800 !important;
+          box-shadow: var(--shadow-md) !important;
+          transition: all 160ms ease;
+          letter-spacing: -0.01em;
+        }
+
+        div[data-testid="stButton"] button:hover{
+          transform: translateY(-1px);
+          border-color: var(--border-strong) !important;
+          box-shadow:
+            0 0 0 4px rgba(96,165,250,0.10),
+            var(--shadow-md) !important;
+        }
+
+        div[data-testid="stButton"] button:focus{
+          outline:none !important;
+          box-shadow:
+            0 0 0 4px rgba(96,165,250,0.14),
+            var(--shadow-md) !important;
+        }
+
+        /* ---------- Top navigation buttons ---------- */
+        .home-topnav-label{
+          text-align:center;
+          font-size: 0.82rem;
+          color: var(--muted);
+          margin-top: 6px;
+          font-weight: 700;
+        }
+
+        .home-top-actions div[data-testid="stButton"] button{
+          min-height: 38px !important;
+          height: 38px !important;
+          padding: 0.35rem 0.45rem !important;
+          border-radius: 14px !important;
+          font-size: 0.95rem !important;
+        }
+
+        .home-top-actions div[data-testid="stButton"]{
+          width: auto !important;
+        }
+
+        .home-top-actions div[data-testid="stButton"] button{
+          width: auto !important;
+          min-width: 64px !important;
+          height: 38px !important;
+          min-height: 38px !important;
+          padding: 0.25rem 0.6rem !important;
+          font-size: 0.9rem !important;
+
+        @media (max-width: 768px){
+          .home-top-actions div[data-testid="stButton"] button{
+            min-height: 36px !important;
+            height: 36px !important;
+            padding: 0.25rem 0.35rem !important;
+            font-size: 0.9rem !important;
+          }
+        }
+        
+
+        /* ---------- Home menu buttons ---------- */
+        .home-menu-note{
+          text-align:center;
+          color: var(--muted);
+          font-size: 0.95rem;
+          margin-bottom: 10px;
+        }
+
+        /* More visual menu buttons */
+        .home-menu-wrap div[data-testid="stButton"] button{
+          min-height: 62px !important;
+          font-size: 1rem !important;
+          border-radius: 18px !important;
+          background:
+            radial-gradient(500px 120px at 0% 0%, rgba(96,165,250,0.14), transparent 60%),
+            linear-gradient(180deg, rgba(255,255,255,0.11), rgba(255,255,255,0.05)) !important;
+        }
+
+        /* ---------- Small utility cards ---------- */
+        .home-mini-card{
+          padding: 14px;
+          border-radius: 16px;
+          background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+          border: 1px solid var(--border);
+          box-shadow: var(--shadow-md);
+          text-align:center;
+        }
+
+        .home-mini-title{
+          font-size: 0.82rem;
+          color: var(--muted);
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          margin-bottom: 6px;
+        }
+
+        .home-mini-value{
+          font-size: 1.08rem;
+          font-weight: 900;
+          color: var(--text);
+        }
+
+        /* ---------- Badge-like pills ---------- */
+        .home-chip{
+          display:inline-flex;
+          align-items:center;
+          justify-content:center;
+          padding: 8px 12px;
+          border-radius: 999px;
+          border: 1px solid var(--border);
+          background: rgba(255,255,255,0.06);
+          color: var(--muted);
+          font-weight: 750;
+          font-size: 0.9rem;
+        }
+
+        /* ---------- Bottom safe spacing ---------- */
+        .home-bottom-space{
+          height: 22px;
+        }
+
+        @media (max-width: 768px){
+          .block-container{
+            padding-left: 0.85rem !important;
+            padding-right: 0.85rem !important;
+          }
+
+          .home-hero{
+            padding: 18px 14px;
+          }
+
+          .home-menu-wrap{
+            padding: 12px;
+          }
+
+          div[data-testid="stButton"] button{
+            min-height: 50px !important;
+          }
+
+          .home-menu-wrap div[data-testid="stButton"] button{
+            min-height: 58px !important;
+          }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def load_css_app_light(compact: bool = False):
+    compact_css = """
+        section[data-testid="stMain"] > div {
+          padding-top: 1.0rem !important;
+          padding-bottom: 1.0rem !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]{
+          padding: 12px !important;
+          border-radius: 16px !important;
+        }
+        div[data-testid="stButton"] button{
+          padding: 0.58rem 0.85rem !important;
+          border-radius: 14px !important;
+        }
+        div[data-testid="metric-container"]{
+          padding: 12px 14px !important;
+          border-radius: 16px !important;
+        }
+    """ if compact else ""
+
+    st.markdown(
+        f"""
+        <style>
+        :root {{ color-scheme: light !important; }}
+        html, body {{ color-scheme: light !important; }}
+
+        :root{{
+          --bg:#f5f7fb;
+          --panel:#ffffff;
+          --panel-soft:#fbfcff;
+          --border:rgba(17,24,39,0.08);
+          --border2:rgba(17,24,39,0.10);
+          --text:#0f172a;
+          --muted:#475569;
+          --primary:#2563EB;
+          --shadow:0 12px 28px rgba(15,23,42,0.08);
+        }}
+
+        * {{ box-sizing: border-box; }}
+
+        html, body,
+        .stApp,
+        [data-testid="stAppViewContainer"],
+        section[data-testid="stMain"],
+        section[data-testid="stMain"] > div,
+        div.block-container {{
+          overflow-x:hidden !important;
+          max-width:100% !important;
+        }}
+
+        .stApp {{
+          background:
+            radial-gradient(900px 420px at 0% 0%, rgba(37,99,235,0.06), transparent 55%),
+            linear-gradient(180deg, #f8faff 0%, var(--bg) 100%) !important;
+          color: var(--text) !important;
+        }}
+
+        [data-testid="stAppViewContainer"] {{
+          background: transparent !important;
+        }}
+
+        .stApp, .stApp * {{
+          color: var(--text);
+          -webkit-text-fill-color: var(--text) !important;
+        }}
+
+        .stCaption, .stMarkdown p, .stMarkdown span, .stMarkdown li {{
+          color: var(--muted) !important;
+          -webkit-text-fill-color: var(--muted) !important;
+        }}
+
+        .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {{
+          color: var(--text) !important;
+          -webkit-text-fill-color: var(--text) !important;
+        }}
+
+        label, label * {{
+          color: var(--text) !important;
+          -webkit-text-fill-color: var(--text) !important;
+        }}
+
+        section[data-testid="stMain"] > div {{
+          padding-top: 1.4rem;
+          padding-bottom: 1.4rem;
+          max-width: 1200px;
+        }}
+
+        html, body, [class*="css"]{{
+          font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        }}
+
+        h1, h2, h3 {{
+          letter-spacing: -0.02em;
+        }}
+
+        div[data-testid="stVerticalBlockBorderWrapper"] {{
+          background: linear-gradient(180deg, #ffffff, #fcfdff) !important;
+          border: 1px solid var(--border) !important;
+          border-radius: 18px !important;
+          padding: 18px !important;
+          box-shadow: var(--shadow) !important;
+        }}
+
+        div[data-testid="metric-container"] {{
+          background: linear-gradient(180deg, #ffffff, #fbfdff) !important;
+          border: 1px solid var(--border) !important;
+          padding: 14px 16px !important;
+          border-radius: 18px !important;
+          box-shadow: var(--shadow) !important;
+        }}
+
+        div[data-testid="stButton"] button {{
+          border-radius: 14px !important;
+          padding: 0.64rem 1rem !important;
+          border: 1px solid var(--border2) !important;
+          background: linear-gradient(180deg, #ffffff, #f8fbff) !important;
+          color: var(--text) !important;
+          -webkit-text-fill-color: var(--text) !important;
+          font-weight: 700 !important;
+          transition: all 160ms ease;
+          box-shadow: 0 4px 14px rgba(15,23,42,0.04);
+        }}
+
+        div[data-testid="stButton"] button:hover {{
+          transform: translateY(-1px);
+          border-color: rgba(37,99,235,0.25) !important;
+          box-shadow:
+            0 0 0 4px rgba(37,99,235,0.08),
+            0 8px 18px rgba(15,23,42,0.06);
+        }}
+
+        div[data-testid="stTextInput"] input,
+        div[data-testid="stTextArea"] textarea,
+        div[data-testid="stNumberInput"] input,
+        div[data-testid="stDateInput"] input {{
+          border-radius: 14px !important;
+          background: white !important;
+          border: 1px solid var(--border2) !important;
+          color: var(--text) !important;
+          -webkit-text-fill-color: var(--text) !important;
+        }}
+
+        div[data-testid="stSelectbox"] [data-baseweb="select"] > div {{
+          border-radius: 14px !important;
+          background: white !important;
+          border: 1px solid var(--border2) !important;
+          color: var(--text) !important;
+          -webkit-text-fill-color: var(--text) !important;
+        }}
+
+        .stRadio, .stRadio *, .stToggle, .stToggle * {{
+          color: var(--text) !important;
+          -webkit-text-fill-color: var(--text) !important;
+        }}
+
+        div[data-testid="stDataFrame"] {{
+          border-radius: 18px !important;
+          overflow: hidden !important;
+          border: 1px solid var(--border) !important;
+          box-shadow: var(--shadow) !important;
+        }}
+
+        /* Toggle styling */
+        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"] {{
+          width: 42px !important;
+          height: 24px !important;
+          border-radius: 12px !important;
+          background: #BFDBFE !important;
+          border: 1px solid #93C5FD !important;
+          position: relative !important;
+          box-shadow: none !important;
+        }}
+
+        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"][aria-checked="true"] {{
+          background: #1D4ED8 !important;
+          border-color: #1D4ED8 !important;
+        }}
+
+        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"]::after {{
+          content: "" !important;
+          position: absolute !important;
+          width: 18px !important;
+          height: 18px !important;
+          top: 2px !important;
+          left: 2px !important;
+          background: #ffffff !important;
+          border-radius: 8px !important;
+          transform: translateX(0) !important;
+          transition: transform 180ms ease !important;
+        }}
+
+        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"][aria-checked="true"]::after {{
+          transform: translateX(18px) !important;
+        }}
+
+        div[data-testid="stToggle"] div[data-baseweb="checkbox"] svg,
+        div[data-testid="stToggle"] div[data-baseweb="checkbox"] svg path {{
+          fill: #ffffff !important;
+        }}
+
+        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"]:focus,
+        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"]:focus-visible {{
+          outline: none !important;
+          box-shadow: none !important;
+        }}
+
+        {compact_css}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def mobile_fullscreen_css():
+    st.markdown(
+        """
+        <style>
+        .main .block-container{
+          padding-top: 0rem !important;
+          padding-bottom: 0rem !important;
+          padding-left: 0rem !important;
+          padding-right: 0rem !important;
+          max-width: 100% !important;
+        }
+        header[data-testid="stHeader"]{ height: 0px !important; }
+        div[data-testid="stDecoration"]{ display:none !important; }
+        html, body, [data-testid="stAppViewContainer"]{ height: 100%; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# Only apply fullscreen “mobile” css when compact_mode is ON
+if bool(st.session_state.get("compact_mode", False)):
+    mobile_fullscreen_css()
+
 # =========================
-# SUPABASE CONNECTION
+# 06) SUPABASE CLIENT + AUTH
+# =========================
+def get_supabase():
+    url = st.secrets.get("SUPABASE_URL", None) or os.getenv("SUPABASE_URL")
+    key = st.secrets.get("SUPABASE_KEY", None) or os.getenv("SUPABASE_KEY")
+    if not url or not key:
+        st.error("Missing Supabase secrets: SUPABASE_URL / SUPABASE_KEY")
+        st.stop()
+    return create_client(url, key)
+
+def apply_auth_session(supabase) -> None:
+    """Apply stored access/refresh tokens to the client (if present)."""
+    at = st.session_state.get("sb_access_token")
+    rt = st.session_state.get("sb_refresh_token")
+    if not at or not rt:
+        return
+    try:
+        supabase.auth.set_session(at, rt)
+        user = supabase.auth.get_user().user
+        st.session_state["auth_user"] = user.model_dump() if hasattr(user, "model_dump") else dict(user)
+        st.session_state["user_id"] = getattr(user, "id", None) or st.session_state["auth_user"].get("id")
+        st.session_state["user_email"] = getattr(user, "email", None) or st.session_state["auth_user"].get("email")
+    except Exception:
+        # tokens invalid/expired -> force sign out
+        st.session_state["sb_access_token"] = None
+        st.session_state["sb_refresh_token"] = None
+        st.session_state["auth_user"] = None
+        st.session_state["user_id"] = None
+        st.session_state["user_email"] = None
+
+def require_login() -> None:
+    if not st.session_state.get("user_id"):
+        st.warning(t("login_required"))
+        render_auth_box()
+        st.stop()
+
+def render_auth_box() -> None:
+    supabase = get_supabase()
+
+    with st.container():
+        st.markdown(f"### {t('sign_in')} / {t('sign_up')}")
+        email = st.text_input(t("email"), key="auth_email")
+        pwd = st.text_input(t("password"), type="password", key="auth_pwd")
+
+        c1, c2, c3 = st.columns([1, 1, 2])
+        with c1:
+            if st.button(t("sign_in"), use_container_width=True):
+                try:
+                    res = supabase.auth.sign_in_with_password({"email": email, "password": pwd})
+                    sess = getattr(res, "session", None)
+                    if not sess:
+                        st.error("Sign-in failed (no session).")
+                        return
+                    st.session_state["sb_access_token"] = sess.access_token
+                    st.session_state["sb_refresh_token"] = sess.refresh_token
+                    apply_auth_session(supabase)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Sign-in error: {e}")
+
+        with c2:
+            if st.button(t("sign_up"), use_container_width=True):
+                try:
+                    supabase.auth.sign_up({"email": email, "password": pwd})
+                    st.success("Account created. Now sign in.")
+                except Exception as e:
+                    st.error(f"Sign-up error: {e}")
+
+        with c3:
+            if st.session_state.get("user_id") and st.button(t("sign_out"), use_container_width=True):
+                try:
+                    supabase.auth.sign_out()
+                except Exception:
+                    pass
+                st.session_state["sb_access_token"] = None
+                st.session_state["sb_refresh_token"] = None
+                st.session_state["auth_user"] = None
+                st.session_state["user_id"] = None
+                st.session_state["user_email"] = None
+                st.rerun()
+
+
+# =========================
+# 07) DATA ACCESS LAYER (CRUD)
 # =========================
 try:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -771,7 +1584,6 @@ except Exception as e:
 
 supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-# ============= AUTHENTICATION HELPERS =============#
 
 def _has_tokens() -> bool:
     return bool(st.session_state.get("sb_access_token"))
@@ -835,23 +1647,18 @@ def _set_auth_session(resp) -> None:
             uid = getattr(u2, "id", None) if u2 else None
 
     st.session_state["sb_user_id"] = str(uid) if uid else None
-
+    if uid:
+        st.session_state["user_id"] = str(uid)
 
 def _apply_auth_to_client():
-    """
-    Make the global supabase client use the stored session (JWT) so RLS works.
-    """
     at = st.session_state.get("sb_access_token")
     rt = st.session_state.get("sb_refresh_token")
     if not at:
         return
     try:
         supabase.auth.set_session(at, rt)
-    except Exception:
-        # If your supabase-py version doesn't support set_session, you can still
-        # proceed, but RLS may fail for reads/writes.
-        pass
-
+    except Exception as e:
+        st.warning(f"Could not apply auth session (RLS may fail): {e}")
 
 def require_login():
     """
@@ -900,195 +1707,1154 @@ def require_login():
 
     st.stop()
 
-
-# Call this once near the top, before rendering pages
 require_login()
 
-# ================== OTHER UI HELPERS ==================#
-def nav_pill(label: str, page: str, css_class: str):
-    # Render a pill-looking button
-    st.markdown(
-        f"""
-        <style>
-        div[data-testid="stButton"] > button.{css_class} {{
-            width: 100%;
-            border-radius: 18px;
-            padding: 1.05rem 1.15rem;
-            margin: 0.55rem 0;
-            font-weight: 950;
-            text-align: center;
-            color: #ffffff !important;
-            background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.05));
-            border: 1px solid rgba(255,255,255,0.18);
-            box-shadow: 0 18px 34px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.12);
-            backdrop-filter: blur(14px);
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if st.button(label, key=f"pill_{page}", use_container_width=True):
-        go_to(page)
-        st.rerun()
-
-def to_dt_naive(x, utc: bool = True):
-    """
-    Parse to pandas datetime and return tz-naive timestamps.
-
-    - If x is a Series/array-like -> returns a Series[datetime64[ns]] (tz-naive)
-    - If x is scalar -> returns a Timestamp or NaT (tz-naive)
-    - If utc=True -> parse/convert to UTC then drop tz
-    """
-    s = pd.to_datetime(x, errors="coerce", utc=utc)
-
-    # Series path
-    if isinstance(s, pd.Series):
-        try:
-            return s.dt.tz_convert(None)  # tz-aware -> drop tz
-        except Exception:
-            return s  # already tz-naive or not datetimelike
-
-    # Scalar path
+def load_table(name: str, limit: int = 10000, page_size: int = 1000) -> pd.DataFrame:
+    all_rows = []
+    offset = 0
     try:
-        if getattr(s, "tzinfo", None) is not None:
-            return s.tz_convert(None)
-        return s
+        while offset < limit:
+            resp = (
+                supabase.table(name)
+                .select("*")
+                .range(offset, min(offset + page_size - 1, limit - 1))
+                .execute()
+            )
+            batch = resp.data or []
+            all_rows.extend(batch)
+            if len(batch) < page_size:
+                break
+            offset += page_size
+        return pd.DataFrame(all_rows)
+    except Exception as e:
+        st.error(f"Supabase error loading table '{name}'.\n\n{e}")
+        return pd.DataFrame()
+
+
+def norm_student(x: str) -> str:
+    return str(x).strip().casefold()
+
+
+def ensure_student(student: str) -> None:
+    student = str(student).strip()
+    if not student:
+        return
+    try:
+        supabase.table("students").insert({"student": student}).execute()
     except Exception:
-        return s
+        pass
 
 
-def ts_today_naive() -> pd.Timestamp:
-    # Always tz-naive "today" at midnight
-    return pd.Timestamp.now().normalize().tz_localize(None)
+def load_students() -> List[str]:
+    students_df = load_table("students")
+    classes_df = load_table("classes")
+    payments_df = load_table("payments")
 
+    names = set()
+    for df, col in [(students_df, "student"), (classes_df, "student"), (payments_df, "student")]:
+        if not df.empty and col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+            names.update(df[col].dropna().tolist())
+    return sorted([n for n in names if n and n.lower() != "nan"])
 
-def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Light formatting helper used across the app (values only; keeps column names)."""
-    if df is None or df.empty:
-        return df
+def get_profile_avatar_url(user_id: str) -> str:
+    try:
+        res = supabase.table("profiles").select("avatar_url").eq("user_id", str(user_id)).limit(1).execute()
+        rows = getattr(res, "data", None) or []
+        if not rows:
+            return ""
+        return str(rows[0].get("avatar_url") or "")
+    except Exception:
+        return ""
 
-    out = df.copy()
-
-    # Trim object columns
-    for c in out.columns:
-        if out[c].dtype == "object":
-            out[c] = out[c].astype(str).str.strip()
-
-    return out
-
-
-def translate_df_headers(df: pd.DataFrame) -> pd.DataFrame:
-    """Translate dataframe column headers using t() with robust normalization."""
-    if df is None or df.empty:
-        return df
-
-    out = df.copy()
-
-    def norm_key(col: str) -> str:
-        k = str(col or "").strip()
-        k = k.replace("-", " ").replace("/", " ")
-        k = re.sub(r"\s+", " ", k)
-
-        # normalize common display variants
-        k = k.replace(" ID", " Id")
-        k = k.replace("Id", "ID")
-        k = k.replace("ID", " id ")
-
-        k = k.strip().casefold()
-        k = k.replace(" ", "_")
-        k = re.sub(r"__+", "_", k).strip("_")
-        return k
-
-    out.columns = [t(norm_key(c)) for c in out.columns]
-    return out
-
-
-def translate_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Translate headers + common coded values (Status/Modality/Languages) when present.
-    Works for snake_case or pretty title columns.
-    """
-    if df is None or df.empty:
-        return df
-
-    out = df.copy()
-
-    # headers
-    out = translate_df_headers(out)
-
-    cols = set(out.columns.astype(str))
-
-    # values
-    for status_col in [t("status"), "Status", "status"]:
-        if status_col in cols:
-            out[status_col] = out[status_col].astype(str).str.strip().str.casefold().apply(translate_status)
-
-    for mod_col in [t("modality"), "Modality", "modality"]:
-        if mod_col in cols:
-            out[mod_col] = out[mod_col].astype(str).apply(translate_modality_value)
-
-    for lang_col in [t("languages"), "Languages", "languages"]:
-        if lang_col in cols:
-            out[lang_col] = out[lang_col].astype(str).apply(translate_language_value)
-
-    return out
-
-
-def chart_series(df: pd.DataFrame, index_col: str, value_col: str, index_key: str, value_key: str):
-    """
-    Builds a Series for Streamlit charts with translated axis labels.
-    index_key/value_key are I18N keys (e.g., "student", "income").
-    """
-    if df is None or df.empty or index_col not in df.columns or value_col not in df.columns:
-        return None
-
-    s = df[[index_col, value_col]].copy()
-    s[index_col] = s[index_col].astype(str)
-    s[value_col] = pd.to_numeric(s[value_col], errors="coerce").fillna(0.0)
-
-    series = s.set_index(index_col)[value_col]
-    series.index.name = t(index_key)
-    series.name = t(value_key)
-    return series
-
-def dash_chart_series(
-    df: pd.DataFrame,
-    group_col: str,
-    group_key_for_label: str,
-    value_key_for_label: str,
-) -> Optional[pd.Series]:
-    """
-    Build a Series for st.bar_chart with translated:
-      - series name (e.g. "Students")
-      - index name (e.g. "Status", "Modality", "Languages")
-      - index values when they are coded (status/modality/languages)
-    """
-    if df is None or df.empty or group_col not in df.columns:
-        return None
-
-    tmp = df.copy()
-    tmp[group_col] = tmp[group_col].fillna("").astype(str).str.strip()
-    tmp = tmp[tmp[group_col].astype(str).str.len() > 0]
-    if tmp.empty:
-        return None
-
-    s = tmp.groupby(group_col).size().sort_values(ascending=False)
-
-    # Translate index values when needed
-    if group_col.casefold() == "status":
-        s.index = [translate_status(x) for x in s.index.astype(str)]
-    elif group_col.casefold() == "modality":
-        s.index = [translate_modality_value(x) for x in s.index.astype(str)]
-    elif group_col.casefold() == "languages":
-        s.index = [translate_language_value(x) for x in s.index.astype(str)]
-
-    s.index.name = t(group_key_for_label)
-    s.name = t(value_key_for_label)
-    return s
+def save_profile_avatar_url(user_id: str, avatar_url: str) -> None:
+    try:
+        payload = {"user_id": str(user_id), "avatar_url": str(avatar_url)}
+        supabase.table("profiles").upsert(payload, on_conflict="user_id").execute()
+    except Exception:
+        pass
 
 # =========================
-# 03.1) APP SETTINGS (GOALS) HELPERS — upgraded
+# 08) ALL HELPERS
+# =========================
+# =========================
+# 8.1 TODAY LESSONS HELPER
+# =========================
+def build_today_lessons() -> pd.DataFrame:
+    today = date.today()
+
+    events = build_calendar_events(today, today)
+    if events is None or events.empty:
+        return pd.DataFrame()
+
+    df = events.copy()
+
+    # Clean
+    df["Student"] = df["Student"].astype(str).str.strip()
+    df["Time"] = df["Time"].astype(str)
+    df["Duration_Min"] = pd.to_numeric(df["Duration_Min"], errors="coerce").fillna(60).astype(int)
+
+    # Optional: sort by time
+    df = df.sort_values("Time").reset_index(drop=True)
+
+    return df[["Student", "Time", "Duration_Min", "Source"]]
+
+# =========================
+# 8.2 LANGUAGE HELPERS
+# =========================
+LANG_EN = "English"
+LANG_ES = "Spanish"
+LANG_BOTH = "English,Spanish"
+ALLOWED_LANGS = {LANG_EN, LANG_ES, LANG_BOTH}
+ALLOWED_LESSON_LANGS = {LANG_EN, LANG_ES, LANG_BOTH}
+DEFAULT_PACKAGE_LANGS = [LANG_ES]
+
+
+def pack_languages(selected: List[str]) -> str:
+    s = [x for x in selected if x in (LANG_EN, LANG_ES)]
+    s = sorted(set(s), key=lambda z: 0 if z == LANG_EN else 1)
+    if len(s) == 2:
+        return LANG_BOTH
+    if len(s) == 1:
+        return s[0]
+    return LANG_ES
+
+
+def unpack_languages(value: str) -> List[str]:
+    v = str(value or "").strip()
+    if v == LANG_BOTH:
+        return [LANG_EN, LANG_ES]
+    if v in (LANG_EN, LANG_ES):
+        return [v]
+    return [LANG_ES]
+
+
+def allowed_lesson_language_from_package(languages_value: str) -> Tuple[List[str], Optional[str]]:
+    langs = unpack_languages(languages_value)
+    if len(langs) == 1:
+        return [langs[0]], langs[0]
+    return [LANG_EN, LANG_ES], None
+
+
+def translate_status(val: str) -> str:
+    if not val:
+        return ""
+    key_map = {
+        "dropout": "dropout",
+        "finished": "finished_status",
+        "mismatch": "mismatch_status",
+        "almost_finished": "almost_finished",
+        "active": "active_status",
+    }
+    return t(key_map.get(str(val).strip().casefold(), str(val)))
+
+
+def translate_modality_value(x: str) -> str:
+    v = str(x or "").strip().casefold()
+    if v == "online":
+        return t("online")
+    if v == "offline":
+        return t("offline")
+    return str(x or "").strip()
+
+
+def translate_language_value(x: str) -> str:
+    v = str(x or "").strip()
+    if v == LANG_EN:
+        return t("english")
+    if v == LANG_ES:
+        return t("spanish")
+    if v == LANG_BOTH:
+        return t("both")
+    if v.casefold() in ("unknown", ""):
+        return t("unknown")
+    return v
+
+# =========================
+# 8.3 WHATSAPP HELPERS
+# =========================
+
+def _digits_only(s: str) -> str:
+    return re.sub(r"\D+", "", str(s or ""))
+
+
+def normalize_phone_for_whatsapp(raw_phone: str) -> str:
+    """
+    WhatsApp expects international format digits only (no +).
+    Designed for Turkey numbers but tolerant of other formats.
+
+    Examples:
+      +90 5xx xxx xx xx  -> 905xxxxxxxxx
+      05xx xxx xx xx     -> 905xxxxxxxxx
+      5xx xxx xx xx      -> 905xxxxxxxxx
+      00<country><num>   -> <country><num>
+    """
+    d = _digits_only(raw_phone)
+    if not d:
+        return ""
+
+    # Remove leading 00
+    if d.startswith("00") and len(d) > 2:
+        d = d[2:]
+
+    # Already looks like an international number (e.g., 90xxxxxxxxxx, 4917..., 1...)
+    # Keep as-is if >= 11 digits and doesn't start with trunk '0'
+    if len(d) >= 11 and not d.startswith("0"):
+        return d
+
+    # Turkey specific normalization
+    # 0 + 10 digits starting with 5xxxxxxxxx  -> add country code
+    if len(d) == 11 and d.startswith("0") and d[1] == "5":
+        return "90" + d[1:]
+
+    # 10 digits starting with 5xxxxxxxxx -> add country code
+    if len(d) == 10 and d.startswith("5"):
+        return "90" + d
+
+    # If we can't safely normalize, return empty (so we fall back to wa.me/?text=...)
+    return ""
+
+
+def build_whatsapp_url(message: str, raw_phone: str = "") -> str:
+    encoded = urllib.parse.quote(message or "")
+    phone = normalize_phone_for_whatsapp(raw_phone)
+    if phone:
+        return f"https://wa.me/{phone}?text={encoded}"
+    return f"https://wa.me/?text={encoded}"
+
+
+def _msg_lang_label(lang: str) -> str:
+    return {"en": "English", "es": "Español", "tr": "Türkçe"}.get(lang, lang)
+
+
+def _package_status_text(status: str, lang: str) -> str:
+    """
+    status expected like: 'almost_finished', 'finished', etc.
+    We map 'almost'/'soon' variations → "almost finished"
+    """
+    s = str(status or "").strip().casefold()
+    is_almost = (
+        ("almost_finished" in s)
+        or ("almost" in s)
+        or ("finish_soon" in s)
+        or ("soon" in s)
+        or ("about" in s and "finish" in s)
+    )
+
+    if lang == "es":
+        return "por terminar" if is_almost else "finalizado"
+    if lang == "tr":
+        return "bitmek üzere" if is_almost else "tamamlandı"
+    return "almost finished" if is_almost else "finished"
+
+
+def build_msg_confirm(name: str, lang: str, time_text: str = "") -> str:
+    """
+    Template #2: confirm today's lesson (EN/ES/TR)
+    time_text optional; if empty, we omit time.
+    """
+    name = (name or "").strip()
+    tt = (time_text or "").strip()
+
+    if lang == "es":
+        return (
+            f"Hola {name}! Solo para confirmar nuestra clase de hoy"
+            f"{f' a las {tt}' if tt else ''}. ¿Todo bien por tu lado?"
+        )
+    if lang == "tr":
+        return (
+            f"Merhaba {name}! Bugünkü dersimizi"
+            f"{f' {tt} için' if tt else ''} teyit etmek istiyorum. Sizin için uygun mu?"
+        )
+    return (
+        f"Hi {name}! Just confirming our lesson today"
+        f"{f' at {tt}' if tt else ''}. Is everything okay for you?"
+    )
+
+
+def build_msg_cancel(name: str, lang: str) -> str:
+    """
+    Template #3: cancel today's lesson (EN/ES/TR)
+    """
+    name = (name or "").strip()
+
+    if lang == "es":
+        return f"Hola {name}. Lo siento, pero necesito cancelar la clase de hoy. ¿Quieres reprogramarla?"
+    if lang == "tr":
+        return f"Merhaba {name}. Üzgünüm, bugünkü dersi iptal etmem gerekiyor. Yeniden planlayalım mı?"
+    return f"Hi {name}. I’m sorry, but I need to cancel today’s lesson. Would you like to reschedule?"
+
+
+def build_msg_package_header(name: str, lang: str, status: str) -> str:
+    """
+    Template #1 header: finished / almost finished package (EN/ES/TR)
+    Pricing block is appended separately.
+    """
+    name = (name or "").strip()
+    stxt = _package_status_text(status, lang)
+
+    if lang == "es":
+        return (
+            f"Hola {name}! Espero que estés bien.\n"
+            f"Tu paquete actual está {stxt}. Si quieres continuar, aquí están mis precios actuales:\n"
+        )
+    if lang == "tr":
+        return (
+            f"Merhaba {name}, umarım iyisinizdir.\n"
+            f"Mevcut paketiniz {stxt}. Devam etmek isterseniz güncel fiyatlarım aşağıdadır:\n"
+        )
+    return (
+        f"Hi {name}! Hope you’re doing well.\n"
+        f"Your current package is {stxt}. If you’d like to continue, here are my current prices:\n"
+    )
+
+
+def _get_pricing_snapshot() -> dict:
+    """
+    Loads active pricing from Supabase via load_pricing_items().
+
+    Returns:
+      {
+        "online_hourly": int,
+        "offline_hourly": int,
+        "online_packages": [(hours:int, price:int, per:int), ...],
+        "offline_packages": [(hours:int, price:int, per:int), ...],
+      }
+    """
+    df = load_pricing_items()
+    if df is None or df.empty:
+        return {
+            "online_hourly": 0,
+            "offline_hourly": 0,
+            "online_packages": [],
+            "offline_packages": [],
+        }
+
+    df = df.copy()
+    if "active" in df.columns:
+        df = df[df["active"] == True].copy()
+
+    # normalize
+    df["modality"] = df["modality"].fillna("").astype(str).str.strip().str.lower()
+    df["kind"] = df["kind"].fillna("").astype(str).str.strip().str.lower()
+    df["price_try"] = pd.to_numeric(df["price_try"], errors="coerce").fillna(0).astype(int)
+    df["hours"] = pd.to_numeric(df["hours"], errors="coerce")  # NaN ok for hourly
+
+    def _hourly(mod: str) -> int:
+        h = df[(df["modality"] == mod) & (df["kind"] == "hourly")].copy()
+        if h.empty:
+            return 0
+        if "sort_order" in h.columns:
+            h["sort_order"] = pd.to_numeric(h["sort_order"], errors="coerce").fillna(0).astype(int)
+            h = h.sort_values(["sort_order", "id"], na_position="last")
+        return int(h.iloc[0].get("price_try") or 0)
+
+    def _packages(mod: str) -> list:
+        p = df[(df["modality"] == mod) & (df["kind"] == "package")].copy()
+        if p.empty:
+            return []
+        p["hours"] = pd.to_numeric(p["hours"], errors="coerce").fillna(0).astype(int)
+        p["sort_order"] = pd.to_numeric(p.get("sort_order", 0), errors="coerce").fillna(0).astype(int)
+
+        # Sort packages: sort_order ascending, then hours descending (e.g., 44, 20, 10, 5)
+        p = p.sort_values(["sort_order", "hours"], ascending=[True, False], na_position="last")
+
+        out = []
+        for _, r in p.iterrows():
+            hours = int(r.get("hours") or 0)
+            price = int(r.get("price_try") or 0)
+            if hours <= 0:
+                continue
+            per = int(round(price / hours))
+            out.append((hours, price, per))
+        return out
+
+    return {
+        "online_hourly": _hourly("online"),
+        "offline_hourly": _hourly("offline"),
+        "online_packages": _packages("online"),
+        "offline_packages": _packages("offline"),
+    }
+
+
+def build_pricing_block(lang: str = "tr") -> str:
+    """
+    WhatsApp-friendly pricing list built from pricing_items.
+    Prints both online and offline sections (matches your original Turkish message style).
+    """
+    s = _get_pricing_snapshot()
+
+    online_hourly = int(s.get("online_hourly") or 0)
+    offline_hourly = int(s.get("offline_hourly") or 0)
+    online_pk = s.get("online_packages") or []
+    offline_pk = s.get("offline_packages") or []
+
+    # ---- Text labels ----
+    if lang == "es":
+        header = "📌 Las clases duran 50–60 minutos (1 hora).\n"
+        online_title = "💻 Precios de clases online:\n"
+        offline_title = "🏫 Precios de clases presenciales:\n"
+        hourly_note = "*La clase se paga el mismo día.\n"
+        prepaid_title = "📦 Paquetes online (prepago):\n"
+        prepaid_note = "*El pago debe hacerse antes de empezar. Puedes tomar clases con la frecuencia que quieras.\n"
+        offline_pk_title = "📦 Paquetes presenciales (prepago):\n"
+        line_hourly = lambda price: f"1 hora → {money_try(price)}\n"
+        line_pkg = lambda h, price, per: f"{h} horas → {money_try(price)} (≈ {money_try(per)} / hora)\n"
+        no_online_hourly = "(No hay precio por hora online configurado)\n"
+        no_online_pk = "(No hay paquetes online)\n"
+        no_offline_pk = "(No hay paquetes presenciales)\n"
+
+    elif lang == "en":
+        header = "📌 Lessons are 50–60 minutes (1 hour).\n"
+        online_title = "💻 Online lesson prices:\n"
+        offline_title = "🏫 In-person lesson prices:\n"
+        hourly_note = "*Each lesson is paid on the same day.\n"
+        prepaid_title = "📦 Online prepaid packages:\n"
+        prepaid_note = "*Payment must be made before starting. Lessons can be taken as frequently as you want.\n"
+        offline_pk_title = "📦 In-person prepaid packages:\n"
+        line_hourly = lambda price: f"1 hour → {money_try(price)}\n"
+        line_pkg = lambda h, price, per: f"{h} hours → {money_try(price)} (≈ {money_try(per)} / hour)\n"
+        no_online_hourly = "(No online hourly price set)\n"
+        no_online_pk = "(No online packages)\n"
+        no_offline_pk = "(No in-person packages)\n"
+
+    else:  # TR default
+        header = "Derslerim 50-60 dakika sürer (1 saat).\n"
+        online_title = "Çevrimiçi ders fiyatları:\n"
+        offline_title = "Yüz yüze ders fiyatları:\n"
+        hourly_note = "*Her ders aynı gün ödenmelidir.\n"
+        prepaid_title = "Çevrimiçi Ders Ön ödemeli paketler:\n"
+        prepaid_note = "*Kursa başlamadan önce ödeme yapılmalıdır. Dersler istediğiniz sıklıkta alınabilir.\n"
+        offline_pk_title = "Yüz yüze Ders Ön ödemeli paketler:\n"
+        line_hourly = lambda price: f"1 saat → {money_try(price)}\n"
+        line_pkg = lambda h, price, per: f"{h} saat → {money_try(price)} (≈ {money_try(per)} ders/saati)\n"
+        no_online_hourly = "(Çevrimiçi saat ücreti ayarlanmamış)\n"
+        no_online_pk = "(Çevrimiçi paket yok)\n"
+        no_offline_pk = "(Yüz yüze paket yok)\n"
+
+    # ---- Build block ----
+    out = []
+    out.append(header)
+
+    # Online
+    out.append(online_title)
+    if online_hourly > 0:
+        out.append(line_hourly(online_hourly))
+        out.append(hourly_note)
+    else:
+        out.append(no_online_hourly)
+
+    out.append("\n" + prepaid_title)
+    if online_pk:
+        for h, price, per in online_pk:
+            out.append(line_pkg(h, price, per))
+        out.append(prepaid_note)
+    else:
+        out.append(no_online_pk)
+
+    # Offline
+    out.append("\n" + offline_title)
+
+    # Optional: include offline hourly in EN/ES only (as you had it)
+    if offline_hourly > 0 and lang in ("en", "es"):
+        out.append(line_hourly(offline_hourly))
+        out.append(hourly_note)
+
+    out.append("\n" + offline_pk_title)
+    if offline_pk:
+        for h, price, per in offline_pk:
+            out.append(line_pkg(h, price, per))
+        out.append(prepaid_note)
+    else:
+        out.append(no_offline_pk)
+
+    return "".join(out).strip() + "\n"
+# =========================
+# 8.4 CLASSES / PAYMENTS HELPERS
+# =========================
+def add_class(
+    student: str,
+    number_of_lesson: int,
+    lesson_date: str,
+    modality: str,
+    note: str = "",
+    lesson_language: Optional[str] = None
+) -> None:
+    student = str(student).strip()
+    ensure_student(student)
+    payload = {
+        "student": student,
+        "number_of_lesson": int(number_of_lesson),
+        "lesson_date": lesson_date,
+        "modality": str(modality).strip(),
+        "note": str(note).strip() if note else "",
+        "lesson_language": str(lesson_language).strip() if lesson_language else None,
+    }
+    try:
+        supabase.table("classes").insert(payload).execute()
+    except Exception:
+        payload.pop("lesson_language", None)
+        supabase.table("classes").insert(payload).execute()
+
+
+def add_payment(
+    student: str,
+    number_of_lesson: int,
+    payment_date: str,
+    paid_amount: float,
+    modality: str,
+    languages: str,
+    package_start_date: Optional[str] = None,
+    package_expiry_date: Optional[str] = None,
+    lesson_adjustment_units: int = 0,
+    package_normalized: bool = False,
+    normalized_note: str = ""
+) -> None:
+    student = str(student).strip()
+    ensure_student(student)
+
+    if not package_start_date:
+        package_start_date = payment_date
+
+    payload = {
+        "student": student,
+        "number_of_lesson": int(number_of_lesson),
+        "payment_date": payment_date,
+        "paid_amount": float(paid_amount),
+        "modality": str(modality).strip(),
+        "languages": str(languages).strip() if languages else LANG_ES,
+        "package_start_date": package_start_date,
+        "package_expiry_date": package_expiry_date if package_expiry_date else None,
+        "lesson_adjustment_units": int(lesson_adjustment_units),
+        "package_normalized": bool(package_normalized),
+        "normalized_note": str(normalized_note or "").strip(),
+        "normalized_at": datetime.now(timezone.utc).isoformat() if (package_normalized or normalized_note) else None,
+    }
+
+    try:
+        supabase.table("payments").insert(payload).execute()
+    except Exception:
+        # Backward compatible if DB schema is older
+        for k in ["languages", "lesson_adjustment_units", "package_normalized", "normalized_note", "normalized_at"]:
+            payload.pop(k, None)
+        supabase.table("payments").insert(payload).execute()
+
+
+def delete_row(table_name: str, row_id: int) -> None:
+    supabase.table(table_name).delete().eq("id", int(row_id)).execute()
+
+
+def normalize_latest_package(student: str, payment_id: int, note: str = "") -> bool:
+    try:
+        payload = {
+            "package_normalized": True,
+            "normalized_note": str(note or "").strip(),
+            "normalized_at": datetime.now(timezone.utc).isoformat()
+        }
+        supabase.table("payments").update(payload).eq("id", int(payment_id)).execute()
+        return True
+    except Exception:
+        return False
+
+
+def update_student_profile(student: str, email: str, zoom_link: str, notes: str, color: str, phone: str) -> None:
+    supabase.table("students").update({
+        "email": email,
+        "zoom_link": zoom_link,
+        "notes": notes,
+        "color": color,
+        "phone": phone
+    }).eq("student", student).execute()
+
+
+def update_payment_row(payment_id: int, updates: dict) -> bool:
+    try:
+        supabase.table("payments").update(updates).eq("id", int(payment_id)).execute()
+        return True
+    except Exception:
+        return False
+
+
+def update_class_row(class_id: int, updates: dict) -> bool:
+    try:
+        supabase.table("classes").update(updates).eq("id", int(class_id)).execute()
+        return True
+    except Exception:
+        return False
+
+# =========================
+# 8.5) PRICING ITEMS HELPERS
+# =========================
+
+def load_pricing_items() -> pd.DataFrame:
+    """
+    Loads pricing_items from Supabase (scoped to the logged-in user if user_id exists).
+    Expected columns:
+      id, user_id, modality (online/offline), kind (hourly/package),
+      hours (NULL for hourly), price_try, active, sort_order
+    """
+    uid = st.session_state.get("sb_user_id") or st.session_state.get("user_id")
+
+    try:
+        q = supabase.table("pricing_items").select("*").order("sort_order")
+        if uid:
+            # ✅ Only load rows owned by the logged-in user
+            q = q.eq("user_id", str(uid))
+
+        res = q.execute()
+        rows = getattr(res, "data", None) or []
+        df = pd.DataFrame(rows)
+    except Exception:
+        return pd.DataFrame(columns=["id", "user_id", "modality", "kind", "hours", "price_try", "active", "sort_order"])
+
+    if df.empty:
+        return pd.DataFrame(columns=["id", "user_id", "modality", "kind", "hours", "price_try", "active", "sort_order"])
+
+    defaults = {
+        "id": None,
+        "user_id": None,
+        "modality": "",
+        "kind": "",
+        "hours": None,
+        "price_try": 0,
+        "active": True,
+        "sort_order": 0,
+    }
+    for c, default in defaults.items():
+        if c not in df.columns:
+            df[c] = default
+
+    df["active"] = df["active"].fillna(True).astype(bool)
+    df["sort_order"] = pd.to_numeric(df["sort_order"], errors="coerce").fillna(0).astype(int)
+    df["modality"] = df["modality"].fillna("").astype(str).str.strip().str.lower()
+    df["kind"] = df["kind"].fillna("").astype(str).str.strip().str.lower()
+    df["price_try"] = pd.to_numeric(df["price_try"], errors="coerce").fillna(0).astype(int)
+    df["hours"] = pd.to_numeric(df["hours"], errors="coerce")  # keep NaN for hourly
+
+    return df
+
+def upsert_pricing_item(payload: dict) -> None:
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be a dict")
+
+    table = "pricing_items"
+    item_id = payload.get("id")
+
+    # ✅ IMPORTANT: attach owner
+    uid = st.session_state.get("sb_user_id") or st.session_state.get("user_id")
+    if uid:
+        payload["user_id"] = str(uid)
+
+    clean = {k: v for k, v in payload.items() if k != "id"}
+
+    if item_id is not None and str(item_id).strip() != "":
+        resp = supabase.table(table).update(clean).eq("id", int(item_id)).execute()
+    else:
+        resp = supabase.table(table).insert(clean).execute()
+
+    if getattr(resp, "error", None):
+        raise RuntimeError(resp.error)
+
+def delete_pricing_item(item_id: int) -> None:
+    if item_id is None:
+        return
+    resp = supabase.table("pricing_items").delete().eq("id", int(item_id)).execute()
+    if getattr(resp, "error", None):
+        raise RuntimeError(resp.error)
+
+
+def money_try(x) -> str:
+    try:
+        return f"{int(round(float(x))):,} TL".replace(",", ".")
+    except Exception:
+        return str(x)
+
+
+def _pricing_section(df: pd.DataFrame, modality: str, title_key: str, hourly_default: int) -> None:
+    """
+    Renders one modality pricing editor (online/offline).
+    modality must be lowercase: "online" or "offline"
+    title_key must be a translation key.
+    """
+
+    st.markdown(f"### {t(title_key)}")
+
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["id", "modality", "kind", "hours", "price_try", "active", "sort_order"])
+    else:
+        df = df.copy()
+
+    # Ensure expected columns exist
+    defaults = {
+        "id": None,
+        "modality": "",
+        "kind": "",
+        "hours": None,
+        "price_try": 0,
+        "active": True,
+        "sort_order": 0,
+    }
+    for c, default in defaults.items():
+        if c not in df.columns:
+            df[c] = default
+
+    # Active only
+    df["active"] = df["active"].fillna(True).astype(bool)
+    df = df[df["active"] == True].copy()
+
+    # Normalize strings
+    df["modality"] = df["modality"].fillna("").astype(str).str.strip().str.lower()
+    df["kind"] = df["kind"].fillna("").astype(str).str.strip().str.lower()
+
+    # Numeric
+    df["price_try"] = pd.to_numeric(df["price_try"], errors="coerce").fillna(0).astype(int)
+    df["hours"] = pd.to_numeric(df["hours"], errors="coerce")  # NaN ok for hourly
+
+    # ---------- Hourly ----------
+    hourly = df[(df["modality"] == modality) & (df["kind"] == "hourly")].copy()
+
+    # Seed hourly if missing
+    if hourly.empty:
+        upsert_pricing_item(
+            {
+                "modality": modality,
+                "kind": "hourly",
+                "hours": None,
+                "price_try": int(hourly_default),
+                "active": True,
+                "sort_order": 0,
+            }
+        )
+        df = load_pricing_items()
+        df = df[df["active"] == True].copy()
+        hourly = df[(df["modality"] == modality) & (df["kind"] == "hourly")].copy()
+
+    if hourly.empty:
+        st.error(t("pricing_hourly_load_error"))
+        return
+
+    # If multiple hourly rows exist, use the first by sort_order then id
+    hourly = hourly.sort_values(["sort_order", "id"], na_position="last")
+    hourly_row = hourly.iloc[0].to_dict()
+
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        st.caption(t("pricing_hourly_caption"))
+    with c2:
+        new_hourly = st.number_input(
+            t("pricing_hourly_price_label"),
+            min_value=0,
+            step=50,
+            value=int(hourly_row.get("price_try") or 0),
+            key=f"hourly_price_{modality}",
+            label_visibility="collapsed",
+        )
+
+    if int(new_hourly) != int(hourly_row.get("price_try") or 0):
+        upsert_pricing_item(
+            {
+                "id": int(hourly_row["id"]),
+                "modality": modality,
+                "kind": "hourly",
+                "hours": None,
+                "price_try": int(new_hourly),
+                "active": True,
+                "sort_order": int(hourly_row.get("sort_order") or 0),
+            }
+        )
+        st.success(t("pricing_hourly_updated"))
+        st.rerun()
+
+    st.divider()
+
+    # ---------- Packages ----------
+    pk = df[(df["modality"] == modality) & (df["kind"] == "package")].copy()
+    pk["sort_order"] = pd.to_numeric(pk["sort_order"], errors="coerce").fillna(0).astype(int)
+    pk["hours"] = pd.to_numeric(pk["hours"], errors="coerce").fillna(0).astype(int)
+    pk = pk.sort_values(["sort_order", "hours", "id"], na_position="last")
+
+    if pk.empty:
+        st.info(t("pricing_no_packages"))
+    else:
+        # Use enumerate to guarantee unique Streamlit widget keys even if duplicate IDs appear
+        for i, (_, row) in enumerate(pk.iterrows(), start=1):
+            row_id = int(row.get("id") or 0)
+            hours = int(row.get("hours") or 0)
+            price = int(row.get("price_try") or 0)
+            per = int(round(price / hours)) if hours > 0 else 0
+
+            with st.container(border=True):
+                a, b, c = st.columns([2, 2, 1])
+
+                with a:
+                    st.markdown(f"**{hours} {t('pricing_hours')}**")
+                    st.caption(f"≈ {money_try(per)} {t('pricing_per_hour')}")
+
+                with b:
+                    st.markdown(f"**{money_try(price)}**")
+
+                with c:
+                    if st.button(t("pricing_edit"), key=f"edit_pkg_{modality}_{row_id}_{i}"):
+                        st.session_state[f"edit_price_id_{modality}"] = row_id
+
+                if st.session_state.get(f"edit_price_id_{modality}") == row_id:
+                    e1, e2, e3 = st.columns([1, 1, 1])
+                    with e1:
+                        new_hours = st.number_input(
+                            t("pricing_hours"),
+                            min_value=1,
+                            step=1,
+                            value=max(1, hours),
+                            key=f"pkg_hours_{modality}_{row_id}_{i}",
+                        )
+                    with e2:
+                        new_price = st.number_input(
+                            t("pricing_price_label"),
+                            min_value=0,
+                            step=50,
+                            value=price,
+                            key=f"pkg_price_{modality}_{row_id}_{i}",
+                        )
+                    with e3:
+                        if st.button(t("pricing_save"), key=f"save_pkg_{modality}_{row_id}_{i}"):
+                            upsert_pricing_item(
+                                {
+                                    "id": row_id,
+                                    "modality": modality,
+                                    "kind": "package",
+                                    "hours": int(new_hours),
+                                    "price_try": int(new_price),
+                                    "active": True,
+                                    "sort_order": int(row.get("sort_order") or new_hours),
+                                }
+                            )
+                            st.session_state[f"edit_price_id_{modality}"] = None
+                            st.success(t("pricing_package_updated"))
+                            st.rerun()
+
+                        if st.button(t("pricing_delete"), key=f"del_pkg_{modality}_{row_id}_{i}"):
+                            delete_pricing_item(row_id)
+                            st.session_state[f"edit_price_id_{modality}"] = None
+                            st.success(t("pricing_package_deleted"))
+                            st.rerun()
+
+    st.divider()
+
+    # ---------- Add package ----------
+    st.markdown(f"**{t('pricing_add_package')}**")
+    n1, n2, n3 = st.columns([1, 1, 1])
+
+    with n1:
+        add_hours = st.number_input(
+            t("pricing_hours"),
+            min_value=1,
+            step=1,
+            value=10,
+            key=f"add_pkg_hours_{modality}",
+        )
+    with n2:
+        add_price = st.number_input(
+            t("pricing_price_label"),
+            min_value=0,
+            step=50,
+            value=0,
+            key=f"add_pkg_price_{modality}",
+        )
+    with n3:
+        if st.button(t("pricing_add"), key=f"add_pkg_btn_{modality}"):
+            upsert_pricing_item(
+                {
+                    "modality": modality,
+                    "kind": "package",
+                    "hours": int(add_hours),
+                    "price_try": int(add_price),
+                    "active": True,
+                    "sort_order": int(add_hours),
+                }
+            )
+            st.success(t("pricing_package_added"))
+            st.rerun()
+
+
+def render_pricing_editor() -> None:
+    """
+    Pricing editor UI. Call this ONLY inside a page (e.g. add_payment).
+    """
+    with st.expander(t("pricing_editor_title"), expanded=False):
+        df = load_pricing_items()
+        _pricing_section(df, modality="online", title_key="pricing_online_title", hourly_default=2000)
+
+        st.divider()
+
+        df = load_pricing_items()
+        _pricing_section(df, modality="offline", title_key="pricing_offline_title", hourly_default=3500)
+
+# =========================
+# 8.6) PACKAGE/LANGUAGE LOOKUPS
+# =========================
+def latest_payment_languages_for_student(student: str) -> str:
+    try:
+        resp = (
+            supabase.table("payments")
+            .select("id, payment_date, package_start_date, languages")
+            .eq("student", str(student).strip())
+            .order("payment_date", desc=True)
+            .order("id", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        if not rows:
+            return LANG_ES
+        v = str(rows[0].get("languages") or LANG_ES).strip()
+        return v if v in ALLOWED_LANGS else LANG_ES
+    except Exception:
+        return LANG_ES
+
+
+def _is_offline(modality: str) -> bool:
+    m = str(modality or "").strip().casefold()
+    return ("offline" in m) or ("face" in m) or ("yüz" in m) or ("yuzyuze" in m) or ("yüzyüze" in m)
+
+
+def _units_multiplier(modality: str) -> int:
+    return 2 if _is_offline(modality) else 1
+
+
+def _is_free_note(note: str) -> bool:
+    n = str(note or "").upper()
+    return ("[FREE]" in n) or ("[DEMO]" in n) or ("[DONT COUNT]" in n) or ("[DON'T COUNT]" in n)
+
+
+# =========================
+# 8.7) HISTORY HELPERS
+# =========================
+def show_student_history(student: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    student = str(student).strip()
+
+    classes = load_table("classes")
+    payments = load_table("payments")
+
+    if classes.empty:
+        classes = pd.DataFrame(columns=["id", "student", "number_of_lesson", "lesson_date", "modality", "note", "lesson_language"])
+    if payments.empty:
+        payments = pd.DataFrame(columns=[
+            "id","student","number_of_lesson","payment_date","paid_amount","modality","languages",
+            "package_start_date","package_expiry_date",
+            "lesson_adjustment_units","package_normalized","normalized_note","normalized_at"
+        ])
+
+    # Ensure columns exist
+    for col in ["id","student","number_of_lesson","lesson_date","modality","note","lesson_language"]:
+        if col not in classes.columns:
+            classes[col] = None
+
+    for col in [
+        "id","student","number_of_lesson","payment_date","paid_amount","modality","languages",
+        "package_start_date","package_expiry_date",
+        "lesson_adjustment_units","package_normalized","normalized_note","normalized_at"
+    ]:
+        if col not in payments.columns:
+            payments[col] = None
+
+    # Filter by student
+    classes["student"] = classes["student"].astype(str).str.strip()
+    payments["student"] = payments["student"].astype(str).str.strip()
+
+    lessons_df = classes[classes["student"] == student].copy()
+    payments_df = payments[payments["student"] == student].copy()
+
+    # Parse dates (tz-naive)
+    lessons_df["lesson_date"] = to_dt_naive(lessons_df["lesson_date"], utc=True)
+    payments_df["payment_date"] = to_dt_naive(payments_df["payment_date"], utc=True)
+    payments_df["package_start_date"] = to_dt_naive(payments_df["package_start_date"], utc=True)
+    payments_df["package_expiry_date"] = to_dt_naive(payments_df["package_expiry_date"], utc=True)
+
+    # Numeric
+    lessons_df["number_of_lesson"] = pd.to_numeric(lessons_df["number_of_lesson"], errors="coerce").fillna(0).astype(int)
+    payments_df["number_of_lesson"] = pd.to_numeric(payments_df["number_of_lesson"], errors="coerce").fillna(0).astype(int)
+    payments_df["paid_amount"] = pd.to_numeric(payments_df["paid_amount"], errors="coerce").fillna(0.0)
+
+    # Sort
+    lessons_df = lessons_df.sort_values(["lesson_date","id"], ascending=[False, False]).reset_index(drop=True)
+    payments_df = payments_df.sort_values(["payment_date","id"], ascending=[False, False]).reset_index(drop=True)
+
+    # Select + rename to stable internal keys (snake_case)
+    lessons_df = lessons_df.rename(columns={
+        "id": "lesson_id",
+        "number_of_lesson": "lessons",
+    })[["lesson_id","lesson_date","lessons","modality","lesson_language","note"]]
+
+    payments_df = payments_df.rename(columns={
+        "id": "payment_id",
+        "number_of_lesson": "lessons_paid",
+        "lesson_adjustment_units": "adjustment_units",
+    })[[
+        "payment_id","payment_date","lessons_paid","paid_amount","modality","languages",
+        "package_start_date","package_expiry_date",
+        "adjustment_units","package_normalized","normalized_note","normalized_at"
+    ]]
+
+    # Format dates for display (safe on Series)
+    lessons_df["lesson_date"] = pd.to_datetime(lessons_df["lesson_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    payments_df["payment_date"] = pd.to_datetime(payments_df["payment_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    payments_df["package_start_date"] = pd.to_datetime(payments_df["package_start_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    payments_df["package_expiry_date"] = pd.to_datetime(payments_df["package_expiry_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+
+    # Translate coded values (optional)
+    lessons_df["modality"] = lessons_df["modality"].apply(translate_modality_value)
+    lessons_df["lesson_language"] = lessons_df["lesson_language"].apply(translate_language_value)
+
+    payments_df["modality"] = payments_df["modality"].apply(translate_modality_value)
+    payments_df["languages"] = payments_df["languages"].apply(translate_language_value)
+
+    return lessons_df, payments_df
+
+# =========================
+# 8.8) SCHEDULE / OVERRIDES HELPERS
+# =========================
+WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+def load_schedules() -> pd.DataFrame:
+    df = load_table("schedules")
+    if df.empty:
+        return pd.DataFrame(columns=["id", "student", "weekday", "time", "duration_minutes", "active"])
+
+    for c, default in {
+        "id": None, "student": "", "weekday": 0, "time": "", "duration_minutes": 60, "active": True
+    }.items():
+        if c not in df.columns:
+            df[c] = default
+
+    df["student"] = df["student"].astype(str).str.strip()
+    df["weekday"] = pd.to_numeric(df["weekday"], errors="coerce").fillna(0).astype(int)
+    df["duration_minutes"] = pd.to_numeric(df["duration_minutes"], errors="coerce").fillna(60).astype(int)
+    df["active"] = df["active"].fillna(True).astype(bool)
+    df["time"] = df["time"].astype(str).str.strip()
+    return df
+
+
+def add_schedule(student: str, weekday: int, time_str: str, duration_minutes: int, active: bool = True) -> None:
+    student = str(student).strip()
+    ensure_student(student)
+    supabase.table("schedules").insert({
+        "student": student,
+        "weekday": int(weekday),
+        "time": str(time_str).strip(),
+        "duration_minutes": int(duration_minutes),
+        "active": bool(active),
+    }).execute()
+
+
+def delete_schedule(schedule_id: int) -> None:
+    supabase.table("schedules").delete().eq("id", int(schedule_id)).execute()
+
+
+def load_overrides() -> pd.DataFrame:
+    df = load_table("calendar_overrides")
+    if df.empty:
+        return pd.DataFrame(columns=["id", "student", "original_date", "new_datetime", "duration_minutes", "status", "note"])
+
+    for c, default in {
+        "id": None, "student": "", "original_date": None, "new_datetime": None,
+        "duration_minutes": 60, "status": "", "note": ""
+    }.items():
+        if c not in df.columns:
+            df[c] = default
+
+    df["student"] = df["student"].astype(str).str.strip()
+    df["original_date"] = to_dt_naive(df["original_date"], utc=True)
+
+    new_dt = pd.to_datetime(df["new_datetime"], errors="coerce", utc=True)
+    df["new_datetime"] = pd.NaT
+    mask = new_dt.notna()
+    df.loc[mask, "new_datetime"] = new_dt.loc[mask].dt.tz_convert(LOCAL_TZ).dt.tz_localize(None)
+
+    df["duration_minutes"] = pd.to_numeric(df["duration_minutes"], errors="coerce").fillna(60).astype(int)
+    df["status"] = df["status"].astype(str).str.strip().str.lower()
+    df["note"] = df["note"].fillna("").astype(str)
+
+    return df
+
+
+def _to_utc_iso(dt: Optional[datetime]) -> Optional[str]:
+    """
+    Convert a datetime to a UTC ISO string for storage.
+    - If naive: assume LOCAL_TZ (Europe/Istanbul)
+    - If aware: respect its tz
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=LOCAL_TZ)
+    return dt.astimezone(UTC_TZ).isoformat()
+
+
+def add_override(
+    student: str,
+    original_date: date,
+    new_dt: Optional[datetime],
+    duration_minutes: int = 60,
+    status: str = "scheduled",
+    note: str = ""
+) -> None:
+    student = str(student).strip()
+    ensure_student(student)
+
+    status_clean = str(status).strip().lower()
+
+    payload = {
+        "student": student,
+        "original_date": original_date.isoformat(),
+        "duration_minutes": int(duration_minutes),
+        "status": status_clean,
+        "note": str(note or "").strip(),
+        "new_datetime": _to_utc_iso(new_dt) if status_clean == "scheduled" else None
+    }
+
+    supabase.table("calendar_overrides").insert(payload).execute()
+
+
+def delete_override(override_id: int) -> None:
+    supabase.table("calendar_overrides").delete().eq("id", int(override_id)).execute()
+
+
+# =========================
+# 8.9) STUDENT META
+# =========================
+def load_students_df() -> pd.DataFrame:
+    df = load_table("students")
+    if df.empty:
+        return pd.DataFrame(columns=["student", "email", "zoom_link", "notes", "color", "phone"])
+
+    for c, default in {
+        "student": "", "email": "", "zoom_link": "", "notes": "", "color": "#3B82F6", "phone": ""
+    }.items():
+        if c not in df.columns:
+            df[c] = default
+
+    df["student"] = df["student"].astype(str).str.strip()
+    df["color"] = df["color"].fillna("#3B82F6").astype(str).str.strip()
+    df["zoom_link"] = df["zoom_link"].fillna("").astype(str).str.strip()
+    df["email"] = df["email"].fillna("").astype(str).str.strip()
+    df["notes"] = df["notes"].fillna("").astype(str)
+    df["phone"] = df["phone"].fillna("").astype(str).str.strip()
+
+    return df
+
+def student_meta_maps():
+    s = load_students_df()
+    if s.empty:
+        return {}, {}, {}, {}
+    s["student_norm"] = s["student"].apply(norm_student)
+    color_map = dict(zip(s["student_norm"], s["color"]))
+    zoom_map  = dict(zip(s["student_norm"], s["zoom_link"]))
+    email_map = dict(zip(s["student_norm"], s["email"]))
+    phone_map = dict(zip(s["student_norm"], s["phone"]))
+    return color_map, zoom_map, email_map, phone_map
+
+# =========================
+# 8.10) GOALS HELPERS
 # =========================
 def _guess_user_id() -> str:
     for k in ("user_id", "uid", "owner_id"):
@@ -1568,12 +3334,11 @@ def get_next_lesson_display() -> str:
     return next_dt.strftime("%a %H:%M")
 
 # =========================
-# 03.2) YEAR GOALS (PERSISTENT) — Supabase app_settings
+# 8.11) YEAR GOALS
 # =========================
 def _settings_client():
     # anon client with logged-in session applied via supabase.auth.set_session(...)
     return supabase
-
 
 def _year_goal_key(year: int, scope: str = "personal") -> str:
     """
@@ -1585,7 +3350,6 @@ def _year_goal_key(year: int, scope: str = "personal") -> str:
     y = int(year)
     s = str(scope or "personal").strip().casefold()
     return f"year_goal_{y}_{s}"
-
 
 def get_year_goal(year: int, scope: str = "personal", default: float = 0.0) -> float:
     key = _year_goal_key(year, scope=scope)
@@ -1609,2138 +3373,9 @@ def set_year_goal(year: int, value: float, scope: str = "personal") -> bool:
         return True
     except Exception:
         return False
-# =========================
-# 04) PWA HEAD INJECTION (Base64 icons — works in Streamlit)
-# =========================
-def inject_pwa_head():
-    components.html(
-        """
-        <script>
-        (function () {
-          const w = window.parent;
-          const doc = w.document;
-
-          const icon192 = w.location.origin + "/app/static/icon-192.png";
-          const icon512 = w.location.origin + "/app/static/icon-512.png";
-          const apple180 = w.location.origin + "/app/static/apple-touch-icon.png";
-
-          // Remove old injected items
-          doc.querySelectorAll('link[rel="manifest"][data-cm="1"]').forEach(el => el.remove());
-          doc.querySelectorAll('link[rel="apple-touch-icon"][data-cm="1"]').forEach(el => el.remove());
-
-          // Build manifest dynamically
-          const manifest = {
-            name: "Classman",
-            short_name: "Classman",
-            start_url: w.location.origin + "/",
-            scope: w.location.origin + "/",
-            display: "standalone",
-            background_color: "#0b1220",
-            theme_color: "#0b1220",
-            icons: [
-              { src: icon192, sizes: "192x192", type: "image/png", purpose: "any" },
-              { src: icon512, sizes: "512x512", type: "image/png", purpose: "any" }
-            ]
-          };
-
-          const blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
-          const manifestURL = URL.createObjectURL(blob);
-
-          const link = doc.createElement("link");
-          link.rel = "manifest";
-          link.href = manifestURL;
-          link.setAttribute("data-cm", "1");
-          doc.head.appendChild(link);
-
-          // Apple touch icon
-          doc.querySelectorAll('link[rel="apple-touch-icon"][data-cm="1"]').forEach(el => el.remove());
-          const ati = doc.createElement("link");
-          ati.rel = "apple-touch-icon";
-          ati.href = apple180;
-          ati.sizes = "180x180";
-          ati.setAttribute("data-cm", "1");
-          doc.head.appendChild(ati);
-
-          // Favicon override
-          doc.querySelectorAll('link[rel="icon"][data-cm="1"]').forEach(el => el.remove());
-          const fav = doc.createElement("link");
-          fav.rel = "icon";
-          fav.href = apple180;
-          fav.setAttribute("data-cm", "1");
-          doc.head.appendChild(fav);
-
-          // Meta tags
-          const metas = [
-            { name: "apple-mobile-web-app-capable", content: "yes" },
-            { name: "mobile-web-app-capable", content: "yes" },
-            { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
-            { name: "apple-mobile-web-app-title", content: "Class Manager" },
-            { name: "theme-color", content: "#0b1220" }
-          ];
-
-          metas.forEach(m => {
-            let el = doc.querySelector('meta[name="' + m.name + '"][data-cm="1"]');
-            if (!el) {
-              el = doc.createElement("meta");
-              el.setAttribute("data-cm", "1");
-              el.name = m.name;
-              doc.head.appendChild(el);
-            }
-            el.content = m.content;
-          });
-
-        })();
-        </script>
-        """,
-        height=0,
-    )
-
-inject_pwa_head()
 
 # =========================
-# 05) THEMES (DARK HOME) and (LIGHT NAV)
-# =========================
-
-def load_css_home_dark():
-    st.markdown(
-        """
-        <style>
-        :root{ color-scheme: dark; }
-        html, body{ color-scheme: dark; }
-
-        :root{
-          --bg:#07101d;
-          --text:#eaf0ff;
-          --muted:rgba(234,240,255,0.72);
-          --glass: rgba(255,255,255,0.06);
-          --glass2: rgba(255,255,255,0.08);
-          --stroke: rgba(255,255,255,0.12);
-          --stroke2: rgba(255,255,255,0.16);
-          --shadow: 0 18px 44px rgba(0,0,0,0.45);
-          --shadow2: 0 12px 26px rgba(0,0,0,0.28);
-          --blue: rgba(59,130,246,0.95);
-          --blueGlow: rgba(59,130,246,0.22);
-          --greenGlow: rgba(16,185,129,0.16);
-        }
-
-        /* ✅ IMPORTANT: prevent whole-page horizontal scrolling */
-        html, body, .stApp { overflow-x: hidden !important; }
-        /* (Keep vertical scroll normal) */
-
-        /* Background like the picture */
-        .stApp{
-          background:
-            radial-gradient(900px 520px at 22% 6%, rgba(59,130,246,0.35), transparent 58%),
-            radial-gradient(760px 520px at 76% 14%, rgba(34,197,94,0.18), transparent 62%),
-            radial-gradient(820px 560px at 60% 86%, rgba(14,165,233,0.14), transparent 62%),
-            linear-gradient(180deg, #0a1c35 0%, #07101d 60%, #050b15 100%);
-          color: var(--text);
-          min-height: 100vh;
-        }
-
-        /* Hide Streamlit chrome */
-        header { display:none !important; }
-        div[data-testid="stDecoration"]{ display:none !important; }
-
-        /* Container sizing (phone-friendly) */
-        section[data-testid="stMain"] > div {
-          padding-top: 0rem !important;
-          padding-bottom: 0rem !important;
-          max-width: 1100px;
-        }
-
-        html, body, [class*="css"]{
-          font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-        }
-
-        /* ✅ Stop the whole Home page from scrolling left/right */
-        html, body {
-          overflow-x: hidden !important;
-          width: 100% !important;
-        }
-
-        html, body { background: #07101d !important; }
-        [data-testid="stAppViewContainer"] { background: #07101d !important; }
-
-        .stApp, [data-testid="stAppViewContainer"] {
-          overflow-x: hidden !important;
-          width: 100% !important;
-        }
-
-        /* Streamlit main container can also cause overflow */
-        section[data-testid="stMain"],
-        section[data-testid="stMain"] > div,
-        div.block-container {
-          overflow-x: hidden !important;
-          max-width: 100% !important;
-        }
-
-        /* ✅ Make ALL elements respect the screen width */
-        * { box-sizing: border-box; }
-
-        /* If any long row tries to exceed width, clamp it */
-        .home-wrap,
-        .home-card,
-        .home-topbar,
-        .home-hero { max-width: 100% !important; }
-
-        /* ✅ ONLY the external links row can scroll sideways */
-        .home-links-row {
-          overflow-x: auto !important;
-          overflow-y: hidden !important;
-          max-width: 100% !important;
-        }
-
-        a { text-decoration:none !important; }
-
-        /* Home layout */
-        .home-wrap{ display:flex; justify-content:center; }
-        .home-card{
-          width: 100%;
-          max-width: 680px;
-          padding: 18px 16px 22px 16px;
-          position: relative;
-          box-sizing: border-box;
-        }
-
-        /* Subtle floating particles vibe */
-        .home-card::before{
-          content:"";
-          position:absolute;
-          inset:100px -20px auto -20px;
-          height: 240px;
-          background:
-            radial-gradient(circle at 20% 40%, rgba(255,255,255,0.10), transparent 55%),
-            radial-gradient(circle at 55% 65%, rgba(255,255,255,0.08), transparent 58%),
-            radial-gradient(circle at 85% 35%, rgba(255,255,255,0.07), transparent 60%);
-          filter: blur(1px);
-          opacity: 0.10;
-          pointer-events:none;
-        }
-
-        /* --- Top bar --- */
-        .home-topbar{
-          display:flex;
-          align-items:center;
-          justify-content:space-between;
-          gap:12px;
-          padding: 12px 12px;
-          border-radius: 22px;
-          background: linear-gradient(180deg, rgba(255,255,255,0.09), rgba(255,255,255,0.05));
-          border: 1px solid rgba(255,255,255,0.14);
-          box-shadow: var(--shadow2);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
-          margin-bottom: 14px;
-          box-sizing: border-box;
-        }
-
-        .home-user{ display:flex; align-items:center; gap:12px; min-width:0; }
-
-        /* Clickable avatar wrapper */
-        .home-avatar-wrap{
-          position:relative;
-          display:inline-flex;
-          width:46px;
-          height:46px;
-          border-radius:999px;
-          flex: 0 0 auto;
-        }
-
-        /* Avatar circle (single definition only) */
-        .home-avatar{
-          width:46px;
-          height:46px;
-          border-radius:999px;
-          overflow:hidden;
-          background-size:cover;
-          background-position:center;
-          background-repeat:no-repeat;
-          border: 1px solid rgba(255,255,255,0.18);
-          box-shadow: 0 0 0 6px rgba(59,130,246,0.10);
-          box-sizing:border-box;
-        }
-
-        /* Small camera badge */
-        .home-avatar-badge{
-          position:absolute;
-          right:-6px;
-          bottom:-6px;
-          width:20px;
-          height:20px;
-          border-radius:999px;
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          font-size:12px;
-          background: rgba(0,0,0,0.55);
-          border:1px solid rgba(255,255,255,0.18);
-          box-shadow: 0 8px 18px rgba(0,0,0,0.35);
-          box-sizing:border-box;
-        }
-
-        .home-usertext{ display:flex; flex-direction:column; line-height:1.05; min-width:0; }
-        .home-welcome{ font-size: 12px; color: rgba(234,240,255,0.72); font-weight: 750; white-space:nowrap; }
-        .home-username{
-          font-size: 18px;
-          font-weight: 950;
-          letter-spacing:-0.02em;
-          white-space:nowrap;
-          overflow:hidden;
-          text-overflow:ellipsis;
-        }
-
-        .home-actions{ display:flex; align-items:center; gap:10px; flex: 0 0 auto; }
-
-        .home-badge{
-          position:absolute;
-          top:-6px; right:-6px;
-          min-width: 18px; height: 18px;
-          padding: 0 5px;
-          border-radius: 999px;
-          background: rgba(239,68,68,0.95);
-          color: white;
-          font-size: 11px;
-          font-weight: 900;
-          display:flex; align-items:center; justify-content:center;
-          border: 2px solid rgba(7,16,29,0.95);
-          box-sizing:border-box;
-        }
-
-        /* Segmented language control */
-        .home-lang{
-          display:inline-flex;
-          align-items:center;
-          border-radius: 999px;
-          background: rgba(0,0,0,0.18);
-          border: 1px solid rgba(255,255,255,0.12);
-          overflow:hidden;
-          height:44px;
-          flex: 0 0 auto;
-        }
-        .home-langbtn{
-          width:56px; height:44px;
-          display:inline-flex; align-items:center; justify-content:center;
-          color:#fff !important;
-          font-weight: 950;
-          letter-spacing: 0.02em;
-          text-decoration:none !important;
-          box-sizing:border-box;
-        }
-        .home-langbtn.on{
-          background: rgba(59,130,246,0.28);
-          box-shadow: inset 0 0 0 2px rgba(59,130,246,0.85);
-        }
-
-        /* --- Title + hero --- */
-        .home-title{
-          text-align:center;
-          font-size: clamp(2.0rem, 3.4vw, 2.8rem);
-          font-weight: 950;
-          letter-spacing: -0.045em;
-          margin: 8px 0 10px 0;
-          opacity: 0.95;
-        }
-
-        .home-hero{
-          margin: 10px 0 16px 0;
-          padding: 18px 16px;
-          border-radius: 22px;
-          background:
-            radial-gradient(520px 180px at 20% 10%, rgba(16,185,129,0.22), transparent 60%),
-            radial-gradient(520px 180px at 80% 20%, rgba(59,130,246,0.22), transparent 60%),
-            linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
-          border: 1px solid rgba(255,255,255,0.14);
-          box-shadow: var(--shadow2);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
-          box-sizing: border-box;
-          position: relative;   /* IMPORTANT */
-        }
-        
-        .home-hero::after {
-          content: "";
-          position: absolute;
-          left: 19px;
-          right: 19px;
-          bottom: -2px;
-          height: 1.5px;
-          border-radius: 999px;
-
-          background: linear-gradient(90deg,#3B82F6,#60A5FA,#3B82F6);
-
-          box-shadow:
-              0 0 6px rgba(59,130,246,0.9),
-              0 0 14px rgba(59,130,246,0.6),
-              0 0 24px rgba(59,130,246,0.4);
-          animation: neonPulse 2.5s infinite ease-in-out;
-        }
-        
-        @keyframes neonPulse {
-        0% { opacity: 0.6; }
-        50% { opacity: 1; }
-        100% { opacity: 0.6; }
-        }
-
-        .home-slogan{
-          text-align:center;
-          font-size: 26px;
-          font-weight: 950;
-          letter-spacing: -0.03em;
-          margin-bottom: 8px;
-          text-shadow: 0 10px 30px rgba(0,0,0,0.35);
-        }
-        .home-sub{
-          text-align:center;
-          color: rgba(234,240,255,0.72);
-          margin: 0;
-          font-size: 1.02rem;
-        }
-
-        /* --- Lead source section --- */
-        .home-links{ margin: 16px 0 10px 0; position:relative; }
-        .home-links-title{
-          text-align:center;
-          font-size: 18px;
-          font-weight: 850;
-          letter-spacing: 0.02em;
-          color: rgba(234,240,255,0.68);
-          margin: 2px 0 12px 0;
-          position: relative;
-        }
-        .home-links-title:before,
-        .home-links-title:after{
-          content:"";
-          position:absolute;
-          top:50%;
-          width: 28%;
-          height: 1px;
-          background: rgba(255,255,255,0.12);
-        }
-        .home-links-title:before{ left: 0; }
-        .home-links-title:after{ right: 0; }
-
-        /* ✅ Only this row scrolls horizontally */
-        .home-links-row{
-          display:flex;
-          gap:14px;
-          overflow-x:auto;
-          overflow-y:hidden;
-          padding: 6px 2px 14px 2px;
-          scroll-snap-type: x mandatory;
-          -webkit-overflow-scrolling: touch;
-          overscroll-behavior-x: contain;   /* ✅ prevents page swipe */
-          touch-action: pan-x;              /* ✅ allow horizontal pan only here */
-        }
-        .home-links-row::-webkit-scrollbar{ display:none; }
-        .home-links-row{ scrollbar-width:none; }
-
-        .home-linkchip{
-          flex: 0 0 220px;
-          scroll-snap-align: start;
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          gap:10px;
-          padding: 14px 12px;
-          border-radius: 16px;
-          border: 1px solid rgba(255,255,255,0.14);
-          background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
-          color:#fff !important;
-          font-weight: 900;
-          box-shadow: 0 14px 26px rgba(0,0,0,0.26);
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-          box-sizing:border-box;
-        }
-        .home-linkchip .dot{
-          width:12px; height:12px; border-radius:999px;
-          background: rgba(59,130,246,0.92);
-          box-shadow: 0 0 0 5px rgba(59,130,246,0.14);
-          display:inline-block;
-        }
-
-        /* Fade edge (keep, but not tall enough to affect whole page) */
-        .home-links::after{
-          content:"";
-          position:absolute;
-          right:0;
-          top:44px;
-          height: 64px;
-          width:44px;
-          background: linear-gradient(to left, rgba(7,16,29,1), transparent);
-          pointer-events:none;
-        }
-
-        /* --- Menu pills (PREMIUM GLASS + subtle neon) --- */
-        .home-pill{
-          display:block;
-          width: 100%;
-          border-radius: 18px;
-          padding: 1.05rem 1.15rem;
-          margin: 0.95rem 0;
-
-          font-weight: 950;
-          text-align: center;
-          color: #ffffff !important;
-
-          background:
-          linear-gradient(
-          180deg,
-          rgba(255,255,255,0.12),
-          rgba(255,255,255,0.05)
-          );
-
-          border: 1px solid rgba(255,255,255,0.18);
-
-          box-shadow:
-          0 18px 34px rgba(0,0,0,0.32),
-          inset 0 1px 0 rgba(255,255,255,0.12);
-
-          backdrop-filter: blur(14px);
-          -webkit-backdrop-filter: blur(14px);
-
-          position: relative;
-          isolation: isolate;
-          overflow: hidden;
-
-          transition: transform 160ms ease,
-          box-shadow 200ms ease;
-       }
-        .home-pill::before{
-          content:"";
-          position:absolute;
-          inset:-1px;               /* slightly outside = border glow */
-          border-radius: 20px;
-          background: linear-gradient(90deg,
-            rgba(59,130,246,0.10),
-            rgba(96,165,250,0.55),
-            rgba(59,130,246,0.10)
-          );
-          filter: blur(10px);
-          opacity: 0.40;
-          z-index: -1;              /* behind the pill */
-         animation: pillGlow 5.2s ease-in-out infinite;
-          pointer-events:none;
-        }
-
-        .home-pill::after{
-          content:"";
-          position:absolute;
-          left: 16px;
-          right: 16px;
-          bottom: 8px;
-          height: 2px;
-          border-radius: 999px;
-
-          background: linear-gradient(90deg,
-          rgba(59,130,246,0.00),
-          rgba(59,130,246,0.65),
-          rgba(96,165,250,0.55),
-          rgba(59,130,246,0.00)
-           );
-
-          box-shadow:
-          0 0 10px rgba(59,130,246,0.25),
-          0 0 22px rgba(59,130,246,0.14);
-
-          opacity: 0.55;
-          transform: translateX(-12%);
-          animation: pillNeon 4.8s ease-in-out infinite;
-          pointer-events:none;
-        }
-
-        .home-pill:hover{
-          transform: translateY(-2px);
-          filter: brightness(1.06);
-          box-shadow:
-          0 20px 40px rgba(0,0,0,0.34),
-          inset 0 1px 0 rgba(255,255,255,0.12);
-        }
-
-        .home-pill:hover::after{
-          opacity: 0.75;
-          box-shadow:
-          0 0 14px rgba(59,130,246,0.34),
-          0 0 26px rgba(59,130,246,0.18);
-        }
-
-        .home-pill::before{
-          content:"";
-          position:absolute;
-          inset:-1px;
-          border-radius: 20px;
-
-        background: linear-gradient(
-          90deg,
-          transparent,
-          var(--pill-glow),
-          transparent
-          );
-
-        filter: blur(12px);
-          opacity: 0.45;
-          z-index:-1;
-          animation: pillGlow 5s ease-in-out infinite;
-          pointer-events:none;
-       }
-
-        @keyframes pillNeon{
-          0%   { transform: translateX(-16%); opacity: 0.45; }
-          50%  { transform: translateX(16%);  opacity: 0.75; }
-          100% { transform: translateX(-16%); opacity: 0.45; }
-        }
-        @keyframes pillGlow{
-          0%   { opacity: 0.25; filter: blur(12px); }
-          50%  { opacity: 0.55; filter: blur(9px); }
-          100% { opacity: 0.25; filter: blur(12px); }
-        }
-
-        @media (prefers-reduced-motion: reduce){
-          .home-pill::after{ animation: none; }
-        }
-
-        /* Bottom indicator */
-        .home-bottom-indicator {
-          position: fixed;
-          left: 50%;
-          transform: translateX(-50%);
-          bottom: calc(env(safe-area-inset-bottom) + 10px);
-          width: 110px;
-          height: 5px;
-          border-radius: 999px;
-          opacity: 0.30;
-          background: rgba(255,255,255,0.75);
-          z-index: 9999;
-          pointer-events: none;
-        }
-
-        .home-dashboard { --pill-glow: rgba(59,130,246,0.75); }   /* blue */
-        .home-students  { --pill-glow: rgba(16,185,129,0.75); }   /* green */
-        .home-add_lesson{ --pill-glow: rgba(245,158,11,0.75); }   /* amber */
-        .home-add_payment{ --pill-glow: rgba(239,68,68,0.75); }   /* red */
-        .home-calendar  { --pill-glow: rgba(6,182,212,0.75); }    /* cyan */
-        .home-analytics { --pill-glow: rgba(168,85,247,0.75); }   /* purple */
-        @keyframes pillGlow{
-         0%   { opacity: 0.30; filter: blur(14px); }
-         50%  { opacity: 0.65; filter: blur(10px); }
-         100% { opacity: 0.30; filter: blur(14px); }
-    }
-
-        /* Mobile tightening */
-        @media (max-width: 520px){
-          .home-card{ padding: 16px 14px 20px 14px; }
-          .home-slogan{ font-size: 22px; }
-          .home-links-title:before, .home-links-title:after{ width: 24%; }
-        }
-
-        /* Remove default Streamlit padding */
-        .block-container {
-          padding-top: 0rem !important;
-          padding-bottom: 0rem !important;
-          padding-left: 1rem !important;
-          padding-right: 1rem !important;
-        }
-
-
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def load_css_app_light(compact: bool = False):
-    compact_css = """
-      section[data-testid="stMain"] > div { padding-top: 1.0rem !important; padding-bottom: 1.0rem !important; }
-      div[data-testid="stVerticalBlockBorderWrapper"]{ padding: 12px !important; border-radius: 16px !important; }
-      div[data-testid="stButton"] button{ padding: 0.58rem 0.85rem !important; border-radius: 14px !important; }
-      div[data-testid="metric-container"]{ padding: 12px 14px !important; border-radius: 16px !important; }
-    """ if compact else ""
-
-    st.markdown(
-        f"""
-        <style>
-        :root {{ color-scheme: light !important; }}
-        html, body {{ color-scheme: light !important; }}
-
-        :root{{
-          --bg:#f6f7fb;
-          --panel:#ffffff;
-          --border:rgba(17,24,39,0.08);
-          --border2:rgba(17,24,39,0.10);
-          --text:#0f172a;
-          --muted:#475569;
-          --shadow:0 10px 26px rgba(15,23,42,0.08);
-          --primary-color:#2563EB !important;
-        }}
-
-        /* Prevent iOS/system dark-mode from creating odd horizontal bars */
-        html, body {{ overflow-x: hidden !important; }}
-
-        .stApp{{ background: var(--bg) !important; color: var(--text) !important; }}
-        [data-testid="stAppViewContainer"], .stApp {{ background: var(--bg) !important; }}
-        .stApp {{ overflow-x: hidden !important; }}
-
-        /* Base text */
-        .stApp, .stApp * {{
-          color: var(--text);
-          -webkit-text-fill-color: var(--text) !important; /* iOS Safari dark-mode safeguard */
-        }}
-
-        /* Muted text for captions/paragraphs */
-        .stCaption, .stMarkdown p, .stMarkdown span, .stMarkdown li {{
-          color: var(--muted) !important;
-          -webkit-text-fill-color: var(--muted) !important;
-        }}
-
-        .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {{
-          color: var(--text) !important;
-          -webkit-text-fill-color: var(--text) !important;
-        }}
-
-        label, label * {{
-          color: var(--text) !important;
-          -webkit-text-fill-color: var(--text) !important;
-        }}
-
-        section[data-testid="stMain"] > div {{
-          padding-top: 1.6rem;
-          padding-bottom: 1.6rem;
-          max-width: 1200px;
-        }}
-
-        @media (max-width: 768px){{
-          section[data-testid="stMain"] > div {{
-            padding-top: 1.0rem;
-            padding-bottom: 1.2rem;
-          }}
-        }}
-
-        html, body, [class*="css"]{{
-          font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-        }}
-        h1,h2,h3{{ letter-spacing:-0.02em; }}
-
-        div[data-testid="stVerticalBlockBorderWrapper"]{{
-          background: var(--panel) !important;
-          border: 1px solid var(--border) !important;
-          border-radius: 18px !important;
-          padding: 18px !important;
-          box-shadow: var(--shadow) !important;
-        }}
-
-        div[data-testid="stButton"] button{{
-          border-radius: 14px !important;
-          padding: 0.62rem 1.0rem !important;
-          border: 1px solid var(--border2) !important;
-          background: white !important;
-          color: var(--text) !important;
-          -webkit-text-fill-color: var(--text) !important;
-          font-weight: 650 !important;
-          transition: all 160ms ease;
-        }}
-
-        div[data-testid="stButton"] button:hover{{
-          box-shadow: 0 0 0 4px rgba(59,130,246,0.12);
-          border-color: rgba(59,130,246,0.35) !important;
-          transform: translateY(-1px);
-        }}
-
-        div[data-testid="stTextInput"] input,
-        div[data-testid="stTextArea"] textarea,
-        div[data-testid="stNumberInput"] input,
-        div[data-testid="stDateInput"] input{{
-          border-radius: 14px !important;
-          background: white !important;
-          border: 1px solid var(--border2) !important;
-          color: var(--text) !important;
-          -webkit-text-fill-color: var(--text) !important;
-        }}
-
-        div[data-testid="stSelectbox"] [data-baseweb="select"] > div{{
-          border-radius: 14px !important;
-          background: white !important;
-          border: 1px solid var(--border2) !important;
-          color: var(--text) !important;
-          -webkit-text-fill-color: var(--text) !important;
-        }}
-
-        /* Radios + toggles disappearing on iPhone dark mode: force text fill */
-        .stRadio, .stRadio *, .stToggle, .stToggle * {{
-          color: var(--text) !important;
-          -webkit-text-fill-color: var(--text) !important;
-        }}
-
-        div[data-testid="stDataFrame"]{{
-          border-radius: 18px !important;
-          overflow: hidden !important;
-          border: 1px solid var(--border) !important;
-          box-shadow: var(--shadow) !important;
-        }}
-
-        div[data-testid="metric-container"]{{
-          background: white !important;
-          border: 1px solid var(--border) !important;
-          padding: 14px 16px !important;
-          border-radius: 18px !important;
-          box-shadow: var(--shadow) !important;
-        }}
-
-        /* =========================
-           BLUE TOGGLES (OFF light / ON dark)
-           ========================= */
-
-        /* Toggle track (OFF) */
-        div[data-baseweb="checkbox"] div[role="checkbox"]{{
-          width: 42px;
-          height: 24px;
-          border-radius: 12px;   /* more capsule, less pill */
-          background: #BFDBFE !important; /* Light Blue */
-          border: 1px solid #93C5FD !important;
-          position: relative;
-          transition: all 180ms ease;
-        }}
-
-        /* Toggle track (ON) */
-        div[data-baseweb="checkbox"] div[role="checkbox"][aria-checked="true"]{{
-          background: #1D4ED8 !important; /* Dark Blue */
-          border-color: #1D4ED8 !important;
-        }}
-
-        /* White knob */
-        div[data-baseweb="checkbox"] div[role="checkbox"]::after{{
-          content: "";
-          position: absolute;
-          width: 18px;
-          height: 18px;
-          top: 2px;
-          left: 2px;
-          background: #ffffff;
-          border-radius: 8px;
-          transition: transform 180ms ease;
-        }}
-        
-        /* Move knob when ON */
-        div[data-baseweb="checkbox"] div[role="checkbox"][aria-checked="true"]::after{{
-          transform: translateX(18px);
-        }}
-        
-        /* Label always visible */
-        div[data-baseweb="checkbox"] label,
-        div[data-baseweb="checkbox"] label *{{
-          color: var(--text) !important;
-          -webkit-text-fill-color: var(--text) !important;
-        }}
-        /* =========================
-           FORCE Streamlit st.toggle colors (Chrome-safe)
-           ========================= */
-
-        /* Target ONLY Streamlit toggles */
-        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"]{{
-          width: 42px !important;
-          height: 24px !important;
-          border-radius: 12px !important;
-          background: #BFDBFE !important;  /* OFF = light blue */
-          border: 1px solid #93C5FD !important;
-          position: relative !important;
-          box-shadow: none !important;
-        }}
-
-        /* ON state */
-        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"][aria-checked="true"]{{
-          background: #1D4ED8 !important;  /* ON = dark blue */
-          border-color: #1D4ED8 !important;
-        }}
-
-        /* Knob */
-        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"]::after{{
-          content: "" !important;
-          position: absolute !important;
-          width: 18px !important;
-          height: 18px !important;
-          top: 2px !important;
-          left: 2px !important;
-          background: #ffffff !important;
-          border-radius: 8px !important;
-          transform: translateX(0) !important;
-          transition: transform 180ms ease !important;
-        }}
-
-        /* Move knob when ON */
-        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"][aria-checked="true"]::after{{
-          transform: translateX(18px) !important;
-        }}
-
-        /* Kill the red (it’s usually the check/icon or focus styles) */
-        div[data-testid="stToggle"] div[data-baseweb="checkbox"] svg,
-        div[data-testid="stToggle"] div[data-baseweb="checkbox"] svg path{{
-          fill: #ffffff !important;   /* ON icon white */
-        }}
-
-        /* Remove focus ring that sometimes shows as red */
-        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"]:focus,
-        div[data-testid="stToggle"] div[data-baseweb="checkbox"] div[role="checkbox"]:focus-visible{{
-          outline: none !important;
-          box-shadow: none !important;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-def mobile_fullscreen_css():
-    st.markdown(
-        """
-        <style>
-        .main .block-container{
-          padding-top: 0rem !important;
-          padding-bottom: 0rem !important;
-          padding-left: 0rem !important;
-          padding-right: 0rem !important;
-          max-width: 100% !important;
-        }
-        header[data-testid="stHeader"]{ height: 0px !important; }
-        div[data-testid="stDecoration"]{ display:none !important; }
-        html, body, [data-testid="stAppViewContainer"]{ height: 100%; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-# Only apply fullscreen “mobile” css when compact_mode is ON
-if bool(st.session_state.get("compact_mode", False)):
-    mobile_fullscreen_css()
-
-# =========================
-# 06) NAVIGATION (QUERY PARAM ROUTER)
-# =========================
-PAGES = [
-    ("dashboard", "dashboard", "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.06))"),
-    ("students",  "students",  "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.06))"),
-    ("add_lesson","lessons",   "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.06))"),
-    ("add_payment","payments", "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.06))"),
-    ("calendar",  "calendar",  "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.06))"),
-    ("analytics", "analytics", "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.06))"),
-]
-PAGE_KEYS = {"home"} | {k for k, _, _ in PAGES}
-
-
-def _get_qp(key: str, default=None):
-    """Safe query param getter (new + old Streamlit)."""
-    try:
-        qp = st.query_params
-        v = qp.get(key, default)
-        if isinstance(v, list):
-            v = v[0] if v else default
-        return v if v is not None else default
-    except Exception:
-        qp = st.experimental_get_query_params()
-        v = qp.get(key, [default])
-        return v[0] if v else default
-
-
-def _get_query_page() -> str:
-    v = _get_qp("page", "home")
-    return str(v) if v is not None else "home"
-
-
-def _set_query(page: Optional[str] = None, lang: Optional[str] = None) -> None:
-    """Set query params safely (preserves existing when None)."""
-    new_page = page if page is not None else st.session_state.get("page", "home")
-    new_lang = lang if lang is not None else st.session_state.get("ui_lang", "en")
-    try:
-        st.query_params["page"] = new_page
-        st.query_params["lang"] = new_lang
-    except Exception:
-        st.experimental_set_query_params(page=new_page, lang=new_lang)
-
-
-# Defaults
-if "page" not in st.session_state:
-    st.session_state.page = "home"
-
-# Sync language from URL first (so UI matches instantly)
-lang_qp = _get_qp("lang", None)
-if lang_qp in ("en", "es"):
-    st.session_state.ui_lang = lang_qp
-
-# Read page from URL
-qp_page = _get_query_page()
-if qp_page in PAGE_KEYS:
-    st.session_state.page = qp_page
-else:
-    st.session_state.page = "home"
-    _set_query(page="home", lang=st.session_state.ui_lang)
-
-
-def go_to(page_name: str):
-    """Navigation helper for top-nav buttons/links."""
-    if page_name not in PAGE_KEYS:
-        page_name = "home"
-    st.session_state.page = page_name
-    _set_query(page=page_name, lang=st.session_state.get("ui_lang", "en"))
-
-
-def page_header(title: str):
-    st.markdown(f"## {title}")
-
-# =========================
-# 07) HELPERS
-# =========================
-# =========================
-# 07.1) DATA ACCESS HELPERS
-# =========================
-def load_table(name: str, limit: int = 10000, page_size: int = 1000) -> pd.DataFrame:
-    all_rows = []
-    offset = 0
-    try:
-        while offset < limit:
-            resp = (
-                supabase.table(name)
-                .select("*")
-                .range(offset, min(offset + page_size - 1, limit - 1))
-                .execute()
-            )
-            batch = resp.data or []
-            all_rows.extend(batch)
-            if len(batch) < page_size:
-                break
-            offset += page_size
-        return pd.DataFrame(all_rows)
-    except Exception as e:
-        st.error(f"Supabase error loading table '{name}'.\n\n{e}")
-        return pd.DataFrame()
-
-
-def norm_student(x: str) -> str:
-    return str(x).strip().casefold()
-
-
-def ensure_student(student: str) -> None:
-    student = str(student).strip()
-    if not student:
-        return
-    try:
-        supabase.table("students").insert({"student": student}).execute()
-    except Exception:
-        pass
-
-
-def load_students() -> List[str]:
-    students_df = load_table("students")
-    classes_df = load_table("classes")
-    payments_df = load_table("payments")
-
-    names = set()
-    for df, col in [(students_df, "student"), (classes_df, "student"), (payments_df, "student")]:
-        if not df.empty and col in df.columns:
-            df[col] = df[col].astype(str).str.strip()
-            names.update(df[col].dropna().tolist())
-    return sorted([n for n in names if n and n.lower() != "nan"])
-
-def get_profile_avatar_url(user_id: str) -> str:
-    try:
-        res = supabase.table("profiles").select("avatar_url").eq("user_id", str(user_id)).limit(1).execute()
-        rows = getattr(res, "data", None) or []
-        if not rows:
-            return ""
-        return str(rows[0].get("avatar_url") or "")
-    except Exception:
-        return ""
-
-def save_profile_avatar_url(user_id: str, avatar_url: str) -> None:
-    try:
-        payload = {"user_id": str(user_id), "avatar_url": str(avatar_url)}
-        supabase.table("profiles").upsert(payload, on_conflict="user_id").execute()
-    except Exception:
-        pass
-
-# =========================
-# 07.2) QUERY PARAM HELPERS
-# =========================
-def _clear_qp(*keys: str) -> None:
-    """Remove query params safely (new + old Streamlit)."""
-    try:
-        for k in keys:
-            if k in st.query_params:
-                del st.query_params[k]
-    except Exception:
-        qp = st.experimental_get_query_params()
-        for k in keys:
-            qp.pop(k, None)
-        st.experimental_set_query_params(**qp)
-
-# =========================
-# 07.3) TODAY LESSONS HELPER
-# =========================
-def build_today_lessons() -> pd.DataFrame:
-    today = date.today()
-
-    events = build_calendar_events(today, today)
-    if events is None or events.empty:
-        return pd.DataFrame()
-
-    df = events.copy()
-
-    # Clean
-    df["Student"] = df["Student"].astype(str).str.strip()
-    df["Time"] = df["Time"].astype(str)
-    df["Duration_Min"] = pd.to_numeric(df["Duration_Min"], errors="coerce").fillna(60).astype(int)
-
-    # Optional: sort by time
-    df = df.sort_values("Time").reset_index(drop=True)
-
-    return df[["Student", "Time", "Duration_Min", "Source"]]
-
-# =========================
-# 07.4) LANGUAGE HELPERS
-# =========================
-LANG_EN = "English"
-LANG_ES = "Spanish"
-LANG_BOTH = "English,Spanish"
-ALLOWED_LANGS = {LANG_EN, LANG_ES, LANG_BOTH}
-ALLOWED_LESSON_LANGS = {LANG_EN, LANG_ES, LANG_BOTH}
-DEFAULT_PACKAGE_LANGS = [LANG_ES]
-
-
-def pack_languages(selected: List[str]) -> str:
-    s = [x for x in selected if x in (LANG_EN, LANG_ES)]
-    s = sorted(set(s), key=lambda z: 0 if z == LANG_EN else 1)
-    if len(s) == 2:
-        return LANG_BOTH
-    if len(s) == 1:
-        return s[0]
-    return LANG_ES
-
-
-def unpack_languages(value: str) -> List[str]:
-    v = str(value or "").strip()
-    if v == LANG_BOTH:
-        return [LANG_EN, LANG_ES]
-    if v in (LANG_EN, LANG_ES):
-        return [v]
-    return [LANG_ES]
-
-
-def allowed_lesson_language_from_package(languages_value: str) -> Tuple[List[str], Optional[str]]:
-    langs = unpack_languages(languages_value)
-    if len(langs) == 1:
-        return [langs[0]], langs[0]
-    return [LANG_EN, LANG_ES], None
-
-
-def translate_status(val: str) -> str:
-    if not val:
-        return ""
-    key_map = {
-        "dropout": "dropout",
-        "finished": "finished_status",
-        "mismatch": "mismatch_status",
-        "almost_finished": "almost_finished",
-        "active": "active_status",
-    }
-    return t(key_map.get(str(val).strip().casefold(), str(val)))
-
-
-def translate_modality_value(x: str) -> str:
-    v = str(x or "").strip().casefold()
-    if v == "online":
-        return t("online")
-    if v == "offline":
-        return t("offline")
-    return str(x or "").strip()
-
-
-def translate_language_value(x: str) -> str:
-    v = str(x or "").strip()
-    if v == LANG_EN:
-        return t("english")
-    if v == LANG_ES:
-        return t("spanish")
-    if v == LANG_BOTH:
-        return t("both")
-    if v.casefold() in ("unknown", ""):
-        return t("unknown")
-    return v
-
-
-# =========================
-# 07.5) WHATSAPP HELPERS
-# =========================
-
-def _digits_only(s: str) -> str:
-    return re.sub(r"\D+", "", str(s or ""))
-
-
-def normalize_phone_for_whatsapp(raw_phone: str) -> str:
-    """
-    WhatsApp expects international format digits only (no +).
-    Designed for Turkey numbers but tolerant of other formats.
-
-    Examples:
-      +90 5xx xxx xx xx  -> 905xxxxxxxxx
-      05xx xxx xx xx     -> 905xxxxxxxxx
-      5xx xxx xx xx      -> 905xxxxxxxxx
-      00<country><num>   -> <country><num>
-    """
-    d = _digits_only(raw_phone)
-    if not d:
-        return ""
-
-    # Remove leading 00
-    if d.startswith("00") and len(d) > 2:
-        d = d[2:]
-
-    # Already looks like an international number (e.g., 90xxxxxxxxxx, 4917..., 1...)
-    # Keep as-is if >= 11 digits and doesn't start with trunk '0'
-    if len(d) >= 11 and not d.startswith("0"):
-        return d
-
-    # Turkey specific normalization
-    # 0 + 10 digits starting with 5xxxxxxxxx  -> add country code
-    if len(d) == 11 and d.startswith("0") and d[1] == "5":
-        return "90" + d[1:]
-
-    # 10 digits starting with 5xxxxxxxxx -> add country code
-    if len(d) == 10 and d.startswith("5"):
-        return "90" + d
-
-    # If we can't safely normalize, return empty (so we fall back to wa.me/?text=...)
-    return ""
-
-
-def build_whatsapp_url(message: str, raw_phone: str = "") -> str:
-    encoded = urllib.parse.quote(message or "")
-    phone = normalize_phone_for_whatsapp(raw_phone)
-    if phone:
-        return f"https://wa.me/{phone}?text={encoded}"
-    return f"https://wa.me/?text={encoded}"
-
-
-def _msg_lang_label(lang: str) -> str:
-    return {"en": "English", "es": "Español", "tr": "Türkçe"}.get(lang, lang)
-
-
-def _package_status_text(status: str, lang: str) -> str:
-    """
-    status expected like: 'almost_finished', 'finished', etc.
-    We map 'almost'/'soon' variations → "almost finished"
-    """
-    s = str(status or "").strip().casefold()
-    is_almost = (
-        ("almost_finished" in s)
-        or ("almost" in s)
-        or ("finish_soon" in s)
-        or ("soon" in s)
-        or ("about" in s and "finish" in s)
-    )
-
-    if lang == "es":
-        return "por terminar" if is_almost else "finalizado"
-    if lang == "tr":
-        return "bitmek üzere" if is_almost else "tamamlandı"
-    return "almost finished" if is_almost else "finished"
-
-
-def build_msg_confirm(name: str, lang: str, time_text: str = "") -> str:
-    """
-    Template #2: confirm today's lesson (EN/ES/TR)
-    time_text optional; if empty, we omit time.
-    """
-    name = (name or "").strip()
-    tt = (time_text or "").strip()
-
-    if lang == "es":
-        return (
-            f"Hola {name}! Solo para confirmar nuestra clase de hoy"
-            f"{f' a las {tt}' if tt else ''}. ¿Todo bien por tu lado?"
-        )
-    if lang == "tr":
-        return (
-            f"Merhaba {name}! Bugünkü dersimizi"
-            f"{f' {tt} için' if tt else ''} teyit etmek istiyorum. Sizin için uygun mu?"
-        )
-    return (
-        f"Hi {name}! Just confirming our lesson today"
-        f"{f' at {tt}' if tt else ''}. Is everything okay for you?"
-    )
-
-
-def build_msg_cancel(name: str, lang: str) -> str:
-    """
-    Template #3: cancel today's lesson (EN/ES/TR)
-    """
-    name = (name or "").strip()
-
-    if lang == "es":
-        return f"Hola {name}. Lo siento, pero necesito cancelar la clase de hoy. ¿Quieres reprogramarla?"
-    if lang == "tr":
-        return f"Merhaba {name}. Üzgünüm, bugünkü dersi iptal etmem gerekiyor. Yeniden planlayalım mı?"
-    return f"Hi {name}. I’m sorry, but I need to cancel today’s lesson. Would you like to reschedule?"
-
-
-def build_msg_package_header(name: str, lang: str, status: str) -> str:
-    """
-    Template #1 header: finished / almost finished package (EN/ES/TR)
-    Pricing block is appended separately.
-    """
-    name = (name or "").strip()
-    stxt = _package_status_text(status, lang)
-
-    if lang == "es":
-        return (
-            f"Hola {name}! Espero que estés bien.\n"
-            f"Tu paquete actual está {stxt}. Si quieres continuar, aquí están mis precios actuales:\n"
-        )
-    if lang == "tr":
-        return (
-            f"Merhaba {name}, umarım iyisinizdir.\n"
-            f"Mevcut paketiniz {stxt}. Devam etmek isterseniz güncel fiyatlarım aşağıdadır:\n"
-        )
-    return (
-        f"Hi {name}! Hope you’re doing well.\n"
-        f"Your current package is {stxt}. If you’d like to continue, here are my current prices:\n"
-    )
-
-
-def _get_pricing_snapshot() -> dict:
-    """
-    Loads active pricing from Supabase via load_pricing_items().
-
-    Returns:
-      {
-        "online_hourly": int,
-        "offline_hourly": int,
-        "online_packages": [(hours:int, price:int, per:int), ...],
-        "offline_packages": [(hours:int, price:int, per:int), ...],
-      }
-    """
-    df = load_pricing_items()
-    if df is None or df.empty:
-        return {
-            "online_hourly": 0,
-            "offline_hourly": 0,
-            "online_packages": [],
-            "offline_packages": [],
-        }
-
-    df = df.copy()
-    if "active" in df.columns:
-        df = df[df["active"] == True].copy()
-
-    # normalize
-    df["modality"] = df["modality"].fillna("").astype(str).str.strip().str.lower()
-    df["kind"] = df["kind"].fillna("").astype(str).str.strip().str.lower()
-    df["price_try"] = pd.to_numeric(df["price_try"], errors="coerce").fillna(0).astype(int)
-    df["hours"] = pd.to_numeric(df["hours"], errors="coerce")  # NaN ok for hourly
-
-    def _hourly(mod: str) -> int:
-        h = df[(df["modality"] == mod) & (df["kind"] == "hourly")].copy()
-        if h.empty:
-            return 0
-        if "sort_order" in h.columns:
-            h["sort_order"] = pd.to_numeric(h["sort_order"], errors="coerce").fillna(0).astype(int)
-            h = h.sort_values(["sort_order", "id"], na_position="last")
-        return int(h.iloc[0].get("price_try") or 0)
-
-    def _packages(mod: str) -> list:
-        p = df[(df["modality"] == mod) & (df["kind"] == "package")].copy()
-        if p.empty:
-            return []
-        p["hours"] = pd.to_numeric(p["hours"], errors="coerce").fillna(0).astype(int)
-        p["sort_order"] = pd.to_numeric(p.get("sort_order", 0), errors="coerce").fillna(0).astype(int)
-
-        # Sort packages: sort_order ascending, then hours descending (e.g., 44, 20, 10, 5)
-        p = p.sort_values(["sort_order", "hours"], ascending=[True, False], na_position="last")
-
-        out = []
-        for _, r in p.iterrows():
-            hours = int(r.get("hours") or 0)
-            price = int(r.get("price_try") or 0)
-            if hours <= 0:
-                continue
-            per = int(round(price / hours))
-            out.append((hours, price, per))
-        return out
-
-    return {
-        "online_hourly": _hourly("online"),
-        "offline_hourly": _hourly("offline"),
-        "online_packages": _packages("online"),
-        "offline_packages": _packages("offline"),
-    }
-
-
-def build_pricing_block(lang: str = "tr") -> str:
-    """
-    WhatsApp-friendly pricing list built from pricing_items.
-    Prints both online and offline sections (matches your original Turkish message style).
-    """
-    s = _get_pricing_snapshot()
-
-    online_hourly = int(s.get("online_hourly") or 0)
-    offline_hourly = int(s.get("offline_hourly") or 0)
-    online_pk = s.get("online_packages") or []
-    offline_pk = s.get("offline_packages") or []
-
-    # ---- Text labels ----
-    if lang == "es":
-        header = "📌 Las clases duran 50–60 minutos (1 hora).\n"
-        online_title = "💻 Precios de clases online:\n"
-        offline_title = "🏫 Precios de clases presenciales:\n"
-        hourly_note = "*La clase se paga el mismo día.\n"
-        prepaid_title = "📦 Paquetes online (prepago):\n"
-        prepaid_note = "*El pago debe hacerse antes de empezar. Puedes tomar clases con la frecuencia que quieras.\n"
-        offline_pk_title = "📦 Paquetes presenciales (prepago):\n"
-        line_hourly = lambda price: f"1 hora → {money_try(price)}\n"
-        line_pkg = lambda h, price, per: f"{h} horas → {money_try(price)} (≈ {money_try(per)} / hora)\n"
-        no_online_hourly = "(No hay precio por hora online configurado)\n"
-        no_online_pk = "(No hay paquetes online)\n"
-        no_offline_pk = "(No hay paquetes presenciales)\n"
-
-    elif lang == "en":
-        header = "📌 Lessons are 50–60 minutes (1 hour).\n"
-        online_title = "💻 Online lesson prices:\n"
-        offline_title = "🏫 In-person lesson prices:\n"
-        hourly_note = "*Each lesson is paid on the same day.\n"
-        prepaid_title = "📦 Online prepaid packages:\n"
-        prepaid_note = "*Payment must be made before starting. Lessons can be taken as frequently as you want.\n"
-        offline_pk_title = "📦 In-person prepaid packages:\n"
-        line_hourly = lambda price: f"1 hour → {money_try(price)}\n"
-        line_pkg = lambda h, price, per: f"{h} hours → {money_try(price)} (≈ {money_try(per)} / hour)\n"
-        no_online_hourly = "(No online hourly price set)\n"
-        no_online_pk = "(No online packages)\n"
-        no_offline_pk = "(No in-person packages)\n"
-
-    else:  # TR default
-        header = "Derslerim 50-60 dakika sürer (1 saat).\n"
-        online_title = "Çevrimiçi ders fiyatları:\n"
-        offline_title = "Yüz yüze ders fiyatları:\n"
-        hourly_note = "*Her ders aynı gün ödenmelidir.\n"
-        prepaid_title = "Çevrimiçi Ders Ön ödemeli paketler:\n"
-        prepaid_note = "*Kursa başlamadan önce ödeme yapılmalıdır. Dersler istediğiniz sıklıkta alınabilir.\n"
-        offline_pk_title = "Yüz yüze Ders Ön ödemeli paketler:\n"
-        line_hourly = lambda price: f"1 saat → {money_try(price)}\n"
-        line_pkg = lambda h, price, per: f"{h} saat → {money_try(price)} (≈ {money_try(per)} ders/saati)\n"
-        no_online_hourly = "(Çevrimiçi saat ücreti ayarlanmamış)\n"
-        no_online_pk = "(Çevrimiçi paket yok)\n"
-        no_offline_pk = "(Yüz yüze paket yok)\n"
-
-    # ---- Build block ----
-    out = []
-    out.append(header)
-
-    # Online
-    out.append(online_title)
-    if online_hourly > 0:
-        out.append(line_hourly(online_hourly))
-        out.append(hourly_note)
-    else:
-        out.append(no_online_hourly)
-
-    out.append("\n" + prepaid_title)
-    if online_pk:
-        for h, price, per in online_pk:
-            out.append(line_pkg(h, price, per))
-        out.append(prepaid_note)
-    else:
-        out.append(no_online_pk)
-
-    # Offline
-    out.append("\n" + offline_title)
-
-    # Optional: include offline hourly in EN/ES only (as you had it)
-    if offline_hourly > 0 and lang in ("en", "es"):
-        out.append(line_hourly(offline_hourly))
-        out.append(hourly_note)
-
-    out.append("\n" + offline_pk_title)
-    if offline_pk:
-        for h, price, per in offline_pk:
-            out.append(line_pkg(h, price, per))
-        out.append(prepaid_note)
-    else:
-        out.append(no_offline_pk)
-
-    return "".join(out).strip() + "\n"
-# =========================
-# 07.6) CRUD HELPERS (CLASSES / PAYMENTS)
-# =========================
-def add_class(
-    student: str,
-    number_of_lesson: int,
-    lesson_date: str,
-    modality: str,
-    note: str = "",
-    lesson_language: Optional[str] = None
-) -> None:
-    student = str(student).strip()
-    ensure_student(student)
-    payload = {
-        "student": student,
-        "number_of_lesson": int(number_of_lesson),
-        "lesson_date": lesson_date,
-        "modality": str(modality).strip(),
-        "note": str(note).strip() if note else "",
-        "lesson_language": str(lesson_language).strip() if lesson_language else None,
-    }
-    try:
-        supabase.table("classes").insert(payload).execute()
-    except Exception:
-        payload.pop("lesson_language", None)
-        supabase.table("classes").insert(payload).execute()
-
-
-def add_payment(
-    student: str,
-    number_of_lesson: int,
-    payment_date: str,
-    paid_amount: float,
-    modality: str,
-    languages: str,
-    package_start_date: Optional[str] = None,
-    package_expiry_date: Optional[str] = None,
-    lesson_adjustment_units: int = 0,
-    package_normalized: bool = False,
-    normalized_note: str = ""
-) -> None:
-    student = str(student).strip()
-    ensure_student(student)
-
-    if not package_start_date:
-        package_start_date = payment_date
-
-    payload = {
-        "student": student,
-        "number_of_lesson": int(number_of_lesson),
-        "payment_date": payment_date,
-        "paid_amount": float(paid_amount),
-        "modality": str(modality).strip(),
-        "languages": str(languages).strip() if languages else LANG_ES,
-        "package_start_date": package_start_date,
-        "package_expiry_date": package_expiry_date if package_expiry_date else None,
-        "lesson_adjustment_units": int(lesson_adjustment_units),
-        "package_normalized": bool(package_normalized),
-        "normalized_note": str(normalized_note or "").strip(),
-        "normalized_at": datetime.now(timezone.utc).isoformat() if (package_normalized or normalized_note) else None,
-    }
-
-    try:
-        supabase.table("payments").insert(payload).execute()
-    except Exception:
-        # Backward compatible if DB schema is older
-        for k in ["languages", "lesson_adjustment_units", "package_normalized", "normalized_note", "normalized_at"]:
-            payload.pop(k, None)
-        supabase.table("payments").insert(payload).execute()
-
-
-def delete_row(table_name: str, row_id: int) -> None:
-    supabase.table(table_name).delete().eq("id", int(row_id)).execute()
-
-
-def normalize_latest_package(student: str, payment_id: int, note: str = "") -> bool:
-    try:
-        payload = {
-            "package_normalized": True,
-            "normalized_note": str(note or "").strip(),
-            "normalized_at": datetime.now(timezone.utc).isoformat()
-        }
-        supabase.table("payments").update(payload).eq("id", int(payment_id)).execute()
-        return True
-    except Exception:
-        return False
-
-
-def update_student_profile(student: str, email: str, zoom_link: str, notes: str, color: str, phone: str) -> None:
-    supabase.table("students").update({
-        "email": email,
-        "zoom_link": zoom_link,
-        "notes": notes,
-        "color": color,
-        "phone": phone
-    }).eq("student", student).execute()
-
-
-def update_payment_row(payment_id: int, updates: dict) -> bool:
-    try:
-        supabase.table("payments").update(updates).eq("id", int(payment_id)).execute()
-        return True
-    except Exception:
-        return False
-
-
-def update_class_row(class_id: int, updates: dict) -> bool:
-    try:
-        supabase.table("classes").update(updates).eq("id", int(class_id)).execute()
-        return True
-    except Exception:
-        return False
-
-# =========================
-# 07.8) CRUD HELPERS (PRICING ITEMS) — I18N READY (EN/ES)
-# =========================
-
-def load_pricing_items() -> pd.DataFrame:
-    """
-    Loads pricing_items from Supabase.
-    Expected columns:
-      id, modality (online/offline), kind (hourly/package),
-      hours (NULL for hourly), price_try, active, sort_order
-    """
-    try:
-        res = supabase.table("pricing_items").select("*").order("sort_order").execute()
-        rows = getattr(res, "data", None) or []
-        df = pd.DataFrame(rows)
-    except Exception:
-        return pd.DataFrame(columns=["id", "modality", "kind", "hours", "price_try", "active", "sort_order"])
-
-    if df.empty:
-        return pd.DataFrame(columns=["id", "modality", "kind", "hours", "price_try", "active", "sort_order"])
-
-    defaults = {
-        "id": None,
-        "modality": "",
-        "kind": "",
-        "hours": None,
-        "price_try": 0,
-        "active": True,
-        "sort_order": 0,
-    }
-    for c, default in defaults.items():
-        if c not in df.columns:
-            df[c] = default
-
-    df["active"] = df["active"].fillna(True).astype(bool)
-    df["sort_order"] = pd.to_numeric(df["sort_order"], errors="coerce").fillna(0).astype(int)
-    df["modality"] = df["modality"].fillna("").astype(str).str.strip().str.lower()
-    df["kind"] = df["kind"].fillna("").astype(str).str.strip().str.lower()
-    df["price_try"] = pd.to_numeric(df["price_try"], errors="coerce").fillna(0).astype(int)
-    df["hours"] = pd.to_numeric(df["hours"], errors="coerce")  # keep NaN for hourly
-
-    return df
-
-def upsert_pricing_item(payload: dict) -> None:
-    if not isinstance(payload, dict):
-        raise ValueError("payload must be a dict")
-
-    table = "pricing_items"
-    item_id = payload.get("id")
-
-    # never send id on insert/update payload
-    clean = {k: v for k, v in payload.items() if k != "id"}
-
-    if item_id is not None and str(item_id).strip() != "":
-        resp = supabase.table(table).update(clean).eq("id", int(item_id)).execute()
-    else:
-        resp = supabase.table(table).insert(clean).execute()
-
-    if getattr(resp, "error", None):
-        raise RuntimeError(resp.error)
-
-def delete_pricing_item(item_id: int) -> None:
-    if item_id is None:
-        return
-    resp = supabase.table("pricing_items").delete().eq("id", int(item_id)).execute()
-    if getattr(resp, "error", None):
-        raise RuntimeError(resp.error)
-
-
-def money_try(x) -> str:
-    try:
-        return f"{int(round(float(x))):,} TL".replace(",", ".")
-    except Exception:
-        return str(x)
-
-
-def _pricing_section(df: pd.DataFrame, modality: str, title_key: str, hourly_default: int) -> None:
-    """
-    Renders one modality pricing editor (online/offline).
-    modality must be lowercase: "online" or "offline"
-    title_key must be a translation key.
-    """
-
-    st.markdown(f"### {t(title_key)}")
-
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=["id", "modality", "kind", "hours", "price_try", "active", "sort_order"])
-    else:
-        df = df.copy()
-
-    # Ensure expected columns exist
-    defaults = {
-        "id": None,
-        "modality": "",
-        "kind": "",
-        "hours": None,
-        "price_try": 0,
-        "active": True,
-        "sort_order": 0,
-    }
-    for c, default in defaults.items():
-        if c not in df.columns:
-            df[c] = default
-
-    # Active only
-    df["active"] = df["active"].fillna(True).astype(bool)
-    df = df[df["active"] == True].copy()
-
-    # Normalize strings
-    df["modality"] = df["modality"].fillna("").astype(str).str.strip().str.lower()
-    df["kind"] = df["kind"].fillna("").astype(str).str.strip().str.lower()
-
-    # Numeric
-    df["price_try"] = pd.to_numeric(df["price_try"], errors="coerce").fillna(0).astype(int)
-    df["hours"] = pd.to_numeric(df["hours"], errors="coerce")  # NaN ok for hourly
-
-    # ---------- Hourly ----------
-    hourly = df[(df["modality"] == modality) & (df["kind"] == "hourly")].copy()
-
-    # Seed hourly if missing
-    if hourly.empty:
-        upsert_pricing_item(
-            {
-                "modality": modality,
-                "kind": "hourly",
-                "hours": None,
-                "price_try": int(hourly_default),
-                "active": True,
-                "sort_order": 0,
-            }
-        )
-        df = load_pricing_items()
-        df = df[df["active"] == True].copy()
-        hourly = df[(df["modality"] == modality) & (df["kind"] == "hourly")].copy()
-
-    if hourly.empty:
-        st.error(t("pricing_hourly_load_error"))
-        return
-
-    # If multiple hourly rows exist, use the first by sort_order then id
-    hourly = hourly.sort_values(["sort_order", "id"], na_position="last")
-    hourly_row = hourly.iloc[0].to_dict()
-
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        st.caption(t("pricing_hourly_caption"))
-    with c2:
-        new_hourly = st.number_input(
-            t("pricing_hourly_price_label"),
-            min_value=0,
-            step=50,
-            value=int(hourly_row.get("price_try") or 0),
-            key=f"hourly_price_{modality}",
-            label_visibility="collapsed",
-        )
-
-    if int(new_hourly) != int(hourly_row.get("price_try") or 0):
-        upsert_pricing_item(
-            {
-                "id": int(hourly_row["id"]),
-                "modality": modality,
-                "kind": "hourly",
-                "hours": None,
-                "price_try": int(new_hourly),
-                "active": True,
-                "sort_order": int(hourly_row.get("sort_order") or 0),
-            }
-        )
-        st.success(t("pricing_hourly_updated"))
-        st.rerun()
-
-    st.divider()
-
-    # ---------- Packages ----------
-    pk = df[(df["modality"] == modality) & (df["kind"] == "package")].copy()
-    pk["sort_order"] = pd.to_numeric(pk["sort_order"], errors="coerce").fillna(0).astype(int)
-    pk["hours"] = pd.to_numeric(pk["hours"], errors="coerce").fillna(0).astype(int)
-    pk = pk.sort_values(["sort_order", "hours", "id"], na_position="last")
-
-    if pk.empty:
-        st.info(t("pricing_no_packages"))
-    else:
-        # Use enumerate to guarantee unique Streamlit widget keys even if duplicate IDs appear
-        for i, (_, row) in enumerate(pk.iterrows(), start=1):
-            row_id = int(row.get("id") or 0)
-            hours = int(row.get("hours") or 0)
-            price = int(row.get("price_try") or 0)
-            per = int(round(price / hours)) if hours > 0 else 0
-
-            with st.container(border=True):
-                a, b, c = st.columns([2, 2, 1])
-
-                with a:
-                    st.markdown(f"**{hours} {t('pricing_hours')}**")
-                    st.caption(f"≈ {money_try(per)} {t('pricing_per_hour')}")
-
-                with b:
-                    st.markdown(f"**{money_try(price)}**")
-
-                with c:
-                    if st.button(t("pricing_edit"), key=f"edit_pkg_{modality}_{row_id}_{i}"):
-                        st.session_state[f"edit_price_id_{modality}"] = row_id
-
-                if st.session_state.get(f"edit_price_id_{modality}") == row_id:
-                    e1, e2, e3 = st.columns([1, 1, 1])
-                    with e1:
-                        new_hours = st.number_input(
-                            t("pricing_hours"),
-                            min_value=1,
-                            step=1,
-                            value=max(1, hours),
-                            key=f"pkg_hours_{modality}_{row_id}_{i}",
-                        )
-                    with e2:
-                        new_price = st.number_input(
-                            t("pricing_price_label"),
-                            min_value=0,
-                            step=50,
-                            value=price,
-                            key=f"pkg_price_{modality}_{row_id}_{i}",
-                        )
-                    with e3:
-                        if st.button(t("pricing_save"), key=f"save_pkg_{modality}_{row_id}_{i}"):
-                            upsert_pricing_item(
-                                {
-                                    "id": row_id,
-                                    "modality": modality,
-                                    "kind": "package",
-                                    "hours": int(new_hours),
-                                    "price_try": int(new_price),
-                                    "active": True,
-                                    "sort_order": int(row.get("sort_order") or new_hours),
-                                }
-                            )
-                            st.session_state[f"edit_price_id_{modality}"] = None
-                            st.success(t("pricing_package_updated"))
-                            st.rerun()
-
-                        if st.button(t("pricing_delete"), key=f"del_pkg_{modality}_{row_id}_{i}"):
-                            delete_pricing_item(row_id)
-                            st.session_state[f"edit_price_id_{modality}"] = None
-                            st.success(t("pricing_package_deleted"))
-                            st.rerun()
-
-    st.divider()
-
-    # ---------- Add package ----------
-    st.markdown(f"**{t('pricing_add_package')}**")
-    n1, n2, n3 = st.columns([1, 1, 1])
-
-    with n1:
-        add_hours = st.number_input(
-            t("pricing_hours"),
-            min_value=1,
-            step=1,
-            value=10,
-            key=f"add_pkg_hours_{modality}",
-        )
-    with n2:
-        add_price = st.number_input(
-            t("pricing_price_label"),
-            min_value=0,
-            step=50,
-            value=0,
-            key=f"add_pkg_price_{modality}",
-        )
-    with n3:
-        if st.button(t("pricing_add"), key=f"add_pkg_btn_{modality}"):
-            upsert_pricing_item(
-                {
-                    "modality": modality,
-                    "kind": "package",
-                    "hours": int(add_hours),
-                    "price_try": int(add_price),
-                    "active": True,
-                    "sort_order": int(add_hours),
-                }
-            )
-            st.success(t("pricing_package_added"))
-            st.rerun()
-
-
-def render_pricing_editor() -> None:
-    """
-    Pricing editor UI. Call this ONLY inside a page (e.g. add_payment).
-    """
-    with st.expander(t("pricing_editor_title"), expanded=False):
-        df = load_pricing_items()
-        _pricing_section(df, modality="online", title_key="pricing_online_title", hourly_default=2000)
-
-        st.divider()
-
-        df = load_pricing_items()
-        _pricing_section(df, modality="offline", title_key="pricing_offline_title", hourly_default=3500)
-
-# =========================
-# 07.9) PACKAGE/LANGUAGE LOOKUPS
-# =========================
-def latest_payment_languages_for_student(student: str) -> str:
-    try:
-        resp = (
-            supabase.table("payments")
-            .select("id, payment_date, package_start_date, languages")
-            .eq("student", str(student).strip())
-            .order("payment_date", desc=True)
-            .order("id", desc=True)
-            .limit(1)
-            .execute()
-        )
-        rows = resp.data or []
-        if not rows:
-            return LANG_ES
-        v = str(rows[0].get("languages") or LANG_ES).strip()
-        return v if v in ALLOWED_LANGS else LANG_ES
-    except Exception:
-        return LANG_ES
-
-
-def _is_offline(modality: str) -> bool:
-    m = str(modality or "").strip().casefold()
-    return ("offline" in m) or ("face" in m) or ("yüz" in m) or ("yuzyuze" in m) or ("yüzyüze" in m)
-
-
-def _units_multiplier(modality: str) -> int:
-    return 2 if _is_offline(modality) else 1
-
-
-def _is_free_note(note: str) -> bool:
-    n = str(note or "").upper()
-    return ("[FREE]" in n) or ("[DEMO]" in n) or ("[DONT COUNT]" in n) or ("[DON'T COUNT]" in n)
-
-
-# =========================
-# 07.10) HISTORY HELPERS
-# =========================
-def show_student_history(student: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    student = str(student).strip()
-
-    classes = load_table("classes")
-    payments = load_table("payments")
-
-    if classes.empty:
-        classes = pd.DataFrame(columns=["id", "student", "number_of_lesson", "lesson_date", "modality", "note", "lesson_language"])
-    if payments.empty:
-        payments = pd.DataFrame(columns=[
-            "id","student","number_of_lesson","payment_date","paid_amount","modality","languages",
-            "package_start_date","package_expiry_date",
-            "lesson_adjustment_units","package_normalized","normalized_note","normalized_at"
-        ])
-
-    # Ensure columns exist
-    for col in ["id","student","number_of_lesson","lesson_date","modality","note","lesson_language"]:
-        if col not in classes.columns:
-            classes[col] = None
-
-    for col in [
-        "id","student","number_of_lesson","payment_date","paid_amount","modality","languages",
-        "package_start_date","package_expiry_date",
-        "lesson_adjustment_units","package_normalized","normalized_note","normalized_at"
-    ]:
-        if col not in payments.columns:
-            payments[col] = None
-
-    # Filter by student
-    classes["student"] = classes["student"].astype(str).str.strip()
-    payments["student"] = payments["student"].astype(str).str.strip()
-
-    lessons_df = classes[classes["student"] == student].copy()
-    payments_df = payments[payments["student"] == student].copy()
-
-    # Parse dates (tz-naive)
-    lessons_df["lesson_date"] = to_dt_naive(lessons_df["lesson_date"], utc=True)
-    payments_df["payment_date"] = to_dt_naive(payments_df["payment_date"], utc=True)
-    payments_df["package_start_date"] = to_dt_naive(payments_df["package_start_date"], utc=True)
-    payments_df["package_expiry_date"] = to_dt_naive(payments_df["package_expiry_date"], utc=True)
-
-    # Numeric
-    lessons_df["number_of_lesson"] = pd.to_numeric(lessons_df["number_of_lesson"], errors="coerce").fillna(0).astype(int)
-    payments_df["number_of_lesson"] = pd.to_numeric(payments_df["number_of_lesson"], errors="coerce").fillna(0).astype(int)
-    payments_df["paid_amount"] = pd.to_numeric(payments_df["paid_amount"], errors="coerce").fillna(0.0)
-
-    # Sort
-    lessons_df = lessons_df.sort_values(["lesson_date","id"], ascending=[False, False]).reset_index(drop=True)
-    payments_df = payments_df.sort_values(["payment_date","id"], ascending=[False, False]).reset_index(drop=True)
-
-    # Select + rename to stable internal keys (snake_case)
-    lessons_df = lessons_df.rename(columns={
-        "id": "lesson_id",
-        "number_of_lesson": "lessons",
-    })[["lesson_id","lesson_date","lessons","modality","lesson_language","note"]]
-
-    payments_df = payments_df.rename(columns={
-        "id": "payment_id",
-        "number_of_lesson": "lessons_paid",
-        "lesson_adjustment_units": "adjustment_units",
-    })[[
-        "payment_id","payment_date","lessons_paid","paid_amount","modality","languages",
-        "package_start_date","package_expiry_date",
-        "adjustment_units","package_normalized","normalized_note","normalized_at"
-    ]]
-
-    # Format dates for display (safe on Series)
-    lessons_df["lesson_date"] = pd.to_datetime(lessons_df["lesson_date"], errors="coerce").dt.strftime("%Y-%m-%d")
-    payments_df["payment_date"] = pd.to_datetime(payments_df["payment_date"], errors="coerce").dt.strftime("%Y-%m-%d")
-    payments_df["package_start_date"] = pd.to_datetime(payments_df["package_start_date"], errors="coerce").dt.strftime("%Y-%m-%d")
-    payments_df["package_expiry_date"] = pd.to_datetime(payments_df["package_expiry_date"], errors="coerce").dt.strftime("%Y-%m-%d")
-
-    # Translate coded values (optional)
-    lessons_df["modality"] = lessons_df["modality"].apply(translate_modality_value)
-    lessons_df["lesson_language"] = lessons_df["lesson_language"].apply(translate_language_value)
-
-    payments_df["modality"] = payments_df["modality"].apply(translate_modality_value)
-    payments_df["languages"] = payments_df["languages"].apply(translate_language_value)
-
-    return lessons_df, payments_df
-
-# =========================
-# 08) SCHEDULE / OVERRIDES
-# =========================
-WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-
-
-def load_schedules() -> pd.DataFrame:
-    df = load_table("schedules")
-    if df.empty:
-        return pd.DataFrame(columns=["id", "student", "weekday", "time", "duration_minutes", "active"])
-
-    for c, default in {
-        "id": None, "student": "", "weekday": 0, "time": "", "duration_minutes": 60, "active": True
-    }.items():
-        if c not in df.columns:
-            df[c] = default
-
-    df["student"] = df["student"].astype(str).str.strip()
-    df["weekday"] = pd.to_numeric(df["weekday"], errors="coerce").fillna(0).astype(int)
-    df["duration_minutes"] = pd.to_numeric(df["duration_minutes"], errors="coerce").fillna(60).astype(int)
-    df["active"] = df["active"].fillna(True).astype(bool)
-    df["time"] = df["time"].astype(str).str.strip()
-    return df
-
-
-def add_schedule(student: str, weekday: int, time_str: str, duration_minutes: int, active: bool = True) -> None:
-    student = str(student).strip()
-    ensure_student(student)
-    supabase.table("schedules").insert({
-        "student": student,
-        "weekday": int(weekday),
-        "time": str(time_str).strip(),
-        "duration_minutes": int(duration_minutes),
-        "active": bool(active),
-    }).execute()
-
-
-def delete_schedule(schedule_id: int) -> None:
-    supabase.table("schedules").delete().eq("id", int(schedule_id)).execute()
-
-
-def load_overrides() -> pd.DataFrame:
-    df = load_table("calendar_overrides")
-    if df.empty:
-        return pd.DataFrame(columns=["id", "student", "original_date", "new_datetime", "duration_minutes", "status", "note"])
-
-    for c, default in {
-        "id": None, "student": "", "original_date": None, "new_datetime": None,
-        "duration_minutes": 60, "status": "", "note": ""
-    }.items():
-        if c not in df.columns:
-            df[c] = default
-
-    df["student"] = df["student"].astype(str).str.strip()
-    df["original_date"] = to_dt_naive(df["original_date"], utc=True)
-
-    new_dt = pd.to_datetime(df["new_datetime"], errors="coerce", utc=True)
-    df["new_datetime"] = pd.NaT
-    mask = new_dt.notna()
-    df.loc[mask, "new_datetime"] = new_dt.loc[mask].dt.tz_convert(LOCAL_TZ).dt.tz_localize(None)
-
-    df["duration_minutes"] = pd.to_numeric(df["duration_minutes"], errors="coerce").fillna(60).astype(int)
-    df["status"] = df["status"].astype(str).str.strip().str.lower()
-    df["note"] = df["note"].fillna("").astype(str)
-
-    return df
-
-
-def _to_utc_iso(dt: Optional[datetime]) -> Optional[str]:
-    """
-    Convert a datetime to a UTC ISO string for storage.
-    - If naive: assume LOCAL_TZ (Europe/Istanbul)
-    - If aware: respect its tz
-    """
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=LOCAL_TZ)
-    return dt.astimezone(UTC_TZ).isoformat()
-
-
-def add_override(
-    student: str,
-    original_date: date,
-    new_dt: Optional[datetime],
-    duration_minutes: int = 60,
-    status: str = "scheduled",
-    note: str = ""
-) -> None:
-    student = str(student).strip()
-    ensure_student(student)
-
-    status_clean = str(status).strip().lower()
-
-    payload = {
-        "student": student,
-        "original_date": original_date.isoformat(),
-        "duration_minutes": int(duration_minutes),
-        "status": status_clean,
-        "note": str(note or "").strip(),
-        "new_datetime": _to_utc_iso(new_dt) if status_clean == "scheduled" else None
-    }
-
-    supabase.table("calendar_overrides").insert(payload).execute()
-
-
-def delete_override(override_id: int) -> None:
-    supabase.table("calendar_overrides").delete().eq("id", int(override_id)).execute()
-
-
-# =========================
-# 09) STUDENT META
-# =========================
-def load_students_df() -> pd.DataFrame:
-    df = load_table("students")
-    if df.empty:
-        return pd.DataFrame(columns=["student", "email", "zoom_link", "notes", "color", "phone"])
-
-    for c, default in {
-        "student": "", "email": "", "zoom_link": "", "notes": "", "color": "#3B82F6", "phone": ""
-    }.items():
-        if c not in df.columns:
-            df[c] = default
-
-    df["student"] = df["student"].astype(str).str.strip()
-    df["color"] = df["color"].fillna("#3B82F6").astype(str).str.strip()
-    df["zoom_link"] = df["zoom_link"].fillna("").astype(str).str.strip()
-    df["email"] = df["email"].fillna("").astype(str).str.strip()
-    df["notes"] = df["notes"].fillna("").astype(str)
-    df["phone"] = df["phone"].fillna("").astype(str).str.strip()
-
-    return df
-
-
-def student_meta_maps():
-    s = load_students_df()
-    if s.empty:
-        return {}, {}, {}, {}
-    s["student_norm"] = s["student"].apply(norm_student)
-    color_map = dict(zip(s["student_norm"], s["color"]))
-    zoom_map  = dict(zip(s["student_norm"], s["zoom_link"]))
-    email_map = dict(zip(s["student_norm"], s["email"]))
-    phone_map = dict(zip(s["student_norm"], s["phone"]))
-    return color_map, zoom_map, email_map, phone_map
-
-
-# =========================
-# 10) DASHBOARD (PACKAGE STATUS) ✅ + chart-translation helper
+# 8.12) DASHBOARD (PACKAGE STATUS) ✅ + chart-translation helper
 # =========================
 def dash_chart_series(
     df: pd.DataFrame,
@@ -3811,7 +3446,6 @@ def dash_chart_series(
     ser.name = t(value_key_for_label)
 
     return ser
-
 
 def rebuild_dashboard(active_window_days: int = 183, expiry_days: int = 365, grace_days: int = 0) -> pd.DataFrame:
     classes = load_table("classes")
@@ -4045,7 +3679,7 @@ def rebuild_dashboard(active_window_days: int = 183, expiry_days: int = 365, gra
     ]]
 
 # =========================
-# 11) ANALYTICS (INCOME + CHARTS) ✅ missing-columns safe (Section 24 compatible)
+# 8.13) ANALYTICS (INCOME + CHARTS) ✅ missing-columns safe (Section 24 compatible)
 # =========================
 def money_fmt(x: float) -> str:
     """Compact currency format for KPI bubbles."""
@@ -4164,7 +3798,7 @@ def build_income_analytics(group: str = "monthly"):
 
     return kpis, income_table, by_student, sold_by_language, sold_by_modality
 # =========================
-# 12) FORECAST (BEHAVIOR-BASED + PIPELINE-AWARE + FINISHED LAST 3 MONTHS)
+# 8.15) FORECAST (BEHAVIOR-BASED + PIPELINE-AWARE + FINISHED LAST 3 MONTHS)
 # =========================
 def build_forecast_table(
     payment_buffer_days: int = 0,
@@ -4345,7 +3979,7 @@ def build_forecast_table(
     return out
 
 # =========================
-# 13) KPI BUBBLES (ROBUST: NO AUTO-RESIZE DEPENDENCY)
+# 8.16) KPI BUBBLES (ROBUST: NO AUTO-RESIZE DEPENDENCY)
 # =========================
 def kpi_bubbles(values, colors, size=170):
     """
@@ -4473,7 +4107,7 @@ def kpi_bubbles(values, colors, size=170):
 
 
 # =========================
-# 14) CALENDAR (EVENTS + RENDER) ✅ bilingual-safe + tz-safe + FullCalendar i18n
+# 8.17) CALENDAR (EVENTS + RENDER) ✅ bilingual-safe + tz-safe + FullCalendar i18n
 # =========================
 def _parse_time_value(x) -> Tuple[int, int]:
     if x is None:
@@ -4787,7 +4421,413 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
     components.html(html, height=height + 70, scrolling=True)
 
 # =========================
-# 15) HOME SCREEN UI (DARK) - upgraded (FIXED + PERSISTENT AVATAR + NO-LOOP NAV)
+# 09) UI COMPONENTS
+# =========================
+
+def nav_pill(label: str, page: str, css_class: str):
+    # Render a pill-looking button
+    st.markdown(
+        f"""
+        <style>
+        div[data-testid="stButton"] > button.{css_class} {{
+            width: 100%;
+            border-radius: 18px;
+            padding: 1.05rem 1.15rem;
+            margin: 0.55rem 0;
+            font-weight: 950;
+            text-align: center;
+            color: #ffffff !important;
+            background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.05));
+            border: 1px solid rgba(255,255,255,0.18);
+            box-shadow: 0 18px 34px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.12);
+            backdrop-filter: blur(14px);
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if st.button(label, key=f"pill_{page}", use_container_width=True):
+        go_to(page)
+        st.rerun()
+
+def to_dt_naive(x, utc: bool = True):
+    """
+    Parse to pandas datetime and return tz-naive timestamps.
+
+    - If x is a Series/array-like -> returns a Series[datetime64[ns]] (tz-naive)
+    - If x is scalar -> returns a Timestamp or NaT (tz-naive)
+    - If utc=True -> parse/convert to UTC then drop tz
+    """
+    s = pd.to_datetime(x, errors="coerce", utc=utc)
+
+    # Series path
+    if isinstance(s, pd.Series):
+        try:
+            return s.dt.tz_convert(None)  # tz-aware -> drop tz
+        except Exception:
+            return s  # already tz-naive or not datetimelike
+
+    # Scalar path
+    try:
+        if getattr(s, "tzinfo", None) is not None:
+            return s.tz_convert(None)
+        return s
+    except Exception:
+        return s
+
+
+def ts_today_naive() -> pd.Timestamp:
+    # Always tz-naive "today" at midnight
+    return pd.Timestamp.now().normalize().tz_localize(None)
+
+
+def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Light formatting helper used across the app (values only; keeps column names)."""
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+
+    # Trim object columns
+    for c in out.columns:
+        if out[c].dtype == "object":
+            out[c] = out[c].astype(str).str.strip()
+
+    return out
+
+
+def translate_df_headers(df: pd.DataFrame) -> pd.DataFrame:
+    """Translate dataframe column headers using t() with robust normalization."""
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+
+    def norm_key(col: str) -> str:
+        k = str(col or "").strip()
+        k = k.replace("-", " ").replace("/", " ")
+        k = re.sub(r"\s+", " ", k)
+
+        # normalize common display variants
+        k = k.replace(" ID", " Id")
+        k = k.replace("Id", "ID")
+        k = k.replace("ID", " id ")
+
+        k = k.strip().casefold()
+        k = k.replace(" ", "_")
+        k = re.sub(r"__+", "_", k).strip("_")
+        return k
+
+    out.columns = [t(norm_key(c)) for c in out.columns]
+    return out
+
+
+def translate_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Translate headers + common coded values (Status/Modality/Languages) when present.
+    Works for snake_case or pretty title columns.
+    """
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+
+    # headers
+    out = translate_df_headers(out)
+
+    cols = set(out.columns.astype(str))
+
+    # values
+    for status_col in [t("status"), "Status", "status"]:
+        if status_col in cols:
+            out[status_col] = out[status_col].astype(str).str.strip().str.casefold().apply(translate_status)
+
+    for mod_col in [t("modality"), "Modality", "modality"]:
+        if mod_col in cols:
+            out[mod_col] = out[mod_col].astype(str).apply(translate_modality_value)
+
+    for lang_col in [t("languages"), "Languages", "languages"]:
+        if lang_col in cols:
+            out[lang_col] = out[lang_col].astype(str).apply(translate_language_value)
+
+    return out
+
+
+def chart_series(df: pd.DataFrame, index_col: str, value_col: str, index_key: str, value_key: str):
+    """
+    Builds a Series for Streamlit charts with translated axis labels.
+    index_key/value_key are I18N keys (e.g., "student", "income").
+    """
+    if df is None or df.empty or index_col not in df.columns or value_col not in df.columns:
+        return None
+
+    s = df[[index_col, value_col]].copy()
+    s[index_col] = s[index_col].astype(str)
+    s[value_col] = pd.to_numeric(s[value_col], errors="coerce").fillna(0.0)
+
+    series = s.set_index(index_col)[value_col]
+    series.index.name = t(index_key)
+    series.name = t(value_key)
+    return series
+
+def dash_chart_series(
+    df: pd.DataFrame,
+    group_col: str,
+    group_key_for_label: str,
+    value_key_for_label: str,
+) -> Optional[pd.Series]:
+    """
+    Build a Series for st.bar_chart with translated:
+      - series name (e.g. "Students")
+      - index name (e.g. "Status", "Modality", "Languages")
+      - index values when they are coded (status/modality/languages)
+    """
+    if df is None or df.empty or group_col not in df.columns:
+        return None
+
+    tmp = df.copy()
+    tmp[group_col] = tmp[group_col].fillna("").astype(str).str.strip()
+    tmp = tmp[tmp[group_col].astype(str).str.len() > 0]
+    if tmp.empty:
+        return None
+
+    s = tmp.groupby(group_col).size().sort_values(ascending=False)
+
+    # Translate index values when needed
+    if group_col.casefold() == "status":
+        s.index = [translate_status(x) for x in s.index.astype(str)]
+    elif group_col.casefold() == "modality":
+        s.index = [translate_modality_value(x) for x in s.index.astype(str)]
+    elif group_col.casefold() == "languages":
+        s.index = [translate_language_value(x) for x in s.index.astype(str)]
+
+    s.index.name = t(group_key_for_label)
+    s.name = t(value_key_for_label)
+    return s
+
+def inject_pwa_head():
+    components.html(
+        """
+        <script>
+        (function () {
+          const w = window.parent;
+          const doc = w.document;
+
+          const icon192 = w.location.origin + "/app/static/icon-192.png";
+          const icon512 = w.location.origin + "/app/static/icon-512.png";
+          const apple180 = w.location.origin + "/app/static/apple-touch-icon.png";
+
+          // Remove old injected items
+          doc.querySelectorAll('link[rel="manifest"][data-cm="1"]').forEach(el => el.remove());
+          doc.querySelectorAll('link[rel="apple-touch-icon"][data-cm="1"]').forEach(el => el.remove());
+
+          // Build manifest dynamically
+          const manifest = {
+            name: "Classman",
+            short_name: "Classman",
+            start_url: w.location.origin + "/",
+            scope: w.location.origin + "/",
+            display: "standalone",
+            background_color: "#0b1220",
+            theme_color: "#0b1220",
+            icons: [
+              { src: icon192, sizes: "192x192", type: "image/png", purpose: "any" },
+              { src: icon512, sizes: "512x512", type: "image/png", purpose: "any" }
+            ]
+          };
+
+          const blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
+          const manifestURL = URL.createObjectURL(blob);
+
+          const link = doc.createElement("link");
+          link.rel = "manifest";
+          link.href = manifestURL;
+          link.setAttribute("data-cm", "1");
+          doc.head.appendChild(link);
+
+          // Apple touch icon
+          doc.querySelectorAll('link[rel="apple-touch-icon"][data-cm="1"]').forEach(el => el.remove());
+          const ati = doc.createElement("link");
+          ati.rel = "apple-touch-icon";
+          ati.href = apple180;
+          ati.sizes = "180x180";
+          ati.setAttribute("data-cm", "1");
+          doc.head.appendChild(ati);
+
+          // Favicon override
+          doc.querySelectorAll('link[rel="icon"][data-cm="1"]').forEach(el => el.remove());
+          const fav = doc.createElement("link");
+          fav.rel = "icon";
+          fav.href = apple180;
+          fav.setAttribute("data-cm", "1");
+          doc.head.appendChild(fav);
+
+          // Meta tags
+          const metas = [
+            { name: "apple-mobile-web-app-capable", content: "yes" },
+            { name: "mobile-web-app-capable", content: "yes" },
+            { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+            { name: "apple-mobile-web-app-title", content: "Class Manager" },
+            { name: "theme-color", content: "#0b1220" }
+          ];
+
+          metas.forEach(m => {
+            let el = doc.querySelector('meta[name="' + m.name + '"][data-cm="1"]');
+            if (!el) {
+              el = doc.createElement("meta");
+              el.setAttribute("data-cm", "1");
+              el.name = m.name;
+              doc.head.appendChild(el);
+            }
+            el.content = m.content;
+          });
+
+        })();
+        </script>
+        """,
+        height=0,
+    )
+
+inject_pwa_head()
+
+# =========================
+# 10) NAVIGATION
+# =========================
+# =========================
+# 10) NAVIGATION
+# =========================
+PAGES = [
+    ("dashboard", "dashboard", "📊"),
+    ("students", "students", "👥"),
+    ("add_lesson", "lesson", "🗓️"),
+    ("add_payment", "payment", "💳"),
+    ("calendar", "calendar", "📅"),
+    ("analytics", "analytics", "📈"),
+]
+
+PAGE_KEYS = {"home"} | {key for key, _, _ in PAGES}
+
+
+def _get_qp(key: str, default=None):
+    """Safe query param getter (new + old Streamlit)."""
+    try:
+        qp = st.query_params
+        v = qp.get(key, default)
+        if isinstance(v, list):
+            v = v[0] if v else default
+        return v if v is not None else default
+    except Exception:
+        qp = st.experimental_get_query_params()
+        v = qp.get(key, [default])
+        return v[0] if v else default
+
+
+def _clear_qp(*keys):
+    """Remove one or more query params safely."""
+    try:
+        for k in keys:
+            if k in st.query_params:
+                del st.query_params[k]
+    except Exception:
+        current = {}
+        try:
+            old = st.experimental_get_query_params()
+            for k, v in old.items():
+                if k not in keys:
+                    current[k] = v[0] if isinstance(v, list) and v else v
+        except Exception:
+            current = {}
+        st.experimental_set_query_params(**current)
+
+
+def _get_query_page() -> str:
+    v = _get_qp("page", "home")
+    return str(v) if v is not None else "home"
+
+
+def _set_query(page: Optional[str] = None, lang: Optional[str] = None, panel: Optional[str] = None) -> None:
+    """
+    Safe query param setter.
+    Keeps page/lang in sync and optionally sets/removes panel.
+    """
+    new_page = page if page is not None else st.session_state.get("page", "home")
+    new_lang = lang if lang is not None else st.session_state.get("ui_lang", "en")
+
+    params = {
+        "page": new_page,
+        "lang": new_lang,
+    }
+    if panel is not None:
+        params["panel"] = panel
+
+    try:
+        st.query_params.clear()
+        for k, v in params.items():
+            st.query_params[k] = v
+    except Exception:
+        st.experimental_set_query_params(**params)
+
+
+# ---------- DEFAULTS ----------
+if "page" not in st.session_state:
+    st.session_state["page"] = "home"
+
+if "ui_lang" not in st.session_state:
+    st.session_state["ui_lang"] = "en"
+
+
+# ---------- SYNC FROM URL ----------
+lang_qp = _get_qp("lang", None)
+if lang_qp in ("en", "es"):
+    st.session_state["ui_lang"] = lang_qp
+
+qp_page = _get_query_page()
+if qp_page in PAGE_KEYS:
+    st.session_state["page"] = qp_page
+else:
+    st.session_state["page"] = "home"
+    _set_query(page="home", lang=st.session_state["ui_lang"])
+
+
+def go_to(page_name: str):
+    """Main internal navigation helper."""
+    if page_name not in PAGE_KEYS:
+        page_name = "home"
+
+    st.session_state["page"] = page_name
+    _set_query(
+        page=page_name,
+        lang=st.session_state.get("ui_lang", "en"),
+    )
+
+
+def home_go(page_name: str = "home", panel: Optional[str] = None):
+    """Home-only navigation helper, useful for dialogs/panels."""
+    if page_name not in PAGE_KEYS:
+        page_name = "home"
+
+    st.session_state["page"] = page_name
+    _set_query(
+        page=page_name,
+        lang=st.session_state.get("ui_lang", "en"),
+        panel=panel,
+    )
+
+def set_home_lang(lang_code: str):
+    """Switch language while staying on Home."""
+    if lang_code not in ("en", "es"):
+        lang_code = "en"
+
+    st.session_state["ui_lang"] = lang_code
+    _set_query(page="home", lang=lang_code)
+
+
+def page_header(title: str):
+    st.markdown(f"## {title}")
+
+# =========================
+# 11) HOME SCREEN UI (DARK)
 # =========================
 def render_home():
     current_lang = st.session_state.get("ui_lang", "en")
@@ -4799,114 +4839,47 @@ def render_home():
     user_id = st.session_state.get("user_id", "demo_user")
     panel = _get_qp("panel", "")
 
-    # ✅ Load avatar from DB once per session (so it persists after refresh)
+    # Load avatar from DB once per session
     if not st.session_state.get("avatar_url"):
         st.session_state["avatar_url"] = get_profile_avatar_url(user_id)
 
     avatar_url = st.session_state.get("avatar_url", "")
-    avatar_style = f"background-image:url('{avatar_url}');" if avatar_url else ""
-
-    # ---- helpers (local; safe) ----
-    def _set_panel(p: str | None):
-        # keep page+lang, toggle panel
-        try:
-            if p is None or p == "":
-                # remove panel
-                try:
-                    del st.query_params["panel"]
-                except Exception:
-                    st.experimental_set_query_params(page="home", lang=current_lang)
-                return
-            st.query_params["page"] = "home"
-            st.query_params["lang"] = current_lang
-            st.query_params["panel"] = p
-        except Exception:
-            # old streamlit fallback: keep it simple
-            st.experimental_set_query_params(page="home", lang=current_lang, panel=p or "")
-
-    def _go_lang(lang: str):
-        st.session_state.ui_lang = lang
-        _set_query(page="home", lang=lang)
-        st.rerun()
-
-    # --- Top bar (welcome + icons + language) ---
-    # IMPORTANT: no internal <a href="?page=..."> links (avoid auth loop)
-    st.markdown(
-        f"""
-<div class="home-topbar">
-  <div class="home-user">
-    <div class="home-avatar-wrap" title="Change photo">
-      <div class="home-avatar" style="{avatar_style}"></div>
-      <div class="home-avatar-badge">📷</div>
-    </div>
-
-    <div class="home-usertext">
-      <div class="home-welcome">{t('welcome').strip()},</div>
-      <div class="home-username">{user_name}</div>
-    </div>
-  </div>
-
-  <div class="home-actions">
-    <div class="home-iconbtn" title="{t('alerts')}">
-      <span class="home-ico">🔔</span>
-      {f'<span class="home-badge">{alerts_count}</span>' if alerts_count > 0 else ''}
-    </div>
-
-    <div class="home-lang">
-      <div class="home-langbtn {('on' if current_lang=='en' else '')}">EN</div>
-      <div class="home-langbtn {('on' if current_lang=='es' else '')}">ES</div>
-    </div>
-  </div>
-</div>
-""",
-        unsafe_allow_html=True,
+    avatar_html = (
+        f'<div class="home-avatar" style="background-image:url(\'{avatar_url}\');"></div>'
+        if avatar_url
+        else '<div class="home-avatar"></div>'
     )
 
-    # --- Click handlers for top bar (Streamlit-native buttons layered right under the HTML) ---
-    # We use tiny invisible buttons aligned with the top bar actions.
-    # This keeps UI the same but avoids query-link reload loops.
+    # ---------- HOME SHELL ----------
+    st.markdown('<div class="home-shell">', unsafe_allow_html=True)
 
-    # Avatar click / Alerts click / Language click
-    cA, cB, cC, cD = st.columns([1.2, 1.0, 0.6, 0.6])
-    with cA:
-        if st.button(" ", key="home_avatar_click", help="Change photo"):
-            _set_panel("photo")
-            st.rerun()
-    with cB:
-        if st.button(" ", key="home_alerts_click", help=t("alerts")):
-            _set_panel("alerts")
-            st.rerun()
-    with cC:
-        if st.button("EN", key="home_lang_en"):
-            _go_lang("en")
-    with cD:
-        if st.button("ES", key="home_lang_es"):
-            _go_lang("es")
+    # ---------- TOP CARD ----------
+    st.markdown('<div class="home-top-actions">', unsafe_allow_html=True)
 
-    # Make those buttons visually disappear (but clickable)
-    st.markdown(
-        """
-<style>
-/* Hide helper buttons row visuals */
-div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button{
-  height: 0px !important;
-  padding: 0 !important;
-  border: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-</style>
-""",
-        unsafe_allow_html=True,
-    )
+    top1, top2, top3, top4 = st.columns(4, vertical_alignment="center")
 
-    # --- Avatar upload dialog/panel (opens ONLY when clicking avatar) ---
+    with top1:
+        if st.button("📷", key="home_avatar_btn", use_container_width=True):
+            home_go("home", panel="photo")
+
+    with top2:
+        alert_label = f"🔔 {alerts_count}" if alerts_count > 0 else "🔔"
+        if st.button(alert_label, key="home_alerts_btn", use_container_width=True):
+            home_go("home", panel="alerts")
+
+    with top3:
+        if st.button("EN", key="home_lang_en", use_container_width=True):
+            set_home_lang("en")
+
+    with top4:
+        if st.button("ES", key="home_lang_es", use_container_width=True):
+            set_home_lang("es")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # ---------- AVATAR DIALOG ----------
     if panel == "photo":
-        # ✅ Clear panel immediately so refresh does NOT reopen the dialog
-        try:
-            del st.query_params["panel"]
-        except Exception:
-            _clear_qp("panel")
+        _clear_qp("panel")
 
         try:
             @st.dialog("Update profile photo")
@@ -4919,9 +4892,9 @@ div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button{
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    cancel = st.button("Cancel")
+                    cancel = st.button("Cancel", key="photo_cancel_btn")
                 with c2:
-                    save = st.button("Save", disabled=(up is None))
+                    save = st.button("Save", key="photo_save_btn", disabled=(up is None))
 
                 if cancel:
                     st.rerun()
@@ -4929,11 +4902,8 @@ div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button{
                 if save and up is not None:
                     try:
                         url = upload_avatar_to_supabase(up, user_id=user_id)
-
-                        # ✅ Persist in session AND database
                         st.session_state["avatar_url"] = url
                         save_profile_avatar_url(user_id, url)
-
                         st.success("Profile photo updated ✅")
                         st.rerun()
                     except Exception as e:
@@ -4942,19 +4912,19 @@ div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button{
             _photo_dialog()
 
         except Exception:
-            # Fallback if st.dialog isn't available
             st.markdown("#### Update profile photo")
             up = st.file_uploader(
                 "Choose a photo",
                 type=["png", "jpg", "jpeg", "webp"],
                 label_visibility="collapsed",
             )
+
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("Close"):
+                if st.button("Close", key="photo_close_fallback"):
                     st.rerun()
             with col2:
-                if st.button("Save", disabled=(up is None)) and up is not None:
+                if st.button("Save", key="photo_save_fallback", disabled=(up is None)) and up is not None:
                     try:
                         url = upload_avatar_to_supabase(up, user_id=user_id)
                         st.session_state["avatar_url"] = url
@@ -4963,17 +4933,7 @@ div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button{
                     except Exception as e:
                         st.error(f"Upload failed: {e}")
 
-    if panel == "alerts":
-        # Clear panel so it doesn't keep reopening
-        try:
-            del st.query_params["panel"]
-        except Exception:
-            _clear_qp("panel")
-
-        st.markdown(f"### {t('alerts')}")
-        st.caption(t("no_data"))
-
-    # ---- REAL values ----
+    # ---------- REAL VALUES ----------
     dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
 
     active_students = 0
@@ -4984,17 +4944,17 @@ div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button{
         active_students = int(active_mask.sum())
 
         lessons_left_total = int(
-            pd.to_numeric(dash.loc[active_mask, "Lessons_Left_Units"], errors="coerce").fillna(0).sum()
+            pd.to_numeric(
+                dash.loc[active_mask, "Lessons_Left_Units"],
+                errors="coerce"
+            ).fillna(0).sum()
         )
 
-    # Next lesson
     next_lesson = get_next_lesson_display()
 
-    # Income this year
     kpis, *_ = build_income_analytics(group="monthly")
     income_this_year = float(kpis.get("income_this_year", 0.0))
 
-    # Goal
     scope = "global"
     current_year = int(ts_today_naive().year)
     goal_val = float(get_year_goal(current_year, scope=scope, default=0.0) or 0.0)
@@ -5003,7 +4963,6 @@ div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button{
     if goal_val > 0:
         goal_progress = max(0.0, min(1.0, income_this_year / goal_val))
 
-    # ---- Render the indicator ----
     render_home_indicator(
         status=t("online"),
         badge=t("today"),
@@ -5017,125 +4976,61 @@ div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button{
         accent="#3B82F6",
     )
 
-    # --- Brand title ---
+    # ---------- BRAND ----------
     st.markdown("<div class='home-title'>CLASS MANAGER</div>", unsafe_allow_html=True)
 
-    # --- Slogan / hero ---
-    st.markdown(
-        f"""<div class="home-hero">
-<div class="home-slogan">{t('home_slogan')}</div>
-<div class="home-sub">{t('choose_where_to_go')}</div>
-</div>""",
-        unsafe_allow_html=True,
-    )
-
-    # --- Lead sources row (external links) ---
     st.markdown(
         f"""
-<div class="home-links">
-  <div class="home-links-title">
-    {t("home_find_students")}
-  </div>
-
-  <div class="home-links-row">
-    <a class="home-linkchip" href="https://www.armut.com" target="_blank" rel="noopener noreferrer">
-      <span class="dot"></span> Armut
-    </a>
-    <a class="home-linkchip" href="https://www.apprentus.com" target="_blank" rel="noopener noreferrer">
-      <span class="dot"></span> Apprentus
-    </a>
-    <a class="home-linkchip" href="https://www.superprof.com" target="_blank" rel="noopener noreferrer">
-      <span class="dot"></span> Superprof
-    </a>
-    <a class="home-linkchip" href="https://www.ozelders.com" target="_blank" rel="noopener noreferrer">
-      <span class="dot"></span> ÖzelDers
-    </a>
-    <a class="home-linkchip" href="https://preply.com" target="_blank" rel="noopener noreferrer">
-      <span class="dot"></span> Preply
-    </a>
-    <a class="home-linkchip" href="https://www.italki.com" target="_blank" rel="noopener noreferrer">
-      <span class="dot"></span> italki
-    </a>
-  </div>
-</div>
-""",
+        <div class="home-hero">
+            <div class="home-slogan">{t('home_slogan')}</div>
+            <div class="home-sub">{t('choose_where_to_go')}</div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
-    # --- Section title between links and menu capsules ---
-    st.markdown(
-        f"""
-<div class="home-links-title home-section-divider">
-  {t("home_menu_title")}
-</div>
-""",
-        unsafe_allow_html=True,
-    )
+    # ---------- EXTERNAL LINKS ----------
+    st.markdown(f'<div class="home-section-title">{t("home_find_students")}</div>', unsafe_allow_html=True)
 
-    # --- Capsule menu (NO <a href> -> avoids auth loop) ---
     st.markdown(
         """
-<style>
-/* Make ONLY these pill buttons look like .home-pill */
-.home-pill-btn div[data-testid="stButton"] > button{
-  display:block !important;
-  width: 100% !important;
-  border-radius: 18px !important;
-  padding: 1.05rem 1.15rem !important;
-  margin: 0.95rem 0 !important;
-
-  font-weight: 950 !important;
-  text-align: center !important;
-
-  color: #ffffff !important;
-  -webkit-text-fill-color: #ffffff !important;
-
-  border: 1px solid rgba(255,255,255,0.18) !important;
-
-  box-shadow:
-    0 18px 34px rgba(0,0,0,0.32),
-    inset 0 1px 0 rgba(255,255,255,0.12) !important;
-
-  backdrop-filter: blur(14px) !important;
-  -webkit-backdrop-filter: blur(14px) !important;
-
-  transition: transform 160ms ease, box-shadow 200ms ease !important;
-}
-.home-pill-btn div[data-testid="stButton"] > button:hover{
-  transform: translateY(-2px) !important;
-  filter: brightness(1.06) !important;
-}
-</style>
-""",
+        <div class="home-links">
+            <div class="home-links-row">
+                <a class="home-linkchip" href="https://www.armut.com" target="_blank" rel="noopener noreferrer"><span class="dot"></span> Armut</a>
+                <a class="home-linkchip" href="https://www.apprentus.com" target="_blank" rel="noopener noreferrer"><span class="dot"></span> Apprentus</a>
+                <a class="home-linkchip" href="https://www.superprof.com" target="_blank" rel="noopener noreferrer"><span class="dot"></span> Superprof</a>
+                <a class="home-linkchip" href="https://www.ozelders.com" target="_blank" rel="noopener noreferrer"><span class="dot"></span> ÖzelDers</a>
+                <a class="home-linkchip" href="https://preply.com" target="_blank" rel="noopener noreferrer"><span class="dot"></span> Preply</a>
+                <a class="home-linkchip" href="https://www.italki.com" target="_blank" rel="noopener noreferrer"><span class="dot"></span> italki</a>
+            </div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
-    for key, label_key, grad in PAGES:
-        st.markdown(f'<div class="home-pill-btn home-{key}">', unsafe_allow_html=True)
+    # ---------- MENU ----------
+    st.markdown(f'<div class="home-section-title">{t("home_menu_title")}</div>', unsafe_allow_html=True)
 
-        if st.button(t(label_key), key=f"home_pill_{key}", use_container_width=True):
-            go_to(key)  # sets st.session_state.page + query params
+    menu_items = [
+        ("dashboard",   t("dashboard")),
+        ("students",    t("students")),
+        ("add_lesson",  t("lesson")),
+        ("add_payment", t("payment")),
+        ("calendar",    t("calendar")),
+        ("analytics",   t("analytics")),
+    ]
+
+    for key, label in menu_items:
+        if st.button(label, key=f"home_menu_{key}", use_container_width=True):
+            go_to(key)
             st.rerun()
 
-        # apply gradient to the button (per pill)
-        st.markdown(
-            f"""
-<style>
-div.home-{key} div[data-testid="stButton"] > button {{
-  background: {grad} !important;
-}}
-</style>
-""",
-            unsafe_allow_html=True,
-        )
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<div class='home-bottom-indicator'></div>", unsafe_allow_html=True)
-    st.markdown("</div></div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown('<div class="home-bottom-space"></div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# 16) APP ENTRYPOINT (ROUTER + THEME SWITCH + TOP NAV)
+# 12) MAIN ENTRYPOINT AND ROUTER
 # =========================
 
 def render_top_nav(active_page: str):
@@ -5153,175 +5048,137 @@ def render_top_nav(active_page: str):
         ("analytics",   t("analytics"), "📈"),
     ]
 
-    # --- CSS only (no <a href> links) ---
     st.markdown(
         """
-<style>
+        <style>
+        .cm-topnav{
+          position: sticky;
+          top: 0;
+          z-index: 1000;
+          margin-bottom: 14px;
+          padding-top: 10px;
+          background: linear-gradient(
+            180deg,
+            rgba(245,247,251,0.96) 0%,
+            rgba(245,247,251,0.90) 70%,
+            rgba(245,247,251,0.00) 100%
+          );
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+        }
 
-/* ================= FIXED TOP NAV ================= */
+        .cm-topnav-card{
+          padding: 12px;
+          border-radius: 20px;
+          background: linear-gradient(180deg, #ffffff, #f8fbff);
+          border: 1px solid rgba(17,24,39,0.08);
+          box-shadow: 0 10px 24px rgba(15,23,42,0.08);
+        }
 
-.cm-topnav {
-  position: fixed;
-  top: 0px;
-  left: 0%;
-  width: 100vw;
-  z-index: 99999;
+        .cm-topnav .stButton > button{
+          min-height: 46px !important;
+          border-radius: 14px !important;
+          font-weight: 800 !important;
+          white-space: nowrap !important;
+        }
 
-  /* 💎 Blue glass */
-  background:
-    linear-gradient(180deg,rgba(37,99,235,0.22), rgba(37,99,235,0.12));
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-bottom: 0.8px solid rgba(59,130,246,0.25);
-  box-shadow: 0 8px 24px rgba(37,99,235,0.18), 0 0 40px rgba(59,130,246,0.08);
-  padding: 10px 12px;
-}
+        .cm-topnav-active .stButton > button{
+          border: 2px solid rgba(37,99,235,0.72) !important;
+          box-shadow: 0 0 0 4px rgba(37,99,235,0.08) !important;
+          background: linear-gradient(180deg, #eff6ff, #eaf2ff) !important;
+        }
 
-/* Spacer to prevent overlap (match nav height) */
-.cm-topnav-spacer { height: 76px; }
+        .cm-lang-active .stButton > button{
+          border: 2px solid rgba(37,99,235,0.72) !important;
+          box-shadow: 0 0 0 4px rgba(37,99,235,0.08) !important;
+          background: linear-gradient(180deg, #eff6ff, #eaf2ff) !important;
+        }
 
-.cm-topnav-row {
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-}
-
-/* Left side scroll area */
-.cm-nav-scroll {
-  display:flex;
-  gap:10px;
-  align-items:center;
-  overflow-x:auto;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 2px;
-}
-.cm-nav-scroll::-webkit-scrollbar { display:none; }
-
-/* Streamlit buttons inside nav */
-.cm-topnav .stButton > button {
-  display:inline-flex !important;
-  align-items:center !important;
-  gap:8px !important;
-  padding: 10px 12px !important;
-  border-radius: 999px !important;
-  border: 1px solid rgba(17,24,39,0.10) !important;
-  background: rgba(255,255,255,0.65) !important;
-  backdrop-filter: blur(6px) !important;
-
-  color:#0f172a !important;
-  -webkit-text-fill-color:#0f172a !important;
-
-  font-weight: 800 !important;
-  white-space: nowrap !important;
-
-  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease !important;
-}
-
-.cm-topnav .stButton > button:hover {
-  transform: translateY(-1px) !important;
-  box-shadow: 0 0 0 4px rgba(59,130,246,0.10) !important;
-  border-color: rgba(59,130,246,0.35) !important;
-}
-
-/* Active look */
-.cm-topnav .cm-nav-active .stButton > button {
-  border: 2px solid rgba(37,99,235,0.85) !important;
-  box-shadow: 0 0 0 4px rgba(37,99,235,0.10) !important;
-}
-
-/* Language pill container */
-.cm-lang {
-  display:flex;
-  gap:8px;
-  align-items:center;
-}
-
-/* Make lang buttons same capsule style and fixed size */
-.cm-topnav .cm-lang .stButton > button {
-  width:44px !important;
-  height:44px !important;
-  padding: 0 !important;
-  justify-content:center !important;
-  font-weight: 900 !important;
-  background: rgba(255,255,255,0.85) !important;
-}
-
-/* Active lang look */
-.cm-topnav .cm-lang-active .stButton > button {
-  border: 2px solid rgba(37,99,235,0.85) !important;
-  box-shadow: 0 0 0 4px rgba(37,99,235,0.10) !important;
-}
-
-/* Hide labels on small screens (we’ll still show emoji) */
-@media (max-width: 720px) {
-  .cm-hide-mobile { display:none !important; }
-}
-
-</style>
+        @media (max-width: 768px){
+          .cm-topnav-card{
+            padding: 10px;
+            border-radius: 18px;
+          }
+        }
+        </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # --- Render nav (Streamlit-native; no href) ---
-    st.markdown('<div class="cm-topnav">', unsafe_allow_html=True)
-    left, right = st.columns([8, 2], vertical_alignment="center")
+    st.markdown('<div class="cm-topnav"><div class="cm-topnav-card">', unsafe_allow_html=True)
 
-    with left:
-        st.markdown('<div class="cm-nav-scroll">', unsafe_allow_html=True)
+    nav_cols = st.columns([8, 2], vertical_alignment="center")
 
-        # Use columns so buttons sit on one row; still scrollable via the container
-        cols = st.columns(len(items))
-        for col, (key, label, icon) in zip(cols, items):
+    with nav_cols[0]:
+        button_cols = st.columns(len(items))
+        for col, (key, label, icon) in zip(button_cols, items):
             with col:
-                is_active = (key == active_page)
-                wrapper_cls = "cm-nav-active" if is_active else ""
-                st.markdown(f'<div class="{wrapper_cls}">', unsafe_allow_html=True)
-
-                # Emoji always shown; label hidden on mobile using span class
-                btn_text = f"{icon} {label}"
-
-                if st.button(btn_text, key=f"nav_{key}", use_container_width=True):
-                    go_to(key)          # sets st.session_state.page + query params
+                active_cls = "cm-topnav-active" if key == active_page else ""
+                st.markdown(f'<div class="{active_cls}">', unsafe_allow_html=True)
+                if st.button(f"{icon}", key=f"nav_{key}", use_container_width=True, help=label):
+                    go_to(key)
                     st.rerun()
-
+                st.markdown(f'<div class="home-topnav-label">{label}</div>', unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with right:
-        st.markdown('<div class="cm-lang">', unsafe_allow_html=True)
-
-        en_active = (current_lang == "en")
-        es_active = (current_lang == "es")
-
-        c_en, c_es = st.columns(2)
-        with c_en:
-            cls = "cm-lang-active" if en_active else ""
+    with nav_cols[1]:
+        lang_cols = st.columns(2)
+        with lang_cols[0]:
+            cls = "cm-lang-active" if current_lang == "en" else ""
             st.markdown(f'<div class="{cls}">', unsafe_allow_html=True)
             if st.button("EN", key="lang_en", use_container_width=True):
-                st.session_state.ui_lang = "en"
+                st.session_state["ui_lang"] = "en"
                 _set_query(page=active_page, lang="en")
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
-        with c_es:
-            cls = "cm-lang-active" if es_active else ""
+        with lang_cols[1]:
+            cls = "cm-lang-active" if current_lang == "es" else ""
             st.markdown(f'<div class="{cls}">', unsafe_allow_html=True)
             if st.button("ES", key="lang_es", use_container_width=True):
-                st.session_state.ui_lang = "es"
+                st.session_state["ui_lang"] = "es"
                 _set_query(page=active_page, lang="es")
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown('<div class="cm-topnav-spacer"></div>', unsafe_allow_html=True)
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
 
-# ---------- ROUTER + THEME ----------
-page = st.session_state.page
+# ---------- ROUTER / PAGE BOOTSTRAP ----------
+def _safe_get_qp(key: str, default=None):
+    try:
+        qp = st.query_params
+        v = qp.get(key, default)
+        if isinstance(v, list):
+            v = v[0] if v else default
+        return v if v is not None else default
+    except Exception:
+        qp = st.experimental_get_query_params()
+        v = qp.get(key, [default])
+        return v[0] if v else default
+
+
+if "page" not in st.session_state:
+    st.session_state["page"] = "home"
+
+qp_page = str(_safe_get_qp("page", "home") or "home")
+
+VALID_PAGES = {
+    "home",
+    "dashboard",
+    "students",
+    "add_lesson",
+    "add_payment",
+    "calendar",
+    "analytics",
+}
+
+if qp_page in VALID_PAGES:
+    st.session_state["page"] = qp_page
+else:
+    st.session_state["page"] = "home"
+
+page = st.session_state["page"]
 
 if page == "home":
     load_css_home_dark()
@@ -5337,8 +5194,13 @@ if page == "home":
 render_top_nav(page)
 
 # =========================
-# 17) PAGE: DASHBOARD
+# 13) PAGES (CONTROLLERS)
 # =========================
+
+# =========================
+# 12.2) PAGE: DASHBOARD
+# =========================
+
 if page == "dashboard":
     page_header(t("dashboard"))
     st.caption(t("manage_current_students"))
@@ -5708,7 +5570,7 @@ if page == "dashboard":
                 st.error(f"{t('normalize_failed')}\n\n{e}")
 
 # =========================
-# 18) PAGE: STUDENTS
+# 12.3) PAGE: STUDENTS
 # =========================
 elif page == "students":
     page_header(t("students"))
@@ -5801,7 +5663,7 @@ elif page == "students":
                     st.error(f"{t('delete')} failed.\n\n{e}")
 
 # =========================
-# 19) PAGE: ADD LESSON
+# 12.) PAGE: ADD LESSON
 # =========================
 elif page == "add_lesson":
     page_header(t("lessons"))
@@ -5944,7 +5806,7 @@ elif page == "add_lesson":
                             st.error("Some updates failed.")  # add to dictionary if you want
 
 # =========================
-# 20) PAGE: ADD PAYMENT
+# 12.4) PAGE: ADD PAYMENT
 # =========================
 elif page == "add_payment":
     page_header(t("payment"))
@@ -6204,15 +6066,9 @@ elif page == "add_payment":
                         else:
                             st.error(t("some_updates_failed"))
 
-# =========================
-# 21) PAGE: SCHEDULE (legacy)
-# =========================
-elif page == "schedule":
-    go_to("calendar")
-    st.rerun()
 
 # =========================
-# 21.1) PAGE: CALENDAR
+# 12.5) PAGE: CALENDAR
 # =========================
 elif page == "calendar":
     page_header(t("calendar"))
@@ -6578,161 +6434,13 @@ elif page == "calendar":
                 st.rerun()
 
 # =========================
-# 22) PAGE: ANALYTICS (CLICKABLE KPI CAPSULES + TEACHER-FRIENDLY INSIGHTS)
-# ✅ Section 12 compatible + Mon–Sun week
-# ✅ Keeps your capsule-based views + same graphs
-# ✅ Adds business-style (but teacher-friendly) Insights + Drivers + Operations + Forecast
-# ✅ Raw tables are optional (toggle), not the default
-# ✅ New micro-translator helper included (t_a)
-# ✅ FIX: Summary shows AVERAGE monthly + AVERAGE yearly (not duplicates of capsules)
-# ✅ UPGRADE: Estimated yearly revenue uses YTD + renewal pipeline (not this_month*12)
-# ✅ NEW: Yearly goal stored in Supabase app_settings + progress bar
-# ✅ FIX: Risk & Forecast buffer now changes who appears in "Students to contact"
+# 12.6) PAGE: ANALYTICS
 # =========================
 elif page == "analytics":
     page_header(t("analytics"))
     st.caption(t("view_your_income_and_business_indicators"))
 
     st.markdown(f"### {t('income')}")
-
-    # -------------------------
-    # Analytics-only translator
-    # (business oriented, teacher friendly)
-    # -------------------------
-    ANALYTICS_I18N = {
-        "en": {
-            "insights_and_actions": "Insights & Actions",
-            "summary": "Summary",
-            "revenue_drivers": "Revenue drivers",
-            "teaching_activity": "Teaching activity",
-            "risk_and_forecast": "Risk & forecast",
-            "show_raw_data": "Show raw data",
-            "what_this_means": "What this means",
-            "next_steps": "Next steps",
-            "avg_monthly_income": "Average monthly income",
-            "avg_yearly_income": "Average yearly income",
-            "run_rate_annual": "Estimated yearly revenue",
-            "effective_rate_unit": "Average income per lesson",
-            "concentration_risk": "Income concentration",
-            "top1_share": "Top student share",
-            "top3_share": "Top 3 students share",
-            "top10_revenue": "Top 10 income",
-            "top5_quick_view": "Top 5 quick view",
-            "segment_language": "Language segment",
-            "segment_modality": "Modality segment",
-            "total_revenue_language": "Total income by language",
-            "total_revenue_modality": "Total income by modality",
-            "top_segment_share": "Top segment share",
-            "total_units": "Total lesson units",
-            "top_language": "Top lesson language",
-            "top_modality": "Top lesson modality",
-
-            # Forecast (operational)
-            "students_in_forecast": "Students in forecast",
-            "due_now": "Due to contact now",
-            "finishing_14d": "Finishing in next 14 days",
-            "at_risk": "At risk",
-            "students_to_contact": "Students to contact",
-            "units_left": "units left",
-            "finish": "finish",
-            "remind": "remind",
-            "next_up": "Next up",
-
-            # Goal
-            "goal": "Goal",
-            "yearly_income_goal": "Yearly income goal",
-            "goal_progress": "Goal progress",
-            "ytd_income": "YTD income",
-            "remaining_to_goal": "Remaining to goal",
-            "avg_needed_month": "Avg needed / month",
-            "expected_renewals": "Expected renewals",
-
-            "takeaway_concentration": "Your top student contributes {p1} of all income; your top 3 students contribute {p3}.",
-            "takeaway_language": "Your strongest language segment is {name} ({share} of language income).",
-            "takeaway_modality": "Your strongest modality segment is {name} ({share} of modality income).",
-            "takeaway_activity_language": "Most of your teaching units are in {name} ({share} of units).",
-            "takeaway_activity_modality": "Most of your teaching units are delivered via {name} ({share} of units).",
-            "takeaway_profitable": "{name} is currently your strongest income source. Keeping your best students satisfied supports stable income.",
-            "takeaway_pipeline": "Use this section as a renewal list. Contact students before they reach zero units.",
-            "action_check_week": "No income recorded this week — check renewals and pending payments.",
-            "action_reduce_risk": "Income is concentrated — consider balancing your student base and pricing.",
-            "action_review_pricing": "Average income per unit looks low — review packages, discounts, or lesson pricing.",
-            "action_review_top": "Review your top students and plan renewals.",
-            "action_compare_mix": "Compare language/modality mix with your pricing strategy.",
-            "action_check_forecast": "Use the forecast to plan the next two weeks.",
-            "important": "Important",
-        },
-        "es": {
-            "insights_and_actions": "Información Estratégica",
-            "summary": "Resumen",
-            "revenue_drivers": "Impulsores de ingresos",
-            "teaching_activity": "Actividad docente",
-            "risk_and_forecast": "Riesgo y pronóstico",
-            "show_raw_data": "Mostrar datos",
-            "what_this_means": "Qué significa",
-            "next_steps": "Próximos pasos",
-            "avg_monthly_income": "Ingreso mensual promedio",
-            "avg_yearly_income": "Ingreso anual promedio",
-            "run_rate_annual": "Proyección de ingreso anual",
-            "effective_rate_unit": "Ingreso promedio por clase",
-            "concentration_risk": "Concentración de ingresos",
-            "top1_share": "Participación del mejor estudiante",
-            "top3_share": "Participación del top 3",
-            "top10_revenue": "Ingreso del top 10",
-            "top5_quick_view": "Vista rápida top 5",
-            "segment_language": "Segmento por idioma",
-            "segment_modality": "Segmento por modalidad",
-            "total_revenue_language": "Ingreso total por idioma",
-            "total_revenue_modality": "Ingreso total por modalidad",
-            "top_segment_share": "Participación del segmento líder",
-            "total_units": "Unidades de clase totales",
-            "top_language": "Idioma principal",
-            "top_modality": "Modalidad principal",
-
-            # Forecast (operational)
-            "students_in_forecast": "Estudiantes en pronóstico",
-            "due_now": "Para contactar hoy",
-            "finishing_14d": "Terminan en los próximos 14 días",
-            "at_risk": "En riesgo",
-            "students_to_contact": "Estudiantes a contactar",
-            "units_left": "unidades restantes",
-            "finish": "fin",
-            "remind": "recordar",
-            "next_up": "Próximos",
-
-            # Goal
-            "goal": "Meta",
-            "yearly_income_goal": "Meta anual de ingresos",
-            "goal_progress": "Progreso de la meta",
-            "ytd_income": "Ingresos del año",
-            "remaining_to_goal": "Falta para la meta",
-            "avg_needed_month": "Promedio necesario / mes",
-            "expected_renewals": "Renovaciones esperadas",
-
-            "takeaway_concentration": "Tu mejor estudiante aporta {p1} del ingreso total; tu top 3 aporta {p3}.",
-            "takeaway_language": "Tu segmento de idioma más fuerte es {name} ({share} del ingreso por idioma).",
-            "takeaway_modality": "Tu segmento de modalidad más fuerte es {name} ({share} del ingreso por modalidad).",
-            "takeaway_activity_language": "La mayoría de tus unidades de clase están en {name} ({share} de unidades).",
-            "takeaway_activity_modality": "La mayoría de tus unidades se imparten por {name} ({share} de unidades).",
-            "takeaway_profitable": "{name} es tu principal fuente de ingresos. Mantener satisfechos a tus mejores estudiantes ayuda a tener ingresos estables.",
-            "takeaway_pipeline": "Usa esta sección como lista de renovaciones. Contacta a los estudiantes antes de llegar a cero unidades.",
-            "action_check_week": "No hay ingresos registrados esta semana — revisa renovaciones y pagos pendientes.",
-            "action_reduce_risk": "El ingreso está concentrado — considera equilibrar tu base de estudiantes y precios.",
-            "action_review_pricing": "El ingreso promedio por unidad parece bajo — revisa paquetes, descuentos o precios.",
-            "action_review_top": "Revisa tus estudiantes más rentables y planifica renovaciones.",
-            "action_compare_mix": "Compara el mix de idioma/modalidad con tu estrategia de precios.",
-            "action_check_forecast": "Usa el pronóstico para planificar las próximas dos semanas.",
-            "important": "Importante",
-        },
-    }
-
-    def t_a(key: str, **kwargs) -> str:
-        lang = st.session_state.get("ui_lang", "en")
-        s = ANALYTICS_I18N.get(lang, ANALYTICS_I18N["en"]).get(key, key)
-        try:
-            return s.format(**kwargs)
-        except Exception:
-            return s
 
     # --- Read analytics view from query param (av) ---
     def _get_qp_local(key: str, default=None):
