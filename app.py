@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 from supabase import create_client
 from datetime import datetime, date, timedelta, timezone
 from typing import List, Tuple, Optional, Dict
+from streamlit_extras.stylable_container import stylable_container 
 
 LOCAL_TZ = ZoneInfo("Europe/Istanbul")
 UTC_TZ = timezone.utc
@@ -999,6 +1000,35 @@ def load_css_home_dark():
           -webkit-backdrop-filter: blur(12px);
         }
 
+        /* ---------- Top bar ---------- */
+        .home-topbar{
+          padding: 10px 12px;
+          margin-bottom: 12px;
+          border-radius: 18px;
+          border: 1px solid var(--border);
+          background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.04));
+          box-shadow: var(--shadow-md);
+        }
+
+        .home-topbar-name{
+          font-size: 1rem;
+          font-weight: 800;
+          color: var(--text);
+          line-height: 1.15;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .home-topbar-sub{
+          font-size: 0.78rem;
+          font-weight: 700;
+          color: var(--muted);
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          margin-bottom: 2px;
+        }
+
         /* ---------- Titles ---------- */
         .home-title{
           text-align:center;
@@ -1093,75 +1123,8 @@ def load_css_home_dark():
           display:inline-block;
         }
 
-        /* ---------- Generic modern button styling for HOME ---------- */
-        div[data-testid="stButton"] button{
-          width:100%;
-          border-radius:16px !important;
-          min-height:52px !important;
-          border:1px solid var(--border) !important;
-          background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.05)) !important;
-          color: var(--text) !important;
-          font-weight: 800 !important;
-          box-shadow: var(--shadow-md) !important;
-          transition: all 160ms ease;
-          letter-spacing: -0.01em;
-        }
+        /* ---------- Labels ---------- */
 
-        div[data-testid="stButton"] button:hover{
-          transform: translateY(-1px);
-          border-color: var(--border-strong) !important;
-          box-shadow:
-            0 0 0 4px rgba(96,165,250,0.10),
-            var(--shadow-md) !important;
-        }
-
-        div[data-testid="stButton"] button:focus{
-          outline:none !important;
-          box-shadow:
-            0 0 0 4px rgba(96,165,250,0.14),
-            var(--shadow-md) !important;
-        }
-
-        /* ---------- Top navigation buttons ---------- */
-        .home-topnav-label{
-          text-align:center;
-          font-size: 0.82rem;
-          color: var(--muted);
-          margin-top: 6px;
-          font-weight: 700;
-        }
-
-        .home-top-actions div[data-testid="stButton"] button{
-          min-height: 38px !important;
-          height: 38px !important;
-          padding: 0.35rem 0.45rem !important;
-          border-radius: 14px !important;
-          font-size: 0.95rem !important;
-        }
-
-        .home-top-actions div[data-testid="stButton"]{
-          width: auto !important;
-        }
-
-        .home-top-actions div[data-testid="stButton"] button{
-          width: auto !important;
-          min-width: 64px !important;
-          height: 38px !important;
-          min-height: 38px !important;
-          padding: 0.25rem 0.6rem !important;
-          font-size: 0.9rem !important;
-
-        @media (max-width: 768px){
-          .home-top-actions div[data-testid="stButton"] button{
-            min-height: 36px !important;
-            height: 36px !important;
-            padding: 0.25rem 0.35rem !important;
-            font-size: 0.9rem !important;
-          }
-        }
-        
-
-        /* ---------- Home menu buttons ---------- */
         .home-menu-note{
           text-align:center;
           color: var(--muted);
@@ -1169,14 +1132,14 @@ def load_css_home_dark():
           margin-bottom: 10px;
         }
 
-        /* More visual menu buttons */
-        .home-menu-wrap div[data-testid="stButton"] button{
-          min-height: 62px !important;
-          font-size: 1rem !important;
-          border-radius: 18px !important;
-          background:
-            radial-gradient(500px 120px at 0% 0%, rgba(96,165,250,0.14), transparent 60%),
-            linear-gradient(180deg, rgba(255,255,255,0.11), rgba(255,255,255,0.05)) !important;
+        /* ---------- Home menu container ---------- */
+        .home-menu-wrap{
+          padding: 14px;
+          margin-top: 8px;
+          border-radius: var(--radius-xl);
+          background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+          border: 1px solid var(--border);
+          box-shadow: var(--shadow-md);
         }
 
         /* ---------- Small utility cards ---------- */
@@ -1218,6 +1181,18 @@ def load_css_home_dark():
           font-size: 0.9rem;
         }
 
+        /* ---------- Neon animation helper ---------- */
+        @keyframes homeNeonPulse {
+          0%, 100% {
+            transform: translateY(0);
+            filter: brightness(1);
+          }
+          50% {
+            transform: translateY(-1px);
+            filter: brightness(1.03);
+          }
+        }
+
         /* ---------- Bottom safe spacing ---------- */
         .home-bottom-space{
           height: 22px;
@@ -1229,6 +1204,10 @@ def load_css_home_dark():
             padding-right: 0.85rem !important;
           }
 
+          .home-topbar{
+            padding: 8px 10px;
+          }
+
           .home-hero{
             padding: 18px 14px;
           }
@@ -1236,20 +1215,11 @@ def load_css_home_dark():
           .home-menu-wrap{
             padding: 12px;
           }
-
-          div[data-testid="stButton"] button{
-            min-height: 50px !important;
-          }
-
-          .home-menu-wrap div[data-testid="stButton"] button{
-            min-height: 58px !important;
-          }
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
-
 
 def load_css_app_light(compact: bool = False):
     compact_css = """
@@ -1777,6 +1747,70 @@ def save_profile_avatar_url(user_id: str, avatar_url: str) -> None:
 # =========================
 # 08) ALL HELPERS
 # =========================
+# =========================
+# 08) HOME PAGE HELPERS
+# =========================
+
+def neon_button_css(
+    glow_rgba: str,
+    text_color: str = "#0B1220",
+    min_height: int = 58,
+    radius: int = 18,
+) -> str:
+    return f"""
+    button {{
+        width: 100%;
+        min-height: {min_height}px !important;
+        border-radius: {radius}px !important;
+        border: 1px solid rgba(255,255,255,0.88) !important;
+        background: linear-gradient(
+            180deg,
+            rgba(255,255,255,0.98),
+            rgba(241,245,249,0.95)
+        ) !important;
+        color: {text_color} !important;
+        -webkit-text-fill-color: {text_color} !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.01em !important;
+        box-shadow:
+            0 0 0 1px rgba(255,255,255,0.45) inset,
+            0 0 10px {glow_rgba},
+            0 0 22px {glow_rgba},
+            0 10px 22px rgba(0,0,0,0.22) !important;
+        animation: homeNeonPulse 2.2s ease-in-out infinite !important;
+        transition: all 160ms ease !important;
+    }}
+
+    button:hover {{
+        transform: translateY(-1px) !important;
+        box-shadow:
+            0 0 0 1px rgba(255,255,255,0.55) inset,
+            0 0 14px {glow_rgba},
+            0 0 30px {glow_rgba},
+            0 12px 26px rgba(0,0,0,0.26) !important;
+    }}
+
+    button:focus {{
+        outline: none !important;
+        color: {text_color} !important;
+        -webkit-text-fill-color: {text_color} !important;
+        box-shadow:
+            0 0 0 2px rgba(255,255,255,0.45) inset,
+            0 0 0 3px {glow_rgba},
+            0 0 14px {glow_rgba},
+            0 0 28px {glow_rgba},
+            0 12px 26px rgba(0,0,0,0.26) !important;
+    }}
+    """
+
+
+def top_neon_button_css(glow_rgba: str, text_color: str = "#0B1220") -> str:
+    return neon_button_css(
+        glow_rgba=glow_rgba,
+        text_color=text_color,
+        min_height=38,
+        radius=12,
+    )
 # =========================
 # 8.1 TODAY LESSONS HELPER
 # =========================
@@ -4853,28 +4887,57 @@ def render_home():
     # ---------- HOME SHELL ----------
     st.markdown('<div class="home-shell">', unsafe_allow_html=True)
 
-    # ---------- TOP CARD ----------
-    st.markdown('<div class="home-top-actions">', unsafe_allow_html=True)
+    # ---------- TOP ACTION BUTTONS ----------
 
-    top1, top2, top3, top4 = st.columns(4, vertical_alignment="center")
+    left, right = st.columns([6, 4], vertical_alignment="center")
 
-    with top1:
-        if st.button("📷", key="home_avatar_btn", use_container_width=True):
-            home_go("home", panel="photo")
+    with left:
+        st.markdown(
+            f"""
+            <div>
+                <div class="home-topbar-sub">{t("welcome").strip()}</div>
+                <div class="home-topbar-name">{user_name}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    with top2:
-        alert_label = f"🔔 {alerts_count}" if alerts_count > 0 else "🔔"
-        if st.button(alert_label, key="home_alerts_btn", use_container_width=True):
-            home_go("home", panel="alerts")
+    with right:
+        b1, b2, b3, b4 = st.columns(4, vertical_alignment="center")
 
-    with top3:
-        if st.button("EN", key="home_lang_en", use_container_width=True):
-            set_home_lang("en")
+        with b1:
+            with stylable_container(
+                key="top_avatar_glow",
+                css_styles=top_neon_button_css("rgba(59,130,246,0.55)")
+            ):
+                if st.button("📷", key="home_avatar_btn", use_container_width=True):
+                    home_go("home", panel="photo")
+    
+        with b2:
+            alert_label = f"🔔 {alerts_count}" if alerts_count > 0 else "🔔"
+            with stylable_container(
+                key="top_alert_glow",
+                css_styles=top_neon_button_css("rgba(245,158,11,0.55)")
+            ):
+                if st.button(alert_label, key="home_alerts_btn", use_container_width=True):
+                    home_go("home", panel="alerts")
 
-    with top4:
-        if st.button("ES", key="home_lang_es", use_container_width=True):
-            set_home_lang("es")
-
+        with b3:
+            with stylable_container(
+                key="top_en_glow",
+                css_styles=top_neon_button_css("rgba(16,185,129,0.55)")
+            ):
+                if st.button("EN", key="home_lang_en", use_container_width=True):
+                    set_home_lang("en")
+    
+        with b4:
+            with stylable_container(
+                key="top_es_glow",
+                css_styles=top_neon_button_css("rgba(168,85,247,0.55)")
+            ):
+                if st.button("ES", key="home_lang_es", use_container_width=True):
+                    set_home_lang("es")
+    
     st.markdown("</div>", unsafe_allow_html=True)
 
     # ---------- AVATAR DIALOG ----------
@@ -5012,22 +5075,25 @@ def render_home():
     st.markdown(f'<div class="home-section-title">{t("home_menu_title")}</div>', unsafe_allow_html=True)
 
     menu_items = [
-        ("dashboard",   t("dashboard")),
-        ("students",    t("students")),
-        ("add_lesson",  t("lesson")),
-        ("add_payment", t("payment")),
-        ("calendar",    t("calendar")),
-        ("analytics",   t("analytics")),
-    ]
+    ("dashboard", t("dashboard"), "rgba(59,130,246,0.55)"),
+    ("students", t("students"), "rgba(16,185,129,0.55)"),
+    ("add_lesson", t("lesson"), "rgba(245,158,11,0.55)"),
+    ("add_payment", t("payment"), "rgba(239,68,68,0.55)"),
+    ("calendar", t("calendar"), "rgba(6,182,212,0.55)"),
+    ("analytics", t("analytics"), "rgba(168,85,247,0.55)")
+]
+    for key, label, glow in menu_items:
+        with stylable_container(
+            key=f"menu_glow_{key}",
+            css_styles=neon_button_css(glow_rgba=glow, text_color="#0B1220", min_height=58, radius=18)
+        ):
+            if st.button(label, key=f"home_menu_{key}", use_container_width=True):
+                go_to(key)
+                st.rerun()
 
-    for key, label in menu_items:
-        if st.button(label, key=f"home_menu_{key}", use_container_width=True):
-            go_to(key)
-            st.rerun()
+        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 
-    st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown('<div class="home-bottom-space"></div>', unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
 # 12) MAIN ENTRYPOINT AND ROUTER
