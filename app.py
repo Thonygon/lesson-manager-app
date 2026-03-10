@@ -1005,6 +1005,7 @@ def load_css_home_dark():
         section[data-testid="stMain"] > div,
         div.block-container{
           overflow-x:hidden !important;
+          padding: 0.2rem !important;
           max-width:100% !important;
         }
 
@@ -1046,8 +1047,8 @@ def load_css_home_dark():
         /* ---------- Shared layout shells ---------- */
         .home-shell{
           max-width: 760px;
-          margin: 0 auto;
-          padding: 18px 0 28px 0;
+          margin: 0px auto;
+          padding:0px 0 0px 0;
         }
 
         .home-panel{
@@ -1070,7 +1071,7 @@ def load_css_home_dark():
 
         /* ---------- Top bar ---------- */
         .home-topbar{
-          padding: 10px 12px;
+          padding: 0px 0px;
           margin-bottom: 12px;
           border-radius: 18px;
           border: 1px solid var(--border);
@@ -1302,11 +1303,6 @@ def load_css_home_dark():
           .block-container{
             padding-left: 0.85rem !important;
             padding-right: 0.85rem !important;
-          }
-
-          .cm-topnav-card{
-            padding: 14px;
-            border-radius: 18px;
           }
 
           .home-topbar{
@@ -1654,6 +1650,21 @@ def load_css_app_light(compact: bool = False):
           box-shadow: none !important;
         }}
 
+        .block-container{{
+          padding-top: 0rem !important;
+          margin-top: 0rem !important;
+        }}
+
+        [data-testid="stAppViewContainer"]{{
+          padding-top: 0rem !important;
+          margin-top: 0rem !important;
+        }}
+
+        section[data-testid="stMain"]{{
+          padding-top: 0rem !important;
+          margin-top: 0rem !important;
+        }}
+
         {compact_css}
         </style>
         """,
@@ -1856,25 +1867,56 @@ def require_login():
         st.session_state["sb_refresh_token"] = None
         st.stop()
 
-    title_col, lang_col = st.columns([6,2], vertical_alignment="center")
+    st.markdown(
+        """
+        <style>
+        .login-topbar {
+           margin-bottom: 20px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    with title_col:
-        st.title(t("login_title"))
+    st.markdown('<div class="login-topbar">', unsafe_allow_html=True)
 
-    with lang_col:
-        lang_buttons = st.columns(2)
+    col_title, col_menu = st.columns([6, 2], vertical_alignment="center")
 
-        with lang_buttons[0]:
-            if st.button("EN", key="login_lang_en", use_container_width=True):
-                st.session_state["ui_lang"] = "en"
-                _set_query(lang="en")
-                st.rerun()
+    with col_title:
+        st.markdown(f"## {t('login_title')}")
 
-        with lang_buttons[1]:
-            if st.button("ES", key="login_lang_es", use_container_width=True):
-                st.session_state["ui_lang"] = "es"
-                _set_query(lang="es")
-                st.rerun()
+    with col_menu:
+        lang_choice = option_menu(
+            menu_title=None,
+            options=["EN", "ES"],
+            orientation="horizontal",
+            default_index=0 if st.session_state.get("ui_lang", "en") == "en" else 1,
+            key="login_lang_menu",
+            styles={
+                "container": {"padding": "0", "background": "transparent"},
+                "nav-link": {
+                    "font-size": "14px",
+                    "text-align": "center",
+                    "padding": "6px 8px",
+                },
+                "nav-link-selected": {
+                    "background-color": "#3B82F6",
+                    "color": "white",
+                },
+            },
+        )
+
+    if lang_choice == "EN" and st.session_state.get("ui_lang") != "en":
+        st.session_state["ui_lang"] = "en"
+        _set_query(lang="en")
+        st.rerun()
+
+    if lang_choice == "ES" and st.session_state.get("ui_lang") != "es":
+        st.session_state["ui_lang"] = "es"
+        _set_query(lang="es")
+        st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
     tab_login, tab_signup = st.tabs([t("sign_in"), t("sign_up")])
 
@@ -5362,21 +5404,22 @@ def render_home():
                 "container": {
                     "padding": "0",
                     "background": "transparent",
-                    "overflow-x": "auto",
                 },
                 "nav-link": {
                     "font-size": "14px",
-                    "font-weight": "600",
                     "text-align": "center",
-                    "padding": "8px 14px",
-                    "margin": "0px",
-                    "--hover-color": "rgba(255,255,255,0.08)",
+                    "padding": "6px 8px",
+                    "--hover-color": "rgba(59,130,246,0.15)",
+                },
+                    "nav-link-selected": {
+                    "background-color": "#3B82F6",
+                    "color": "white",
                 },
                 "icon": {
                     "font-size": "16px",
                 },
             },
-        )
+        )       
 
     with right:
         st.markdown(
@@ -5671,12 +5714,6 @@ def render_top_nav(active_page: str):
 
           .home-menu-wrap{
             padding: 12px;
-          }
-
-          /* Add this here */
-          .cm-topnav-card{
-            padding: 4px;
-            border-radius: 18px;
           }
 
         }
@@ -6069,7 +6106,7 @@ if page == "dashboard":
             "background: radial-gradient(90px 90px at 30% 25%, rgba(139,92,246,.32), transparent 60%), #ffffff;",
             "background: radial-gradient(90px 90px at 30% 25%, rgba(239,68,68,.26), transparent 60%), #ffffff;",
         ],
-        size=70,
+        size=1,
     )
 
     with st.expander(t("current_packages"), expanded=False):
