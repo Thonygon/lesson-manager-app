@@ -16,11 +16,15 @@ import os
 import plotly.express as px
 import uuid
 import streamlit.components.v1 as components
+import numpy as np
+from PIL import Image
+from io import BytesIO
 from zoneinfo import ZoneInfo
 from supabase import create_client
 from datetime import datetime, date, timedelta, timezone
 from typing import List, Tuple, Optional, Dict
-from streamlit_extras.stylable_container import stylable_container 
+from streamlit_extras.stylable_container import stylable_container
+from streamlit_option_menu import option_menu 
 
 LOCAL_TZ = ZoneInfo("Europe/Istanbul")
 UTC_TZ = timezone.utc
@@ -79,25 +83,45 @@ def remove_streamlit_top_spacing():
 remove_streamlit_top_spacing()
 
 # =========================
-# 03) QUERY PARAMS HELPERS
-# =========================
-def _clear_qp(*keys: str) -> None:
-    """Remove query params safely (new + old Streamlit)."""
-    try:
-        for k in keys:
-            if k in st.query_params:
-                del st.query_params[k]
-    except Exception:
-        qp = st.experimental_get_query_params()
-        for k in keys:
-            qp.pop(k, None)
-        st.experimental_set_query_params(**qp)
-
-# =========================
-# 04) I18N / TRANSLATIONS
+# 03) I18N / TRANSLATIONS
 # =========================
 I18N: Dict[str, Dict[str, str]] = {
     "en": {
+        # -------------------------
+        # AUTH
+        # -------------------------
+        "login_required": "Login required",
+        "sign_in": "Sign in",
+        "sign_up": "Create account",
+        "sign_out": "Sign out",
+        "password": "Password",
+        "email": "Email",
+        "login_title": "Log in",
+        "forgot_password": "Forgot password?",
+        "email_reset_link": "Email for reset link",
+        "send_reset_email": "Send reset email",
+        "create_account": "Create account",
+
+        "logged_in_ok": "Logged in ✅",
+        "login_failed": "Login failed",
+        "reset_email_sent": "Reset email sent. Check your inbox.",
+        "reset_failed": "Reset failed",
+        "account_created_check_email": "Account created. If confirmations are enabled, check your email, then log in.",
+        "signup_failed": "Sign up failed",
+
+        "update_profile_photo": "Update profile photo",
+        "choose_photo": "Choose a photo",
+        "close": "Close",
+        "save": "Save",
+        "profile_photo_updated": "Profile photo updated ✅",
+        "upload_failed": "Upload failed",
+
+        "signin_failed_no_session": "Sign-in failed (no session).",
+        "signin_error": "Sign-in error",
+        "signup_error": "Sign-up error",
+        "account_created_now_signin": "Account created. Now sign in.",
+        "user_name": "User name",
+
         # -------------------------
         # NAV / PAGES
         # -------------------------
@@ -133,6 +157,13 @@ I18N: Dict[str, Dict[str, str]] = {
         "next": "Next lesson",
         "goal": "Goal",
         "completed": "Completed",
+        "avatar_upload_invalid_image": "Please upload an image file.",
+        "avatar_upload_empty": "The uploaded file is empty.",
+        "avatar_upload_too_large": "Image is too large. Maximum size is {max_size_mb} MB.",
+        "avatar_upload_missing_user": "Missing user ID.",
+        "avatar_upload_storage_failed": "Storage upload failed",
+        "avatar_upload_url_failed": "Could not generate avatar URL",
+        "avatar_upload_no_public_url": "Upload succeeded, but no public URL was returned.",
 
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -292,9 +323,6 @@ I18N: Dict[str, Dict[str, str]] = {
         "current_schedule": "Current schedule",
         "delete_scheduled_lesson": "Delete a scheduled lesson",
         "delete_schedule_warning": "Be careful! This deletes permanently.",
-        "id": "ID", 
-        "student": "Student", 
-        "weekday": "Weekday", 
         "time": "Time", 
         "duration_minutes": "Duration (min)", 
         "active": "Active",
@@ -357,7 +385,6 @@ I18N: Dict[str, Dict[str, str]] = {
         "done_ok": "Done ✅",
         "normalize_failed": "Normalization failed.",
         "normalized_default_note": "Package normalized / adjustment applied.",
-        "package_normalized": "Package normalized",
         "packages_bought": "Total packages",
         # =========================
         # PRICING SECTION
@@ -389,6 +416,7 @@ I18N: Dict[str, Dict[str, str]] = {
 
         "pricing_add_package": "Add a package",
         "pricing_add": "Add",
+        "pricing_set_price_hint": "Please set your prices below before registering payments.",
         
         # -------------------------
         # WHATSAPP (DASHBOARD)
@@ -405,6 +433,41 @@ I18N: Dict[str, Dict[str, str]] = {
     },
 
     "es": {
+        # -------------------------
+        # AUTH
+        # -------------------------
+        "login_required": "Inicio de sesión requerido",
+        "sign_in": "Iniciar sesión",
+        "sign_up": "Crear cuenta",
+        "sign_out": "Cerrar sesión",
+        "password": "Contraseña",
+        "email": "Correo electrónico",
+        "login_title": "Iniciar sesión",
+        "forgot_password": "¿Olvidaste tu contraseña?",
+        "email_reset_link": "Correo para enlace de restablecimiento",
+        "send_reset_email": "Enviar correo de restablecimiento",
+        "create_account": "Crear cuenta",
+
+        "logged_in_ok": "Sesión iniciada ✅",
+        "login_failed": "Error al iniciar sesión",
+        "reset_email_sent": "Correo de restablecimiento enviado. Revisa tu bandeja de entrada.",
+        "reset_failed": "Error al restablecer la contraseña",
+        "account_created_check_email": "Cuenta creada. Si las confirmaciones están activadas, revisa tu correo y luego inicia sesión.",
+        "signup_failed": "Error al crear la cuenta",
+
+        "update_profile_photo": "Actualizar foto de perfil",
+        "choose_photo": "Elegir una foto",
+        "close": "Cerrar",
+        "save": "Guardar",
+        "profile_photo_updated": "Foto de perfil actualizada ✅",
+        "upload_failed": "Error al subir la foto",
+
+        "signin_failed_no_session": "Error al iniciar sesión (sin sesión).",
+        "signin_error": "Error de inicio de sesión",
+        "signup_error": "Error al crear la cuenta",
+        "account_created_now_signin": "Cuenta creada. Ahora inicia sesión.",
+        "user_name": "Nombre de usuario",
+
         # -------------------------
         # NAV / PAGES
         # -------------------------
@@ -439,6 +502,13 @@ I18N: Dict[str, Dict[str, str]] = {
         "goal": "Meta",
         "completed": "Completado",
         "ytd_income": "Ingreso del año",
+        "avatar_upload_invalid_image": "Por favor sube un archivo de imagen.",
+        "avatar_upload_empty": "La imagen subida está vacía.",
+        "avatar_upload_too_large": "La imagen es demasiado grande. El tamaño máximo es de {max_size_mb} MB.",
+        "avatar_upload_missing_user": "Falta el ID del usuario.",
+        "avatar_upload_storage_failed": "Error al subir la imagen al almacenamiento",
+        "avatar_upload_url_failed": "No se pudo generar la URL pública de la imagen",
+        "avatar_upload_no_public_url": "La imagen se subió, pero no se obtuvo una URL pública.",
 
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -492,7 +562,7 @@ I18N: Dict[str, Dict[str, str]] = {
         # -------------------------
         "manage_current_students": "Administra tus estudiantes y paquetes actuales",
         "take_action": "Toma acción",
-        "current_packages": "Packets actuales",
+        "current_packages": "Paquetes actuales",
         "academic_status": "Estado académico",
         "mismatches": "Descuadres",
         "normalize": "Normalizar",
@@ -598,9 +668,6 @@ I18N: Dict[str, Dict[str, str]] = {
         "current_schedule": "Horario actual",
         "delete_scheduled_lesson": "Eliminar una clase programada",
         "delete_schedule_warning": "¡Cuidado! Esto se elimina permanentemente.",
-        "id": "ID", 
-        "student": "estudiante", 
-        "weekday": "Día de la sema", 
         "time": "Hora", 
         "duration_minutes": "Duración (min)", 
         "active": "Activo",
@@ -695,6 +762,7 @@ I18N: Dict[str, Dict[str, str]] = {
 
         "pricing_add_package": "Agregar un paquete",
         "pricing_add": "Agregar",
+        "pricing_set_price_hint": "Por favor establece tus precios antes de registrar pagos.",
         
         # -------------------------
         # WHATSAPP (DASHBOARD)
@@ -892,9 +960,9 @@ def t_a(key: str, **kwargs) -> str:
         return s.format(**kwargs)
     except Exception:
         return s
-
+    
 # =========================
-# 05) CSS / THEME LOADERS
+# 04) CSS / THEME LOADERS
 # =========================
 
 def load_css_home_dark():
@@ -1067,17 +1135,6 @@ def load_css_home_dark():
           margin: 0;
         }
 
-        /* ---------- Section title ---------- */
-        .home-section-title{
-          text-align:center;
-          font-size: 0.95rem;
-          font-weight: 800;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          color: var(--muted);
-          margin: 16px 0 12px 0;
-        }
-
         /* ---------- External links ---------- */
         .home-links{
           margin: 16px 0 10px 0;
@@ -1121,6 +1178,49 @@ def load_css_home_dark():
           background: var(--primary);
           box-shadow: 0 0 0 5px rgba(96,165,250,0.16);
           display:inline-block;
+        }
+
+        .home-section-line{
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          gap:14px;
+          margin: 20px 0 14px 0;
+          width:100%;
+        }
+
+        .home-section-line::before,
+        .home-section-line::after{
+          content:"";
+          flex:1 1 auto;
+          height:1px;
+          border-radius:999px;
+          background: linear-gradient(
+            90deg,
+            rgba(255,255,255,0.00) 0%,
+            rgba(255,255,255,0.16) 20%,
+            rgba(96,165,250,0.30) 100%
+          );
+        }
+
+        .home-section-line::after{
+          background: linear-gradient(
+            90deg,
+            rgba(96,165,250,0.30) 0%,
+            rgba(255,255,255,0.16) 80%,
+            rgba(255,255,255,0.00) 100%
+          );
+        }
+
+        .home-section-line span{
+          flex:0 0 auto;
+          text-align:center;
+          font-size: 0.95rem;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--muted);
+          white-space: nowrap;
         }
 
         /* ---------- Labels ---------- */
@@ -1204,8 +1304,13 @@ def load_css_home_dark():
             padding-right: 0.85rem !important;
           }
 
+          .cm-topnav-card{
+            padding: 14px;
+            border-radius: 18px;
+          }
+
           .home-topbar{
-            padding: 8px 10px;
+            padding: 14px 10px;
           }
 
           .home-hero{
@@ -1216,6 +1321,128 @@ def load_css_home_dark():
             padding: 12px;
           }
         }
+
+        /* ---------- Avatar ---------- */
+
+        .home-avatar{
+          aspect-ratio:1 / 1;
+          border-radius:50%;
+          overflow:hidden;
+          flex-shrink:0;
+          display:block;
+          border:3px solid rgba(255,255,255,255);
+          box-shadow:0 8px 20px rgba(0,0,0,0.25);
+          background-repeat:no-repeat;
+          background-size:cover !important;
+          background-position:center center !important;
+          background-color:#0f172a;
+        }
+
+        .home-avatar-lg{
+          width:85px;
+          height:85px;
+          min-width:85px;
+        }
+
+        .home-avatar-sm{
+          width:52px;
+          height:52px;
+          min-width:52px;
+        }
+
+        /* ---------- Section divider ---------- */
+
+        .home-section-line{
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          gap:14px;
+          margin: 20px 0 14px 0;
+          width:100%;
+        }
+
+        .home-section-line::before,
+        .home-section-line::after{
+          content:"";
+          flex:1 1 auto;
+          height:1px;
+          border-radius:999px;
+          background: linear-gradient(
+            90deg,
+            rgba(255,255,255,0.00) 0%,
+            rgba(255,255,255,0.16) 20%,
+            rgba(96,165,250,0.30) 100%
+          );
+        }
+
+        .home-section-line span{
+          flex:0 0 auto;
+          text-align:center;
+          font-size: 0.95rem;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--muted);
+          white-space: nowrap;
+        }
+
+        /* ---------- Bottom spacing ---------- */
+
+        .home-bottom-space{
+          height: 22px;
+        }
+
+        @media (max-width: 768px){
+          .block-container{
+            padding-left: 0.85rem !important;
+            padding-right: 0.85rem !important;
+          }
+
+          .home-hero-card{
+            padding:16px;
+          }
+        }
+
+        /* ---------- Horizontal scroll action buttons ---------- */
+        .home-actions{
+          display:flex;
+          gap:12px;
+          overflow-x:auto;
+          overflow-y:hidden;
+          padding:4px 0 10px 0;
+          scrollbar-width:none;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        .home-actions::-webkit-scrollbar{
+          display:none;
+        }
+
+        .home-actions > div{
+          flex:0 0 120px;
+        }
+
+        /* Remove Streamlit top spacing */
+        .block-container{
+          padding-top: 0rem !important;
+          margin-top: 0rem !important;
+        }
+
+        /* Remove hidden Streamlit header spacing */
+        header[data-testid="stHeader"]{
+          display:none;
+        }
+
+        /* Remove extra space above main container */
+        section[data-testid="stMain"]{
+          padding-top: 0rem !important;
+        }
+
+        /* Extra safety for Streamlit wrapper */
+        [data-testid="stAppViewContainer"] > .main{
+          padding-top: 0rem !important;
+        }
+
         </style>
         """,
         unsafe_allow_html=True,
@@ -1224,7 +1451,7 @@ def load_css_home_dark():
 def load_css_app_light(compact: bool = False):
     compact_css = """
         section[data-testid="stMain"] > div {
-          padding-top: 1.0rem !important;
+          padding-top: 0rem !important;
           padding-bottom: 1.0rem !important;
         }
         div[data-testid="stVerticalBlockBorderWrapper"]{
@@ -1303,7 +1530,7 @@ def load_css_app_light(compact: bool = False):
         }}
 
         section[data-testid="stMain"] > div {{
-          padding-top: 1.4rem;
+          padding-top: 0rem;
           padding-bottom: 1.4rem;
           max-width: 1200px;
         }}
@@ -1433,33 +1660,8 @@ def load_css_app_light(compact: bool = False):
         unsafe_allow_html=True,
     )
 
-
-def mobile_fullscreen_css():
-    st.markdown(
-        """
-        <style>
-        .main .block-container{
-          padding-top: 0rem !important;
-          padding-bottom: 0rem !important;
-          padding-left: 0rem !important;
-          padding-right: 0rem !important;
-          max-width: 100% !important;
-        }
-        header[data-testid="stHeader"]{ height: 0px !important; }
-        div[data-testid="stDecoration"]{ display:none !important; }
-        html, body, [data-testid="stAppViewContainer"]{ height: 100%; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-# Only apply fullscreen “mobile” css when compact_mode is ON
-if bool(st.session_state.get("compact_mode", False)):
-    mobile_fullscreen_css()
-
 # =========================
-# 06) SUPABASE CLIENT + AUTH
+# 05) SUPABASE CLIENT + AUTH
 # =========================
 def get_supabase():
     url = st.secrets.get("SUPABASE_URL", None) or os.getenv("SUPABASE_URL")
@@ -1475,74 +1677,91 @@ def apply_auth_session(supabase) -> None:
     rt = st.session_state.get("sb_refresh_token")
     if not at or not rt:
         return
+
     try:
         supabase.auth.set_session(at, rt)
         user = supabase.auth.get_user().user
-        st.session_state["auth_user"] = user.model_dump() if hasattr(user, "model_dump") else dict(user)
-        st.session_state["user_id"] = getattr(user, "id", None) or st.session_state["auth_user"].get("id")
-        st.session_state["user_email"] = getattr(user, "email", None) or st.session_state["auth_user"].get("email")
+        _set_logged_in_user(user)
     except Exception:
-        # tokens invalid/expired -> force sign out
         st.session_state["sb_access_token"] = None
         st.session_state["sb_refresh_token"] = None
-        st.session_state["auth_user"] = None
-        st.session_state["user_id"] = None
-        st.session_state["user_email"] = None
-
-def require_login() -> None:
-    if not st.session_state.get("user_id"):
-        st.warning(t("login_required"))
-        render_auth_box()
-        st.stop()
-
-def render_auth_box() -> None:
-    supabase = get_supabase()
-
-    with st.container():
-        st.markdown(f"### {t('sign_in')} / {t('sign_up')}")
-        email = st.text_input(t("email"), key="auth_email")
-        pwd = st.text_input(t("password"), type="password", key="auth_pwd")
-
-        c1, c2, c3 = st.columns([1, 1, 2])
-        with c1:
-            if st.button(t("sign_in"), use_container_width=True):
-                try:
-                    res = supabase.auth.sign_in_with_password({"email": email, "password": pwd})
-                    sess = getattr(res, "session", None)
-                    if not sess:
-                        st.error("Sign-in failed (no session).")
-                        return
-                    st.session_state["sb_access_token"] = sess.access_token
-                    st.session_state["sb_refresh_token"] = sess.refresh_token
-                    apply_auth_session(supabase)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Sign-in error: {e}")
-
-        with c2:
-            if st.button(t("sign_up"), use_container_width=True):
-                try:
-                    supabase.auth.sign_up({"email": email, "password": pwd})
-                    st.success("Account created. Now sign in.")
-                except Exception as e:
-                    st.error(f"Sign-up error: {e}")
-
-        with c3:
-            if st.session_state.get("user_id") and st.button(t("sign_out"), use_container_width=True):
-                try:
-                    supabase.auth.sign_out()
-                except Exception:
-                    pass
-                st.session_state["sb_access_token"] = None
-                st.session_state["sb_refresh_token"] = None
-                st.session_state["auth_user"] = None
-                st.session_state["user_id"] = None
-                st.session_state["user_email"] = None
-                st.rerun()
+        _clear_logged_in_user()
 
 
+def _user_to_dict(user):
+    if user is None:
+        return None
+    if isinstance(user, dict):
+        return user
+    if hasattr(user, "model_dump"):
+        return user.model_dump()
+    try:
+        return dict(user)
+    except Exception:
+        return None
+
+
+def _set_logged_in_user(user) -> None:
+    user_dict = _user_to_dict(user) or {}
+
+    st.session_state["auth_user"] = user_dict
+    st.session_state["user_id"] = user_dict.get("id")
+    st.session_state["user_email"] = user_dict.get("email")
+
+    metadata = user_dict.get("user_metadata") or {}
+    profile_name = get_user_display_name(user_dict.get("id"))
+
+    st.session_state["user_name"] = (
+        profile_name
+        or metadata.get("full_name")
+        or metadata.get("name")
+        or user_dict.get("email")
+        or "User"
+    )
+
+def _clear_logged_in_user() -> None:
+    st.session_state["auth_user"] = None
+    st.session_state["user_id"] = None
+    st.session_state["user_email"] = None
+    st.session_state["user_name"] = None
+    st.session_state["avatar_url"] = None
+
+def get_current_user_id() -> str:
+    uid = str(st.session_state.get("user_id") or "").strip()
+    return uid
+
+
+def with_owner(payload: dict) -> dict:
+    """
+    Attach logged-in owner to a payload.
+    Safe copy, so original dict is not mutated.
+    """
+    out = dict(payload or {})
+    uid = get_current_user_id()
+    if uid:
+        out["user_id"] = uid
+    return out
+
+def get_user_display_name(user_id: str) -> str:
+    try:
+        res = (
+            supabase.table("profiles")
+            .select("display_name")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+
+        rows = res.data or []
+        if rows and rows[0].get("display_name"):
+            return rows[0]["display_name"]
+
+    except Exception:
+        pass
+
+    return ""
 # =========================
-# 07) DATA ACCESS LAYER (CRUD)
+# 06) DATA ACCESS LAYER (CRUD)
 # =========================
 try:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -1552,7 +1771,7 @@ except Exception as e:
     st.code(str(e))
     st.stop()
 
-supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+supabase = get_supabase()
 
 
 def _has_tokens() -> bool:
@@ -1600,25 +1819,15 @@ def _set_auth_session(resp) -> None:
     st.session_state["sb_access_token"] = str(access_token)
     st.session_state["sb_refresh_token"] = str(refresh_token or "")
 
-    # Extract user id
-    uid = None
-    if isinstance(user, dict):
-        uid = user.get("id")
-    else:
-        uid = getattr(user, "id", None)
-
-    # Some shapes store user under session
-    if not uid:
+    # Extract user if needed from session
+    if user is None:
         if isinstance(session, dict):
-            u2 = session.get("user") if isinstance(session.get("user"), dict) else None
-            uid = (u2 or {}).get("id") if u2 else None
+            user = session.get("user")
         else:
-            u2 = getattr(session, "user", None)
-            uid = getattr(u2, "id", None) if u2 else None
+            user = getattr(session, "user", None)
 
-    st.session_state["sb_user_id"] = str(uid) if uid else None
-    if uid:
-        st.session_state["user_id"] = str(uid)
+    # Store standardized session user
+    _set_logged_in_user(user)
 
 def _apply_auth_to_client():
     at = st.session_state.get("sb_access_token")
@@ -1634,68 +1843,135 @@ def require_login():
     """
     Blocks the app unless a user is logged in.
     """
-    # If already logged in → apply session and continue
+    # If already logged in -> restore full session and continue
     if _has_tokens():
-        _apply_auth_to_client()
-        return
+        apply_auth_session(supabase)
 
-    st.title("Log in")
+        if get_current_user_id():
+            return
 
-    tab_login, tab_signup = st.tabs(["Log in", "Sign up"])
+        st.error("Could not restore the logged-in user. Please sign in again.")
+        _clear_logged_in_user()
+        st.session_state["sb_access_token"] = None
+        st.session_state["sb_refresh_token"] = None
+        st.stop()
+
+    title_col, lang_col = st.columns([6,2], vertical_alignment="center")
+
+    with title_col:
+        st.title(t("login_title"))
+
+    with lang_col:
+        lang_buttons = st.columns(2)
+
+        with lang_buttons[0]:
+            if st.button("EN", key="login_lang_en", use_container_width=True):
+                st.session_state["ui_lang"] = "en"
+                _set_query(lang="en")
+                st.rerun()
+
+        with lang_buttons[1]:
+            if st.button("ES", key="login_lang_es", use_container_width=True):
+                st.session_state["ui_lang"] = "es"
+                _set_query(lang="es")
+                st.rerun()
+
+    tab_login, tab_signup = st.tabs([t("sign_in"), t("sign_up")])
 
     with tab_login:
-        email = st.text_input("Email", key="login_email")
-        password = st.text_input("Password", type="password", key="login_password")
-        if st.button("Log in", key="btn_login"):
+        email = st.text_input(t("email"), key="login_email")
+        password = st.text_input(t("password"), type="password", key="login_password")
+
+        if st.button(t("sign_in"), key="btn_login"):
             try:
-                resp = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                resp = supabase.auth.sign_in_with_password(
+                    {"email": email, "password": password}
+                )
                 _set_auth_session(resp)
-                _apply_auth_to_client()
-                st.success("Logged in ✅")
+                apply_auth_session(supabase)
+
+                if not get_current_user_id():
+                    raise Exception("Login succeeded but user_id was not restored.")
+
+                st.success(t("logged_in_ok"))
                 st.rerun()
             except Exception as e:
-                st.error(f"Login failed: {e}")
+                st.error(f"{t('login_failed')}: {e}")
 
-        with st.expander("Forgot password?"):
-            reset_email = st.text_input("Email for reset link", key="reset_email")
-            if st.button("Send reset email", key="btn_reset"):
+        with st.expander(t("forgot_password")):
+            reset_email = st.text_input(t("email_reset_link"), key="reset_email")
+            if st.button(t("send_reset_email"), key="btn_reset"):
                 try:
                     supabase.auth.reset_password_for_email(reset_email)
-                    st.success("Reset email sent. Check your inbox.")
+                    st.success(t("reset_email_sent"))
                 except Exception as e:
-                    st.error(f"Reset failed: {e}")
+                    st.error(f"{t('reset_failed')}: {e}")
 
     with tab_signup:
-        email2 = st.text_input("Email", key="signup_email")
-        password2 = st.text_input("Password", type="password", key="signup_password")
-        if st.button("Create account", key="btn_signup"):
+        name = st.text_input(t("user_name"), key="signup_name")
+        email2 = st.text_input(t("email"), key="signup_email")
+        password2 = st.text_input(t("password"), type="password", key="signup_password")
+
+        if st.button(t("create_account"), key="btn_signup"):
             try:
-                supabase.auth.sign_up({"email": email2, "password": password2})
-                st.success("Account created. If confirmations are enabled, check your email, then log in.")
+                resp = supabase.auth.sign_up({"email": email2, "password": password2})
+
+                user = resp.user
+                if user:
+                    supabase.table("profiles").upsert(
+                        {
+                            "user_id": user.id,
+                            "display_name": name.strip()
+                        }
+                    ).execute()
+
+                st.success(t("account_created_check_email"))
+
             except Exception as e:
-                st.error(f"Sign up failed: {e}")
+                st.error(f"{t('signup_failed')}: {e}")
 
     st.stop()
-
-require_login()
 
 def load_table(name: str, limit: int = 10000, page_size: int = 1000) -> pd.DataFrame:
     all_rows = []
     offset = 0
+
+    uid = get_current_user_id()
+
+    # Tables that should be scoped to the logged-in user
+    owner_scoped_tables = {
+        "students",
+        "classes",
+        "payments",
+        "schedules",
+        "calendar_overrides",
+        "pricing_items",
+        "app_settings",
+        "profiles",
+    }
+
     try:
         while offset < limit:
-            resp = (
-                supabase.table(name)
-                .select("*")
-                .range(offset, min(offset + page_size - 1, limit - 1))
-                .execute()
-            )
+            q = supabase.table(name).select("*")
+
+            if name in owner_scoped_tables:
+                if not uid:
+                    st.error(f"Missing user_id for owner-scoped table '{name}'")
+                    return pd.DataFrame(columns=[])
+                q = q.eq("user_id", uid)
+
+            resp = q.range(offset, min(offset + page_size - 1, limit - 1)).execute()
+
             batch = resp.data or []
             all_rows.extend(batch)
+
             if len(batch) < page_size:
                 break
+
             offset += page_size
+
         return pd.DataFrame(all_rows)
+
     except Exception as e:
         st.error(f"Supabase error loading table '{name}'.\n\n{e}")
         return pd.DataFrame()
@@ -1709,10 +1985,26 @@ def ensure_student(student: str) -> None:
     student = str(student).strip()
     if not student:
         return
-    try:
-        supabase.table("students").insert({"student": student}).execute()
-    except Exception:
-        pass
+
+    uid = get_current_user_id()
+    if not uid:
+        raise ValueError("Missing user_id while ensuring student.")
+
+    existing = (
+        supabase.table("students")
+        .select("id")
+        .eq("student", student)
+        .eq("user_id", uid)
+        .limit(1)
+        .execute()
+    )
+
+    rows = getattr(existing, "data", None) or []
+    if rows:
+        return
+
+    payload = with_owner({"student": student})
+    supabase.table("students").insert(payload).execute()
 
 
 def load_students() -> List[str]:
@@ -1729,26 +2021,69 @@ def load_students() -> List[str]:
 
 def get_profile_avatar_url(user_id: str) -> str:
     try:
-        res = supabase.table("profiles").select("avatar_url").eq("user_id", str(user_id)).limit(1).execute()
+        res = (
+            supabase.table("profiles")
+            .select("avatar_url")
+            .eq("user_id", str(user_id))
+            .limit(1)
+            .execute()
+        )
         rows = getattr(res, "data", None) or []
         if not rows:
             return ""
         return str(rows[0].get("avatar_url") or "")
-    except Exception:
+    except Exception as e:
+        st.error(f"Could not load profile avatar: {e}")
         return ""
 
 def save_profile_avatar_url(user_id: str, avatar_url: str) -> None:
+    payload = {"user_id": str(user_id), "avatar_url": str(avatar_url)}
     try:
-        payload = {"user_id": str(user_id), "avatar_url": str(avatar_url)}
         supabase.table("profiles").upsert(payload, on_conflict="user_id").execute()
+    except Exception as e:
+        st.error(f"Could not save profile avatar: {e}")
+        raise
+
+def sign_out_user() -> None:
+    try:
+        supabase.auth.sign_out()
     except Exception:
         pass
 
+    _clear_logged_in_user()
+
+    # reset UI states
+    st.session_state["show_photo_dialog"] = False
+    st.session_state["avatar_url"] = ""
+    st.session_state["home_action_menu_prev"] = "Alerts"
+
+    st.session_state["sb_access_token"] = None
+    st.session_state["sb_refresh_token"] = None
+
+    st.rerun()
+
+def render_logout_button():
+    if st.button("logout", key="btn_logout"):
+        try:
+            supabase.auth.sign_out()
+        except Exception:
+            pass
+
+        # clear auth session
+        st.session_state["sb_access_token"] = None
+        st.session_state["sb_refresh_token"] = None
+        st.session_state["show_photo_dialog"] = False
+
+        # clear user info
+        _clear_logged_in_user()
+
+        st.rerun()
+
 # =========================
-# 08) ALL HELPERS
+# 07) ALL HELPERS
 # =========================
 # =========================
-# 08) HOME PAGE HELPERS
+# 07.1) HOME PAGE HELPERS
 # =========================
 
 def neon_button_css(
@@ -1812,7 +2147,7 @@ def top_neon_button_css(glow_rgba: str, text_color: str = "#0B1220") -> str:
         radius=12,
     )
 # =========================
-# 8.1 TODAY LESSONS HELPER
+# 07.2) TODAY LESSONS HELPER
 # =========================
 def build_today_lessons() -> pd.DataFrame:
     today = date.today()
@@ -1834,7 +2169,7 @@ def build_today_lessons() -> pd.DataFrame:
     return df[["Student", "Time", "Duration_Min", "Source"]]
 
 # =========================
-# 8.2 LANGUAGE HELPERS
+# 07.3) LANGUAGE HELPERS
 # =========================
 LANG_EN = "English"
 LANG_ES = "Spanish"
@@ -1875,10 +2210,10 @@ def translate_status(val: str) -> str:
         return ""
     key_map = {
         "dropout": "dropout",
-        "finished": "finished_status",
-        "mismatch": "mismatch_status",
+        "finished": "finished",
+        "mismatch": "mismatch",
         "almost_finished": "almost_finished",
-        "active": "active_status",
+        "active": "active",
     }
     return t(key_map.get(str(val).strip().casefold(), str(val)))
 
@@ -1905,7 +2240,7 @@ def translate_language_value(x: str) -> str:
     return v
 
 # =========================
-# 8.3 WHATSAPP HELPERS
+# 07.4) WHATSAPP HELPERS
 # =========================
 
 def _digits_only(s: str) -> str:
@@ -2204,7 +2539,7 @@ def build_pricing_block(lang: str = "tr") -> str:
 
     return "".join(out).strip() + "\n"
 # =========================
-# 8.4 CLASSES / PAYMENTS HELPERS
+# 07.5) CLASSES / PAYMENTS HELPERS
 # =========================
 def add_class(
     student: str,
@@ -2216,19 +2551,17 @@ def add_class(
 ) -> None:
     student = str(student).strip()
     ensure_student(student)
-    payload = {
+
+    payload = with_owner({
         "student": student,
         "number_of_lesson": int(number_of_lesson),
         "lesson_date": lesson_date,
         "modality": str(modality).strip(),
         "note": str(note).strip() if note else "",
         "lesson_language": str(lesson_language).strip() if lesson_language else None,
-    }
-    try:
-        supabase.table("classes").insert(payload).execute()
-    except Exception:
-        payload.pop("lesson_language", None)
-        supabase.table("classes").insert(payload).execute()
+    })
+
+    supabase.table("classes").insert(payload).execute()
 
 
 def add_payment(
@@ -2250,7 +2583,7 @@ def add_payment(
     if not package_start_date:
         package_start_date = payment_date
 
-    payload = {
+    payload = with_owner({
         "student": student,
         "number_of_lesson": int(number_of_lesson),
         "payment_date": payment_date,
@@ -2263,47 +2596,58 @@ def add_payment(
         "package_normalized": bool(package_normalized),
         "normalized_note": str(normalized_note or "").strip(),
         "normalized_at": datetime.now(timezone.utc).isoformat() if (package_normalized or normalized_note) else None,
-    }
+    })
 
-    try:
-        supabase.table("payments").insert(payload).execute()
-    except Exception:
-        # Backward compatible if DB schema is older
-        for k in ["languages", "lesson_adjustment_units", "package_normalized", "normalized_note", "normalized_at"]:
-            payload.pop(k, None)
-        supabase.table("payments").insert(payload).execute()
+    supabase.table("payments").insert(payload).execute()
 
 
 def delete_row(table_name: str, row_id: int) -> None:
-    supabase.table(table_name).delete().eq("id", int(row_id)).execute()
+    uid = get_current_user_id()
+    q = supabase.table(table_name).delete().eq("id", int(row_id))
+    if uid:
+        q = q.eq("user_id", uid)
+    q.execute()
 
 
 def normalize_latest_package(student: str, payment_id: int, note: str = "") -> bool:
     try:
+        uid = get_current_user_id()
         payload = {
             "package_normalized": True,
             "normalized_note": str(note or "").strip(),
             "normalized_at": datetime.now(timezone.utc).isoformat()
         }
-        supabase.table("payments").update(payload).eq("id", int(payment_id)).execute()
+        q = supabase.table("payments").update(payload).eq("id", int(payment_id))
+        if uid:
+            q = q.eq("user_id", uid)
+        q.execute()
         return True
     except Exception:
         return False
 
-
 def update_student_profile(student: str, email: str, zoom_link: str, notes: str, color: str, phone: str) -> None:
-    supabase.table("students").update({
+    uid = get_current_user_id()
+
+    q = supabase.table("students").update({
         "email": email,
         "zoom_link": zoom_link,
         "notes": notes,
         "color": color,
         "phone": phone
-    }).eq("student", student).execute()
+    }).eq("student", student)
 
+    if uid:
+        q = q.eq("user_id", uid)
+
+    q.execute()
 
 def update_payment_row(payment_id: int, updates: dict) -> bool:
     try:
-        supabase.table("payments").update(updates).eq("id", int(payment_id)).execute()
+        uid = get_current_user_id()
+        q = supabase.table("payments").update(updates).eq("id", int(payment_id))
+        if uid:
+            q = q.eq("user_id", uid)
+        q.execute()
         return True
     except Exception:
         return False
@@ -2311,13 +2655,17 @@ def update_payment_row(payment_id: int, updates: dict) -> bool:
 
 def update_class_row(class_id: int, updates: dict) -> bool:
     try:
-        supabase.table("classes").update(updates).eq("id", int(class_id)).execute()
+        uid = get_current_user_id()
+        q = supabase.table("classes").update(updates).eq("id", int(class_id))
+        if uid:
+            q = q.eq("user_id", uid)
+        q.execute()
         return True
     except Exception:
         return False
 
 # =========================
-# 8.5) PRICING ITEMS HELPERS
+# 07.6) PRICING ITEMS HELPERS
 # =========================
 
 def load_pricing_items() -> pd.DataFrame:
@@ -2327,12 +2675,12 @@ def load_pricing_items() -> pd.DataFrame:
       id, user_id, modality (online/offline), kind (hourly/package),
       hours (NULL for hourly), price_try, active, sort_order
     """
-    uid = st.session_state.get("sb_user_id") or st.session_state.get("user_id")
+    uid = st.session_state.get("user_id")
 
     try:
         q = supabase.table("pricing_items").select("*").order("sort_order")
         if uid:
-            # ✅ Only load rows owned by the logged-in user
+            # Only load rows owned by the logged-in user
             q = q.eq("user_id", str(uid))
 
         res = q.execute()
@@ -2373,16 +2721,18 @@ def upsert_pricing_item(payload: dict) -> None:
 
     table = "pricing_items"
     item_id = payload.get("id")
+    uid = get_current_user_id()
 
-    # ✅ IMPORTANT: attach owner
-    uid = st.session_state.get("sb_user_id") or st.session_state.get("user_id")
     if uid:
-        payload["user_id"] = str(uid)
+        payload["user_id"] = uid
 
     clean = {k: v for k, v in payload.items() if k != "id"}
 
     if item_id is not None and str(item_id).strip() != "":
-        resp = supabase.table(table).update(clean).eq("id", int(item_id)).execute()
+        q = supabase.table(table).update(clean).eq("id", int(item_id))
+        if uid:
+            q = q.eq("user_id", uid)
+        resp = q.execute()
     else:
         resp = supabase.table(table).insert(clean).execute()
 
@@ -2392,10 +2742,15 @@ def upsert_pricing_item(payload: dict) -> None:
 def delete_pricing_item(item_id: int) -> None:
     if item_id is None:
         return
-    resp = supabase.table("pricing_items").delete().eq("id", int(item_id)).execute()
+
+    uid = get_current_user_id()
+    q = supabase.table("pricing_items").delete().eq("id", int(item_id))
+    if uid:
+        q = q.eq("user_id", uid)
+    resp = q.execute()
+
     if getattr(resp, "error", None):
         raise RuntimeError(resp.error)
-
 
 def money_try(x) -> str:
     try:
@@ -2615,31 +2970,50 @@ def render_pricing_editor() -> None:
     Pricing editor UI. Call this ONLY inside a page (e.g. add_payment).
     """
     with st.expander(t("pricing_editor_title"), expanded=False):
+
         df = load_pricing_items()
-        _pricing_section(df, modality="online", title_key="pricing_online_title", hourly_default=2000)
+
+        # Show hint if prices are missing or invalid
+        if df.empty or (pd.to_numeric(df.get("price_try"), errors="coerce").fillna(0) <= 0).all():
+            st.info("⚠️ " + t("pricing_set_price_hint"))
+
+        _pricing_section(df, modality="online", title_key="pricing_online_title", hourly_default=None)
 
         st.divider()
 
         df = load_pricing_items()
-        _pricing_section(df, modality="offline", title_key="pricing_offline_title", hourly_default=3500)
+        if df.empty or (pd.to_numeric(df.get("price_try"), errors="coerce").fillna(0) <= 0).all():
+            st.info("⚠️ " + t("pricing_set_price_hint"))        
+
+        _pricing_section(df, modality="offline", title_key="pricing_offline_title", hourly_default=None)
 
 # =========================
-# 8.6) PACKAGE/LANGUAGE LOOKUPS
+# 07.7) PACKAGE/LANGUAGE LOOKUPS
 # =========================
 def latest_payment_languages_for_student(student: str) -> str:
     try:
-        resp = (
+        uid = get_current_user_id()
+
+        q = (
             supabase.table("payments")
             .select("id, payment_date, package_start_date, languages")
             .eq("student", str(student).strip())
-            .order("payment_date", desc=True)
-            .order("id", desc=True)
-            .limit(1)
-            .execute()
         )
+
+        if uid:
+            q = q.eq("user_id", uid)
+
+        resp = (
+            q.order("payment_date", desc=True)
+             .order("id", desc=True)
+             .limit(1)
+             .execute()
+        )
+
         rows = resp.data or []
         if not rows:
             return LANG_ES
+
         v = str(rows[0].get("languages") or LANG_ES).strip()
         return v if v in ALLOWED_LANGS else LANG_ES
     except Exception:
@@ -2661,7 +3035,7 @@ def _is_free_note(note: str) -> bool:
 
 
 # =========================
-# 8.7) HISTORY HELPERS
+# 07.8) HISTORY HELPERS
 # =========================
 def show_student_history(student: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     student = str(student).strip()
@@ -2745,7 +3119,7 @@ def show_student_history(student: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     return lessons_df, payments_df
 
 # =========================
-# 8.8) SCHEDULE / OVERRIDES HELPERS
+# 07.9) SCHEDULE / OVERRIDES HELPERS
 # =========================
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -2771,17 +3145,24 @@ def load_schedules() -> pd.DataFrame:
 def add_schedule(student: str, weekday: int, time_str: str, duration_minutes: int, active: bool = True) -> None:
     student = str(student).strip()
     ensure_student(student)
-    supabase.table("schedules").insert({
+
+    payload = with_owner({
         "student": student,
         "weekday": int(weekday),
         "time": str(time_str).strip(),
         "duration_minutes": int(duration_minutes),
         "active": bool(active),
-    }).execute()
+    })
+
+    supabase.table("schedules").insert(payload).execute()
 
 
 def delete_schedule(schedule_id: int) -> None:
-    supabase.table("schedules").delete().eq("id", int(schedule_id)).execute()
+    uid = get_current_user_id()
+    q = supabase.table("schedules").delete().eq("id", int(schedule_id))
+    if uid:
+        q = q.eq("user_id", uid)
+    q.execute()
 
 
 def load_overrides() -> pd.DataFrame:
@@ -2837,24 +3218,28 @@ def add_override(
 
     status_clean = str(status).strip().lower()
 
-    payload = {
+    payload = with_owner({
         "student": student,
         "original_date": original_date.isoformat(),
         "duration_minutes": int(duration_minutes),
         "status": status_clean,
         "note": str(note or "").strip(),
-        "new_datetime": _to_utc_iso(new_dt) if status_clean == "scheduled" else None
-    }
+        "new_datetime": _to_utc_iso(new_dt) if status_clean == "scheduled" else None,
+    })
 
     supabase.table("calendar_overrides").insert(payload).execute()
 
 
 def delete_override(override_id: int) -> None:
-    supabase.table("calendar_overrides").delete().eq("id", int(override_id)).execute()
+    uid = get_current_user_id()
+    q = supabase.table("calendar_overrides").delete().eq("id", int(override_id))
+    if uid:
+        q = q.eq("user_id", uid)
+    q.execute()
 
 
 # =========================
-# 8.9) STUDENT META
+# 07.10) STUDENT META
 # =========================
 def load_students_df() -> pd.DataFrame:
     df = load_table("students")
@@ -2888,8 +3273,10 @@ def student_meta_maps():
     return color_map, zoom_map, email_map, phone_map
 
 # =========================
-# 8.10) GOALS HELPERS
+# 07.11) GOALS HELPERS
 # =========================
+YEAR_GOAL_SCOPE = "personal"
+
 def _guess_user_id() -> str:
     for k in ("user_id", "uid", "owner_id"):
         v = st.session_state.get(k, None)
@@ -2951,10 +3338,11 @@ def _parse_float_loose(v, default=0.0) -> float:
 def load_app_setting(key: str, default=None, key_fallbacks: list[str] | None = None):
     """
     Reads setting from `app_settings`.
-    Supports schema:
-      - (key, value)
-      - (user_id, key, value)
-    Also supports flexible column names.
+
+    Safe behavior:
+      - If table has user_id column: only read rows for current user.
+      - If table does not have user_id column: only read from the legacy shared schema.
+      - Never fall back from one user's row to another user's row.
     """
     try:
         df = load_table("app_settings")
@@ -2978,50 +3366,52 @@ def load_app_setting(key: str, default=None, key_fallbacks: list[str] | None = N
     tmp = df.copy()
     tmp[key_col] = tmp[key_col].astype(str).str.strip()
 
-    # Prefer user-specific row if available; fallback to any if none found
+    # Strict user-scoped read if uid column exists
     if uid_col:
-        uid = _guess_user_id()
-        tmp[uid_col] = tmp[uid_col].astype(str).str.strip()
-
-        user_rows = tmp[(tmp[uid_col] == uid) & (tmp[key_col].isin(keys_to_try))]
-        if not user_rows.empty:
-            v = user_rows.iloc[0][val_col]
-            return _parse_float_loose(v, default) if isinstance(default, (int, float)) else v
-
-        any_rows = tmp[tmp[key_col].isin(keys_to_try)]
-        if any_rows.empty:
+        uid = get_current_user_id()
+        if not uid:
             return default
-        v = any_rows.iloc[0][val_col]
+
+        tmp[uid_col] = tmp[uid_col].astype(str).str.strip()
+        rows = tmp[(tmp[uid_col] == str(uid).strip()) & (tmp[key_col].isin(keys_to_try))]
+
+        if rows.empty:
+            return default
+
+        v = rows.iloc[0][val_col]
         return _parse_float_loose(v, default) if isinstance(default, (int, float)) else v
 
-    # no uid column
+    # Legacy schema without user_id column
     rows = tmp[tmp[key_col].isin(keys_to_try)]
     if rows.empty:
         return default
+
     v = rows.iloc[0][val_col]
     return _parse_float_loose(v, default) if isinstance(default, (int, float)) else v
 
 
 def save_app_setting(key: str, value, key_fallbacks: list[str] | None = None) -> bool:
-    """
-    Save or update an app setting.
-    Uses anon Supabase client (RLS will apply).
-    """
     if not key:
         return False
 
-    payload = {
-        "key": str(key),
+    payload = with_owner({
+        "key": str(key).strip(),
         "value": str(value),
-    }
+    })
 
-    # If your table has unique constraint on key:
-    on_conflict = "key"
+    uid = get_current_user_id()
+    if not uid:
+        st.error("Missing user_id while saving app setting.")
+        return False
 
     try:
-        supabase.table("app_settings").upsert(payload, on_conflict=on_conflict).execute()
+        supabase.table("app_settings").upsert(
+            payload,
+            on_conflict="user_id,key"
+        ).execute()
         return True
-    except Exception:
+    except Exception as e:
+        st.error(f"Could not save app setting '{key}': {e}")
         return False
 
 
@@ -3064,18 +3454,85 @@ def get_year_goal_progress_snapshot(year: int | None = None, goal_key: str = "ye
     return {"year": yr, "goal": float(goal), "ytd_income": float(ytd), "progress": float(progress), "remaining": float(remaining)}
 
 def upload_avatar_to_supabase(file, user_id: str) -> str:
+    """
+    Uploads a normalized profile avatar to Supabase Storage and returns a public URL.
+
+    Requires:
+    - A Supabase Storage bucket named: avatars
+    - The bucket should allow reads for the uploaded file URL to work
+      (or you can switch to signed URLs later).
+    """
     if file is None:
         return ""
 
-    if not (file.type or "").startswith("image/"):
-        raise ValueError("Please upload an image file.")
+    content_type = str(getattr(file, "type", "") or "").strip().lower()
+    if not content_type.startswith("image/"):
+        raise ValueError(t("avatar_upload_invalid_image"))
 
-    ext = (file.name.split(".")[-1] or "png").lower()
-    object_path = f"{user_id}/{uuid.uuid4().hex}.{ext}"
+    raw = file.getvalue()
+    if not raw:
+        raise ValueError(t("avatar_upload_empty"))
 
-    # TODO: upload logic here
-    return ""  # safe fallback for now
+    max_size_mb = 5
+    if len(raw) > max_size_mb * 1024 * 1024:
+        raise ValueError(t("avatar_upload_too_large").format(max_size_mb=max_size_mb))
 
+    safe_user_id = str(user_id).strip()
+    if not safe_user_id:
+        raise ValueError(t("avatar_upload_missing_user"))
+
+    try:
+        img = Image.open(BytesIO(raw)).convert("RGBA")
+    except Exception:
+        raise ValueError(t("avatar_upload_invalid_image"))
+
+    # Center crop to square
+    w, h = img.size
+    side = min(w, h)
+    left = (w - side) // 2
+    top = (h - side) // 2
+    img = img.crop((left, top, left + side, top + side))
+
+    # Flatten transparency onto dark background
+    bg = Image.new("RGB", (side, side), (15, 23, 42))
+    bg.paste(img, mask=img.split()[-1])
+
+    # Resize to a clean avatar size
+    bg = bg.resize((512, 512))
+
+    buf = BytesIO()
+    bg.save(buf, format="JPEG", quality=92)
+    final_raw = buf.getvalue()
+
+    ext = "jpeg"
+    final_content_type = "image/jpeg"
+    object_path = f"{safe_user_id}/{uuid.uuid4().hex}.{ext}"
+
+    try:
+        supabase.storage.from_("avatars").upload(
+            path=object_path,
+            file=final_raw,
+            file_options={
+                "content-type": final_content_type,
+                "upsert": "true",
+            },
+        )
+    except Exception as e:
+        raise RuntimeError(f"{t('avatar_upload_storage_failed')}: {e}")
+
+    try:
+        public_url = supabase.storage.from_("avatars").get_public_url(object_path)
+    except Exception as e:
+        raise RuntimeError(f"{t('avatar_upload_url_failed')}: {e}")
+
+    if isinstance(public_url, dict):
+        public_url = public_url.get("publicUrl") or public_url.get("public_url") or ""
+
+    public_url = str(public_url or "").strip()
+    if not public_url:
+        raise RuntimeError(t("avatar_upload_no_public_url"))
+
+    return public_url
 
 def render_home_indicator(
     status: str = None,
@@ -3368,13 +3825,13 @@ def get_next_lesson_display() -> str:
     return next_dt.strftime("%a %H:%M")
 
 # =========================
-# 8.11) YEAR GOALS
+# 07.12)YEAR GOALS
 # =========================
 def _settings_client():
     # anon client with logged-in session applied via supabase.auth.set_session(...)
     return supabase
 
-def _year_goal_key(year: int, scope: str = "personal") -> str:
+def _year_goal_key(year: int, scope: str = YEAR_GOAL_SCOPE) -> str:
     """
     scope lets you separate goals if you ever want:
       - "personal" (default)
@@ -3382,34 +3839,44 @@ def _year_goal_key(year: int, scope: str = "personal") -> str:
       - etc
     """
     y = int(year)
-    s = str(scope or "personal").strip().casefold()
+    s = str(scope or YEAR_GOAL_SCOPE).strip().casefold()
     return f"year_goal_{y}_{s}"
 
-def get_year_goal(year: int, scope: str = "personal", default: float = 0.0) -> float:
+def get_year_goal(year: int, scope: str = YEAR_GOAL_SCOPE, default: float = 0.0) -> float:
     key = _year_goal_key(year, scope=scope)
+    uid = get_current_user_id()
+
     try:
-        res = _settings_client().table("app_settings").select("value").eq("key", key).limit(1).execute()
+        q = _settings_client().table("app_settings").select("value").eq("key", key)
+        if uid:
+            q = q.eq("user_id", uid)
+
+        res = q.limit(1).execute()
         rows = getattr(res, "data", None) or []
         if not rows:
             return float(default or 0.0)
+
         v = rows[0].get("value")
-        # allow "150.000" etc
         return float(_parse_float_loose(v, default or 0.0))
     except Exception:
         return float(default or 0.0)
 
 
-def set_year_goal(year: int, value: float, scope: str = "personal") -> bool:
+def set_year_goal(year: int, value: float, scope: str = YEAR_GOAL_SCOPE) -> bool:
     key = _year_goal_key(year, scope=scope)
-    payload = {"key": key, "value": str(value)}
+    payload = with_owner({"key": key, "value": str(value)})
+
     try:
-        _settings_client().table("app_settings").upsert(payload, on_conflict="key").execute()
+        _settings_client().table("app_settings").upsert(
+            payload,
+            on_conflict="user_id,key"
+        ).execute()
         return True
     except Exception:
         return False
 
 # =========================
-# 8.12) DASHBOARD (PACKAGE STATUS) ✅ + chart-translation helper
+# 07.13) DASHBOARD (PACKAGE STATUS) ✅ + chart-translation helper
 # =========================
 def dash_chart_series(
     df: pd.DataFrame,
@@ -3596,10 +4063,20 @@ def rebuild_dashboard(active_window_days: int = 183, expiry_days: int = 365, gra
         (cls["lesson_date"] < cls["window_end"])
     ].copy()
 
-    cls["units_row"] = cls.apply(
-        lambda r: 0 if _is_free_note(r.get("note",""))
-        else int(r.get("number_of_lesson", 0)) * _units_multiplier(r.get("modality","")),
-        axis=1
+    # Remove accidental duplicate columns before computing units
+    cls = cls.loc[:, ~cls.columns.duplicated()].copy()
+
+    note_col = cls["note"] if "note" in cls.columns else ""
+    num_col = pd.to_numeric(cls["number_of_lesson"], errors="coerce").fillna(0) if "number_of_lesson" in cls.columns else 0
+    mod_col = cls["modality"].fillna("") if "modality" in cls.columns else ""
+
+    free_mask = pd.Series(note_col).astype(str).apply(_is_free_note)
+    units_mult = pd.Series(mod_col).astype(str).apply(_units_multiplier)
+
+    cls["units_row"] = np.where(
+    free_mask,
+    0,
+    num_col.astype(int) * units_mult.astype(int)
     )
 
     taken_units = (
@@ -3713,7 +4190,7 @@ def rebuild_dashboard(active_window_days: int = 183, expiry_days: int = 365, gra
     ]]
 
 # =========================
-# 8.13) ANALYTICS (INCOME + CHARTS) ✅ missing-columns safe (Section 24 compatible)
+# 07.14) ANALYTICS (INCOME + CHARTS) ✅ missing-columns safe (Section 24 compatible)
 # =========================
 def money_fmt(x: float) -> str:
     """Compact currency format for KPI bubbles."""
@@ -3832,7 +4309,7 @@ def build_income_analytics(group: str = "monthly"):
 
     return kpis, income_table, by_student, sold_by_language, sold_by_modality
 # =========================
-# 8.15) FORECAST (BEHAVIOR-BASED + PIPELINE-AWARE + FINISHED LAST 3 MONTHS)
+# 07.15) FORECAST (BEHAVIOR-BASED + PIPELINE-AWARE + FINISHED LAST 3 MONTHS)
 # =========================
 def build_forecast_table(
     payment_buffer_days: int = 0,
@@ -4013,7 +4490,7 @@ def build_forecast_table(
     return out
 
 # =========================
-# 8.16) KPI BUBBLES (ROBUST: NO AUTO-RESIZE DEPENDENCY)
+# 07.16) KPI BUBBLES (ROBUST: NO AUTO-RESIZE DEPENDENCY)
 # =========================
 def kpi_bubbles(values, colors, size=170):
     """
@@ -4141,7 +4618,7 @@ def kpi_bubbles(values, colors, size=170):
 
 
 # =========================
-# 8.17) CALENDAR (EVENTS + RENDER) ✅ bilingual-safe + tz-safe + FullCalendar i18n
+# 07.17) CALENDAR (EVENTS + RENDER) ✅ bilingual-safe + tz-safe + FullCalendar i18n
 # =========================
 def _parse_time_value(x) -> Tuple[int, int]:
     if x is None:
@@ -4455,7 +4932,7 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
     components.html(html, height=height + 70, scrolling=True)
 
 # =========================
-# 09) UI COMPONENTS
+# 08) UI COMPONENTS
 # =========================
 
 def nav_pill(label: str, page: str, css_class: str):
@@ -4605,41 +5082,6 @@ def chart_series(df: pd.DataFrame, index_col: str, value_col: str, index_key: st
     series.name = t(value_key)
     return series
 
-def dash_chart_series(
-    df: pd.DataFrame,
-    group_col: str,
-    group_key_for_label: str,
-    value_key_for_label: str,
-) -> Optional[pd.Series]:
-    """
-    Build a Series for st.bar_chart with translated:
-      - series name (e.g. "Students")
-      - index name (e.g. "Status", "Modality", "Languages")
-      - index values when they are coded (status/modality/languages)
-    """
-    if df is None or df.empty or group_col not in df.columns:
-        return None
-
-    tmp = df.copy()
-    tmp[group_col] = tmp[group_col].fillna("").astype(str).str.strip()
-    tmp = tmp[tmp[group_col].astype(str).str.len() > 0]
-    if tmp.empty:
-        return None
-
-    s = tmp.groupby(group_col).size().sort_values(ascending=False)
-
-    # Translate index values when needed
-    if group_col.casefold() == "status":
-        s.index = [translate_status(x) for x in s.index.astype(str)]
-    elif group_col.casefold() == "modality":
-        s.index = [translate_modality_value(x) for x in s.index.astype(str)]
-    elif group_col.casefold() == "languages":
-        s.index = [translate_language_value(x) for x in s.index.astype(str)]
-
-    s.index.name = t(group_key_for_label)
-    s.name = t(value_key_for_label)
-    return s
-
 def inject_pwa_head():
     components.html(
         """
@@ -4726,10 +5168,7 @@ def inject_pwa_head():
 inject_pwa_head()
 
 # =========================
-# 10) NAVIGATION
-# =========================
-# =========================
-# 10) NAVIGATION
+# 09) NAVIGATION
 # =========================
 PAGES = [
     ("dashboard", "dashboard", "📊"),
@@ -4775,11 +5214,6 @@ def _clear_qp(*keys):
         st.experimental_set_query_params(**current)
 
 
-def _get_query_page() -> str:
-    v = _get_qp("page", "home")
-    return str(v) if v is not None else "home"
-
-
 def _set_query(page: Optional[str] = None, lang: Optional[str] = None, panel: Optional[str] = None) -> None:
     """
     Safe query param setter.
@@ -4810,13 +5244,19 @@ if "page" not in st.session_state:
 if "ui_lang" not in st.session_state:
     st.session_state["ui_lang"] = "en"
 
+if "show_photo_dialog" not in st.session_state:
+    st.session_state["show_photo_dialog"] = False
+
+if "top_nav_prev" not in st.session_state:
+    st.session_state["top_nav_prev"] = "home"
+
 
 # ---------- SYNC FROM URL ----------
 lang_qp = _get_qp("lang", None)
 if lang_qp in ("en", "es"):
     st.session_state["ui_lang"] = lang_qp
 
-qp_page = _get_query_page()
+qp_page = str(_get_qp("page", "home") or "home")
 if qp_page in PAGE_KEYS:
     st.session_state["page"] = qp_page
 else:
@@ -4848,116 +5288,144 @@ def home_go(page_name: str = "home", panel: Optional[str] = None):
         panel=panel,
     )
 
+
 def set_home_lang(lang_code: str):
-    """Switch language while staying on Home."""
+    """Switch language while keeping the current page."""
     if lang_code not in ("en", "es"):
         lang_code = "en"
 
     st.session_state["ui_lang"] = lang_code
-    _set_query(page="home", lang=lang_code)
+    _set_query(
+        page=st.session_state.get("page", "home"),
+        lang=lang_code,
+    )
 
 
 def page_header(title: str):
     st.markdown(f"## {title}")
 
 # =========================
-# 11) HOME SCREEN UI (DARK)
+# 10) HOME SCREEN UI (DARK)
 # =========================
 def render_home():
     current_lang = st.session_state.get("ui_lang", "en")
     if current_lang not in ("en", "es"):
         current_lang = "en"
 
-    user_name = st.session_state.get("user_name", "Anthony Gonzalez")
+    user = st.session_state.get("auth_user") or {}
+    user_id = st.session_state.get("user_id", "") or ""
     alerts_count = int(st.session_state.get("alerts_count", 0))
-    user_id = st.session_state.get("user_id", "demo_user")
     panel = _get_qp("panel", "")
 
+    if isinstance(user, dict):
+        user_id = user.get("id") or user_id
+
+    user_metadata = user.get("user_metadata", {}) if isinstance(user, dict) else {}
+
+    user_name = (
+        st.session_state.get("user_name")
+        or user_metadata.get("full_name")
+        or user_metadata.get("name")
+        or st.session_state.get("user_email")
+        or "User"
+    )
+
     # Load avatar from DB once per session
-    if not st.session_state.get("avatar_url"):
+    if user_id and not st.session_state.get("avatar_url"):
         st.session_state["avatar_url"] = get_profile_avatar_url(user_id)
 
     avatar_url = st.session_state.get("avatar_url", "")
-    avatar_html = (
-        f'<div class="home-avatar" style="background-image:url(\'{avatar_url}\');"></div>'
+    avatar_style = (
+        f"background-image:url('{avatar_url}'); background-size:cover; background-position:center;"
         if avatar_url
-        else '<div class="home-avatar"></div>'
+        else "background: linear-gradient(135deg, #60A5FA, #A78BFA);"
     )
 
     # ---------- HOME SHELL ----------
     st.markdown('<div class="home-shell">', unsafe_allow_html=True)
 
     # ---------- TOP ACTION BUTTONS ----------
-
     left, right = st.columns([6, 4], vertical_alignment="center")
 
     with left:
+        if "home_action_menu_prev" not in st.session_state:
+            st.session_state["home_action_menu_prev"] = "Alerts"
+
+        action = option_menu(
+            menu_title=None,
+            options=["Photo", "Alerts", "Logout"],
+            icons=["camera", "bell", "box-arrow-right"],
+            orientation="horizontal",
+            default_index=1,
+            key="home_action_menu",
+            styles={
+                "container": {
+                    "padding": "0",
+                    "background": "transparent",
+                    "overflow-x": "auto",
+                },
+                "nav-link": {
+                    "font-size": "14px",
+                    "font-weight": "600",
+                    "text-align": "center",
+                    "padding": "8px 14px",
+                    "margin": "0px",
+                    "--hover-color": "rgba(255,255,255,0.08)",
+                },
+                "icon": {
+                    "font-size": "16px",
+                },
+            },
+        )
+
+    with right:
         st.markdown(
             f"""
-            <div>
-                <div class="home-topbar-sub">{t("welcome").strip()}</div>
-                <div class="home-topbar-name">{user_name}</div>
+            <div class="home-topbar" style="display:flex; align-items:center; gap:12px;">
+                <div class="home-avatar home-avatar-sm" style="{avatar_style}"></div>
+                <div style="min-width:0;">
+                    <div class="home-topbar-sub">{t("welcome").strip()}</div>
+                    <div class="home-topbar-name">{user_name}</div>
+                </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    with right:
-        b1, b2, b3, b4 = st.columns(4, vertical_alignment="center")
+        previous_action = st.session_state.get("home_action_menu_prev", "Alerts")
 
-        with b1:
-            with stylable_container(
-                key="top_avatar_glow",
-                css_styles=top_neon_button_css("rgba(59,130,246,0.55)")
-            ):
-                if st.button("📷", key="home_avatar_btn", use_container_width=True):
-                    home_go("home", panel="photo")
-    
-        with b2:
-            alert_label = f"🔔 {alerts_count}" if alerts_count > 0 else "🔔"
-            with stylable_container(
-                key="top_alert_glow",
-                css_styles=top_neon_button_css("rgba(245,158,11,0.55)")
-            ):
-                if st.button(alert_label, key="home_alerts_btn", use_container_width=True):
-                    home_go("home", panel="alerts")
+        if action != previous_action:
+            st.session_state["home_action_menu_prev"] = action
 
-        with b3:
-            with stylable_container(
-                key="top_en_glow",
-                css_styles=top_neon_button_css("rgba(16,185,129,0.55)")
-            ):
-                if st.button("EN", key="home_lang_en", use_container_width=True):
-                    set_home_lang("en")
-    
-        with b4:
-            with stylable_container(
-                key="top_es_glow",
-                css_styles=top_neon_button_css("rgba(168,85,247,0.55)")
-            ):
-                if st.button("ES", key="home_lang_es", use_container_width=True):
-                    set_home_lang("es")
-    
-    st.markdown("</div>", unsafe_allow_html=True)
+            if action == "Photo":
+                st.session_state["show_photo_dialog"] = True
+                st.rerun()
 
+            elif action == "Alerts":
+                home_go("home", panel="alerts")
+
+            elif action == "Logout":
+                sign_out_user()
+
+        
     # ---------- AVATAR DIALOG ----------
-    if panel == "photo":
-        _clear_qp("panel")
+    if st.session_state.get("show_photo_dialog"):
+        st.session_state["show_photo_dialog"] = False
 
         try:
-            @st.dialog("Update profile photo")
+            @st.dialog(t("update_profile_photo"))
             def _photo_dialog():
                 up = st.file_uploader(
-                    "Choose a photo",
+                    t("choose_photo"),
                     type=["png", "jpg", "jpeg", "webp"],
                     label_visibility="collapsed",
                 )
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    cancel = st.button("Cancel", key="photo_cancel_btn")
+                    cancel = st.button(t("close"), key="photo_cancel_btn")
                 with c2:
-                    save = st.button("Save", key="photo_save_btn", disabled=(up is None))
+                    save = st.button(t("save"), key="photo_save_btn", disabled=(up is None))
 
                 if cancel:
                     st.rerun()
@@ -4965,52 +5433,75 @@ def render_home():
                 if save and up is not None:
                     try:
                         url = upload_avatar_to_supabase(up, user_id=user_id)
-                        st.session_state["avatar_url"] = url
                         save_profile_avatar_url(user_id, url)
-                        st.success("Profile photo updated ✅")
+                        st.session_state["avatar_url"] = url
+                        st.success(t("profile_photo_updated"))
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Upload failed: {e}")
+                        st.error(f"{t('upload_failed')}: {e}")
 
             _photo_dialog()
 
         except Exception:
-            st.markdown("#### Update profile photo")
+            st.markdown(f"#### {t('update_profile_photo')}")
             up = st.file_uploader(
-                "Choose a photo",
+                t("choose_photo"),
                 type=["png", "jpg", "jpeg", "webp"],
                 label_visibility="collapsed",
             )
 
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("Close", key="photo_close_fallback"):
+                if st.button(t("close"), key="photo_close_fallback"):
+                    st.session_state["show_photo_dialog"] = False
                     st.rerun()
             with col2:
-                if st.button("Save", key="photo_save_fallback", disabled=(up is None)) and up is not None:
+                if st.button(t("save"), key="photo_save_fallback", disabled=(up is None)) and up is not None:
+                    try:
+                        url = upload_avatar_to_supabase(up, user_id=user_id)
+                        save_profile_avatar_url(user_id, url)
+                        st.session_state["avatar_url"] = url
+                        st.session_state["show_photo_dialog"] = False
+                        st.success(t("profile_photo_updated"))
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"{t('upload_failed')}: {e}")
+
+        except Exception:
+            st.markdown(f"#### {t('update_profile_photo')}")
+            up = st.file_uploader(
+                t("choose_photo"),
+                type=["png", "jpg", "jpeg", "webp"],
+                label_visibility="collapsed",
+            )
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button(t("close"), key="photo_close_fallback"):
+                    st.rerun()
+            with col2:
+                if st.button(t("save"), key="photo_save_fallback", disabled=(up is None)) and up is not None:
                     try:
                         url = upload_avatar_to_supabase(up, user_id=user_id)
                         st.session_state["avatar_url"] = url
                         save_profile_avatar_url(user_id, url)
+                        st.success(t("profile_photo_updated"))
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Upload failed: {e}")
+                        st.error(f"{t('upload_failed')}: {e}")
 
     # ---------- REAL VALUES ----------
     dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
 
     active_students = 0
-    lessons_left_total = 0
-
-    if dash is not None and not dash.empty:
-        active_mask = dash["Status"].isin(["active", "almost_finished", "mismatch"])
-        active_students = int(active_mask.sum())
-
-        lessons_left_total = int(
-            pd.to_numeric(
-                dash.loc[active_mask, "Lessons_Left_Units"],
-                errors="coerce"
-            ).fillna(0).sum()
+    if dash is not None and not dash.empty and "Status" in dash.columns:
+        active_students = int(
+            dash["Status"]
+            .astype(str)
+            .str.strip()
+            .str.casefold()
+            .isin(["active", "almost_finished", "mismatch"])
+            .sum()
         )
 
     next_lesson = get_next_lesson_display()
@@ -5018,7 +5509,7 @@ def render_home():
     kpis, *_ = build_income_analytics(group="monthly")
     income_this_year = float(kpis.get("income_this_year", 0.0))
 
-    scope = "global"
+    scope = YEAR_GOAL_SCOPE
     current_year = int(ts_today_naive().year)
     goal_val = float(get_year_goal(current_year, scope=scope, default=0.0) or 0.0)
 
@@ -5039,53 +5530,88 @@ def render_home():
         accent="#3B82F6",
     )
 
-    # ---------- BRAND ----------
+    # --- Brand title ---
     st.markdown("<div class='home-title'>CLASS MANAGER</div>", unsafe_allow_html=True)
 
+    # --- Slogan / hero ---
+    st.markdown(
+        f"""<div class="home-hero">
+<div class="home-slogan">{t('home_slogan')}</div>
+<div class="home-sub">{t('choose_where_to_go')}</div>
+</div>""",
+        unsafe_allow_html=True,
+    )
+
+    # --- Section title between hero card and links ---
     st.markdown(
         f"""
-        <div class="home-hero">
-            <div class="home-slogan">{t('home_slogan')}</div>
-            <div class="home-sub">{t('choose_where_to_go')}</div>
+        <div class="home-section-line">
+          <span>{t("home_find_students")}</span>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    # ---------- EXTERNAL LINKS ----------
-    st.markdown(f'<div class="home-section-title">{t("home_find_students")}</div>', unsafe_allow_html=True)
-
+    # --- Lead sources row (external links) ---
     st.markdown(
-        """
-        <div class="home-links">
-            <div class="home-links-row">
-                <a class="home-linkchip" href="https://www.armut.com" target="_blank" rel="noopener noreferrer"><span class="dot"></span> Armut</a>
-                <a class="home-linkchip" href="https://www.apprentus.com" target="_blank" rel="noopener noreferrer"><span class="dot"></span> Apprentus</a>
-                <a class="home-linkchip" href="https://www.superprof.com" target="_blank" rel="noopener noreferrer"><span class="dot"></span> Superprof</a>
-                <a class="home-linkchip" href="https://www.ozelders.com" target="_blank" rel="noopener noreferrer"><span class="dot"></span> ÖzelDers</a>
-                <a class="home-linkchip" href="https://preply.com" target="_blank" rel="noopener noreferrer"><span class="dot"></span> Preply</a>
-                <a class="home-linkchip" href="https://www.italki.com" target="_blank" rel="noopener noreferrer"><span class="dot"></span> italki</a>
-            </div>
+    f"""
+    <div class="home-links">
+
+      <div class="home-links-row">
+        <a class="home-linkchip" href="https://www.armut.com" target="_blank" rel="noopener noreferrer">
+          <span class="dot"></span> Armut
+        </a>
+        <a class="home-linkchip" href="https://www.apprentus.com" target="_blank" rel="noopener noreferrer">
+          <span class="dot"></span> Apprentus
+        </a>
+        <a class="home-linkchip" href="https://www.superprof.com" target="_blank" rel="noopener noreferrer">
+          <span class="dot"></span> Superprof
+        </a>
+        <a class="home-linkchip" href="https://www.ozelders.com" target="_blank" rel="noopener noreferrer">
+          <span class="dot"></span> ÖzelDers
+        </a>
+        <a class="home-linkchip" href="https://preply.com" target="_blank" rel="noopener noreferrer">
+          <span class="dot"></span> Preply
+        </a>
+        <a class="home-linkchip" href="https://www.italki.com" target="_blank" rel="noopener noreferrer">
+          <span class="dot"></span> italki
+        </a>
+      </div>
+
+    </div>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    # --- Section title between links and menu capsules ---
+    # ---------- MENU ----------
+    st.markdown(
+        f"""
+        <div class="home-section-line">
+          <span>{t("home_menu_title")}</span>
         </div>
         """,
         unsafe_allow_html=True,
     )
-
-    # ---------- MENU ----------
-    st.markdown(f'<div class="home-section-title">{t("home_menu_title")}</div>', unsafe_allow_html=True)
 
     menu_items = [
-    ("dashboard", t("dashboard"), "rgba(59,130,246,0.55)"),
-    ("students", t("students"), "rgba(16,185,129,0.55)"),
-    ("add_lesson", t("lesson"), "rgba(245,158,11,0.55)"),
-    ("add_payment", t("payment"), "rgba(239,68,68,0.55)"),
-    ("calendar", t("calendar"), "rgba(6,182,212,0.55)"),
-    ("analytics", t("analytics"), "rgba(168,85,247,0.55)")
-]
+        ("dashboard", t("dashboard"), "rgba(59,130,246,0.55)"),
+        ("students", t("students"), "rgba(16,185,129,0.55)"),
+        ("add_lesson", t("lesson"), "rgba(245,158,11,0.55)"),
+        ("add_payment", t("payment"), "rgba(239,68,68,0.55)"),
+        ("calendar", t("calendar"), "rgba(6,182,212,0.55)"),
+        ("analytics", t("analytics"), "rgba(168,85,247,0.55)"),
+    ]
+
     for key, label, glow in menu_items:
         with stylable_container(
             key=f"menu_glow_{key}",
-            css_styles=neon_button_css(glow_rgba=glow, text_color="#0B1220", min_height=58, radius=18)
+            css_styles=neon_button_css(
+                glow_rgba=glow,
+                text_color="#0B1220",
+                min_height=58,
+                radius=18,
+            ),
         ):
             if st.button(label, key=f"home_menu_{key}", use_container_width=True):
                 go_to(key)
@@ -5093,10 +5619,11 @@ def render_home():
 
         st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 
-st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown('<div class="home-bottom-space"></div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# 12) MAIN ENTRYPOINT AND ROUTER
+# 11) MAIN ENTRYPOINT AND ROUTER
 # =========================
 
 def render_top_nav(active_page: str):
@@ -5105,66 +5632,53 @@ def render_top_nav(active_page: str):
         current_lang = "en"
 
     items = [
-        ("home",        t("home"),      "🏠"),
-        ("dashboard",   t("dashboard"), "📊"),
-        ("students",    t("students"),  "👥"),
-        ("add_lesson",  t("lesson"),    "🗓️"),
-        ("add_payment", t("payment"),   "💳"),
-        ("calendar",    t("calendar"),  "📅"),
-        ("analytics",   t("analytics"), "📈"),
+        ("home",        t("home"),      "house"),
+        ("dashboard",   t("dashboard"), "bar-chart"),
+        ("students",    t("students"),  "people"),
+        ("add_lesson",  t("lesson"),    "calendar-event"),
+        ("add_payment", t("payment"),   "credit-card"),
+        ("calendar",    t("calendar"),  "calendar3"),
+        ("analytics",   t("analytics"), "graph-up"),
+        ("sign_out",    t("sign_out"),  "box-arrow-right"),
     ]
+
+    keys = [k for k, _, _ in items]
+    labels = [label for _, label, _ in items]
+    icons = [icon for _, _, icon in items]
+
+    try:
+        default_index = keys.index(active_page)
+    except ValueError:
+        default_index = 0
 
     st.markdown(
         """
         <style>
-        .cm-topnav{
-          position: sticky;
-          top: 0;
-          z-index: 1000;
-          margin-bottom: 14px;
-          padding-top: 10px;
-          background: linear-gradient(
-            180deg,
-            rgba(245,247,251,0.96) 0%,
-            rgba(245,247,251,0.90) 70%,
-            rgba(245,247,251,0.00) 100%
-          );
-          backdrop-filter: blur(8px);
-          -webkit-backdrop-filter: blur(8px);
-        }
-
-        .cm-topnav-card{
-          padding: 12px;
-          border-radius: 20px;
-          background: linear-gradient(180deg, #ffffff, #f8fbff);
-          border: 1px solid rgba(17,24,39,0.08);
-          box-shadow: 0 10px 24px rgba(15,23,42,0.08);
-        }
-
-        .cm-topnav .stButton > button{
-          min-height: 46px !important;
-          border-radius: 14px !important;
-          font-weight: 800 !important;
-          white-space: nowrap !important;
-        }
-
-        .cm-topnav-active .stButton > button{
-          border: 2px solid rgba(37,99,235,0.72) !important;
-          box-shadow: 0 0 0 4px rgba(37,99,235,0.08) !important;
-          background: linear-gradient(180deg, #eff6ff, #eaf2ff) !important;
-        }
-
-        .cm-lang-active .stButton > button{
-          border: 2px solid rgba(37,99,235,0.72) !important;
-          box-shadow: 0 0 0 4px rgba(37,99,235,0.08) !important;
-          background: linear-gradient(180deg, #eff6ff, #eaf2ff) !important;
-        }
-
         @media (max-width: 768px){
+
+          .block-container{
+            padding-left: 0.85rem !important;
+            padding-right: 0.85rem !important;
+          }
+
+          .home-topbar{
+            padding: 8px 10px;
+          }
+
+          .home-hero{
+            padding: 18px 14px;
+          }
+
+          .home-menu-wrap{
+            padding: 12px;
+          }
+
+          /* Add this here */
           .cm-topnav-card{
-            padding: 10px;
+            padding: 4px;
             border-radius: 18px;
           }
+
         }
         </style>
         """,
@@ -5173,78 +5687,69 @@ def render_top_nav(active_page: str):
 
     st.markdown('<div class="cm-topnav"><div class="cm-topnav-card">', unsafe_allow_html=True)
 
-    nav_cols = st.columns([8, 2], vertical_alignment="center")
+    selected_label = option_menu(
+        menu_title=None,
+        options=labels,
+        icons=icons,
+        orientation="horizontal",
+        default_index=default_index,
+        key="top_nav_option_menu",
+        styles={
+            "container": {
+                "padding": "0",
+                "background": "transparent",
+            },
+            "icon": {
+                "font-size": "16px",
+                "color": "#2563EB",
+            },
+            "nav-link": {
+                "font-size": "13px",
+                "font-weight": "700",
+                "text-align": "center",
+                "margin": "0 4px 0 0",
+                "padding": "10px 12px",
+                "border-radius": "14px",
+                "color": "#475569",
+                "--hover-color": "#EEF4FF",
+            },
+            "nav-link-selected": {
+                "background": "linear-gradient(180deg, #eff6ff, #eaf2ff)",
+                "color": "#1D4ED8",
+                "border": "1px solid rgba(37,99,235,0.22)",
+                "box-shadow": "0 0 0 4px rgba(37,99,235,0.08)",
+            },
+        },
+    )
 
-    with nav_cols[0]:
-        button_cols = st.columns(len(items))
-        for col, (key, label, icon) in zip(button_cols, items):
-            with col:
-                active_cls = "cm-topnav-active" if key == active_page else ""
-                st.markdown(f'<div class="{active_cls}">', unsafe_allow_html=True)
-                if st.button(f"{icon}", key=f"nav_{key}", use_container_width=True, help=label):
-                    go_to(key)
-                    st.rerun()
-                st.markdown(f'<div class="home-topnav-label">{label}</div>', unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)
+    selected_key = active_page
+    for key, label, _ in items:
+        if label == selected_label:
+            selected_key = key
+            break
 
-    with nav_cols[1]:
-        lang_cols = st.columns(2)
-        with lang_cols[0]:
-            cls = "cm-lang-active" if current_lang == "en" else ""
-            st.markdown(f'<div class="{cls}">', unsafe_allow_html=True)
-            if st.button("EN", key="lang_en", use_container_width=True):
-                st.session_state["ui_lang"] = "en"
-                _set_query(page=active_page, lang="en")
-                st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
+    previous_key = st.session_state.get("top_nav_prev", active_page)
 
-        with lang_cols[1]:
-            cls = "cm-lang-active" if current_lang == "es" else ""
-            st.markdown(f'<div class="{cls}">', unsafe_allow_html=True)
-            if st.button("ES", key="lang_es", use_container_width=True):
-                st.session_state["ui_lang"] = "es"
-                _set_query(page=active_page, lang="es")
-                st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
+    if selected_key != previous_key:
+        st.session_state["top_nav_prev"] = selected_key
+
+        if selected_key == "sign_out":
+            sign_out_user()
+        elif selected_key != active_page:
+            go_to(selected_key)
+            st.rerun()
 
     st.markdown("</div></div>", unsafe_allow_html=True)
 
+require_login()
+if "show_photo_dialog" not in st.session_state:
+    st.session_state["show_photo_dialog"] = False
 
-# ---------- ROUTER / PAGE BOOTSTRAP ----------
-def _safe_get_qp(key: str, default=None):
-    try:
-        qp = st.query_params
-        v = qp.get(key, default)
-        if isinstance(v, list):
-            v = v[0] if v else default
-        return v if v is not None else default
-    except Exception:
-        qp = st.experimental_get_query_params()
-        v = qp.get(key, [default])
-        return v[0] if v else default
-
-
-if "page" not in st.session_state:
+page = st.session_state.get("page", "home")
+if page not in PAGE_KEYS:
+    page = "home"
     st.session_state["page"] = "home"
-
-qp_page = str(_safe_get_qp("page", "home") or "home")
-
-VALID_PAGES = {
-    "home",
-    "dashboard",
-    "students",
-    "add_lesson",
-    "add_payment",
-    "calendar",
-    "analytics",
-}
-
-if qp_page in VALID_PAGES:
-    st.session_state["page"] = qp_page
-else:
-    st.session_state["page"] = "home"
-
-page = st.session_state["page"]
+    _set_query(page="home", lang=st.session_state.get("ui_lang", "en"))
 
 if page == "home":
     load_css_home_dark()
@@ -5260,11 +5765,11 @@ if page == "home":
 render_top_nav(page)
 
 # =========================
-# 13) PAGES (CONTROLLERS)
+# 12) PAGES (CONTROLLERS)
 # =========================
 
 # =========================
-# 12.2) PAGE: DASHBOARD
+# 12.1) PAGE: DASHBOARD
 # =========================
 
 if page == "dashboard":
@@ -5330,17 +5835,38 @@ if page == "dashboard":
             lesson_id = f"{today.isoformat()}_{student}_{when}"
             key_done = f"today_done_{lesson_id}"
 
+            # Load persisted value once per run
+            saved_done_raw = load_app_setting(key_done, default="0")
+            saved_done = str(saved_done_raw).strip().lower() in ("1", "true", "yes", "y", "on")
+
+            if key_done not in st.session_state:
+                st.session_state[key_done] = saved_done
+
             # ✅ Row layout: Done | Info | Link
             c_done, c_info, c_link = st.columns([0.55, 2.2, 1.3], vertical_alignment="center")
 
             with c_done:
-                done_now = bool(st.session_state.get(key_done, False))
-                done_now = st.toggle(t("mark_done"), value=done_now, key=key_done)
+                old_done = saved_done
+                done_now = st.toggle(
+                    t("mark_done"),
+                    value=bool(st.session_state.get(key_done, saved_done)),
+                    key=f"{key_done}_widget",
+                )
+
+                if done_now != old_done:
+                    ok = save_app_setting(key_done, "1" if done_now else "0")
+                    if ok:
+                        st.session_state[key_done] = done_now
+                    else:
+                       st.session_state[key_done] = old_done
+                       st.error("Could not save lesson completion status.")
 
             # Styling AFTER the toggle value is known
+            done_effective = bool(st.session_state.get(key_done, saved_done))
+
             name_style = "font-weight:900;"
             time_style = "font-weight:900;"
-            if done_now:
+            if done_effective:
                 name_style += "text-decoration:line-through; opacity:0.55;"
                 time_style += "text-decoration:line-through; opacity:0.55;"
 
@@ -5359,7 +5885,7 @@ if page == "dashboard":
 
             with c_link:
                 # Link disappears when done (keeps dashboard clean)
-                if (not done_now) and link.startswith("http"):
+                if (not done_effective) and link.startswith("http"):
                     try:
                         st.link_button(
                             t("open_link"),
@@ -5636,7 +6162,7 @@ if page == "dashboard":
                 st.error(f"{t('normalize_failed')}\n\n{e}")
 
 # =========================
-# 12.3) PAGE: STUDENTS
+# 12.2) PAGE: STUDENTS
 # =========================
 elif page == "students":
     page_header(t("students"))
@@ -5729,7 +6255,7 @@ elif page == "students":
                     st.error(f"{t('delete')} failed.\n\n{e}")
 
 # =========================
-# 12.) PAGE: ADD LESSON
+# 12.3) PAGE: ADD LESSON
 # =========================
 elif page == "add_lesson":
     page_header(t("lessons"))
@@ -6644,20 +7170,31 @@ elif page == "analytics":
     <div class="cm-caps-wrap">
     """
 
-    for k, label, val in capsules:
-        active_cls = "active" if k == current_view else ""
-        caps_html += (
-            f'<a class="cm-capsule {active_cls}" '
-            f'href="?page=analytics&av={k}&lang={current_lang}" target="_self" rel="noopener noreferrer">'
-            f'<div class="cm-capsule-value">{val}</div>'
-            f'<div class="cm-capsule-label">{label}</div>'
-            f'</a>'
-        )
+    capsule_cols = st.columns(len(capsules))
 
-    caps_html += "</div>"
-    st.markdown(caps_html, unsafe_allow_html=True)
+    for i, (k, label, val) in enumerate(capsules):
+        with capsule_cols[i]:
+            button_label = f"{val}\n{label}"
+            if st.button(button_label, key=f"analytics_capsule_{k}", use_container_width=True):
+                st.session_state["analytics_view"] = k
 
-    view = current_view
+                try:
+                    st.query_params["page"] = "analytics"
+                    st.query_params["lang"] = current_lang
+                    st.query_params["av"] = k
+                except Exception:
+                    try:
+                        st.experimental_set_query_params(
+                            page="analytics",
+                            lang=current_lang,
+                            av=k,
+                        )
+                    except Exception:
+                        pass
+
+                st.rerun()
+
+    view = st.session_state.get("analytics_view", "all_time")
 
     # ---------------------------------------
     # Chart helpers (UNCHANGED)
@@ -7162,29 +7699,33 @@ elif page == "analytics":
         # NEW: Yearly goal (persistent across devices)
         # -------------------------
         st.markdown(f"#### {t_a('goal')}")
-        scope = "global"
+        scope = YEAR_GOAL_SCOPE
         current_year = int(today.year)
+
+        goal_state_key = f"year_goal_{current_year}_{scope}"
+        goal_loaded_key = f"{current_year}_{scope}"
 
         if "year_goal_loaded" not in st.session_state:
             st.session_state.year_goal_loaded = {}
-        if current_year not in st.session_state.year_goal_loaded:
-            st.session_state[f"year_goal_{current_year}"] = get_year_goal(current_year, scope=scope, default=0.0)
-            st.session_state.year_goal_loaded[current_year] = True
+
+        if goal_loaded_key not in st.session_state.year_goal_loaded:
+            st.session_state[goal_state_key] = get_year_goal(current_year, scope=scope, default=0.0)
+            st.session_state.year_goal_loaded[goal_loaded_key] = True
 
         gcol1, gcol2 = st.columns([2, 1])
         with gcol1:
             new_goal = st.number_input(
                 f"{t_a('yearly_income_goal')} ({current_year})",
                 min_value=0.0,
-                value=float(st.session_state.get(f"year_goal_{current_year}", 0.0) or 0.0),
+                value=float(st.session_state.get(goal_state_key, 0.0) or 0.0),
                 step=1000.0,
-                key=f"year_goal_input_{current_year}",
+                key=f"year_goal_input_{current_year}_{scope}",
             )
         with gcol2:
-            if st.button("Save", key=f"save_goal_{current_year}", use_container_width=True):
+            if st.button("Save", key=f"save_goal_{current_year}_{scope}", use_container_width=True):
                 ok = set_year_goal(current_year, float(new_goal), scope=scope)
                 if ok:
-                    st.session_state[f"year_goal_{current_year}"] = float(new_goal)
+                    st.session_state[goal_state_key] = float(new_goal)
                     try:
                         st.cache_data.clear()
                     except Exception:
@@ -7195,7 +7736,7 @@ elif page == "analytics":
                 else:
                     st.toast("Could not save goal", icon="⚠️")
 
-        goal_val = float(st.session_state.get(f"year_goal_{current_year}", 0.0) or 0.0)
+        goal_val = float(st.session_state.get(goal_state_key, 0.0) or 0.0)
         if goal_val > 0:
             prog = max(0.0, min(1.0, ytd_cash / goal_val))
             st.progress(prog)
@@ -7214,7 +7755,6 @@ elif page == "analytics":
                 st.metric(t_a("avg_needed_month"), money_fmt(avg_needed))
         else:
             st.info("Set a yearly goal to see your progress bar.")
-
         # -------------------------
         # Summary callout + actions (unchanged)
         # -------------------------
