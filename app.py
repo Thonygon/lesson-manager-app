@@ -6756,7 +6756,7 @@ elif page == "calendar":
                 sch_weekday = st.selectbox(
                     t("weekday"),
                     list(range(7)),
-                    format_func=lambda x: f"{int(x)} ({weekday_names[int(x)]})",
+                    format_func=lambda x: weekday_names[int(x)],
                     key="cal_sch_weekday",
                 )
 
@@ -6815,7 +6815,7 @@ elif page == "calendar":
                 ).fillna(0).astype(int).clip(0, 6)
 
                 show["weekday"] = show["weekday"].apply(
-                    lambda i: f"{int(i)} ({weekday_names[int(i)]})"
+                    lambda i: weekday_names[int(i)]
                 )
 
                 show = show[
