@@ -5395,8 +5395,9 @@ def render_home():
             key="home_action_menu",
             styles={
                 "container": {
-                    "padding": "0",
-                    "background": "transparent",
+                  "padding": "0 !important",
+                  "margin": "0 !important",
+                  "background": "transparent",
                 },
                 "nav-link": {
                     "font-size": "14px",
@@ -5682,8 +5683,9 @@ def render_top_nav(active_page: str):
         key="top_nav_option_menu",
         styles={
             "container": {
-                "padding": "0",
-                "background": "transparent",
+              "padding": "0 !important",
+              "margin": "0 !important",
+              "background": "transparent",
             },
             "icon": {
                 "font-size": "16px",
@@ -5739,8 +5741,6 @@ if page == "home":
     load_css_home_dark()
 else:
     load_css_app_light(compact=bool(st.session_state.get("compact_mode", False)))
-
-students = load_students()
 
 if page == "home":
     render_home()
@@ -6152,6 +6152,7 @@ elif page == "students":
     page_header(t("students"))
     st.caption(t("add_and_manage_students"))
 
+    students = load_students()
     students_df = load_students_df()
 
     st.markdown(f"### {t('add_new')}")
@@ -6244,6 +6245,8 @@ elif page == "students":
 elif page == "add_lesson":
     page_header(t("lessons"))
     st.caption(t("keep_track_of_your_lessons"))
+
+    students = load_students()
 
     st.markdown(f"### {t('record_attendance')}")
     if not students:
@@ -6390,6 +6393,7 @@ elif page == "add_payment":
     
     render_pricing_editor()
 
+    students = load_students()
     if not students:
         st.info(t("no_students"))
     else:
