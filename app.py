@@ -6653,6 +6653,7 @@ elif page == "add_payment":
 elif page == "calendar":
     page_header(t("calendar"))
     st.caption(t("create_and_manage_your_weekly_program"))
+    students = load_students()
 
     # ---------------------------------------
     # VIEW SELECTOR
