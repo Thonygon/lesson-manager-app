@@ -2052,18 +2052,22 @@ def ensure_student(student: str) -> None:
 
 @st.cache_data(ttl=45, show_spinner=False)
 def _load_students_cached(uid: str) -> List[str]:
-    students_df = load_table("students")
-    classes_df = load_table("classes")
-    payments_df = load_table("payments")
+    df = load_table("students")
 
-    names = set()
-    for df, col in [(students_df, "student"), (classes_df, "student"), (payments_df, "student")]:
-        if not df.empty and col in df.columns:
-            df = df.copy()
-            df[col] = df[col].astype(str).str.strip()
-            names.update(df[col].dropna().tolist())
+    if df.empty or "student" not in df.columns:
+        return []
 
-    return sorted([n for n in names if n and n.lower() != "nan"])
+    names = (
+        df["student"]
+        .astype(str)
+        .str.strip()
+        .replace("", pd.NA)
+        .dropna()
+        .unique()
+        .tolist()
+    )
+
+    return sorted([n for n in names if str(n).lower() != "nan"])
 
 
 def load_students() -> List[str]:
@@ -2077,6 +2081,9 @@ def clear_app_caches() -> None:
     build_calendar_events.clear()
     _load_students_cached.clear()
     _load_pricing_items_cached.clear()
+    _load_app_settings_map_cached.clear()
+    _load_schedules_cached.clear()
+    _load_overrides_cached.clear()
 
 def get_profile_avatar_url(user_id: str) -> str:
     try:
@@ -3189,7 +3196,8 @@ def show_student_history(student: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
 # =========================
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
-def load_schedules() -> pd.DataFrame:
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_schedules_cached(uid: str) -> pd.DataFrame:
     df = load_table("schedules")
     if df.empty:
         return pd.DataFrame(columns=["id", "student", "weekday", "time", "duration_minutes", "active"])
@@ -3207,6 +3215,9 @@ def load_schedules() -> pd.DataFrame:
     df["time"] = df["time"].astype(str).str.strip()
     return df
 
+def load_schedules() -> pd.DataFrame:
+    uid = get_current_user_id()
+    return _load_schedules_cached(uid)
 
 def add_schedule(student: str, weekday: int, time_str: str, duration_minutes: int, active: bool = True) -> None:
     student = str(student).strip()
@@ -3232,8 +3243,8 @@ def delete_schedule(schedule_id: int) -> None:
     q.execute()
     clear_app_caches()
 
-
-def load_overrides() -> pd.DataFrame:
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_overrides_cached(uid: str) -> pd.DataFrame:
     df = load_table("calendar_overrides")
     if df.empty:
         return pd.DataFrame(columns=["id", "student", "original_date", "new_datetime", "duration_minutes", "status", "note"])
@@ -3247,18 +3258,15 @@ def load_overrides() -> pd.DataFrame:
 
     df["student"] = df["student"].astype(str).str.strip()
     df["original_date"] = to_dt_naive(df["original_date"], utc=True)
-
-    new_dt = pd.to_datetime(df["new_datetime"], errors="coerce", utc=True)
-    df["new_datetime"] = pd.NaT
-    mask = new_dt.notna()
-    df.loc[mask, "new_datetime"] = new_dt.loc[mask].dt.tz_convert(LOCAL_TZ).dt.tz_localize(None)
-
+    df["new_datetime"] = to_dt_naive(df["new_datetime"], utc=True)
     df["duration_minutes"] = pd.to_numeric(df["duration_minutes"], errors="coerce").fillna(60).astype(int)
     df["status"] = df["status"].astype(str).str.strip().str.lower()
-    df["note"] = df["note"].fillna("").astype(str)
-
+    df["note"] = df["note"].astype(str).fillna("")
     return df
 
+def load_overrides() -> pd.DataFrame:
+    uid = get_current_user_id()
+    return _load_overrides_cached(uid)
 
 def _to_utc_iso(dt: Optional[datetime]) -> Optional[str]:
     """
@@ -3403,61 +3411,53 @@ def _parse_float_loose(v, default=0.0) -> float:
         return float(s)
     except Exception:
         return float(default)
-
-
-def load_app_setting(key: str, default=None, key_fallbacks: list[str] | None = None):
-    """
-    Reads setting from `app_settings`.
-
-    Safe behavior:
-      - If table has user_id column: only read rows for current user.
-      - If table does not have user_id column: only read from the legacy shared schema.
-      - Never fall back from one user's row to another user's row.
-    """
+    
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_app_settings_map_cached(uid: str) -> dict:
     try:
         df = load_table("app_settings")
     except Exception:
-        return default
+        return {}
 
     if df is None or df.empty:
-        return default
+        return {}
 
     key_col = _first_col(df, ["key", "setting_key", "name"])
     val_col = _first_col(df, ["value", "setting_value", "val"])
-    uid_col = _first_col(df, ["user_id", "uid", "owner_id"])
 
     if not key_col or not val_col:
-        return default
+        return {}
+
+    tmp = df.copy()
+    tmp[key_col] = tmp[key_col].astype(str).str.strip()
+
+    out = {}
+    for _, row in tmp.iterrows():
+        k = str(row.get(key_col, "")).strip()
+        if not k:
+            continue
+        out[k] = row.get(val_col)
+
+    return out
+
+
+def load_app_settings_map() -> dict:
+    uid = get_current_user_id()
+    return _load_app_settings_map_cached(uid)
+
+def load_app_setting(key: str, default=None, key_fallbacks: list[str] | None = None):
+    settings_map = load_app_settings_map()
 
     keys_to_try = [str(key).strip()]
     if key_fallbacks:
         keys_to_try += [str(k).strip() for k in key_fallbacks if str(k).strip()]
 
-    tmp = df.copy()
-    tmp[key_col] = tmp[key_col].astype(str).str.strip()
+    for k in keys_to_try:
+        if k in settings_map:
+            v = settings_map[k]
+            return _parse_float_loose(v, default) if isinstance(default, (int, float)) else v
 
-    # Strict user-scoped read if uid column exists
-    if uid_col:
-        uid = get_current_user_id()
-        if not uid:
-            return default
-
-        tmp[uid_col] = tmp[uid_col].astype(str).str.strip()
-        rows = tmp[(tmp[uid_col] == str(uid).strip()) & (tmp[key_col].isin(keys_to_try))]
-
-        if rows.empty:
-            return default
-
-        v = rows.iloc[0][val_col]
-        return _parse_float_loose(v, default) if isinstance(default, (int, float)) else v
-
-    # Legacy schema without user_id column
-    rows = tmp[tmp[key_col].isin(keys_to_try)]
-    if rows.empty:
-        return default
-
-    v = rows.iloc[0][val_col]
-    return _parse_float_loose(v, default) if isinstance(default, (int, float)) else v
+    return default
 
 
 def save_app_setting(key: str, value, key_fallbacks: list[str] | None = None) -> bool:
@@ -5883,6 +5883,7 @@ if page == "dashboard":
 
         # Save for WhatsApp Templates
         today_df = df.copy()
+        settings_map = load_app_settings_map()
 
         for _, r in df.iterrows():
             student = str(r.get("Student", "")).strip()
@@ -5894,7 +5895,7 @@ if page == "dashboard":
             key_done = f"today_done_{lesson_id}"
 
             # Load persisted value once per run
-            saved_done_raw = load_app_setting(key_done, default="0")
+            saved_done_raw = settings_map.get(key_done, "0")
             saved_done = str(saved_done_raw).strip().lower() in ("1", "true", "yes", "y", "on")
 
             if key_done not in st.session_state:
