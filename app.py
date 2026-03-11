@@ -1967,11 +1967,14 @@ def require_login():
 
     st.stop()
 
-def load_table(name: str, limit: int = 10000, page_size: int = 1000) -> pd.DataFrame:
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_table_cached(
+    name: str,
+    uid: str,
+    limit: int = 10000,
+    page_size: int = 1000
+) -> pd.DataFrame:
     all_rows = []
-    offset = 0
-
-    uid = get_current_user_id()
 
     # Tables that should be scoped to the logged-in user
     owner_scoped_tables = {
@@ -1986,17 +1989,16 @@ def load_table(name: str, limit: int = 10000, page_size: int = 1000) -> pd.DataF
     }
 
     try:
+        offset = 0
         while offset < limit:
             q = supabase.table(name).select("*")
 
             if name in owner_scoped_tables:
                 if not uid:
-                    st.error(f"Missing user_id for owner-scoped table '{name}'")
                     return pd.DataFrame(columns=[])
                 q = q.eq("user_id", uid)
 
             resp = q.range(offset, min(offset + page_size - 1, limit - 1)).execute()
-
             batch = resp.data or []
             all_rows.extend(batch)
 
@@ -2010,6 +2012,11 @@ def load_table(name: str, limit: int = 10000, page_size: int = 1000) -> pd.DataF
     except Exception as e:
         st.error(f"Supabase error loading table '{name}'.\n\n{e}")
         return pd.DataFrame()
+
+
+def load_table(name: str, limit: int = 10000, page_size: int = 1000) -> pd.DataFrame:
+    uid = get_current_user_id()
+    return _load_table_cached(name, uid, limit, page_size)
 
 
 def norm_student(x: str) -> str:
@@ -2040,9 +2047,11 @@ def ensure_student(student: str) -> None:
 
     payload = with_owner({"student": student})
     supabase.table("students").insert(payload).execute()
+    clear_app_caches()
 
 
-def load_students() -> List[str]:
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_students_cached(uid: str) -> List[str]:
     students_df = load_table("students")
     classes_df = load_table("classes")
     payments_df = load_table("payments")
@@ -2050,9 +2059,24 @@ def load_students() -> List[str]:
     names = set()
     for df, col in [(students_df, "student"), (classes_df, "student"), (payments_df, "student")]:
         if not df.empty and col in df.columns:
+            df = df.copy()
             df[col] = df[col].astype(str).str.strip()
             names.update(df[col].dropna().tolist())
+
     return sorted([n for n in names if n and n.lower() != "nan"])
+
+
+def load_students() -> List[str]:
+    uid = get_current_user_id()
+    return _load_students_cached(uid)
+
+def clear_app_caches() -> None:
+    _load_table_cached.clear()
+    rebuild_dashboard.clear()
+    build_income_analytics.clear()
+    build_calendar_events.clear()
+    _load_students_cached.clear()
+    _load_pricing_items_cached.clear()
 
 def get_profile_avatar_url(user_id: str) -> str:
     try:
@@ -2597,7 +2621,7 @@ def add_class(
     })
 
     supabase.table("classes").insert(payload).execute()
-
+    clear_app_caches()
 
 def add_payment(
     student: str,
@@ -2634,7 +2658,7 @@ def add_payment(
     })
 
     supabase.table("payments").insert(payload).execute()
-
+    clear_app_caches()
 
 def delete_row(table_name: str, row_id: int) -> None:
     uid = get_current_user_id()
@@ -2642,7 +2666,7 @@ def delete_row(table_name: str, row_id: int) -> None:
     if uid:
         q = q.eq("user_id", uid)
     q.execute()
-
+    clear_app_caches()
 
 def normalize_latest_package(student: str, payment_id: int, note: str = "") -> bool:
     try:
@@ -2656,6 +2680,7 @@ def normalize_latest_package(student: str, payment_id: int, note: str = "") -> b
         if uid:
             q = q.eq("user_id", uid)
         q.execute()
+        clear_app_caches()
         return True
     except Exception:
         return False
@@ -2675,6 +2700,7 @@ def update_student_profile(student: str, email: str, zoom_link: str, notes: str,
         q = q.eq("user_id", uid)
 
     q.execute()
+    clear_app_caches()
 
 def update_payment_row(payment_id: int, updates: dict) -> bool:
     try:
@@ -2683,6 +2709,7 @@ def update_payment_row(payment_id: int, updates: dict) -> bool:
         if uid:
             q = q.eq("user_id", uid)
         q.execute()
+        clear_app_caches()
         return True
     except Exception:
         return False
@@ -2695,6 +2722,7 @@ def update_class_row(class_id: int, updates: dict) -> bool:
         if uid:
             q = q.eq("user_id", uid)
         q.execute()
+        clear_app_caches()
         return True
     except Exception:
         return False
@@ -2703,19 +2731,11 @@ def update_class_row(class_id: int, updates: dict) -> bool:
 # 07.6) PRICING ITEMS HELPERS
 # =========================
 
-def load_pricing_items() -> pd.DataFrame:
-    """
-    Loads pricing_items from Supabase (scoped to the logged-in user if user_id exists).
-    Expected columns:
-      id, user_id, modality (online/offline), kind (hourly/package),
-      hours (NULL for hourly), price_try, active, sort_order
-    """
-    uid = st.session_state.get("user_id")
-
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_pricing_items_cached(uid: str) -> pd.DataFrame:
     try:
         q = supabase.table("pricing_items").select("*").order("sort_order")
         if uid:
-            # Only load rows owned by the logged-in user
             q = q.eq("user_id", str(uid))
 
         res = q.execute()
@@ -2746,9 +2766,14 @@ def load_pricing_items() -> pd.DataFrame:
     df["modality"] = df["modality"].fillna("").astype(str).str.strip().str.lower()
     df["kind"] = df["kind"].fillna("").astype(str).str.strip().str.lower()
     df["price_try"] = pd.to_numeric(df["price_try"], errors="coerce").fillna(0).astype(int)
-    df["hours"] = pd.to_numeric(df["hours"], errors="coerce")  # keep NaN for hourly
+    df["hours"] = pd.to_numeric(df["hours"], errors="coerce")
 
     return df
+
+
+def load_pricing_items() -> pd.DataFrame:
+    uid = get_current_user_id()
+    return _load_pricing_items_cached(uid)
 
 def upsert_pricing_item(payload: dict) -> None:
     if not isinstance(payload, dict):
@@ -2773,6 +2798,8 @@ def upsert_pricing_item(payload: dict) -> None:
 
     if getattr(resp, "error", None):
         raise RuntimeError(resp.error)
+    
+    clear_app_caches()
 
 def delete_pricing_item(item_id: int) -> None:
     if item_id is None:
@@ -2783,6 +2810,7 @@ def delete_pricing_item(item_id: int) -> None:
     if uid:
         q = q.eq("user_id", uid)
     resp = q.execute()
+    clear_app_caches()
 
     if getattr(resp, "error", None):
         raise RuntimeError(resp.error)
@@ -3193,6 +3221,7 @@ def add_schedule(student: str, weekday: int, time_str: str, duration_minutes: in
     })
 
     supabase.table("schedules").insert(payload).execute()
+    clear_app_caches()
 
 
 def delete_schedule(schedule_id: int) -> None:
@@ -3201,6 +3230,7 @@ def delete_schedule(schedule_id: int) -> None:
     if uid:
         q = q.eq("user_id", uid)
     q.execute()
+    clear_app_caches()
 
 
 def load_overrides() -> pd.DataFrame:
@@ -3266,6 +3296,7 @@ def add_override(
     })
 
     supabase.table("calendar_overrides").insert(payload).execute()
+    clear_app_caches()
 
 
 def delete_override(override_id: int) -> None:
@@ -3274,6 +3305,7 @@ def delete_override(override_id: int) -> None:
     if uid:
         q = q.eq("user_id", uid)
     q.execute()
+    clear_app_caches()
 
 
 # =========================
@@ -3447,6 +3479,7 @@ def save_app_setting(key: str, value, key_fallbacks: list[str] | None = None) ->
             payload,
             on_conflict="user_id,key"
         ).execute()
+        clear_app_caches()
         return True
     except Exception as e:
         st.error(f"Could not save app setting '{key}': {e}")
@@ -3909,6 +3942,7 @@ def set_year_goal(year: int, value: float, scope: str = YEAR_GOAL_SCOPE) -> bool
             payload,
             on_conflict="user_id,key"
         ).execute()
+        clear_app_caches()
         return True
     except Exception:
         return False
@@ -3986,6 +4020,7 @@ def dash_chart_series(
 
     return ser
 
+@st.cache_data(ttl=45, show_spinner=False)
 def rebuild_dashboard(active_window_days: int = 183, expiry_days: int = 365, grace_days: int = 0) -> pd.DataFrame:
     classes = load_table("classes")
     payments = load_table("payments")
@@ -4246,7 +4281,7 @@ def money_fmt(x: float) -> str:
     except Exception:
         return str(x)
 
-
+@st.cache_data(ttl=45, show_spinner=False)
 def build_income_analytics(group: str = "monthly"):
     payments = load_table("payments")
 
@@ -4684,7 +4719,7 @@ def best_text_color(hex_color: str) -> str:
     except Exception:
         return "#0F172A"
 
-
+@st.cache_data(ttl=45, show_spinner=False)
 def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
     schedules = load_schedules()
     overrides = load_overrides()
@@ -4868,12 +4903,48 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
       /* Fix iPhone dark mode text disappearing */
       #calendar, #calendar * {{ color: #0f172a !important; }}
 
-      .fc .fc-button {{
+      .fc .fc-button,
+      .fc .fc-button-primary {{
         border-radius:10px;
-        border:1px solid rgba(17,24,39,0.14);
-        background:#fff;
-        color:#0f172a;
+        border:1px solid rgba(96,165,250,0.45) !important;
+        background:rgba(96,165,250,0.30) !important;
+        color:#0f172a !important;
+        box-shadow:none !important;
       }}
+
+      .fc .fc-button:hover,
+      .fc .fc-button-primary:hover {{
+        border:1px solid rgba(96,165,250,0.55) !important;
+        background:rgba(96,165,250,0.40) !important;
+        color:#0f172a !important;
+      }}
+
+      .fc .fc-button:focus,
+      .fc .fc-button-primary:focus,
+      .fc .fc-button:active,
+      .fc .fc-button-primary:active {{
+        border:1px solid rgba(96,165,250,0.55) !important;
+        background:rgba(96,165,250,0.40) !important;
+        color:#0f172a !important;
+        box-shadow:none !important;
+      }}
+
+      .fc .fc-button-active,
+      .fc .fc-button-primary.fc-button-active {{
+        border:1px solid rgba(96,165,250,0.65) !important;
+        background:rgba(96,165,250,0.45) !important;
+        color:#0f172a !important;
+        box-shadow:none !important;
+      }}
+
+      .fc .fc-button:disabled,
+      .fc .fc-button-primary:disabled {{
+        border:1px solid rgba(96,165,250,0.28) !important;
+        background:rgba(96,165,250,0.18) !important;
+        color:#64748b !important;
+        opacity:1 !important;
+      }}
+
       .fc .fc-col-header-cell-cushion,
       .fc .fc-daygrid-day-number {{ color:#0f172a; }}
       .fc .fc-timegrid-slot-label-cushion {{ color:#334155; }}
@@ -6237,6 +6308,7 @@ elif page == "students":
             if st.button(t("delete"), type="primary", disabled=not confirm, key="btn_delete_student"):
                 try:
                     supabase.table("students").delete().eq("student", del_student).execute()
+                    clear_app_caches()
                     st.success(t("done_ok"))
                     st.rerun()
                 except Exception as e:
