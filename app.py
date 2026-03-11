@@ -3064,7 +3064,7 @@ def _is_offline(modality: str) -> bool:
 
 
 def _units_multiplier(modality: str) -> int:
-    return 2 if _is_offline(modality) else 1
+    return 1
 
 
 def _is_free_note(note: str) -> bool:
