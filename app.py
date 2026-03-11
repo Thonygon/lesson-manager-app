@@ -17,6 +17,7 @@ import plotly.express as px
 import uuid
 import streamlit.components.v1 as components
 import numpy as np
+import matplotlib.pyplot as plt
 from PIL import Image
 from io import BytesIO
 from zoneinfo import ZoneInfo
@@ -352,7 +353,7 @@ I18N: Dict[str, Dict[str, str]] = {
         # ANALYTICS PAGE
         # -------------------------
         "view_your_income_and_business_indicators": "View your income and business indicators",
-        "all_time_income": "Total",
+        "all_time_income": "Total income",
         "yearly": "Yearly",
         "monthly": "Monthly",
         "weekly": "Weekly",
@@ -7076,7 +7077,6 @@ elif page == "analytics":
         st.plotly_chart(fig, use_container_width=True)
 
     def _bar_chart_with_highlight(labels, values, highlight_label, base_color, highlight_color, title, xlabel, ylabel):
-        import matplotlib.pyplot as plt
 
         colors = [highlight_color if l == highlight_label else base_color for l in labels]
         fig, ax = plt.subplots()
