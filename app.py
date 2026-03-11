@@ -969,29 +969,29 @@ def load_css_home_dark():
     st.markdown(
         """
         <style>
-        :root { color-scheme: dark; }
-        html, body { color-scheme: dark; }
+        :root { color-scheme: light !important; }
+        html, body { color-scheme: light !important; }
 
         :root{
-          --bg-1:#081120;
-          --bg-2:#0b1730;
-          --bg-3:#050b14;
+          --bg-1:#f5f7fb;
+          --bg-2:#f8faff;
+          --bg-3:#eef4ff;
 
-          --text:#eef4ff;
-          --muted:rgba(238,244,255,0.72);
+          --text:#0f172a;
+          --muted:#475569;
 
-          --panel:rgba(255,255,255,0.07);
-          --panel-2:rgba(255,255,255,0.05);
-          --border:rgba(255,255,255,0.12);
-          --border-strong:rgba(255,255,255,0.18);
+          --panel:rgba(255,255,255,0.88);
+          --panel-2:rgba(255,255,255,0.72);
+          --border:rgba(17,24,39,0.08);
+          --border-strong:rgba(17,24,39,0.12);
 
-          --primary:#60A5FA;
-          --primary-strong:#3B82F6;
-          --success:#34D399;
-          --danger:#F87171;
+          --primary:#2563EB;
+          --primary-strong:#1D4ED8;
+          --success:#10B981;
+          --danger:#EF4444;
 
-          --shadow-lg:0 22px 55px rgba(0,0,0,0.42);
-          --shadow-md:0 12px 28px rgba(0,0,0,0.30);
+          --shadow-lg:0 22px 55px rgba(15,23,42,0.10);
+          --shadow-md:0 12px 28px rgba(15,23,42,0.08);
           --radius-xl:24px;
           --radius-lg:18px;
           --radius-md:14px;
@@ -1015,10 +1015,9 @@ def load_css_home_dark():
 
         .stApp{
           background:
-            radial-gradient(900px 500px at 15% 5%, rgba(59,130,246,0.22), transparent 58%),
-            radial-gradient(800px 480px at 85% 10%, rgba(16,185,129,0.14), transparent 60%),
-            radial-gradient(700px 420px at 50% 100%, rgba(96,165,250,0.10), transparent 58%),
-            linear-gradient(180deg, var(--bg-2) 0%, var(--bg-1) 45%, var(--bg-3) 100%);
+            radial-gradient(900px 420px at 0% 0%, rgba(37,99,235,0.06), transparent 55%),
+            radial-gradient(700px 380px at 100% 0%, rgba(16,185,129,0.05), transparent 58%),
+            linear-gradient(180deg, var(--bg-2) 0%, var(--bg-1) 100%);
           color: var(--text);
           min-height:100vh;
         }
@@ -1040,10 +1039,22 @@ def load_css_home_dark():
           padding-bottom: 0rem !important;
           padding-left: 1rem !important;
           padding-right: 1rem !important;
+          margin-top: 0rem !important;
+        }
+
+        section[data-testid="stMain"]{
+          padding-top: 0rem !important;
+        }
+
+        [data-testid="stAppViewContainer"] > .main{
+          padding-top: 0rem !important;
+        }
+
+        header[data-testid="stHeader"]{
+          display:none;
         }
 
         a { text-decoration:none !important; }
-
         /* ---------- Shared layout shells ---------- */
         .home-shell{
           max-width: 760px;
@@ -1096,6 +1107,35 @@ def load_css_home_dark():
           text-transform: uppercase;
           letter-spacing: 0.05em;
           margin-bottom: 2px;
+        }
+        .home-topbar-main{
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:14px;
+          padding: 14px 18px;
+        }
+
+        .home-topbar-left{
+          display:flex;
+          align-items:center;
+          gap:12px;
+          min-width:0;
+          flex:1 1 auto;
+        }
+
+        .home-topbar-usertext{
+          min-width:45%;
+        }
+
+        .home-topbar-brand{
+          flex:0 0 auto;
+          text-align:left;
+          font-size: 1rem;
+          font-weight: 800;
+          letter-spacing: -0.03em;
+          color: var(--primary-strong);
+          white-space: nowrap;
         }
 
         /* ---------- Titles ---------- */
@@ -1165,7 +1205,7 @@ def load_css_home_dark():
           gap:10px;
           padding: 14px 14px;
           border-radius: 16px;
-          color:#fff !important;
+          color:var(--muted);
           font-weight:800;
           background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
           border:1px solid var(--border);
@@ -1181,6 +1221,14 @@ def load_css_home_dark():
           display:inline-block;
         }
 
+        div[data-testid="stExpander"]{
+          border-radius:18px;
+          border:1px solid var(--border);
+          background:linear-gradient(180deg,var(--panel),var(--panel-2));
+          box-shadow:var(--shadow-md);
+        }
+
+        /* ---------- Section divider ---------- */
         .home-section-line{
           display:flex;
           align-items:center;
@@ -1196,6 +1244,9 @@ def load_css_home_dark():
           flex:1 1 auto;
           height:1px;
           border-radius:999px;
+        }
+
+        .home-section-line::before{
           background: linear-gradient(
             90deg,
             rgba(255,255,255,0.00) 0%,
@@ -1225,7 +1276,6 @@ def load_css_home_dark():
         }
 
         /* ---------- Labels ---------- */
-
         .home-menu-note{
           text-align:center;
           color: var(--muted);
@@ -1282,44 +1332,7 @@ def load_css_home_dark():
           font-size: 0.9rem;
         }
 
-        /* ---------- Neon animation helper ---------- */
-        @keyframes homeNeonPulse {
-          0%, 100% {
-            transform: translateY(0);
-            filter: brightness(1);
-          }
-          50% {
-            transform: translateY(-1px);
-            filter: brightness(1.03);
-          }
-        }
-
-        /* ---------- Bottom safe spacing ---------- */
-        .home-bottom-space{
-          height: 22px;
-        }
-
-        @media (max-width: 768px){
-          .block-container{
-            padding-left: 0.85rem !important;
-            padding-right: 0.85rem !important;
-          }
-
-          .home-topbar{
-            padding: 14px 10px;
-          }
-
-          .home-hero{
-            padding: 18px 14px;
-          }
-
-          .home-menu-wrap{
-            padding: 12px;
-          }
-        }
-
         /* ---------- Avatar ---------- */
-
         .home-avatar{
           aspect-ratio:1 / 1;
           border-radius:50%;
@@ -1346,59 +1359,6 @@ def load_css_home_dark():
           min-width:52px;
         }
 
-        /* ---------- Section divider ---------- */
-
-        .home-section-line{
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          gap:14px;
-          margin: 20px 0 14px 0;
-          width:100%;
-        }
-
-        .home-section-line::before,
-        .home-section-line::after{
-          content:"";
-          flex:1 1 auto;
-          height:1px;
-          border-radius:999px;
-          background: linear-gradient(
-            90deg,
-            rgba(255,255,255,0.00) 0%,
-            rgba(255,255,255,0.16) 20%,
-            rgba(96,165,250,0.30) 100%
-          );
-        }
-
-        .home-section-line span{
-          flex:0 0 auto;
-          text-align:center;
-          font-size: 0.95rem;
-          font-weight: 800;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          color: var(--muted);
-          white-space: nowrap;
-        }
-
-        /* ---------- Bottom spacing ---------- */
-
-        .home-bottom-space{
-          height: 22px;
-        }
-
-        @media (max-width: 768px){
-          .block-container{
-            padding-left: 0.85rem !important;
-            padding-right: 0.85rem !important;
-          }
-
-          .home-hero-card{
-            padding:16px;
-          }
-        }
-
         /* ---------- Horizontal scroll action buttons ---------- */
         .home-actions{
           display:flex;
@@ -1418,25 +1378,57 @@ def load_css_home_dark():
           flex:0 0 120px;
         }
 
-        /* Remove Streamlit top spacing */
-        .block-container{
-          padding-top: 0rem !important;
-          margin-top: 0rem !important;
+        /* ---------- Neon animation helper ---------- */
+        @keyframes homeNeonPulse {
+          0%, 100% {
+            transform: translateY(0);
+            filter: brightness(1);
+          }
+          50% {
+            transform: translateY(-1px);
+            filter: brightness(1.03);
+          }
         }
 
-        /* Remove hidden Streamlit header spacing */
-        header[data-testid="stHeader"]{
-          display:none;
+        /* ---------- Bottom safe spacing ---------- */
+        .home-bottom-space{
+          height: 22px;
         }
 
-        /* Remove extra space above main container */
-        section[data-testid="stMain"]{
-          padding-top: 0rem !important;
-        }
+        /* ---------- Mobile ---------- */
+        @media (max-width: 768px){
+          .block-container{
+            padding-left: 0.85rem !important;
+            padding-right: 0.85rem !important;
+          }
 
-        /* Extra safety for Streamlit wrapper */
-        [data-testid="stAppViewContainer"] > .main{
-          padding-top: 0rem !important;
+          .home-topbar{
+            padding: 14px 10px;
+          }
+
+          .home-topbar-main{
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+          }
+
+          .home-topbar-brand{
+            width: 40%;
+            text-align: left;
+            white-space: normal;
+          }
+
+          .home-hero{
+            padding: 18px 14px;
+          }
+
+          .home-hero-card{
+            padding:16px;
+          }
+
+          .home-menu-wrap{
+            padding: 12px;
+          }
         }
 
         </style>
@@ -3664,14 +3656,14 @@ def render_home_indicator(
 <style>
 .home-indicator-wrap {{
   width: 100%;
-  margin: 0.25rem 0 1.0rem 0;
+  margin: 0rem 0 0rem 0;
 }}
 
 .home-indicator {{
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 10px;
 
   padding: 14px 16px;
   border-radius: 18px;
@@ -3683,7 +3675,7 @@ def render_home_indicator(
   );
   border: 1px solid rgba(59,130,246,0.25);
   box-shadow: 0 10px 28px rgba(37,99,235,0.18);
-  color: rgba(255,255,255,0.95);
+  color: var(--text);
 }}
 
 .home-indicator-left {{
@@ -3698,7 +3690,7 @@ def render_home_indicator(
   height: 12px;
   border-radius: 999px;
   background: {accent};
-  box-shadow: 0 0 0 6px rgba(59,130,246,0.18);
+  box-shadow: 0 0 0 6px rgba(59,130,246,0.12);
 }}
 
 .home-indicator-title {{
@@ -3742,7 +3734,7 @@ def render_home_indicator(
 .home-indicator-kpi {{
   padding: 6px 12px;
   border-radius: 14px;
-  background: rgba(0,0,0,0.18);
+  background: rgba(59,130,246,0.12);
   border: 1px solid rgba(255,255,255,0.14);
 
   flex: 0 0 130px;
@@ -3779,7 +3771,7 @@ def render_home_indicator(
   border-radius: 999px;
   overflow: hidden;
   background: rgba(255,255,255,0.10);
-  border: 1px solid rgba(255,255,255,0.12);
+  border: 1px solid rgba(59,130,246,0.12);
 }}
 
 .home-indicator-progress > div {{
@@ -5424,12 +5416,14 @@ def render_home():
     with right:
         st.markdown(
             f"""
-            <div class="home-topbar" style="display:flex; align-items:center; gap:12px;">
-                <div class="home-avatar home-avatar-sm" style="{avatar_style}"></div>
-                <div style="min-width:0;">
-                    <div class="home-topbar-sub">{t("welcome").strip()}</div>
-                    <div class="home-topbar-name">{user_name}</div>
-                </div>
+            <div class="home-topbar home-topbar-main">
+                <div class="home-topbar-left">
+                    <div class="home-avatar home-avatar-sm" style="{avatar_style}"></div>
+                    <div class="home-topbar-usertext">
+                        <div class="home-topbar-sub">{t("welcome").strip()}</div>
+                        <div class="home-topbar-name">{user_name}</div>
+                    </div>
+                <div class="home-topbar-brand">CLASS MANAGER</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -5449,7 +5443,6 @@ def render_home():
 
             elif action == "Logout":
                 sign_out_user()
-
         
     # ---------- AVATAR DIALOG ----------
     if st.session_state.get("show_photo_dialog"):
@@ -5510,29 +5503,6 @@ def render_home():
                     except Exception as e:
                         st.error(f"{t('upload_failed')}: {e}")
 
-        except Exception:
-            st.markdown(f"#### {t('update_profile_photo')}")
-            up = st.file_uploader(
-                t("choose_photo"),
-                type=["png", "jpg", "jpeg", "webp"],
-                label_visibility="collapsed",
-            )
-
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button(t("close"), key="photo_close_fallback"):
-                    st.rerun()
-            with col2:
-                if st.button(t("save"), key="photo_save_fallback", disabled=(up is None)) and up is not None:
-                    try:
-                        url = upload_avatar_to_supabase(up, user_id=user_id)
-                        st.session_state["avatar_url"] = url
-                        save_profile_avatar_url(user_id, url)
-                        st.success(t("profile_photo_updated"))
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"{t('upload_failed')}: {e}")
-
     # ---------- REAL VALUES ----------
     dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
 
@@ -5562,7 +5532,7 @@ def render_home():
 
     render_home_indicator(
         status=t("online"),
-        badge=t("today"),
+        badge=t(datetime.now().strftime("%d %b %Y")),
         items=[
             (t("goal"), money_try(goal_val) if goal_val > 0 else "—"),
             (t("ytd_income"), money_try(income_this_year)),
@@ -5573,58 +5543,38 @@ def render_home():
         accent="#3B82F6",
     )
 
-    # --- Brand title ---
-    st.markdown("<div class='home-title'>CLASS MANAGER</div>", unsafe_allow_html=True)
+    # --- Find students expander ---
+    with st.expander(t("home_find_students"), expanded=False):
 
-    # --- Slogan / hero ---
-    st.markdown(
-        f"""<div class="home-hero">
-<div class="home-slogan">{t('home_slogan')}</div>
-<div class="home-sub">{t('choose_where_to_go')}</div>
-</div>""",
-        unsafe_allow_html=True,
-    )
+        st.markdown(
+            f"""
+            <div class="home-links">
 
-    # --- Section title between hero card and links ---
-    st.markdown(
-        f"""
-        <div class="home-section-line">
-          <span>{t("home_find_students")}</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+              <div class="home-links-row">
+                <a class="home-linkchip" href="https://www.armut.com" target="_blank" rel="noopener noreferrer">
+                  <span class="dot"></span> Armut
+                </a>
+                <a class="home-linkchip" href="https://www.apprentus.com" target="_blank" rel="noopener noreferrer">
+                  <span class="dot"></span> Apprentus
+                </a>
+                <a class="home-linkchip" href="https://www.superprof.com" target="_blank" rel="noopener noreferrer">
+                  <span class="dot"></span> Superprof
+                </a>
+                <a class="home-linkchip" href="https://www.ozelders.com" target="_blank" rel="noopener noreferrer">
+                  <span class="dot"></span> ÖzelDers
+                </a>
+                <a class="home-linkchip" href="https://preply.com" target="_blank" rel="noopener noreferrer">
+                  <span class="dot"></span> Preply
+                </a>
+                <a class="home-linkchip" href="https://www.italki.com" target="_blank" rel="noopener noreferrer">
+                  <span class="dot"></span> italki
+                </a>
+              </div>
 
-    # --- Lead sources row (external links) ---
-    st.markdown(
-    f"""
-    <div class="home-links">
-
-      <div class="home-links-row">
-        <a class="home-linkchip" href="https://www.armut.com" target="_blank" rel="noopener noreferrer">
-          <span class="dot"></span> Armut
-        </a>
-        <a class="home-linkchip" href="https://www.apprentus.com" target="_blank" rel="noopener noreferrer">
-          <span class="dot"></span> Apprentus
-        </a>
-        <a class="home-linkchip" href="https://www.superprof.com" target="_blank" rel="noopener noreferrer">
-          <span class="dot"></span> Superprof
-        </a>
-        <a class="home-linkchip" href="https://www.ozelders.com" target="_blank" rel="noopener noreferrer">
-          <span class="dot"></span> ÖzelDers
-        </a>
-        <a class="home-linkchip" href="https://preply.com" target="_blank" rel="noopener noreferrer">
-          <span class="dot"></span> Preply
-        </a>
-        <a class="home-linkchip" href="https://www.italki.com" target="_blank" rel="noopener noreferrer">
-          <span class="dot"></span> italki
-        </a>
-      </div>
-
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     # --- Section title between links and menu capsules ---
     # ---------- MENU ----------
