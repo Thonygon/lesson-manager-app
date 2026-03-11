@@ -2839,12 +2839,15 @@ def _pricing_section(df: pd.DataFrame, modality: str, title_key: str, hourly_def
 
     # Seed hourly if missing
     if hourly.empty:
+        safe_default = pd.to_numeric(hourly_default, errors="coerce")
+        safe_default = 0 if pd.isna(safe_default) else int(safe_default)
+
         upsert_pricing_item(
             {
                 "modality": modality,
                 "kind": "hourly",
                 "hours": None,
-                "price_try": int(hourly_default),
+                "price_try": safe_default,
                 "active": True,
                 "sort_order": 0,
             }
@@ -3012,7 +3015,7 @@ def render_pricing_editor() -> None:
         if df.empty or (pd.to_numeric(df.get("price_try"), errors="coerce").fillna(0) <= 0).all():
             st.info("⚠️ " + t("pricing_set_price_hint"))
 
-        _pricing_section(df, modality="online", title_key="pricing_online_title", hourly_default=None)
+        _pricing_section(df, modality="online", title_key="pricing_online_title", hourly_default=0)
 
         st.divider()
 
@@ -3020,7 +3023,7 @@ def render_pricing_editor() -> None:
         if df.empty or (pd.to_numeric(df.get("price_try"), errors="coerce").fillna(0) <= 0).all():
             st.info("⚠️ " + t("pricing_set_price_hint"))        
 
-        _pricing_section(df, modality="offline", title_key="pricing_offline_title", hourly_default=None)
+        _pricing_section(df, modality="offline", title_key="pricing_offline_title", hourly_default=0)
 
 # =========================
 # 07.7) PACKAGE/LANGUAGE LOOKUPS
