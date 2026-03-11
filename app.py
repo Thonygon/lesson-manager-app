@@ -352,15 +352,15 @@ I18N: Dict[str, Dict[str, str]] = {
         # ANALYTICS PAGE
         # -------------------------
         "view_your_income_and_business_indicators": "View your income and business indicators",
-        "all_time_income": "All-time income",
+        "all_time_income": "Total",
         "yearly": "Yearly",
         "monthly": "Monthly",
         "weekly": "Weekly",
-        "all_time_monthly_income": "All Time Monthly Income",
-        "monthly_income": "Monthly income",
-        "yearly_income": "Yearly Income",
-        "yearly_totals": "Yearly totals",
-        "weekly_income": "Weekly Income",
+        "all_time_monthly_income": "All time monthly income",
+        "monthly_income": "Monthly",
+        "yearly_income": "Yearly",
+        "yearly_totals": "Yearly",
+        "weekly_income": "Weekly",
         "last_7_days": "Last 7 days",
         "most_profitable_students": "Most profitable students",
         "packages_by_language": "Packages by language",
@@ -697,15 +697,15 @@ I18N: Dict[str, Dict[str, str]] = {
         # ANALYTICS PAGE
         # -------------------------
         "view_your_income_and_business_indicators": "Consulta tus ingresos e indicadores de negocio",
-        "all_time_income": "Ingresos históricos",
+        "all_time_income": "Total",
         "yearly": "Anual",
         "monthly": "Mensual",
         "weekly": "Semanal",
         "all_time_monthly_income": "Ingresos mensuales históricos",
-        "monthly_income": "Ingresos mensuales",
-        "yearly_income": "Ingresos anuales",
+        "monthly_income": "Mensual",
+        "yearly_income": "Anual",
         "yearly_totals": "Totales anuales",
-        "weekly_income": "Ingresos semanales",
+        "weekly_income": "Semanal",
         "last_7_days": "Últimos 7 días",
         "most_profitable_students": "Estudiantes más rentables",
         "packages_by_language": "Paquetes por idioma",
@@ -1130,7 +1130,7 @@ def load_css_home_dark():
 
         .home-topbar-brand{
           flex:0 0 auto;
-          text-align:left;
+          text-align:right;
           font-size: 1rem;
           font-weight: 800;
           letter-spacing: -0.03em;
@@ -1414,7 +1414,7 @@ def load_css_home_dark():
 
           .home-topbar-brand{
             width: 40%;
-            text-align: left;
+            text-align: right;
             white-space: normal;
           }
 
@@ -5672,8 +5672,6 @@ def render_top_nav(active_page: str):
         unsafe_allow_html=True,
     )
 
-    st.markdown('<div class="cm-topnav"><div class="cm-topnav-card">', unsafe_allow_html=True)
-
     selected_label = option_menu(
         menu_title=None,
         options=labels,
@@ -5725,8 +5723,6 @@ def render_top_nav(active_page: str):
         elif selected_key != active_page:
             go_to(selected_key)
             st.rerun()
-
-    st.markdown("</div></div>", unsafe_allow_html=True)
 
 require_login()
 if "show_photo_dialog" not in st.session_state:
@@ -7019,175 +7015,25 @@ elif page == "analytics":
     page_header(t("analytics"))
     st.caption(t("view_your_income_and_business_indicators"))
 
-    st.markdown(f"### {t('income')}")
-
-    # --- Read analytics view from query param (av) ---
-    def _get_qp_local(key: str, default=None):
-        try:
-            qp = st.query_params
-            v = qp.get(key, default)
-            if isinstance(v, list):
-                v = v[0] if v else default
-            return v if v is not None else default
-        except Exception:
-            qp = st.experimental_get_query_params()
-            v = qp.get(key, [default])
-            return v[0] if v else default
-
-    allowed_views = {"all_time", "year", "month", "week"}
-
-    if "analytics_view" not in st.session_state:
-        st.session_state.analytics_view = "all_time"
-
-    av = _get_qp_local("av", None)
-    if av in allowed_views:
-        st.session_state.analytics_view = av
-
-    current_lang = st.session_state.get("ui_lang", "en")
-    current_view = st.session_state.get("analytics_view", "all_time")
-
-    # ---------------------------------------
-    # Load analytics data (Section 12 format)
-    # ---------------------------------------
     kpis, income_table, by_student, sold_by_language, sold_by_modality = build_income_analytics(group="monthly")
     today = ts_today_naive()
 
-    # ---------------------------------------
-    # Capsule "theme" colors (match views)
-    # ---------------------------------------
-    BLUE = "#2563EB"    # all_time capsule
-    GREEN = "#10B981"   # yearly capsule
-    YELLOW = "#F59E0B"  # monthly capsule
-    PURPLE = "#8B5CF6"  # weekly capsule
+    # --- Income section ---
+    st.markdown(f"### {t('income')}")
 
-    # =======================================
-    # CLICKABLE KPI CAPSULES (HTML LINKS)
-    # =======================================
-    capsules = [
-        ("all_time", t("all_time_income"), money_fmt(kpis.get("income_all_time", 0.0))),
-        ("year",     t("yearly_income"),   money_fmt(kpis.get("income_this_year", 0.0))),
-        ("month",    t("monthly_income"),  money_fmt(kpis.get("income_this_month", 0.0))),
-        ("week",     t("weekly_income"),   money_fmt(kpis.get("income_this_week", 0.0))),
-    ]
-
-    caps_html = """
-    <style>
-    .cm-caps-wrap{
-      display:flex;
-      flex-wrap:wrap;
-      gap:12px;
-      align-items:stretch;
-      margin-top:10px;
-      margin-bottom:6px;
-      padding-bottom: 4px;
-    }
-    .cm-capsule{
-      flex:1 1 160px;
-      min-width:160px;
-      max-width:280px;
-      background:#ffffff;
-      border:1px solid rgba(17,24,39,0.10);
-      border-radius:999px;
-      padding:18px 14px;
-      text-align:center;
-      text-decoration:none !important;
-      color:#0f172a !important;
-      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      box-shadow:0 14px 26px rgba(15,23,42,0.10);
-      transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
-      position:relative;
-      overflow:hidden;
-      display:flex;
-      flex-direction:column;
-      justify-content:center;
-    }
-    .cm-capsule:hover{
-      transform:translateY(-1px);
-      box-shadow:0 18px 32px rgba(15,23,42,0.14);
-      border-color:rgba(59,130,246,0.35);
-    }
-    .cm-capsule.active{
-      border:2px solid #2563EB;
-      box-shadow:0 0 0 3px rgba(37,99,235,0.10), 0 14px 26px rgba(15,23,42,0.10);
-    }
-    .cm-capsule-value{
-      font-weight:900;
-      font-size:30px;
-      line-height:1.05;
-      margin-bottom:6px;
-      word-break:break-word;
-    }
-    .cm-capsule-label{
-      font-weight:800;
-      font-size:13px;
-      opacity:.9;
-      word-break:break-word;
-    }
-    .cm-capsule:nth-child(1)::before{
-      content:""; position:absolute; width:110px; height:110px; top:18%; left:22%;
-      background:radial-gradient(circle, rgba(59,130,246,.22), transparent 70%);
-      filter:blur(12px); opacity:.9;
-    }
-    .cm-capsule:nth-child(2)::before{
-      content:""; position:absolute; width:110px; height:110px; top:18%; left:22%;
-      background:radial-gradient(circle, rgba(16,185,129,.20), transparent 70%);
-      filter:blur(12px); opacity:.9;
-    }
-    .cm-capsule:nth-child(3)::before{
-      content:""; position:absolute; width:110px; height:110px; top:18%; left:22%;
-      background:radial-gradient(circle, rgba(245,158,11,.18), transparent 70%);
-      filter:blur(12px); opacity:.9;
-    }
-    .cm-capsule:nth-child(4)::before{
-      content:""; position:absolute; width:110px; height:110px; top:18%; left:22%;
-      background:radial-gradient(circle, rgba(139,92,246,.20), transparent 70%);
-      filter:blur(12px); opacity:.9;
-    }
-    @media (max-width: 700px){
-      .cm-capsule{
-        flex:1 1 calc(50% - 12px);
-        min-width:140px;
-        max-width:none;
-        padding:14px 12px;
-      }
-      .cm-capsule-value{ font-size:24px; }
-      .cm-capsule-label{ font-size:12px; }
-    }
-    </style>
-    <div class="cm-caps-wrap">
-    """
-
-    capsule_cols = st.columns(len(capsules))
-
-    for i, (k, label, val) in enumerate(capsules):
-        with capsule_cols[i]:
-            button_label = f"{val}\n{label}"
-            if st.button(button_label, key=f"analytics_capsule_{k}", use_container_width=True):
-                st.session_state["analytics_view"] = k
-
-                try:
-                    st.query_params["page"] = "analytics"
-                    st.query_params["lang"] = current_lang
-                    st.query_params["av"] = k
-                except Exception:
-                    try:
-                        st.experimental_set_query_params(
-                            page="analytics",
-                            lang=current_lang,
-                            av=k,
-                        )
-                    except Exception:
-                        pass
-
-                st.rerun()
-
-    view = st.session_state.get("analytics_view", "all_time")
+    tab_all, tab_year, tab_month, tab_week = st.tabs(
+        [
+            f"{t('all_time_income')} · {money_fmt(kpis.get('income_all_time', 0.0))}",
+            f"{t('yearly_income')} · {money_fmt(kpis.get('income_this_year', 0.0))}",
+            f"{t('monthly_income')} · {money_fmt(kpis.get('income_this_month', 0.0))}",
+            f"{t('weekly_income')} · {money_fmt(kpis.get('income_this_week', 0.0))}",
+        ]
+    )
 
     # ---------------------------------------
-    # Chart helpers (UNCHANGED)
+    # Chart helpers
     # ---------------------------------------
     def _monthly_line_chart_plotly(df: pd.DataFrame, title: str):
-        import plotly.express as px
 
         if df is None or df.empty or "Key" not in df.columns:
             st.info(t("no_data"))
@@ -7250,16 +7096,19 @@ elif page == "analytics":
         ax.margins(x=0.01)
         st.pyplot(fig, clear_figure=True)
 
-    # ============================================
-    # MAIN VIEW CONTENT (UNCHANGED)
-    # ============================================
-    if view == "all_time":
+    BLUE = "#2563EB"
+    GREEN = "#10B981"
+    YELLOW = "#F59E0B"
+    PURPLE = "#8B5CF6"
+
+    with tab_all:
         st.subheader(t("all_time_monthly_income"))
         _monthly_line_chart_plotly(income_table, t("all_time_monthly_income"))
 
-    elif view == "year":
+    with tab_year:
         st.subheader(t("yearly_income"))
         _, yearly_table, *_ = build_income_analytics(group="yearly")
+
         if yearly_table is None or yearly_table.empty:
             st.info(t("no_data"))
         else:
@@ -7288,16 +7137,26 @@ elif page == "analytics":
                 ylabel=t("income"),
             )
 
-    elif view == "month":
+    with tab_month:
         st.subheader(t("monthly_income"))
+
         if income_table is None or income_table.empty:
             st.info(t("no_data"))
         else:
-            year_options = sorted(income_table["Key"].astype(str).str[:4].dropna().unique().tolist(), reverse=True)
+            year_options = sorted(
+                income_table["Key"].astype(str).str[:4].dropna().unique().tolist(),
+                reverse=True,
+            )
             current_year = str(today.year)
             default_idx = year_options.index(current_year) if current_year in year_options else 0
 
-            selected_year = st.selectbox(t("select_year"), year_options, index=default_idx, key="analytics_year_pick")
+            selected_year = st.selectbox(
+                t("select_year"),
+                year_options,
+                index=default_idx,
+                key="analytics_year_pick",
+            )
+
             monthly = income_table[income_table["Key"].astype(str).str.startswith(selected_year)].copy()
 
             if monthly.empty:
@@ -7316,6 +7175,7 @@ elif page == "analytics":
                 values = monthly["Income"].tolist()
 
                 highlight_month = today.strftime("%Y-%m") if selected_year == str(today.year) else "__none__"
+
                 _bar_chart_with_highlight(
                     labels=labels,
                     values=values,
@@ -7327,59 +7187,47 @@ elif page == "analytics":
                     ylabel=t("income"),
                 )
 
-    elif view == "week":
+    with tab_week:
         st.subheader(t("weekly_income"))
 
-        week_start = today - pd.Timedelta(days=int(today.weekday()))
-        week_end = week_start + pd.Timedelta(days=6)
-
-        payments = load_table("payments")
-        if payments is None or payments.empty:
+        payments_week = load_table("payments")
+        if payments_week is None or payments_week.empty:
             st.info(t("no_data"))
         else:
-            if "payment_date" not in payments.columns:
-                payments["payment_date"] = None
-            if "paid_amount" not in payments.columns:
-                payments["paid_amount"] = 0.0
+            pw = payments_week.copy()
 
-            payments["payment_date"] = to_dt_naive(payments["payment_date"], utc=True)
-            payments["paid_amount"] = pd.to_numeric(payments["paid_amount"], errors="coerce").fillna(0.0)
-            payments = payments.dropna(subset=["payment_date"])
+            if "payment_date" not in pw.columns:
+                pw["payment_date"] = None
+            if "paid_amount" not in pw.columns:
+                pw["paid_amount"] = 0.0
 
-            week_df = payments[(payments["payment_date"] >= week_start) & (payments["payment_date"] <= week_end)].copy()
-            if week_df.empty:
-                daily = pd.DataFrame({
-                    "Day": [(week_start + pd.Timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)],
-                    "Income": [0.0] * 7
-                })
+            pw["payment_date"] = to_dt_naive(pw["payment_date"], utc=True)
+            pw["paid_amount"] = pd.to_numeric(pw["paid_amount"], errors="coerce").fillna(0.0).astype(float)
+            pw = pw.dropna(subset=["payment_date"])
+
+            week_start = today - pd.Timedelta(days=int(today.weekday()))
+            week_end = week_start + pd.Timedelta(days=6)
+
+            pw = pw[(pw["payment_date"] >= week_start) & (pw["payment_date"] <= week_end)].copy()
+
+            if pw.empty:
+                st.info(t("no_data"))
             else:
-                week_df["Day"] = week_df["payment_date"].dt.strftime("%Y-%m-%d")
-                daily = (
-                    week_df.groupby("Day", as_index=False)["paid_amount"]
-                    .sum()
-                    .rename(columns={"paid_amount": "Income"})
-                    .sort_values("Day")
+                pw["Day"] = pw["payment_date"].dt.strftime("%a %d")
+                weekly = pw.groupby("Day", as_index=False)["paid_amount"].sum().rename(columns={"paid_amount": "Income"})
+
+                _bar_chart_with_highlight(
+                    labels=weekly["Day"].tolist(),
+                    values=weekly["Income"].tolist(),
+                    highlight_label=today.strftime("%a %d"),
+                    base_color=BLUE,
+                    highlight_color=PURPLE,
+                    title=t("last_7_days"),
+                    xlabel=t("day"),
+                    ylabel=t("income"),
                 )
-                days = [(week_start + pd.Timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
-                daily = pd.DataFrame({"Day": days}).merge(daily, on="Day", how="left").fillna({"Income": 0.0})
-
-            labels = daily["Day"].tolist()
-            values = daily["Income"].astype(float).tolist()
-
-            highlight_day = today.strftime("%Y-%m-%d")
-            _bar_chart_with_highlight(
-                labels=labels,
-                values=values,
-                highlight_label=highlight_day,
-                base_color=BLUE,
-                highlight_color=PURPLE,
-                title=t("last_7_days"),
-                xlabel=t("day"),
-                ylabel=t("income"),
-            )
-
     # ============================================
-    # INSIGHTS-FIRST SECTION (business oriented, teacher friendly)
+    # INSIGHTS-FIRST SECTION
     # ============================================
     # ---------- safe helpers ----------
     def _first_existing_col(df: pd.DataFrame, candidates):
