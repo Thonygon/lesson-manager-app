@@ -1862,7 +1862,7 @@ def require_login():
 
     # Pick the correct logo for the current theme
     theme_base = st.get_option("theme.base")
-    if theme_base == "dark":
+    if theme_base == "light":
         logo_path = os.path.join("static", "logo_classio_light.png")
     else:
         logo_path = os.path.join("static", "logo_classio_dark.png")
