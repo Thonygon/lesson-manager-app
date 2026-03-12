@@ -1860,16 +1860,30 @@ def require_login():
         st.session_state["sb_refresh_token"] = None
         st.stop()
 
+    logo_path = os.path.join("static", "logo_classio.png")
+
     st.markdown(
         """
         <style>
         .login-topbar {
-           margin-bottom: 20px;
+            margin-bottom: 0px;
+        }
+        .login-logo-wrap {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 0px;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
+
+    # Logo
+    col_logo_left, col_logo_center, col_logo_right = st.columns([1, 2, 1])
+    with col_logo_center:
+        st.markdown('<div class="login-logo-wrap">', unsafe_allow_html=True)
+        st.image(logo_path, width=600)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown('<div class="login-topbar">', unsafe_allow_html=True)
 
