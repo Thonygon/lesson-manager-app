@@ -1126,7 +1126,7 @@ def load_css_home_dark():
         }
 
         .home-topbar-usertext{
-          min-width:45%;
+          min-width:30%;
         }
 
         .home-topbar-brand{
