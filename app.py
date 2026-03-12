@@ -1860,7 +1860,12 @@ def require_login():
         st.session_state["sb_refresh_token"] = None
         st.stop()
 
-    logo_path = os.path.join("static", "logo_classio.png")
+    # Pick the correct logo for the current theme
+    theme_base = st.get_option("theme.base")
+    if theme_base == "dark":
+        logo_path = os.path.join("static", "logo_classio_dark.png")
+    else:
+        logo_path = os.path.join("static", "logo_classio_light.png")
 
     st.markdown(
         """
@@ -1868,10 +1873,27 @@ def require_login():
         .login-topbar {
             margin-bottom: 0px;
         }
+
         .login-logo-wrap {
             display: flex;
             justify-content: center;
-            margin-bottom: 0px;
+            align-items: center;
+            margin-top: 0 !important;
+            margin-bottom: -18px !important;
+            padding: 0 !important;
+        }
+
+        div[data-testid="stImage"] {
+            margin-top: -40px !important;
+            margin-bottom: -24px !important;
+            padding: 0 !important;
+            text-align: center;
+        }
+
+        div[data-testid="stImage"] img {
+            display: block;
+            margin: 0 auto !important;
+            padding: 0 !important;
         }
         </style>
         """,
@@ -1882,7 +1904,7 @@ def require_login():
     col_logo_left, col_logo_center, col_logo_right = st.columns([1, 2, 1])
     with col_logo_center:
         st.markdown('<div class="login-logo-wrap">', unsafe_allow_html=True)
-        st.image(logo_path, width=600)
+        st.image(logo_path, width=500)
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown('<div class="login-topbar">', unsafe_allow_html=True)
