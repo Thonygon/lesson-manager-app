@@ -1130,8 +1130,8 @@ def load_css_home_dark():
         }
 
         .home-topbar-brand{
-          flex:0 0 auto;
-          text-align:left;
+          flex:1 1 auto;
+          text-align:right;
           font-size: 1rem;
           font-weight: 800;
           letter-spacing: -0.03em;
@@ -1415,7 +1415,7 @@ def load_css_home_dark():
 
           .home-topbar-brand{
             width: 30%;
-            text-align: left;
+            text-align: right;
             white-space: normal;
           }
 
