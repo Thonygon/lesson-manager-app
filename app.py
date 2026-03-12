@@ -1843,6 +1843,16 @@ def _apply_auth_to_client():
     except Exception as e:
         st.warning(f"Could not apply auth session (RLS may fail): {e}")
 
+@st.cache_data(show_spinner=False)
+def load_logo_bytes(theme_base: str) -> bytes:
+    if theme_base == "light":
+        logo_path = os.path.join("static", "logo_classio_light.png")
+    else:
+        logo_path = os.path.join("static", "logo_classio_dark.png")
+
+    with open(logo_path, "rb") as f:
+        return f.read()
+
 def require_login():
     """
     Blocks the app unless a user is logged in.
@@ -1860,12 +1870,9 @@ def require_login():
         st.session_state["sb_refresh_token"] = None
         st.stop()
 
-    # Pick the correct logo for the current theme
+    # Pick and cache the correct logo for the current theme
     theme_base = st.get_option("theme.base")
-    if theme_base == "light":
-        logo_path = os.path.join("static", "logo_classio_light.png")
-    else:
-        logo_path = os.path.join("static", "logo_classio_dark.png")
+    logo_bytes = load_logo_bytes(theme_base)
 
     st.markdown(
         """
@@ -1904,7 +1911,7 @@ def require_login():
     col_logo_left, col_logo_center, col_logo_right = st.columns([1, 2, 1])
     with col_logo_center:
         st.markdown('<div class="login-logo-wrap">', unsafe_allow_html=True)
-        st.image(logo_path, width=500)
+        st.image(logo_bytes, width=500)
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown('<div class="login-topbar">', unsafe_allow_html=True)
