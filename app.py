@@ -34,7 +34,7 @@ UTC_TZ = timezone.utc
 # 02) SESSION STATE INIT
 # =========================
 st.set_page_config(
-    page_title="Class Manager",
+    page_title="Classio",
     page_icon="🍎",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -1130,8 +1130,8 @@ def load_css_home_dark():
         }
 
         .home-topbar-brand{
-          flex:0 0 auto;
-          text-align:right;
+          flex:3 3;
+          text-align:center;
           font-size: 1rem;
           font-weight: 800;
           letter-spacing: -0.03em;
@@ -1414,8 +1414,8 @@ def load_css_home_dark():
           }
 
           .home-topbar-brand{
-            width: 40%;
-            text-align: right;
+            width: 30%;
+            text-align: center;
             white-space: normal;
           }
 
@@ -5289,7 +5289,7 @@ def inject_pwa_head():
             { name: "apple-mobile-web-app-capable", content: "yes" },
             { name: "mobile-web-app-capable", content: "yes" },
             { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
-            { name: "apple-mobile-web-app-title", content: "Class Manager" },
+            { name: "apple-mobile-web-app-title", content: "Classio" },
             { name: "theme-color", content: "#0b1220" }
           ];
 
