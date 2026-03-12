@@ -1130,7 +1130,7 @@ def load_css_home_dark():
         }
 
         .home-topbar-brand{
-          flex:3 3;
+          flex:0 0 auto;
           text-align:left;
           font-size: 1rem;
           font-weight: 800;
