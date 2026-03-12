@@ -1414,7 +1414,7 @@ def load_css_home_dark():
           }
 
           .home-topbar-brand{
-            width: 30%;
+            width: 45%;
             text-align: right;
             white-space: normal;
           }
