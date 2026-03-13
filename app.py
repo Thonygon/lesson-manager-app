@@ -22,7 +22,7 @@ from PIL import Image
 from io import BytesIO
 from zoneinfo import ZoneInfo
 from supabase import create_client
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, date, time, timedelta, timezone
 from typing import List, Tuple, Optional, Dict
 from streamlit_extras.stylable_container import stylable_container
 from streamlit_option_menu import option_menu 
@@ -327,6 +327,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "time": "Time", 
         "duration_minutes": "Duration (min)", 
         "active": "Active",
+        "invalid_time_format": "Incorrect time inserted. Please use 24-hour (HH:MM) format.",
 
         # overrides
         "modify_calendar": "Modify calendar",
@@ -672,6 +673,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "time": "Hora", 
         "duration_minutes": "Duración (min)", 
         "active": "Activo",
+        "invalid_time_format": "Hora incorrecta. Utilice el formato 24 horas HH:MM.",
 
         # overrides
         "modify_calendar": "Modificar calendario",
@@ -3269,7 +3271,7 @@ def add_schedule(student: str, weekday: int, time_str: str, duration_minutes: in
     payload = with_owner({
         "student": student,
         "weekday": int(weekday),
-        "time": str(time_str).strip(),
+        "time": validate_hhmm(time_str),
         "duration_minutes": int(duration_minutes),
         "active": bool(active),
     })
@@ -3301,7 +3303,8 @@ def _load_overrides_cached(uid: str) -> pd.DataFrame:
 
     df["student"] = df["student"].astype(str).str.strip()
     df["original_date"] = to_dt_naive(df["original_date"], utc=True)
-    df["new_datetime"] = to_dt_naive(df["new_datetime"], utc=True)
+    df["new_datetime"] = pd.to_datetime(df["new_datetime"], errors="coerce", utc=True)
+    df["new_datetime"] = df["new_datetime"].dt.tz_convert(LOCAL_TZ).dt.tz_localize(None)
     df["duration_minutes"] = pd.to_numeric(df["duration_minutes"], errors="coerce").fillna(60).astype(int)
     df["status"] = df["status"].astype(str).str.strip().str.lower()
     df["note"] = df["note"].astype(str).fillna("")
@@ -4748,6 +4751,18 @@ def _parse_time_value(x) -> Tuple[int, int]:
     except Exception:
         return (0, 0)
 
+def validate_hhmm(value: str) -> str:
+    """
+    Ensures a time string is in HH:MM 24h format.
+    Returns the cleaned value or raises a user-friendly error.
+    """
+
+    s = str(value or "").strip()
+
+    if re.fullmatch(r"([01]\d|2[0-3]):([0-5]\d)", s):
+        return s
+
+    raise ValueError(t("invalid_time_format"))
 
 def best_text_color(hex_color: str) -> str:
     try:
@@ -6877,9 +6892,13 @@ elif page == "calendar":
                 )
 
             with c3:
-                sch_time = st.text_input(
-                    t("time_hhmm"), value="10:00", key="cal_sch_time"
+                sch_time_obj = st.time_input(
+                    t("time_hhmm"),
+                    value=time(10, 0),
+                    step=300,
+                    key="cal_sch_time",
                 )
+                sch_time = sch_time_obj.strftime("%H:%M")
 
             with c4:
                 sch_duration = st.number_input(
@@ -6897,15 +6916,20 @@ elif page == "calendar":
                 )
 
             if st.button(t("add"), key="cal_btn_add_schedule"):
-                add_schedule(
-                    sch_student,
-                    sch_weekday,
-                    sch_time,
-                    sch_duration,
-                    sch_active,
-                )
-                st.success(t("saved"))
-                st.rerun()
+                try:
+                    add_schedule(
+                        sch_student,
+                        sch_weekday,
+                        sch_time,
+                        sch_duration,
+                        sch_active,
+                    )
+                    st.success(t("saved"))
+                    st.rerun()
+                except ValueError as e:
+                    st.error(str(e))
+                except Exception as e:
+                    st.error(f"{t('save')} failed.\n\n{e}")
 
         # ---------------------------------------
         # CURRENT SCHEDULE TABLE (TRANSLATED)
@@ -7016,11 +7040,13 @@ elif page == "calendar":
                     key="ov_new_date",
                 )
 
-                ov_new_time = st.text_input(
+                ov_new_time_obj = st.time_input(
                     t("override_new_time_hhmm"),
-                    value="10:00",
+                    value=time(10, 0),
+                    step=300,
                     key="ov_new_time",
                 )
+                ov_new_time = ov_new_time_obj.strftime("%H:%M")
 
                 ov_duration = st.number_input(
                     t("override_duration"),
@@ -7048,18 +7074,28 @@ elif page == "calendar":
                     mm,
                 )
 
-            if st.button(t("change"), key="ov_add_btn"):
+            if st.button(t("change"), key="ov_btn_save"):
                 try:
+                    if ov_status == "scheduled":
+                        clean_time = validate_hhmm(ov_new_time)
+                        hh, mm = map(int, clean_time.split(":"))
+                        combined_dt = datetime.combine(ov_new_dt, time(hh, mm))
+                    else:
+                        combined_dt = None
+
                     add_override(
                         student=ov_student,
                         original_date=ov_original_date,
-                        new_dt=new_dt if ov_status == "scheduled" else None,
-                        duration_minutes=int(ov_duration),
+                        new_dt=combined_dt,
+                        duration_minutes=ov_duration,
                         status=ov_status,
                         note=ov_note,
                     )
                     st.success(t("saved"))
                     st.rerun()
+
+                except ValueError as e:
+                    st.error(str(e))
                 except Exception as e:
                     st.error(f"{t('override_save_failed')}\n\n{e}")
 
