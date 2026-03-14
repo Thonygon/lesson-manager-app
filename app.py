@@ -1128,13 +1128,13 @@ def load_css_home_dark():
         }
 
         .home-topbar-usertext{
-          min-width:45%;
+          min-width:50%;
         }
 
         .home-topbar-brand{
           flex:0 0 auto;
-          text-align:right;
-          font-size: 1rem;
+          text-align:left;
+          font-size: 1.25rem;
           font-weight: 800;
           letter-spacing: -0.03em;
           color: var(--primary-strong);
@@ -1417,7 +1417,7 @@ def load_css_home_dark():
 
           .home-topbar-brand{
             width: 45%;
-            text-align: right;
+            text-align: left;
             white-space: normal;
           }
 
@@ -5504,7 +5504,7 @@ def render_home():
     # ---------- TOP ACTION BUTTONS ----------
     left, right = st.columns([6, 4], vertical_alignment="center")
 
-    with left:
+    with right:
         if "home_action_menu_prev" not in st.session_state:
             st.session_state["home_action_menu_prev"] = "Alerts"
 
@@ -5537,7 +5537,7 @@ def render_home():
             },
         )       
 
-    with right:
+    with left:
         st.markdown(
             f"""
             <div class="home-topbar home-topbar-main">
@@ -5547,7 +5547,7 @@ def render_home():
                         <div class="home-topbar-sub">{t("welcome").strip()}</div>
                         <div class="home-topbar-name">{user_name}</div>
                     </div>
-                <div class="home-topbar-brand">CLASS MANAGER</div>
+                <div class="home-topbar-brand">CLASSIO</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -5720,21 +5720,31 @@ def render_home():
         ("analytics", t("analytics"), "rgba(168,85,247,0.55)"),
     ]
 
-    for key, label, glow in menu_items:
-        with stylable_container(
-            key=f"menu_glow_{key}",
-            css_styles=neon_button_css(
-                glow_rgba=glow,
-                text_color="#0B1220",
-                min_height=58,
-                radius=18,
-            ),
-        ):
-            if st.button(label, key=f"home_menu_{key}", use_container_width=True):
-                go_to(key)
-                st.rerun()
+    menu_rows = [
+        menu_items[0:2],
+        menu_items[2:4],
+        menu_items[4:6],
+    ]
 
-        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+    for row in menu_rows:
+        col1, col2 = st.columns(2, gap="medium")
+
+        for col, (key, label, glow) in zip((col1, col2), row):
+            with col:
+                with stylable_container(
+                    key=f"menu_glow_{key}",
+                    css_styles=neon_button_css(
+                        glow_rgba=glow,
+                        text_color="#0B1220",
+                        min_height=42,
+                        radius=16,
+                    ),
+                ):
+                    if st.button(label, key=f"home_menu_{key}", use_container_width=True):
+                        go_to(key)
+                        st.rerun()
+
+        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
 
     st.markdown('<div class="home-bottom-space"></div>', unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
