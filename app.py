@@ -4611,130 +4611,102 @@ def build_forecast_table(
 # =========================
 # 07.16) KPI BUBBLES (ROBUST: NO AUTO-RESIZE DEPENDENCY)
 # =========================
-def kpi_bubbles(values, colors, size=170):
+def kpi_stat_cards(values, accent_colors):
     """
-    Robust KPI bubbles:
-    - Bubble size scales with numeric value
-    - Font size scales with bubble size
-    - Organic layout via flex-wrap
-    - DOES NOT depend on iframe auto-resize
+    Flat KPI cards with subtle colored top accent.
+    Designed to look informational, not clickable.
+    Always fits in one row on desktop.
     """
     compact = bool(st.session_state.get("compact_mode", False))
 
-    min_size = 130 if not compact else 120
-    max_size = 220 if not compact else 190
-    gap = 18 if not compact else 14
-    typical = int(size)
-
-    def _parse_value(v) -> float:
-        s = str(v or "").strip()
-        s = s.replace("₺", "").replace("$", "").replace("€", "").replace(" ", "")
-        m = re.match(r"^([0-9]+([.,][0-9]+)?)\s*([kKmM])?$", s)
-        if m:
-            num = m.group(1).replace(",", ".")
-            try:
-                x = float(num)
-            except Exception:
-                x = 0.0
-            suf = m.group(3)
-            if suf in ("k", "K"):
-                return x * 1_000
-            if suf in ("m", "M"):
-                return x * 1_000_000
-            return x
-        digits = re.sub(r"[^0-9]", "", s)
-        try:
-            return float(digits) if digits else 0.0
-        except Exception:
-            return 0.0
-
-    nums = [_parse_value(val) for (_, val) in values]
-    max_val = max(nums) if nums else 1.0
-    max_val = max(max_val, 1.0)
-
-    def _bubble_size(x: float) -> int:
-        r = max(0.0, float(x) / float(max_val))
-        scaled = math.sqrt(r)
-        s = min_size + (max_size - min_size) * scaled
-        s = (s * 0.85) + (typical * 0.15)
-        return int(round(s))
-
-    sizes = [_bubble_size(x) for x in nums]
+    gap = 10 if compact else 12
 
     style = f"""
     <style>
-      .kpi-wrap{{
-        display:flex;
-        flex-wrap:wrap;
-        gap:{gap}px;
-        align-items:flex-start;
-        justify-content:flex-start;
+      .kpi-stat-wrap {{
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: {gap}px;
+        align-items: stretch;
         margin: 10px 0 10px 0;
         font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       }}
-      .kpi-bubble{{
-        border-radius: 999px;
-        display:flex;
-        flex-direction:column;
-        align-items:center;
-        justify-content:center;
-        box-shadow: 0 14px 30px rgba(15,23,42,0.10);
-        border: 1px solid rgba(17,24,39,0.10);
-        background: white;
-        overflow:hidden;
-        box-sizing:border-box;
+
+      .kpi-stat-card {{
+        position: relative;
+        width: 110%;
+        background: linear-gradient(180deg, #ffffff, #fbfdff);
+        border: 1px solid rgba(17,24,39,0.08);
+        border-radius: 14px;
+        box-shadow: 0 0 0 0;
+        padding: 8px 6px 8px 6px;
+        box-sizing: border-box;
+        overflow: hidden;
+        cursor: default;
       }}
-      .kpi-num{{
-        font-weight: 900;
+
+      .kpi-stat-card::before {{
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: var(--accent);
+      }}
+
+      .kpi-stat-value {{ 
+        font-size: 0.6rem;
         line-height: 1.0;
-        text-align:center;
-        padding: 0 12px;
-        margin: 0 0 6px 0;
-        overflow-wrap:anywhere;
-        word-break:break-word;
-        max-width:100%;
-      }}
-      .kpi-label{{
         font-weight: 800;
-        opacity: .9;
-        text-align:center;
-        padding: 0 14px;
-        line-height: 1.15;
-        overflow-wrap:anywhere;
-        word-break:break-word;
-        max-width:100%;
+        color: #0f172a;
+        margin-top: 6px;
+        margin-bottom: 6px;
+        text-align: center;
       }}
-      @media (max-width: 768px){{
-        .kpi-wrap{{ justify-content:center; }}
+
+      .kpi-stat-label {{
+        font-size: 0.5rem;
+        line-height: 1.15;
+        font-weight: 600;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        text-align: center;
+
+        word-break: keep-all;
+        overflow-wrap: normal;
+      }}
+
+      /* Mobile layout */
+      @media (max-width: 700px) {{
+        .kpi-stat-wrap {{
+          grid-template-columns: repeat(5, 1fr);
+          gap: 10px;
+        }}
+
+        .kpi-stat-value {{
+          font-size: 0.5rem;
+        }}
+
+        .kpi-stat-label {{
+          font-size: 0.42rem;
+        }}
       }}
     </style>
     """
 
-    bubbles_html = '<div class="kpi-wrap">'
-    for i, ((label, val), bg) in enumerate(zip(values, colors)):
-        b = sizes[i]
-        num_px = int(round(b * 0.28))
-        lab_px = int(round(b * 0.085))
-        num_px = max(18, min(num_px, 54))
-        lab_px = max(12, min(lab_px, 16))
-
-        bubbles_html += f"""
-          <div class="kpi-bubble" style="{bg} width:{b}px; height:{b}px;">
-            <div class="kpi-num" style="font-size:{num_px}px;">{val}</div>
-            <div class="kpi-label" style="font-size:{lab_px}px;">{label}</div>
+    cards_html = '<div class="kpi-stat-wrap">'
+    for (label, val), accent in zip(values, accent_colors):
+        cards_html += f"""
+          <div class="kpi-stat-card" style="--accent:{accent};">
+            <div class="kpi-stat-value">{val}</div>
+            <div class="kpi-stat-label">{label}</div>
           </div>
         """
-    bubbles_html += "</div>"
+    cards_html += "</div>"
 
-    html = style + bubbles_html
-
-    n = len(values)
-    bubbles_per_row = 3 if not compact else 2
-    rows = max(1, math.ceil(n / bubbles_per_row))
-    frame_h = rows * (max_size + gap) + 80
-
-    components.html(html, height=int(frame_h), scrolling=False)
-
+    components.html(style + cards_html, height=120 if compact else 110, scrolling=False)
 
 # =========================
 # 07.17) CALENDAR (EVENTS + RENDER) ✅ bilingual-safe + tz-safe + FullCalendar i18n
@@ -6171,7 +6143,7 @@ if page == "dashboard":
     finished_recent_count = int((d["Status"] == "finished").sum())
     mismatch_count = int((d["Status"] == "mismatch").sum())
 
-    kpi_bubbles(
+    kpi_stat_cards(
         values=[
             (t("students"), str(total_students)),
             (t("active"), str(active_count)),
@@ -6179,14 +6151,13 @@ if page == "dashboard":
             (t("finished"), str(finished_recent_count)),
             (t("mismatch"), str(mismatch_count)),
         ],
-        colors=[
-            "background: radial-gradient(90px 90px at 30% 25%, rgba(59,130,246,.35), transparent 60%), #ffffff;",
-            "background: radial-gradient(90px 90px at 30% 25%, rgba(16,185,129,.30), transparent 60%), #ffffff;",
-            "background: radial-gradient(90px 90px at 30% 25%, rgba(245,158,11,.30), transparent 60%), #ffffff;",
-            "background: radial-gradient(90px 90px at 30% 25%, rgba(139,92,246,.32), transparent 60%), #ffffff;",
-            "background: radial-gradient(90px 90px at 30% 25%, rgba(239,68,68,.26), transparent 60%), #ffffff;",
+        accent_colors=[
+            "#3B82F6",  # blue
+            "#10B981",  # green
+            "#F59E0B",  # amber
+            "#8B5CF6",  # purple
+            "#EF4444",  # red
         ],
-        size=1,
     )
 
     with st.expander(t("current_packages"), expanded=False):
