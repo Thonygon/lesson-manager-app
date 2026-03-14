@@ -27,8 +27,63 @@ from typing import List, Tuple, Optional, Dict
 from streamlit_extras.stylable_container import stylable_container
 from streamlit_option_menu import option_menu 
 
+# =========================
+# 01.1) TIMEZONE UTILS
+# =========================
 LOCAL_TZ = ZoneInfo("Europe/Istanbul")
 UTC_TZ = timezone.utc
+DEFAULT_TZ_NAME = "Europe/Istanbul"
+
+def detect_browser_timezone():
+    """
+    Detect browser timezone using JavaScript and store it in session_state.
+    Safe fallback: Europe/Istanbul
+    """
+    if st.session_state.get("_browser_tz_checked"):
+        return
+
+    js = """
+    <script>
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    const url = new URL(window.parent.location.href);
+    if (tz && url.searchParams.get("browser_tz") !== tz) {
+      url.searchParams.set("browser_tz", tz);
+      window.parent.history.replaceState({}, "", url.toString());
+    }
+    </script>
+    """
+    components.html(js, height=0)
+
+    tz_qp = _get_qp("browser_tz", "")
+    if tz_qp:
+        st.session_state["browser_tz"] = str(tz_qp).strip()
+
+    st.session_state["_browser_tz_checked"] = True
+
+
+def get_app_tz_name() -> str:
+    tz_name = str(
+        st.session_state.get("browser_tz")
+        or DEFAULT_TZ_NAME
+    ).strip()
+
+    try:
+        ZoneInfo(tz_name)
+        return tz_name
+    except Exception:
+        return DEFAULT_TZ_NAME
+
+
+def get_app_tz() -> ZoneInfo:
+    return ZoneInfo(get_app_tz_name())
+
+
+def now_local() -> datetime:
+    return datetime.now(get_app_tz())
+
+
+def today_local() -> date:
+    return now_local().date()
 
 # =========================
 # 02) SESSION STATE INIT
@@ -2261,7 +2316,7 @@ def top_neon_button_css(glow_rgba: str, text_color: str = "#0B1220") -> str:
 # 07.2) TODAY LESSONS HELPER
 # =========================
 def build_today_lessons() -> pd.DataFrame:
-    today = date.today()
+    today = today_local()
 
     events = build_calendar_events(today, today)
     if events is None or events.empty:
@@ -3895,8 +3950,8 @@ def get_next_lesson_display() -> str:
     except Exception:
         return "--:--"
 
-    now = datetime.now()  # local
-    now_ts = pd.Timestamp(now).tz_localize(None)
+    now = now_local()
+    now_ts = pd.Timestamp(now.replace(tzinfo=None))
 
     candidates = []
 
@@ -5146,8 +5201,8 @@ def to_dt_naive(x, utc: bool = True):
 
 
 def ts_today_naive() -> pd.Timestamp:
-    # Always tz-naive "today" at midnight
-    return pd.Timestamp.now().normalize().tz_localize(None)
+    # Always tz-naive "today" at midnight in the user's browser timezone
+    return pd.Timestamp(now_local().replace(hour=0, minute=0, second=0, microsecond=0).replace(tzinfo=None))
 
 
 def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -5420,6 +5475,7 @@ else:
     st.session_state["page"] = "home"
     _set_query(page="home", lang=st.session_state["ui_lang"])
 
+detect_browser_timezone()
 
 def go_to(page_name: str):
     """Main internal navigation helper."""
@@ -5656,7 +5712,7 @@ def render_home():
 
     render_home_indicator(
         status=t("online"),
-        badge=t(datetime.now().strftime("%d %b %Y")),
+        badge=now_local().strftime("%d %b %Y"),
         items=[
             (t("goal"), money_try(goal_val) if goal_val > 0 else "—"),
             (t("ytd_income"), money_try(income_this_year)),
@@ -6800,7 +6856,7 @@ elif page == "calendar":
         format_func=lambda k: t(k),
     )
 
-    today_d = date.today()
+    today_d = today_local()
 
     if view == "today":
         start_day = today_d
