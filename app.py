@@ -4650,8 +4650,8 @@ def kpi_stat_cards(values, accent_colors):
       .kpi-stat-card {{
         flex: 0 0 {card_width}px;
         position: relative;
-        background: linear-gradient(180deg, #ffffff, #fbfdff);
-        border: 1px solid rgba(17,24,39,0.08);
+        background: #f8fafc;
+        border: #f8fafc;
         border-radius: 14px;
         box-shadow: 0 0 0 0;
         padding: 8px 8px 10px 8px;
