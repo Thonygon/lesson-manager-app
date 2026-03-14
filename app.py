@@ -37,8 +37,15 @@ DEFAULT_TZ_NAME = "Europe/Istanbul"
 def detect_browser_timezone():
     """
     Detect browser timezone using JavaScript and store it in session_state.
-    Safe fallback: Europe/Istanbul
+    Safe fallback: Europe/Istanbul.
+    Only mark as checked after Python has actually received the browser_tz value.
     """
+    tz_qp = _get_qp("browser_tz", "")
+    if tz_qp:
+        st.session_state["browser_tz"] = str(tz_qp).strip()
+        st.session_state["_browser_tz_checked"] = True
+        return
+
     if st.session_state.get("_browser_tz_checked"):
         return
 
@@ -49,16 +56,11 @@ def detect_browser_timezone():
     if (tz && url.searchParams.get("browser_tz") !== tz) {
       url.searchParams.set("browser_tz", tz);
       window.parent.history.replaceState({}, "", url.toString());
+      window.parent.location.reload();
     }
     </script>
     """
     components.html(js, height=0)
-
-    tz_qp = _get_qp("browser_tz", "")
-    if tz_qp:
-        st.session_state["browser_tz"] = str(tz_qp).strip()
-
-    st.session_state["_browser_tz_checked"] = True
 
 
 def get_app_tz_name() -> str:
@@ -3359,7 +3361,7 @@ def _load_overrides_cached(uid: str) -> pd.DataFrame:
     df["student"] = df["student"].astype(str).str.strip()
     df["original_date"] = to_dt_naive(df["original_date"], utc=True)
     df["new_datetime"] = pd.to_datetime(df["new_datetime"], errors="coerce", utc=True)
-    df["new_datetime"] = df["new_datetime"].dt.tz_convert(LOCAL_TZ).dt.tz_localize(None)
+    df["new_datetime"] = df["new_datetime"].dt.tz_convert(get_app_tz()).dt.tz_localize(None)
     df["duration_minutes"] = pd.to_numeric(df["duration_minutes"], errors="coerce").fillna(60).astype(int)
     df["status"] = df["status"].astype(str).str.strip().str.lower()
     df["note"] = df["note"].astype(str).fillna("")
@@ -3378,7 +3380,7 @@ def _to_utc_iso(dt: Optional[datetime]) -> Optional[str]:
     if dt is None:
         return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=LOCAL_TZ)
+        dt = dt.replace(tzinfo=get_app_tz())
     return dt.astimezone(UTC_TZ).isoformat()
 
 
@@ -5979,7 +5981,7 @@ if page == "dashboard":
         unsafe_allow_html=True,
     )
 
-    today = date.today()
+    today = today_local()
     today_events = build_calendar_events(today, today)
 
     # Keep a DF for WhatsApp templates (confirm/cancel)
