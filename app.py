@@ -18,14 +18,16 @@ import uuid
 import streamlit.components.v1 as components
 import numpy as np
 import matplotlib.pyplot as plt
+import pycountry
 from PIL import Image
+from zoneinfo import ZoneInfo, available_timezones
 from io import BytesIO
-from zoneinfo import ZoneInfo
 from supabase import create_client
 from datetime import datetime, date, time, timedelta, timezone
 from typing import List, Tuple, Optional, Dict
 from streamlit_extras.stylable_container import stylable_container
-from streamlit_option_menu import option_menu 
+from streamlit_option_menu import option_menu
+from translations import I18N 
 
 # =========================
 # 01.1) TIMEZONE UTILS
@@ -140,844 +142,6 @@ def remove_streamlit_top_spacing():
 
 remove_streamlit_top_spacing()
 
-# =========================
-# 03) I18N / TRANSLATIONS
-# =========================
-I18N: Dict[str, Dict[str, str]] = {
-    "en": {
-        # -------------------------
-        # AUTH
-        # -------------------------
-        "login_required": "Login required",
-        "sign_in": "Sign in",
-        "sign_up": "Create account",
-        "sign_out": "Sign out",
-        "password": "Password",
-        "email": "Email",
-        "login_title": "Log in",
-        "forgot_password": "Forgot password?",
-        "email_reset_link": "Email for reset link",
-        "send_reset_email": "Send reset email",
-        "create_account": "Create account",
-
-        "logged_in_ok": "Logged in ✅",
-        "login_failed": "Login failed",
-        "reset_email_sent": "Reset email sent. Check your inbox.",
-        "reset_failed": "Reset failed",
-        "account_created_check_email": "Account created. If confirmations are enabled, check your email, then log in.",
-        "signup_failed": "Sign up failed",
-
-        "update_profile_photo": "Update profile photo",
-        "choose_photo": "Choose a photo",
-        "close": "Close",
-        "save": "Save",
-        "profile_photo_updated": "Profile photo updated ✅",
-        "upload_failed": "Upload failed",
-
-        "signin_failed_no_session": "Sign-in failed (no session).",
-        "signin_error": "Sign-in error",
-        "signup_error": "Sign-up error",
-        "account_created_now_signin": "Account created. Now sign in.",
-        "user_name": "User name",
-
-        # -------------------------
-        # NAV / PAGES
-        # -------------------------
-        "menu": "Menu",
-        "home": "Home",
-        "dashboard": "Dashboard",
-        "students": "Students",
-        "lessons": "Lessons",
-        "lesson": "Lesson",
-        "payments": "Payments",
-        "payment": "Payment",
-        "schedule": "Schedule",
-        "calendar": "Calendar",
-        "analytics": "Analytics",
-
-        # -------------------------
-        # HOME / TOP NAV
-        # -------------------------
-        "choose_where_to_go": "Choose where you want to go",
-        "language_ui": "Language",
-        "english": "English",
-        "spanish": "Spanish",
-        "both": "English & Spanish",
-        "compact_mode": "Mobile mode",
-        "welcome": "Welcome",
-        "alerts": "Alerts",
-        "settings": "Settings",
-        "home_slogan": "One student is all it takes to start",
-        "find_private_students": "Find private students",
-        "home_find_students": "Find private students",
-        "home_menu_title": "Manage current students",
-        "ytd_income": "YTD income",
-        "next": "Next lesson",
-        "goal": "Goal",
-        "completed": "Completed",
-        "avatar_upload_invalid_image": "Please upload an image file.",
-        "avatar_upload_empty": "The uploaded file is empty.",
-        "avatar_upload_too_large": "Image is too large. Maximum size is {max_size_mb} MB.",
-        "avatar_upload_missing_user": "Missing user ID.",
-        "avatar_upload_storage_failed": "Storage upload failed",
-        "avatar_upload_url_failed": "Could not generate avatar URL",
-        "avatar_upload_no_public_url": "Upload succeeded, but no public URL was returned.",
-
-        # -------------------------
-        # COMMON ACTIONS / STATES
-        # -------------------------
-        "add": "Add",
-        "save": "Save",
-        "delete": "Delete",
-        "reset": "Reset",
-        "view": "View",
-        "search": "Search",
-        "select_student": "Select a student",
-        "select_year": "Select year",
-        "apply_changes": "Apply changes",
-        "warning_apply": "Be careful. Changes are applied immediately.",
-        "no_data": "No data yet.",
-        "no_students": "No students found yet.",
-        "no_events": "No events found.",
-        "saved": "Saved ✅",
-        "updated": "Updated ✅",
-        "deleted": "Deleted ✅",
-        "some_updates_failed": "Some updates failed.",
-        "delete_failed": "Delete failed",
-        "delete_warning_undo": "I understand this cannot be undone",
-
-        # -------------------------
-        # COMMON LABELS
-        # -------------------------
-        "student": "Student",
-        "date": "Date",
-        "time": "Time",
-        "weekday": "Weekday",
-        "units": "Units",
-        "modality": "Modality",
-        "online": "Online",
-        "offline": "Offline",
-        "lesson_language": "Lesson language",
-        "package_languages": "Package languages",
-        "languages": "Languages",
-        "note": "Note",
-        "notes": "Notes",
-        "notes_optional": "Note (optional)",
-        "unknown": "Unknown",
-        "id": "ID",
-        "year": "Year",
-        "month": "Month",
-        "day": "Day",
-        "income": "Income",
-
-        # -------------------------
-        # QUICK LESSON PLANNER
-        # -------------------------
-        "quick_lesson_planner": "Quick lesson planner",
-        "quick_lesson_caption": "Generate a ready-to-use 45-minute emergency lesson",
-        "student_type": "Student type",
-        "kid": "Kid",
-        "adult": "Adult",
-        "lesson_type": "Lesson type",
-        "reading": "Reading",
-        "listening": "Listening",
-        "speaking": "Speaking",
-        "writing": "Writing",
-        "level_cefr": "Level",
-        "subject_label": "Subject",
-        "topic_label": "Topic",
-        "generate_plan": "Generate plan",
-        "lesson_plan_ready": "Lesson plan ready ✅",
-        "lesson_objective": "Lesson objective",
-        "warm_up": "Warm-up",
-        "main_activity": "Main activity",
-        "guided_practice": "Guided practice",
-        "freer_task": "Freer task",
-        "wrap_up": "Wrap-up",
-        "reading_passage": "Reading passage",
-        "listening_script": "Listening script",
-        "comprehension_questions": "Comprehension questions",
-        "teacher_notes": "Teacher notes",
-        "optional_homework": "Optional homework",
-        "plan_title": "Lesson title",
-        "lesson_duration_45": "45-minute lesson",
-        "enter_topic": "Please enter a topic.",
-        "learner_stage": "Learner stage",
-        "lesson_purpose": "Lesson purpose",
-        "level_or_band": "Level / band",
-        "early_primary": "Early Primary (6–8)",
-        "upper_primary": "Upper Primary (9–11)",
-        "lower_secondary": "Lower Secondary (12–14)",
-        "upper_secondary": "Upper Secondary (15–18)",
-        "adult_stage": "Adult",
-        "beginner_band": "Beginner",
-        "intermediate_band": "Intermediate",
-        "advanced_band": "Advanced",
-        "introduce_concept": "Introduce a concept",
-        "practice_skill": "Practice a skill",
-        "review_topic": "Review a topic",
-        "diagnose_difficulty": "Diagnose a difficulty",
-        "discussion_exploration": "Discussion / exploration",
-        "success_criteria": "Success criteria",
-        "extension_task": "Extension task",
-        "keep_plan": "Keep plan",
-        "delete_plan": "Delete plan",
-        "plan_kept": "Plan kept in the app ✅",
-        "plan_deleted": "Plan deleted ✅",
-        "teacher_moves": "Teacher moves",
-        "core_examples": "Core examples",
-        "practice_questions": "Practice questions",
-        "recommended_level": "Recommended level",
-        "quick_plan_saved_label": "Saved plan",
-
-        # -------------------------
-        # DASHBOARD
-        # -------------------------
-        "manage_current_students": "Manage your current students and packages",
-        "take_action": "Take Action",
-        "academic_status": "Academic status",
-        "current_packages": "Current packages",
-        "mismatches": "Mismatches",
-        "normalize": "Normalize",
-        "all_good_no_action_required": "All good! No action required ✅",
-        "whatsapp_message": "WhatsApp message",
-        "open_whatsapp": "Open WhatsApp",
-        "contact_student": "Contact the student",
-        "lessons_left": "Lessons left",
-        "last_lesson_date": "Last lesson date",
-
-        # status (canonical + UI)
-        "status": "Status",
-        "active": "Active",
-        "finished": "Finished",
-        "mismatch": "Mismatch",
-        "almost_finished": "Almost finished",
-        "dropout": "Dropout",
-        "action_finish_soon": "Finish soon",
-
-        # mismatch table labels (snake_case columns shown)
-        "overused_units": "Overused units",
-        "lessons_left_units": "Units left",
-        "lessons_taken_units": "Units taken",
-        "lessons_paid_total": "Lessons paid",
-        "payment_date": "Payment date",
-        "package_start_date": "Package start date",
-        "package_expiry_date": "Package expiry date",
-        "payment_id": "Payment ID",
-        "normalize_allowed": "Normalization allowed",
-        "total_paid": "Price paid",
-        "is_active_6m": "Active",
-
-        # today
-        "todays_lessons": "Today's lessons",
-        "open_link": "Join lesson",
-        "mark_done": "Mark as done",
-        "no_events_today": "No events for today. Take a cup of coffee ☕.",
-        "online": "Online",
-
-        # -------------------------
-        # STUDENTS PAGE
-        # -------------------------
-        "add_and_manage_students": "Add and manage students",
-        "add_new": "Add new",
-        "new_student_name": "New student name",
-        "student_profile": "Student profile",
-        "student_list": "Student list",
-        "student_history": "Student history",
-        "delete_student": "Delete student",
-        "delete_student_warning": "This deletes the student profile. Lessons/payments remain in the database unless you delete them separately.",
-        "confirm_delete_student": "I understand and want to delete this student",
-
-        # student profile fields
-        "email": "Email",
-        "zoom_link": "Zoom link",
-        "whatsapp_phone": "WhatsApp phone",
-        "examples_phone": "Example: +90 555 555 55 55",
-        "calendar_color": "Calendar color",
-        "phone_warning_short": "Phone seems short/ambiguous. Use international format for direct WhatsApp chat.",
-
-        # -------------------------
-        # LESSONS PAGE
-        # -------------------------
-        "keep_track_of_your_lessons": "Record lessons and keep track of attendance",
-        "record_attendance": "Take attendance",
-        "lesson_editor": "Lesson editor",
-        "delete_lesson": "Delete lesson",
-        "delete_lesson_help": "Use this if you registered a lesson by mistake.",
-        "lesson_id": "Lesson ID",
-        "lesson_date": "Lesson date",
-
-        # -------------------------
-        # PAYMENTS PAGE
-        # -------------------------
-        "add_and_manage_your_payments": "Add and manage your payments",
-        "paid_amount": "Paid amount",
-        "lessons_paid": "Lessons paid",
-        "starts_different": "First lesson starts on a different date",
-        "package_start": "Package start date",
-        "package_expiry": "Package expiry date",
-        "adjust_units": "Adjustment units",
-        "package_normalized": "Normalized",
-        "normalized_note": "Normalization note",
-        "normalized_at": "Normalized at",
-        "payment_editor": "Payment editor",
-        "delete_payment": "Delete payment",
-        "delete_payment_help": "Use this if you registered a payment by mistake.",
-        "payment_deleted": "Payment deleted ✅",
-        "adjustment_units": "Adjusted units",
-
-        # -------------------------
-        # CALENDAR PAGE
-        # -------------------------
-        "create_and_manage_your_weekly_program": "Create and manage your weekly program",
-        "today": "Today",
-        "this_week": "This week",
-        "this_month": "This month",
-        "filter_students": "Filter students",
-        "schedule_id": "Schedule ID",
-        "time_hhmm": "Time (HH:MM)",
-        "duration_min": "Duration (min)",
-        "active_flag": "Active",
-        "current_schedule": "Current schedule",
-        "delete_scheduled_lesson": "Delete a scheduled lesson",
-        "delete_schedule_warning": "Be careful! This deletes permanently.",
-        "time": "Time", 
-        "duration_minutes": "Duration (min)", 
-        "active": "Active",
-        "invalid_time_format": "Incorrect time inserted. Please use 24-hour (HH:MM) format.",
-
-        # overrides
-        "modify_calendar": "Modify calendar",
-        "cancel_or_reschedule": "Cancel or reschedule a lesson",
-        "override_student": "Student",
-        "override_original_date": "Original date",
-        "override_status": "Status",
-        "override_scheduled": "Rescheduled",
-        "override_cancel": "Cancelled",
-        "override_new_date": "New date",
-        "override_new_time_hhmm": "New time (HH:MM)",
-        "override_duration": "Duration (min)",
-        "override_note": "Note",
-        "previous_changes": "Previous changes",
-        "change": "Change",
-        "select_new_date_time": "Please select a new date & time.",
-        "override_save_failed": "Could not save override.",
-        "override_delete_failed": "Could not delete override.",
-        "override_id": "Override ID",
-        "original_date": "Original date",
-        "new_datetime": "New date",
-
-        # -------------------------
-        # ANALYTICS PAGE
-        # -------------------------
-        "view_your_income_and_business_indicators": "View your income and business indicators",
-        "all_time_income": "Total income",
-        "yearly": "Yearly",
-        "monthly": "Monthly",
-        "weekly": "Weekly",
-        "all_time_monthly_income": "All time monthly income",
-        "monthly_income": "Monthly",
-        "yearly_income": "Yearly",
-        "yearly_totals": "Yearly",
-        "weekly_income": "Weekly",
-        "last_7_days": "Last 7 days",
-        "most_profitable_students": "Most profitable students",
-        "packages_by_language": "Packages by language",
-        "packages_by_modality": "Packages by modality",
-        "lessons_by_language": "Lessons by language",
-        "lessons_by_modality": "Lessons by modality",
-        "estimated_finish_date": "Estimated finish date",
-        "reminder_date": "Reminder date",
-
-
-        # forecast inside analytics
-        "forecast": "Forecast",
-        "payment_buffer": "Reminder buffer",
-        "on_finish": "On finish date",
-        "days_before": "days before",
-        "units_per_day": "Classes per day",
-
-        # -------------------------
-        # MISSING KEYS
-        # -------------------------
-        "manage_students": "Manage students",
-        "done_ok": "Done ✅",
-        "normalize_failed": "Normalization failed.",
-        "normalized_default_note": "Package normalized / adjustment applied.",
-        "packages_bought": "Total packages",
-        # =========================
-        # PRICING SECTION
-        # =========================
-
-        "pricing_editor_title": "💳 Pricing & Packages",
-
-        "pricing_online_title": "Online lessons",
-        "pricing_offline_title": "Face-to-face lessons",
-
-        "pricing_hourly_caption": "Hourly (pay each lesson)",
-        "pricing_hourly_price_label": "Hourly price",
-        "pricing_hourly_updated": "Hourly price updated ✅",
-        "pricing_hourly_load_error": "Could not create/load hourly row. Check RLS/policies.",
-
-        "pricing_no_packages": "No packages yet. Add one below.",
-
-        "pricing_edit": "Edit",
-        "pricing_save": "Save",
-        "pricing_delete": "Delete",
-
-        "pricing_package_updated": "Package updated ✅",
-        "pricing_package_deleted": "Package deleted ✅",
-        "pricing_package_added": "Package added ✅",
-
-        "pricing_hours": "Hours",
-        "pricing_price_label": "Price (TL)",
-        "pricing_per_hour": "per hour",
-
-        "pricing_add_package": "Add a package",
-        "pricing_add": "Add",
-        "pricing_set_price_hint": "Please set your prices below before registering payments.",
-        
-        # -------------------------
-        # WHATSAPP (DASHBOARD)
-        # -------------------------
-        "whatsapp_templates_title": "WhatsApp Templates",
-        "whatsapp_message_language": "Message language",
-        "whatsapp_choose_template": "Choose a template",
-
-        "whatsapp_tpl_package": "1) Package offer",
-        "whatsapp_tpl_confirm": "2) Confirm lesson",
-        "whatsapp_tpl_cancel": "3) Cancel lesson",
-
-        "whatsapp_no_students_for_template": "No students available for this template right now.",
-    },
-
-    "es": {
-        # -------------------------
-        # AUTH
-        # -------------------------
-        "login_required": "Inicio de sesión requerido",
-        "sign_in": "Iniciar sesión",
-        "sign_up": "Crear cuenta",
-        "sign_out": "Cerrar sesión",
-        "password": "Contraseña",
-        "email": "Correo electrónico",
-        "login_title": "Iniciar sesión",
-        "forgot_password": "¿Olvidaste tu contraseña?",
-        "email_reset_link": "Correo para enlace de restablecimiento",
-        "send_reset_email": "Enviar correo de restablecimiento",
-        "create_account": "Crear cuenta",
-
-        "logged_in_ok": "Sesión iniciada ✅",
-        "login_failed": "Error al iniciar sesión",
-        "reset_email_sent": "Correo de restablecimiento enviado. Revisa tu bandeja de entrada.",
-        "reset_failed": "Error al restablecer la contraseña",
-        "account_created_check_email": "Cuenta creada. Si las confirmaciones están activadas, revisa tu correo y luego inicia sesión.",
-        "signup_failed": "Error al crear la cuenta",
-
-        "update_profile_photo": "Actualizar foto de perfil",
-        "choose_photo": "Elegir una foto",
-        "close": "Cerrar",
-        "save": "Guardar",
-        "profile_photo_updated": "Foto de perfil actualizada ✅",
-        "upload_failed": "Error al subir la foto",
-
-        "signin_failed_no_session": "Error al iniciar sesión (sin sesión).",
-        "signin_error": "Error de inicio de sesión",
-        "signup_error": "Error al crear la cuenta",
-        "account_created_now_signin": "Cuenta creada. Ahora inicia sesión.",
-        "user_name": "Nombre de usuario",
-
-        # -------------------------
-        # NAV / PAGES
-        # -------------------------
-        "menu": "Menú",
-        "home": "Inicio",
-        "dashboard": "Panel",
-        "students": "Estudiantes",
-        "lessons": "Clases",
-        "lesson": "Clase",
-        "payments": "Pagos",
-        "payment": "Pago",
-        "schedule": "Horario",
-        "calendar": "Calendario",
-        "analytics": "Analítica",
-
-        # -------------------------
-        # HOME / TOP NAV
-        # -------------------------
-        "choose_where_to_go": "Elige a dónde quieres ir",
-        "language_ui": "Idioma",
-        "english": "Inglés",
-        "spanish": "Español",
-        "both": "Inglés & Español",
-        "compact_mode": "Modo móvil",
-        "welcome": "Bienvenido",
-        "alerts": "Alertas",
-        "settings": "Ajustes",
-        "home_slogan": "Solo un estudiante basta",
-        "home_find_students": "Encuentra estudiantes privados",
-        "home_menu_title": "Gestiona estudiantes actuales",
-        "next": "Siguiente clase",
-        "goal": "Meta",
-        "completed": "Completado",
-        "ytd_income": "Ingreso del año",
-        "avatar_upload_invalid_image": "Por favor sube un archivo de imagen.",
-        "avatar_upload_empty": "La imagen subida está vacía.",
-        "avatar_upload_too_large": "La imagen es demasiado grande. El tamaño máximo es de {max_size_mb} MB.",
-        "avatar_upload_missing_user": "Falta el ID del usuario.",
-        "avatar_upload_storage_failed": "Error al subir la imagen al almacenamiento",
-        "avatar_upload_url_failed": "No se pudo generar la URL pública de la imagen",
-        "avatar_upload_no_public_url": "La imagen se subió, pero no se obtuvo una URL pública.",
-
-        # -------------------------
-        # COMMON ACTIONS / STATES
-        # -------------------------
-        "add": "Añadir",
-        "save": "Guardar",
-        "delete": "Eliminar",
-        "reset": "Reiniciar",
-        "view": "Vista",
-        "search": "Buscar",
-        "select_student": "Selecciona un estudiante",
-        "select_year": "Selecciona un año",
-        "apply_changes": "Aplicar cambios",
-        "warning_apply": "Ten cuidado. Los cambios se aplican de inmediato.",
-        "no_data": "Aún no hay datos.",
-        "no_students": "Aún no hay estudiantes.",
-        "no_events": "No hay eventos.",
-        "saved": "Guardado ✅",
-        "updated": "Actualizado ✅",
-        "deleted": "Eliminado ✅",
-        "some_updates_failed": "Algunos cambios fallaron.",
-        "delete_failed": "Error al eliminar",
-        "delete_warning_undo": "Entiendo que no se puede deshacer",
-
-        # -------------------------
-        # COMMON LABELS
-        # -------------------------
-        "student": "Estudiante",
-        "date": "Fecha",
-        "time": "Hora",
-        "weekday": "Día de la semana",
-        "units": "Unidades",
-        "modality": "Modalidad",
-        "online": "Online",
-        "offline": "Presencial",
-        "lesson_language": "Idioma de la clase",
-        "package_languages": "Idiomas del paquete",
-        "languages": "Idiomas",
-        "note": "Nota",
-        "notes": "Notas",
-        "notes_optional": "Nota (opcional)",
-        "unknown": "Desconocido",
-        "id": "ID",
-        "year": "Año",
-        "month": "Mes",
-        "day": "Día",
-        "income": "Ingresos",
-
-        # -------------------------
-        # QUICK LESSON PLANNER
-        # -------------------------
-        "quick_lesson_planner": "Planificador rápido de clases",
-        "quick_lesson_caption": "Genera una clase de emergencia de 45 minutos lista para usar",
-        "student_type": "Tipo de estudiante",
-        "kid": "Niño",
-        "adult": "Adulto",
-        "lesson_type": "Tipo de clase",
-        "reading": "Lectura",
-        "listening": "Escucha",
-        "speaking": "Conversación",
-        "writing": "Escritura",
-        "level_cefr": "Nivel",
-        "subject_label": "Materia",
-        "topic_label": "Tema",
-        "generate_plan": "Generar plan",
-        "lesson_plan_ready": "Plan de clase listo ✅",
-        "lesson_objective": "Objetivo de la clase",
-        "warm_up": "Calentamiento",
-        "main_activity": "Actividad principal",
-        "guided_practice": "Práctica guiada",
-        "freer_task": "Tarea libre",
-        "wrap_up": "Cierre",
-        "reading_passage": "Texto de lectura",
-        "listening_script": "Guion de escucha",
-        "comprehension_questions": "Preguntas de comprensión",
-        "teacher_notes": "Notas para el profesor",
-        "optional_homework": "Tarea opcional",
-        "plan_title": "Título de la clase",
-        "lesson_duration_45": "Clase de 45 minutos",
-        "enter_topic": "Por favor escribe el tema.",
-        "learner_stage": "Etapa del estudiante",
-        "lesson_purpose": "Propósito de la clase",
-        "level_or_band": "Nivel / banda",
-        "early_primary": "Primaria inicial (6–8)",
-        "upper_primary": "Primaria superior (9–11)",
-        "lower_secondary": "Secundaria baja (12–14)",
-        "upper_secondary": "Secundaria alta (15–18)",
-        "adult_stage": "Adulto",
-        "beginner_band": "Principiante",
-        "intermediate_band": "Intermedio",
-        "advanced_band": "Avanzado",
-        "introduce_concept": "Introducir un concepto",
-        "practice_skill": "Practicar una habilidad",
-        "review_topic": "Repasar un tema",
-        "diagnose_difficulty": "Diagnosticar una dificultad",
-        "discussion_exploration": "Discusión / exploración",
-        "success_criteria": "Criterios de logro",
-        "extension_task": "Actividad de extensión",
-        "keep_plan": "Guardar plan",
-        "delete_plan": "Eliminar plan",
-        "plan_kept": "Plan guardado en la app ✅",
-        "plan_deleted": "Plan eliminado ✅",
-        "teacher_moves": "Movimientos del profesor",
-        "core_examples": "Ejemplos clave",
-        "practice_questions": "Preguntas de práctica",
-        "recommended_level": "Nivel recomendado",
-        "quick_plan_saved_label": "Plan guardado",
-
-        # -------------------------
-        # DASHBOARD
-        # -------------------------
-        "manage_current_students": "Administra tus estudiantes y paquetes actuales",
-        "take_action": "Toma acción",
-        "current_packages": "Paquetes actuales",
-        "academic_status": "Estado académico",
-        "mismatches": "Descuadres",
-        "normalize": "Normalizar",
-        "all_good_no_action_required": "¡Todo bien! No se requiere acción ✅",
-        "whatsapp_message": "Mensaje de WhatsApp",
-        "open_whatsapp": "Abrir WhatsApp",
-        "contact_student": "Contactar al estudiante",
-        "lessons_left": "Clases restantes",
-        "last_lesson_date": "Fecha de última clase",
-
-        # status (canonical + UI)
-        "status": "Estado",
-        "active": "Activo",
-        "finished": "Finalizado",
-        "mismatch": "Descuadre",
-        "almost_finished": "Por terminar",
-        "dropout": "Desertor",
-        "action_finish_soon": "Termina pronto",
-
-        # mismatch table labels (snake_case columns shown)
-        "overused_units": "Unidades excedidas",
-        "lessons_left_units": "Unidades restantes",
-        "lessons_taken_units": "Unidades tomadas",
-        "lessons_paid_total": "Clases pagadas",
-        "payment_date": "Fecha de pago",
-        "package_start_date": "Inicio del paquete",
-        "package_expiry_date": "Fin del paquete",
-        "payment_id": "ID del pago",
-        "normalize_allowed": "Normalización permitida",
-        "total_paid": "Monto pagado",
-        "is_active_6m": "Activo",
-
-        # today
-        "todays_lessons": "Clases de hoy",
-        "open_link": "Conectate",
-        "mark_done": "Marcar como hecha",
-        "no_events_today": "No hay eventos hoy. Toma una taza de café ☕.",
-        "online": "En línea",
-
-        # -------------------------
-        # STUDENTS PAGE
-        # -------------------------
-        "add_and_manage_students": "Añade y gestiona estudiantes",
-        "add_new": "Añadir nuevo",
-        "new_student_name": "Nombre del nuevo estudiante",
-        "student_profile": "Perfil del estudiante",
-        "student_list": "Lista de estudiantes",
-        "student_history": "Historial del estudiante",
-        "delete_student": "Eliminar estudiante",
-        "delete_student_warning": "Esto elimina el perfil del estudiante. Las clases/pagos permanecen en la base de datos a menos que los elimines por separado.",
-        "confirm_delete_student": "Entiendo y quiero eliminar este estudiante",
-
-        # student profile fields
-        "email": "Correo",
-        "zoom_link": "Enlace de Zoom",
-        "whatsapp_phone": "Teléfono de WhatsApp",
-        "examples_phone": "Ejemplo: +90 555 555 55 55",
-        "calendar_color": "Color del calendario",
-        "phone_warning_short": "El teléfono parece corto/ambiguo. Usa formato internacional para abrir WhatsApp directo.",
-
-        # -------------------------
-        # LESSONS PAGE
-        # -------------------------
-        "keep_track_of_your_lessons": "Registra clases y controla la asistencia",
-        "record_attendance": "Registra asistencia",
-        "lesson_editor": "Editor de clases",
-        "delete_lesson": "Eliminar clase",
-        "delete_lesson_help": "Usa esto si registraste una clase por error.",
-        "lesson_id": "ID de clase",
-        "lesson_date": "Fecha de clase",
-
-        # -------------------------
-        # PAYMENTS PAGE
-        # -------------------------
-        "add_and_manage_your_payments": "Añade y gestiona tus pagos",
-        "paid_amount": "Monto pagado",
-        "lessons_paid": "Clases pagadas",
-        "starts_different": "La primera clase comienza en otra fecha",
-        "package_start": "Inicio del paquete",
-        "package_expiry": "Fin del paquete",
-        "adjust_units": "Unidades de ajuste",
-        "package_normalized": "Normalizado",
-        "normalized_note": "Nota de normalización",
-        "normalized_at": "Normalizado el",
-        "payment_editor": "Editor de pagos",
-        "delete_payment": "Eliminar pago",
-        "delete_payment_help": "Usa esto si registraste un pago por error.",
-        "payment_deleted": "Pago eliminado ✅",
-        "adjustment_units": "Unidades ajustadas",
-
-        # -------------------------
-        # CALENDAR PAGE
-        # -------------------------
-        "create_and_manage_your_weekly_program": "Crea y gestiona tu programa semanal",
-        "today": "Hoy",
-        "this_week": "Esta semana",
-        "this_month": "Este mes",
-        "filter_students": "Filtrar estudiantes",
-        "schedule_id": "ID del horario",
-        "time_hhmm": "Hora (HH:MM)",
-        "duration_min": "Duración (min)",
-        "active_flag": "Activo",
-        "current_schedule": "Horario actual",
-        "delete_scheduled_lesson": "Eliminar una clase programada",
-        "delete_schedule_warning": "¡Cuidado! Esto se elimina permanentemente.",
-        "time": "Hora", 
-        "duration_minutes": "Duración (min)", 
-        "active": "Activo",
-        "invalid_time_format": "Hora incorrecta. Utilice el formato 24 horas HH:MM.",
-
-        # overrides
-        "modify_calendar": "Modificar calendario",
-        "cancel_or_reschedule": "Cancelar o reprogramar una clase",
-        "override_student": "Estudiante",
-        "override_original_date": "Fecha original",
-        "override_status": "Estado",
-        "override_scheduled": "Reprogramada",
-        "override_cancel": "Cancelada",
-        "override_new_date": "Nueva fecha",
-        "override_new_time_hhmm": "Nueva hora (HH:MM)",
-        "override_duration": "Duración (min)",
-        "override_note": "Nota",
-        "previous_changes": "Cambios anteriores",
-        "change": "Cambiar",
-        "select_new_date_time": "Por favor selecciona nueva fecha y hora.",
-        "override_save_failed": "No se pudo guardar el cambio.",
-        "override_delete_failed": "No se pudo eliminar el cambio.",
-        "override_id": "ID del cambio",
-        "original_date": "Fecha original",
-        "new_datetime": "Fecha nueva",
-
-        # -------------------------
-        # ANALYTICS PAGE
-        # -------------------------
-        "view_your_income_and_business_indicators": "Consulta tus ingresos e indicadores de negocio",
-        "all_time_income": "Total",
-        "yearly": "Anual",
-        "monthly": "Mensual",
-        "weekly": "Semanal",
-        "all_time_monthly_income": "Ingresos mensuales históricos",
-        "monthly_income": "Mensual",
-        "yearly_income": "Anual",
-        "yearly_totals": "Totales anuales",
-        "weekly_income": "Semanal",
-        "last_7_days": "Últimos 7 días",
-        "most_profitable_students": "Estudiantes más rentables",
-        "packages_by_language": "Paquetes por idioma",
-        "packages_by_modality": "Paquetes por modalidad",
-        "lessons_by_language": "Clases por idioma",
-        "lessons_by_modality": "Clases por modalidad",
-        "units_per_day": "Clases por día",
-        "estimated_finish_date": "Fecha de cierre estimada",
-        "reminder_date": "Fecha de recordatorio",
-
-        # forecast inside analytics
-        "forecast": "Proyección",
-        "payment_buffer": "Margen de recordatorio",
-        "on_finish": "En la fecha de finalización",
-        "days_before": "días antes",
-        # -------------------------
-        # MISSING KEYS
-        # -------------------------
-        "manage_students": "Gestionar estudiantes",
-        "done_ok": "Listo ✅",
-        "normalize_failed": "Falló la normalización.",
-        "normalized_default_note": "Paquete normalizado / ajuste aplicado.",
-        "package_normalized": "Paquete normalizado",
-        "packages_bought": "Paquetes comprados",
-        "add_student": "Añadir estudiante",
-
-        # =========================
-        # PRICING SECTION
-        # =========================
-
-        "pricing_editor_title": "💳 Precios y Paquetes",
-
-        "pricing_online_title": "Clases en línea",
-        "pricing_offline_title": "Clases presenciales",
-
-        "pricing_hourly_caption": "Por hora (paga cada clase)",
-        "pricing_hourly_price_label": "Precio por hora",
-        "pricing_hourly_updated": "Precio por hora actualizado ✅",
-        "pricing_hourly_load_error": "No se pudo crear/cargar la tarifa por hora. Revisa RLS/políticas.",
-
-        "pricing_no_packages": "Aún no hay paquetes. Agrega uno abajo.",
-
-        "pricing_edit": "Editar",
-        "pricing_save": "Guardar",
-        "pricing_delete": "Eliminar",
-
-        "pricing_package_updated": "Paquete actualizado ✅",
-        "pricing_package_deleted": "Paquete eliminado ✅",
-        "pricing_package_added": "Paquete agregado ✅",
-
-        "pricing_hours": "Horas",
-        "pricing_price_label": "Precio (TL)",
-        "pricing_per_hour": "por hora",
-
-        "pricing_add_package": "Agregar un paquete",
-        "pricing_add": "Agregar",
-        "pricing_set_price_hint": "Por favor establece tus precios antes de registrar pagos.",
-        
-        # -------------------------
-        # WHATSAPP (DASHBOARD)
-        # -------------------------
-        "whatsapp_templates_title": "Plantillas de WhatsApp",
-        "whatsapp_message_language": "Idioma del mensaje",
-        "whatsapp_choose_template": "Elige una plantilla",
-
-        "whatsapp_tpl_package": "1) Enviar paquetes",
-        "whatsapp_tpl_confirm": "2) Confirmar clase",
-        "whatsapp_tpl_cancel": "3) Cancelar clase",
-
-        "whatsapp_no_students_for_template": "No hay estudiantes disponibles para esta plantilla en este momento.",
-    },
-
-    "tr": {
-        # -------------------------
-        # WHATSAPP (DASHBOARD)
-        # -------------------------
-        "whatsapp_templates_title": "WhatsApp Şablonları",
-        "whatsapp_message_language": "Mesaj dili",
-        "whatsapp_choose_template": "Şablon seç",
-
-        "whatsapp_tpl_package": "1) Paket bitti / bitmek üzere",
-        "whatsapp_tpl_confirm": "2) Bugünkü dersi teyit et",
-        "whatsapp_tpl_cancel": "3) Bugünkü dersi iptal et",
-
-        "whatsapp_no_students_for_template": "Şu anda bu şablon için uygun öğrenci yok.",
-    }
- }
-if "ui_lang" not in st.session_state:
-    st.session_state.ui_lang = "en"
-
-if "compact_mode" not in st.session_state:
-    st.session_state.compact_mode = False
 
 
 def t(key: str) -> str:
@@ -2178,8 +1342,17 @@ def require_login():
                     supabase.table("profiles").upsert(
                         {
                             "user_id": user.id,
-                            "display_name": name.strip()
-                        }
+                            "display_name": name.strip(),
+                            "preferred_ui_language": st.session_state.get("ui_lang", "en"),
+                            "timezone": DEFAULT_TZ_NAME,
+                            "default_lesson_duration": 45,
+                            "role": "teacher",
+                            "primary_subjects": [],
+                            "teaching_stages": [],
+                            "teaching_languages": [],
+                            "onboarding_completed": False,
+                        },
+                        on_conflict="user_id",
                     ).execute()
 
                 st.success(t("account_created_check_email"))
@@ -2331,6 +1504,230 @@ def save_profile_avatar_url(user_id: str, avatar_url: str) -> None:
     except Exception as e:
         st.error(f"Could not save profile avatar: {e}")
         raise
+def load_profile_row(user_id: str) -> dict:
+    if not user_id:
+        return {}
+
+    try:
+        res = (
+            supabase.table("profiles")
+            .select("*")
+            .eq("user_id", str(user_id))
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(res, "data", None) or []
+        if rows:
+            return rows[0] or {}
+    except Exception as e:
+        st.error(f"Could not load profile: {e}")
+
+    return {}
+
+
+def upsert_profile_row(user_id: str, payload: dict) -> bool:
+    if not user_id:
+        return False
+
+    clean = dict(payload or {})
+    clean["user_id"] = str(user_id)
+
+    try:
+        supabase.table("profiles").upsert(clean, on_conflict="user_id").execute()
+        clear_app_caches()
+        return True
+    except Exception as e:
+        st.error(f"Could not save profile: {e}")
+        return False
+
+
+def _profile_subject_label(subject: str) -> str:
+    mapping = {
+        "English": t("subject_english"),
+        "Spanish": t("subject_spanish"),
+        "Mathematics": t("subject_mathematics"),
+        "Science": t("subject_science"),
+        "Music": t("subject_music"),
+        "Study Skills": t("subject_study_skills"),
+    }
+    return mapping.get(subject, subject)
+
+
+def _profile_stage_label(stage: str) -> str:
+    mapping = {
+        "early_primary": t("stage_early_primary"),
+        "upper_primary": t("stage_upper_primary"),
+        "lower_secondary": t("stage_lower_secondary"),
+        "upper_secondary": t("stage_upper_secondary"),
+        "adult_stage": t("stage_adult"),
+    }
+    return mapping.get(stage, stage)
+
+
+def _profile_lang_label(lang_code: str) -> str:
+    mapping = {
+        "en": t("english"),
+        "es": t("spanish"),
+    }
+    return mapping.get(lang_code, lang_code)
+
+
+def _profile_duration_label(minutes: int) -> str:
+    mapping = {
+        30: t("duration_30"),
+        45: t("duration_45"),
+        60: t("duration_60"),
+        90: t("duration_90"),
+    }
+    return mapping.get(int(minutes), f"{minutes} min")
+
+
+def render_profile_dialog(user_id: str) -> None:
+    profile = load_profile_row(user_id)
+
+    try:
+        @st.dialog(t("edit_profile"))
+        def _profile_dialog():
+            st.markdown(f"### {t('edit_profile')}")
+
+            current_avatar = str(profile.get("avatar_url") or st.session_state.get("avatar_url") or "").strip()
+            if current_avatar:
+                st.image(current_avatar, width=96)
+
+            up = st.file_uploader(
+                t("choose_photo"),
+                type=["png", "jpg", "jpeg", "webp"],
+                key="profile_avatar_uploader",
+                label_visibility="collapsed",
+            )
+
+            display_name = st.text_input(
+                t("user_name"),
+                value=str(profile.get("display_name") or st.session_state.get("user_name") or ""),
+                key="profile_display_name",
+            )
+
+            c1, c2 = st.columns(2)
+
+            with c1:
+                preferred_ui_language = st.selectbox(
+                    t("preferred_ui_language"),
+                    ["en", "es"],
+                    index=0 if str(profile.get("preferred_ui_language") or st.session_state.get("ui_lang", "en")) == "en" else 1,
+                    format_func=lambda x: t("english") if x == "en" else t("spanish"),
+                    key="profile_preferred_ui_language",
+                )
+
+                timezone_value = str(profile.get("timezone") or DEFAULT_TZ_NAME)
+                timezone_index = PROFILE_TIMEZONE_OPTIONS.index(timezone_value) if timezone_value in PROFILE_TIMEZONE_OPTIONS else 0
+                timezone_name = st.selectbox(
+                    t("timezone_label"),
+                    PROFILE_TIMEZONE_OPTIONS,
+                    index=timezone_index,
+                    key="profile_timezone",
+                )
+
+                country_value = str(profile.get("country") or "")
+
+                if country_value and country_value in PROFILE_COUNTRY_OPTIONS:
+                    country_options = [country_value] + [c for c in PROFILE_COUNTRY_OPTIONS if c != country_value]
+                else:
+                    country_options = PROFILE_COUNTRY_OPTIONS
+
+                country = st.selectbox(
+    t("country_label"),
+    country_options,
+    index=0,
+    key="profile_country",
+)
+
+            with c2:
+                role_value = str(profile.get("role") or "teacher")
+                role = st.selectbox(
+                    t("role_label"),
+                    ["teacher", "tutor"],
+                    index=0 if role_value == "teacher" else 1,
+                    format_func=lambda x: t("teacher_role") if x == "teacher" else t("tutor_role"),
+                    key="profile_role",
+                )
+
+                duration_value = int(profile.get("default_lesson_duration") or 45)
+                duration_index = PROFILE_DURATION_OPTIONS.index(duration_value) if duration_value in PROFILE_DURATION_OPTIONS else 1
+                default_lesson_duration = st.selectbox(
+                    t("default_lesson_duration_label"),
+                    PROFILE_DURATION_OPTIONS,
+                    index=duration_index,
+                    format_func=_profile_duration_label,
+                    key="profile_default_lesson_duration",
+                )
+
+            primary_subjects = st.multiselect(
+                t("primary_subjects_label"),
+                PROFILE_SUBJECT_OPTIONS,
+                default=[x for x in (profile.get("primary_subjects") or []) if x in PROFILE_SUBJECT_OPTIONS],
+                format_func=_profile_subject_label,
+                key="profile_primary_subjects",
+            )
+
+            teaching_stages = st.multiselect(
+                t("teaching_stages_label"),
+                PROFILE_STAGE_OPTIONS,
+                default=[x for x in (profile.get("teaching_stages") or []) if x in PROFILE_STAGE_OPTIONS],
+                format_func=_profile_stage_label,
+                key="profile_teaching_stages",
+            )
+
+            teaching_languages = st.multiselect(
+                t("teaching_languages_label"),
+                PROFILE_TEACH_LANG_OPTIONS,
+                default=[x for x in (profile.get("teaching_languages") or []) if x in PROFILE_TEACH_LANG_OPTIONS],
+                format_func=_profile_lang_label,
+                key="profile_teaching_languages",
+            )
+
+            save_profile = st.button(t("save_profile"), key="profile_save_btn", use_container_width=True)
+
+            if save_profile:
+                new_avatar_url = current_avatar
+
+                if up is not None:
+                    try:
+                        new_avatar_url = upload_avatar_to_supabase(up, user_id=user_id)
+                    except Exception as e:
+                        st.error(f"{t('upload_failed')}: {e}")
+                        return
+
+                ok = upsert_profile_row(
+                    user_id,
+                    {
+                        "display_name": display_name.strip(),
+                        "avatar_url": new_avatar_url,
+                        "preferred_ui_language": preferred_ui_language,
+                        "timezone": timezone_name,
+                        "country": None if country == "Select..." else country,
+                        "role": role,
+                        "primary_subjects": primary_subjects,
+                        "teaching_stages": teaching_stages,
+                        "teaching_languages": teaching_languages,
+                        "default_lesson_duration": int(default_lesson_duration),
+                        "onboarding_completed": True,
+                    }
+                )
+
+                if ok:
+                    st.session_state["user_name"] = display_name.strip() or st.session_state.get("user_name", "User")
+                    st.session_state["avatar_url"] = new_avatar_url
+                    st.session_state["ui_lang"] = preferred_ui_language
+                    _set_query(lang=preferred_ui_language)
+
+                    st.session_state["home_action_menu_prev"] = t("alerts")
+                    st.success(t("profile_updated"))
+                    st.rerun()
+
+        _profile_dialog()
+
+    except Exception:
+        st.warning(t("edit_profile"))
 
 def sign_out_user() -> None:
     try:
@@ -2339,11 +1736,6 @@ def sign_out_user() -> None:
         pass
 
     _clear_logged_in_user()
-
-    # reset UI states
-    st.session_state["show_photo_dialog"] = False
-    st.session_state["avatar_url"] = ""
-    st.session_state["home_action_menu_prev"] = "Alerts"
 
     st.session_state["sb_access_token"] = None
     st.session_state["sb_refresh_token"] = None
@@ -2360,7 +1752,7 @@ def render_logout_button():
         # clear auth session
         st.session_state["sb_access_token"] = None
         st.session_state["sb_refresh_token"] = None
-        st.session_state["show_photo_dialog"] = False
+        st.session_state["show_profile_dialog"] = False
 
         # clear user info
         _clear_logged_in_user()
@@ -2370,6 +1762,34 @@ def render_logout_button():
 # =========================
 # 07) ALL HELPERS
 # =========================
+
+# =========================
+# 07.0) PROFILE OPTIONS
+# =========================
+PROFILE_SUBJECT_OPTIONS = [
+    "English",
+    "Spanish",
+    "Mathematics",
+    "Science",
+    "Music",
+    "Study Skills",
+]
+
+PROFILE_STAGE_OPTIONS = [
+    "early_primary",
+    "upper_primary",
+    "lower_secondary",
+    "upper_secondary",
+    "adult_stage",
+]
+
+PROFILE_TEACH_LANG_OPTIONS = ["en", "es"]
+
+PROFILE_DURATION_OPTIONS = [30, 45, 60, 90]
+
+PROFILE_TIMEZONE_OPTIONS = sorted(available_timezones())
+
+PROFILE_COUNTRY_OPTIONS = ["Select..."] + sorted([c.name for c in pycountry.countries])
 
 # =========================
 # 07.1A) QUICK LESSON PLANNER HELPERS
@@ -2418,17 +1838,30 @@ def get_subject_engine(subject: str) -> str:
     return SUBJECT_ENGINE_MAP.get(s, "general")
 
 
+def get_plan_language() -> str:
+    lang = str(st.session_state.get("ui_lang", "en")).strip().lower()
+    return "es" if lang == "es" else "en"
+
+
+def get_student_material_language(subject: str) -> str:
+    s = str(subject or "").strip().lower()
+    if s == "english":
+        return "en"
+    if s == "spanish":
+        return "es"
+    return get_plan_language()
+
+
+def qlp_txt(en: str, es: str) -> str:
+    return es if get_plan_language() == "es" else en
+
+
 def get_level_options(subject: str) -> list[str]:
-    engine = get_subject_engine(subject)
-    if engine == "language":
-        return LANGUAGE_LEVELS
-    return ACADEMIC_BANDS
+    return LANGUAGE_LEVELS if get_subject_engine(subject) == "language" else ACADEMIC_BANDS
 
 
 def recommend_default_level(subject: str, learner_stage: str) -> str:
-    engine = get_subject_engine(subject)
-
-    if engine == "language":
+    if get_subject_engine(subject) == "language":
         defaults = {
             "early_primary": "A1",
             "upper_primary": "A1",
@@ -2453,9 +1886,7 @@ def _stage_label(stage: str) -> str:
 
 
 def _level_label(level: str) -> str:
-    if level in LANGUAGE_LEVELS:
-        return level
-    return t(level)
+    return level if level in LANGUAGE_LEVELS else t(level)
 
 
 def _purpose_label(purpose: str) -> str:
@@ -2472,422 +1903,768 @@ def _capitalize_topic(topic: str) -> str:
 
 
 def _teacher_move_block(engine: str, purpose: str) -> list[str]:
-    common = [
-        "Model one example before asking the student to try.",
-        "Pause after each question and allow thinking time.",
-    ]
-
-    if purpose == "diagnose_difficulty":
-        common.append("Do not correct too quickly; first identify where the confusion begins.")
-
     if engine == "language":
-        common += [
-            "Recast errors naturally before giving direct correction.",
-            "If the student struggles, offer a sentence starter.",
+        base = [
+            qlp_txt("Model one answer before asking the student to answer alone.", "Modela una respuesta antes de pedirle al estudiante que responda solo."),
+            qlp_txt("If the student struggles, give a sentence starter instead of the full answer.", "Si el estudiante tiene dificultad, dale un inicio de oración en vez de la respuesta completa."),
+            qlp_txt("Correct only the error that blocks meaning first.", "Corrige primero solo el error que bloquea el significado."),
         ]
     elif engine == "math":
-        common += [
-            "Ask the student to explain each step aloud.",
-            "If the student gets stuck, uncover only the next step, not the full answer.",
+        base = [
+            qlp_txt("Ask the student to explain each step aloud.", "Pídele al estudiante que explique cada paso en voz alta."),
+            qlp_txt("If the student gets stuck, reveal only the next step.", "Si el estudiante se bloquea, muestra solo el siguiente paso."),
+            qlp_txt("Check whether the mistake is conceptual or just arithmetic.", "Comprueba si el error es conceptual o solo aritmético."),
         ]
     elif engine == "science":
-        common += [
-            "Ask for a prediction before explaining the concept.",
-            "Connect the idea to a real-life example.",
+        base = [
+            qlp_txt("Ask for a prediction before explaining the concept.", "Pide una predicción antes de explicar el concepto."),
+            qlp_txt("Use one real-life example before giving the formal explanation.", "Usa un ejemplo de la vida real antes de dar la explicación formal."),
+            qlp_txt("Rebuild understanding from the phenomenon, not from memorized definitions.", "Reconstruye la comprensión desde el fenómeno, no desde definiciones memorizadas."),
         ]
     elif engine == "music":
-        common += [
-            "Demonstrate first, then ask for imitation.",
-            "Use short repetition cycles instead of long explanation.",
+        base = [
+            qlp_txt("Demonstrate first, then ask for imitation.", "Demuestra primero y luego pide imitación."),
+            qlp_txt("Correct one thing at a time.", "Corrige una cosa a la vez."),
+            qlp_txt("Use short repetition cycles instead of long explanations.", "Usa ciclos cortos de repetición en lugar de explicaciones largas."),
         ]
-    elif engine == "study_skills":
-        common += [
-            "Model the strategy with a real school task.",
-            "Ask the student where they could use the strategy this week.",
+    else:
+        base = [
+            qlp_txt("Model the strategy with a real example.", "Modela la estrategia con un ejemplo real."),
+            qlp_txt("Ask the student where they could use this this week.", "Pregúntale al estudiante dónde podría usar esto esta semana."),
+            qlp_txt("Focus on transfer, not just explanation.", "Enfócate en la transferencia, no solo en la explicación."),
         ]
 
-    return common
-
-
-def _language_warmup_questions(topic: str, stage: str) -> list[str]:
-    topic_cap = _capitalize_topic(topic)
-    if stage == "adult_stage":
-        return [
-            f"What comes to your mind when you think about {topic}?",
-            f"Do you have any personal experience with {topic}?",
-            f"Why do you think {topic} is useful or important?",
-        ]
-    return [
-        f"What do you already know about {topic}?",
-        f"Can you say one word or idea related to {topic}?",
-        f"Have you seen or used {topic} before?",
-    ]
-
-
-def _math_warmup_questions(topic: str) -> list[str]:
-    return [
-        f"What do you already know about {topic}?",
-        f"Where do we use {topic} in real life?",
-        f"What is one thing that seems easy or difficult about {topic}?",
-    ]
-
-
-def _science_warmup_questions(topic: str) -> list[str]:
-    return [
-        f"What do you already know about {topic}?",
-        f"Where can we observe {topic} in real life?",
-        f"What do you think happens in {topic}?",
-    ]
-
-
-def _music_warmup_questions(topic: str) -> list[str]:
-    return [
-        f"What do you notice first about {topic}?",
-        f"Have you practiced or heard {topic} before?",
-        f"What do you think will be the hardest part today?",
-    ]
-
-
-def _study_skills_warmup_questions(topic: str) -> list[str]:
-    return [
-        f"What do you already do when working on {topic}?",
-        "What usually distracts you while studying?",
-        "What part of studying feels hardest for you?",
-    ]
-
-
-def _language_reading_passage(topic: str, level: str, stage: str) -> str:
-    topic_cap = _capitalize_topic(topic)
-
-    if level in ("A1", "A2"):
-        return (
-            f"{topic_cap} is part of daily life for many people. "
-            f"In this lesson, the student learns simple words and ideas about {topic}. "
-            f"The teacher gives easy examples and asks short questions. "
-            f"At the end, the student can say a few sentences about {topic}."
+    if purpose == "diagnose_difficulty":
+        base.append(
+            qlp_txt(
+                "Delay correction briefly so you can see exactly where the confusion starts.",
+                "Retrasa un poco la corrección para ver exactamente dónde empieza la confusión.",
+            )
         )
 
+    return base
+
+
+# -------------------------
+# LANGUAGE CONTENT BANK
+# -------------------------
+
+def _language_target_vocab(topic: str, level: str) -> list[str]:
+    topic = _topic_clean(topic)
+    if level in ("A1", "A2"):
+        return [topic, "example", "idea", "use", "daily life"]
+    if level in ("B1", "B2"):
+        return [topic, "experience", "opinion", "advantage", "situation"]
+    return [topic, "perspective", "impact", "challenge", "interpretation"]
+
+
+def _language_warmup_questions(topic: str, stage: str, level: str) -> list[str]:
+    if get_plan_language() == "es":
+        if level in ("A1", "A2"):
+            return [
+                f"¿Qué palabras conoces sobre {topic}?",
+                f"¿Te gusta o te interesa {topic}? ¿Por qué?",
+                f"¿Has visto o usado {topic} antes?",
+            ]
+        if level in ("B1", "B2"):
+            return [
+                f"¿Qué sabes ya sobre {topic}?",
+                f"¿Dónde aparece {topic} en la vida real?",
+                f"¿Qué opinión tienes sobre {topic}?",
+            ]
+        return [
+            f"¿Por qué crees que {topic} puede generar opiniones diferentes?",
+            f"¿Qué experiencia personal o social relacionas con {topic}?",
+            f"¿Qué aspecto de {topic} te parece más interesante o discutible?",
+        ]
+
+    if level in ("A1", "A2"):
+        return [
+            f"What words do you already know about {topic}?",
+            f"Do you like or find {topic} interesting? Why?",
+            f"Have you seen or used {topic} before?",
+        ]
+    if level in ("B1", "B2"):
+        return [
+            f"What do you already know about {topic}?",
+            f"Where does {topic} appear in real life?",
+            f"What is your opinion about {topic}?",
+        ]
+    return [
+        f"Why might {topic} lead to different opinions?",
+        f"What personal or social experience can you connect to {topic}?",
+        f"What part of {topic} seems most interesting or debatable to you?",
+    ]
+
+
+def _language_reading_text(topic: str, level: str, material_lang: str) -> str:
+    topic_cap = _capitalize_topic(topic)
+
+    if material_lang == "es":
+        if level == "A1":
+            return (
+                f"{topic_cap} es parte de la vida diaria. Muchas personas hablan de {topic} en casa, en la escuela y con sus amigos. "
+                f"En esta clase, el estudiante aprende palabras simples y puede decir ideas básicas sobre {topic}. "
+                f"Al final, el estudiante puede dar un ejemplo personal."
+            )
+        if level == "A2":
+            return (
+                f"{topic_cap} aparece en muchas situaciones cotidianas. Algunas personas lo usan con frecuencia y otras no piensan mucho en ello. "
+                f"Hablar sobre {topic} ayuda a los estudiantes a practicar vocabulario útil, expresar gustos y dar ejemplos simples de su experiencia."
+            )
+        if level in ("B1", "B2"):
+            return (
+                f"{topic_cap} es un tema útil para la comunicación porque permite hablar de experiencias, opiniones y situaciones de la vida real. "
+                f"Cuando los estudiantes trabajan con un texto sobre {topic}, no solo aprenden vocabulario nuevo, sino que también practican cómo explicar ideas con más claridad. "
+                f"Además, conectar el tema con experiencias personales hace que el aprendizaje sea más memorable."
+            )
+        return (
+            f"{topic_cap} es un tema rico para el análisis porque permite explorar experiencias personales, perspectivas sociales y matices del lenguaje. "
+            f"En un contexto académico, trabajar este tema ayuda a los estudiantes a interpretar información, justificar opiniones y desarrollar respuestas más precisas. "
+            f"Cuanto más conectan el texto con contextos reales, más profunda se vuelve la comprensión."
+        )
+
+    # English student material
+    if level == "A1":
+        return (
+            f"{topic_cap} is part of daily life. Many people talk about {topic} at home, at school, and with friends. "
+            f"In this lesson, the student learns simple words and can give basic ideas about {topic}. "
+            f"At the end, the student can give one personal example."
+        )
+    if level == "A2":
+        return (
+            f"{topic_cap} appears in many everyday situations. Some people use it often, while others do not think about it very much. "
+            f"Talking about {topic} helps students practice useful vocabulary, express likes and dislikes, and give simple examples from experience."
+        )
     if level in ("B1", "B2"):
         return (
-            f"{topic_cap} is an important topic because it appears in everyday communication. "
-            f"People often discuss it when sharing opinions, giving information, or describing experiences. "
-            f"In class, students can improve their language by reading, answering questions, and connecting the topic to real life. "
-            f"When they use the new vocabulary actively, they remember it more easily."
+            f"{topic_cap} is a useful topic for communication because it allows people to talk about experiences, opinions, and real-life situations. "
+            f"When students work with a text about {topic}, they not only learn new vocabulary but also practice how to explain ideas more clearly. "
+            f"In addition, connecting the topic to personal experience makes learning more memorable."
         )
-
     return (
-        f"{topic_cap} is a rich topic for advanced discussion because it allows learners to express opinions, evaluate ideas, and use precise language. "
-        f"A lesson on this theme can move beyond simple comprehension and invite reflection, comparison, and interpretation. "
-        f"Through well-chosen questions and examples, students can deepen both their vocabulary and their confidence in communicating nuanced ideas."
+        f"{topic_cap} is a rich topic for analysis because it allows learners to explore personal experience, social perspectives, and nuance in language. "
+        f"In an academic setting, working with this topic helps students interpret information, justify opinions, and produce more precise responses. "
+        f"The more they connect the text to real contexts, the deeper their understanding becomes."
     )
 
 
-def _language_listening_script(topic: str, level: str, stage: str) -> str:
+def _language_listening_text(topic: str, level: str, material_lang: str) -> str:
     topic_cap = _capitalize_topic(topic)
+
+    if material_lang == "es":
+        if level in ("A1", "A2"):
+            return (
+                f"Hola. Hoy vamos a hablar sobre {topic}. Es un tema que aparece en la vida diaria. "
+                f"Primero escucharemos algunas ideas simples y luego responderemos preguntas cortas. "
+                f"Después, cada estudiante dará un ejemplo personal relacionado con {topic}."
+            )
+        if level in ("B1", "B2"):
+            return (
+                f"Buenos días. La clase de hoy se centra en {topic}. Primero escucharemos las ideas principales, luego prestaremos atención a los detalles, "
+                f"y finalmente relacionaremos el tema con nuestras propias experiencias. Este tipo de actividad ayuda a mejorar la comprensión y la confianza al hablar."
+            )
+        return (
+            f"Buenos días. El enfoque de hoy es {topic}. Escucharemos un breve texto para identificar ideas principales, matices y detalles relevantes. "
+            f"Después discutiremos cómo este tema se conecta con experiencias reales y con diferentes puntos de vista."
+        )
 
     if level in ("A1", "A2"):
         return (
-            f"Hello. Today we are talking about {topic}. "
-            f"It is an interesting part of daily life. "
-            f"In this class, we will learn a few useful words, answer simple questions, and give our own ideas. "
-            f"At the end, we will talk about how {topic} is part of our lives."
+            f"Hello. Today we are going to talk about {topic}. It is a topic from daily life. "
+            f"First, we will listen to some simple ideas and then answer short questions. "
+            f"After that, each student will give one personal example related to {topic}."
         )
-
+    if level in ("B1", "B2"):
+        return (
+            f"Good morning. Today’s class focuses on {topic}. First, we will listen for the main ideas, then pay attention to details, "
+            f"and finally connect the topic to our own experiences. This kind of activity helps students improve comprehension and speaking confidence."
+        )
     return (
-        f"Good morning. Today’s lesson focuses on {topic}. "
-        f"We will begin with a short discussion, then listen for the main ideas, and finally connect the topic to our own experience. "
-        f"This type of lesson helps students build vocabulary, improve comprehension, and communicate more confidently."
+        f"Good morning. Today’s focus is {topic}. We will listen to a short text in order to identify main ideas, nuance, and relevant details. "
+        f"After that, we will discuss how the topic connects to real experience and to different perspectives."
     )
+
+
+def _language_text_questions(topic: str, level: str, plan_lang: str) -> tuple[list[str], list[str], list[str]]:
+    if plan_lang == "es":
+        if level in ("A1", "A2"):
+            pre = [
+                f"¿Qué sabes ya sobre {topic}?",
+                f"¿Qué palabras esperas escuchar o leer sobre {topic}?",
+            ]
+            gist = [
+                "¿Cuál es la idea principal del texto?",
+                "¿El texto presenta una idea positiva, negativa o neutral?",
+            ]
+            detail = [
+                "Menciona una información específica del texto.",
+                "¿Qué ejemplo aparece en el texto?",
+                "¿Qué hace o piensa la persona del texto?",
+            ]
+            return pre, gist, detail
+
+        if level in ("B1", "B2"):
+            pre = [
+                f"¿Qué problemas, ventajas o experiencias relacionas con {topic}?",
+                "¿Qué tipo de información crees que aparecerá en el texto?",
+            ]
+            gist = [
+                "¿Cuál es el mensaje central del texto?",
+                "¿Qué idea quiere destacar más el autor o hablante?",
+            ]
+            detail = [
+                "¿Qué dos detalles apoyan la idea principal?",
+                "¿Qué ejemplo concreto aparece en el texto?",
+                "¿Qué relación se establece entre el tema y la vida real?",
+            ]
+            return pre, gist, detail
+
+        pre = [
+            f"¿Qué perspectivas distintas pueden aparecer sobre {topic}?",
+            "¿Qué tono o postura esperas encontrar en el texto?",
+        ]
+        gist = [
+            "¿Cuál es la tesis o idea dominante del texto?",
+            "¿Qué matiz o contraste importante aparece?",
+        ]
+        detail = [
+            "¿Qué detalle apoya mejor la idea principal?",
+            "¿Qué inferencia se puede hacer a partir del texto?",
+            "¿Qué parte del texto muestra más claramente la postura del autor o hablante?",
+        ]
+        return pre, gist, detail
+
+    # English teacher-facing plan
+    if level in ("A1", "A2"):
+        pre = [
+            f"What do you already know about {topic}?",
+            f"What words do you expect to hear or read about {topic}?",
+        ]
+        gist = [
+            "What is the main idea of the text?",
+            "Is the text positive, negative, or neutral?",
+        ]
+        detail = [
+            "Name one specific detail from the text.",
+            "What example appears in the text?",
+            "What does the person in the text do or think?",
+        ]
+        return pre, gist, detail
+
+    if level in ("B1", "B2"):
+        pre = [
+            f"What problems, advantages, or experiences do you connect with {topic}?",
+            "What type of information do you expect to appear in the text?",
+        ]
+        gist = [
+            "What is the central message of the text?",
+            "What idea does the writer or speaker want to highlight most?",
+        ]
+        detail = [
+            "Which two details support the main idea?",
+            "What concrete example appears in the text?",
+            "How is the topic connected to real life?",
+        ]
+        return pre, gist, detail
+
+    pre = [
+        f"What different perspectives might appear about {topic}?",
+        "What tone or position do you expect to find in the text?",
+    ]
+    gist = [
+        "What is the dominant thesis or idea of the text?",
+        "What important contrast or nuance appears?",
+    ]
+    detail = [
+        "Which detail best supports the main argument?",
+        "What inference can be made from the text?",
+        "Which part of the text reveals the author’s or speaker’s position most clearly?",
+    ]
+    return pre, gist, detail
 
 
 def _language_plan(subject: str, stage: str, level: str, purpose: str, topic: str) -> dict:
+    plan_lang = get_plan_language()
+    material_lang = get_student_material_language(subject)
     topic_cap = _capitalize_topic(topic)
-    warm = _language_warmup_questions(topic, stage)
 
-    reading_mode = purpose in ("introduce_concept", "review_topic")
-    script = _language_listening_script(topic, level, stage) if purpose == "practice_skill" else ""
-    passage = _language_reading_passage(topic, level, stage) if reading_mode else ""
+    warm = _language_warmup_questions(topic, stage, level)
+    pre_q, gist_q, detail_q = _language_text_questions(topic, level, plan_lang)
+    vocab = _language_target_vocab(topic, level)
 
-    if purpose == "diagnose_difficulty":
-        practice = [
-            f"Ask the student to explain what they already know about {topic}.",
-            "Give one short controlled task and observe where communication breaks down.",
-            "Note whether the main difficulty is vocabulary, grammar, comprehension, or confidence.",
-        ]
-    elif purpose == "discussion_exploration":
-        practice = [
-            f"Discuss {topic} through increasingly open questions.",
-            "Ask the student to justify opinions with one reason and one example.",
-            "Recycle useful language during the discussion.",
-        ]
-    else:
-        practice = [
-            f"Guide the student through one short task about {topic}.",
-            "Check understanding with clear follow-up questions.",
-            "Move from supported answers to more independent ones.",
-        ]
+    use_reading = purpose in ("introduce_concept", "review_topic", "diagnose_difficulty")
+    use_listening = purpose == "practice_skill"
+
+    core_material = {
+        "target_vocabulary": vocab,
+        "pre_task_questions": pre_q,
+        "gist_questions": gist_q,
+        "detail_questions": detail_q,
+        "post_task": qlp_txt(
+            f"Ask the student to connect the text to one personal experience with {topic}.",
+            f"Pide al estudiante que conecte el texto con una experiencia personal sobre {topic}.",
+        ),
+    }
 
     return {
         "title": f"{subject}: {topic_cap}",
-        "objective": f"Students will develop their language skills while working on {topic_cap}.",
+        "objective": qlp_txt(
+            f"Students will develop their language skills while working on {topic_cap}.",
+            f"El estudiante desarrollará sus habilidades lingüísticas mientras trabaja con {topic_cap}.",
+        ),
         "recommended_level": level,
+        "plan_language": plan_lang,
+        "student_material_language": material_lang,
         "success_criteria": [
-            f"The student can respond clearly to questions about {topic}.",
-            "The student uses at least 3 useful words or expressions from the lesson.",
+            qlp_txt(
+                f"The student can answer the main idea and detail questions about {topic}.",
+                f"El estudiante puede responder preguntas globales y de detalle sobre {topic}.",
+            ),
+            qlp_txt(
+                "The student uses at least 3 useful words from the lesson.",
+                "El estudiante usa al menos 3 palabras útiles de la clase.",
+            ),
         ],
         "warm_up": warm,
         "main_activity": [
-            f"Introduce the lesson through the topic {topic_cap}.",
-            "Model one strong answer before asking the student to respond.",
+            qlp_txt(
+                f"Activate prior knowledge about {topic}.",
+                f"Activa conocimientos previos sobre {topic}.",
+            ),
+            qlp_txt(
+                "Guide the student from global understanding to detail.",
+                "Guía al estudiante desde la comprensión global hacia el detalle.",
+            ),
         ],
         "core_examples": [
-            f"Sentence starter: I think {topic} is important because...",
-            f"Sentence starter: In my experience, {topic}...",
+            qlp_txt(
+                "Model one complete answer before asking for independent production.",
+                "Modela una respuesta completa antes de pedir producción independiente.",
+            ),
+            qlp_txt(
+                "Recycle target vocabulary during feedback.",
+                "Recicla el vocabulario objetivo durante la retroalimentación.",
+            ),
         ],
-        "guided_practice": practice,
-        "practice_questions": [
-            f"What do you already know about {topic}?",
-            f"Why is {topic} important or useful?",
-            f"Can you give one example related to {topic}?",
-            f"What is your opinion about {topic}?",
+        "guided_practice": [
+            qlp_txt(
+                "Do the pre-task questions first, then the gist questions, and finally the detail questions.",
+                "Haz primero las preguntas previas, luego las globales y por último las de detalle.",
+            ),
+            qlp_txt(
+                "If the student struggles, return to one sentence or one key idea.",
+                "Si el estudiante tiene dificultad, vuelve a una oración o idea clave.",
+            ),
         ],
+        "practice_questions": gist_q + detail_q,
         "freer_task": [
-            f"Student speaks or writes more independently about {topic}.",
-            "Teacher gives quick feedback on clarity, vocabulary, and accuracy.",
+            qlp_txt(
+                f"Student gives a short spoken or written response about {topic}.",
+                f"El estudiante da una respuesta breve oral o escrita sobre {topic}.",
+            ),
+            qlp_txt(
+                "Teacher gives quick feedback on clarity, vocabulary, and accuracy.",
+                "El profesor da retroalimentación breve sobre claridad, vocabulario y precisión.",
+            ),
         ],
         "wrap_up": [
-            "Review 3 useful words or expressions.",
-            "Ask the student to summarize the lesson in 1–2 sentences.",
+            qlp_txt(
+                "Review the key vocabulary and one main idea from the text.",
+                "Repasa el vocabulario clave y una idea principal del texto.",
+            ),
+            qlp_txt(
+                "Ask the student to summarize the text in 1–2 sentences.",
+                "Pide al estudiante que resuma el texto en 1–2 oraciones.",
+            ),
         ],
         "teacher_moves": _teacher_move_block("language", purpose),
-        "extension_task": f"Ask the student to create 2 new sentences about {topic}.",
-        "homework": f"Review today’s language from the lesson on {topic}.",
-        "reading_passage": passage,
-        "listening_script": script,
+        "extension_task": qlp_txt(
+            f"Ask the student to create 2 extra questions about {topic} and answer them.",
+            f"Pide al estudiante que cree 2 preguntas extra sobre {topic} y las responda.",
+        ),
+        "homework": qlp_txt(
+            f"Review today’s language from the lesson on {topic}.",
+            f"Repasa el lenguaje trabajado hoy sobre {topic}.",
+        ),
+        "reading_passage": _language_reading_text(topic, level, material_lang) if use_reading else "",
+        "listening_script": _language_listening_text(topic, level, material_lang) if use_listening else "",
+        "core_material": core_material,
     }
 
 
-def _math_example_set(topic: str) -> tuple[list[str], list[str]]:
-    tpc = _capitalize_topic(topic)
-    examples = [
-        f"Worked example on {tpc}: teacher models one complete solution step by step.",
-        "Teacher highlights the rule, formula, or pattern used in the example.",
+# -------------------------
+# MATH / SCIENCE / MUSIC / STUDY SKILLS
+# -------------------------
+
+def _math_warmup_questions(topic: str, band: str) -> list[str]:
+    if get_plan_language() == "es":
+        if band == "beginner_band":
+            return [
+                f"¿Dónde has visto {topic} antes?",
+                f"¿Qué parte de {topic} te parece fácil o difícil?",
+                f"¿Qué recuerdas ya sobre {topic}?",
+            ]
+        if band == "intermediate_band":
+            return [
+                f"¿Qué regla o idea recuerdas sobre {topic}?",
+                f"¿Qué error suele pasar cuando trabajas con {topic}?",
+                f"¿Cómo explicarías {topic} con tus propias palabras?",
+            ]
+        return [
+            f"¿Qué estrategia sería más eficiente para resolver una tarea sobre {topic}?",
+            f"¿Qué tipo de error conceptual puede aparecer en {topic}?",
+            f"¿Cómo justificarías cada paso al resolver {topic}?",
+        ]
+
+    if band == "beginner_band":
+        return [
+            f"Where have you seen {topic} before?",
+            f"What part of {topic} seems easy or difficult?",
+            f"What do you already remember about {topic}?",
+        ]
+    if band == "intermediate_band":
+        return [
+            f"What rule or idea do you remember about {topic}?",
+            f"What mistake often happens when working with {topic}?",
+            f"How would you explain {topic} in your own words?",
+        ]
+    return [
+        f"What strategy would be most efficient for solving a task about {topic}?",
+        f"What conceptual error might appear in {topic}?",
+        f"How would you justify each step when solving {topic}?",
     ]
-    questions = [
-        f"What is the first step when working on {topic}?",
-        "Which rule or operation do we need here?",
-        "Why is that step correct?",
-        "Can you solve a similar problem on your own?",
-    ]
-    return examples, questions
+
+
+def _math_material(topic: str) -> dict:
+    if get_plan_language() == "es":
+        return {
+            "starter_problem": f"Problema inicial: crea una tarea sencilla relacionada con {topic} y pide al estudiante que explique el primer paso.",
+            "worked_example": [
+                f"Ejemplo resuelto sobre {topic}:",
+                "1. Identifica la información importante.",
+                "2. Decide qué regla o procedimiento usar.",
+                "3. Resuelve paso a paso.",
+                "4. Comprueba si la respuesta tiene sentido.",
+            ],
+            "independent_practice": [
+                f"Resuelve 2 ejercicios cortos sobre {topic}.",
+                f"Luego crea 1 ejercicio nuevo sobre {topic}.",
+            ],
+            "common_error_alert": f"Error común: intentar resolver {topic} sin identificar primero la regla o procedimiento correcto.",
+        }
+
+    return {
+        "starter_problem": f"Starter problem: create one simple task related to {topic} and ask the student to explain the first step.",
+        "worked_example": [
+            f"Worked example on {topic}:",
+            "1. Identify the important information.",
+            "2. Decide which rule or procedure to use.",
+            "3. Solve step by step.",
+            "4. Check whether the answer makes sense.",
+        ],
+        "independent_practice": [
+            f"Solve 2 short exercises about {topic}.",
+            f"Then create 1 new exercise about {topic}.",
+        ],
+        "common_error_alert": f"Common error: trying to solve {topic} without first identifying the correct rule or procedure.",
+    }
 
 
 def _math_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
-    examples, questions = _math_example_set(topic)
-    topic_cap = _capitalize_topic(topic)
-
-    if purpose == "diagnose_difficulty":
-        guided = [
-            f"Give one simple diagnostic problem about {topic}.",
-            "Ask the student to think aloud while solving.",
-            "Stop at the first misunderstanding and clarify only that point.",
-        ]
-    elif purpose == "review_topic":
-        guided = [
-            f"Review the main rule or method for {topic}.",
-            "Solve one example together.",
-            "Then ask the student to solve 2 shorter review problems independently.",
-        ]
-    else:
-        guided = [
-            f"Explain the main idea of {topic} clearly.",
-            "Model one full example.",
-            "Guide the student through one similar problem before independent practice.",
-        ]
-
+    material = _math_material(topic)
     return {
-        "title": f"Mathematics: {topic_cap}",
-        "objective": f"Students will understand and apply {topic_cap} through explicit modeling and guided practice.",
-        "recommended_level": t(level),
+        "title": f"Mathematics: {_capitalize_topic(topic)}",
+        "objective": qlp_txt(
+            f"Students will understand and apply {topic} through modeling and guided practice.",
+            f"El estudiante comprenderá y aplicará {topic} mediante modelado y práctica guiada.",
+        ),
+        "recommended_level": level,
+        "plan_language": get_plan_language(),
+        "student_material_language": get_plan_language(),
         "success_criteria": [
-            f"The student can complete a basic task about {topic}.",
-            "The student can explain at least one step of the solution clearly.",
+            qlp_txt(
+                f"The student can solve a basic task about {topic}.",
+                f"El estudiante puede resolver una tarea básica sobre {topic}.",
+            ),
+            qlp_txt(
+                "The student can explain at least one step clearly.",
+                "El estudiante puede explicar con claridad al menos un paso.",
+            ),
         ],
-        "warm_up": _math_warmup_questions(topic),
+        "warm_up": _math_warmup_questions(topic, level),
         "main_activity": [
-            f"Present the key concept in {topic}.",
-            "Show one worked example on the board or screen.",
+            qlp_txt(
+                f"Present the key concept in {topic}.",
+                f"Presenta el concepto clave de {topic}.",
+            ),
+            qlp_txt(
+                "Work through one full example before independent practice.",
+                "Resuelve un ejemplo completo antes de la práctica independiente.",
+            ),
         ],
-        "core_examples": examples,
-        "guided_practice": guided,
-        "practice_questions": questions,
-        "freer_task": [
-            "Student solves 2–3 practice questions independently.",
-            "Teacher checks errors and asks the student to explain corrections.",
+        "core_examples": [
+            material["starter_problem"],
+            *material["worked_example"],
         ],
+        "guided_practice": [
+            qlp_txt(
+                "Guide the student through one similar task.",
+                "Guía al estudiante en una tarea similar.",
+            ),
+            qlp_txt(
+                "Ask the student to justify each step aloud.",
+                "Pide al estudiante que justifique cada paso en voz alta.",
+            ),
+        ],
+        "practice_questions": [
+            qlp_txt("What is the first step?", "¿Cuál es el primer paso?"),
+            qlp_txt("Why is that step correct?", "¿Por qué ese paso es correcto?"),
+            qlp_txt("Which rule are we using here?", "¿Qué regla estamos usando aquí?"),
+            qlp_txt("Can you solve a similar task alone?", "¿Puedes resolver una tarea similar solo?"),
+        ],
+        "freer_task": material["independent_practice"],
         "wrap_up": [
-            "Review the rule, formula, or main strategy.",
-            "Ask the student to explain the topic in simple words.",
+            qlp_txt("Review the rule, formula, or strategy.", "Repasa la regla, fórmula o estrategia."),
+            qlp_txt("Ask the student to explain the topic simply.", "Pide al estudiante que explique el tema de forma simple."),
         ],
         "teacher_moves": _teacher_move_block("math", purpose),
-        "extension_task": f"Ask the student to create one new example problem about {topic}.",
-        "homework": f"Solve 3 more short problems about {topic}.",
+        "extension_task": qlp_txt(
+            f"Ask the student to create one extra problem about {topic} and solve it.",
+            f"Pide al estudiante que cree un problema extra sobre {topic} y lo resuelva.",
+        ),
+        "homework": qlp_txt(
+            f"Solve 3 more short tasks about {topic}.",
+            f"Resuelve 3 tareas cortas más sobre {topic}.",
+        ),
         "reading_passage": "",
         "listening_script": "",
+        "core_material": material,
     }
 
 
 def _science_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
-    topic_cap = _capitalize_topic(topic)
-
-    if purpose == "discussion_exploration":
-        guided = [
-            f"Begin with a question or phenomenon related to {topic}.",
-            "Ask the student to predict what happens and why.",
-            "Guide the student to connect the explanation to a real-life case.",
-        ]
-    elif purpose == "diagnose_difficulty":
-        guided = [
-            f"Ask the student to explain what they believe about {topic}.",
-            "Identify misconceptions before giving the formal explanation.",
-            "Use one simpler real-life example to rebuild understanding.",
-        ]
-    else:
-        guided = [
-            f"Explain the core concept of {topic}.",
-            "Use one observable or real-life example.",
-            "Check understanding with short why/how questions.",
-        ]
+    material = {
+        "concept_explanation": qlp_txt(
+            f"{_capitalize_topic(topic)} should be explained through a simple phenomenon, a clear cause, and one real-life example.",
+            f"{_capitalize_topic(topic)} debe explicarse mediante un fenómeno simple, una causa clara y un ejemplo de la vida real.",
+        ),
+        "real_life_application": qlp_txt(
+            f"Ask where {topic} can be seen in daily life.",
+            f"Pregunta dónde se puede observar {topic} en la vida diaria.",
+        ),
+        "common_error_alert": qlp_txt(
+            "Check for memorized definitions without real understanding.",
+            "Comprueba si hay definiciones memorizadas sin comprensión real.",
+        ),
+    }
 
     return {
-        "title": f"Science: {topic_cap}",
-        "objective": f"Students will understand the main scientific idea behind {topic_cap} and apply it to an example.",
-        "recommended_level": t(level),
+        "title": f"Science: {_capitalize_topic(topic)}",
+        "objective": qlp_txt(
+            f"Students will understand the main idea behind {topic} and connect it to a real example.",
+            f"El estudiante comprenderá la idea principal de {topic} y la conectará con un ejemplo real.",
+        ),
+        "recommended_level": level,
+        "plan_language": get_plan_language(),
+        "student_material_language": get_plan_language(),
         "success_criteria": [
-            f"The student can explain {topic} in simple words.",
-            "The student can connect the idea to one real-life example.",
+            qlp_txt(
+                f"The student can explain {topic} in simple words.",
+                f"El estudiante puede explicar {topic} con palabras simples.",
+            ),
+            qlp_txt(
+                "The student can connect the idea to one real-life case.",
+                "El estudiante puede conectar la idea con un caso de la vida real.",
+            ),
         ],
-        "warm_up": _science_warmup_questions(topic),
+        "warm_up": [
+            qlp_txt(f"What do you observe about {topic}?", f"¿Qué observas sobre {topic}?"),
+            qlp_txt(f"Where can we see {topic} in real life?", f"¿Dónde podemos ver {topic} en la vida real?"),
+            qlp_txt(f"What do you think causes {topic}?", f"¿Qué crees que causa {topic}?"),
+        ],
         "main_activity": [
-            f"Start with a real-life observation connected to {topic}.",
-            "Move from observation to explanation.",
+            qlp_txt("Start from observation and move to explanation.", "Empieza desde la observación y pasa a la explicación."),
+            qlp_txt("Check understanding with why/how questions.", "Comprueba la comprensión con preguntas de por qué/cómo."),
         ],
         "core_examples": [
-            f"Real-life link: Where can we observe {topic}?",
-            f"Concept focus: What causes or explains {topic}?",
+            material["concept_explanation"],
+            material["real_life_application"],
         ],
-        "guided_practice": guided,
+        "guided_practice": [
+            qlp_txt("Ask the student to predict before explaining.", "Pide una predicción antes de explicar."),
+            qlp_txt("Rebuild the explanation from one concrete example.", "Reconstruye la explicación a partir de un ejemplo concreto."),
+        ],
         "practice_questions": [
-            f"What is {topic}?",
-            f"Why does {topic} happen?",
-            f"Where can we observe {topic} in daily life?",
-            f"What would happen if one condition changed?",
+            qlp_txt(f"What is {topic}?", f"¿Qué es {topic}?"),
+            qlp_txt(f"Why does {topic} happen?", f"¿Por qué ocurre {topic}?"),
+            qlp_txt("What is one real-life example?", "¿Cuál es un ejemplo de la vida real?"),
+            qlp_txt("What would change if one condition changed?", "¿Qué cambiaría si una condición cambiara?"),
         ],
         "freer_task": [
-            f"Student explains {topic} in their own words.",
-            "Student gives one new example not mentioned before.",
+            qlp_txt(f"Student explains {topic} in their own words.", f"El estudiante explica {topic} con sus propias palabras."),
+            qlp_txt("Student adds one new example.", "El estudiante añade un ejemplo nuevo."),
         ],
         "wrap_up": [
-            "Review the main scientific explanation.",
-            "Ask one final check-for-understanding question.",
+            qlp_txt("Review the main explanation.", "Repasa la explicación principal."),
+            qlp_txt("Ask one final check-for-understanding question.", "Haz una pregunta final de comprobación."),
         ],
         "teacher_moves": _teacher_move_block("science", purpose),
-        "extension_task": f"Ask the student to describe another real-life case related to {topic}.",
-        "homework": f"Write 3 facts and 1 question about {topic}.",
+        "extension_task": qlp_txt(
+            f"Ask the student to describe a second real-life case related to {topic}.",
+            f"Pide al estudiante que describa un segundo caso de la vida real relacionado con {topic}.",
+        ),
+        "homework": qlp_txt(
+            f"Write 3 facts and 1 question about {topic}.",
+            f"Escribe 3 hechos y 1 pregunta sobre {topic}.",
+        ),
         "reading_passage": "",
         "listening_script": "",
+        "core_material": material,
     }
 
 
 def _music_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
-    topic_cap = _capitalize_topic(topic)
+    material = {
+        "performance_goal": qlp_txt(
+            f"Perform one short pattern or focused task related to {topic}.",
+            f"Realizar un patrón corto o una tarea focalizada relacionada con {topic}.",
+        )
+    }
 
     return {
-        "title": f"Music: {topic_cap}",
-        "objective": f"Students will practice {topic_cap} through demonstration, imitation, and short performance.",
-        "recommended_level": t(level),
+        "title": f"Music: {_capitalize_topic(topic)}",
+        "objective": qlp_txt(
+            f"Students will practice {topic} through demonstration, imitation, and short performance.",
+            f"El estudiante practicará {topic} mediante demostración, imitación y una breve ejecución.",
+        ),
+        "recommended_level": level,
+        "plan_language": get_plan_language(),
+        "student_material_language": get_plan_language(),
         "success_criteria": [
-            f"The student can repeat or perform the key pattern from {topic}.",
-            "The student can describe one improvement from the practice.",
+            qlp_txt(
+                f"The student can perform or repeat the key pattern from {topic}.",
+                f"El estudiante puede ejecutar o repetir el patrón clave de {topic}.",
+            ),
+            qlp_txt(
+                "The student can describe one improvement from the practice.",
+                "El estudiante puede describir una mejora tras la práctica.",
+            ),
         ],
-        "warm_up": _music_warmup_questions(topic),
+        "warm_up": [
+            qlp_txt(f"What do you notice first about {topic}?", f"¿Qué notas primero sobre {topic}?"),
+            qlp_txt(f"Have you practiced {topic} before?", f"¿Has practicado {topic} antes?"),
+            qlp_txt("What part may be difficult today?", "¿Qué parte puede ser difícil hoy?"),
+        ],
         "main_activity": [
-            f"Introduce the musical focus of {topic}.",
-            "Teacher demonstrates before asking the student to imitate.",
+            qlp_txt("Demonstrate first, then ask for imitation.", "Demuestra primero y luego pide imitación."),
+            qlp_txt("Keep practice in short cycles.", "Mantén la práctica en ciclos cortos."),
         ],
-        "core_examples": [
-            "Teacher performs a short model first.",
-            "Then the student repeats in smaller chunks.",
-        ],
+        "core_examples": [material["performance_goal"]],
         "guided_practice": [
-            "Practice in short cycles.",
-            "Pause to correct one thing at a time.",
-            "Repeat with more independence after each attempt.",
+            qlp_txt("Repeat in short chunks with correction.", "Repite en fragmentos cortos con corrección."),
+            qlp_txt("Increase independence after each attempt.", "Aumenta la independencia después de cada intento."),
         ],
         "practice_questions": [
-            "What did you notice first?",
-            "What changed between the first and second attempt?",
-            "What part needs more control or attention?",
+            qlp_txt("What changed in the second attempt?", "¿Qué cambió en el segundo intento?"),
+            qlp_txt("What needs more control?", "¿Qué necesita más control?"),
+            qlp_txt("What improved?", "¿Qué mejoró?"),
         ],
         "freer_task": [
-            "Student performs with less support.",
-            "Teacher asks the student to reflect on accuracy and confidence.",
+            qlp_txt("Student performs with less support.", "El estudiante ejecuta con menos apoyo."),
+            qlp_txt("Teacher asks for a short reflection.", "El profesor pide una reflexión breve."),
         ],
         "wrap_up": [
-            "Review the musical focus of the lesson.",
-            "End with one final repetition or mini performance.",
+            qlp_txt("Review the musical focus of the lesson.", "Repasa el foco musical de la clase."),
+            qlp_txt("End with one final repetition or mini performance.", "Termina con una repetición final o mini ejecución."),
         ],
         "teacher_moves": _teacher_move_block("music", purpose),
-        "extension_task": f"Ask the student to repeat the pattern one more time with a small variation related to {topic}.",
-        "homework": f"Practice {topic} for 5 minutes and notice one improvement.",
+        "extension_task": qlp_txt(
+            f"Repeat the pattern again with one small variation related to {topic}.",
+            f"Repite el patrón otra vez con una pequeña variación relacionada con {topic}.",
+        ),
+        "homework": qlp_txt(
+            f"Practice {topic} for 5 minutes.",
+            f"Practica {topic} durante 5 minutos.",
+        ),
         "reading_passage": "",
         "listening_script": "",
+        "core_material": material,
     }
 
 
 def _study_skills_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
-    topic_cap = _capitalize_topic(topic)
+    steps = (
+        [
+            "1. Name the task.",
+            "2. Break it into smaller parts.",
+            "3. Decide the first action.",
+            "4. Check progress at the end.",
+        ]
+        if get_plan_language() == "en"
+        else
+        [
+            "1. Nombra la tarea.",
+            "2. Divídela en partes pequeñas.",
+            "3. Decide la primera acción.",
+            "4. Revisa el progreso al final.",
+        ]
+    )
 
     return {
-        "title": f"Study Skills: {topic_cap}",
-        "objective": f"Students will learn and apply a practical study strategy connected to {topic_cap}.",
-        "recommended_level": t(level),
+        "title": f"Study Skills: {_capitalize_topic(topic)}",
+        "objective": qlp_txt(
+            f"Students will learn and apply a practical study strategy connected to {topic}.",
+            f"El estudiante aprenderá y aplicará una estrategia de estudio práctica relacionada con {topic}.",
+        ),
+        "recommended_level": level,
+        "plan_language": get_plan_language(),
+        "student_material_language": get_plan_language(),
         "success_criteria": [
-            "The student can explain the strategy clearly.",
-            "The student can apply the strategy to a real school task.",
+            qlp_txt("The student can explain the strategy clearly.", "El estudiante puede explicar la estrategia con claridad."),
+            qlp_txt("The student can apply the strategy to a real task.", "El estudiante puede aplicar la estrategia a una tarea real."),
         ],
-        "warm_up": _study_skills_warmup_questions(topic),
+        "warm_up": [
+            qlp_txt(f"What usually feels difficult about {topic}?", f"¿Qué suele sentirse difícil en {topic}?"),
+            qlp_txt("What distracts you when you study?", "¿Qué te distrae cuando estudias?"),
+            qlp_txt("What helps you focus?", "¿Qué te ayuda a concentrarte?"),
+        ],
         "main_activity": [
-            f"Introduce one study strategy connected to {topic}.",
-            "Model the strategy with a simple real example.",
+            qlp_txt("Introduce one practical strategy.", "Presenta una estrategia práctica."),
+            qlp_txt("Model the strategy with a real school task.", "Modela la estrategia con una tarea escolar real."),
         ],
         "core_examples": [
-            "Teacher models the strategy step by step.",
-            "Student watches first, then tries with support.",
+            qlp_txt("Strategy name: 10-minute planning routine.", "Nombre de la estrategia: rutina de planificación de 10 minutos."),
         ],
         "guided_practice": [
-            "Student practices the strategy on a small task.",
-            "Teacher asks what felt easy, hard, or useful.",
-            "Adjust the strategy to make it realistic for the student.",
+            qlp_txt("Student tries the strategy on a small real task.", "El estudiante prueba la estrategia en una tarea real pequeña."),
+            qlp_txt("Teacher helps adapt the strategy to the student’s reality.", "El profesor ayuda a adaptar la estrategia a la realidad del estudiante."),
         ],
         "practice_questions": [
-            "What usually makes this hard for you?",
-            "Which step of the strategy seems most useful?",
-            "How could you use this tomorrow?",
+            qlp_txt("Which step seems most useful?", "¿Qué paso parece más útil?"),
+            qlp_txt("What usually blocks you?", "¿Qué suele bloquearte?"),
+            qlp_txt("How will you use this tomorrow?", "¿Cómo vas a usar esto mañana?"),
         ],
         "freer_task": [
-            "Student applies the strategy independently to a real example.",
-            "Teacher asks the student to explain when they would use it again.",
+            qlp_txt("Student applies the strategy independently.", "El estudiante aplica la estrategia de forma independiente."),
+            qlp_txt("Student decides where to use it this week.", "El estudiante decide dónde usarla esta semana."),
         ],
         "wrap_up": [
-            "Review the name and steps of the strategy.",
-            "Ask the student to choose one moment this week to use it.",
+            qlp_txt("Review the steps of the strategy.", "Repasa los pasos de la estrategia."),
+            qlp_txt("Ask the student to name one real use for it.", "Pide al estudiante que nombre un uso real para ella."),
         ],
         "teacher_moves": _teacher_move_block("study_skills", purpose),
-        "extension_task": "Ask the student to adapt the strategy to a second school subject.",
-        "homework": f"Use the strategy once this week while working on {topic}.",
+        "extension_task": qlp_txt(
+            "Ask the student to adapt the strategy to a second subject.",
+            "Pide al estudiante que adapte la estrategia a una segunda materia.",
+        ),
+        "homework": qlp_txt(
+            f"Use the strategy once this week while working on {topic}.",
+            f"Usa la estrategia una vez esta semana mientras trabajas en {topic}.",
+        ),
         "reading_passage": "",
         "listening_script": "",
+        "core_material": {"strategy_steps": steps},
     }
 
 
@@ -2937,6 +2714,11 @@ def render_quick_lesson_plan_result(plan: dict) -> None:
         show_level = rec_level if rec_level in LANGUAGE_LEVELS else t(rec_level)
         st.caption(f"{t('recommended_level')}: {show_level}")
 
+    st.caption(
+        f"{t('plan_language')}: {get_plan_language().upper()} · "
+        f"{t('student_material_language')}: {plan.get('student_material_language', '').upper()}"
+    )
+
     st.markdown(f"**{t('lesson_objective')}**")
     st.write(plan.get("objective", ""))
 
@@ -2952,12 +2734,23 @@ def render_quick_lesson_plan_result(plan: dict) -> None:
     for item in plan.get("main_activity", []):
         st.write(f"- {item}")
 
+    cm = plan.get("core_material", {}) or {}
+
+    if cm.get("target_vocabulary"):
+        st.markdown(f"**{t('target_vocabulary')}**")
+        st.write(", ".join(cm["target_vocabulary"]))
+
+    if cm.get("pre_task_questions"):
+        st.markdown(f"**{t('pre_task_questions')}**")
+        for q in cm["pre_task_questions"]:
+            st.write(f"- {q}")
+
     if plan.get("reading_passage"):
         st.markdown(f"**{t('reading_passage')}**")
         st.text_area(
             t("reading_passage"),
             value=plan["reading_passage"],
-            height=170,
+            height=190,
             key="quick_plan_reading_passage_view",
         )
 
@@ -2966,13 +2759,59 @@ def render_quick_lesson_plan_result(plan: dict) -> None:
         st.text_area(
             t("listening_script"),
             value=plan["listening_script"],
-            height=170,
+            height=190,
             key="quick_plan_listening_script_view",
         )
 
+    if cm.get("gist_questions"):
+        st.markdown(f"**{t('gist_questions')}**")
+        for q in cm["gist_questions"]:
+            st.write(f"- {q}")
+
+    if cm.get("detail_questions"):
+        st.markdown(f"**{t('detail_questions')}**")
+        for q in cm["detail_questions"]:
+            st.write(f"- {q}")
+
     st.markdown(f"**{t('core_examples')}**")
     for item in plan.get("core_examples", []):
-        st.write(f"- {item}")
+        if isinstance(item, list):
+            for sub in item:
+                st.write(f"- {sub}")
+        else:
+            st.write(f"- {item}")
+
+    # subject-specific core material
+    if cm.get("worked_example"):
+        st.markdown(f"**{t('worked_example')}**")
+        for item in cm["worked_example"]:
+            st.write(f"- {item}")
+
+    if cm.get("independent_practice"):
+        st.markdown(f"**{t('independent_practice')}**")
+        for item in cm["independent_practice"]:
+            st.write(f"- {item}")
+
+    if cm.get("common_error_alert"):
+        st.markdown(f"**{t('common_error_alert')}**")
+        st.write(cm["common_error_alert"])
+
+    if cm.get("concept_explanation"):
+        st.markdown(f"**{t('concept_explanation')}**")
+        st.write(cm["concept_explanation"])
+
+    if cm.get("real_life_application"):
+        st.markdown(f"**{t('real_life_application')}**")
+        st.write(cm["real_life_application"])
+
+    if cm.get("strategy_steps"):
+        st.markdown(f"**{t('strategy_steps')}**")
+        for item in cm["strategy_steps"]:
+            st.write(f"- {item}")
+
+    if cm.get("performance_goal"):
+        st.markdown(f"**{t('performance_goal')}**")
+        st.write(cm["performance_goal"])
 
     st.markdown(f"**3. {t('guided_practice')}**")
     for item in plan.get("guided_practice", []):
@@ -2981,6 +2820,10 @@ def render_quick_lesson_plan_result(plan: dict) -> None:
     st.markdown(f"**{t('practice_questions')}**")
     for q in plan.get("practice_questions", []):
         st.write(f"- {q}")
+
+    if cm.get("post_task"):
+        st.markdown(f"**{t('post_task')}**")
+        st.write(cm["post_task"])
 
     st.markdown(f"**4. {t('freer_task')}**")
     for item in plan.get("freer_task", []):
@@ -3015,6 +2858,7 @@ def render_quick_lesson_plan_result(plan: dict) -> None:
 def render_quick_lesson_planner_expander() -> None:
     with st.expander(t("quick_lesson_planner"), expanded=False):
         st.caption(t("quick_lesson_caption"))
+        st.caption(t("plan_language_note"))
 
         subject = st.selectbox(
             t("subject_label"),
@@ -6287,8 +6131,14 @@ if "page" not in st.session_state:
 if "ui_lang" not in st.session_state:
     st.session_state["ui_lang"] = "en"
 
-if "show_photo_dialog" not in st.session_state:
-    st.session_state["show_photo_dialog"] = False
+if "show_profile_dialog" not in st.session_state:
+    st.session_state["show_profile_dialog"] = False
+
+if "home_action_menu_prev" not in st.session_state:
+    st.session_state["home_action_menu_prev"] = t("alerts")
+
+if "home_action_menu_nonce" not in st.session_state:
+    st.session_state["home_action_menu_nonce"] = 0
 
 if "top_nav_prev" not in st.session_state:
     st.session_state["top_nav_prev"] = "home"
@@ -6393,15 +6243,18 @@ def render_home():
 
     with right:
         if "home_action_menu_prev" not in st.session_state:
-            st.session_state["home_action_menu_prev"] = "Alerts"
+            st.session_state["home_action_menu_prev"] = t("alerts")
+
+        if "home_action_menu_nonce" not in st.session_state:
+            st.session_state["home_action_menu_nonce"] = 0
 
         action = option_menu(
             menu_title=None,
-            options=["Photo", "Alerts", "Logout"],
-            icons=["camera", "bell", "box-arrow-right"],
+            options=[t("profile"), t("alerts"), t("sign_out")],
+            icons=["person-circle", "bell", "box-arrow-right"],
             orientation="horizontal",
             default_index=1,
-            key="home_action_menu",
+            key=f"home_action_menu_{st.session_state.get('home_action_menu_nonce', 0)}",
             styles={
                 "container": {
                   "padding": "0 !important",
@@ -6440,79 +6293,26 @@ def render_home():
             unsafe_allow_html=True,
         )
 
-        previous_action = st.session_state.get("home_action_menu_prev", "Alerts")
+        previous_action = st.session_state.get("home_action_menu_prev", t("alerts"))
 
         if action != previous_action:
-            st.session_state["home_action_menu_prev"] = action
-
-            if action == "Photo":
-                st.session_state["show_photo_dialog"] = True
+            if action == t("profile"):
+                st.session_state["show_profile_dialog"] = True
+                st.session_state["home_action_menu_prev"] = t("alerts")
+                st.session_state["home_action_menu_nonce"] += 1
                 st.rerun()
 
-            elif action == "Alerts":
+            elif action == t("alerts"):
+                st.session_state["home_action_menu_prev"] = t("alerts")
                 home_go("home", panel="alerts")
 
-            elif action == "Logout":
+            elif action == t("sign_out"):
                 sign_out_user()
         
-    # ---------- AVATAR DIALOG ----------
-    if st.session_state.get("show_photo_dialog"):
-        st.session_state["show_photo_dialog"] = False
-
-        try:
-            @st.dialog(t("update_profile_photo"))
-            def _photo_dialog():
-                up = st.file_uploader(
-                    t("choose_photo"),
-                    type=["png", "jpg", "jpeg", "webp"],
-                    label_visibility="collapsed",
-                )
-
-                c1, c2 = st.columns(2)
-                with c1:
-                    cancel = st.button(t("close"), key="photo_cancel_btn")
-                with c2:
-                    save = st.button(t("save"), key="photo_save_btn", disabled=(up is None))
-
-                if cancel:
-                    st.rerun()
-
-                if save and up is not None:
-                    try:
-                        url = upload_avatar_to_supabase(up, user_id=user_id)
-                        save_profile_avatar_url(user_id, url)
-                        st.session_state["avatar_url"] = url
-                        st.success(t("profile_photo_updated"))
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"{t('upload_failed')}: {e}")
-
-            _photo_dialog()
-
-        except Exception:
-            st.markdown(f"#### {t('update_profile_photo')}")
-            up = st.file_uploader(
-                t("choose_photo"),
-                type=["png", "jpg", "jpeg", "webp"],
-                label_visibility="collapsed",
-            )
-
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button(t("close"), key="photo_close_fallback"):
-                    st.session_state["show_photo_dialog"] = False
-                    st.rerun()
-            with col2:
-                if st.button(t("save"), key="photo_save_fallback", disabled=(up is None)) and up is not None:
-                    try:
-                        url = upload_avatar_to_supabase(up, user_id=user_id)
-                        save_profile_avatar_url(user_id, url)
-                        st.session_state["avatar_url"] = url
-                        st.session_state["show_photo_dialog"] = False
-                        st.success(t("profile_photo_updated"))
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"{t('upload_failed')}: {e}")
+    # ---------- PROFILE DIALOG ----------
+    if st.session_state.get("show_profile_dialog"):
+        st.session_state["show_profile_dialog"] = False
+        render_profile_dialog(user_id)
 
     # ---------- REAL VALUES ----------
     dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
@@ -6749,8 +6549,11 @@ def render_top_nav(active_page: str):
             st.rerun()
 
 require_login()
-if "show_photo_dialog" not in st.session_state:
-    st.session_state["show_photo_dialog"] = False
+if "show_profile_dialog" not in st.session_state:
+    st.session_state["show_profile_dialog"] = False
+
+if "home_action_menu_nonce" not in st.session_state:
+    st.session_state["home_action_menu_nonce"] = 0
 
 page = st.session_state.get("page", "home")
 if page not in PAGE_KEYS:
