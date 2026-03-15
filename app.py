@@ -142,6 +142,9 @@ def remove_streamlit_top_spacing():
 
 remove_streamlit_top_spacing()
 
+# =========================
+# 03) I18N (moved)
+# =========================
 
 if "ui_lang" not in st.session_state:
     st.session_state.ui_lang = "en"
@@ -1259,6 +1262,9 @@ def _load_table_cached(
         "pricing_items",
         "app_settings",
         "profiles",
+        "lesson_plans",
+        "ai_usage_logs",
+        "user_activity_log",
     }
 
     try:
@@ -1826,8 +1832,247 @@ def _teacher_move_block(engine: str, purpose: str) -> list[str]:
 # -------------------------
 # LANGUAGE CONTENT BANK
 # -------------------------
+LANGUAGE_CONTENT_BANK = {
+    "travel": {
+        "en": {
+            "A1_A2": {
+                "target_vocabulary": ["travel", "trip", "ticket", "hotel", "visit"],
+                "warm_up": [
+                    "Have you ever traveled to another city or country?",
+                    "What do people usually need before a trip?",
+                    "What places do you like to visit?"
+                ],
+                "reading_passage": (
+                    "Marta is planning a trip to Ankara for the weekend. She wants to travel by bus because it is cheaper than the plane. "
+                    "She already has a small bag, comfortable shoes, and a list of places to visit. On Saturday morning, she wants to see the old city, "
+                    "eat local food, and buy a gift for her family. She is excited because she does not travel very often."
+                ),
+                "listening_script": (
+                    "Good morning, everyone. Today we are talking about travel plans. Marta is going to Ankara this weekend. "
+                    "She is travelling by bus and she wants to visit the old city, try local food, and buy a souvenir. "
+                    "She feels excited because she does not travel very often."
+                ),
+                "pre_task_questions": [
+                    "What do people usually prepare before a trip?",
+                    "What words do you expect to hear in a text about travel?"
+                ],
+                "gist_questions": [
+                    "What is the text mainly about?",
+                    "How does Marta feel about the trip?"
+                ],
+                "detail_questions": [
+                    "Where is Marta going?",
+                    "Why is she travelling by bus?",
+                    "What does she want to do on Saturday?"
+                ],
+                "post_task": "Ask the student to describe a trip they would like to take."
+            },
+            "B1_B2": {
+                "target_vocabulary": ["destination", "experience", "journey", "schedule", "budget"],
+                "warm_up": [
+                    "What makes a trip memorable?",
+                    "Do you prefer detailed travel plans or spontaneous travel?",
+                    "What problems can happen during a trip?"
+                ],
+                "reading_passage": (
+                    "For many people, travel is more than moving from one place to another. It can be a way to learn, rest, or discover new perspectives. "
+                    "Some travellers prefer to plan every detail, including transport, accommodation, and daily activities. Others leave space for spontaneity, "
+                    "believing that unexpected experiences often become the most memorable part of a journey. In both cases, travel usually teaches people how to adapt, "
+                    "communicate, and make decisions in unfamiliar situations."
+                ),
+                "listening_script": (
+                    "Today we will listen to a short talk about why people travel. Some people travel to relax, while others travel to learn about different cultures. "
+                    "The speaker explains that travel often improves communication skills and helps people become more flexible when facing unfamiliar situations."
+                ),
+                "pre_task_questions": [
+                    "Why do people travel?",
+                    "What benefits can travel bring to a person?"
+                ],
+                "gist_questions": [
+                    "What is the speaker’s main point about travel?",
+                    "What general benefits of travel are mentioned?"
+                ],
+                "detail_questions": [
+                    "What is the difference between planners and spontaneous travellers?",
+                    "What skills can improve through travel?",
+                    "Why do unfamiliar situations matter in travel?"
+                ],
+                "post_task": "Ask the student to explain whether travel is more educational or relaxing."
+            }
+        },
+        "es": {
+            "A1_A2": {
+                "target_vocabulary": ["viaje", "boleto", "hotel", "visitar", "maleta"],
+                "warm_up": [
+                    "¿Has viajado a otra ciudad o país?",
+                    "¿Qué necesita una persona antes de un viaje?",
+                    "¿Qué lugares te gusta visitar?"
+                ],
+                "reading_passage": (
+                    "Marta está planeando un viaje a Ankara para el fin de semana. Quiere viajar en autobús porque es más barato que el avión. "
+                    "Ya tiene una maleta pequeña, zapatos cómodos y una lista de lugares para visitar. El sábado por la mañana quiere ver la ciudad antigua, "
+                    "comer comida local y comprar un regalo para su familia. Está emocionada porque no viaja muy a menudo."
+                ),
+                "listening_script": (
+                    "Buenos días. Hoy hablamos sobre planes de viaje. Marta va a Ankara este fin de semana. "
+                    "Va en autobús y quiere visitar la ciudad antigua, probar comida local y comprar un recuerdo. "
+                    "Está emocionada porque no viaja muy seguido."
+                ),
+                "pre_task_questions": [
+                    "¿Qué prepara normalmente una persona antes de un viaje?",
+                    "¿Qué palabras esperas escuchar en un texto sobre viajes?"
+                ],
+                "gist_questions": [
+                    "¿De qué trata principalmente el texto?",
+                    "¿Cómo se siente Marta sobre el viaje?"
+                ],
+                "detail_questions": [
+                    "¿A dónde va Marta?",
+                    "¿Por qué viaja en autobús?",
+                    "¿Qué quiere hacer el sábado?"
+                ],
+                "post_task": "Pide al estudiante que describa un viaje que le gustaría hacer."
+            },
+            "B1_B2": {
+                "target_vocabulary": ["destino", "experiencia", "trayecto", "horario", "presupuesto"],
+                "warm_up": [
+                    "¿Qué hace que un viaje sea memorable?",
+                    "¿Prefieres planear todo o viajar de manera espontánea?",
+                    "¿Qué problemas pueden ocurrir durante un viaje?"
+                ],
+                "reading_passage": (
+                    "Para muchas personas, viajar es mucho más que trasladarse de un lugar a otro. Puede ser una forma de aprender, descansar o descubrir nuevas perspectivas. "
+                    "Algunos viajeros prefieren planear cada detalle, incluyendo el transporte, el alojamiento y las actividades diarias. Otros dejan espacio para la espontaneidad, "
+                    "porque creen que las experiencias inesperadas suelen convertirse en la parte más memorable del viaje. En ambos casos, viajar enseña a adaptarse, comunicarse y tomar decisiones."
+                ),
+                "listening_script": (
+                    "Hoy escucharemos una breve explicación sobre por qué la gente viaja. Algunas personas viajan para descansar y otras para conocer culturas diferentes. "
+                    "El hablante explica que viajar mejora la comunicación y ayuda a ser más flexible en situaciones desconocidas."
+                ),
+                "pre_task_questions": [
+                    "¿Por qué viajan las personas?",
+                    "¿Qué beneficios puede traer un viaje?"
+                ],
+                "gist_questions": [
+                    "¿Cuál es la idea principal sobre viajar?",
+                    "¿Qué beneficios generales del viaje se mencionan?"
+                ],
+                "detail_questions": [
+                    "¿Qué diferencia hay entre los viajeros organizados y los espontáneos?",
+                    "¿Qué habilidades puede mejorar una persona al viajar?",
+                    "¿Por qué son importantes las situaciones desconocidas?"
+                ],
+                "post_task": "Pide al estudiante que explique si viajar es más educativo o más relajante."
+            }
+        }
+    },
+
+    "food": {
+        "en": {
+            "A1_A2": {
+                "target_vocabulary": ["food", "meal", "restaurant", "cook", "breakfast"],
+                "warm_up": [
+                    "What food do you like most?",
+                    "What do you usually eat for breakfast?",
+                    "Can you cook any simple meal?"
+                ],
+                "reading_passage": (
+                    "Leo likes food that is simple and fresh. In the morning, he usually eats bread, cheese, and fruit. "
+                    "At lunchtime, he sometimes goes to a small restaurant near his office. His favourite meal is grilled chicken with rice and salad. "
+                    "At the weekend, he enjoys cooking with his sister because they can try new recipes together."
+                ),
+                "listening_script": (
+                    "Hello everyone. Today we are listening to a short text about food habits. Leo enjoys simple meals like bread, cheese, fruit, and grilled chicken. "
+                    "He also likes cooking with his sister at the weekend."
+                ),
+                "pre_task_questions": [
+                    "What meals do people eat during the day?",
+                    "What food words do you already know?"
+                ],
+                "gist_questions": [
+                    "What is the text mainly about?",
+                    "What kind of food does Leo like?"
+                ],
+                "detail_questions": [
+                    "What does Leo eat in the morning?",
+                    "Where does he sometimes go at lunchtime?",
+                    "Who does he cook with at the weekend?"
+                ],
+                "post_task": "Ask the student to describe their favourite meal."
+            }
+        },
+        "es": {
+            "A1_A2": {
+                "target_vocabulary": ["comida", "comer", "restaurante", "cocinar", "desayuno"],
+                "warm_up": [
+                    "¿Qué comida te gusta más?",
+                    "¿Qué desayunas normalmente?",
+                    "¿Sabes cocinar algo sencillo?"
+                ],
+                "reading_passage": (
+                    "A Leo le gusta la comida simple y fresca. Por la mañana suele comer pan, queso y fruta. "
+                    "Al mediodía, a veces va a un restaurante pequeño cerca de su oficina. Su comida favorita es pollo a la plancha con arroz y ensalada. "
+                    "El fin de semana le gusta cocinar con su hermana porque pueden probar recetas nuevas juntos."
+                ),
+                "listening_script": (
+                    "Hola a todos. Hoy escucharemos un texto corto sobre hábitos de comida. A Leo le gustan comidas simples como pan, queso, fruta y pollo a la plancha. "
+                    "También le gusta cocinar con su hermana los fines de semana."
+                ),
+                "pre_task_questions": [
+                    "¿Qué comidas hace una persona durante el día?",
+                    "¿Qué palabras sobre comida conoces ya?"
+                ],
+                "gist_questions": [
+                    "¿De qué trata principalmente el texto?",
+                    "¿Qué tipo de comida le gusta a Leo?"
+                ],
+                "detail_questions": [
+                    "¿Qué come Leo por la mañana?",
+                    "¿A dónde va a veces al mediodía?",
+                    "¿Con quién cocina el fin de semana?"
+                ],
+                "post_task": "Pide al estudiante que describa su comida favorita."
+            }
+        }
+    }
+}
+def _language_bank_key(topic: str) -> str:
+    return str(topic or "").strip().casefold()
+
+
+def _language_bank_bucket(level: str) -> str:
+    if level in ("A1", "A2"):
+        return "A1_A2"
+    if level in ("B1", "B2"):
+        return "B1_B2"
+    return "C1_C2"
+
+
+def _get_language_bank_entry(topic: str, level: str, material_lang: str) -> dict:
+    topic_key = _language_bank_key(topic)
+    lang_key = "es" if str(material_lang).strip().lower() == "es" else "en"
+    bucket = _language_bank_bucket(level)
+
+    topic_block = LANGUAGE_CONTENT_BANK.get(topic_key, {})
+    lang_block = topic_block.get(lang_key, {})
+    entry = lang_block.get(bucket)
+
+    if isinstance(entry, dict):
+        return entry
+
+    # fallback to easier bucket if advanced bank does not exist yet
+    if bucket == "C1_C2":
+        fallback = lang_block.get("B1_B2")
+        if isinstance(fallback, dict):
+            return fallback
+
+    return {}
 
 def _language_target_vocab(topic: str, level: str) -> list[str]:
+    entry = _get_language_bank_entry(topic, level, get_student_material_language(st.session_state.get("quick_plan_subject", "English")))
+    if entry.get("target_vocabulary"):
+        return entry["target_vocabulary"]
+
     topic = _topic_clean(topic)
     if level in ("A1", "A2"):
         return [topic, "example", "idea", "use", "daily life"]
@@ -1837,6 +2082,11 @@ def _language_target_vocab(topic: str, level: str) -> list[str]:
 
 
 def _language_warmup_questions(topic: str, stage: str, level: str) -> list[str]:
+    material_lang = get_student_material_language(st.session_state.get("quick_plan_subject", "English"))
+    entry = _get_language_bank_entry(topic, level, material_lang)
+    if entry.get("warm_up"):
+        return entry["warm_up"]
+
     if get_plan_language() == "es":
         if level in ("A1", "A2"):
             return [
@@ -1876,6 +2126,10 @@ def _language_warmup_questions(topic: str, stage: str, level: str) -> list[str]:
 
 
 def _language_reading_text(topic: str, level: str, material_lang: str) -> str:
+    entry = _get_language_bank_entry(topic, level, material_lang)
+    if entry.get("reading_passage"):
+        return entry["reading_passage"]
+
     topic_cap = _capitalize_topic(topic)
 
     if material_lang == "es":
@@ -1902,7 +2156,6 @@ def _language_reading_text(topic: str, level: str, material_lang: str) -> str:
             f"Cuanto más conectan el texto con contextos reales, más profunda se vuelve la comprensión."
         )
 
-    # English student material
     if level == "A1":
         return (
             f"{topic_cap} is part of daily life. Many people talk about {topic} at home, at school, and with friends. "
@@ -1926,8 +2179,11 @@ def _language_reading_text(topic: str, level: str, material_lang: str) -> str:
         f"The more they connect the text to real contexts, the deeper their understanding becomes."
     )
 
-
 def _language_listening_text(topic: str, level: str, material_lang: str) -> str:
+    entry = _get_language_bank_entry(topic, level, material_lang)
+    if entry.get("listening_script"):
+        return entry["listening_script"]
+
     topic_cap = _capitalize_topic(topic)
 
     if material_lang == "es":
@@ -1963,8 +2219,17 @@ def _language_listening_text(topic: str, level: str, material_lang: str) -> str:
         f"After that, we will discuss how the topic connects to real experience and to different perspectives."
     )
 
-
 def _language_text_questions(topic: str, level: str, plan_lang: str) -> tuple[list[str], list[str], list[str]]:
+    material_lang = get_student_material_language(st.session_state.get("quick_plan_subject", "English"))
+    entry = _get_language_bank_entry(topic, level, material_lang)
+
+    if entry:
+        pre = entry.get("pre_task_questions", [])
+        gist = entry.get("gist_questions", [])
+        detail = entry.get("detail_questions", [])
+        if pre or gist or detail:
+            return pre, gist, detail
+
     if plan_lang == "es":
         if level in ("A1", "A2"):
             pre = [
@@ -2013,7 +2278,6 @@ def _language_text_questions(topic: str, level: str, plan_lang: str) -> tuple[li
         ]
         return pre, gist, detail
 
-    # English teacher-facing plan
     if level in ("A1", "A2"):
         pre = [
             f"What do you already know about {topic}?",
@@ -2069,7 +2333,7 @@ def _language_plan(subject: str, stage: str, level: str, purpose: str, topic: st
 
     warm = _language_warmup_questions(topic, stage, level)
     pre_q, gist_q, detail_q = _language_text_questions(topic, level, plan_lang)
-    vocab = _language_target_vocab(topic, level)
+    vocab = _get_language_bank_entry(topic, level, material_lang).get("target_vocabulary") or _language_target_vocab(topic, level)
 
     use_reading = purpose in ("introduce_concept", "review_topic", "diagnose_difficulty")
     use_listening = purpose == "practice_skill"
@@ -2079,7 +2343,7 @@ def _language_plan(subject: str, stage: str, level: str, purpose: str, topic: st
         "pre_task_questions": pre_q,
         "gist_questions": gist_q,
         "detail_questions": detail_q,
-        "post_task": qlp_txt(
+        "post_task": _get_language_bank_entry(topic, level, material_lang).get("post_task") or qlp_txt(
             f"Ask the student to connect the text to one personal experience with {topic}.",
             f"Pide al estudiante que conecte el texto con una experiencia personal sobre {topic}.",
         ),
@@ -2568,11 +2832,204 @@ def build_quick_lesson_plan(
 
     return _language_plan(subject, learner_stage, level_or_band, lesson_purpose, topic)
 
+def normalize_planner_output(plan: dict) -> dict:
+    plan = dict(plan or {})
+
+    defaults = {
+        "title": "",
+        "objective": "",
+        "recommended_level": "",
+        "plan_language": get_plan_language(),
+        "student_material_language": get_plan_language(),
+        "success_criteria": [],
+        "warm_up": [],
+        "main_activity": [],
+        "core_examples": [],
+        "guided_practice": [],
+        "practice_questions": [],
+        "freer_task": [],
+        "wrap_up": [],
+        "teacher_moves": [],
+        "extension_task": "",
+        "homework": "",
+        "reading_passage": "",
+        "listening_script": "",
+        "core_material": {},
+    }
+
+    out = {}
+    for k, v in defaults.items():
+        out[k] = plan.get(k, v)
+
+    if not isinstance(out["core_material"], dict):
+        out["core_material"] = {}
+
+    list_keys = [
+        "success_criteria",
+        "warm_up",
+        "main_activity",
+        "core_examples",
+        "guided_practice",
+        "practice_questions",
+        "freer_task",
+        "wrap_up",
+        "teacher_moves",
+    ]
+    for k in list_keys:
+        if not isinstance(out.get(k), list):
+            out[k] = [] if out.get(k) in (None, "") else [str(out.get(k))]
+
+    return out
+
+def generate_ai_lesson_plan(
+    subject: str,
+    learner_stage: str,
+    level_or_band: str,
+    lesson_purpose: str,
+    topic: str,
+    plan_language: str,
+    student_material_language: str,
+) -> dict:
+    """
+    Calls external AI API and returns a normalized plan dict.
+    Must raise an exception on failure so caller can fallback to template mode.
+    """
+
+    prompt_payload = {
+        "subject": subject,
+        "topic": topic,
+        "learner_stage": learner_stage,
+        "level_or_band": level_or_band,
+        "lesson_purpose": lesson_purpose,
+        "plan_language": plan_language,
+        "student_material_language": student_material_language,
+        "required_sections": [
+            "title",
+            "objective",
+            "recommended_level",
+            "plan_language",
+            "student_material_language",
+            "success_criteria",
+            "warm_up",
+            "main_activity",
+            "core_examples",
+            "guided_practice",
+            "practice_questions",
+            "freer_task",
+            "wrap_up",
+            "teacher_moves",
+            "extension_task",
+            "homework",
+            "reading_passage",
+            "listening_script",
+            "core_material",
+        ],
+        "core_material_required_keys": [
+            "target_vocabulary",
+            "pre_task_questions",
+            "gist_questions",
+            "detail_questions",
+            "post_task",
+        ],
+    }
+
+    # ---------------------------------
+    # REPLACE THIS BLOCK WITH REAL API CALL
+    # ---------------------------------
+    raise NotImplementedError("AI API call not connected yet.")
+
+AI_DAILY_LIMIT = 3
+AI_COOLDOWN_SECONDS = 10
+
+def generate_quick_lesson_plan_with_fallback(
+    mode: str,
+    subject: str,
+    learner_stage: str,
+    level_or_band: str,
+    lesson_purpose: str,
+    topic: str,
+) -> tuple[dict, str, Optional[str]]:
+    """
+    Returns: (plan, resolved_mode, warning_message)
+    resolved_mode is 'ai' or 'template'
+    """
+
+    template_plan = normalize_planner_output(
+        build_quick_lesson_plan(
+            subject=subject,
+            learner_stage=learner_stage,
+            level_or_band=level_or_band,
+            lesson_purpose=lesson_purpose,
+            topic=topic,
+        )
+    )
+
+    if str(mode).strip().lower() != "ai":
+        return template_plan, "template", None
+
+    usage = get_ai_planner_usage_status()
+
+    if usage["used_today"] >= AI_DAILY_LIMIT:
+        return template_plan, "template", t("ai_limit_reached") if "ai_limit_reached" in I18N.get(get_plan_language(), {}) else "AI daily limit reached. Template plan generated instead."
+
+    if not usage["cooldown_ok"]:
+        return template_plan, "template", f"AI cooldown active. Please wait {usage['seconds_left']} seconds. Template plan generated instead."
+
+    try:
+        log_ai_usage(
+            request_kind="quick_lesson_ai",
+            status="requested",
+            meta={
+                "subject": subject,
+                "topic": topic,
+                "lesson_purpose": lesson_purpose,
+            },
+        )
+
+        ai_plan = generate_ai_lesson_plan(
+            subject=subject,
+            learner_stage=learner_stage,
+            level_or_band=level_or_band,
+            lesson_purpose=lesson_purpose,
+            topic=topic,
+            plan_language=get_plan_language(),
+            student_material_language=get_student_material_language(subject),
+        )
+
+        ai_plan = normalize_planner_output(ai_plan)
+
+        log_ai_usage(
+            request_kind="quick_lesson_ai",
+            status="success",
+            meta={
+                "subject": subject,
+                "topic": topic,
+                "lesson_purpose": lesson_purpose,
+            },
+        )
+
+        return ai_plan, "ai", None
+
+    except Exception as e:
+        log_ai_usage(
+            request_kind="quick_lesson_ai",
+            status="failed",
+            meta={
+                "subject": subject,
+                "topic": topic,
+                "lesson_purpose": lesson_purpose,
+                "error": str(e),
+            },
+        )
+        return template_plan, "template", f"AI planner unavailable. Template plan generated instead. ({e})"
 
 def reset_quick_lesson_planner_state() -> None:
     keys_to_clear = [
         "quick_lesson_plan_result",
         "quick_lesson_plan_kept",
+        "quick_lesson_plan_mode_used",
+        "quick_lesson_plan_warning",
+        "quick_plan_mode",
         "quick_plan_subject",
         "quick_plan_stage",
         "quick_plan_level",
@@ -2582,9 +3039,176 @@ def reset_quick_lesson_planner_state() -> None:
     for k in keys_to_clear:
         st.session_state.pop(k, None)
 
+# =========================
+# 07.1A.1) QUICK LESSON PLANNER STORAGE + AI LOGGING
+# =========================
 
-def render_quick_lesson_plan_result(plan: dict) -> None:
+def planner_payload_from_inputs(
+    subject: str,
+    learner_stage: str,
+    level_or_band: str,
+    lesson_purpose: str,
+    topic: str,
+    mode: str,
+    plan: dict,
+) -> dict:
+    return with_owner({
+        "subject": str(subject).strip(),
+        "topic": str(topic).strip(),
+        "learner_stage": str(learner_stage).strip(),
+        "level_or_band": str(level_or_band).strip(),
+        "lesson_purpose": str(lesson_purpose).strip(),
+        "plan_language": str(plan.get("plan_language") or get_plan_language()).strip(),
+        "student_material_language": str(plan.get("student_material_language") or "").strip(),
+        "source_type": "ai" if str(mode).strip().lower() == "ai" else "template",
+        "plan_json": plan,
+        "title": str(plan.get("title") or "").strip(),
+    })
+
+
+def save_lesson_plan_record(
+    subject: str,
+    learner_stage: str,
+    level_or_band: str,
+    lesson_purpose: str,
+    topic: str,
+    mode: str,
+    plan: dict,
+) -> bool:
+    try:
+        payload = planner_payload_from_inputs(
+            subject=subject,
+            learner_stage=learner_stage,
+            level_or_band=level_or_band,
+            lesson_purpose=lesson_purpose,
+            topic=topic,
+            mode=mode,
+            plan=plan,
+        )
+        supabase.table("lesson_plans").insert(payload).execute()
+        return True
+    except Exception as e:
+        st.warning(f"Could not save lesson plan: {e}")
+        return False
+
+
+def log_user_activity(
+    activity_type: str,
+    feature_name: str,
+    meta: Optional[dict] = None,
+) -> None:
+    try:
+        payload = with_owner({
+            "activity_type": str(activity_type).strip(),
+            "feature_name": str(feature_name).strip(),
+            "meta_json": meta or {},
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        supabase.table("user_activity_log").insert(payload).execute()
+    except Exception:
+        pass
+
+
+def log_ai_usage(
+    request_kind: str,
+    status: str,
+    meta: Optional[dict] = None,
+) -> None:
+    try:
+        payload = with_owner({
+            "request_kind": str(request_kind).strip(),
+            "status": str(status).strip(),
+            "meta_json": meta or {},
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        supabase.table("ai_usage_logs").insert(payload).execute()
+    except Exception:
+        pass
+
+
+def _safe_ai_logs_df() -> pd.DataFrame:
+    try:
+        df = load_table("ai_usage_logs")
+    except Exception:
+        return pd.DataFrame()
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    if "created_at" not in df.columns:
+        df["created_at"] = None
+    if "status" not in df.columns:
+        df["status"] = ""
+    if "request_kind" not in df.columns:
+        df["request_kind"] = ""
+
+    df = df.copy()
+    df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce", utc=True)
+    df["status"] = df["status"].fillna("").astype(str).str.strip().str.lower()
+    df["request_kind"] = df["request_kind"].fillna("").astype(str).str.strip().str.lower()
+    return df
+
+
+def get_ai_planner_usage_status() -> dict:
+    df = _safe_ai_logs_df()
+    now_utc = datetime.now(timezone.utc)
+    today_start_utc = datetime.combine(today_local(), time.min).replace(tzinfo=get_app_tz()).astimezone(timezone.utc)
+
+    if df.empty:
+        return {
+            "used_today": 0,
+            "remaining_today": AI_DAILY_LIMIT,
+            "cooldown_ok": True,
+            "seconds_left": 0,
+            "last_request_at": None,
+        }
+
+    planner_df = df[df["request_kind"] == "quick_lesson_ai"].copy()
+
+    today_df = planner_df[
+        (planner_df["created_at"].notna()) &
+        (planner_df["created_at"] >= today_start_utc)
+    ].copy()
+
+    used_today = int(len(today_df))
+
+    cooldown_ok = True
+    seconds_left = 0
+    last_request_at = None
+
+    if not planner_df.empty:
+        planner_df = planner_df.dropna(subset=["created_at"]).sort_values("created_at")
+        if not planner_df.empty:
+            last_request_at = planner_df.iloc[-1]["created_at"]
+            delta = (now_utc - last_request_at.to_pydatetime()).total_seconds()
+            if delta < AI_COOLDOWN_SECONDS:
+                cooldown_ok = False
+                seconds_left = int(math.ceil(AI_COOLDOWN_SECONDS - delta))
+
+    return {
+        "used_today": used_today,
+        "remaining_today": max(0, AI_DAILY_LIMIT - used_today),
+        "cooldown_ok": cooldown_ok,
+        "seconds_left": max(0, seconds_left),
+        "last_request_at": last_request_at,
+    }
+
+def render_quick_lesson_plan_result(
+    plan: dict,
+    subject: str = "",
+    learner_stage: str = "",
+    level_or_band: str = "",
+    lesson_purpose: str = "",
+    topic: str = "",
+) -> None:
     st.success(t("lesson_plan_ready"))
+    resolved_mode = st.session_state.get("quick_lesson_plan_mode_used", "template")
+    warning_msg = st.session_state.get("quick_lesson_plan_warning")
+
+    st.caption(f"Mode used: {resolved_mode.upper()}")
+
+    if warning_msg:
+        st.warning(warning_msg)
     st.markdown(f"### {t('plan_title')}: {plan.get('title', '')}")
 
     rec_level = plan.get("recommended_level", "")
@@ -2721,12 +3345,35 @@ def render_quick_lesson_plan_result(plan: dict) -> None:
     st.markdown(f"**{t('optional_homework')}**")
     st.write(plan.get("homework", ""))
 
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
+
     with c1:
+        if resolved_mode == "template":
+            if st.button("Save template plan", key="btn_save_template_plan", use_container_width=True):
+                ok = save_lesson_plan_record(
+                    subject=subject,
+                    learner_stage=learner_stage,
+                    level_or_band=level_or_band,
+                    lesson_purpose=lesson_purpose,
+                    topic=topic,
+                    mode="template",
+                    plan=plan,
+                )
+                if ok:
+                    st.session_state["quick_lesson_plan_kept"] = True
+                    log_user_activity(
+                        activity_type="planner_save",
+                        feature_name="quick_lesson_planner",
+                        meta={"source_type": "template", "subject": subject, "topic": topic},
+                    )
+                    st.success("Template plan saved.")
+
+    with c2:
         if st.button(t("keep_plan"), key="btn_keep_quick_plan", use_container_width=True):
             st.session_state["quick_lesson_plan_kept"] = True
             st.success(t("plan_kept"))
-    with c2:
+
+    with c3:
         if st.button(t("delete_plan"), key="btn_delete_quick_plan", use_container_width=True):
             reset_quick_lesson_planner_state()
             st.success(t("plan_deleted"))
@@ -2737,6 +3384,26 @@ def render_quick_lesson_planner_expander() -> None:
     with st.expander(t("quick_lesson_planner"), expanded=False):
         st.caption(t("quick_lesson_caption"))
         st.caption(t("plan_language_note"))
+
+        usage = get_ai_planner_usage_status()
+
+        mode_labels = {
+            "template": "Template",
+            "ai": "AI",
+        }
+
+        quick_plan_mode = st.radio(
+            "Generation mode",
+            options=["template", "ai"],
+            horizontal=True,
+            format_func=lambda x: mode_labels.get(x, x.title()),
+            key="quick_plan_mode",
+        )
+
+        if quick_plan_mode == "ai":
+            st.caption(
+                f"AI plans left today: {usage['remaining_today']} / {AI_DAILY_LIMIT}"
+            )        
 
         subject = st.selectbox(
             t("subject_label"),
@@ -2787,19 +3454,55 @@ def render_quick_lesson_planner_expander() -> None:
             if not topic.strip():
                 st.error(t("enter_topic"))
             else:
-                st.session_state["quick_lesson_plan_result"] = build_quick_lesson_plan(
+                plan, resolved_mode, warning_msg = generate_quick_lesson_plan_with_fallback(
+                    mode=quick_plan_mode,
                     subject=subject,
                     learner_stage=learner_stage,
                     level_or_band=level_or_band,
                     lesson_purpose=lesson_purpose,
                     topic=topic,
                 )
+
+                st.session_state["quick_lesson_plan_result"] = plan
                 st.session_state["quick_lesson_plan_kept"] = False
+                st.session_state["quick_lesson_plan_mode_used"] = resolved_mode
+                st.session_state["quick_lesson_plan_warning"] = warning_msg
+
+                if resolved_mode == "ai":
+                    save_lesson_plan_record(
+                        subject=subject,
+                        learner_stage=learner_stage,
+                        level_or_band=level_or_band,
+                        lesson_purpose=lesson_purpose,
+                        topic=topic,
+                        mode="ai",
+                        plan=plan,
+                    )
+
+                log_user_activity(
+                    activity_type="planner_generate",
+                    feature_name="quick_lesson_planner",
+                    meta={
+                        "requested_mode": quick_plan_mode,
+                        "resolved_mode": resolved_mode,
+                        "subject": subject,
+                        "topic": topic,
+                        "lesson_purpose": lesson_purpose,
+                    },
+                )
 
         if st.session_state.get("quick_lesson_plan_result"):
             if st.session_state.get("quick_lesson_plan_kept"):
                 st.info(f"📌 {t('quick_plan_saved_label')}")
-            render_quick_lesson_plan_result(st.session_state["quick_lesson_plan_result"])
+
+            render_quick_lesson_plan_result(
+                st.session_state["quick_lesson_plan_result"],
+                subject=subject,
+                learner_stage=learner_stage,
+                level_or_band=level_or_band,
+                lesson_purpose=lesson_purpose,
+                topic=topic,
+            )
 
 # =========================
 # 07.1B) HOME PAGE HELPERS
