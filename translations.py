@@ -1,5 +1,11 @@
+# ============================================================
+# CLASS MANAGER — I18N / TRANSLATIONS
+# ------------------------------------------------------------
+
+from typing import Dict
+
 # =========================
-# 03) I18N / TRANSLATIONS
+# I18N / TRANSLATIONS
 # =========================
 I18N: Dict[str, Dict[str, str]] = {
     "en": {
@@ -238,6 +244,20 @@ I18N: Dict[str, Dict[str, str]] = {
         "plan_language": "Plan language",
 
         # -------------------------
+        # AI PLANNER
+        # -------------------------
+        "generation_mode": "Generation mode",
+        "mode_template": "Template",
+        "mode_ai": "AI",
+        "ai_plans_left_today": "AI plans left today: {remaining} / {limit}",
+        "mode_used": "Mode used: {mode}",
+        "save_template_plan": "Save template plan",
+        "template_plan_saved": "Template plan saved.",
+        "ai_limit_reached": "AI daily limit reached. Template plan generated instead.",
+        "ai_cooldown_active": "AI cooldown active. Please wait {seconds} seconds. Template plan generated instead.",
+        "ai_unavailable_fallback": "AI planner unavailable. Template plan generated instead.",
+
+        # -------------------------
         # DASHBOARD
         # -------------------------
         "manage_current_students": "Manage your current students and packages",
@@ -456,6 +476,71 @@ I18N: Dict[str, Dict[str, str]] = {
         "whatsapp_tpl_cancel": "3) Cancel lesson",
 
         "whatsapp_no_students_for_template": "No students available for this template right now.",
+        
+        # -------------------------
+        # ANALYTICS PAGE
+        # -------------------------
+
+        "insights_and_actions": "Insights & Actions",
+        "summary": "Summary",
+        "revenue_drivers": "Revenue drivers",
+        "teaching_activity": "Teaching activity",
+        "risk_and_forecast": "Risk & forecast",
+        "show_raw_data": "Show raw data",
+         "what_this_means": "What this means",
+        "next_steps": "Next steps",
+        "avg_monthly_income": "Average monthly income",
+        "avg_yearly_income": "Average yearly income",
+        "run_rate_annual": "Estimated yearly revenue",
+        "effective_rate_unit": "Average income per lesson",
+        "concentration_risk": "Income concentration",
+        "top1_share": "Top student share",
+        "top3_share": "Top 3 students share",
+        "top10_revenue": "Top 10 income",
+        "top5_quick_view": "Top 5 quick view",
+        "segment_language": "Language segment",
+        "segment_modality": "Modality segment",
+        "total_revenue_language": "Total income by language",
+        "total_revenue_modality": "Total income by modality",
+        "top_segment_share": "Top segment share",
+        "total_units": "Total lesson units",
+        "top_language": "Top lesson language",
+        "top_modality": "Top lesson modality",
+
+        # Forecast (operational)
+        "students_in_forecast": "Students in forecast",
+        "due_now": "Due to contact now",
+        "finishing_14d": "Finishing in next 14 days",
+        "at_risk": "At risk",
+        "students_to_contact": "Students to contact",
+        "units_left": "units left",
+        "finish": "finish",
+        "remind": "remind",
+        "next_up": "Next up",
+
+        # Goal
+        "goal": "Goal",
+        "yearly_income_goal": "Yearly income goal",
+        "goal_progress": "Goal progress",
+        "ytd_income": "YTD income",
+        "remaining_to_goal": "Remaining to goal",
+        "avg_needed_month": "Avg needed / month",
+        "expected_renewals": "Expected renewals",
+
+        "takeaway_concentration": "Your top student contributes {p1} of all income; your top 3 students contribute {p3}.",
+        "takeaway_language": "Your strongest language segment is {name} ({share} of language income).",
+        "takeaway_modality": "Your strongest modality segment is {name} ({share} of modality income).",
+        "takeaway_activity_language": "Most of your teaching units are in {name} ({share} of units).",
+        "takeaway_activity_modality": "Most of your teaching units are delivered via {name} ({share} of units).",
+        "takeaway_profitable": "{name} is currently your strongest income source. Keeping your best students satisfied supports stable income.",
+        "takeaway_pipeline": "Use this section as a renewal list. Contact students before they reach zero units.",
+        "action_check_week": "No income recorded this week — check renewals and pending payments.",
+        "action_reduce_risk": "Income is concentrated — consider balancing your student base and pricing.",
+        "action_review_pricing": "Average income per unit looks low — review packages, discounts, or lesson pricing.",
+        "action_review_top": "Review your top students and plan renewals.",
+        "action_compare_mix": "Compare language/modality mix with your pricing strategy.",
+        "action_check_forecast": "Use the forecast to plan the next two weeks.",
+        "important": "Important",
     },
 
     "es": {
@@ -693,6 +778,21 @@ I18N: Dict[str, Dict[str, str]] = {
         "plan_language": "Idioma del plan",
 
         # -------------------------
+        # AI PLANNER
+        # -------------------------
+        "generation_mode": "Modo de generación",
+        "mode_template": "Plantilla",
+        "mode_ai": "IA",
+        "ai_plans_left_today": "Planes de IA disponibles hoy: {remaining} / {limit}",
+        "mode_used": "Modo usado: {mode}",
+        "save_template_plan": "Guardar plan de plantilla",
+        "template_plan_saved": "Plan de plantilla guardado.",
+        "ai_limit_reached": "Se alcanzó el límite diario de IA. Se generó un plan de plantilla en su lugar.",
+        "ai_cooldown_active": "La IA está en enfriamiento. Espera {seconds} segundos. Se generó un plan de plantilla en su lugar.",
+        "ai_unavailable_fallback": "El planificador con IA no está disponible. Se generó un plan de plantilla en su lugar.",
+
+
+        # -------------------------
         # DASHBOARD
         # -------------------------
         "manage_current_students": "Administra tus estudiantes y paquetes actuales",
@@ -912,6 +1012,70 @@ I18N: Dict[str, Dict[str, str]] = {
         "whatsapp_tpl_cancel": "3) Cancelar clase",
 
         "whatsapp_no_students_for_template": "No hay estudiantes disponibles para esta plantilla en este momento.",
+                # -------------------------
+        # ANALYTICS PAGE
+        # -------------------------
+
+        "insights_and_actions": "Información Estratégica",
+        "summary": "Resumen",
+        "revenue_drivers": "Impulsores de ingresos",
+        "teaching_activity": "Actividad docente",
+        "risk_and_forecast": "Riesgo y pronóstico",
+        "show_raw_data": "Mostrar datos",
+        "what_this_means": "Qué significa",
+        "next_steps": "Próximos pasos",
+        "avg_monthly_income": "Ingreso mensual promedio",
+        "avg_yearly_income": "Ingreso anual promedio",
+        "run_rate_annual": "Proyección de ingreso anual",
+        "effective_rate_unit": "Ingreso promedio por clase",
+        "concentration_risk": "Concentración de ingresos",
+        "top1_share": "Participación del mejor estudiante",
+        "top3_share": "Participación del top 3",
+        "top10_revenue": "Ingreso del top 10",
+        "top5_quick_view": "Vista rápida top 5",
+        "segment_language": "Segmento por idioma",
+        "segment_modality": "Segmento por modalidad",
+        "total_revenue_language": "Ingreso total por idioma",
+        "total_revenue_modality": "Ingreso total por modalidad",
+        "top_segment_share": "Participación del segmento líder",
+        "total_units": "Unidades de clase totales",
+        "top_language": "Idioma principal",
+        "top_modality": "Modalidad principal",
+
+        # Forecast (operational)
+        "students_in_forecast": "Estudiantes en pronóstico",
+        "due_now": "Para contactar hoy",
+        "finishing_14d": "Terminan en los próximos 14 días",
+        "at_risk": "En riesgo",
+        "students_to_contact": "Estudiantes a contactar",
+        "units_left": "unidades restantes",
+        "finish": "fin",
+        "remind": "recordar",
+        "next_up": "Próximos",
+
+        # Goal
+        "goal": "Meta",
+        "yearly_income_goal": "Meta anual de ingresos",
+        "goal_progress": "Progreso de la meta",
+        "ytd_income": "Ingresos del año",
+        "remaining_to_goal": "Falta para la meta",
+        "avg_needed_month": "Promedio necesario / mes",
+        "expected_renewals": "Renovaciones esperadas",
+
+        "takeaway_concentration": "Tu mejor estudiante aporta {p1} del ingreso total; tu top 3 aporta {p3}.",
+        "takeaway_language": "Tu segmento de idioma más fuerte es {name} ({share} del ingreso por idioma).",
+        "takeaway_modality": "Tu segmento de modalidad más fuerte es {name} ({share} del ingreso por modalidad).",
+        "takeaway_activity_language": "La mayoría de tus unidades de clase están en {name} ({share} de unidades).",
+        "takeaway_activity_modality": "La mayoría de tus unidades se imparten por {name} ({share} de unidades).",
+        "takeaway_profitable": "{name} es tu principal fuente de ingresos. Mantener satisfechos a tus mejores estudiantes ayuda a tener ingresos estables.",
+        "takeaway_pipeline": "Usa esta sección como lista de renovaciones. Contacta a los estudiantes antes de llegar a cero unidades.",
+        "action_check_week": "No hay ingresos registrados esta semana — revisa renovaciones y pagos pendientes.",
+        "action_reduce_risk": "El ingreso está concentrado — considera equilibrar tu base de estudiantes y precios.",
+        "action_review_pricing": "El ingreso promedio por unidad parece bajo — revisa paquetes, descuentos o precios.",
+        "action_review_top": "Revisa tus estudiantes más rentables y planifica renovaciones.",
+        "action_compare_mix": "Compara el mix de idioma/modalidad con tu estrategia de precios.",
+        "action_check_forecast": "Usa el pronóstico para planificar las próximas dos semanas.",
+        "important": "Importante",
     },
 
     "tr": {
@@ -927,10 +1091,5 @@ I18N: Dict[str, Dict[str, str]] = {
         "whatsapp_tpl_cancel": "3) Bugünkü dersi iptal et",
 
         "whatsapp_no_students_for_template": "Şu anda bu şablon için uygun öğrenci yok.",
+    },
     }
- }
-if "ui_lang" not in st.session_state:
-    st.session_state.ui_lang = "en"
-
-if "compact_mode" not in st.session_state:
-    st.session_state.compact_mode = False
