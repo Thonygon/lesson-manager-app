@@ -143,6 +143,11 @@ def remove_streamlit_top_spacing():
 remove_streamlit_top_spacing()
 
 
+if "ui_lang" not in st.session_state:
+    st.session_state.ui_lang = "en"
+
+if "compact_mode" not in st.session_state:
+    st.session_state.compact_mode = False
 
 def t(key: str) -> str:
     lang = st.session_state.get("ui_lang", "en")
@@ -170,136 +175,9 @@ def t(key: str) -> str:
 
     return k
 
-ANALYTICS_I18N = {
-    "en": {
-        "insights_and_actions": "Insights & Actions",
-        "summary": "Summary",
-        "revenue_drivers": "Revenue drivers",
-        "teaching_activity": "Teaching activity",
-        "risk_and_forecast": "Risk & forecast",
-        "show_raw_data": "Show raw data",
-         "what_this_means": "What this means",
-        "next_steps": "Next steps",
-        "avg_monthly_income": "Average monthly income",
-        "avg_yearly_income": "Average yearly income",
-        "run_rate_annual": "Estimated yearly revenue",
-        "effective_rate_unit": "Average income per lesson",
-        "concentration_risk": "Income concentration",
-        "top1_share": "Top student share",
-        "top3_share": "Top 3 students share",
-        "top10_revenue": "Top 10 income",
-        "top5_quick_view": "Top 5 quick view",
-        "segment_language": "Language segment",
-        "segment_modality": "Modality segment",
-        "total_revenue_language": "Total income by language",
-        "total_revenue_modality": "Total income by modality",
-        "top_segment_share": "Top segment share",
-        "total_units": "Total lesson units",
-        "top_language": "Top lesson language",
-        "top_modality": "Top lesson modality",
-
-        # Forecast (operational)
-        "students_in_forecast": "Students in forecast",
-        "due_now": "Due to contact now",
-        "finishing_14d": "Finishing in next 14 days",
-        "at_risk": "At risk",
-        "students_to_contact": "Students to contact",
-        "units_left": "units left",
-        "finish": "finish",
-        "remind": "remind",
-        "next_up": "Next up",
-
-        # Goal
-        "goal": "Goal",
-        "yearly_income_goal": "Yearly income goal",
-        "goal_progress": "Goal progress",
-        "ytd_income": "YTD income",
-        "remaining_to_goal": "Remaining to goal",
-        "avg_needed_month": "Avg needed / month",
-        "expected_renewals": "Expected renewals",
-
-        "takeaway_concentration": "Your top student contributes {p1} of all income; your top 3 students contribute {p3}.",
-        "takeaway_language": "Your strongest language segment is {name} ({share} of language income).",
-        "takeaway_modality": "Your strongest modality segment is {name} ({share} of modality income).",
-        "takeaway_activity_language": "Most of your teaching units are in {name} ({share} of units).",
-        "takeaway_activity_modality": "Most of your teaching units are delivered via {name} ({share} of units).",
-        "takeaway_profitable": "{name} is currently your strongest income source. Keeping your best students satisfied supports stable income.",
-        "takeaway_pipeline": "Use this section as a renewal list. Contact students before they reach zero units.",
-        "action_check_week": "No income recorded this week — check renewals and pending payments.",
-        "action_reduce_risk": "Income is concentrated — consider balancing your student base and pricing.",
-        "action_review_pricing": "Average income per unit looks low — review packages, discounts, or lesson pricing.",
-        "action_review_top": "Review your top students and plan renewals.",
-        "action_compare_mix": "Compare language/modality mix with your pricing strategy.",
-        "action_check_forecast": "Use the forecast to plan the next two weeks.",
-        "important": "Important",
-    },
-    "es": {
-        "insights_and_actions": "Información Estratégica",
-        "summary": "Resumen",
-        "revenue_drivers": "Impulsores de ingresos",
-        "teaching_activity": "Actividad docente",
-        "risk_and_forecast": "Riesgo y pronóstico",
-        "show_raw_data": "Mostrar datos",
-        "what_this_means": "Qué significa",
-        "next_steps": "Próximos pasos",
-        "avg_monthly_income": "Ingreso mensual promedio",
-        "avg_yearly_income": "Ingreso anual promedio",
-        "run_rate_annual": "Proyección de ingreso anual",
-        "effective_rate_unit": "Ingreso promedio por clase",
-        "concentration_risk": "Concentración de ingresos",
-        "top1_share": "Participación del mejor estudiante",
-        "top3_share": "Participación del top 3",
-        "top10_revenue": "Ingreso del top 10",
-        "top5_quick_view": "Vista rápida top 5",
-        "segment_language": "Segmento por idioma",
-        "segment_modality": "Segmento por modalidad",
-        "total_revenue_language": "Ingreso total por idioma",
-        "total_revenue_modality": "Ingreso total por modalidad",
-        "top_segment_share": "Participación del segmento líder",
-        "total_units": "Unidades de clase totales",
-        "top_language": "Idioma principal",
-        "top_modality": "Modalidad principal",
-
-        # Forecast (operational)
-        "students_in_forecast": "Estudiantes en pronóstico",
-        "due_now": "Para contactar hoy",
-        "finishing_14d": "Terminan en los próximos 14 días",
-        "at_risk": "En riesgo",
-        "students_to_contact": "Estudiantes a contactar",
-        "units_left": "unidades restantes",
-        "finish": "fin",
-        "remind": "recordar",
-        "next_up": "Próximos",
-
-        # Goal
-        "goal": "Meta",
-        "yearly_income_goal": "Meta anual de ingresos",
-        "goal_progress": "Progreso de la meta",
-        "ytd_income": "Ingresos del año",
-        "remaining_to_goal": "Falta para la meta",
-        "avg_needed_month": "Promedio necesario / mes",
-        "expected_renewals": "Renovaciones esperadas",
-
-        "takeaway_concentration": "Tu mejor estudiante aporta {p1} del ingreso total; tu top 3 aporta {p3}.",
-        "takeaway_language": "Tu segmento de idioma más fuerte es {name} ({share} del ingreso por idioma).",
-        "takeaway_modality": "Tu segmento de modalidad más fuerte es {name} ({share} del ingreso por modalidad).",
-        "takeaway_activity_language": "La mayoría de tus unidades de clase están en {name} ({share} de unidades).",
-        "takeaway_activity_modality": "La mayoría de tus unidades se imparten por {name} ({share} de unidades).",
-        "takeaway_profitable": "{name} es tu principal fuente de ingresos. Mantener satisfechos a tus mejores estudiantes ayuda a tener ingresos estables.",
-        "takeaway_pipeline": "Usa esta sección como lista de renovaciones. Contacta a los estudiantes antes de llegar a cero unidades.",
-        "action_check_week": "No hay ingresos registrados esta semana — revisa renovaciones y pagos pendientes.",
-        "action_reduce_risk": "El ingreso está concentrado — considera equilibrar tu base de estudiantes y precios.",
-        "action_review_pricing": "El ingreso promedio por unidad parece bajo — revisa paquetes, descuentos o precios.",
-        "action_review_top": "Revisa tus estudiantes más rentables y planifica renovaciones.",
-        "action_compare_mix": "Compara el mix de idioma/modalidad con tu estrategia de precios.",
-        "action_check_forecast": "Usa el pronóstico para planificar las próximas dos semanas.",
-        "important": "Importante",
-    },
-}
-
-def t_a(key: str, **kwargs) -> str:
+def t(key: str, **kwargs) -> str:
     lang = st.session_state.get("ui_lang", "en")
-    s = ANALYTICS_I18N.get(lang, ANALYTICS_I18N["en"]).get(key, key)
+    s = I18N.get(lang, I18N["en"]).get(key, key)
     try:
         return s.format(**kwargs)
     except Exception:
@@ -8121,7 +7999,7 @@ elif page == "analytics":
         )
 
     def _show_raw_toggle(df: pd.DataFrame, toggle_key: str):
-        show_raw = st.toggle(t_a("show_raw_data"), value=False, key=toggle_key)
+        show_raw = st.toggle(t("show_raw_data"), value=False, key=toggle_key)
         if show_raw:
             st.dataframe(
                 translate_df_headers(pretty_df(df)),
@@ -8358,9 +8236,9 @@ elif page == "analytics":
     ytd_cash = float(proj.get("ytd", 0.0) or 0.0)
     expected_future = float(proj.get("expected_future", 0.0) or 0.0)
 
-    st.markdown(f"### {t_a('insights_and_actions')}")
+    st.markdown(f"### {t('insights_and_actions')}")
     tab_summary, tab_rev, tab_delivery, tab_risk = st.tabs(
-        [t_a("summary"), t_a("revenue_drivers"), t_a("teaching_activity"), t_a("risk_and_forecast")]
+        [t("summary"), t("revenue_drivers"), t("teaching_activity"), t("risk_and_forecast")]
     )
 
     # ======================
@@ -8369,22 +8247,22 @@ elif page == "analytics":
     with tab_summary:
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            st.metric(t_a("avg_yearly_income"), money_fmt(avg_yearly))
+            st.metric(t("avg_yearly_income"), money_fmt(avg_yearly))
         with c2:
-            st.metric(t_a("avg_monthly_income"), money_fmt(avg_monthly_12m))
+            st.metric(t("avg_monthly_income"), money_fmt(avg_monthly_12m))
         with c3:
-            st.metric(t_a("run_rate_annual"), money_fmt(projected_year))
+            st.metric(t("run_rate_annual"), money_fmt(projected_year))
         with c4:
-            st.metric(t_a("effective_rate_unit"), money_fmt(eff_rate))
+            st.metric(t("effective_rate_unit"), money_fmt(eff_rate))
 
         st.caption(
-            f"{t_a('ytd_income')}: {money_fmt(ytd_cash)} — "
-            f"{t_a('expected_renewals')}: {money_fmt(expected_future)}"
+            f"{t('ytd_income')}: {money_fmt(ytd_cash)} — "
+            f"{t('expected_renewals')}: {money_fmt(expected_future)}"
         ) 
         # -------------------------
         # NEW: Yearly goal (persistent across devices)
         # -------------------------
-        st.markdown(f"#### {t_a('goal')}")
+        st.markdown(f"#### {t('goal')}")
         scope = YEAR_GOAL_SCOPE
         current_year = int(today.year)
 
@@ -8401,7 +8279,7 @@ elif page == "analytics":
         gcol1, gcol2 = st.columns([2, 1])
         with gcol1:
             new_goal = st.number_input(
-                f"{t_a('yearly_income_goal')} ({current_year})",
+                f"{t('yearly_income_goal')} ({current_year})",
                 min_value=0.0,
                 value=float(st.session_state.get(goal_state_key, 0.0) or 0.0),
                 step=1000.0,
@@ -8426,7 +8304,7 @@ elif page == "analytics":
         if goal_val > 0:
             prog = max(0.0, min(1.0, ytd_cash / goal_val))
             st.progress(prog)
-            st.write(f"**{prog*100.0:.1f}%** — {t_a('goal_progress')}")
+            st.write(f"**{prog*100.0:.1f}%** — {t('goal_progress')}")
 
             remaining = max(0.0, goal_val - ytd_cash)
             months_left = max(0, 12 - int(today.month))
@@ -8434,11 +8312,11 @@ elif page == "analytics":
 
             g1, g2, g3 = st.columns(3)
             with g1:
-                st.metric(t_a("ytd_income"), money_fmt(ytd_cash))
+                st.metric(t("ytd_income"), money_fmt(ytd_cash))
             with g2:
-                st.metric(t_a("remaining_to_goal"), money_fmt(remaining))
+                st.metric(t("remaining_to_goal"), money_fmt(remaining))
             with g3:
-                st.metric(t_a("avg_needed_month"), money_fmt(avg_needed))
+                st.metric(t("avg_needed_month"), money_fmt(avg_needed))
         else:
             st.info("Set a yearly goal to see your progress bar.")
         # -------------------------
@@ -8446,23 +8324,23 @@ elif page == "analytics":
         # -------------------------
         if top1_name:
             _callout(
-                t_a("important"),
-                t_a("takeaway_concentration", p1=_fmt_pct(top1_share), p3=_fmt_pct(top3_share)),
+                t("important"),
+                t("takeaway_concentration", p1=_fmt_pct(top1_share), p3=_fmt_pct(top3_share)),
             )
         else:
             _callout(
-                t_a("what_this_means"),
+                t("what_this_means"),
                 "This section explains your teaching business in simple numbers: income, stability, and what to do next.",
             )
 
-        st.markdown(f"#### {t_a('next_steps')}")
+        st.markdown(f"#### {t('next_steps')}")
         actions = []
         if total_week == 0 and total_month > 0:
-            actions.append(t_a("action_check_week"))
+            actions.append(t("action_check_week"))
         if top3_share >= 60:
-            actions.append(t_a("action_reduce_risk"))
+            actions.append(t("action_reduce_risk"))
         if not actions:
-            actions = [t_a("action_review_top"), t_a("action_compare_mix"), t_a("action_check_forecast")]
+            actions = [t("action_review_top"), t("action_compare_mix"), t("action_check_forecast")]
 
         for a in actions[:5]:
             st.write(f"• {a}")
@@ -8484,14 +8362,14 @@ elif page == "analytics":
             top_total = float(top[top_income_col].sum())
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.metric(t_a("top10_revenue"), money_fmt(top_total))
+                st.metric(t("top10_revenue"), money_fmt(top_total))
             with c2:
-                st.metric(t_a("top1_share"), _fmt_pct(top1_share))
+                st.metric(t("top1_share"), _fmt_pct(top1_share))
             with c3:
-                st.metric(t_a("top3_share"), _fmt_pct(top3_share))
+                st.metric(t("top3_share"), _fmt_pct(top3_share))
 
             if top1_name:
-                _callout(t_a("important"), t_a("takeaway_profitable", name=top1_name))
+                _callout(t("important"), t("takeaway_profitable", name=top1_name))
 
             ser = chart_series(top.rename(columns={student_col: "student"}), "student", top_income_col, "student", "income")
             if ser is None:
@@ -8499,7 +8377,7 @@ elif page == "analytics":
             else:
                 st.bar_chart(ser)
 
-            st.markdown(f"##### {t_a('top5_quick_view')}")
+            st.markdown(f"##### {t('top5_quick_view')}")
             top5 = top.head(5).copy()
             cols = st.columns(5)
             for i in range(min(5, len(top5))):
@@ -8535,12 +8413,12 @@ elif page == "analytics":
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.metric(t_a("total_revenue_language"), money_fmt(total_lang))
+                    st.metric(t("total_revenue_language"), money_fmt(total_lang))
                 with c2:
-                    st.metric(t_a("top_segment_share"), top_lang_share)
+                    st.metric(t("top_segment_share"), top_lang_share)
 
                 if top_lang:
-                    _callout(t_a("important"), t_a("takeaway_language", name=top_lang, share=top_lang_share))
+                    _callout(t("important"), t("takeaway_language", name=top_lang, share=top_lang_share))
 
                 ser = chart_series(lang_df.rename(columns={lang_col: "languages"}), "languages", inc_col, "languages", "income")
                 if ser is None:
@@ -8572,12 +8450,12 @@ elif page == "analytics":
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.metric(t_a("total_revenue_modality"), money_fmt(total_mod))
+                    st.metric(t("total_revenue_modality"), money_fmt(total_mod))
                 with c2:
-                    st.metric(t_a("top_segment_share"), top_mod_share)
+                    st.metric(t("top_segment_share"), top_mod_share)
 
                 if top_mod:
-                    _callout(t_a("important"), t_a("takeaway_modality", name=top_mod, share=top_mod_share))
+                    _callout(t("important"), t("takeaway_modality", name=top_mod, share=top_mod_share))
 
                 ser = chart_series(mod_df.rename(columns={mod_col: "modality"}), "modality", inc_col, "modality", "income")
                 if ser is None:
@@ -8625,14 +8503,14 @@ elif page == "analytics":
 
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.metric(t_a("total_units"), f"{int(total_u)}")
+                st.metric(t("total_units"), f"{int(total_u)}")
             with c2:
-                st.metric(t_a("top_language"), top_lang if top_lang else "-")
+                st.metric(t("top_language"), top_lang if top_lang else "-")
             with c3:
-                st.metric(t_a("top_segment_share"), top_lang_share)
+                st.metric(t("top_segment_share"), top_lang_share)
 
             if top_lang:
-                _callout(t_a("important"), t_a("takeaway_activity_language", name=top_lang, share=top_lang_share))
+                _callout(t("important"), t("takeaway_activity_language", name=top_lang, share=top_lang_share))
 
             ser = chart_series(teach_lang, "lesson_language", "units", "lesson_language", "units")
             if ser is None:
@@ -8672,14 +8550,14 @@ elif page == "analytics":
 
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.metric(t_a("total_units"), f"{int(total_u)}")
+                st.metric(t("total_units"), f"{int(total_u)}")
             with c2:
-                st.metric(t_a("top_modality"), top_mod if top_mod else "-")
+                st.metric(t("top_modality"), top_mod if top_mod else "-")
             with c3:
-                st.metric(t_a("top_segment_share"), top_mod_share)
+                st.metric(t("top_segment_share"), top_mod_share)
 
             if top_mod:
-                _callout(t_a("important"), t_a("takeaway_activity_modality", name=top_mod, share=top_mod_share))
+                _callout(t("important"), t("takeaway_activity_modality", name=top_mod, share=top_mod_share))
 
             ser = chart_series(teach_mod, "modality", "units", "modality", "units")
             if ser is None:
@@ -8739,18 +8617,18 @@ elif page == "analytics":
 
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.metric(t_a("students_in_forecast"), f"{len(ftmp)}")
+                st.metric(t("students_in_forecast"), f"{len(ftmp)}")
             with c2:
-                st.metric(t_a("due_now"), f"{len(due_now_df)}")
+                st.metric(t("due_now"), f"{len(due_now_df)}")
             with c3:
-                st.metric(t_a("finishing_14d"), f"{len(finishing_14d_df)}")
+                st.metric(t("finishing_14d"), f"{len(finishing_14d_df)}")
 
             # Smaller second row metric (still useful)
-            st.caption(f"{t_a('at_risk')} (≤2 {t_a('units_left')}): **{at_risk_count}**")
+            st.caption(f"{t('at_risk')} (≤2 {t('units_left')}): **{at_risk_count}**")
 
-            _callout(t_a("important"), t_a("takeaway_pipeline"))
+            _callout(t("important"), t("takeaway_pipeline"))
 
-            st.markdown(f"##### {t_a('students_to_contact')}")
+            st.markdown(f"##### {t('students_to_contact')}")
 
             # Show due now; if none, show next up (soonest reminders)
             if not due_now_df.empty:
@@ -8761,7 +8639,7 @@ elif page == "analytics":
                 show_df = upcoming.sort_values(["_rem_dt", left_like, student_like if student_like else "Student"]).head(10)
                 if not show_df.empty:
                     soonest = show_df["_rem_dt"].min()
-                    st.caption(f"{t_a('next_up')}: {soonest.strftime('%Y-%m-%d')}")
+                    st.caption(f"{t('next_up')}: {soonest.strftime('%Y-%m-%d')}")
                 else:
                     st.info("No upcoming reminders found.")
                     show_df = pd.DataFrame()
@@ -8776,13 +8654,13 @@ elif page == "analytics":
                     parts = [sname]
                     if units_left is not None and str(units_left) != "nan":
                         try:
-                            parts.append(f"{t_a('units_left')}: {int(float(units_left))}")
+                            parts.append(f"{t('units_left')}: {int(float(units_left))}")
                         except Exception:
                             pass
                     if rem is not None and pd.notna(rem):
-                        parts.append(f"{t_a('remind')}: {pd.Timestamp(rem).strftime('%Y-%m-%d')}")
+                        parts.append(f"{t('remind')}: {pd.Timestamp(rem).strftime('%Y-%m-%d')}")
                     if fin is not None and pd.notna(fin):
-                        parts.append(f"{t_a('finish')}: {pd.Timestamp(fin).strftime('%Y-%m-%d')}")
+                        parts.append(f"{t('finish')}: {pd.Timestamp(fin).strftime('%Y-%m-%d')}")
                     st.write("• " + " — ".join(parts))
             else:
                 st.write("• " + t("no_data"))
