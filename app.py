@@ -271,6 +271,66 @@ I18N: Dict[str, Dict[str, str]] = {
         "income": "Income",
 
         # -------------------------
+        # QUICK LESSON PLANNER
+        # -------------------------
+        "quick_lesson_planner": "Quick lesson planner",
+        "quick_lesson_caption": "Generate a ready-to-use 45-minute emergency lesson",
+        "student_type": "Student type",
+        "kid": "Kid",
+        "adult": "Adult",
+        "lesson_type": "Lesson type",
+        "reading": "Reading",
+        "listening": "Listening",
+        "speaking": "Speaking",
+        "writing": "Writing",
+        "level_cefr": "Level",
+        "subject_label": "Subject",
+        "topic_label": "Topic",
+        "generate_plan": "Generate plan",
+        "lesson_plan_ready": "Lesson plan ready ✅",
+        "lesson_objective": "Lesson objective",
+        "warm_up": "Warm-up",
+        "main_activity": "Main activity",
+        "guided_practice": "Guided practice",
+        "freer_task": "Freer task",
+        "wrap_up": "Wrap-up",
+        "reading_passage": "Reading passage",
+        "listening_script": "Listening script",
+        "comprehension_questions": "Comprehension questions",
+        "teacher_notes": "Teacher notes",
+        "optional_homework": "Optional homework",
+        "plan_title": "Lesson title",
+        "lesson_duration_45": "45-minute lesson",
+        "enter_topic": "Please enter a topic.",
+        "learner_stage": "Learner stage",
+        "lesson_purpose": "Lesson purpose",
+        "level_or_band": "Level / band",
+        "early_primary": "Early Primary (6–8)",
+        "upper_primary": "Upper Primary (9–11)",
+        "lower_secondary": "Lower Secondary (12–14)",
+        "upper_secondary": "Upper Secondary (15–18)",
+        "adult_stage": "Adult",
+        "beginner_band": "Beginner",
+        "intermediate_band": "Intermediate",
+        "advanced_band": "Advanced",
+        "introduce_concept": "Introduce a concept",
+        "practice_skill": "Practice a skill",
+        "review_topic": "Review a topic",
+        "diagnose_difficulty": "Diagnose a difficulty",
+        "discussion_exploration": "Discussion / exploration",
+        "success_criteria": "Success criteria",
+        "extension_task": "Extension task",
+        "keep_plan": "Keep plan",
+        "delete_plan": "Delete plan",
+        "plan_kept": "Plan kept in the app ✅",
+        "plan_deleted": "Plan deleted ✅",
+        "teacher_moves": "Teacher moves",
+        "core_examples": "Core examples",
+        "practice_questions": "Practice questions",
+        "recommended_level": "Recommended level",
+        "quick_plan_saved_label": "Saved plan",
+
+        # -------------------------
         # DASHBOARD
         # -------------------------
         "manage_current_students": "Manage your current students and packages",
@@ -615,6 +675,66 @@ I18N: Dict[str, Dict[str, str]] = {
         "month": "Mes",
         "day": "Día",
         "income": "Ingresos",
+
+        # -------------------------
+        # QUICK LESSON PLANNER
+        # -------------------------
+        "quick_lesson_planner": "Planificador rápido de clases",
+        "quick_lesson_caption": "Genera una clase de emergencia de 45 minutos lista para usar",
+        "student_type": "Tipo de estudiante",
+        "kid": "Niño",
+        "adult": "Adulto",
+        "lesson_type": "Tipo de clase",
+        "reading": "Lectura",
+        "listening": "Escucha",
+        "speaking": "Conversación",
+        "writing": "Escritura",
+        "level_cefr": "Nivel",
+        "subject_label": "Materia",
+        "topic_label": "Tema",
+        "generate_plan": "Generar plan",
+        "lesson_plan_ready": "Plan de clase listo ✅",
+        "lesson_objective": "Objetivo de la clase",
+        "warm_up": "Calentamiento",
+        "main_activity": "Actividad principal",
+        "guided_practice": "Práctica guiada",
+        "freer_task": "Tarea libre",
+        "wrap_up": "Cierre",
+        "reading_passage": "Texto de lectura",
+        "listening_script": "Guion de escucha",
+        "comprehension_questions": "Preguntas de comprensión",
+        "teacher_notes": "Notas para el profesor",
+        "optional_homework": "Tarea opcional",
+        "plan_title": "Título de la clase",
+        "lesson_duration_45": "Clase de 45 minutos",
+        "enter_topic": "Por favor escribe el tema.",
+        "learner_stage": "Etapa del estudiante",
+        "lesson_purpose": "Propósito de la clase",
+        "level_or_band": "Nivel / banda",
+        "early_primary": "Primaria inicial (6–8)",
+        "upper_primary": "Primaria superior (9–11)",
+        "lower_secondary": "Secundaria baja (12–14)",
+        "upper_secondary": "Secundaria alta (15–18)",
+        "adult_stage": "Adulto",
+        "beginner_band": "Principiante",
+        "intermediate_band": "Intermedio",
+        "advanced_band": "Avanzado",
+        "introduce_concept": "Introducir un concepto",
+        "practice_skill": "Practicar una habilidad",
+        "review_topic": "Repasar un tema",
+        "diagnose_difficulty": "Diagnosticar una dificultad",
+        "discussion_exploration": "Discusión / exploración",
+        "success_criteria": "Criterios de logro",
+        "extension_task": "Actividad de extensión",
+        "keep_plan": "Guardar plan",
+        "delete_plan": "Eliminar plan",
+        "plan_kept": "Plan guardado en la app ✅",
+        "plan_deleted": "Plan eliminado ✅",
+        "teacher_moves": "Movimientos del profesor",
+        "core_examples": "Ejemplos clave",
+        "practice_questions": "Preguntas de práctica",
+        "recommended_level": "Nivel recomendado",
+        "quick_plan_saved_label": "Plan guardado",
 
         # -------------------------
         # DASHBOARD
@@ -2250,8 +2370,717 @@ def render_logout_button():
 # =========================
 # 07) ALL HELPERS
 # =========================
+
 # =========================
-# 07.1) HOME PAGE HELPERS
+# 07.1A) QUICK LESSON PLANNER HELPERS
+# =========================
+
+QUICK_SUBJECTS = [
+    "English",
+    "Spanish",
+    "Mathematics",
+    "Science",
+    "Music",
+    "Study Skills",
+]
+
+SUBJECT_ENGINE_MAP = {
+    "english": "language",
+    "spanish": "language",
+    "mathematics": "math",
+    "science": "science",
+    "music": "music",
+    "study skills": "study_skills",
+}
+
+LEARNER_STAGES = [
+    "early_primary",
+    "upper_primary",
+    "lower_secondary",
+    "upper_secondary",
+    "adult_stage",
+]
+
+LANGUAGE_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
+ACADEMIC_BANDS = ["beginner_band", "intermediate_band", "advanced_band"]
+
+LESSON_PURPOSES = [
+    "introduce_concept",
+    "practice_skill",
+    "review_topic",
+    "diagnose_difficulty",
+    "discussion_exploration",
+]
+
+
+def get_subject_engine(subject: str) -> str:
+    s = str(subject or "").strip().lower()
+    return SUBJECT_ENGINE_MAP.get(s, "general")
+
+
+def get_level_options(subject: str) -> list[str]:
+    engine = get_subject_engine(subject)
+    if engine == "language":
+        return LANGUAGE_LEVELS
+    return ACADEMIC_BANDS
+
+
+def recommend_default_level(subject: str, learner_stage: str) -> str:
+    engine = get_subject_engine(subject)
+
+    if engine == "language":
+        defaults = {
+            "early_primary": "A1",
+            "upper_primary": "A1",
+            "lower_secondary": "A2",
+            "upper_secondary": "B1",
+            "adult_stage": "B1",
+        }
+        return defaults.get(learner_stage, "A1")
+
+    defaults = {
+        "early_primary": "beginner_band",
+        "upper_primary": "beginner_band",
+        "lower_secondary": "intermediate_band",
+        "upper_secondary": "intermediate_band",
+        "adult_stage": "advanced_band",
+    }
+    return defaults.get(learner_stage, "beginner_band")
+
+
+def _stage_label(stage: str) -> str:
+    return t(stage)
+
+
+def _level_label(level: str) -> str:
+    if level in LANGUAGE_LEVELS:
+        return level
+    return t(level)
+
+
+def _purpose_label(purpose: str) -> str:
+    return t(purpose)
+
+
+def _topic_clean(topic: str) -> str:
+    return str(topic or "").strip()
+
+
+def _capitalize_topic(topic: str) -> str:
+    s = _topic_clean(topic)
+    return s[:1].upper() + s[1:] if s else ""
+
+
+def _teacher_move_block(engine: str, purpose: str) -> list[str]:
+    common = [
+        "Model one example before asking the student to try.",
+        "Pause after each question and allow thinking time.",
+    ]
+
+    if purpose == "diagnose_difficulty":
+        common.append("Do not correct too quickly; first identify where the confusion begins.")
+
+    if engine == "language":
+        common += [
+            "Recast errors naturally before giving direct correction.",
+            "If the student struggles, offer a sentence starter.",
+        ]
+    elif engine == "math":
+        common += [
+            "Ask the student to explain each step aloud.",
+            "If the student gets stuck, uncover only the next step, not the full answer.",
+        ]
+    elif engine == "science":
+        common += [
+            "Ask for a prediction before explaining the concept.",
+            "Connect the idea to a real-life example.",
+        ]
+    elif engine == "music":
+        common += [
+            "Demonstrate first, then ask for imitation.",
+            "Use short repetition cycles instead of long explanation.",
+        ]
+    elif engine == "study_skills":
+        common += [
+            "Model the strategy with a real school task.",
+            "Ask the student where they could use the strategy this week.",
+        ]
+
+    return common
+
+
+def _language_warmup_questions(topic: str, stage: str) -> list[str]:
+    topic_cap = _capitalize_topic(topic)
+    if stage == "adult_stage":
+        return [
+            f"What comes to your mind when you think about {topic}?",
+            f"Do you have any personal experience with {topic}?",
+            f"Why do you think {topic} is useful or important?",
+        ]
+    return [
+        f"What do you already know about {topic}?",
+        f"Can you say one word or idea related to {topic}?",
+        f"Have you seen or used {topic} before?",
+    ]
+
+
+def _math_warmup_questions(topic: str) -> list[str]:
+    return [
+        f"What do you already know about {topic}?",
+        f"Where do we use {topic} in real life?",
+        f"What is one thing that seems easy or difficult about {topic}?",
+    ]
+
+
+def _science_warmup_questions(topic: str) -> list[str]:
+    return [
+        f"What do you already know about {topic}?",
+        f"Where can we observe {topic} in real life?",
+        f"What do you think happens in {topic}?",
+    ]
+
+
+def _music_warmup_questions(topic: str) -> list[str]:
+    return [
+        f"What do you notice first about {topic}?",
+        f"Have you practiced or heard {topic} before?",
+        f"What do you think will be the hardest part today?",
+    ]
+
+
+def _study_skills_warmup_questions(topic: str) -> list[str]:
+    return [
+        f"What do you already do when working on {topic}?",
+        "What usually distracts you while studying?",
+        "What part of studying feels hardest for you?",
+    ]
+
+
+def _language_reading_passage(topic: str, level: str, stage: str) -> str:
+    topic_cap = _capitalize_topic(topic)
+
+    if level in ("A1", "A2"):
+        return (
+            f"{topic_cap} is part of daily life for many people. "
+            f"In this lesson, the student learns simple words and ideas about {topic}. "
+            f"The teacher gives easy examples and asks short questions. "
+            f"At the end, the student can say a few sentences about {topic}."
+        )
+
+    if level in ("B1", "B2"):
+        return (
+            f"{topic_cap} is an important topic because it appears in everyday communication. "
+            f"People often discuss it when sharing opinions, giving information, or describing experiences. "
+            f"In class, students can improve their language by reading, answering questions, and connecting the topic to real life. "
+            f"When they use the new vocabulary actively, they remember it more easily."
+        )
+
+    return (
+        f"{topic_cap} is a rich topic for advanced discussion because it allows learners to express opinions, evaluate ideas, and use precise language. "
+        f"A lesson on this theme can move beyond simple comprehension and invite reflection, comparison, and interpretation. "
+        f"Through well-chosen questions and examples, students can deepen both their vocabulary and their confidence in communicating nuanced ideas."
+    )
+
+
+def _language_listening_script(topic: str, level: str, stage: str) -> str:
+    topic_cap = _capitalize_topic(topic)
+
+    if level in ("A1", "A2"):
+        return (
+            f"Hello. Today we are talking about {topic}. "
+            f"It is an interesting part of daily life. "
+            f"In this class, we will learn a few useful words, answer simple questions, and give our own ideas. "
+            f"At the end, we will talk about how {topic} is part of our lives."
+        )
+
+    return (
+        f"Good morning. Today’s lesson focuses on {topic}. "
+        f"We will begin with a short discussion, then listen for the main ideas, and finally connect the topic to our own experience. "
+        f"This type of lesson helps students build vocabulary, improve comprehension, and communicate more confidently."
+    )
+
+
+def _language_plan(subject: str, stage: str, level: str, purpose: str, topic: str) -> dict:
+    topic_cap = _capitalize_topic(topic)
+    warm = _language_warmup_questions(topic, stage)
+
+    reading_mode = purpose in ("introduce_concept", "review_topic")
+    script = _language_listening_script(topic, level, stage) if purpose == "practice_skill" else ""
+    passage = _language_reading_passage(topic, level, stage) if reading_mode else ""
+
+    if purpose == "diagnose_difficulty":
+        practice = [
+            f"Ask the student to explain what they already know about {topic}.",
+            "Give one short controlled task and observe where communication breaks down.",
+            "Note whether the main difficulty is vocabulary, grammar, comprehension, or confidence.",
+        ]
+    elif purpose == "discussion_exploration":
+        practice = [
+            f"Discuss {topic} through increasingly open questions.",
+            "Ask the student to justify opinions with one reason and one example.",
+            "Recycle useful language during the discussion.",
+        ]
+    else:
+        practice = [
+            f"Guide the student through one short task about {topic}.",
+            "Check understanding with clear follow-up questions.",
+            "Move from supported answers to more independent ones.",
+        ]
+
+    return {
+        "title": f"{subject}: {topic_cap}",
+        "objective": f"Students will develop their language skills while working on {topic_cap}.",
+        "recommended_level": level,
+        "success_criteria": [
+            f"The student can respond clearly to questions about {topic}.",
+            "The student uses at least 3 useful words or expressions from the lesson.",
+        ],
+        "warm_up": warm,
+        "main_activity": [
+            f"Introduce the lesson through the topic {topic_cap}.",
+            "Model one strong answer before asking the student to respond.",
+        ],
+        "core_examples": [
+            f"Sentence starter: I think {topic} is important because...",
+            f"Sentence starter: In my experience, {topic}...",
+        ],
+        "guided_practice": practice,
+        "practice_questions": [
+            f"What do you already know about {topic}?",
+            f"Why is {topic} important or useful?",
+            f"Can you give one example related to {topic}?",
+            f"What is your opinion about {topic}?",
+        ],
+        "freer_task": [
+            f"Student speaks or writes more independently about {topic}.",
+            "Teacher gives quick feedback on clarity, vocabulary, and accuracy.",
+        ],
+        "wrap_up": [
+            "Review 3 useful words or expressions.",
+            "Ask the student to summarize the lesson in 1–2 sentences.",
+        ],
+        "teacher_moves": _teacher_move_block("language", purpose),
+        "extension_task": f"Ask the student to create 2 new sentences about {topic}.",
+        "homework": f"Review today’s language from the lesson on {topic}.",
+        "reading_passage": passage,
+        "listening_script": script,
+    }
+
+
+def _math_example_set(topic: str) -> tuple[list[str], list[str]]:
+    tpc = _capitalize_topic(topic)
+    examples = [
+        f"Worked example on {tpc}: teacher models one complete solution step by step.",
+        "Teacher highlights the rule, formula, or pattern used in the example.",
+    ]
+    questions = [
+        f"What is the first step when working on {topic}?",
+        "Which rule or operation do we need here?",
+        "Why is that step correct?",
+        "Can you solve a similar problem on your own?",
+    ]
+    return examples, questions
+
+
+def _math_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
+    examples, questions = _math_example_set(topic)
+    topic_cap = _capitalize_topic(topic)
+
+    if purpose == "diagnose_difficulty":
+        guided = [
+            f"Give one simple diagnostic problem about {topic}.",
+            "Ask the student to think aloud while solving.",
+            "Stop at the first misunderstanding and clarify only that point.",
+        ]
+    elif purpose == "review_topic":
+        guided = [
+            f"Review the main rule or method for {topic}.",
+            "Solve one example together.",
+            "Then ask the student to solve 2 shorter review problems independently.",
+        ]
+    else:
+        guided = [
+            f"Explain the main idea of {topic} clearly.",
+            "Model one full example.",
+            "Guide the student through one similar problem before independent practice.",
+        ]
+
+    return {
+        "title": f"Mathematics: {topic_cap}",
+        "objective": f"Students will understand and apply {topic_cap} through explicit modeling and guided practice.",
+        "recommended_level": t(level),
+        "success_criteria": [
+            f"The student can complete a basic task about {topic}.",
+            "The student can explain at least one step of the solution clearly.",
+        ],
+        "warm_up": _math_warmup_questions(topic),
+        "main_activity": [
+            f"Present the key concept in {topic}.",
+            "Show one worked example on the board or screen.",
+        ],
+        "core_examples": examples,
+        "guided_practice": guided,
+        "practice_questions": questions,
+        "freer_task": [
+            "Student solves 2–3 practice questions independently.",
+            "Teacher checks errors and asks the student to explain corrections.",
+        ],
+        "wrap_up": [
+            "Review the rule, formula, or main strategy.",
+            "Ask the student to explain the topic in simple words.",
+        ],
+        "teacher_moves": _teacher_move_block("math", purpose),
+        "extension_task": f"Ask the student to create one new example problem about {topic}.",
+        "homework": f"Solve 3 more short problems about {topic}.",
+        "reading_passage": "",
+        "listening_script": "",
+    }
+
+
+def _science_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
+    topic_cap = _capitalize_topic(topic)
+
+    if purpose == "discussion_exploration":
+        guided = [
+            f"Begin with a question or phenomenon related to {topic}.",
+            "Ask the student to predict what happens and why.",
+            "Guide the student to connect the explanation to a real-life case.",
+        ]
+    elif purpose == "diagnose_difficulty":
+        guided = [
+            f"Ask the student to explain what they believe about {topic}.",
+            "Identify misconceptions before giving the formal explanation.",
+            "Use one simpler real-life example to rebuild understanding.",
+        ]
+    else:
+        guided = [
+            f"Explain the core concept of {topic}.",
+            "Use one observable or real-life example.",
+            "Check understanding with short why/how questions.",
+        ]
+
+    return {
+        "title": f"Science: {topic_cap}",
+        "objective": f"Students will understand the main scientific idea behind {topic_cap} and apply it to an example.",
+        "recommended_level": t(level),
+        "success_criteria": [
+            f"The student can explain {topic} in simple words.",
+            "The student can connect the idea to one real-life example.",
+        ],
+        "warm_up": _science_warmup_questions(topic),
+        "main_activity": [
+            f"Start with a real-life observation connected to {topic}.",
+            "Move from observation to explanation.",
+        ],
+        "core_examples": [
+            f"Real-life link: Where can we observe {topic}?",
+            f"Concept focus: What causes or explains {topic}?",
+        ],
+        "guided_practice": guided,
+        "practice_questions": [
+            f"What is {topic}?",
+            f"Why does {topic} happen?",
+            f"Where can we observe {topic} in daily life?",
+            f"What would happen if one condition changed?",
+        ],
+        "freer_task": [
+            f"Student explains {topic} in their own words.",
+            "Student gives one new example not mentioned before.",
+        ],
+        "wrap_up": [
+            "Review the main scientific explanation.",
+            "Ask one final check-for-understanding question.",
+        ],
+        "teacher_moves": _teacher_move_block("science", purpose),
+        "extension_task": f"Ask the student to describe another real-life case related to {topic}.",
+        "homework": f"Write 3 facts and 1 question about {topic}.",
+        "reading_passage": "",
+        "listening_script": "",
+    }
+
+
+def _music_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
+    topic_cap = _capitalize_topic(topic)
+
+    return {
+        "title": f"Music: {topic_cap}",
+        "objective": f"Students will practice {topic_cap} through demonstration, imitation, and short performance.",
+        "recommended_level": t(level),
+        "success_criteria": [
+            f"The student can repeat or perform the key pattern from {topic}.",
+            "The student can describe one improvement from the practice.",
+        ],
+        "warm_up": _music_warmup_questions(topic),
+        "main_activity": [
+            f"Introduce the musical focus of {topic}.",
+            "Teacher demonstrates before asking the student to imitate.",
+        ],
+        "core_examples": [
+            "Teacher performs a short model first.",
+            "Then the student repeats in smaller chunks.",
+        ],
+        "guided_practice": [
+            "Practice in short cycles.",
+            "Pause to correct one thing at a time.",
+            "Repeat with more independence after each attempt.",
+        ],
+        "practice_questions": [
+            "What did you notice first?",
+            "What changed between the first and second attempt?",
+            "What part needs more control or attention?",
+        ],
+        "freer_task": [
+            "Student performs with less support.",
+            "Teacher asks the student to reflect on accuracy and confidence.",
+        ],
+        "wrap_up": [
+            "Review the musical focus of the lesson.",
+            "End with one final repetition or mini performance.",
+        ],
+        "teacher_moves": _teacher_move_block("music", purpose),
+        "extension_task": f"Ask the student to repeat the pattern one more time with a small variation related to {topic}.",
+        "homework": f"Practice {topic} for 5 minutes and notice one improvement.",
+        "reading_passage": "",
+        "listening_script": "",
+    }
+
+
+def _study_skills_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
+    topic_cap = _capitalize_topic(topic)
+
+    return {
+        "title": f"Study Skills: {topic_cap}",
+        "objective": f"Students will learn and apply a practical study strategy connected to {topic_cap}.",
+        "recommended_level": t(level),
+        "success_criteria": [
+            "The student can explain the strategy clearly.",
+            "The student can apply the strategy to a real school task.",
+        ],
+        "warm_up": _study_skills_warmup_questions(topic),
+        "main_activity": [
+            f"Introduce one study strategy connected to {topic}.",
+            "Model the strategy with a simple real example.",
+        ],
+        "core_examples": [
+            "Teacher models the strategy step by step.",
+            "Student watches first, then tries with support.",
+        ],
+        "guided_practice": [
+            "Student practices the strategy on a small task.",
+            "Teacher asks what felt easy, hard, or useful.",
+            "Adjust the strategy to make it realistic for the student.",
+        ],
+        "practice_questions": [
+            "What usually makes this hard for you?",
+            "Which step of the strategy seems most useful?",
+            "How could you use this tomorrow?",
+        ],
+        "freer_task": [
+            "Student applies the strategy independently to a real example.",
+            "Teacher asks the student to explain when they would use it again.",
+        ],
+        "wrap_up": [
+            "Review the name and steps of the strategy.",
+            "Ask the student to choose one moment this week to use it.",
+        ],
+        "teacher_moves": _teacher_move_block("study_skills", purpose),
+        "extension_task": "Ask the student to adapt the strategy to a second school subject.",
+        "homework": f"Use the strategy once this week while working on {topic}.",
+        "reading_passage": "",
+        "listening_script": "",
+    }
+
+
+def build_quick_lesson_plan(
+    subject: str,
+    learner_stage: str,
+    level_or_band: str,
+    lesson_purpose: str,
+    topic: str,
+) -> dict:
+    engine = get_subject_engine(subject)
+
+    if engine == "language":
+        return _language_plan(subject, learner_stage, level_or_band, lesson_purpose, topic)
+    if engine == "math":
+        return _math_plan(learner_stage, level_or_band, lesson_purpose, topic)
+    if engine == "science":
+        return _science_plan(learner_stage, level_or_band, lesson_purpose, topic)
+    if engine == "music":
+        return _music_plan(learner_stage, level_or_band, lesson_purpose, topic)
+    if engine == "study_skills":
+        return _study_skills_plan(learner_stage, level_or_band, lesson_purpose, topic)
+
+    return _language_plan(subject, learner_stage, level_or_band, lesson_purpose, topic)
+
+
+def reset_quick_lesson_planner_state() -> None:
+    keys_to_clear = [
+        "quick_lesson_plan_result",
+        "quick_lesson_plan_kept",
+        "quick_plan_subject",
+        "quick_plan_stage",
+        "quick_plan_level",
+        "quick_plan_purpose",
+        "quick_plan_topic",
+    ]
+    for k in keys_to_clear:
+        st.session_state.pop(k, None)
+
+
+def render_quick_lesson_plan_result(plan: dict) -> None:
+    st.success(t("lesson_plan_ready"))
+    st.markdown(f"### {t('plan_title')}: {plan.get('title', '')}")
+
+    rec_level = plan.get("recommended_level", "")
+    if rec_level:
+        show_level = rec_level if rec_level in LANGUAGE_LEVELS else t(rec_level)
+        st.caption(f"{t('recommended_level')}: {show_level}")
+
+    st.markdown(f"**{t('lesson_objective')}**")
+    st.write(plan.get("objective", ""))
+
+    st.markdown(f"**{t('success_criteria')}**")
+    for item in plan.get("success_criteria", []):
+        st.write(f"- {item}")
+
+    st.markdown(f"**1. {t('warm_up')}**")
+    for item in plan.get("warm_up", []):
+        st.write(f"- {item}")
+
+    st.markdown(f"**2. {t('main_activity')}**")
+    for item in plan.get("main_activity", []):
+        st.write(f"- {item}")
+
+    if plan.get("reading_passage"):
+        st.markdown(f"**{t('reading_passage')}**")
+        st.text_area(
+            t("reading_passage"),
+            value=plan["reading_passage"],
+            height=170,
+            key="quick_plan_reading_passage_view",
+        )
+
+    if plan.get("listening_script"):
+        st.markdown(f"**{t('listening_script')}**")
+        st.text_area(
+            t("listening_script"),
+            value=plan["listening_script"],
+            height=170,
+            key="quick_plan_listening_script_view",
+        )
+
+    st.markdown(f"**{t('core_examples')}**")
+    for item in plan.get("core_examples", []):
+        st.write(f"- {item}")
+
+    st.markdown(f"**3. {t('guided_practice')}**")
+    for item in plan.get("guided_practice", []):
+        st.write(f"- {item}")
+
+    st.markdown(f"**{t('practice_questions')}**")
+    for q in plan.get("practice_questions", []):
+        st.write(f"- {q}")
+
+    st.markdown(f"**4. {t('freer_task')}**")
+    for item in plan.get("freer_task", []):
+        st.write(f"- {item}")
+
+    st.markdown(f"**5. {t('wrap_up')}**")
+    for item in plan.get("wrap_up", []):
+        st.write(f"- {item}")
+
+    st.markdown(f"**{t('teacher_moves')}**")
+    for item in plan.get("teacher_moves", []):
+        st.write(f"- {item}")
+
+    st.markdown(f"**{t('extension_task')}**")
+    st.write(plan.get("extension_task", ""))
+
+    st.markdown(f"**{t('optional_homework')}**")
+    st.write(plan.get("homework", ""))
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button(t("keep_plan"), key="btn_keep_quick_plan", use_container_width=True):
+            st.session_state["quick_lesson_plan_kept"] = True
+            st.success(t("plan_kept"))
+    with c2:
+        if st.button(t("delete_plan"), key="btn_delete_quick_plan", use_container_width=True):
+            reset_quick_lesson_planner_state()
+            st.success(t("plan_deleted"))
+            st.rerun()
+
+
+def render_quick_lesson_planner_expander() -> None:
+    with st.expander(t("quick_lesson_planner"), expanded=False):
+        st.caption(t("quick_lesson_caption"))
+
+        subject = st.selectbox(
+            t("subject_label"),
+            QUICK_SUBJECTS,
+            key="quick_plan_subject",
+        )
+
+        learner_stage = st.selectbox(
+            t("learner_stage"),
+            LEARNER_STAGES,
+            format_func=_stage_label,
+            key="quick_plan_stage",
+        )
+
+        default_level = recommend_default_level(subject, learner_stage)
+        level_options = get_level_options(subject)
+
+        if st.session_state.get("quick_plan_level") not in level_options:
+            st.session_state["quick_plan_level"] = default_level
+
+        c1, c2 = st.columns(2)
+        with c1:
+            level_or_band = st.selectbox(
+                t("level_or_band"),
+                level_options,
+                format_func=_level_label,
+                key="quick_plan_level",
+            )
+        with c2:
+            lesson_purpose = st.selectbox(
+                t("lesson_purpose"),
+                LESSON_PURPOSES,
+                format_func=_purpose_label,
+                key="quick_plan_purpose",
+            )
+
+        topic = st.text_input(
+            t("topic_label"),
+            key="quick_plan_topic",
+            placeholder="Fractions / Photosynthesis / Travel / Rhythm / Time management",
+        )
+
+        rec_level = recommend_default_level(subject, learner_stage)
+        rec_label = rec_level if rec_level in LANGUAGE_LEVELS else t(rec_level)
+        st.caption(f"{t('recommended_level')}: {rec_label}")
+
+        if st.button(t("generate_plan"), key="btn_generate_quick_plan", use_container_width=True):
+            if not topic.strip():
+                st.error(t("enter_topic"))
+            else:
+                st.session_state["quick_lesson_plan_result"] = build_quick_lesson_plan(
+                    subject=subject,
+                    learner_stage=learner_stage,
+                    level_or_band=level_or_band,
+                    lesson_purpose=lesson_purpose,
+                    topic=topic,
+                )
+                st.session_state["quick_lesson_plan_kept"] = False
+
+        if st.session_state.get("quick_lesson_plan_result"):
+            if st.session_state.get("quick_lesson_plan_kept"):
+                st.info(f"📌 {t('quick_plan_saved_label')}")
+            render_quick_lesson_plan_result(st.session_state["quick_lesson_plan_result"])
+
+# =========================
+# 07.1B) HOME PAGE HELPERS
 # =========================
 
 def neon_button_css(
@@ -5757,6 +6586,8 @@ def render_home():
             """,
             unsafe_allow_html=True,
         )
+     # --- Quick lesson planner expander ---
+    render_quick_lesson_planner_expander()   
 
     # --- Section title between links and menu capsules ---
     # ---------- MENU ----------
