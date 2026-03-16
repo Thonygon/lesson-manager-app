@@ -27,7 +27,8 @@ from datetime import datetime, date, time, timedelta, timezone
 from typing import List, Tuple, Optional, Dict
 from streamlit_extras.stylable_container import stylable_container
 from streamlit_option_menu import option_menu
-from translations import I18N 
+from translations import I18N
+from openai import OpenAI
 
 # =========================
 # 01.1) TIMEZONE UTILS
@@ -2881,6 +2882,40 @@ def normalize_planner_output(plan: dict) -> dict:
 
     return out
 
+def get_openrouter_client() -> OpenAI:
+    api_key = ""
+    try:
+        api_key = str(st.secrets.get("OPENROUTER_API_KEY", "")).strip()
+    except Exception:
+        api_key = ""
+
+    if not api_key:
+        api_key = str(os.getenv("OPENROUTER_API_KEY", "")).strip()
+
+    if not api_key:
+        raise RuntimeError("Missing OPENROUTER_API_KEY.")
+
+    return OpenAI(
+        api_key=api_key,
+        base_url="https://openrouter.ai/api/v1",
+    )
+
+
+def _extract_json_object_from_text(text: str) -> dict:
+    s = str(text or "").strip()
+
+    if s.startswith("```"):
+        s = re.sub(r"^```(?:json)?\s*", "", s)
+        s = re.sub(r"\s*```$", "", s)
+
+    start = s.find("{")
+    end = s.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("AI response did not contain a valid JSON object.")
+
+    json_text = s[start:end + 1]
+    return json.loads(json_text)
+
 def generate_ai_lesson_plan(
     subject: str,
     learner_stage: str,
@@ -2936,7 +2971,54 @@ def generate_ai_lesson_plan(
     # ---------------------------------
     # REPLACE THIS BLOCK WITH REAL API CALL
     # ---------------------------------
-    raise NotImplementedError("AI API call not connected yet.")
+    client = get_openrouter_client()
+
+    system_prompt = (
+        "You are an expert private lesson planner. "
+        "Return exactly one valid JSON object and nothing else. "
+        "Do not use markdown. Do not use code fences. "
+        "All list fields must be arrays of strings. "
+        "The core_material field must be a JSON object. "
+        "Use the requested plan_language for teacher-facing sections. "
+        "Use the requested student_material_language for reading_passage, listening_script, "
+        "target_vocabulary, and comprehension questions whenever appropriate."
+    )
+
+    user_prompt = f"""
+Create one complete lesson plan as JSON.
+
+Planner input:
+{json.dumps(prompt_payload, ensure_ascii=False, indent=2)}
+
+Rules:
+- Return JSON only.
+- Include all required_sections.
+- Use empty string "" or empty list [] if a section is not needed.
+- success_criteria must be a list of strings.
+- warm_up, main_activity, core_examples, guided_practice, practice_questions, freer_task, wrap_up, teacher_moves must be lists of strings.
+- extension_task and homework must be strings.
+- core_material must be an object.
+- If the lesson is reading-focused, include a reading_passage.
+- If the lesson is listening-focused, include a listening_script.
+- Keep the lesson practical for one 45-minute private lesson.
+- The JSON must match the current planner structure exactly.
+"""
+
+    response = client.chat.completions.create(
+        model="meta-llama/llama-3.3-70b-instruct:free",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.4,
+    )
+
+    raw_text = str(response.choices[0].message.content or "").strip()
+    if not raw_text:
+        raise ValueError("Empty AI response.")
+
+    parsed = _extract_json_object_from_text(raw_text)
+    return normalize_planner_output(parsed)
 
 AI_DAILY_LIMIT = 3
 AI_COOLDOWN_SECONDS = 10
