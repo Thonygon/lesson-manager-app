@@ -2918,6 +2918,27 @@ def get_ai_model() -> str:
 
     return "openrouter/free"
 
+def get_default_model_for_provider(provider: str) -> str:
+    p = str(provider or "").strip().lower()
+    if p == "gemini":
+        return "gemini-2.5-flash"
+    return "openrouter/free"
+
+
+def get_ai_model_for_provider(provider: str) -> str:
+    custom_model = ""
+    try:
+        custom_model = str(st.secrets.get("AI_MODEL", "")).strip()
+    except Exception:
+        custom_model = ""
+
+    if not custom_model:
+        custom_model = str(os.getenv("AI_MODEL", "")).strip()
+
+    if custom_model:
+        return custom_model
+
+    return get_default_model_for_provider(provider)
 
 def _extract_json_object_from_text(text: str) -> dict:
     s = str(text or "").strip()
@@ -2989,7 +3010,7 @@ def _generate_with_openrouter(system_prompt: str, user_prompt: str) -> str:
     )
 
     response = client.chat.completions.create(
-        model=get_ai_model(),
+        model=get_ai_model_for_provider("openrouter"),
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -3017,14 +3038,14 @@ def _generate_with_gemini(system_prompt: str, user_prompt: str) -> str:
         api_key = str(os.getenv("GEMINI_API_KEY", "")).strip()
 
     if not api_key:
-        raise RuntimeError("Missing GEMINI_API_KEY.")
+        raise RuntimeError ("Missing GEMINI_API_KEY.")
 
     client = genai.Client(api_key=api_key)
 
     full_prompt = f"{system_prompt}\n\n{user_prompt}"
 
     response = client.models.generate_content(
-        model=get_ai_model(),
+        model=get_ai_model_for_provider("gemini"),
         contents=full_prompt,
     )
 
@@ -3190,7 +3211,7 @@ def generate_quick_lesson_plan_with_fallback(
                 "error": str(e),
             },
         )
-        return template_plan, "template", t("ai_unavailable_fallback")
+        return template_plan, "template", f"{t('ai_unavailable_fallback')} ({str(e)})"
 
 def reset_quick_lesson_planner_state() -> None:
     keys_to_clear = [
