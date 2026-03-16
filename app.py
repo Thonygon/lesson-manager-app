@@ -2882,23 +2882,41 @@ def normalize_planner_output(plan: dict) -> dict:
 
     return out
 
-def get_openrouter_client() -> OpenAI:
-    api_key = ""
+def get_ai_provider() -> str:
+    provider = ""
     try:
-        api_key = str(st.secrets.get("OPENROUTER_API_KEY", "")).strip()
+        provider = str(st.secrets.get("AI_PROVIDER", "")).strip().lower()
     except Exception:
-        api_key = ""
+        provider = ""
 
-    if not api_key:
-        api_key = str(os.getenv("OPENROUTER_API_KEY", "")).strip()
+    if not provider:
+        provider = str(os.getenv("AI_PROVIDER", "")).strip().lower()
 
-    if not api_key:
-        raise RuntimeError("Missing OPENROUTER_API_KEY.")
+    if provider not in {"gemini", "openrouter"}:
+        provider = "gemini"
 
-    return OpenAI(
-        api_key=api_key,
-        base_url="https://openrouter.ai/api/v1",
-    )
+    return provider
+
+
+def get_ai_model() -> str:
+    provider = get_ai_provider()
+
+    model = ""
+    try:
+        model = str(st.secrets.get("AI_MODEL", "")).strip()
+    except Exception:
+        model = ""
+
+    if not model:
+        model = str(os.getenv("AI_MODEL", "")).strip()
+
+    if model:
+        return model
+
+    if provider == "gemini":
+        return "gemini-2.5-flash"
+
+    return "openrouter/free"
 
 
 def _extract_json_object_from_text(text: str) -> dict:
@@ -2916,6 +2934,107 @@ def _extract_json_object_from_text(text: str) -> dict:
     json_text = s[start:end + 1]
     return json.loads(json_text)
 
+
+def _build_ai_prompts(prompt_payload: dict) -> tuple[str, str]:
+    system_prompt = (
+        "You are an expert private lesson planner. "
+        "Return exactly one valid JSON object and nothing else. "
+        "Do not use markdown. Do not use code fences. "
+        "All list fields must be arrays of strings. "
+        "The core_material field must be a JSON object. "
+        "Use the requested plan_language for teacher-facing sections. "
+        "Use the requested student_material_language for reading_passage, listening_script, "
+        "target_vocabulary, and comprehension questions whenever appropriate."
+    )
+
+    user_prompt = f"""
+Create one complete lesson plan as JSON.
+
+Planner input:
+{json.dumps(prompt_payload, ensure_ascii=False, indent=2)}
+
+Rules:
+- Return JSON only.
+- Include all required_sections.
+- Use empty string "" or empty list [] if a section is not needed.
+- success_criteria must be a list of strings.
+- warm_up, main_activity, core_examples, guided_practice, practice_questions, freer_task, wrap_up, teacher_moves must be lists of strings.
+- extension_task and homework must be strings.
+- core_material must be an object.
+- If the lesson is reading-focused, include a reading_passage.
+- If the lesson is listening-focused, include a listening_script.
+- Keep the lesson practical for one 45-minute private lesson.
+- The JSON must match the current planner structure exactly.
+"""
+    return system_prompt, user_prompt
+
+
+def _generate_with_openrouter(system_prompt: str, user_prompt: str) -> str:
+
+    api_key = ""
+    try:
+        api_key = str(st.secrets.get("OPENROUTER_API_KEY", "")).strip()
+    except Exception:
+        api_key = ""
+
+    if not api_key:
+        api_key = str(os.getenv("OPENROUTER_API_KEY", "")).strip()
+
+    if not api_key:
+        raise RuntimeError("Missing OPENROUTER_API_KEY.")
+
+    client = OpenAI(
+        api_key=api_key,
+        base_url="https://openrouter.ai/api/v1",
+    )
+
+    response = client.chat.completions.create(
+        model=get_ai_model(),
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.4,
+    )
+
+    raw_text = str(response.choices[0].message.content or "").strip()
+    if not raw_text:
+        raise ValueError("Empty AI response.")
+
+    return raw_text
+
+
+def _generate_with_gemini(system_prompt: str, user_prompt: str) -> str:
+    from google import genai
+
+    api_key = ""
+    try:
+        api_key = str(st.secrets.get("GEMINI_API_KEY", "")).strip()
+    except Exception:
+        api_key = ""
+
+    if not api_key:
+        api_key = str(os.getenv("GEMINI_API_KEY", "")).strip()
+
+    if not api_key:
+        raise RuntimeError("Missing GEMINI_API_KEY.")
+
+    client = genai.Client(api_key=api_key)
+
+    full_prompt = f"{system_prompt}\n\n{user_prompt}"
+
+    response = client.models.generate_content(
+        model=get_ai_model(),
+        contents=full_prompt,
+    )
+
+    raw_text = str(getattr(response, "text", "") or "").strip()
+    if not raw_text:
+        raise ValueError("Empty Gemini response.")
+
+    return raw_text
+
+
 def generate_ai_lesson_plan(
     subject: str,
     learner_stage: str,
@@ -2925,11 +3044,6 @@ def generate_ai_lesson_plan(
     plan_language: str,
     student_material_language: str,
 ) -> dict:
-    """
-    Calls external AI API and returns a normalized plan dict.
-    Must raise an exception on failure so caller can fallback to template mode.
-    """
-
     prompt_payload = {
         "subject": subject,
         "topic": topic,
@@ -2968,57 +3082,30 @@ def generate_ai_lesson_plan(
         ],
     }
 
-    # ---------------------------------
-    # REPLACE THIS BLOCK WITH REAL API CALL
-    # ---------------------------------
-    client = get_openrouter_client()
+    system_prompt, user_prompt = _build_ai_prompts(prompt_payload)
+    provider = get_ai_provider()
 
-    system_prompt = (
-        "You are an expert private lesson planner. "
-        "Return exactly one valid JSON object and nothing else. "
-        "Do not use markdown. Do not use code fences. "
-        "All list fields must be arrays of strings. "
-        "The core_material field must be a JSON object. "
-        "Use the requested plan_language for teacher-facing sections. "
-        "Use the requested student_material_language for reading_passage, listening_script, "
-        "target_vocabulary, and comprehension questions whenever appropriate."
-    )
+    if provider == "gemini":
+        provider_order = ["gemini", "openrouter"]
+    else:
+        provider_order = ["openrouter", "gemini"]
 
-    user_prompt = f"""
-Create one complete lesson plan as JSON.
+    errors = []
 
-Planner input:
-{json.dumps(prompt_payload, ensure_ascii=False, indent=2)}
+    for p in provider_order:
+        try:
+            if p == "gemini":
+                raw_text = _generate_with_gemini(system_prompt, user_prompt)
+            else:
+                raw_text = _generate_with_openrouter(system_prompt, user_prompt)
 
-Rules:
-- Return JSON only.
-- Include all required_sections.
-- Use empty string "" or empty list [] if a section is not needed.
-- success_criteria must be a list of strings.
-- warm_up, main_activity, core_examples, guided_practice, practice_questions, freer_task, wrap_up, teacher_moves must be lists of strings.
-- extension_task and homework must be strings.
-- core_material must be an object.
-- If the lesson is reading-focused, include a reading_passage.
-- If the lesson is listening-focused, include a listening_script.
-- Keep the lesson practical for one 45-minute private lesson.
-- The JSON must match the current planner structure exactly.
-"""
+            parsed = _extract_json_object_from_text(raw_text)
+            return normalize_planner_output(parsed)
 
-    response = client.chat.completions.create(
-        model="meta-llama/llama-3.3-70b-instruct:free",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.4,
-    )
+        except Exception as e:
+            errors.append(f"{p}: {e}")
 
-    raw_text = str(response.choices[0].message.content or "").strip()
-    if not raw_text:
-        raise ValueError("Empty AI response.")
-
-    parsed = _extract_json_object_from_text(raw_text)
-    return normalize_planner_output(parsed)
+    raise RuntimeError(" | ".join(errors))
 
 AI_DAILY_LIMIT = 3
 AI_COOLDOWN_SECONDS = 10
@@ -3103,7 +3190,7 @@ def generate_quick_lesson_plan_with_fallback(
                 "error": str(e),
             },
         )
-        return template_plan, "template", f"AI planner unavailable. Template plan generated instead. ({e})"
+        return template_plan, "template", t("ai_unavailable_fallback")
 
 def reset_quick_lesson_planner_state() -> None:
     keys_to_clear = [
