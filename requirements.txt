@@ -6,7 +6,6 @@ plotly==5.24.1
 streamlit-extras
 streamlit-option-menu==0.4.0
 pycountry
-openai>=1.40.0
-Openai
+openai
 google-genai
 
