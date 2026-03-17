@@ -1605,7 +1605,7 @@ def render_profile_dialog(user_id: str) -> None:
                     st.session_state["ui_lang"] = preferred_ui_language
                     _set_query(lang=preferred_ui_language)
 
-                    st.session_state["home_action_menu_prev"] = t("alerts")
+                    st.session_state["home_action_menu_prev"] = t("files")
                     st.success(t("profile_updated"))
                     st.rerun()
 
@@ -1628,7 +1628,7 @@ def sign_out_user() -> None:
     st.rerun()
 
 def render_logout_button():
-    if st.button("logout", key="btn_logout"):
+    if st.button(t("sign_out"), key="btn_logout"):
         try:
             supabase.auth.sign_out()
         except Exception:
@@ -3251,8 +3251,13 @@ def planner_payload_from_inputs(
         "plan_language": str(plan.get("plan_language") or get_plan_language()).strip(),
         "student_material_language": str(plan.get("student_material_language") or "").strip(),
         "source_type": "ai" if str(mode).strip().lower() == "ai" else "template",
+        "planner_mode": mode,
         "plan_json": plan,
         "title": str(plan.get("title") or "").strip(),
+        "author_name": str(st.session_state.get("user_name") or "Unknown").strip(),
+        "subject_display": subject,
+        "is_public": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
 
@@ -3281,6 +3286,127 @@ def save_lesson_plan_record(
         st.warning(f"Could not save lesson plan: {e}")
         return False
 
+def load_my_lesson_plans() -> pd.DataFrame:
+    try:
+        df = load_table("lesson_plans")
+        if df is None or df.empty:
+            return pd.DataFrame()
+
+        df = df.copy()
+
+        if "created_at" in df.columns:
+            df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+
+        sort_col = "created_at" if "created_at" in df.columns else None
+        if sort_col:
+            df = df.sort_values(sort_col, ascending=False, na_position="last")
+
+        return df.reset_index(drop=True)
+
+    except Exception as e:
+        st.error(f"Could not load your lesson plans: {e}")
+        return pd.DataFrame()
+
+
+def load_public_lesson_plans() -> pd.DataFrame:
+    try:
+        res = (
+            supabase.table("lesson_plans")
+            .select("*")
+            .eq("is_public", True)
+            .order("created_at", desc=True)
+            .limit(500)
+            .execute()
+        )
+
+        df = pd.DataFrame(res.data or [])
+        if df.empty:
+            return pd.DataFrame()
+
+        if "created_at" in df.columns:
+            df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+
+        return df.reset_index(drop=True)
+
+    except Exception as e:
+        st.error(f"Could not load community lesson plans: {e}")
+        return pd.DataFrame()
+
+def format_plan_datetime(value) -> str:
+    try:
+        dt = pd.to_datetime(value, errors="coerce")
+        if pd.isna(dt):
+            return ""
+        return dt.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return ""
+
+
+def safe_plan_label(value: str, prefix: str = "") -> str:
+    s = str(value or "").strip()
+    if not s:
+        return ""
+    return f"{prefix}{s}"
+
+
+def render_plan_library_cards(
+    df: pd.DataFrame,
+    prefix: str,
+    show_author: bool = False,
+) -> None:
+    if df is None or df.empty:
+        return
+
+    for i, row in df.reset_index(drop=True).iterrows():
+        row_id = row.get("id", i)
+        title = str(row.get("title") or t("untitled_plan")).strip()
+        subject = str(row.get("subject") or "").strip()
+        topic = str(row.get("topic") or "").strip()
+        learner_stage = str(row.get("learner_stage") or "").strip()
+        level_or_band = str(row.get("level_or_band") or "").strip()
+        lesson_purpose = str(row.get("lesson_purpose") or "").strip()
+        source_type = str(row.get("source_type") or "").strip()
+        author_name = str(row.get("author_name") or "").strip()
+        created_at = format_plan_datetime(row.get("created_at"))
+
+        with st.container(border=True):
+            top_l, top_r = st.columns([5, 1])
+
+            with top_l:
+                st.markdown(f"**{title}**")
+                meta_parts = []
+
+                if subject:
+                    meta_parts.append(f"{t('subject_label')}: {t(f'subject_{subject.strip().lower().replace(' ', '_')}')}")
+                if topic:
+                    meta_parts.append(f"{t('topic_label')}: {topic}")
+                if learner_stage:
+                    meta_parts.append(f"{t('learner_stage')}: {t(learner_stage)}")
+                if level_or_band:
+                    meta_parts.append(f"{t('level_or_band')}: {t(level_or_band) if level_or_band not in ['A1','A2','B1','B2','C1','C2'] else level_or_band}")
+                if lesson_purpose:
+                    meta_parts.append(f"{t('lesson_purpose')}: {t(lesson_purpose)}")
+                if source_type:
+                    meta_parts.append(f"{t('source_type')}: {t('mode_ai') if source_type == 'ai' else t('mode_template')}")
+                if show_author and author_name:
+                    meta_parts.append(f"{t('author_name')}: {author_name}")
+                if created_at:
+                    meta_parts.append(f"{t('date')}: {created_at}")
+
+                if meta_parts:
+                    st.caption(" · ".join(meta_parts))
+
+            with top_r:
+                if st.button(t("view_plan"), key=f"{prefix}_view_{row_id}_{i}", use_container_width=True):
+                    st.session_state["files_selected_plan"] = row.get("plan_json") or {}
+                    st.session_state["files_selected_subject"] = subject
+                    st.session_state["files_selected_stage"] = learner_stage
+                    st.session_state["files_selected_level"] = level_or_band
+                    st.session_state["files_selected_purpose"] = lesson_purpose
+                    st.session_state["files_selected_topic"] = topic
+                    st.session_state["files_selected_source_type"] = source_type
+                    st.session_state["files_selected_title"] = title
+                    st.rerun()
 
 def log_user_activity(
     activity_type: str,
@@ -3289,15 +3415,14 @@ def log_user_activity(
 ) -> None:
     try:
         payload = with_owner({
-            "activity_type": str(activity_type).strip(),
-            "feature_name": str(feature_name).strip(),
+            "activity_type": str(activity_type or "").strip() or "unknown",
+            "feature_name": str(feature_name or "").strip() or "unknown",
             "meta_json": meta or {},
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
         supabase.table("user_activity_log").insert(payload).execute()
-    except Exception:
-        pass
-
+    except Exception as e:
+        st.warning(f"user_activity_log insert failed: {e}")
 
 def log_ai_usage(
     request_kind: str,
@@ -3306,14 +3431,15 @@ def log_ai_usage(
 ) -> None:
     try:
         payload = with_owner({
-            "request_kind": str(request_kind).strip(),
+            "feature_name": str(request_kind).strip(),
             "status": str(status).strip(),
             "meta_json": meta or {},
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
         supabase.table("ai_usage_logs").insert(payload).execute()
-    except Exception:
-        pass
+        clear_app_caches()
+    except Exception as e:
+        st.warning(f"ai_usage_logs insert failed: {e}")
 
 
 def _safe_ai_logs_df() -> pd.DataFrame:
@@ -3329,20 +3455,22 @@ def _safe_ai_logs_df() -> pd.DataFrame:
         df["created_at"] = None
     if "status" not in df.columns:
         df["status"] = ""
-    if "request_kind" not in df.columns:
-        df["request_kind"] = ""
+    if "feature_name" not in df.columns:
+        df["feature_name"] = ""
 
     df = df.copy()
     df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce", utc=True)
     df["status"] = df["status"].fillna("").astype(str).str.strip().str.lower()
-    df["request_kind"] = df["request_kind"].fillna("").astype(str).str.strip().str.lower()
+    df["feature_name"] = df["feature_name"].fillna("").astype(str).str.strip().str.lower()
     return df
 
 
 def get_ai_planner_usage_status() -> dict:
     df = _safe_ai_logs_df()
     now_utc = datetime.now(timezone.utc)
-    today_start_utc = datetime.combine(today_local(), time.min).replace(tzinfo=get_app_tz()).astimezone(timezone.utc)
+    today_start_utc = datetime.combine(
+        today_local(), time.min
+    ).replace(tzinfo=get_app_tz()).astimezone(timezone.utc)
 
     if df.empty:
         return {
@@ -3353,7 +3481,10 @@ def get_ai_planner_usage_status() -> dict:
             "last_request_at": None,
         }
 
-    planner_df = df[df["request_kind"] == "quick_lesson_ai"].copy()
+    planner_df = df[
+        (df["feature_name"] == "quick_lesson_ai") &
+        (df["status"] == "success")
+    ].copy()
 
     today_df = planner_df[
         (planner_df["created_at"].notna()) &
@@ -3362,18 +3493,17 @@ def get_ai_planner_usage_status() -> dict:
 
     used_today = int(len(today_df))
 
+    cooldown_df = df[df["feature_name"] == "quick_lesson_ai"].dropna(subset=["created_at"]).sort_values("created_at")
     cooldown_ok = True
     seconds_left = 0
     last_request_at = None
 
-    if not planner_df.empty:
-        planner_df = planner_df.dropna(subset=["created_at"]).sort_values("created_at")
-        if not planner_df.empty:
-            last_request_at = planner_df.iloc[-1]["created_at"]
-            delta = (now_utc - last_request_at.to_pydatetime()).total_seconds()
-            if delta < AI_COOLDOWN_SECONDS:
-                cooldown_ok = False
-                seconds_left = int(math.ceil(AI_COOLDOWN_SECONDS - delta))
+    if not cooldown_df.empty:
+        last_request_at = cooldown_df.iloc[-1]["created_at"]
+        delta = (now_utc - last_request_at.to_pydatetime()).total_seconds()
+        if delta < AI_COOLDOWN_SECONDS:
+            cooldown_ok = False
+            seconds_left = int(math.ceil(AI_COOLDOWN_SECONDS - delta))
 
     return {
         "used_today": used_today,
@@ -3390,12 +3520,14 @@ def render_quick_lesson_plan_result(
     level_or_band: str = "",
     lesson_purpose: str = "",
     topic: str = "",
+    read_only: bool = False,
 ) -> None:
-    st.success(t("lesson_plan_ready"))
+    if not read_only:
+        st.success(t("lesson_plan_ready"))
     resolved_mode = st.session_state.get("quick_lesson_plan_mode_used", "template")
     warning_msg = st.session_state.get("quick_lesson_plan_warning")
 
-    st.caption(f"Mode used: {resolved_mode.upper()}")
+    st.caption(t("mode_used", mode=resolved_mode.upper()))
 
     if warning_msg:
         st.warning(warning_msg)
@@ -3535,40 +3667,182 @@ def render_quick_lesson_plan_result(
     st.markdown(f"**{t('optional_homework')}**")
     st.write(plan.get("homework", ""))
 
-    c1, c2, c3 = st.columns(3)
+    if read_only:
+        pdf_bytes = build_lesson_plan_pdf_bytes(
+            plan=plan,
+            subject=subject,
+            learner_stage=learner_stage,
+            level_or_band=level_or_band,
+            lesson_purpose=lesson_purpose,
+            topic=topic,
+        )
 
-    with c1:
-        if resolved_mode == "template":
-            if st.button("Save template plan", key="btn_save_template_plan", use_container_width=True):
-                ok = save_lesson_plan_record(
-                    subject=subject,
-                    learner_stage=learner_stage,
-                    level_or_band=level_or_band,
-                    lesson_purpose=lesson_purpose,
-                    topic=topic,
-                    mode="template",
-                    plan=plan,
-                )
-                if ok:
-                    st.session_state["quick_lesson_plan_kept"] = True
-                    log_user_activity(
-                        activity_type="planner_save",
-                        feature_name="quick_lesson_planner",
-                        meta={"source_type": "template", "subject": subject, "topic": topic},
+        safe_title = re.sub(r"[^A-Za-z0-9._-]+", "_", str(plan.get("title") or "lesson_plan").strip())
+        if not safe_title:
+            safe_title = "lesson_plan"
+
+        st.download_button(
+            label=t("download_pdf"),
+            data=pdf_bytes,
+            file_name=f"{safe_title}.pdf",
+            mime="application/pdf",
+            key=f"download_plan_pdf_{safe_title}",
+            use_container_width=True,
+        )
+    else:
+        c1, c2, c3 = st.columns(3)
+
+        with c1:
+            if resolved_mode == "template":
+                if st.button(t("save_template_plan"), key="btn_save_template_plan", use_container_width=True):
+                    ok = save_lesson_plan_record(
+                        subject=subject,
+                        learner_stage=learner_stage,
+                        level_or_band=level_or_band,
+                        lesson_purpose=lesson_purpose,
+                        topic=topic,
+                        mode="template",
+                        plan=plan,
                     )
-                    st.success("Template plan saved.")
+                    if ok:
+                        st.session_state["quick_lesson_plan_kept"] = True
+                        log_user_activity(
+                            activity_type="planner_save",
+                            feature_name="quick_lesson_planner",
+                            meta={"source_type": "template", "subject": subject, "topic": topic},
+                        )
+                        st.success(t("template_plan_saved"))
 
-    with c2:
-        if st.button(t("keep_plan"), key="btn_keep_quick_plan", use_container_width=True):
-            st.session_state["quick_lesson_plan_kept"] = True
-            st.success(t("plan_kept"))
+        with c2:
+            if st.button(t("keep_plan"), key="btn_keep_quick_plan", use_container_width=True):
+                st.session_state["quick_lesson_plan_kept"] = True
+                st.success(t("plan_kept"))
 
-    with c3:
-        if st.button(t("delete_plan"), key="btn_delete_quick_plan", use_container_width=True):
-            reset_quick_lesson_planner_state()
-            st.success(t("plan_deleted"))
-            st.rerun()
+        with c3:
+            if st.button(t("delete_plan"), key="btn_delete_quick_plan", use_container_width=True):
+                reset_quick_lesson_planner_state()
+                st.success(t("plan_deleted"))
+                st.rerun()     
 
+def build_lesson_plan_pdf_bytes(
+    plan: dict,
+    subject: str = "",
+    learner_stage: str = "",
+    level_or_band: str = "",
+    lesson_purpose: str = "",
+    topic: str = "",
+) -> bytes:
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem
+    from reportlab.lib import colors
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=1.8 * cm,
+        rightMargin=1.8 * cm,
+        topMargin=1.5 * cm,
+        bottomMargin=1.5 * cm,
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "PlanTitle",
+        parent=styles["Title"],
+        fontSize=18,
+        leading=22,
+        textColor=colors.HexColor("#1D4ED8"),
+        spaceAfter=10,
+    )
+    heading_style = ParagraphStyle(
+        "PlanHeading",
+        parent=styles["Heading2"],
+        fontSize=12,
+        leading=15,
+        textColor=colors.HexColor("#0F172A"),
+        spaceBefore=8,
+        spaceAfter=4,
+    )
+    body_style = ParagraphStyle(
+        "PlanBody",
+        parent=styles["BodyText"],
+        fontSize=10.5,
+        leading=14,
+        textColor=colors.HexColor("#0F172A"),
+        spaceAfter=4,
+    )
+
+    story = []
+
+    title = str(plan.get("title") or t("untitled_plan")).strip()
+    story.append(Paragraph(title, title_style))
+
+    meta_parts = []
+    if subject:
+        meta_parts.append(f"<b>{t('subject_label')}:</b> {subject}")
+    if topic:
+        meta_parts.append(f"<b>{t('topic_label')}:</b> {topic}")
+    if learner_stage:
+        meta_parts.append(f"<b>{t('learner_stage')}:</b> {t(learner_stage)}")
+    if level_or_band:
+        level_label = level_or_band if level_or_band in ["A1", "A2", "B1", "B2", "C1", "C2"] else t(level_or_band)
+        meta_parts.append(f"<b>{t('level_or_band')}:</b> {level_label}")
+    if lesson_purpose:
+        meta_parts.append(f"<b>{t('lesson_purpose')}:</b> {t(lesson_purpose)}")
+
+    if meta_parts:
+        story.append(Paragraph(" | ".join(meta_parts), body_style))
+        story.append(Spacer(1, 8))
+
+    def add_section(title_key: str, value):
+        if not value:
+            return
+        story.append(Paragraph(t(title_key), heading_style))
+        if isinstance(value, list):
+            items = [ListItem(Paragraph(str(x), body_style)) for x in value if str(x).strip()]
+            if items:
+                story.append(ListFlowable(items, bulletType="bullet"))
+        else:
+            story.append(Paragraph(str(value), body_style))
+        story.append(Spacer(1, 6))
+
+    add_section("lesson_objective", plan.get("objective", ""))
+    add_section("success_criteria", plan.get("success_criteria", []))
+    add_section("warm_up", plan.get("warm_up", []))
+    add_section("main_activity", plan.get("main_activity", []))
+    add_section("guided_practice", plan.get("guided_practice", []))
+    add_section("freer_task", plan.get("freer_task", []))
+    add_section("wrap_up", plan.get("wrap_up", []))
+
+    core_material = plan.get("core_material", {}) or {}
+    if core_material.get("target_vocabulary"):
+        add_section("target_vocabulary", [", ".join(core_material.get("target_vocabulary", []))])
+    if core_material.get("language_frames"):
+        add_section("language_frames", core_material.get("language_frames", []))
+    if plan.get("reading_passage"):
+        add_section("reading_passage", plan.get("reading_passage", ""))
+    if plan.get("listening_script"):
+        add_section("listening_script", plan.get("listening_script", ""))
+    if core_material.get("pre_task_questions"):
+        add_section("pre_task_questions", core_material.get("pre_task_questions", []))
+    if core_material.get("gist_questions"):
+        add_section("gist_questions", core_material.get("gist_questions", []))
+    if core_material.get("detail_questions"):
+        add_section("detail_questions", core_material.get("detail_questions", []))
+    if core_material.get("post_task"):
+        add_section("post_task", core_material.get("post_task", ""))
+
+    add_section("teacher_moves", plan.get("teacher_moves", []))
+    add_section("extension_task", plan.get("extension_task", ""))
+    add_section("optional_homework", plan.get("homework", ""))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
 
 def render_quick_lesson_planner_expander() -> None:
     with st.expander(t("quick_lesson_planner"), expanded=False):
@@ -3578,12 +3852,12 @@ def render_quick_lesson_planner_expander() -> None:
         usage = get_ai_planner_usage_status()
 
         mode_labels = {
-            "template": "Template",
-            "ai": "AI",
+            "template": t("mode_template"),
+            "ai": t("mode_ai"),
         }
 
         quick_plan_mode = st.radio(
-            "Generation mode",
+            t("generation_mode"),
             options=["template", "ai"],
             horizontal=True,
             format_func=lambda x: mode_labels.get(x, x.title()),
@@ -3592,7 +3866,7 @@ def render_quick_lesson_planner_expander() -> None:
 
         if quick_plan_mode == "ai":
             st.caption(
-                f"AI plans left today: {usage['remaining_today']} / {AI_DAILY_LIMIT}"
+                t("ai_plans_left_today", remaining=usage["remaining_today"], limit=AI_DAILY_LIMIT)
             )        
 
         subject = st.selectbox(
@@ -3633,7 +3907,7 @@ def render_quick_lesson_planner_expander() -> None:
         topic = st.text_input(
             t("topic_label"),
             key="quick_plan_topic",
-            placeholder="Fractions / Photosynthesis / Travel / Rhythm / Time management",
+            
         )
 
         rec_level = recommend_default_level(subject, learner_stage)
@@ -6906,7 +7180,7 @@ if "show_profile_dialog" not in st.session_state:
     st.session_state["show_profile_dialog"] = False
 
 if "home_action_menu_prev" not in st.session_state:
-    st.session_state["home_action_menu_prev"] = t("alerts")
+    st.session_state["home_action_menu_prev"] = t("profile")
 
 if "home_action_menu_nonce" not in st.session_state:
     st.session_state["home_action_menu_nonce"] = 0
@@ -6979,7 +7253,6 @@ def render_home():
 
     user = st.session_state.get("auth_user") or {}
     user_id = st.session_state.get("user_id", "") or ""
-    alerts_count = int(st.session_state.get("alerts_count", 0))
     panel = _get_qp("panel", "")
 
     if isinstance(user, dict):
@@ -7014,23 +7287,25 @@ def render_home():
 
     with right:
         if "home_action_menu_prev" not in st.session_state:
-            st.session_state["home_action_menu_prev"] = t("alerts")
+            st.session_state["home_action_menu_prev"] = t("profile")
 
         if "home_action_menu_nonce" not in st.session_state:
             st.session_state["home_action_menu_nonce"] = 0
 
+        default_action_index = 1 if panel == "files" else 0
+
         action = option_menu(
             menu_title=None,
-            options=[t("profile"), t("alerts"), t("sign_out")],
-            icons=["person-circle", "bell", "box-arrow-right"],
+            options=[t("profile"), t("files"), t("sign_out")],
+            icons=["person-circle", "folder2-open", "box-arrow-right"],
             orientation="horizontal",
-            default_index=1,
+            default_index=default_action_index,
             key=f"home_action_menu_{st.session_state.get('home_action_menu_nonce', 0)}",
             styles={
                 "container": {
-                  "padding": "0 !important",
-                  "margin": "0 !important",
-                  "background": "transparent",
+                    "padding": "0 !important",
+                    "margin": "0 !important",
+                    "background": "transparent",
                 },
                 "nav-link": {
                     "font-size": "14px",
@@ -7038,7 +7313,7 @@ def render_home():
                     "padding": "6px 8px",
                     "--hover-color": "rgba(59,130,246,0.15)",
                 },
-                    "nav-link-selected": {
+                "nav-link-selected": {
                     "background-color": "#3B82F6",
                     "color": "white",
                 },
@@ -7046,7 +7321,7 @@ def render_home():
                     "font-size": "16px",
                 },
             },
-        )       
+        )
 
     with left:
         st.markdown(
@@ -7064,27 +7339,160 @@ def render_home():
             unsafe_allow_html=True,
         )
 
-        previous_action = st.session_state.get("home_action_menu_prev", t("alerts"))
+        previous_action = st.session_state.get("home_action_menu_prev", t("profile"))
 
         if action != previous_action:
             if action == t("profile"):
                 st.session_state["show_profile_dialog"] = True
-                st.session_state["home_action_menu_prev"] = t("alerts")
+                st.session_state["home_action_menu_prev"] = t("profile")
                 st.session_state["home_action_menu_nonce"] += 1
                 st.rerun()
 
-            elif action == t("alerts"):
-                st.session_state["home_action_menu_prev"] = t("alerts")
-                home_go("home", panel="alerts")
+            elif action == t("files"):
+                st.session_state["home_action_menu_prev"] = t("files")
+                home_go("home", panel="files")
 
             elif action == t("sign_out"):
-                sign_out_user()
+                sign_out_user()     
         
     # ---------- PROFILE DIALOG ----------
     if st.session_state.get("show_profile_dialog"):
         st.session_state["show_profile_dialog"] = False
         render_profile_dialog(user_id)
 
+    if panel == "files":
+        top_a, top_b = st.columns([6, 1])
+
+        with top_a:
+            st.markdown(f"### {t('files')}")
+
+        with top_b:
+            if st.button(t("close_files"), key="close_files_panel", use_container_width=True):
+                st.session_state["home_action_menu_prev"] = t("profile")
+                st.session_state["home_action_menu_nonce"] += 1
+                home_go("home", panel=None)
+                st.rerun()
+
+        tab1, tab2 = st.tabs([t("my_plans"), t("community_library")])
+
+        with tab1:
+            my_df = load_my_lesson_plans()
+
+            if my_df.empty:
+                st.info(t("no_saved_lesson_plans"))
+            else:
+                topic_q = st.text_input(
+                    t("search_by_topic"),
+                    key="my_plans_topic_q"
+                ).strip().lower()
+
+                subject_options = (
+                    sorted(my_df["subject"].dropna().astype(str).unique().tolist())
+                    if "subject" in my_df.columns
+                    else []
+                )
+
+                subject_filter = st.selectbox(
+                    t("subject_label"),
+                    [t("all")] + subject_options,
+                    format_func=lambda x: t(f"subject_{str(x).strip().lower().replace(' ', '_')}") if x != t("all") else t("all"),
+                    key="my_plans_subject_filter",
+                )
+
+                filtered = my_df.copy()
+
+                if topic_q and "topic" in filtered.columns:
+                    filtered = filtered[
+                        filtered["topic"].fillna("").astype(str).str.lower().str.contains(topic_q, na=False)
+                    ]
+
+                if subject_filter != t("all") and "subject" in filtered.columns:
+                    filtered = filtered[filtered["subject"].astype(str) == subject_filter]
+
+                render_plan_library_cards(
+                    filtered,
+                    prefix="my_plans",
+                    show_author=False,
+                )
+
+        with tab2:
+            public_df = load_public_lesson_plans()
+
+            if public_df.empty:
+                st.info(t("community_library_empty"))
+            else:
+                topic_q_public = st.text_input(
+                    t("search_community_topic"),
+                    key="public_plans_topic_q"
+                ).strip().lower()
+
+                public_subject_options = (
+                    sorted(public_df["subject"].dropna().astype(str).unique().tolist())
+                    if "subject" in public_df.columns
+                    else []
+                )
+
+                subject_filter_public = st.selectbox(
+                    t("community_subject"),
+                    [t("all")] + public_subject_options,
+                    format_func=lambda x: t(f"subject_{str(x).strip().lower().replace(' ', '_')}") if x != t("all") else t("all"),
+                    key="public_plans_subject_filter",
+                )
+
+                filtered_public = public_df.copy()
+
+                if topic_q_public and "topic" in filtered_public.columns:
+                    filtered_public = filtered_public[
+                        filtered_public["topic"].fillna("").astype(str).str.lower().str.contains(topic_q_public, na=False)
+                    ]
+
+                if subject_filter_public != t("all") and "subject" in filtered_public.columns:
+                    filtered_public = filtered_public[
+                        filtered_public["subject"].astype(str) == subject_filter_public
+                    ]
+
+                render_plan_library_cards(
+                    filtered_public,
+                    prefix="community_plans",
+                    show_author=True,
+                )
+
+        selected_plan = st.session_state.get("files_selected_plan")
+
+        if selected_plan:
+            st.markdown("---")
+            detail_l, detail_r = st.columns([6, 1])
+
+            with detail_l:
+                st.markdown(f"### {t('plan_preview')}")
+
+            with detail_r:
+                if st.button(t("close_plan"), key="close_selected_plan", use_container_width=True):
+                    st.session_state.pop("files_selected_plan", None)
+                    st.session_state.pop("files_selected_subject", None)
+                    st.session_state.pop("files_selected_stage", None)
+                    st.session_state.pop("files_selected_level", None)
+                    st.session_state.pop("files_selected_purpose", None)
+                    st.session_state.pop("files_selected_topic", None)
+                    st.session_state.pop("files_selected_source_type", None)
+                    st.session_state.pop("files_selected_title", None)
+                    st.rerun()
+
+            st.session_state["quick_lesson_plan_mode_used"] = st.session_state.get("files_selected_source_type", "template")
+            st.session_state["quick_lesson_plan_warning"] = None
+
+            render_quick_lesson_plan_result(
+                normalize_planner_output(selected_plan),
+                subject=st.session_state.get("files_selected_subject", ""),
+                learner_stage=st.session_state.get("files_selected_stage", ""),
+                level_or_band=st.session_state.get("files_selected_level", ""),
+                lesson_purpose=st.session_state.get("files_selected_purpose", ""),
+                topic=st.session_state.get("files_selected_topic", ""),
+                read_only= True,
+            )
+
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
     # ---------- REAL VALUES ----------
     dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
 
