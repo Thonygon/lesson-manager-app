@@ -169,6 +169,28 @@ I18N: Dict[str, Dict[str, str]] = {
         "income": "Income",
 
         # -------------------------
+        # FILES
+        # -------------------------        
+        "files": "Files",
+        "all": "All",
+        "my_plans": "My Plans",
+        "community_library": "Community Library",
+        "no_saved_lesson_plans": "You do not have any saved lesson plans yet.",
+        "community_library_empty": "The community library is empty for now.",
+        "search_by_topic": "Search by topic",
+        "search_community_topic": "Search community topic",
+        "community_subject": "Community subject",
+        "close_files": "Close",
+        "quick_plan_topic_placeholder": "Fractions / Photosynthesis / Travel / Rhythm / Time management",
+        "view_plan": "View plan",
+        "plan_preview": "Plan preview",
+        "close_plan": "Close plan",
+        "untitled_plan": "Untitled plan",
+        "author_name": "Author",
+        "source_type": "Source",
+        "download_pdf": "Download PDF",
+
+        # -------------------------
         # QUICK LESSON PLANNER
         # -------------------------
         "quick_lesson_planner": "Quick lesson planner",
@@ -701,6 +723,29 @@ I18N: Dict[str, Dict[str, str]] = {
         "month": "Mes",
         "day": "Día",
         "income": "Ingresos",
+
+        # -------------------------
+        # FILES
+        # -------------------------  
+        "files": "Archivos",
+        "all": "Todos",
+        "my_plans": "Mis planes",
+        "community_library": "Biblioteca comunitaria",
+        "no_saved_lesson_plans": "Todavía no tienes planes de clase guardados.",
+        "community_library_empty": "La biblioteca comunitaria está vacía por ahora.",
+        "search_by_topic": "Buscar por tema",
+        "search_community_topic": "Buscar tema en la comunidad",
+        "community_subject": "Materia de la comunidad",
+        "close_files": "Cerrar",
+        "quick_plan_topic_placeholder": "Fracciones / Fotosíntesis / Viajes / Ritmo / Gestión del tiempo",
+        "view_plan": "Ver plan",
+        "plan_preview": "Vista previa del plan",
+        "close_plan": "Cerrar plan",
+        "untitled_plan": "Plan sin título",
+        "author_name": "Autor",
+        "source_type": "Fuente",
+        "download_pdf": "Descargar PDF",
+
 
         # -------------------------
         # QUICK LESSON PLANNER
