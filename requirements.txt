@@ -8,4 +8,5 @@ streamlit-option-menu==0.4.0
 pycountry
 openai
 google-genai
+reportlab
 
