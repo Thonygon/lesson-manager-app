@@ -46,7 +46,7 @@ def remove_streamlit_top_spacing():
 
 
 
-def load_css_home_dark():
+def load_css_home():
     st.markdown(
         """
         <style>

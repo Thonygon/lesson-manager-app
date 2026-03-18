@@ -3,8 +3,6 @@ import datetime
 from datetime import datetime as _dt, timezone
 import pandas as pd
 from core.i18n import t
-from core.state import get_current_user_id
-from core.timezone import now_local, today_local
 from core.navigation import go_to, page_header
 from core.database import get_sb, load_table, load_students, add_payment, clear_app_caches
 from helpers.language import LANG_EN, LANG_ES, LANG_BOTH, ALLOWED_LANGS, DEFAULT_PACKAGE_LANGS, pack_languages, allowed_lesson_language_from_package, translate_language_value

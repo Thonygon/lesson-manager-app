@@ -4,8 +4,8 @@ import pandas as pd
 import numpy as np
 from core.i18n import t
 from core.state import get_current_user_id
-from core.timezone import now_local, today_local
-from core.database import load_table, register_cache
+from core.timezone import now_local
+from core.database import load_table
 import math
 from helpers.dashboard import rebuild_dashboard
 from helpers.ui_components import to_dt_naive, ts_today_naive

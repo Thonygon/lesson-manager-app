@@ -3,10 +3,8 @@ import datetime
 from datetime import datetime as _dt, timezone
 import pandas as pd
 from core.i18n import t
-from core.state import get_current_user_id
-from core.timezone import now_local, today_local
-from core.navigation import go_to, page_header
-from core.database import load_table, load_students
+from core.timezone import today_local
+from core.navigation import page_header
 from core.database import norm_student, update_payment_row, clear_app_caches
 from helpers.dashboard import rebuild_dashboard
 from helpers.student_meta import student_meta_maps

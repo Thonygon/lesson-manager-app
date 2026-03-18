@@ -56,6 +56,18 @@ def apply_auth_session() -> None:
             (user.id if hasattr(user, "id") else "")
         )
         _set_logged_in_user(user, profile_name=profile_name)
+
+        # Sync auth email → profiles table (once per session, catches post-confirmation changes)
+        if not st.session_state.get("_email_synced_to_profile"):
+            _user_id = getattr(user, "id", None)
+            _auth_email = getattr(user, "email", None)
+            if _user_id and _auth_email:
+                try:
+                    sb.table("profiles").update({"email": _auth_email}).eq("user_id", str(_user_id)).execute()
+                except Exception:
+                    pass
+            st.session_state["_email_synced_to_profile"] = True
+
     except Exception:
         st.session_state["sb_access_token"] = None
         st.session_state["sb_refresh_token"] = None
@@ -87,7 +99,7 @@ def _load_table_cached(name: str, uid: str, limit: int = 10000, page_size: int =
     owner_scoped_tables = {
         "students", "classes", "payments", "schedules", "calendar_overrides",
         "pricing_items", "app_settings", "profiles", "lesson_plans",
-        "ai_usage_logs", "user_activity_log",
+        "ai_usage_logs", "user_activity_log", "professional_profiles",
     }
     try:
         sb = get_sb()

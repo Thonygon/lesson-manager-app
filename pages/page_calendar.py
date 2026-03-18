@@ -3,10 +3,9 @@ import datetime
 from datetime import datetime as _dt, date, time, timedelta
 import pandas as pd
 from core.i18n import t
-from core.state import get_current_user_id
-from core.timezone import now_local, today_local, get_app_tz
-from core.navigation import go_to, page_header
-from core.database import load_table, load_students, get_sb, clear_app_caches
+from core.timezone import today_local, get_app_tz
+from core.navigation import page_header
+from core.database import load_students, get_sb, clear_app_caches
 from helpers.calendar_helpers import build_calendar_events, render_fullcalendar, _parse_time_value, validate_hhmm
 from helpers.schedule import load_schedules, load_overrides, add_schedule, delete_schedule, add_override, delete_override
 from helpers.ui_components import pretty_df, translate_df_headers

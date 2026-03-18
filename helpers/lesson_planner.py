@@ -18,6 +18,7 @@ QUICK_SUBJECTS = [
     "Science",
     "Music",
     "Study Skills",
+    "Other",
 ]
 
 SUBJECT_ENGINE_MAP = {
@@ -27,6 +28,7 @@ SUBJECT_ENGINE_MAP = {
     "science": "science",
     "music": "music",
     "study skills": "study_skills",
+    "other": "general",
 }
 
 LEARNER_STAGES = [
@@ -1142,6 +1144,74 @@ def _study_skills_plan(stage: str, level: str, purpose: str, topic: str) -> dict
     }
 
 
+def _general_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
+    return {
+        "title": f"{_capitalize_topic(topic)}",
+        "objective": qlp_txt(
+            f"Students will explore and develop understanding of {topic}.",
+            f"El estudiante explorará y desarrollará comprensión sobre {topic}.",
+        ),
+        "recommended_level": level,
+        "plan_language": get_plan_language(),
+        "student_material_language": get_plan_language(),
+        "success_criteria": [
+            qlp_txt(
+                f"The student can explain the main idea of {topic}.",
+                f"El estudiante puede explicar la idea principal de {topic}.",
+            ),
+            qlp_txt(
+                "The student can give at least one practical example.",
+                "El estudiante puede dar al menos un ejemplo práctico.",
+            ),
+        ],
+        "warm_up": [
+            qlp_txt(f"What do you already know about {topic}?", f"¿Qué sabes ya sobre {topic}?"),
+            qlp_txt(f"Where have you encountered {topic} before?", f"¿Dónde has encontrado {topic} antes?"),
+        ],
+        "main_activity": [
+            qlp_txt(f"Introduce the key concept of {topic}.", f"Presenta el concepto clave de {topic}."),
+            qlp_txt("Work through one example together.", "Trabaja un ejemplo juntos."),
+        ],
+        "core_examples": [
+            qlp_txt(
+                f"Give one clear example that illustrates {topic}.",
+                f"Da un ejemplo claro que ilustre {topic}.",
+            ),
+        ],
+        "guided_practice": [
+            qlp_txt("Guide the student through one task.", "Guía al estudiante en una tarea."),
+            qlp_txt("Ask for explanation at each step.", "Pide la explicación en cada paso."),
+        ],
+        "practice_questions": [
+            qlp_txt(f"What is {topic}?", f"¿Qué es {topic}?"),
+            qlp_txt("Can you give an example?", "¿Puedes dar un ejemplo?"),
+            qlp_txt("Where can you apply this?", "¿Dónde puedes aplicar esto?"),
+        ],
+        "freer_task": [
+            qlp_txt(
+                "Student applies or explains the concept independently.",
+                "El estudiante aplica o explica el concepto de forma independiente.",
+            ),
+        ],
+        "wrap_up": [
+            qlp_txt("Review the key idea from the lesson.", "Repasa la idea clave de la clase."),
+            qlp_txt("Ask one final check question.", "Haz una pregunta final de comprobación."),
+        ],
+        "teacher_moves": _teacher_move_block("study_skills", purpose),
+        "extension_task": qlp_txt(
+            f"Research one more aspect of {topic} and share it next lesson.",
+            f"Investiga un aspecto más de {topic} y compártelo en la próxima clase.",
+        ),
+        "homework": qlp_txt(
+            f"Review today's work on {topic}.",
+            f"Repasa el trabajo de hoy sobre {topic}.",
+        ),
+        "reading_passage": "",
+        "listening_script": "",
+        "core_material": {},
+    }
+
+
 def build_quick_lesson_plan(
     subject: str,
     learner_stage: str,
@@ -1162,7 +1232,7 @@ def build_quick_lesson_plan(
     if engine == "study_skills":
         return _study_skills_plan(learner_stage, level_or_band, lesson_purpose, topic)
 
-    return _language_plan(subject, learner_stage, level_or_band, lesson_purpose, topic)
+    return _general_plan(learner_stage, level_or_band, lesson_purpose, topic)
 
 def normalize_planner_output(plan: dict) -> dict:
     plan = dict(plan or {})
@@ -1551,6 +1621,7 @@ def reset_quick_lesson_planner_state() -> None:
         "quick_lesson_plan_kept",
         "quick_lesson_plan_mode_used",
         "quick_lesson_plan_warning",
+        "quick_lesson_no_template",
         "quick_plan_mode",
         "quick_plan_subject",
         "quick_plan_stage",

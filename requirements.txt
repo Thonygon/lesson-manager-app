@@ -9,4 +9,5 @@ pycountry
 openai
 google-genai
 reportlab
+pypdf
 

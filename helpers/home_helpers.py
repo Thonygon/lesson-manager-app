@@ -1,9 +1,4 @@
 import streamlit as st
-import datetime
-from core.i18n import t
-from core.state import get_current_user_id
-from core.timezone import now_local, today_local, get_app_tz
-from core.database import get_sb, load_table, load_students
 
 # 07.1B) HOME PAGE HELPERS
 # =========================
@@ -59,13 +54,4 @@ def neon_button_css(
             0 12px 26px rgba(0,0,0,0.26) !important;
     }}
     """
-
-
-def top_neon_button_css(glow_rgba: str, text_color: str = "#0B1220") -> str:
-    return neon_button_css(
-        glow_rgba=glow_rgba,
-        text_color=text_color,
-        min_height=38,
-        radius=12,
-    )
 # =========================

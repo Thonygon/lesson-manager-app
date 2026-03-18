@@ -2,9 +2,7 @@ import streamlit as st
 import datetime
 import pandas as pd
 from core.i18n import t
-from core.state import get_current_user_id
-from core.timezone import now_local, today_local
-from core.navigation import go_to, page_header
+from core.navigation import page_header
 from core.database import load_table, load_students, get_sb
 from core.database import ensure_student, clear_app_caches, norm_student, update_student_profile
 from helpers.student_meta import load_students_df
@@ -20,6 +18,44 @@ def render_students():
 
     students = load_students()
     students_df = load_students_df()
+
+    with st.expander(t("home_find_students"), expanded=False):
+        st.markdown(
+            f"""
+            <details style="margin-bottom:12px">
+              <summary style="cursor:pointer;font-weight:600;color:#1E40AF;font-size:14px;
+                              padding:8px 12px;background:#EFF6FF;border:1px solid #BFDBFE;
+                              border-radius:8px;list-style:none;display:flex;align-items:center;gap:6px">
+                💡 {t('find_students_rec_title')}
+              </summary>
+              <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-top:none;
+                          border-radius:0 0 8px 8px;padding:10px 14px">
+                <ol style="margin:0;padding-left:18px;color:#1E3A8A;font-size:14px;line-height:1.8">
+                  <li>{t('find_students_step_1')}</li>
+                  <li>{t('find_students_step_2')}</li>
+                  <li>{t('find_students_step_3')}</li>
+                  <li>{t('find_students_step_4')}</li>
+                  <li>{t('find_students_step_5')}</li>
+                </ol>
+              </div>
+            </details>
+            <div style="overflow-x:auto;white-space:nowrap;padding:4px 0 8px 0">
+              <a href="https://www.armut.com" target="_blank" rel="noopener noreferrer"
+                 style="display:inline-block;text-decoration:none;padding:6px 16px;border-radius:20px;background:#fff;color:#1D4ED8;font-size:14px;border:1px solid #BFDBFE;margin-right:8px">Armut</a>
+              <a href="https://www.apprentus.com" target="_blank" rel="noopener noreferrer"
+                 style="display:inline-block;text-decoration:none;padding:6px 16px;border-radius:20px;background:#fff;color:#1D4ED8;font-size:14px;border:1px solid #BFDBFE;margin-right:8px">Apprentus</a>
+              <a href="https://www.superprof.com" target="_blank" rel="noopener noreferrer"
+                 style="display:inline-block;text-decoration:none;padding:6px 16px;border-radius:20px;background:#fff;color:#1D4ED8;font-size:14px;border:1px solid #BFDBFE;margin-right:8px">Superprof</a>
+              <a href="https://www.ozelders.com" target="_blank" rel="noopener noreferrer"
+                 style="display:inline-block;text-decoration:none;padding:6px 16px;border-radius:20px;background:#fff;color:#1D4ED8;font-size:14px;border:1px solid #BFDBFE;margin-right:8px">ÖzelDers</a>
+              <a href="https://preply.com" target="_blank" rel="noopener noreferrer"
+                 style="display:inline-block;text-decoration:none;padding:6px 16px;border-radius:20px;background:#fff;color:#1D4ED8;font-size:14px;border:1px solid #BFDBFE;margin-right:8px">Preply</a>
+              <a href="https://www.italki.com" target="_blank" rel="noopener noreferrer"
+                 style="display:inline-block;text-decoration:none;padding:6px 16px;border-radius:20px;background:#fff;color:#1D4ED8;font-size:14px;border:1px solid #BFDBFE;margin-right:8px">italki</a>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     st.markdown(f"### {t('add_new')}")
     new_student = st.text_input(t("new_student_name"), key="new_student_name")

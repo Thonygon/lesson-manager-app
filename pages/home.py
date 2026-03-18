@@ -1,15 +1,14 @@
 import streamlit as st
 import datetime
 from core.i18n import t
-from core.state import get_current_user_id
-from core.timezone import now_local, today_local
-from core.navigation import go_to, home_go, set_home_lang, page_header, PAGES
+from core.timezone import now_local
+from core.navigation import go_to, home_go, PAGES
+from core.timezone import _get_qp
 from core.database import load_table, load_students, clear_app_caches
 from auth.auth import render_logout_button, render_profile_dialog
-from styles.theme import load_css_home_dark
+from styles.theme import load_css_home
 from streamlit_option_menu import option_menu
 from streamlit_extras.stylable_container import stylable_container
-from core.timezone import _get_qp
 from core.database import get_profile_avatar_url
 from auth.auth import sign_out_user
 from helpers.dashboard import rebuild_dashboard
@@ -23,6 +22,7 @@ from helpers.currency import format_currency, get_preferred_currency, get_exchan
 from core.database import load_profile_row
 from helpers.lesson_planner import normalize_planner_output
 from helpers.planner_storage import load_my_lesson_plans, load_public_lesson_plans, render_plan_library_cards, render_quick_lesson_plan_result, render_quick_lesson_planner_expander
+from helpers.cv_storage import load_my_cvs, load_my_cover_letters, render_cv_library_cards, render_cv_result, render_quick_cv_builder_expander, build_cv_pdf_bytes, build_cover_letter_pdf_bytes
 
 # 10) HOME SCREEN UI (DARK)
 # =========================
@@ -157,7 +157,7 @@ def render_home():
                 home_go("home", panel=None)
                 st.rerun()
 
-        tab1, tab2 = st.tabs([t("my_plans"), t("community_library")])
+        tab1, tab2, tab3, tab4 = st.tabs([t("my_plans"), t("community_library"), t("my_cvs"), t("my_cover_letters")])
 
         with tab1:
             my_df = load_my_lesson_plans()
@@ -241,6 +241,20 @@ def render_home():
                     show_author=True,
                 )
 
+        with tab3:
+            cv_df = load_my_cvs()
+            if cv_df.empty:
+                st.info(t("no_saved_cvs"))
+            else:
+                render_cv_library_cards(cv_df, prefix="files_cv")
+
+        with tab4:
+            cl_df = load_my_cover_letters()
+            if cl_df.empty:
+                st.info(t("no_saved_cover_letters"))
+            else:
+                render_cv_library_cards(cl_df, prefix="files_cl")
+
         selected_plan = st.session_state.get("files_selected_plan")
 
         if selected_plan:
@@ -274,6 +288,59 @@ def render_home():
                 topic=st.session_state.get("files_selected_topic", ""),
                 read_only= True,
             )
+
+        # ── Selected CV detail ────────────────────────────────────────────
+        selected_cv = st.session_state.get("files_cv_selected")
+        if selected_cv:
+            import json
+            st.markdown("---")
+            cv_det_l, cv_det_r = st.columns([6, 1])
+            with cv_det_l:
+                st.markdown(f"### {t('cv')}")
+            with cv_det_r:
+                if st.button(t("close_plan"), key="close_selected_cv", use_container_width=True):
+                    st.session_state.pop("files_cv_selected", None)
+                    st.rerun()
+            cv_data = selected_cv.get("cv_json") or {}
+            if isinstance(cv_data, str):
+                try:
+                    cv_data = json.loads(cv_data)
+                except Exception:
+                    cv_data = {}
+            if cv_data:
+                render_cv_result(
+                    cv=cv_data,
+                    read_only=True,
+                    source_type=str(selected_cv.get("source_type") or "template"),
+                    title=str(selected_cv.get("title") or ""),
+                )
+
+        # ── Selected cover letter detail ─────────────────────────────────
+        selected_cl = st.session_state.get("files_cl_selected")
+        if selected_cl:
+            st.markdown("---")
+            cl_det_l, cl_det_r = st.columns([6, 1])
+            with cl_det_l:
+                st.markdown(f"### {t('cover_letter')}")
+            with cl_det_r:
+                if st.button(t("close_plan"), key="close_selected_cl", use_container_width=True):
+                    st.session_state.pop("files_cl_selected", None)
+                    st.rerun()
+            cl_content = str(selected_cl.get("content") or "")
+            cl_title   = str(selected_cl.get("title") or t("cover_letter"))
+            st.text_area(t("cover_letter_content"), value=cl_content, height=300, disabled=True, key="files_cl_preview")
+            if cl_content:
+                import re as _re
+                cl_pdf = build_cover_letter_pdf_bytes(cl_content, cl_title)
+                _safe = _re.sub(r"[^A-Za-z0-9._-]+", "_", cl_title) or "cover_letter"
+                st.download_button(
+                    label=t("download_cl_pdf"),
+                    data=cl_pdf,
+                    file_name=f"{_safe}.pdf",
+                    mime="application/pdf",
+                    key="dl_cl_files",
+                    use_container_width=True,
+                )
 
         st.markdown("</div>", unsafe_allow_html=True)
         return
@@ -328,40 +395,11 @@ def render_home():
         accent="#3B82F6",
     )
 
-    # --- Find students expander ---
-    with st.expander(t("home_find_students"), expanded=False):
+    # --- Quick lesson planner expander ---
+    render_quick_lesson_planner_expander()
 
-        st.markdown(
-            f"""
-            <div class="home-links">
-
-              <div class="home-links-row">
-                <a class="home-linkchip" href="https://www.armut.com" target="_blank" rel="noopener noreferrer">
-                  <span class="dot"></span> Armut
-                </a>
-                <a class="home-linkchip" href="https://www.apprentus.com" target="_blank" rel="noopener noreferrer">
-                  <span class="dot"></span> Apprentus
-                </a>
-                <a class="home-linkchip" href="https://www.superprof.com" target="_blank" rel="noopener noreferrer">
-                  <span class="dot"></span> Superprof
-                </a>
-                <a class="home-linkchip" href="https://www.ozelders.com" target="_blank" rel="noopener noreferrer">
-                  <span class="dot"></span> ÖzelDers
-                </a>
-                <a class="home-linkchip" href="https://preply.com" target="_blank" rel="noopener noreferrer">
-                  <span class="dot"></span> Preply
-                </a>
-                <a class="home-linkchip" href="https://www.italki.com" target="_blank" rel="noopener noreferrer">
-                  <span class="dot"></span> italki
-                </a>
-              </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-     # --- Quick lesson planner expander ---
-    render_quick_lesson_planner_expander()   
+    # --- Quick CV builder expander ---
+    render_quick_cv_builder_expander()
 
     # --- Section title between links and menu capsules ---
     # ---------- MENU ----------

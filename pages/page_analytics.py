@@ -4,14 +4,12 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from core.i18n import t
-from core.state import get_current_user_id
-from core.timezone import now_local, today_local
-from core.navigation import go_to, page_header
-from core.database import load_table, load_students
+from core.navigation import page_header
+from core.database import load_table
 import matplotlib.pyplot as plt
 from helpers.analytics import build_income_analytics, money_fmt
 from helpers.ui_components import ts_today_naive, to_dt_naive, pretty_df, translate_df_headers, chart_series
-from helpers.language import translate_language_value, translate_modality_value
+from helpers.language import translate_modality_value
 from helpers.dashboard import rebuild_dashboard
 from helpers.forecast import build_forecast_table
 from helpers.year_goals import get_year_goal, set_year_goal
