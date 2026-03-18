@@ -1,0 +1,499 @@
+import streamlit as st
+import os
+from streamlit_option_menu import option_menu
+
+from core.i18n import t
+from core.state import (
+    get_current_user_id, _set_logged_in_user, _clear_logged_in_user,
+    PROFILE_SUBJECT_OPTIONS, PROFILE_STAGE_OPTIONS, PROFILE_TEACH_LANG_OPTIONS,
+    PROFILE_DURATION_OPTIONS, PROFILE_TIMEZONE_OPTIONS, PROFILE_COUNTRY_OPTIONS,
+)
+from core.timezone import DEFAULT_TZ_NAME
+from core.navigation import _set_query
+from core.database import (
+    get_sb, clear_app_caches, apply_auth_session, get_user_display_name,
+    load_profile_row, upsert_profile_row,
+)
+from helpers.currency import CURRENCIES, CURRENCY_CODES
+from core.database import (
+    get_profile_avatar_url, save_profile_avatar_url,
+)
+
+def _has_tokens() -> bool:
+    return bool(st.session_state.get("sb_access_token"))
+
+def _set_auth_session(resp) -> None:
+    """
+    Robustly store Supabase session tokens + user id into st.session_state
+    Works with supabase-py v1/v2 response shapes.
+    """
+    session = None
+    user = None
+
+    # supabase-py v2: resp.session / resp.user
+    if hasattr(resp, "session"):
+        session = resp.session
+    if hasattr(resp, "user"):
+        user = resp.user
+
+    # Sometimes resp is dict-like
+    if session is None and isinstance(resp, dict):
+        session = resp.get("session") or resp.get("data") or resp
+
+    if user is None:
+        # Try multiple places for user
+        if isinstance(resp, dict):
+            user = resp.get("user") or (resp.get("session", {}) if isinstance(resp.get("session"), dict) else None)
+        if user is None and hasattr(session, "user"):
+            user = session.user
+
+    # Extract tokens
+    access_token = None
+    refresh_token = None
+
+    if isinstance(session, dict):
+        access_token = session.get("access_token") or session.get("accessToken")
+        refresh_token = session.get("refresh_token") or session.get("refreshToken")
+    else:
+        access_token = getattr(session, "access_token", None) or getattr(session, "accessToken", None)
+        refresh_token = getattr(session, "refresh_token", None) or getattr(session, "refreshToken", None)
+
+    if not access_token:
+        raise Exception("Login succeeded but no access_token was returned (cannot persist session).")
+
+    st.session_state["sb_access_token"] = str(access_token)
+    st.session_state["sb_refresh_token"] = str(refresh_token or "")
+
+    # Extract user if needed from session
+    if user is None:
+        if isinstance(session, dict):
+            user = session.get("user")
+        else:
+            user = getattr(session, "user", None)
+
+    # Store standardized session user
+    _set_logged_in_user(user)
+
+def _apply_auth_to_client():
+    at = st.session_state.get("sb_access_token")
+    rt = st.session_state.get("sb_refresh_token")
+    if not at:
+        return
+    try:
+        get_sb().auth.set_session(at, rt)
+    except Exception as e:
+        st.warning(f"Could not apply auth session (RLS may fail): {e}")
+
+
+@st.cache_data(show_spinner=False)
+def load_logo_bytes(theme_base: str) -> bytes:
+    if theme_base == "light":
+        logo_path = os.path.join("static", "logo_classio_light.png")
+    else:
+        logo_path = os.path.join("static", "logo_classio_dark.png")
+
+    with open(logo_path, "rb") as f:
+        return f.read()
+
+
+def require_login():
+    """
+    Blocks the app unless a user is logged in.
+    """
+    # If already logged in -> restore full session and continue
+    if _has_tokens():
+        apply_auth_session()
+
+        if get_current_user_id():
+            return
+
+        st.error("Could not restore the logged-in user. Please sign in again.")
+        _clear_logged_in_user()
+        st.session_state["sb_access_token"] = None
+        st.session_state["sb_refresh_token"] = None
+        st.stop()
+
+    # Pick and cache the correct logo for the current theme
+    theme_base = st.get_option("theme.base")
+    logo_bytes = load_logo_bytes(theme_base)
+
+    st.markdown(
+        """
+        <style>
+        .login-topbar {
+            margin-bottom: 0px;
+        }
+
+        .login-logo-wrap {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 0 !important;
+            margin-bottom: -18px !important;
+            padding: 0 !important;
+        }
+
+        div[data-testid="stImage"] {
+            margin-top: -40px !important;
+            margin-bottom: -24px !important;
+            padding: 0 !important;
+            text-align: center;
+        }
+
+        div[data-testid="stImage"] img {
+            display: block;
+            margin: 0 auto !important;
+            padding: 0 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Logo
+    col_logo_left, col_logo_center, col_logo_right = st.columns([1, 2, 1])
+    with col_logo_center:
+        st.markdown('<div class="login-logo-wrap">', unsafe_allow_html=True)
+        st.image(logo_bytes, width=500)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown('<div class="login-topbar">', unsafe_allow_html=True)
+
+    col_title, col_menu = st.columns([6, 2], vertical_alignment="center")
+
+    with col_title:
+        st.markdown(f"## {t('login_title')}")
+
+    with col_menu:
+        lang_choice = option_menu(
+            menu_title=None,
+            options=["EN", "ES"],
+            orientation="horizontal",
+            default_index=0 if st.session_state.get("ui_lang", "en") == "en" else 1,
+            key="login_lang_menu",
+            styles={
+                "container": {"padding": "0", "background": "transparent"},
+                "nav-link": {
+                    "font-size": "14px",
+                    "text-align": "center",
+                    "padding": "6px 8px",
+                },
+                "nav-link-selected": {
+                    "background-color": "#3B82F6",
+                    "color": "white",
+                },
+            },
+        )
+
+    if lang_choice == "EN" and st.session_state.get("ui_lang") != "en":
+        st.session_state["ui_lang"] = "en"
+        _set_query(lang="en")
+        st.rerun()
+
+    if lang_choice == "ES" and st.session_state.get("ui_lang") != "es":
+        st.session_state["ui_lang"] = "es"
+        _set_query(lang="es")
+        st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    tab_login, tab_signup = st.tabs([t("sign_in"), t("sign_up")])
+
+    with tab_login:
+        email = st.text_input(t("email"), key="login_email")
+        password = st.text_input(t("password"), type="password", key="login_password")
+
+        if st.button(t("sign_in"), key="btn_login"):
+            try:
+                resp = get_sb().auth.sign_in_with_password(
+                    {"email": email, "password": password}
+                )
+                _set_auth_session(resp)
+                apply_auth_session()
+
+                if not get_current_user_id():
+                    raise Exception("Login succeeded but user_id was not restored.")
+
+                st.success(t("logged_in_ok"))
+                st.rerun()
+            except Exception as e:
+                st.error(f"{t('login_failed')}: {e}")
+
+        with st.expander(t("forgot_password")):
+            reset_email = st.text_input(t("email_reset_link"), key="reset_email")
+            if st.button(t("send_reset_email"), key="btn_reset"):
+                try:
+                    get_sb().auth.reset_password_for_email(reset_email)
+                    st.success(t("reset_email_sent"))
+                except Exception as e:
+                    st.error(f"{t('reset_failed')}: {e}")
+
+    with tab_signup:
+        name = st.text_input(t("user_name"), key="signup_name")
+        email2 = st.text_input(t("email"), key="signup_email")
+        password2 = st.text_input(t("password"), type="password", key="signup_password")
+
+        if st.button(t("create_account"), key="btn_signup"):
+            try:
+                resp = get_sb().auth.sign_up({"email": email2, "password": password2})
+
+                user = resp.user
+                if user:
+                    get_sb().table("profiles").upsert(
+                        {
+                            "user_id": user.id,
+                            "display_name": name.strip(),
+                            "preferred_ui_language": st.session_state.get("ui_lang", "en"),
+                            "timezone": DEFAULT_TZ_NAME,
+                            "default_lesson_duration": 45,
+                            "role": "teacher",
+                            "primary_subjects": [],
+                            "teaching_stages": [],
+                            "teaching_languages": [],
+                            "onboarding_completed": False,
+                        },
+                        on_conflict="user_id",
+                    ).execute()
+
+                st.success(t("account_created_check_email"))
+
+            except Exception as e:
+                st.error(f"{t('signup_failed')}: {e}")
+
+    st.stop()
+
+
+def _profile_subject_label(subject: str) -> str:
+    mapping = {
+        "English": t("subject_english"),
+        "Spanish": t("subject_spanish"),
+        "Mathematics": t("subject_mathematics"),
+        "Science": t("subject_science"),
+        "Music": t("subject_music"),
+        "Study Skills": t("subject_study_skills"),
+    }
+    return mapping.get(subject, subject)
+
+
+def _profile_stage_label(stage: str) -> str:
+    mapping = {
+        "early_primary": t("stage_early_primary"),
+        "upper_primary": t("stage_upper_primary"),
+        "lower_secondary": t("stage_lower_secondary"),
+        "upper_secondary": t("stage_upper_secondary"),
+        "adult_stage": t("stage_adult"),
+    }
+    return mapping.get(stage, stage)
+
+
+def _profile_lang_label(lang_code: str) -> str:
+    mapping = {
+        "en": t("english"),
+        "es": t("spanish"),
+    }
+    return mapping.get(lang_code, lang_code)
+
+
+def _profile_duration_label(minutes: int) -> str:
+    mapping = {
+        30: t("duration_30"),
+        45: t("duration_45"),
+        60: t("duration_60"),
+        90: t("duration_90"),
+    }
+    return mapping.get(int(minutes), f"{minutes} min")
+
+
+
+def render_profile_dialog(user_id: str) -> None:
+    profile = load_profile_row(user_id)
+
+    try:
+        @st.dialog(t("edit_profile"))
+        def _profile_dialog():
+            st.markdown(f"### {t('edit_profile')}")
+
+            current_avatar = str(profile.get("avatar_url") or st.session_state.get("avatar_url") or "").strip()
+            if current_avatar:
+                st.image(current_avatar, width=96)
+
+            up = st.file_uploader(
+                t("choose_photo"),
+                type=["png", "jpg", "jpeg", "webp"],
+                key="profile_avatar_uploader",
+                label_visibility="collapsed",
+            )
+
+            display_name = st.text_input(
+                t("user_name"),
+                value=str(profile.get("display_name") or st.session_state.get("user_name") or ""),
+                key="profile_display_name",
+            )
+
+            c1, c2 = st.columns(2)
+
+            with c1:
+                preferred_ui_language = st.selectbox(
+                    t("preferred_ui_language"),
+                    ["en", "es"],
+                    index=0 if str(profile.get("preferred_ui_language") or st.session_state.get("ui_lang", "en")) == "en" else 1,
+                    format_func=lambda x: t("english") if x == "en" else t("spanish"),
+                    key="profile_preferred_ui_language",
+                )
+
+                timezone_value = str(profile.get("timezone") or DEFAULT_TZ_NAME)
+                timezone_index = PROFILE_TIMEZONE_OPTIONS.index(timezone_value) if timezone_value in PROFILE_TIMEZONE_OPTIONS else 0
+                timezone_name = st.selectbox(
+                    t("timezone_label"),
+                    PROFILE_TIMEZONE_OPTIONS,
+                    index=timezone_index,
+                    key="profile_timezone",
+                )
+
+                country_value = str(profile.get("country") or "")
+
+                if country_value and country_value in PROFILE_COUNTRY_OPTIONS:
+                    country_options = [country_value] + [c for c in PROFILE_COUNTRY_OPTIONS if c != country_value]
+                else:
+                    country_options = PROFILE_COUNTRY_OPTIONS
+
+                country = st.selectbox(
+    t("country_label"),
+    country_options,
+    index=0,
+    key="profile_country",
+)
+
+                # Preferred currency
+                _cur_value = str(profile.get("preferred_currency") or st.session_state.get("preferred_currency", "TRY"))
+                _cur_idx = CURRENCY_CODES.index(_cur_value) if _cur_value in CURRENCY_CODES else 0
+                preferred_currency = st.selectbox(
+                    t("preferred_currency"),
+                    CURRENCY_CODES,
+                    index=_cur_idx,
+                    format_func=lambda c: f"{CURRENCIES[c]['symbol']}  {c} — {CURRENCIES[c]['name']}",
+                    key="profile_preferred_currency",
+                )
+
+            with c2:
+                role_value = str(profile.get("role") or "teacher")
+                role = st.selectbox(
+                    t("role_label"),
+                    ["teacher", "tutor"],
+                    index=0 if role_value == "teacher" else 1,
+                    format_func=lambda x: t("teacher_role") if x == "teacher" else t("tutor_role"),
+                    key="profile_role",
+                )
+
+                duration_value = int(profile.get("default_lesson_duration") or 45)
+                duration_index = PROFILE_DURATION_OPTIONS.index(duration_value) if duration_value in PROFILE_DURATION_OPTIONS else 1
+                default_lesson_duration = st.selectbox(
+                    t("default_lesson_duration_label"),
+                    PROFILE_DURATION_OPTIONS,
+                    index=duration_index,
+                    format_func=_profile_duration_label,
+                    key="profile_default_lesson_duration",
+                )
+
+            primary_subjects = st.multiselect(
+                t("primary_subjects_label"),
+                PROFILE_SUBJECT_OPTIONS,
+                default=[x for x in (profile.get("primary_subjects") or []) if x in PROFILE_SUBJECT_OPTIONS],
+                format_func=_profile_subject_label,
+                key="profile_primary_subjects",
+            )
+
+            teaching_stages = st.multiselect(
+                t("teaching_stages_label"),
+                PROFILE_STAGE_OPTIONS,
+                default=[x for x in (profile.get("teaching_stages") or []) if x in PROFILE_STAGE_OPTIONS],
+                format_func=_profile_stage_label,
+                key="profile_teaching_stages",
+            )
+
+            teaching_languages = st.multiselect(
+                t("teaching_languages_label"),
+                PROFILE_TEACH_LANG_OPTIONS,
+                default=[x for x in (profile.get("teaching_languages") or []) if x in PROFILE_TEACH_LANG_OPTIONS],
+                format_func=_profile_lang_label,
+                key="profile_teaching_languages",
+            )
+
+            save_profile = st.button(t("save_profile"), key="profile_save_btn", use_container_width=True)
+
+            if save_profile:
+                new_avatar_url = current_avatar
+
+                if up is not None:
+                    try:
+                        from helpers.goals import upload_avatar_to_supabase
+                        new_avatar_url = upload_avatar_to_supabase(up, user_id=user_id)
+                    except Exception as e:
+                        st.error(f"{t('upload_failed')}: {e}")
+                        return
+
+                ok = upsert_profile_row(
+                    user_id,
+                    {
+                        "display_name": display_name.strip(),
+                        "avatar_url": new_avatar_url,
+                        "preferred_ui_language": preferred_ui_language,
+                        "preferred_currency": preferred_currency,
+                        "timezone": timezone_name,
+                        "country": None if country == "Select..." else country,
+                        "role": role,
+                        "primary_subjects": primary_subjects,
+                        "teaching_stages": teaching_stages,
+                        "teaching_languages": teaching_languages,
+                        "default_lesson_duration": int(default_lesson_duration),
+                        "onboarding_completed": True,
+                    }
+                )
+
+                if ok:
+                    st.session_state["user_name"] = display_name.strip() or st.session_state.get("user_name", "User")
+                    st.session_state["avatar_url"] = new_avatar_url
+                    st.session_state["ui_lang"] = preferred_ui_language
+                    st.session_state["preferred_currency"] = preferred_currency
+                    _set_query(lang=preferred_ui_language)
+
+                    st.session_state["home_action_menu_prev"] = t("files")
+                    st.success(t("profile_updated"))
+                    st.rerun()
+
+        _profile_dialog()
+
+    except Exception:
+        st.warning(t("edit_profile"))
+
+
+def sign_out_user() -> None:
+    try:
+        get_sb().auth.sign_out()
+    except Exception:
+        pass
+
+    _clear_logged_in_user()
+
+    st.session_state["sb_access_token"] = None
+    st.session_state["sb_refresh_token"] = None
+
+    st.rerun()
+
+def render_logout_button():
+    if st.button(t("sign_out"), key="btn_logout"):
+        try:
+            get_sb().auth.sign_out()
+        except Exception:
+            pass
+
+        # clear auth session
+        st.session_state["sb_access_token"] = None
+        st.session_state["sb_refresh_token"] = None
+        st.session_state["show_profile_dialog"] = False
+
+        # clear user info
+        _clear_logged_in_user()
+
+        st.rerun()
+
