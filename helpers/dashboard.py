@@ -4,7 +4,7 @@ import pandas as pd
 from core.i18n import t
 from core.state import get_current_user_id
 from core.timezone import now_local, today_local
-from core.database import load_table, load_students, register_cache
+from core.database import load_table, load_students
 import numpy as np
 from helpers.ui_components import to_dt_naive, ts_today_naive
 from helpers.language import translate_status, translate_modality_value, translate_language_value

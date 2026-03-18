@@ -15,23 +15,6 @@ PAGES = [
 PAGE_KEYS = {"home"} | {key for key, _, _ in PAGES}
 
 
-def _clear_qp(*keys):
-    try:
-        for k in keys:
-            if k in st.query_params:
-                del st.query_params[k]
-    except Exception:
-        current = {}
-        try:
-            old = st.experimental_get_query_params()
-            for k, v in old.items():
-                if k not in keys:
-                    current[k] = v[0] if isinstance(v, list) and v else v
-        except Exception:
-            current = {}
-        st.experimental_set_query_params(**current)
-
-
 def _set_query(page: Optional[str] = None, lang: Optional[str] = None, panel: Optional[str] = None) -> None:
     new_page = page if page is not None else st.session_state.get("page", "home")
     new_lang = lang if lang is not None else st.session_state.get("ui_lang", "en")
@@ -58,13 +41,6 @@ def home_go(page_name: str = "home", panel: Optional[str] = None):
         page_name = "home"
     st.session_state["page"] = page_name
     _set_query(page=page_name, lang=st.session_state.get("ui_lang", "en"), panel=panel)
-
-
-def set_home_lang(lang_code: str):
-    if lang_code not in ("en", "es"):
-        lang_code = "en"
-    st.session_state["ui_lang"] = lang_code
-    _set_query(page=st.session_state.get("page", "home"), lang=lang_code)
 
 
 def page_header(title: str):

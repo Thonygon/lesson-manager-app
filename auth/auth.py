@@ -86,12 +86,8 @@ def _apply_auth_to_client():
 
 
 @st.cache_data(show_spinner=False)
-def load_logo_bytes(theme_base: str) -> bytes:
-    if theme_base == "light":
-        logo_path = os.path.join("static", "logo_classio_light.png")
-    else:
-        logo_path = os.path.join("static", "logo_classio_dark.png")
-
+def load_logo_bytes() -> bytes:
+    logo_path = os.path.join("static", "logo_classio_light.png")
     with open(logo_path, "rb") as f:
         return f.read()
 
@@ -113,9 +109,8 @@ def require_login():
         st.session_state["sb_refresh_token"] = None
         st.stop()
 
-    # Pick and cache the correct logo for the current theme
-    theme_base = st.get_option("theme.base")
-    logo_bytes = load_logo_bytes(theme_base)
+    # Always use the light logo
+    logo_bytes = load_logo_bytes()
 
     st.markdown(
         """
@@ -242,6 +237,7 @@ def require_login():
                     get_sb().table("profiles").upsert(
                         {
                             "user_id": user.id,
+                            "email": email2.strip(),
                             "display_name": name.strip(),
                             "preferred_ui_language": st.session_state.get("ui_lang", "en"),
                             "timezone": DEFAULT_TZ_NAME,
@@ -329,6 +325,44 @@ def render_profile_dialog(user_id: str) -> None:
                 value=str(profile.get("display_name") or st.session_state.get("user_name") or ""),
                 key="profile_display_name",
             )
+
+            current_auth_email = str(
+                st.session_state.get("user_email")
+                or profile.get("email")
+                or ""
+            )
+            st.text_input(
+                t("current_email"),
+                value=current_auth_email,
+                disabled=True,
+                key="profile_current_email_display",
+            )
+
+            p1, p2, p3 = st.columns(3)
+            with p1:
+                date_of_birth_val = st.text_input(
+                    t("date_of_birth"),
+                    value=str(profile.get("date_of_birth") or ""),
+                    placeholder="YYYY-MM-DD",
+                    key="profile_dob",
+                )
+            with p2:
+                _sex_options = ["", "Male", "Female", "Other", "Prefer not to say"]
+                _sex_default_val = str(profile.get("sex") or "")
+                _sex_default_idx = _sex_options.index(_sex_default_val) if _sex_default_val in _sex_options else 0
+                sex_val = st.selectbox(
+                    t("sex"),
+                    _sex_options,
+                    index=_sex_default_idx,
+                    format_func=lambda x: t(f"sex_{x.lower().replace(' ', '_')}") if x else "—",
+                    key="profile_sex",
+                )
+            with p3:
+                phone_number_val = st.text_input(
+                    t("phone"),
+                    value=str(profile.get("phone_number") or ""),
+                    key="profile_phone_number",
+                )
 
             c1, c2 = st.columns(2)
 
@@ -447,6 +481,9 @@ def render_profile_dialog(user_id: str) -> None:
                         "teaching_languages": teaching_languages,
                         "default_lesson_duration": int(default_lesson_duration),
                         "onboarding_completed": True,
+                        "date_of_birth": date_of_birth_val.strip() or None,
+                        "sex": sex_val if sex_val else None,
+                        "phone_number": phone_number_val.strip() or None,
                     }
                 )
 
@@ -460,6 +497,52 @@ def render_profile_dialog(user_id: str) -> None:
                     st.session_state["home_action_menu_prev"] = t("files")
                     st.success(t("profile_updated"))
                     st.rerun()
+
+            # ── Change email & password ──────────────────────────────────────
+            st.divider()
+            with st.expander(t("change_email_password")):
+                st.caption(t("change_email_password_hint"))
+                new_email_val = st.text_input(t("new_email"), key="profile_new_email")
+                current_pwd_val = st.text_input(
+                    t("current_password"), type="password", key="profile_current_pwd"
+                )
+                new_pwd_val = st.text_input(
+                    t("new_password"), type="password", key="profile_new_pwd"
+                )
+                confirm_pwd_val = st.text_input(
+                    t("confirm_new_password"), type="password", key="profile_confirm_pwd"
+                )
+
+                if st.button(
+                    t("update_email_password"), key="btn_update_email_pwd", use_container_width=True
+                ):
+                    if not new_email_val.strip():
+                        st.error(t("new_email_required"))
+                    elif not current_pwd_val:
+                        st.error(t("current_password_required"))
+                    elif not new_pwd_val:
+                        st.error(t("new_password_required"))
+                    elif new_pwd_val != confirm_pwd_val:
+                        st.error(t("passwords_do_not_match"))
+                    elif len(new_pwd_val) < 6:
+                        st.error(t("password_too_short"))
+                    else:
+                        try:
+                            # Verify current password before making any changes
+                            get_sb().auth.sign_in_with_password(
+                                {"email": current_auth_email, "password": current_pwd_val}
+                            )
+                            # Update password immediately
+                            get_sb().auth.update_user({"password": new_pwd_val})
+                            # Request email change — confirmation sent to new address
+                            get_sb().auth.update_user({"email": new_email_val.strip()})
+                            st.success(t("email_change_confirmation_sent"))
+                        except Exception as _e:
+                            _err = str(_e).lower()
+                            if any(w in _err for w in ("invalid", "credentials", "wrong", "incorrect")):
+                                st.error(t("wrong_current_password"))
+                            else:
+                                st.error(f"{t('update_failed')}: {_e}")
 
         _profile_dialog()
 

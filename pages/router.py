@@ -107,10 +107,10 @@ def route_pages(page: str):
     from pages.page_add_payment import render_add_payment
     from pages.page_calendar import render_calendar
     from pages.page_analytics import render_analytics
-    from styles.theme import load_css_home_dark, load_css_app_light
+    from styles.theme import load_css_home, load_css_app_light
 
     if page == "home":
-        load_css_home_dark()
+        load_css_home()
         render_home()
         st.stop()
 

@@ -11,8 +11,8 @@ from core.timezone import (
 )
 from core.navigation import (
     PAGES, PAGE_KEYS,
-    _set_query, _get_qp, _clear_qp,
-    go_to, home_go, set_home_lang, page_header,
+    _set_query, _get_qp,
+    go_to, home_go, page_header,
     init_navigation_defaults,
 )
 from core.database import (

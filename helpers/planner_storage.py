@@ -14,6 +14,49 @@ def _lp():
     import helpers.lesson_planner as lp
     return lp
 
+
+def _find_community_plan_for_other(
+    subject_name: str,
+    topic: str,
+    learner_stage: str,
+    level_or_band: str,
+    lesson_purpose: str,
+) -> Optional[dict]:
+    """
+    Searches the public library for a plan matching the given real subject name and topic.
+    Prefers plans that also match stage/level/purpose.
+    Returns the best-matching row dict, or None if not found.
+    """
+    try:
+        df = load_public_lesson_plans()
+        if df is None or df.empty:
+            return None
+
+        subject_norm = str(subject_name or "").strip().casefold()
+        mask_subject = df["subject"].str.strip().str.casefold() == subject_norm
+        topic_norm = str(topic or "").strip().casefold()
+        mask_topic = df["topic"].str.strip().str.casefold() == topic_norm
+
+        matches = df[mask_subject & mask_topic].copy()
+        if matches.empty:
+            return None
+
+        def _score(row):
+            s = 0
+            if str(row.get("learner_stage", "")).strip() == str(learner_stage).strip():
+                s += 1
+            if str(row.get("level_or_band", "")).strip() == str(level_or_band).strip():
+                s += 1
+            if str(row.get("lesson_purpose", "")).strip() == str(lesson_purpose).strip():
+                s += 1
+            return s
+
+        matches["_score"] = matches.apply(_score, axis=1)
+        best = matches.sort_values(["_score", "created_at"], ascending=[False, False]).iloc[0]
+        return best.to_dict()
+    except Exception:
+        return None
+
 # 07.1A.1) QUICK LESSON PLANNER STORAGE + AI LOGGING
 # =========================
 
@@ -660,6 +703,13 @@ def render_quick_lesson_planner_expander() -> None:
             key="quick_plan_subject",
         )
 
+        other_subject_name = ""
+        if subject == "Other":
+            other_subject_name = st.text_input(
+                t("other_subject_label"),
+                key="quick_plan_other_subject",
+            ).strip()
+
         learner_stage = st.selectbox(
             t("learner_stage"),
             _lp().LEARNER_STAGES,
@@ -702,10 +752,39 @@ def render_quick_lesson_planner_expander() -> None:
         if st.button(t("generate_plan"), key="btn_generate_quick_plan", use_container_width=True):
             if not topic.strip():
                 st.error(t("enter_topic"))
+            elif subject == "Other" and not other_subject_name:
+                st.error(t("enter_subject_name"))
+            elif subject == "Other" and quick_plan_mode == "template":
+                # For "Other" in template mode: look up the community library first
+                community_row = _find_community_plan_for_other(other_subject_name, topic, learner_stage, level_or_band, lesson_purpose)
+                if community_row is not None:
+                    community_plan = _lp().normalize_planner_output(community_row.get("plan_json") or {})
+                    st.session_state["quick_lesson_plan_result"] = community_plan
+                    st.session_state["quick_lesson_plan_kept"] = False
+                    st.session_state["quick_lesson_plan_mode_used"] = str(community_row.get("source_type") or "template")
+                    st.session_state["quick_lesson_plan_warning"] = t("community_plan_found_note")
+                    st.session_state["quick_lesson_no_template"] = False
+                    log_user_activity(
+                        activity_type="planner_generate",
+                        feature_name="quick_lesson_planner",
+                        meta={
+                            "requested_mode": "template",
+                            "resolved_mode": "community",
+                            "subject": subject,
+                            "topic": topic,
+                            "lesson_purpose": lesson_purpose,
+                        },
+                    )
+                else:
+                    # No template and no community plan available
+                    st.session_state["quick_lesson_plan_result"] = None
+                    st.session_state["quick_lesson_no_template"] = True
             else:
+                st.session_state["quick_lesson_no_template"] = False
+                effective_subject = other_subject_name if subject == "Other" else subject
                 plan, resolved_mode, warning_msg = _lp().generate_quick_lesson_plan_with_fallback(
                     mode=quick_plan_mode,
-                    subject=subject,
+                    subject=effective_subject,
                     learner_stage=learner_stage,
                     level_or_band=level_or_band,
                     lesson_purpose=lesson_purpose,
@@ -719,7 +798,7 @@ def render_quick_lesson_planner_expander() -> None:
 
                 if resolved_mode == "ai":
                     save_lesson_plan_record(
-                        subject=subject,
+                        subject=effective_subject,
                         learner_stage=learner_stage,
                         level_or_band=level_or_band,
                         lesson_purpose=lesson_purpose,
@@ -734,13 +813,15 @@ def render_quick_lesson_planner_expander() -> None:
                     meta={
                         "requested_mode": quick_plan_mode,
                         "resolved_mode": resolved_mode,
-                        "subject": subject,
+                        "subject": effective_subject,
                         "topic": topic,
                         "lesson_purpose": lesson_purpose,
                     },
                 )
 
-        if st.session_state.get("quick_lesson_plan_result"):
+        if subject == "Other" and st.session_state.get("quick_lesson_no_template"):
+            st.info(t("no_template_for_subject"))
+        elif st.session_state.get("quick_lesson_plan_result"):
             if st.session_state.get("quick_lesson_plan_kept"):
                 st.info(f"📌 {t('quick_plan_saved_label')}")
 

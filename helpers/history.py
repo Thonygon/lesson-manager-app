@@ -3,8 +3,8 @@ import datetime
 import pandas as pd
 from core.i18n import t
 from core.state import get_current_user_id
-from core.timezone import now_local, today_local
-from core.database import load_table, register_cache
+from core.timezone import now_local
+from core.database import load_table
 from typing import Tuple
 from helpers.ui_components import to_dt_naive
 from helpers.language import translate_modality_value, translate_language_value

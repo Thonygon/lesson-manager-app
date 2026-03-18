@@ -8,8 +8,6 @@ from core.database import get_sb, load_table, load_students
 from typing import Optional
 from core.state import with_owner
 from core.database import ensure_student, clear_app_caches
-from helpers.language import LANG_ES
-
 # 07.5) CLASSES / PAYMENTS HELPERS
 # =========================
 def add_class(

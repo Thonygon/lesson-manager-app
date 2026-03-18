@@ -5,7 +5,7 @@ import io
 from core.i18n import t
 from core.state import get_current_user_id
 from core.timezone import now_local
-from core.database import get_sb, load_table, load_students, register_cache
+from core.database import get_sb, load_table, load_students
 import pandas as pd
 import re
 from io import BytesIO
@@ -19,14 +19,6 @@ from translations import I18N
 # 07.11) GOALS HELPERS
 # =========================
 YEAR_GOAL_SCOPE = "personal"
-
-def _guess_user_id() -> str:
-    for k in ("user_id", "uid", "owner_id"):
-        v = st.session_state.get(k, None)
-        if v:
-            return str(v).strip()
-    return "default"
-
 
 def _first_col(df: pd.DataFrame, candidates) -> str | None:
     if df is None or df.empty:

@@ -3,9 +3,8 @@ import datetime
 import pandas as pd
 from core.i18n import t
 from core.state import get_current_user_id
-from core.timezone import now_local, today_local
-from core.database import load_table, register_cache
-from helpers.language import LANG_ES, LANG_BOTH
+from core.timezone import now_local
+from core.database import load_table
 from helpers.ui_components import to_dt_naive, ts_today_naive
 
 # 07.14) ANALYTICS (INCOME + CHARTS) ✅ missing-columns safe (Section 24 compatible)

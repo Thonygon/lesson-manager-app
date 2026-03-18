@@ -4,7 +4,7 @@ import pandas as pd
 from core.i18n import t
 from core.state import get_current_user_id
 from core.timezone import now_local
-from core.database import get_sb, load_table, load_students, register_cache
+from core.database import get_sb, load_table, load_students
 from core.database import clear_app_caches
 from helpers.currency import CURRENCIES, CURRENCY_CODES, get_preferred_currency, currency_symbol, format_currency
 

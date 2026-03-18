@@ -50,6 +50,7 @@ def _clear_logged_in_user() -> None:
     st.session_state["user_email"] = None
     st.session_state["user_name"] = None
     st.session_state["avatar_url"] = None
+    st.session_state["_email_synced_to_profile"] = False
 
 
 # ---- Profile option constants ----

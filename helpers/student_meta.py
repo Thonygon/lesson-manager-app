@@ -1,7 +1,4 @@
 import streamlit as st
-import datetime
-from core.i18n import t
-from core.state import get_current_user_id
 from core.database import load_table
 import pandas as pd
 from core.database import norm_student

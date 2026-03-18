@@ -1,9 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
-import datetime
 from core.i18n import t
-from core.state import get_current_user_id
-from core.database import load_table, load_students
+from core.database import load_table
 import pandas as pd
 import re
 from core.navigation import go_to
@@ -12,33 +10,6 @@ from helpers.language import translate_status, translate_modality_value, transla
 
 # 08) UI COMPONENTS
 # =========================
-
-def nav_pill(label: str, page: str, css_class: str):
-    # Render a pill-looking button
-    st.markdown(
-        f"""
-        <style>
-        div[data-testid="stButton"] > button.{css_class} {{
-            width: 100%;
-            border-radius: 18px;
-            padding: 1.05rem 1.15rem;
-            margin: 0.55rem 0;
-            font-weight: 950;
-            text-align: center;
-            color: #ffffff !important;
-            background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.05));
-            border: 1px solid rgba(255,255,255,0.18);
-            box-shadow: 0 18px 34px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.12);
-            backdrop-filter: blur(14px);
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if st.button(label, key=f"pill_{page}", use_container_width=True):
-        go_to(page)
-        st.rerun()
 
 def to_dt_naive(x, utc: bool = True):
     """

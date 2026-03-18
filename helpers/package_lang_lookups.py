@@ -1,6 +1,5 @@
 import streamlit as st
 from core.i18n import t
-from core.database import load_table
 from core.state import get_current_user_id
 from core.database import get_sb
 from helpers.language import LANG_ES, ALLOWED_LANGS
@@ -35,11 +34,6 @@ def latest_payment_languages_for_student(student: str) -> str:
         return v if v in ALLOWED_LANGS else LANG_ES
     except Exception:
         return LANG_ES
-
-
-def _is_offline(modality: str) -> bool:
-    m = str(modality or "").strip().casefold()
-    return ("offline" in m) or ("face" in m) or ("yüz" in m) or ("yuzyuze" in m) or ("yüzyüze" in m)
 
 
 def _units_multiplier(modality: str) -> int:
