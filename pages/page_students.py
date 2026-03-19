@@ -90,7 +90,11 @@ def render_students():
             with col1:
                 email = st.text_input(t("email"), value=student_row.get("email", ""), key=f"student_email_{sid}")
                 zoom_link = st.text_input(t("zoom_link"), value=student_row.get("zoom_link", ""), key=f"student_zoom_{sid}")
-                phone = st.text_input(t("whatsapp_phone"), value=student_row.get("phone", ""), key=f"student_phone_{sid}")
+                _raw_phone = st.text_input(t("whatsapp_phone"), value=student_row.get("phone", ""), key=f"student_phone_{sid}")
+                import re as _re_phone
+                phone = _re_phone.sub(r"[^0-9+]", "", _raw_phone)
+                if phone != _raw_phone:
+                    st.info(t("examples_phone"))
                 st.caption(t("examples_phone"))
             with col2:
                 color = st.color_picker(t("calendar_color"), value=student_row.get("color", "#3B82F6"), key=f"student_color_{sid}")

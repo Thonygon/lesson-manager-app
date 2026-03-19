@@ -674,23 +674,32 @@ def render_quick_cv_builder_expander() -> None:
 
         # ── Personal info ────────────────────────────────────────────────
         st.markdown(f"**{t('cv_personal_info')}**")
+
+        # Initialise defaults only when session_state key is absent
+        # (import or previous run may have set them already)
+        if "cv_full_name" not in st.session_state:
+            st.session_state["cv_full_name"] = str(profile.get("display_name") or st.session_state.get("user_name") or "")
+        if "cv_email" not in st.session_state:
+            st.session_state["cv_email"] = str(profile.get("email") or st.session_state.get("user_email") or "")
+        if "cv_phone" not in st.session_state:
+            st.session_state["cv_phone"] = _sanitize_phone(profile.get("phone_number") or "")
+        if "cv_location" not in st.session_state:
+            st.session_state["cv_location"] = str(profile.get("country") or "")
+
         pi1, pi2, pi3 = st.columns(3)
         with pi1:
             cv_full_name = st.text_input(
-                t("user_name"),
-                value=str(profile.get("display_name") or st.session_state.get("user_name") or ""),
+                t("cv_full_name_label"),
                 key="cv_full_name",
             )
         with pi2:
             cv_email = st.text_input(
                 t("email"),
-                value=str(profile.get("email") or st.session_state.get("user_email") or ""),
                 key="cv_email",
             )
         with pi3:
             cv_phone = st.text_input(
                 t("phone"),
-                value=_sanitize_phone(profile.get("phone_number") or ""),
                 placeholder="+1234567890",
                 key="cv_phone",
                 help=t("phone_format_hint"),
@@ -701,7 +710,6 @@ def render_quick_cv_builder_expander() -> None:
         with pi4:
             cv_location = st.text_input(
                 t("country_label"),
-                value=str(profile.get("country") or ""),
                 key="cv_location",
             )
         with pi5:
