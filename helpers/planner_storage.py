@@ -234,6 +234,7 @@ def render_plan_library_cards(
                     st.session_state["files_selected_topic"] = topic
                     st.session_state["files_selected_source_type"] = source_type
                     st.session_state["files_selected_title"] = title
+                    st.toast(t("scroll_down_to_view"))
                     st.rerun()
 
 def log_user_activity(
@@ -560,11 +561,13 @@ def build_lesson_plan_pdf_bytes(
     lesson_purpose: str = "",
     topic: str = "",
 ) -> bytes:
+    import os
     from io import BytesIO
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import cm
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem
+    from reportlab.platypus import Image as RLImage
     from reportlab.lib import colors
 
     buffer = BytesIO()
@@ -606,7 +609,14 @@ def build_lesson_plan_pdf_bytes(
 
     story = []
 
+    # ── Top-left logo, then left-aligned title ─────────────────────────
     title = str(plan.get("title") or t("untitled_plan")).strip()
+    logo_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "static", "logo_classio_light.png"))
+    if os.path.isfile(logo_path):
+        logo = RLImage(logo_path, width=2.8 * cm, height=2.8 * cm, kind="proportional")
+        story.append(logo)
+        story.append(Spacer(1, 6))
+
     story.append(Paragraph(title, title_style))
 
     meta_parts = []

@@ -1,5 +1,6 @@
 import streamlit as st
 import datetime
+import re
 import pandas as pd
 from core.i18n import t
 from core.navigation import page_header
@@ -9,6 +10,12 @@ from helpers.student_meta import load_students_df
 from helpers.history import show_student_history
 from helpers.ui_components import translate_df_headers
 from helpers.whatsapp import _digits_only, normalize_phone_for_whatsapp
+from helpers.student_report import (
+    build_student_report_pdf,
+    build_report_whatsapp_url,
+    build_report_email_url,
+)
+from helpers.dashboard import rebuild_dashboard
 
 # 12.2) PAGE: STUDENTS
 # =========================
@@ -125,6 +132,68 @@ def render_students():
             with colB:
                 st.markdown(f"### {t('payments')}")
                 st.dataframe(translate_df_headers(payments_df), use_container_width=True, hide_index=True)
+
+            # ── Report actions: download / share ──────────────────────
+            st.markdown(f"#### {t('report_actions')}")
+
+            # get current package balance from dashboard
+            _dash = rebuild_dashboard()
+            _pkg_df = _dash[_dash["Student"] == hist_student].copy() if not _dash.empty else pd.DataFrame()
+
+            pdf_bytes = build_student_report_pdf(hist_student, lessons_df, payments_df, _pkg_df)
+            safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", hist_student.strip()) or "student"
+            file_name = f"report_{safe_name}.pdf"
+
+            # look up student contact info
+            _sdf = students_df
+            _row = _sdf.loc[_sdf["student"] == hist_student]
+            _email = str(_row.iloc[0].get("email", "")).strip() if not _row.empty else ""
+            _phone = str(_row.iloc[0].get("phone", "")).strip() if not _row.empty else ""
+
+            btn_cols = st.columns(3)
+            with btn_cols[0]:
+                st.download_button(
+                    label=f"📄 {t('download_pdf')}",
+                    data=pdf_bytes,
+                    file_name=file_name,
+                    mime="application/pdf",
+                    key="btn_download_student_report",
+                    use_container_width=True,
+                )
+            with btn_cols[1]:
+                if _phone:
+                    wa_url = build_report_whatsapp_url(hist_student, _phone)
+                    st.link_button(
+                        f"💬 {t('send_whatsapp')}",
+                        url=wa_url,
+                        use_container_width=True,
+                    )
+                else:
+                    st.button(
+                        f"💬 {t('send_whatsapp')}",
+                        disabled=True,
+                        help=t("no_phone_on_file"),
+                        key="btn_wa_report_disabled",
+                        use_container_width=True,
+                    )
+            with btn_cols[2]:
+                if _email:
+                    mail_url = build_report_email_url(hist_student, _email)
+                    st.link_button(
+                        f"📧 {t('send_email')}",
+                        url=mail_url,
+                        use_container_width=True,
+                    )
+                else:
+                    st.button(
+                        f"📧 {t('send_email')}",
+                        disabled=True,
+                        help=t("no_email_on_file"),
+                        key="btn_email_report_disabled",
+                        use_container_width=True,
+                    )
+            if _phone or _email:
+                st.caption(t("share_report_hint"))
 
     with st.expander(t("delete_student"), expanded=False):
         st.caption(t("delete_student_warning"))

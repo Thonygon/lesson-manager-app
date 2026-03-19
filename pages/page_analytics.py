@@ -36,6 +36,50 @@ def render_analytics():
     cpi_data = fetch_cpi_data(INFLATION_COUNTRIES.get(inflation_country, "TUR")) if inflation_on else {}
     _sym = CURRENCIES.get(display_cur, {}).get("symbol", "")
 
+    # Display-settings expander (currency + inflation)
+    with st.expander(f"⚙️ {t('display_settings')}"):
+        ds1, ds2 = st.columns(2)
+        _cur_options = list(CURRENCIES.keys())
+        with ds1:
+            st.selectbox(
+                t("base_currency"),
+                _cur_options,
+                index=_cur_options.index(base_cur) if base_cur in _cur_options else 0,
+                key="analytics_base_currency",
+                format_func=lambda c: f"{CURRENCIES[c]['symbol']}  {c} — {CURRENCIES[c]['name']}",
+            )
+        with ds2:
+            st.selectbox(
+                t("display_currency"),
+                _cur_options,
+                index=_cur_options.index(display_cur) if display_cur in _cur_options else 0,
+                key="analytics_display_currency",
+                format_func=lambda c: f"{CURRENCIES[c]['symbol']}  {c} — {CURRENCIES[c]['name']}",
+            )
+        inf1, inf2 = st.columns(2)
+        with inf1:
+            st.toggle(t("adjust_inflation"), key="analytics_inflation_on")
+        with inf2:
+            if st.session_state.get("analytics_inflation_on", False):
+                _country_options = sorted(INFLATION_COUNTRIES.keys())
+                st.selectbox(
+                    t("inflation_country"),
+                    _country_options,
+                    index=_country_options.index(inflation_country) if inflation_country in _country_options else 0,
+                    key="analytics_inflation_country",
+                )
+        # Status captions
+        _captions = []
+        if fx_rate != 1.0:
+            _captions.append(f"{t('fx_rate_caption')}: 1 {base_cur} = {fx_rate:.4f} {display_cur}")
+        if inflation_on:
+            if cpi_data:
+                _latest_yr = max(cpi_data.keys())
+                _captions.append(f"{t('inflation_data_up_to')} {_latest_yr}")
+            else:
+                _captions.append(t("cpi_no_data"))
+        if _captions:
+            st.caption(" · ".join(_captions))
     def cfmt(x):
         """money_fmt with the selected currency symbol."""
         return money_fmt(x, symbol=_sym)
@@ -580,51 +624,6 @@ def render_analytics():
 
     # ── Insights & Actions ──────────────────────────────────────
     st.markdown(f"### {t('insights_and_actions')}")
-
-    # Display-settings expander (currency + inflation)
-    with st.expander(f"⚙️ {t('display_settings')}"):
-        ds1, ds2 = st.columns(2)
-        _cur_options = list(CURRENCIES.keys())
-        with ds1:
-            st.selectbox(
-                t("base_currency"),
-                _cur_options,
-                index=_cur_options.index(base_cur) if base_cur in _cur_options else 0,
-                key="analytics_base_currency",
-                format_func=lambda c: f"{CURRENCIES[c]['symbol']}  {c} — {CURRENCIES[c]['name']}",
-            )
-        with ds2:
-            st.selectbox(
-                t("display_currency"),
-                _cur_options,
-                index=_cur_options.index(display_cur) if display_cur in _cur_options else 0,
-                key="analytics_display_currency",
-                format_func=lambda c: f"{CURRENCIES[c]['symbol']}  {c} — {CURRENCIES[c]['name']}",
-            )
-        inf1, inf2 = st.columns(2)
-        with inf1:
-            st.toggle(t("adjust_inflation"), key="analytics_inflation_on")
-        with inf2:
-            if st.session_state.get("analytics_inflation_on", False):
-                _country_options = sorted(INFLATION_COUNTRIES.keys())
-                st.selectbox(
-                    t("inflation_country"),
-                    _country_options,
-                    index=_country_options.index(inflation_country) if inflation_country in _country_options else 0,
-                    key="analytics_inflation_country",
-                )
-        # Status captions
-        _captions = []
-        if fx_rate != 1.0:
-            _captions.append(f"{t('fx_rate_caption')}: 1 {base_cur} = {fx_rate:.4f} {display_cur}")
-        if inflation_on:
-            if cpi_data:
-                _latest_yr = max(cpi_data.keys())
-                _captions.append(f"{t('inflation_data_up_to')} {_latest_yr}")
-            else:
-                _captions.append(t("cpi_no_data"))
-        if _captions:
-            st.caption(" · ".join(_captions))
 
     tab_summary, tab_rev, tab_delivery, tab_risk = st.tabs(
         [t("summary"), t("revenue_drivers"), t("teaching_activity"), t("risk_and_forecast")]

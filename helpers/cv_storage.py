@@ -16,6 +16,28 @@ AI_CV_COOLDOWN_SECONDS = 30
 SEX_OPTIONS_RAW = ["", "Male", "Female", "Other", "Prefer not to say"]
 
 
+def _parse_dob(raw) -> "date | None":
+    """Parse a date_of_birth value from profile or session into datetime.date."""
+    import datetime as _dt_mod
+    if isinstance(raw, _dt_mod.date):
+        return raw
+    s = str(raw or "").strip()[:10]
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y"):
+        try:
+            return _dt_mod.datetime.strptime(s, fmt).date()
+        except Exception:
+            continue
+    return None
+
+
+def _sanitize_phone(val: str) -> str:
+    """Keep only digits and leading +."""
+    import re as _re
+    return _re.sub(r"[^\d+]", "", str(val or "")).strip()
+
+
 def _cv():
     """Lazy import – avoids circular dependency with lesson_planner chain."""
     import helpers.cv_builder as cb
@@ -206,6 +228,10 @@ def build_cv_pdf_bytes(cv: dict) -> bytes:
     sty_body    = ParagraphStyle("CVBody",    parent=styles["BodyText"], fontSize=10, leading=13, textColor=colors.HexColor("#1E293B"), spaceAfter=3)
     sty_bullet  = ParagraphStyle("CVBullet",  parent=sty_body, leftIndent=12, firstLineIndent=-8)
 
+    sty_name_c    = ParagraphStyle("CVNameC",    parent=sty_name,    alignment=1)
+    sty_role_c    = ParagraphStyle("CVRoleC",    parent=sty_role,    alignment=1)
+    sty_contact_c = ParagraphStyle("CVContactC", parent=sty_contact, alignment=1)
+
     story = []
 
     full_name = str(cv.get("full_name") or cv.get("title") or "CV").strip()
@@ -213,7 +239,7 @@ def build_cv_pdf_bytes(cv: dict) -> bytes:
 
     contact_parts = [str(cv.get(f) or "").strip() for f in ("email", "phone", "location", "date_of_birth", "sex") if str(cv.get(f) or "").strip()]
 
-    # ── Header: name/contact left, optional photo right ────────────────
+    # ── Centered name / role / contact, optional photo beside name ───
     avatar_url = str(cv.get("avatar_url") or "").strip()
     _tmp_photo_path = None
     _photo_flowable = None
@@ -231,15 +257,15 @@ def build_cv_pdf_bytes(cv: dict) -> bytes:
         except Exception:
             _tmp_photo_path = None
 
-    left_cell = [Paragraph(full_name, sty_name)]
+    name_block = [Paragraph(full_name, sty_name_c)]
     if role:
-        left_cell.append(Paragraph(role, sty_role))
+        name_block.append(Paragraph(role, sty_role_c))
     if contact_parts:
-        left_cell.append(Paragraph("  |  ".join(contact_parts), sty_contact))
+        name_block.append(Paragraph("  |  ".join(contact_parts), sty_contact_c))
 
     if _photo_flowable:
         hdr_table = Table(
-            [[left_cell, _photo_flowable]],
+            [[name_block, _photo_flowable]],
             colWidths=[None, 3.0 * cm],
         )
         hdr_table.setStyle(TableStyle([
@@ -251,7 +277,7 @@ def build_cv_pdf_bytes(cv: dict) -> bytes:
         ]))
         story.append(hdr_table)
     else:
-        story.extend(left_cell)
+        story.extend(name_block)
 
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#3B82F6"), spaceAfter=8))
 
@@ -330,9 +356,12 @@ def build_cover_letter_pdf_bytes(content: str, title: str = "") -> bytes:
     sty_title = ParagraphStyle("CLTitle", parent=styles["Heading1"], fontSize=14, textColor=colors.HexColor("#1D4ED8"), spaceAfter=12)
     sty_body  = ParagraphStyle("CLBody",  parent=styles["BodyText"], fontSize=10.5, leading=16, textColor=colors.HexColor("#1E293B"), spaceAfter=10)
 
+    sty_title_c = ParagraphStyle("CLTitleC", parent=sty_title, alignment=1)
+
     story = []
+
     if title:
-        story.append(Paragraph(str(title), sty_title))
+        story.append(Paragraph(str(title), sty_title_c))
     for para in str(content or "").split("\n\n"):
         if para.strip():
             story.append(Paragraph(para.strip().replace("\n", "<br/>"), sty_body))
@@ -353,7 +382,8 @@ def render_cv_result(
     ai_prompt: str = "",
     title: str = "",
 ) -> None:
-    st.success(t("cv_ready"))
+    if not read_only:
+        st.success(t("cv_ready"))
     st.caption(f"{t('source_type')}: {t('mode_ai') if source_type == 'ai' else t('mode_template')}")
 
     avatar_url = str(cv.get("avatar_url") or "").strip()
@@ -450,6 +480,9 @@ def render_cv_result(
                 )
                 if ok:
                     st.success(t("cv_saved"))
+                    for k in ("quick_cv_result", "quick_cv_title", "quick_cv_source_type", "quick_cv_ai_prompt"):
+                        st.session_state.pop(k, None)
+                    st.rerun()
         with c2:
             if st.button(t("discard_cv"), key="btn_discard_cv", use_container_width=True):
                 for k in ("quick_cv_result", "quick_cv_title", "quick_cv_source_type", "quick_cv_ai_prompt"):
@@ -460,6 +493,16 @@ def render_cv_result(
 # -----------------------------------------------------------------------
 # UI: LIBRARY CARDS
 # -----------------------------------------------------------------------
+
+def delete_cv_record(record_id: str) -> bool:
+    try:
+        get_sb().table("professional_profiles").delete().eq("id", record_id).execute()
+        clear_app_caches()
+        return True
+    except Exception as e:
+        st.warning(f"Could not delete record: {e}")
+        return False
+
 
 def render_cv_library_cards(df: pd.DataFrame, prefix: str) -> None:
     if df is None or df.empty:
@@ -486,9 +529,19 @@ def render_cv_library_cards(df: pd.DataFrame, prefix: str) -> None:
                 if meta:
                     st.caption(" · ".join(meta))
             with top_r:
-                if st.button(t("view_plan"), key=f"{prefix}_view_{row_id}_{i}", use_container_width=True):
-                    st.session_state[f"{prefix}_selected"] = row.to_dict()
-                    st.rerun()
+                _btn_col1, _btn_col2 = st.columns(2)
+                with _btn_col1:
+                    if st.button(t("view"), key=f"{prefix}_view_{row_id}_{i}", use_container_width=True):
+                        st.session_state[f"{prefix}_selected"] = row.to_dict()
+                        st.toast(t("scroll_down_to_view"))
+                        st.rerun()
+                with _btn_col2:
+                    if st.button("🗑️", key=f"{prefix}_del_{row_id}_{i}", use_container_width=True, help=t("delete")):
+                        if delete_cv_record(str(row_id)):
+                            st.session_state.pop(f"{prefix}_selected", None)
+                            st.rerun()
+                        else:
+                            st.error(t("delete_failed"))
 
 
 # -----------------------------------------------------------------------
@@ -537,24 +590,36 @@ def render_quick_cv_builder_expander() -> None:
                             st.error(t("cv_import_no_text"))
                         else:
                             parsed = _cv().extract_cv_from_pdf_text(pdf_text)
+                            # Safely stringify list items (AI may return dicts)
+                            def _to_str_list(items):
+                                out = []
+                                for x in (items or []):
+                                    if isinstance(x, dict):
+                                        out.append(" – ".join(str(v) for v in x.values() if v))
+                                    else:
+                                        out.append(str(x))
+                                return out
                             # Map parsed fields into widget session_state keys
                             _field_map = {
                                 "cv_full_name":  str(parsed.get("full_name") or "").strip(),
                                 "cv_email":      str(parsed.get("email") or "").strip(),
-                                "cv_phone":      str(parsed.get("phone") or "").strip(),
+                                "cv_phone":      _sanitize_phone(parsed.get("phone") or ""),
                                 "cv_location":   str(parsed.get("location") or "").strip(),
-                                "cv_dob":        str(parsed.get("date_of_birth") or "").strip(),
                                 "cv_summary":    str(parsed.get("professional_summary") or "").strip(),
-                                "cv_education":  "\n".join(parsed.get("education") or []),
-                                "cv_experience": "\n".join(parsed.get("experience") or []),
-                                "cv_certs":      ", ".join(parsed.get("certifications") or []),
-                                "cv_skills_input": ", ".join(parsed.get("skills") or []),
+                                "cv_education":  "\n".join(_to_str_list(parsed.get("education"))),
+                                "cv_experience": "\n".join(_to_str_list(parsed.get("experience"))),
+                                "cv_certs":      ", ".join(_to_str_list(parsed.get("certifications"))),
+                                "cv_skills_input": ", ".join(_to_str_list(parsed.get("skills"))),
                                 "cv_availability": str(parsed.get("availability") or "").strip(),
                                 "cv_rate":       str(parsed.get("rate") or "").strip(),
                             }
                             for k, v in _field_map.items():
                                 if v:
                                     st.session_state[k] = v
+                            # Date of birth (needs datetime.date for st.date_input)
+                            _imp_dob = _parse_dob(parsed.get("date_of_birth"))
+                            if _imp_dob:
+                                st.session_state["cv_dob"] = _imp_dob
                             # Subjects / stages / langs from import
                             _imp_subjects = [s for s in (parsed.get("subjects") or []) if s in PROFILE_SUBJECT_OPTIONS]
                             if _imp_subjects:
@@ -625,9 +690,12 @@ def render_quick_cv_builder_expander() -> None:
         with pi3:
             cv_phone = st.text_input(
                 t("phone"),
-                value=str(profile.get("phone_number") or ""),
+                value=_sanitize_phone(profile.get("phone_number") or ""),
+                placeholder="+1234567890",
                 key="cv_phone",
+                help=t("phone_format_hint"),
             )
+            cv_phone = _sanitize_phone(cv_phone)
 
         pi4, pi5, pi6 = st.columns(3)
         with pi4:
@@ -637,10 +705,14 @@ def render_quick_cv_builder_expander() -> None:
                 key="cv_location",
             )
         with pi5:
-            cv_dob = st.text_input(
+            import datetime as _dt_mod
+            _dob_val = _parse_dob(profile.get("date_of_birth"))
+            cv_dob = st.date_input(
                 t("date_of_birth"),
-                value=str(profile.get("date_of_birth") or ""),
-                placeholder="YYYY-MM-DD",
+                value=_dob_val,
+                min_value=_dt_mod.date(1940, 1, 1),
+                max_value=_dt_mod.date.today(),
+                format="YYYY-MM-DD",
                 key="cv_dob",
             )
         with pi6:
@@ -778,7 +850,7 @@ def render_quick_cv_builder_expander() -> None:
                     email=cv_email.strip(),
                     phone=cv_phone.strip(),
                     location=cv_location.strip(),
-                    date_of_birth=cv_dob.strip(),
+                    date_of_birth=str(cv_dob) if cv_dob else "",
                     sex=cv_sex or "",
                     subjects=cv_subjects,
                     teaching_stages=cv_stages,
@@ -806,8 +878,8 @@ def render_quick_cv_builder_expander() -> None:
                         # Persist new profile fields if provided
                         if user_id:
                             _profile_patch = {}
-                            if cv_dob.strip():
-                                _profile_patch["date_of_birth"] = cv_dob.strip()
+                            if cv_dob:
+                                _profile_patch["date_of_birth"] = str(cv_dob)
                             if cv_sex and cv_sex != "Prefer not to say":
                                 _profile_patch["sex"] = cv_sex
                             if cv_phone.strip():
@@ -883,6 +955,9 @@ def render_quick_cv_builder_expander() -> None:
                     )
                     if ok:
                         st.success(t("cover_letter_saved"))
+                        for k in ("quick_cl_result", "quick_cl_title", "quick_cl_ai_prompt"):
+                            st.session_state.pop(k, None)
+                        st.rerun()
             with c2:
                 if st.button(t("discard_cover_letter"), key="btn_discard_cl", use_container_width=True):
                     for k in ("quick_cl_result", "quick_cl_title", "quick_cl_ai_prompt"):

@@ -340,10 +340,20 @@ def render_profile_dialog(user_id: str) -> None:
 
             p1, p2, p3 = st.columns(3)
             with p1:
-                date_of_birth_val = st.text_input(
+                import datetime as _dt_mod
+                _dob_raw = str(profile.get("date_of_birth") or "").strip()
+                _dob_default = None
+                if _dob_raw:
+                    try:
+                        _dob_default = _dt_mod.datetime.strptime(_dob_raw[:10], "%Y-%m-%d").date()
+                    except Exception:
+                        pass
+                date_of_birth_val = st.date_input(
                     t("date_of_birth"),
-                    value=str(profile.get("date_of_birth") or ""),
-                    placeholder="YYYY-MM-DD",
+                    value=_dob_default,
+                    min_value=_dt_mod.date(1940, 1, 1),
+                    max_value=_dt_mod.date.today(),
+                    format="YYYY-MM-DD",
                     key="profile_dob",
                 )
             with p2:
@@ -358,11 +368,15 @@ def render_profile_dialog(user_id: str) -> None:
                     key="profile_sex",
                 )
             with p3:
-                phone_number_val = st.text_input(
+                import re as _re
+                _raw_phone = st.text_input(
                     t("phone"),
-                    value=str(profile.get("phone_number") or ""),
+                    value=_re.sub(r"[^\d+]", "", str(profile.get("phone_number") or "")),
+                    placeholder="+1234567890",
                     key="profile_phone_number",
+                    help=t("phone_format_hint"),
                 )
+                phone_number_val = _re.sub(r"[^\d+]", "", _raw_phone)
 
             c1, c2 = st.columns(2)
 
@@ -481,7 +495,7 @@ def render_profile_dialog(user_id: str) -> None:
                         "teaching_languages": teaching_languages,
                         "default_lesson_duration": int(default_lesson_duration),
                         "onboarding_completed": True,
-                        "date_of_birth": date_of_birth_val.strip() or None,
+                        "date_of_birth": str(date_of_birth_val) if date_of_birth_val else None,
                         "sex": sex_val if sex_val else None,
                         "phone_number": phone_number_val.strip() or None,
                     }
@@ -497,6 +511,8 @@ def render_profile_dialog(user_id: str) -> None:
                     st.session_state["home_action_menu_prev"] = t("files")
                     st.success(t("profile_updated"))
                     st.rerun()
+                else:
+                    st.error(t("save_failed"))
 
             # ── Change email & password ──────────────────────────────────────
             st.divider()
