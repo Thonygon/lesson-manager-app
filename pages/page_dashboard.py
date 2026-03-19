@@ -14,6 +14,14 @@ from helpers.ui_components import pretty_df, translate_df_headers, translate_df
 from helpers.language import translate_status, translate_modality_value, translate_language_value
 from helpers.calendar_helpers import build_calendar_events
 from helpers.whatsapp import build_whatsapp_url, build_msg_confirm, build_msg_cancel, build_msg_package_header, build_pricing_block, _msg_lang_label
+from helpers.history import show_student_history
+from helpers.student_meta import load_students_df
+from helpers.student_report import (
+    build_student_report_pdf,
+    build_report_whatsapp_url,
+    build_report_email_url,
+)
+import re as _re
 
 # 12.1) PAGE: DASHBOARD
 # =========================
@@ -317,7 +325,80 @@ def render_dashboard():
         ],
     )
 
-    with st.expander(t("current_packages"), expanded=False):
+    with st.expander(t("view_student_reports"), expanded=False):
+        _dash_students = sorted(d["Student"].dropna().unique().tolist())
+        if not _dash_students:
+            st.info(t("no_students"))
+        else:
+            _rpt_student = st.selectbox(t("select_student"), _dash_students, key="dash_report_student")
+            _rpt_lessons, _rpt_payments = show_student_history(_rpt_student)
+
+            _rptA, _rptB = st.columns(2)
+            with _rptA:
+                st.markdown(f"### {t('lessons')}")
+                st.dataframe(translate_df_headers(_rpt_lessons), use_container_width=True, hide_index=True)
+            with _rptB:
+                st.markdown(f"### {t('payments')}")
+                st.dataframe(translate_df_headers(_rpt_payments), use_container_width=True, hide_index=True)
+
+            st.markdown(f"#### {t('report_actions')}")
+            _pkg_df = d[d["Student"] == _rpt_student].copy()
+            _rpt_pdf = build_student_report_pdf(_rpt_student, _rpt_lessons, _rpt_payments, _pkg_df)
+            _safe_name = _re.sub(r"[^A-Za-z0-9._-]+", "_", _rpt_student.strip()) or "student"
+            _rpt_file = f"report_{_safe_name}.pdf"
+
+            _sdf = load_students_df()
+            _srow = _sdf.loc[_sdf["student"] == _rpt_student]
+            _s_email = str(_srow.iloc[0].get("email", "")).strip() if not _srow.empty else ""
+            _s_phone = str(_srow.iloc[0].get("phone", "")).strip() if not _srow.empty else ""
+
+            _rpt_cols = st.columns(3)
+            with _rpt_cols[0]:
+                st.download_button(
+                    label=f"\U0001f4c4 {t('download_pdf')}",
+                    data=_rpt_pdf,
+                    file_name=_rpt_file,
+                    mime="application/pdf",
+                    key="dash_btn_download_report",
+                    use_container_width=True,
+                )
+            with _rpt_cols[1]:
+                if _s_phone:
+                    _wa_url = build_report_whatsapp_url(_rpt_student, _s_phone)
+                    st.link_button(
+                        f"\U0001f4ac {t('send_whatsapp')}",
+                        url=_wa_url,
+                        use_container_width=True,
+                    )
+                else:
+                    st.button(
+                        f"\U0001f4ac {t('send_whatsapp')}",
+                        disabled=True,
+                        help=t("no_phone_on_file"),
+                        key="dash_btn_wa_report_disabled",
+                        use_container_width=True,
+                    )
+            with _rpt_cols[2]:
+                if _s_email:
+                    _mail_url = build_report_email_url(_rpt_student, _s_email)
+                    st.link_button(
+                        f"\U0001f4e7 {t('send_email')}",
+                        url=_mail_url,
+                        use_container_width=True,
+                    )
+                else:
+                    st.button(
+                        f"\U0001f4e7 {t('send_email')}",
+                        disabled=True,
+                        help=t("no_email_on_file"),
+                        key="dash_btn_email_report_disabled",
+                        use_container_width=True,
+                    )
+            if _s_phone or _s_email:
+                st.caption(t("share_report_hint"))
+
+    _show_raw = st.toggle(t("show_raw_data"), value=False, key="dash_show_raw_packages")
+    if _show_raw:
         d_display = d.copy()
         d_display["Status"] = d_display["Status"].apply(translate_status)
         d_display["Modality"] = d_display.get("Modality", "").apply(translate_modality_value)
