@@ -56,7 +56,7 @@ def init_navigation_defaults():
     if "show_profile_dialog" not in st.session_state:
         st.session_state["show_profile_dialog"] = False
     if "home_action_menu_prev" not in st.session_state:
-        st.session_state["home_action_menu_prev"] = t("profile")
+        st.session_state["home_action_menu_prev"] = t("sign_out")
     if "home_action_menu_nonce" not in st.session_state:
         st.session_state["home_action_menu_nonce"] = 0
     if "top_nav_prev" not in st.session_state:

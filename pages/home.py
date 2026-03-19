@@ -69,11 +69,11 @@ def render_home():
         if "home_action_menu_nonce" not in st.session_state:
             st.session_state["home_action_menu_nonce"] = 0
 
-        default_action_index = 1 if panel == "files" else 0
+        default_action_index = 1 if panel == "files" else 2
 
         # Keep prev in sync with whatever the menu is currently showing
         if "home_action_menu_prev" not in st.session_state:
-            st.session_state["home_action_menu_prev"] = t("files") if panel == "files" else t("profile")
+            st.session_state["home_action_menu_prev"] = t("files") if panel == "files" else t("sign_out")
 
         action = option_menu(
             menu_title=None,
@@ -105,7 +105,7 @@ def render_home():
         )
 
         # The "default" item is effectively deselected/neutral – treat it as a no-op baseline
-        default_label = t("files") if panel == "files" else t("profile")
+        default_label = t("files") if panel == "files" else t("sign_out")
 
     with left:
         st.markdown(
@@ -123,39 +123,42 @@ def render_home():
             unsafe_allow_html=True,
         )
 
-        previous_action = st.session_state.get("home_action_menu_prev", t("profile"))
+        previous_action = st.session_state.get("home_action_menu_prev", t("sign_out"))
 
         if action != default_label:
             if action == t("profile"):
                 st.session_state["show_profile_dialog"] = True
                 st.session_state["home_action_menu_prev"] = t("profile")
                 st.session_state["home_action_menu_nonce"] += 1
+                st.session_state.pop("confirm_sign_out", None)
                 st.rerun()
 
             elif action == t("files"):
                 st.session_state["home_action_menu_prev"] = t("files")
+                st.session_state.pop("confirm_sign_out", None)
                 home_go("home", panel="files")
+                st.rerun()
 
             elif action == t("sign_out"):
-                sign_out_user()     
+                if st.session_state.get("confirm_sign_out"):
+                    st.session_state.pop("confirm_sign_out", None)
+                    sign_out_user()
+                else:
+                    st.session_state["confirm_sign_out"] = True
+                    st.session_state["home_action_menu_nonce"] += 1
+                    st.rerun()     
         
+    # ---------- SIGN OUT CONFIRMATION ----------
+    if st.session_state.get("confirm_sign_out"):
+        st.warning(t("confirm_sign_out_msg"))
+
     # ---------- PROFILE DIALOG ----------
     if st.session_state.get("show_profile_dialog"):
         st.session_state["show_profile_dialog"] = False
         render_profile_dialog(user_id)
 
     if panel == "files":
-        top_a, top_b = st.columns([6, 1])
-
-        with top_a:
-            st.markdown(f"### {t('files')}")
-
-        with top_b:
-            if st.button(t("close_files"), key="close_files_panel", use_container_width=True):
-                st.session_state["home_action_menu_prev"] = t("profile")
-                st.session_state["home_action_menu_nonce"] += 1
-                home_go("home", panel=None)
-                st.rerun()
+        st.markdown(f"### {t('files')}")
 
         tab1, tab2, tab3, tab4 = st.tabs([t("my_plans"), t("community_library"), t("my_cvs"), t("my_cover_letters")])
 
@@ -298,9 +301,20 @@ def render_home():
             with cv_det_l:
                 st.markdown(f"### {t('cv')}")
             with cv_det_r:
-                if st.button(t("close_plan"), key="close_selected_cv", use_container_width=True):
-                    st.session_state.pop("files_cv_selected", None)
-                    st.rerun()
+                _cv_close, _cv_del = st.columns(2)
+                with _cv_close:
+                    if st.button(t("close_cv"), key="close_selected_cv", use_container_width=True):
+                        st.session_state.pop("files_cv_selected", None)
+                        st.rerun()
+                with _cv_del:
+                    if st.button("🗑️", key="del_selected_cv", use_container_width=True, help=t("delete_cv")):
+                        from helpers.cv_storage import delete_cv_record
+                        _cv_id = selected_cv.get("id")
+                        if _cv_id and delete_cv_record(str(_cv_id)):
+                            st.session_state.pop("files_cv_selected", None)
+                            st.rerun()
+                        else:
+                            st.error(t("delete_failed"))
             cv_data = selected_cv.get("cv_json") or {}
             if isinstance(cv_data, str):
                 try:
@@ -323,9 +337,20 @@ def render_home():
             with cl_det_l:
                 st.markdown(f"### {t('cover_letter')}")
             with cl_det_r:
-                if st.button(t("close_plan"), key="close_selected_cl", use_container_width=True):
-                    st.session_state.pop("files_cl_selected", None)
-                    st.rerun()
+                _cl_close, _cl_del = st.columns(2)
+                with _cl_close:
+                    if st.button(t("close_cover_letter"), key="close_selected_cl", use_container_width=True):
+                        st.session_state.pop("files_cl_selected", None)
+                        st.rerun()
+                with _cl_del:
+                    if st.button("🗑️", key="del_selected_cl", use_container_width=True, help=t("delete_cover_letter")):
+                        from helpers.cv_storage import delete_cv_record
+                        _cl_id = selected_cl.get("id")
+                        if _cl_id and delete_cv_record(str(_cl_id)):
+                            st.session_state.pop("files_cl_selected", None)
+                            st.rerun()
+                        else:
+                            st.error(t("delete_failed"))
             cl_content = str(selected_cl.get("content") or "")
             cl_title   = str(selected_cl.get("title") or t("cover_letter"))
             st.text_area(t("cover_letter_content"), value=cl_content, height=300, disabled=True, key="files_cl_preview")
@@ -343,6 +368,14 @@ def render_home():
                 )
 
         st.markdown("</div>", unsafe_allow_html=True)
+
+        st.divider()
+        if st.button(t("close_files"), key="close_files_panel", use_container_width=True):
+            st.session_state["home_action_menu_prev"] = t("profile")
+            st.session_state["home_action_menu_nonce"] += 1
+            home_go("home", panel=None)
+            st.rerun()
+
         return
     # ---------- REAL VALUES ----------
     # Load preferred currency from profile (once per session)
@@ -395,12 +428,6 @@ def render_home():
         accent="#3B82F6",
     )
 
-    # --- Quick lesson planner expander ---
-    render_quick_lesson_planner_expander()
-
-    # --- Quick CV builder expander ---
-    render_quick_cv_builder_expander()
-
     # --- Section title between links and menu capsules ---
     # ---------- MENU ----------
     st.markdown(
@@ -446,6 +473,12 @@ def render_home():
                         st.rerun()
 
         st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+
+    # --- Quick lesson planner expander ---
+    render_quick_lesson_planner_expander()
+
+    # --- Quick CV builder expander ---
+    render_quick_cv_builder_expander()
 
     st.markdown('<div class="home-bottom-space"></div>', unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
