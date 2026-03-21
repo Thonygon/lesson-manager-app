@@ -303,11 +303,27 @@ def load_css_home():
         }
 
         div[data-testid="stExpander"]{
-          border-radius:18px;
+          border-radius:16px;
           border:1px solid var(--border);
           background:linear-gradient(180deg,var(--panel),var(--panel-2));
           box-shadow:var(--shadow-md);
-        }
+          transition: all 250ms ease;
+        }}
+
+        div[data-testid="stExpander"]:hover {{
+          box-shadow:var(--shadow-lg);
+          border-color:rgba(59,130,246,0.2);
+        }}
+
+        div[data-testid="stExpander"] summary {{
+          font-weight: 600;
+          font-size: 0.95rem;
+          padding: 0.9rem 1.1rem;
+        }}
+
+        div[data-testid="stExpander"] details[open] {{
+          padding-bottom: 0.5rem;
+        }}
 
         /* ---------- Section divider ---------- */
         .home-section-line{
@@ -366,10 +382,10 @@ def load_css_home():
 
         /* ---------- Home menu container ---------- */
         .home-menu-wrap{
-          padding: 14px;
-          margin-top: 8px;
+          padding: 16px;
+          margin-top: 10px;
           border-radius: var(--radius-xl);
-          background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+          background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
           border: 1px solid var(--border);
           box-shadow: var(--shadow-md);
         }
@@ -550,9 +566,15 @@ def load_css_app_light(compact: bool = False):
           --border:rgba(17,24,39,0.08);
           --border2:rgba(17,24,39,0.10);
           --text:#0f172a;
-          --muted:#475569;
+          --muted:#64748b;
           --primary:#2563EB;
+          --primary-light:#3B82F6;
+          --success:#10B981;
+          --warning:#F59E0B;
+          --danger:#EF4444;
           --shadow:0 12px 28px rgba(15,23,42,0.08);
+          --shadow-sm:0 2px 8px rgba(15,23,42,0.04);
+          --shadow-lg:0 20px 40px rgba(15,23,42,0.12);
         }}
 
         * {{ box-sizing: border-box; }}
@@ -599,8 +621,8 @@ def load_css_app_light(compact: bool = False):
         }}
 
         section[data-testid="stMain"] > div {{
-          padding-top: 0rem;
-          padding-bottom: 1.4rem;
+          padding-top: 1.2rem;
+          padding-bottom: 2rem;
           max-width: 1200px;
         }}
 
@@ -610,61 +632,121 @@ def load_css_app_light(compact: bool = False):
 
         h1, h2, h3 {{
           letter-spacing: -0.02em;
+          font-weight: 800;
+        }}
+
+        h1 {{
+          font-size: 2rem;
+          margin-bottom: 0.75rem;
+        }}
+
+        h2 {{
+          font-size: 1.5rem;
+          margin-bottom: 0.6rem;
+          margin-top: 1.5rem;
+        }}
+
+        h3 {{
+          font-size: 1.25rem;
+          margin-bottom: 0.5rem;
+          margin-top: 1.25rem;
+        }}
+
+        .stMarkdown {{
+          line-height: 1.6;
         }}
 
         div[data-testid="stVerticalBlockBorderWrapper"] {{
           background: linear-gradient(180deg, #ffffff, #fcfdff) !important;
           border: 1px solid var(--border) !important;
-          border-radius: 18px !important;
-          padding: 18px !important;
+          border-radius: 16px !important;
+          padding: 1.25rem !important;
           box-shadow: var(--shadow) !important;
+          transition: all 250ms ease;
+        }}
+
+        div[data-testid="stVerticalBlockBorderWrapper"]:hover {{
+          box-shadow: var(--shadow-lg) !important;
+          border-color: rgba(37,99,235,0.15) !important;
         }}
 
         div[data-testid="metric-container"] {{
           background: linear-gradient(180deg, #ffffff, #fbfdff) !important;
           border: 1px solid var(--border) !important;
-          padding: 14px 16px !important;
-          border-radius: 18px !important;
+          padding: 1rem 1.2rem !important;
+          border-radius: 16px !important;
           box-shadow: var(--shadow) !important;
+          transition: all 250ms ease;
+        }}
+
+        div[data-testid="metric-container"]:hover {{
+          transform: translateY(-2px);
+          box-shadow: var(--shadow-lg) !important;
         }}
 
         div[data-testid="stButton"] button {{
-          border-radius: 14px !important;
-          padding: 0.64rem 1rem !important;
+          border-radius: 12px !important;
+          padding: 0.7rem 1.2rem !important;
           border: 1px solid var(--border2) !important;
           background: linear-gradient(180deg, #ffffff, #f8fbff) !important;
           color: var(--text) !important;
           -webkit-text-fill-color: var(--text) !important;
-          font-weight: 700 !important;
-          transition: all 160ms ease;
-          box-shadow: 0 4px 14px rgba(15,23,42,0.04);
+          font-weight: 600 !important;
+          font-size: 0.95rem !important;
+          transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: var(--shadow-sm);
+          cursor: pointer !important;
         }}
 
         div[data-testid="stButton"] button:hover {{
-          transform: translateY(-1px);
-          border-color: rgba(37,99,235,0.25) !important;
+          transform: translateY(-2px);
+          border-color: rgba(37,99,235,0.3) !important;
+          background: linear-gradient(180deg, #ffffff, #eff6ff) !important;
           box-shadow:
-            0 0 0 4px rgba(37,99,235,0.08),
-            0 8px 18px rgba(15,23,42,0.06);
+            0 0 0 3px rgba(37,99,235,0.08),
+            0 12px 24px rgba(15,23,42,0.08);
+        }}
+
+        div[data-testid="stButton"] button:active {{
+          transform: translateY(0);
+          transition: all 100ms;
         }}
 
         div[data-testid="stTextInput"] input,
         div[data-testid="stTextArea"] textarea,
         div[data-testid="stNumberInput"] input,
         div[data-testid="stDateInput"] input {{
-          border-radius: 14px !important;
+          border-radius: 12px !important;
           background: white !important;
-          border: 1px solid var(--border2) !important;
+          border: 1.5px solid var(--border2) !important;
           color: var(--text) !important;
           -webkit-text-fill-color: var(--text) !important;
+          padding: 0.65rem 0.9rem !important;
+          font-size: 0.95rem !important;
+          transition: all 200ms ease;
+        }}
+
+        div[data-testid="stTextInput"] input:focus,
+        div[data-testid="stTextArea"] textarea:focus,
+        div[data-testid="stNumberInput"] input:focus,
+        div[data-testid="stDateInput"] input:focus {{
+          border-color: var(--primary-light) !important;
+          box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
+          outline: none !important;
         }}
 
         div[data-testid="stSelectbox"] [data-baseweb="select"] > div {{
-          border-radius: 14px !important;
+          border-radius: 12px !important;
           background: white !important;
-          border: 1px solid var(--border2) !important;
+          border: 1.5px solid var(--border2) !important;
           color: var(--text) !important;
           -webkit-text-fill-color: var(--text) !important;
+          transition: all 200ms ease;
+        }}
+
+        div[data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within {{
+          border-color: var(--primary-light) !important;
+          box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
         }}
 
         .stRadio, .stRadio *, .stToggle, .stToggle * {{
@@ -736,6 +818,141 @@ def load_css_app_light(compact: bool = False):
         section[data-testid="stMain"]{{
           padding-top: 0rem !important;
           margin-top: 0rem !important;
+        }}
+
+        /* Expander improvements */
+        div[data-testid="stExpander"] {{
+          border: 1px solid var(--border) !important;
+          border-radius: 14px !important;
+          background: linear-gradient(180deg, #ffffff, #fafbfc) !important;
+          box-shadow: var(--shadow-sm) !important;
+          margin-bottom: 0.75rem !important;
+          transition: all 200ms ease;
+        }}
+
+        div[data-testid="stExpander"]:hover {{
+          border-color: rgba(37,99,235,0.2) !important;
+          box-shadow: var(--shadow) !important;
+        }}
+
+        div[data-testid="stExpander"] summary {{
+          font-weight: 600 !important;
+          color: var(--text) !important;
+          padding: 0.9rem 1.1rem !important;
+          font-size: 0.95rem !important;
+        }}
+
+        div[data-testid="stExpander"] details[open] summary {{
+          border-bottom: 1px solid var(--border) !important;
+          margin-bottom: 0.75rem !important;
+        }}
+
+        /* Tabs styling */
+        .stTabs [data-baseweb="tab-list"] {{
+          gap: 0.5rem;
+          background: transparent;
+        }}
+
+        .stTabs [data-baseweb="tab"] {{
+          border-radius: 10px !important;
+          padding: 0.6rem 1.2rem !important;
+          font-weight: 600 !important;
+          background: rgba(255,255,255,0.7) !important;
+          border: 1px solid var(--border) !important;
+          color: var(--muted) !important;
+          transition: all 200ms ease;
+        }}
+
+        .stTabs [data-baseweb="tab"]:hover {{
+          background: rgba(255,255,255,1) !important;
+          color: var(--text) !important;
+          border-color: rgba(37,99,235,0.2) !important;
+        }}
+
+        .stTabs [aria-selected="true"] {{
+          background: linear-gradient(180deg, #eff6ff, #dbeafe) !important;
+          color: var(--primary) !important;
+          border-color: var(--primary-light) !important;
+          box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
+        }}
+
+        /* Success/Warning/Error messages */
+        .stSuccess, .stWarning, .stError, .stInfo {{
+          border-radius: 12px !important;
+          padding: 0.85rem 1rem !important;
+          border-left: 4px solid !important;
+          font-size: 0.95rem !important;
+          margin: 0.75rem 0 !important;
+        }}
+
+        .stSuccess {{
+          background: linear-gradient(90deg, #d1fae5 0%, #f0fdf4 100%) !important;
+          border-left-color: var(--success) !important;
+        }}
+
+        .stWarning {{
+          background: linear-gradient(90deg, #fef3c7 0%, #fefce8 100%) !important;
+          border-left-color: var(--warning) !important;
+        }}
+
+        .stError {{
+          background: linear-gradient(90deg, #fee2e2 0%, #fef2f2 100%) !important;
+          border-left-color: var(--danger) !important;
+        }}
+
+        .stInfo {{
+          background: linear-gradient(90deg, #dbeafe 0%, #eff6ff 100%) !important;
+          border-left-color: var(--primary) !important;
+        }}
+
+        /* Loading spinners */
+        .stSpinner > div {{
+          border-top-color: var(--primary) !important;
+        }}
+
+        /* Better spacing for sections */
+        .stMarkdown hr {{
+          margin: 1.5rem 0 !important;
+          border: none !important;
+          height: 1px !important;
+          background: linear-gradient(90deg, transparent, var(--border), transparent) !important;
+        }}
+
+        /* Tooltips and help text */
+        .stTooltipIcon {{
+          color: var(--muted) !important;
+        }}
+
+        /* Radio and checkbox improvements */
+        .stRadio > div {{
+          gap: 0.75rem !important;
+        }}
+
+        .stCheckbox > label {{
+          padding: 0.5rem !important;
+          border-radius: 8px !important;
+          transition: all 150ms ease;
+        }}
+
+        .stCheckbox > label:hover {{
+          background: rgba(37,99,235,0.05) !important;
+        }}
+
+        /* Mobile responsiveness */
+        @media (max-width: 768px) {{
+          section[data-testid="stMain"] > div {{
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+          }}
+
+          h1 {{ font-size: 1.75rem; }}
+          h2 {{ font-size: 1.35rem; }}
+          h3 {{ font-size: 1.15rem; }}
+
+          div[data-testid="stButton"] button {{
+            padding: 0.6rem 1rem !important;
+            font-size: 0.9rem !important;
+          }}
         }}
 
         {compact_css}
