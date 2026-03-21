@@ -19,6 +19,51 @@ from helpers.worksheet_builder import normalize_worksheet_output
 from helpers.goal_explorer import render_income_goal_calculator
 from core.database import load_community_profiles
 
+
+def _render_restore_dialog(user_id: str) -> None:
+    """Show a dialog for users whose account was soft-deleted within 90 days."""
+    from core.database import check_deleted_account, restore_deleted_account
+
+    info = check_deleted_account(user_id)
+    if not info:
+        return
+
+    deleted_at_raw = str(info.get("deleted_at") or "")
+    try:
+        from datetime import datetime as _dt, timezone as _tz
+        deleted_dt = _dt.fromisoformat(deleted_at_raw.replace("Z", "+00:00"))
+        days_elapsed = (_dt.now(_tz.utc) - deleted_dt).days
+        days_left = max(90 - days_elapsed, 0)
+        deleted_date_str = deleted_dt.strftime("%Y-%m-%d")
+    except Exception:
+        days_left = 90
+        deleted_date_str = "—"
+
+    if days_left <= 0:
+        # Past 90 days — wipe old profile and start fresh
+        restore_deleted_account(user_id)
+        return
+
+    @st.dialog(t("restore_account_title"))
+    def _restore_dlg():
+        msg = t("restore_account_msg").format(date=deleted_date_str, days=days_left)
+        st.info(msg)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button(t("restore_account_btn"), key="btn_restore_yes", use_container_width=True, type="primary"):
+                restore_deleted_account(user_id)
+                st.success(t("account_restored"))
+                st.session_state["show_profile_dialog"] = True
+                import time; time.sleep(1)
+                st.rerun()
+        with col2:
+            if st.button(t("restore_account_cancel"), key="btn_restore_no", use_container_width=True):
+                sign_out_user()
+
+    _restore_dlg()
+
+
 # 10) HOME SCREEN UI (DARK)
 # =========================
 def render_home():
@@ -159,6 +204,11 @@ def render_home():
     if st.session_state.get("show_profile_dialog"):
         st.session_state["show_profile_dialog"] = False
         render_profile_dialog(user_id)
+
+    # ---------- RESTORE ACCOUNT DIALOG ----------
+    if st.session_state.get("_show_restore_dialog"):
+        st.session_state["_show_restore_dialog"] = False
+        _render_restore_dialog(user_id)
 
     if panel == "files":
         st.markdown(f"### {t('files')}")

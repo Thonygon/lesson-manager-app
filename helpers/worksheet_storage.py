@@ -259,18 +259,31 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
     learner_stage = meta.get("learner_stage", ws.get("learner_stage", ""))
     level_or_band = meta.get("level_or_band", ws.get("level_or_band", ""))
 
-    pdf_bytes = build_worksheet_pdf_bytes(ws, subject=subject, topic=topic, ws_type=ws_type, learner_stage=learner_stage, level_or_band=level_or_band)
+    _pdf_kwargs = dict(subject=subject, topic=topic, ws_type=ws_type, learner_stage=learner_stage, level_or_band=level_or_band)
+    student_pdf = build_worksheet_pdf_bytes(ws, student_only=True, **_pdf_kwargs)
+    teacher_pdf = build_worksheet_pdf_bytes(ws, student_only=False, **_pdf_kwargs)
     safe_title = re.sub(r"[^A-Za-z0-9._-]+", "_", str(ws.get("title") or "worksheet").strip()) or "worksheet"
 
     if read_only:
-        st.download_button(
-            label=t("download_pdf"),
-            data=pdf_bytes,
-            file_name=f"{safe_title}.pdf",
-            mime="application/pdf",
-            key=f"dl_ws_pdf_{safe_title}",
-            use_container_width=True,
-        )
+        dc1, dc2 = st.columns(2)
+        with dc1:
+            st.download_button(
+                label=t("download_student_pdf"),
+                data=student_pdf,
+                file_name=f"{safe_title}_student.pdf",
+                mime="application/pdf",
+                key=f"dl_ws_stu_{safe_title}",
+                use_container_width=True,
+            )
+        with dc2:
+            st.download_button(
+                label=t("download_teacher_pdf"),
+                data=teacher_pdf,
+                file_name=f"{safe_title}_teacher.pdf",
+                mime="application/pdf",
+                key=f"dl_ws_tch_{safe_title}",
+                use_container_width=True,
+            )
     else:
         c1, c2 = st.columns(2)
         with c1:
@@ -282,14 +295,25 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
                 _wb().reset_worksheet_maker_state()
                 st.rerun()
 
-        st.download_button(
-            label=t("download_pdf"),
-            data=pdf_bytes,
-            file_name=f"{safe_title}.pdf",
-            mime="application/pdf",
-            key=f"dl_ws_pdf_inline_{safe_title}",
-            use_container_width=True,
-        )
+        dc1, dc2 = st.columns(2)
+        with dc1:
+            st.download_button(
+                label=t("download_student_pdf"),
+                data=student_pdf,
+                file_name=f"{safe_title}_student.pdf",
+                mime="application/pdf",
+                key=f"dl_ws_stu_inline_{safe_title}",
+                use_container_width=True,
+            )
+        with dc2:
+            st.download_button(
+                label=t("download_teacher_pdf"),
+                data=teacher_pdf,
+                file_name=f"{safe_title}_teacher.pdf",
+                mime="application/pdf",
+                key=f"dl_ws_tch_inline_{safe_title}",
+                use_container_width=True,
+            )
 
 
 # ── PDF generation ───────────────────────────────────────────────────
@@ -301,6 +325,7 @@ def build_worksheet_pdf_bytes(
     ws_type: str = "",
     learner_stage: str = "",
     level_or_band: str = "",
+    student_only: bool = False,
 ) -> bytes:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -367,8 +392,9 @@ def build_worksheet_pdf_bytes(
             story.append(Paragraph(f"{idx}. {q}", body_style))
         story.append(Spacer(1, 6))
 
-    _sec("ws_answer_key", ws.get("answer_key", ""))
-    _sec("ws_teacher_notes", ws.get("teacher_notes", []))
+    if not student_only:
+        _sec("ws_answer_key", ws.get("answer_key", ""))
+        _sec("ws_teacher_notes", ws.get("teacher_notes", []))
 
     doc.build(story)
     buf.seek(0)

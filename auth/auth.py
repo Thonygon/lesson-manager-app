@@ -298,7 +298,22 @@ def require_login():
                 st.success(t("account_created_check_email"))
 
             except Exception as e:
-                st.error(f"{t('signup_failed')}: {e}")
+                _err_str = str(e).lower()
+                if any(w in _err_str for w in ("already registered", "already been registered", "user already")):
+                    # Check if there's a deleted account with this email
+                    try:
+                        _check = get_sb().table("profiles").select("account_status").eq(
+                            "email", email2.strip()
+                        ).limit(1).execute()
+                        _rows = getattr(_check, "data", None) or []
+                        if _rows and _rows[0].get("account_status") == "deleted":
+                            st.warning(t("account_deleted_signup_hint"))
+                        else:
+                            st.error(f"{t('signup_failed')}: {e}")
+                    except Exception:
+                        st.error(f"{t('signup_failed')}: {e}")
+                else:
+                    st.error(f"{t('signup_failed')}: {e}")
 
     st.stop()
 
@@ -750,6 +765,48 @@ def render_profile_dialog(user_id: str) -> None:
                                 st.error(t("wrong_current_password"))
                             else:
                                 st.error(f"{t('update_failed')}: {_e}")
+
+            # ── Delete account ───────────────────────────────────────────
+            st.divider()
+            with st.expander(f"⚠️ {t('delete_account')}"):
+                st.warning(t("delete_account_warning"))
+                st.caption(t("supabase_retention_note"))
+                _del_confirm = st.checkbox(
+                    t("delete_account_confirm"), key="profile_delete_confirm"
+                )
+                _del_pwd = st.text_input(
+                    t("delete_account_password"),
+                    type="password",
+                    key="profile_delete_pwd",
+                )
+                if st.button(
+                    t("delete_account_btn"),
+                    key="btn_delete_account",
+                    use_container_width=True,
+                    type="primary",
+                    disabled=not _del_confirm,
+                ):
+                    if not _del_pwd:
+                        st.error(t("delete_account_password"))
+                    else:
+                        try:
+                            # Verify password
+                            get_sb().auth.sign_in_with_password(
+                                {"email": current_auth_email, "password": _del_pwd}
+                            )
+                            # Delete all user data
+                            from core.database import delete_user_data
+                            delete_user_data(user_id)
+                            st.success(t("delete_account_success"))
+                            import time; time.sleep(2)
+                            # Sign out
+                            sign_out_user()
+                        except Exception as _e:
+                            _err = str(_e).lower()
+                            if any(w in _err for w in ("invalid", "credentials", "wrong", "incorrect")):
+                                st.error(t("wrong_password"))
+                            else:
+                                st.error(f"{t('delete_failed')}: {_e}")
 
         _profile_dialog()
 
