@@ -8,7 +8,7 @@ from core.navigation import page_header
 from core.database import load_students, get_sb, clear_app_caches
 from helpers.calendar_helpers import build_calendar_events, render_fullcalendar, _parse_time_value, validate_hhmm
 from helpers.schedule import load_schedules, load_overrides, add_schedule, delete_schedule, add_override, delete_override
-from helpers.ui_components import pretty_df, translate_df_headers
+from helpers.ui_components import pretty_df, translate_df_headers, render_styled_dataframe
 
 # 12.5) PAGE: CALENDAR
 # =========================
@@ -190,11 +190,7 @@ def render_calendar():
                     ["id", "student", "weekday", "time", "duration_minutes", "active"]
                 ].sort_values(["student", "weekday", "time"])
 
-                st.dataframe(
-                    translate_df_headers(pretty_df(show)),
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                render_styled_dataframe(translate_df_headers(pretty_df(show)))
 
                 st.markdown(f"#### {t('delete_scheduled_lesson')}")
                 st.caption(t("delete_schedule_warning"))
@@ -370,11 +366,7 @@ def render_calendar():
                  "status", "note"]
             ].sort_values(["original_date", "student"])
 
-            st.dataframe(
-                translate_df_headers(pretty_df(show)),
-                use_container_width=True,
-                hide_index=True,
-            )
+            render_styled_dataframe(translate_df_headers(pretty_df(show)))
 
             del_id = st.number_input(
                 t("override_id"),

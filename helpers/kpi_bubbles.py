@@ -17,8 +17,8 @@ def kpi_stat_cards(values, accent_colors):
 
     gap = 10 if compact else 12
     card_width = 110 if compact else 120
-    card_bg = "#0f172a" if is_dark else "#f8fafc"
-    card_border = card_bg if is_dark else "rgba(17,24,39,0.08)"
+    card_bg = "#0f172a" if is_dark else "#f5f7fb"
+    card_border = card_bg if is_dark else "#f5f7fb"
     value_color = "#f1f5f9" if is_dark else "#0f172a"
     label_color = "#cbd5e1" if is_dark else "#475569"
     scrollbar_thumb = "rgba(148,163,184,0.28)" if is_dark else "rgba(0,0,0,0.15)"
