@@ -42,7 +42,10 @@ require_login()
 _post_login_action = st.session_state.pop("_post_login_action", None)
 if _post_login_action:
     from core.database import get_current_user_id as _gcuid
-    if _post_login_action == "profile_dialog":
+    if _post_login_action == "choose_username":
+        st.session_state["show_choose_username_dialog"] = True
+        st.session_state["page"] = "home"
+    elif _post_login_action == "profile_dialog":
         st.session_state["show_profile_dialog"] = True
         st.session_state["page"] = "home"
     elif _post_login_action == "restore_account":

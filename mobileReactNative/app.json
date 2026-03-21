@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "The Curated Studio",
+    "slug": "curated-studio",
+    "version": "0.5.0",
+    "sdkVersion": "55.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#f5f0e8"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.curatedstudio.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#f5f0e8"
+      },
+      "package": "com.curatedstudio.app"
+    }
+  }
+}
