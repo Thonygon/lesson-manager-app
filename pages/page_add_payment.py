@@ -17,7 +17,21 @@ from helpers.lesson_planner import QUICK_SUBJECTS
 def render_add_payment():
     page_header(t("payment"))
     st.caption(t("add_and_manage_your_payments"))
-    
+
+    tab_add, tab_view = st.tabs([
+        f"➕ {t('tab_add_payment')}",
+        f"📋 {t('tab_view_payments')}",
+    ])
+
+    with tab_add:
+        _render_add_payment_form()
+
+    with tab_view:
+        _render_view_payments()
+
+
+def _render_add_payment_form():
+    """Add payment form + payment editor (original logic)."""
     render_pricing_editor()
 
     students = load_students()
@@ -294,6 +308,101 @@ def render_add_payment():
                             st.rerun()
                         else:
                             st.error(t("some_updates_failed"))
+
+
+def _render_view_payments():
+    """View all payments sorted by year, displayed as informative cards."""
+    payments = load_table("payments")
+
+    if payments.empty:
+        st.info(t("no_data"))
+        return
+
+    # Normalise columns
+    for col in ["payment_date", "paid_amount", "number_of_lesson", "student", "modality", "subject", "currency"]:
+        if col not in payments.columns:
+            payments[col] = None
+
+    payments["payment_date"] = pd.to_datetime(payments["payment_date"], errors="coerce")
+    payments["paid_amount"] = pd.to_numeric(payments["paid_amount"], errors="coerce").fillna(0.0)
+    payments["number_of_lesson"] = pd.to_numeric(payments["number_of_lesson"], errors="coerce").fillna(0).astype(int)
+    payments["student"] = payments["student"].fillna("").astype(str).str.strip()
+    payments["modality"] = payments["modality"].fillna("Online").astype(str).str.strip()
+    payments["subject"] = payments["subject"].fillna("").astype(str).str.strip()
+    payments["currency"] = payments["currency"].fillna("").astype(str).str.strip()
+
+    valid = payments.dropna(subset=["payment_date"]).copy()
+    if valid.empty:
+        st.info(t("no_data"))
+        return
+
+    valid["year"] = valid["payment_date"].dt.year.astype(int)
+    current_year = datetime.date.today().year
+    available_years = sorted(valid["year"].unique(), reverse=True)
+
+    selected_year = st.selectbox(
+        t("filter_by_year"),
+        options=available_years,
+        index=0 if current_year not in available_years else available_years.index(current_year),
+        key="view_payments_year",
+    )
+
+    year_df = valid[valid["year"] == selected_year].sort_values("payment_date", ascending=False)
+
+    if year_df.empty:
+        st.info(t("no_payments_year", year=selected_year))
+        return
+
+    st.caption(f"**{len(year_df)}** payments · {selected_year}")
+
+    for _, row in year_df.iterrows():
+        date_str = row["payment_date"].strftime("%d %b %Y")
+        student_name = row["student"] or "—"
+        lessons = int(row["number_of_lesson"])
+        amount = float(row["paid_amount"])
+        modality = row["modality"]
+        subject = row["subject"] or "—"
+        cur = row["currency"]
+        sym = currency_symbol(cur) if cur else ""
+
+        modality_label = t("online") if modality == "Online" else t("offline")
+        modality_color = "#0ea5e9" if modality == "Online" else "#f59e0b"
+        amount_str = f"{sym} {amount:,.0f}" if sym else f"{amount:,.0f}"
+
+        st.markdown(
+            f"""
+            <div style="
+                background:#fff;
+                border:1px solid rgba(17,24,39,0.08);
+                border-left:4px solid #3B82F6;
+                border-radius:12px;
+                padding:14px 16px 12px 16px;
+                margin-bottom:10px;
+                box-shadow:0 1px 4px rgba(0,0,0,0.04);
+            ">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+                    <div style="font-weight:700;font-size:1rem;color:#0f172a;">
+                        {student_name}
+                    </div>
+                    <div style="font-size:1.05rem;font-weight:800;color:#1e40af;">
+                        {amount_str}
+                    </div>
+                </div>
+                <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+                    <span style="font-size:0.82rem;color:#64748b;">📅 {date_str}</span>
+                    <span style="font-size:0.82rem;color:#64748b;">·</span>
+                    <span style="font-size:0.82rem;color:#64748b;">📚 {lessons} {t('lessons_paid')}</span>
+                    <span style="font-size:0.82rem;color:#64748b;">·</span>
+                    <span style="font-size:0.82rem;padding:2px 8px;border-radius:10px;
+                                 background:{modality_color}22;color:{modality_color};font-weight:600;">
+                        {modality_label}
+                    </span>
+                    {f'<span style="font-size:0.82rem;color:#64748b;">· 📖 {subject}</span>' if subject != "—" else ""}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 # =========================

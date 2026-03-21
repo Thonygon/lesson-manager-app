@@ -14,6 +14,7 @@ from core.state import with_owner
 from core.database import clear_app_caches
 from helpers.ui_components import to_dt_naive, ts_today_naive
 from helpers.schedule import load_schedules, load_overrides
+from styles.theme import _is_dark
 from translations import I18N
 
 # 07.11) GOALS HELPERS
@@ -296,6 +297,29 @@ def render_home_indicator(
     if progress_label is None:
         progress_label = t("completed")
 
+    is_dark = _is_dark()
+    container_bg = (
+        "linear-gradient(135deg, rgba(30,58,95,0.72), rgba(26,37,53,0.96))"
+        if is_dark else
+        "linear-gradient(135deg, rgba(59,130,246,0.12), rgba(255,255,255,0.10))"
+    )
+    container_border = "rgba(148,163,184,0.22)" if is_dark else "rgba(59,130,246,0.25)"
+    container_shadow = "0 10px 28px rgba(2,6,23,0.32)" if is_dark else "0 10px 28px rgba(37,99,235,0.18)"
+    text_color = "#f1f5f9" if is_dark else "#0f172a"
+    badge_bg = "rgba(148,163,184,0.14)" if is_dark else "rgba(255,255,255,0.10)"
+    badge_border = "rgba(148,163,184,0.18)" if is_dark else "rgba(255,255,255,0.14)"
+    kpi_bg = "rgba(255,255,255,0.04)" if is_dark else "rgba(59,130,246,0.12)"
+    kpi_border = "rgba(148,163,184,0.16)" if is_dark else "rgba(255,255,255,0.14)"
+    kpi_label_color = "#cbd5e1" if is_dark else "#475569"
+    progress_bg = "rgba(255,255,255,0.08)" if is_dark else "rgba(255,255,255,0.10)"
+    progress_border = "rgba(148,163,184,0.16)" if is_dark else "rgba(59,130,246,0.12)"
+    progress_fill = (
+        f"linear-gradient(90deg, {accent}, rgba(191,219,254,0.72))"
+        if is_dark else
+        f"linear-gradient(90deg, {accent}, rgba(255,255,255,0.25))"
+    )
+    mini_color = "#cbd5e1" if is_dark else "#334155"
+
     # progress percent
     pct = None
     if progress is not None:
@@ -362,14 +386,10 @@ def render_home_indicator(
   padding: 14px 16px;
   border-radius: 18px;
 
-  background: linear-gradient(
-    135deg,
-    rgba(59,130,246,0.12),
-    rgba(255,255,255,0.10)
-  );
-  border: 1px solid rgba(59,130,246,0.25);
-  box-shadow: 0 10px 28px rgba(37,99,235,0.18);
-  color: var(--text);
+    background: {container_bg};
+    border: 1px solid {container_border};
+    box-shadow: {container_shadow};
+    color: {text_color};
 }}
 
 .home-indicator-left {{
@@ -404,8 +424,8 @@ def render_home_indicator(
   font-weight: 800;
   padding: 4px 8px;
   border-radius: 999px;
-  background: rgba(255,255,255,0.10);
-  border: 1px solid rgba(255,255,255,0.14);
+    background: {badge_bg};
+    border: 1px solid {badge_border};
 }}
 
 .home-indicator-mid {{
@@ -428,8 +448,9 @@ def render_home_indicator(
 .home-indicator-kpi {{
   padding: 6px 12px;
   border-radius: 14px;
-  background: rgba(59,130,246,0.12);
-  border: 1px solid rgba(255,255,255,0.14);
+    background: {kpi_bg};
+    border: 1px solid {kpi_border};
+    color: {text_color};
 
   flex: 0 0 130px;
   min-width: 130px;
@@ -442,13 +463,14 @@ def render_home_indicator(
 
 .home-indicator-kpi .k {{
   font-size: 0.70rem;
-  opacity: 0.72;
+    color: {kpi_label_color};
   margin-bottom: 2px;
 }}
 
 .home-indicator-kpi .v {{
   font-size: 0.92rem;
   font-weight: 900;
+    color: {text_color};
 }}
 
 .home-indicator-right {{
@@ -464,20 +486,20 @@ def render_home_indicator(
   height: 10px;
   border-radius: 999px;
   overflow: hidden;
-  background: rgba(255,255,255,0.10);
-  border: 1px solid rgba(59,130,246,0.12);
+    background: {progress_bg};
+    border: 1px solid {progress_border};
 }}
 
 .home-indicator-progress > div {{
   height: 100%;
-  background: linear-gradient(90deg, {accent}, rgba(255,255,255,0.25));
+    background: {progress_fill};
   border-radius: 999px;
   box-shadow: 0 0 18px rgba(59,130,246,0.22);
 }}
 
 .home-indicator-mini {{
   font-size: 0.78rem;
-  opacity: 0.8;
+    color: {mini_color};
 }}
 
 @media (max-width: 820px) {{

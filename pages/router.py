@@ -4,11 +4,12 @@ from streamlit_option_menu import option_menu
 from core.i18n import t
 from core.navigation import go_to, PAGE_KEYS, _set_query
 from auth.auth import sign_out_user
+from styles.theme import _is_dark
 
 
 def render_top_nav(active_page: str):
     current_lang = st.session_state.get("ui_lang", "en")
-    if current_lang not in ("en", "es"):
+    if current_lang not in ("en", "es", "tr"):
         current_lang = "en"
 
     items = [
@@ -59,9 +60,9 @@ def render_top_nav(active_page: str):
             "container": {
                 "padding": "0 !important",
                 "margin": "0 !important",
-                "background": "transparent",
+                "background": "#0f172a" if _is_dark() else "transparent",
             },
-            "icon": {"font-size": "16px", "color": "#2563EB"},
+            "icon": {"font-size": "16px", "color": "#60A5FA" if _is_dark() else "#2563EB"},
             "nav-link": {
                 "font-size": "13px",
                 "font-weight": "700",
@@ -69,14 +70,14 @@ def render_top_nav(active_page: str):
                 "margin": "0 4px 0 0",
                 "padding": "10px 12px",
                 "border-radius": "14px",
-                "color": "#475569",
-                "--hover-color": "#EEF4FF",
+                "color": "#94a3b8" if _is_dark() else "#475569",
+                "--hover-color": "rgba(96,165,250,0.18)" if _is_dark() else "#EEF4FF",
             },
             "nav-link-selected": {
-                "background": "linear-gradient(180deg, #eff6ff, #eaf2ff)",
-                "color": "#1D4ED8",
-                "border": "1px solid rgba(37,99,235,0.22)",
-                "box-shadow": "0 0 0 4px rgba(37,99,235,0.08)",
+                "background": "linear-gradient(180deg, #1e3a5f, #162844)" if _is_dark() else "linear-gradient(180deg, #eff6ff, #eaf2ff)",
+                "color": "#f1f5f9" if _is_dark() else "#1D4ED8",
+                "border": "1px solid rgba(96,165,250,0.30)" if _is_dark() else "1px solid rgba(37,99,235,0.22)",
+                "box-shadow": "0 0 0 4px rgba(96,165,250,0.08)" if _is_dark() else "0 0 0 4px rgba(37,99,235,0.08)",
             },
         },
     )

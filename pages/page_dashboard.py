@@ -3,14 +3,17 @@ import datetime
 from datetime import datetime as _dt, timezone
 import pandas as pd
 from core.i18n import t
-from core.timezone import today_local
-from core.navigation import page_header
+from core.timezone import today_local, now_local
+from core.navigation import page_header, go_to
 from core.database import norm_student, update_payment_row, clear_app_caches
 from helpers.dashboard import rebuild_dashboard
 from helpers.student_meta import student_meta_maps
-from helpers.goals import load_app_settings_map, save_app_setting
+from helpers.goals import load_app_settings_map, save_app_setting, render_home_indicator, YEAR_GOAL_SCOPE, get_next_lesson_display
 from helpers.kpi_bubbles import kpi_stat_cards
-from helpers.ui_components import pretty_df, translate_df_headers, translate_df
+from helpers.ui_components import pretty_df, translate_df_headers, translate_df, ts_today_naive
+from helpers.analytics import build_income_analytics
+from helpers.year_goals import get_year_goal
+from helpers.currency import format_currency, get_preferred_currency, get_exchange_rate
 from helpers.language import translate_status, translate_modality_value, translate_language_value
 from helpers.calendar_helpers import build_calendar_events
 from helpers.whatsapp import build_whatsapp_url, build_msg_confirm, build_msg_cancel, build_msg_package_header, build_pricing_block, _msg_lang_label
@@ -45,6 +48,51 @@ def render_dashboard():
         (d["Status"].isin(["active", "almost_finished", "mismatch"])) |
         ((d["Status"] == "finished") & (d["Is_Active_6m"] == True))
     ].copy()
+
+    # ---------------------------------------
+    # GOAL INDICATOR
+    # ---------------------------------------
+    active_students = int(
+        d["Status"]
+        .isin(["active", "almost_finished", "mismatch"])
+        .sum()
+    )
+
+    next_lesson = get_next_lesson_display()
+
+    kpis, *_ = build_income_analytics(group="monthly")
+    income_this_year = float(kpis.get("income_this_year", 0.0))
+
+    current_year = int(ts_today_naive().year)
+    goal_val = float(get_year_goal(current_year, scope=YEAR_GOAL_SCOPE, default=0.0) or 0.0)
+
+    pref_cur = get_preferred_currency()
+    fx_rate = get_exchange_rate("TRY", pref_cur)
+    goal_display = goal_val * fx_rate
+    income_display = income_this_year * fx_rate
+
+    goal_progress = 0.0
+    if goal_val > 0:
+        goal_progress = max(0.0, min(1.0, income_this_year / goal_val))
+
+    if goal_val > 0:
+        render_home_indicator(
+            status=t("online"),
+            badge=now_local().strftime("%d %b %Y"),
+            items=[
+                (t("goal"), format_currency(goal_display)),
+                (t("ytd_income"), format_currency(income_display)),
+                (t("students"), str(active_students)),
+                (t("next"), next_lesson),
+            ],
+            progress=goal_progress,
+            accent="#3B82F6",
+        )
+    else:
+        st.info(t("goal_not_set_invite"))
+        if st.button(t("analytics"), key="dash_go_analytics"):
+            go_to("analytics")
+            st.rerun()
 
     # ---------------------------------------
     # TODAY'S LESSONS (row: done | student+time | link)
@@ -152,7 +200,7 @@ def render_dashboard():
                         st.markdown(
                             f"<a href='{link}' target='_blank' style='text-decoration:none;'>"
                             f"<button style='width:100%;padding:0.62rem 1.0rem;border-radius:14px;"
-                            f"border:1px solid rgba(17,24,39,0.12);background:white;font-weight:700;cursor:pointer;'>"
+                            f"border:1px solid rgba(255,255,255,0.14);background:#253349;color:#f1f5f9;font-weight:700;cursor:pointer;'>"
                             f"{t('open_link')}</button></a>",
                             unsafe_allow_html=True,
                         )
@@ -171,14 +219,52 @@ def render_dashboard():
     if due_df.empty:
         st.caption(t("no_data"))
     else:
-        cols_due = ["Student", "Lessons_Left", "Status", "Modality", "Subject", "Payment_Date", "Last_Lesson_Date"]
-        cols_due = [c for c in cols_due if c in due_df.columns]
+        color_map, _, _, _ = student_meta_maps()
+        for _, row in due_df.iterrows():
+            student = str(row.get("Student", ""))
+            lessons_left = int(row.get("Lessons_Left", 0))
+            modality = translate_modality_value(str(row.get("Modality", "")))
+            subject = str(row.get("Subject", ""))
+            payment_date = str(row.get("Payment_Date", ""))[:10]
+            last_lesson = str(row.get("Last_Lesson_Date", ""))[:10]
+            s_color = color_map.get(norm_student(student), "#3B82F6")
 
-        show_due = due_df[cols_due].copy()
-        show_due["Status"] = show_due["Status"].apply(translate_status)
-        show_due["Modality"] = show_due.get("Modality", "").apply(translate_modality_value)
+            # Urgency styling
+            if lessons_left <= 1:
+                badge_bg = "#FEE2E2"; badge_color = "#991B1B"; badge_border = "#FECACA"
+            elif lessons_left <= 2:
+                badge_bg = "#FEF3C7"; badge_color = "#92400E"; badge_border = "#FDE68A"
+            else:
+                badge_bg = "#DBEAFE"; badge_color = "#1E40AF"; badge_border = "#BFDBFE"
 
-        st.dataframe(translate_df(pretty_df(show_due)), use_container_width=True, hide_index=True)
+            st.markdown(
+                f"""
+                <div style="
+                    background:var(--panel, #fff);
+                    border:1px solid var(--border-strong, rgba(17,24,39,0.08));
+                    border-left:4px solid {s_color};
+                    border-radius:12px;
+                    padding:14px 16px;
+                    margin-bottom:10px;
+                    box-shadow:0 1px 4px rgba(0,0,0,0.08);
+                ">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+                        <span style="font-weight:700;font-size:1rem;color:var(--text, #0f172a);">{student}</span>
+                        <span style="
+                            display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:700;
+                            background:{badge_bg};color:{badge_color};border:1px solid {badge_border};
+                        ">{lessons_left} {t('lessons_left')}</span>
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;font-size:13px;color:var(--muted, #475569);">
+                        <span>📚 {subject}</span>
+                        <span>📍 {modality}</span>
+                        <span>💳 {payment_date}</span>
+                        <span>📅 {last_lesson}</span>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     # ---------------------------------------
     # WHATSAPP TEMPLATES (PACKAGE / CONFIRM / CANCEL)
@@ -289,7 +375,7 @@ def render_dashboard():
     st.markdown(
         f"""
         <a href="{wa_url}" target="_blank" style="text-decoration:none;">
-          <button style="width:100%;padding:0.7rem 1rem;border-radius:14px;border:1px solid rgba(17,24,39,0.12);background:white;font-weight:700;cursor:pointer;">
+          <button style="width:100%;padding:0.7rem 1rem;border-radius:14px;border:1px solid var(--border-strong,rgba(17,24,39,0.12));background:var(--panel,white);color:var(--text,#0f172a);font-weight:700;cursor:pointer;">
             {t("open_whatsapp")}
           </button>
         </a>

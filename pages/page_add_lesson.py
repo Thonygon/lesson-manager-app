@@ -9,6 +9,7 @@ from helpers.language import LANG_EN, LANG_ES, allowed_lesson_language_from_pack
 from core.database import delete_row, update_class_row
 from helpers.package_lang_lookups import latest_payment_languages_for_student
 from helpers.lesson_planner import QUICK_SUBJECTS
+from helpers.planner_storage import render_quick_lesson_planner_expander
 
 # 12.3) PAGE: ADD LESSON
 # =========================
@@ -17,6 +18,9 @@ def render_add_lesson():
     st.caption(t("keep_track_of_your_lessons"))
 
     students = load_students()
+
+    # --- Quick lesson planner expander ---
+    render_quick_lesson_planner_expander()
 
     st.markdown(f"### {t('record_attendance')}")
     if not students:
