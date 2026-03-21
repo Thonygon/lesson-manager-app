@@ -52,21 +52,48 @@ def apply_auth_session() -> None:
         sb = get_sb()
         sb.auth.set_session(at, rt)
         user = sb.auth.get_user().user
-        profile_name = get_user_display_name(
-            (user.id if hasattr(user, "id") else "")
-        )
+        uid = user.id if hasattr(user, "id") else ""
+        profile_name = get_user_display_name(uid)
         _set_logged_in_user(user, profile_name=profile_name)
 
         # Sync auth email → profiles table (once per session, catches post-confirmation changes)
         if not st.session_state.get("_email_synced_to_profile"):
-            _user_id = getattr(user, "id", None)
             _auth_email = getattr(user, "email", None)
-            if _user_id and _auth_email:
+            if uid and _auth_email:
                 try:
-                    sb.table("profiles").update({"email": _auth_email}).eq("user_id", str(_user_id)).execute()
+                    sb.table("profiles").update({"email": _auth_email}).eq("user_id", str(uid)).execute()
                 except Exception:
                     pass
             st.session_state["_email_synced_to_profile"] = True
+
+        # ── Login-count & last-page redirect (run once per session) ──────────
+        if uid and not st.session_state.get("_login_redirect_done"):
+            st.session_state["_login_redirect_done"] = True
+            try:
+                _pres = sb.table("profiles").select(
+                    "login_count, last_page, onboarding_completed"
+                ).eq("user_id", str(uid)).limit(1).execute()
+                _prow = (getattr(_pres, "data", None) or [{}])[0]
+                _login_count = int(_prow.get("login_count") or 0)
+                _last_page   = str(_prow.get("last_page") or "").strip() or "dashboard"
+                _onboarded   = bool(_prow.get("onboarding_completed"))
+
+                # Increment and persist
+                _new_count = _login_count + 1
+                sb.table("profiles").update({"login_count": _new_count}).eq("user_id", str(uid)).execute()
+
+                # Decide where to land
+                if not _onboarded or _login_count == 0:
+                    # First ever login → open profile dialog
+                    st.session_state["_post_login_action"] = "profile_dialog"
+                elif _login_count == 1:
+                    # Second login → go to dashboard
+                    st.session_state["_post_login_action"] = "dashboard"
+                else:
+                    # Third+ login → restore last visited page
+                    st.session_state["_post_login_action"] = f"page:{_last_page}"
+            except Exception:
+                pass  # Non-fatal; app just opens normally
 
     except Exception:
         st.session_state["sb_access_token"] = None
@@ -100,6 +127,7 @@ def _load_table_cached(name: str, uid: str, limit: int = 10000, page_size: int =
         "students", "classes", "payments", "schedules", "calendar_overrides",
         "pricing_items", "app_settings", "profiles", "lesson_plans",
         "ai_usage_logs", "user_activity_log", "professional_profiles",
+        "worksheets",
     }
     try:
         sb = get_sb()
@@ -360,3 +388,59 @@ def update_class_row(class_id: int, updates: dict) -> bool:
         return True
     except Exception:
         return False
+
+
+def load_community_profiles() -> list:
+    """Return all profiles that have opted into the community (show_community_profile=True or NULL).
+    Returns a list of dicts with safe public fields only."""
+    try:
+        sb = get_sb()
+        res = (
+            sb.table("profiles")
+            .select(
+                "user_id, display_name, avatar_url, country, primary_subjects, "
+                "teaching_stages, education_level, active_student_count, "
+                "show_community_profile, show_community_contact, phone_number, "
+                "email, role"
+            )
+            .execute()
+        )
+        rows = getattr(res, "data", None) or []
+        return rows
+    except Exception:
+        return []
+
+
+def update_active_student_count(user_id: str) -> None:
+    """Refresh the cached active_student_count field in the profiles table for user_id."""
+    if not user_id:
+        return
+    try:
+        import pandas as pd
+        import datetime as _dt
+        sb = get_sb()
+        cutoff = (_dt.date.today() - _dt.timedelta(days=183)).isoformat()
+
+        # Count unique active students via recent lessons or payments
+        cls_res = sb.table("classes").select("student, lesson_date").eq("user_id", str(user_id)).execute()
+        cls_rows = getattr(cls_res, "data", None) or []
+        pay_res  = sb.table("payments").select("student, payment_date").eq("user_id", str(user_id)).execute()
+        pay_rows = getattr(pay_res, "data", None) or []
+
+        active_students: set = set()
+        for r in cls_rows:
+            d = str(r.get("lesson_date") or "")[:10]
+            if d >= cutoff:
+                active_students.add(str(r.get("student") or "").strip())
+        for r in pay_rows:
+            d = str(r.get("payment_date") or "")[:10]
+            if d >= cutoff:
+                active_students.add(str(r.get("student") or "").strip())
+        active_students.discard("")
+
+        sb.table("profiles").upsert(
+            {"user_id": str(user_id), "active_student_count": len(active_students)},
+            on_conflict="user_id",
+        ).execute()
+    except Exception:
+        pass

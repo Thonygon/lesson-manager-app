@@ -64,7 +64,7 @@ def init_navigation_defaults():
 
     # Sync from URL
     lang_qp = _get_qp("lang", None)
-    if lang_qp in ("en", "es"):
+    if lang_qp in ("en", "es", "tr"):
         st.session_state["ui_lang"] = lang_qp
 
     qp_page = str(_get_qp("page", "home") or "home")

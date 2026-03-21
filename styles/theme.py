@@ -46,37 +46,273 @@ def remove_streamlit_top_spacing():
 
 
 
+def _is_dark() -> bool:
+    return st.session_state.get("ui_theme", "light") == "dark"
+
+
+def _root_vars() -> str:
+    dark = _is_dark()
+    if dark:
+        return """
+          :root { color-scheme: dark; }
+          html, body { color-scheme: dark; }
+          :root {
+            --bg-1:#0f172a; --bg-2:#1a2640; --bg-3:#162032;
+            --bg:#0f172a;
+            --text:#f1f5f9; --muted:#94a3b8;
+            --panel:rgba(30,41,59,0.92); --panel-2:rgba(20,30,48,0.85);
+            --panel-soft:#1e2d42;
+            --border:rgba(255,255,255,0.08); --border-strong:rgba(255,255,255,0.14);
+            --border2:rgba(255,255,255,0.10);
+            --primary:#3B82F6; --primary-strong:#60A5FA; --primary-light:#60A5FA;
+            --success:#34D399; --warning:#FBBF24; --danger:#F87171;
+            --shadow:0 12px 28px rgba(0,0,0,0.30);
+            --shadow-sm:0 2px 8px rgba(0,0,0,0.20);
+            --shadow-md:0 12px 28px rgba(0,0,0,0.30); --shadow-lg:0 22px 55px rgba(0,0,0,0.40);
+            --radius-xl:24px; --radius-lg:18px; --radius-md:14px;
+            --platform-card-bg:#1e2b3f; --platform-card-border:rgba(96,165,250,0.22);
+            --platform-card-hover-bg:#243450; --platform-card-hover-border:#60a5fa;
+          }
+        """
+    return """
+          :root { color-scheme: light; }
+          html, body { color-scheme: light; }
+          :root {
+            --bg-1:#f5f7fb; --bg-2:#f8faff; --bg-3:#eef4ff;
+            --bg:#f5f7fb;
+            --text:#0f172a; --muted:#475569;
+            --panel:rgba(255,255,255,0.88); --panel-2:rgba(255,255,255,0.72);
+            --panel-soft:#fbfcff;
+            --border:rgba(17,24,39,0.08); --border-strong:rgba(17,24,39,0.12);
+            --border2:rgba(17,24,39,0.10);
+            --primary:#2563EB; --primary-strong:#1D4ED8; --primary-light:#3B82F6;
+            --success:#10B981; --warning:#F59E0B; --danger:#EF4444;
+            --shadow:0 12px 28px rgba(15,23,42,0.08);
+            --shadow-sm:0 2px 8px rgba(15,23,42,0.04);
+            --shadow-md:0 12px 28px rgba(15,23,42,0.08); --shadow-lg:0 22px 55px rgba(15,23,42,0.10);
+            --radius-xl:24px; --radius-lg:18px; --radius-md:14px;
+            --platform-card-bg:#eff6ff; --platform-card-border:rgba(59,130,246,0.25);
+            --platform-card-hover-bg:#dbeafe; --platform-card-hover-border:#3b82f6;
+          }
+        """
+
+
+def _dark_widget_css() -> str:
+    if not _is_dark():
+        return ""
+    return """
+      /* ── Background ── */
+      html, body,
+      .stApp,
+      [data-testid="stAppViewContainer"] {
+        background-color: var(--bg-1) !important;
+      }
+      .stApp {
+        background:
+          radial-gradient(900px 420px at 0% 0%, rgba(59,130,246,0.10), transparent 55%),
+          radial-gradient(700px 380px at 100% 0%, rgba(52,211,153,0.07), transparent 58%),
+          linear-gradient(180deg, var(--bg-2) 0%, var(--bg-1) 100%) !important;
+        color: var(--text) !important;
+      }
+
+      /* ── Text reset (broad) ── */
+      .stApp, .stApp * {
+        color: var(--text);
+        -webkit-text-fill-color: var(--text);
+      }
+      .stMarkdown p, .stMarkdown li, .stCaption, .stCaption * {
+        color: var(--muted) !important;
+        -webkit-text-fill-color: var(--muted) !important;
+      }
+      .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {
+        color: var(--text) !important;
+        -webkit-text-fill-color: var(--text) !important;
+      }
+      label, label * {
+        color: var(--text) !important;
+        -webkit-text-fill-color: var(--text) !important;
+      }
+
+      /* ── Streamlit border-wrapper cards (all pages) ── */
+      div[data-testid="stVerticalBlockBorderWrapper"] {
+        background: #1a2535 !important;
+        border: 1px solid rgba(255,255,255,0.10) !important;
+        border-radius: 18px !important;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.35) !important;
+      }
+      div[data-testid="stVerticalBlockBorderWrapper"] *,
+      div[data-testid="stVerticalBlockBorderWrapper"] p,
+      div[data-testid="stVerticalBlockBorderWrapper"] span,
+      div[data-testid="stVerticalBlockBorderWrapper"] li {
+        color: var(--text) !important;
+        -webkit-text-fill-color: var(--text) !important;
+      }
+
+      /* ── Metric cards ── */
+      div[data-testid="metric-container"] {
+        background: #1a2535 !important;
+        border: 1px solid rgba(255,255,255,0.10) !important;
+        border-radius: 18px !important;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.30) !important;
+      }
+      div[data-testid="metric-container"] * {
+        color: var(--text) !important;
+        -webkit-text-fill-color: var(--text) !important;
+      }
+
+      /* ── Buttons — uniform dark gray with white text ── */
+      div[data-testid="stButton"] button,
+      div[data-testid="stLinkButton"] a,
+      button[kind="primary"],
+      button[kind="secondary"] {
+        background: #253349 !important;
+        color: #f1f5f9 !important;
+        -webkit-text-fill-color: #f1f5f9 !important;
+        border: 1px solid rgba(255,255,255,0.14) !important;
+        border-radius: 14px !important;
+        font-weight: 700 !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.25) !important;
+      }
+      div[data-testid="stButton"] button *,
+      div[data-testid="stLinkButton"] a * {
+        color: #f1f5f9 !important;
+        -webkit-text-fill-color: #f1f5f9 !important;
+      }
+      div[data-testid="stButton"] button:hover,
+      div[data-testid="stLinkButton"] a:hover {
+        background: #2e3f58 !important;
+        border-color: rgba(96,165,250,0.40) !important;
+        transform: translateY(-1px);
+      }
+
+      /* ── Form submit / use_container_width buttons ── */
+      div[data-testid="stFormSubmitButton"] button {
+        background: #253349 !important;
+        color: #f1f5f9 !important;
+        -webkit-text-fill-color: #f1f5f9 !important;
+        border: 1px solid rgba(255,255,255,0.14) !important;
+      }
+
+      /* ── Download button ── */
+      div[data-testid="stDownloadButton"] button {
+        background: #253349 !important;
+        color: #f1f5f9 !important;
+        -webkit-text-fill-color: #f1f5f9 !important;
+        border: 1px solid rgba(255,255,255,0.14) !important;
+      }
+
+      /* ── Expanders ── */
+      div[data-testid="stExpander"] {
+        background: #1a2535 !important;
+        border: 1px solid rgba(255,255,255,0.10) !important;
+        border-radius: 14px !important;
+      }
+      div[data-testid="stExpander"] summary,
+      div[data-testid="stExpander"] summary *,
+      div[data-testid="stExpander"] [data-testid="stExpanderToggleIcon"] {
+        color: #94a3b8 !important;
+        -webkit-text-fill-color: #94a3b8 !important;
+      }
+      div[data-testid="stExpander"] p,
+      div[data-testid="stExpander"] span,
+      div[data-testid="stExpander"] li {
+        color: var(--text) !important;
+        -webkit-text-fill-color: var(--text) !important;
+      }
+
+      /* ── Text inputs / textareas ── */
+      div[data-testid="stTextInput"] input,
+      div[data-testid="stTextArea"] textarea,
+      div[data-testid="stNumberInput"] input,
+      div[data-testid="stDateInput"] input {
+        background: #1e293b !important;
+        color: #f1f5f9 !important;
+        -webkit-text-fill-color: #f1f5f9 !important;
+        border-color: rgba(255,255,255,0.14) !important;
+      }
+
+      /* ── Selects / multiselects ── */
+      div[data-testid="stSelectbox"] [data-baseweb="select"] > div,
+      div[data-testid="stMultiSelect"] [data-baseweb="select"] > div {
+        background: #1e293b !important;
+        color: #f1f5f9 !important;
+        -webkit-text-fill-color: #f1f5f9 !important;
+        border-color: rgba(255,255,255,0.14) !important;
+      }
+      [data-baseweb="popover"] [role="listbox"],
+      [data-baseweb="menu"] { background: #1e293b !important; }
+      [data-baseweb="option"] { background: #1e293b !important; color: #f1f5f9 !important; }
+      [data-baseweb="option"]:hover,
+      [data-baseweb="option"][aria-selected="true"] { background: #273549 !important; }
+
+      /* ── Tabs ── */
+      [data-baseweb="tab-list"] {
+        background: transparent !important;
+        border-bottom-color: rgba(255,255,255,0.10) !important;
+      }
+      [data-baseweb="tab"] {
+        color: #94a3b8 !important;
+        -webkit-text-fill-color: #94a3b8 !important;
+      }
+      [data-baseweb="tab"][aria-selected="true"] {
+        color: #f1f5f9 !important;
+        -webkit-text-fill-color: #f1f5f9 !important;
+      }
+
+      /* ── Forms ── */
+      [data-testid="stForm"] {
+        background: #1a2535 !important;
+        border-color: rgba(255,255,255,0.10) !important;
+      }
+
+      /* ── KPI stat cards (kpi_bubbles.py) ── */
+      .kpi-stat-card {
+        background: #1a2535 !important;
+        border-color: transparent !important;
+      }
+      .kpi-stat-value { color: #f1f5f9 !important; }
+      .kpi-stat-label { color: #94a3b8 !important; }
+
+      /* ── Inline HTML cards (dashboard action cards, student cards) ── */
+      .dark-card {
+        background: #1a2535 !important;
+        border-color: rgba(255,255,255,0.10) !important;
+        color: var(--text) !important;
+      }
+
+      /* ── Dataframe ── */
+      div[data-testid="stDataFrame"] {
+        background: #1a2535 !important;
+        border-color: rgba(255,255,255,0.10) !important;
+      }
+
+      /* ── Popover ── */
+      div[data-testid="stPopover"] > div > div {
+        background: #1a2535 !important;
+        border-color: rgba(255,255,255,0.10) !important;
+      }
+
+      /* ── Subheader / text headings ── */
+      h1, h2, h3, h4, h5, h6,
+      [data-testid="stHeadingWithActionElements"] * {
+        color: #f1f5f9 !important;
+        -webkit-text-fill-color: #f1f5f9 !important;
+      }
+
+      /* ── Navigation top bar ── */
+      div[data-testid="stHorizontalBlock"] button,
+      [data-testid="stNavLink"] {
+        color: #94a3b8 !important;
+        -webkit-text-fill-color: #94a3b8 !important;
+      }
+    """
+
+
 def load_css_home():
+    st.markdown(f"<style>{_root_vars()}</style>", unsafe_allow_html=True)
     st.markdown(
         """
         <style>
-        :root { color-scheme: light !important; }
-        html, body { color-scheme: light !important; }
-
-        :root{
-          --bg-1:#f5f7fb;
-          --bg-2:#f8faff;
-          --bg-3:#eef4ff;
-
-          --text:#0f172a;
-          --muted:#475569;
-
-          --panel:rgba(255,255,255,0.88);
-          --panel-2:rgba(255,255,255,0.72);
-          --border:rgba(17,24,39,0.08);
-          --border-strong:rgba(17,24,39,0.12);
-
-          --primary:#2563EB;
-          --primary-strong:#1D4ED8;
-          --success:#10B981;
-          --danger:#EF4444;
-
-          --shadow-lg:0 22px 55px rgba(15,23,42,0.10);
-          --shadow-md:0 12px 28px rgba(15,23,42,0.08);
-          --radius-xl:24px;
-          --radius-lg:18px;
-          --radius-md:14px;
-        }
 
         * { box-sizing: border-box; }
 
@@ -532,6 +768,10 @@ def load_css_home():
         """,
         unsafe_allow_html=True,
     )
+    _dark_css = _dark_widget_css()
+    if _dark_css:
+        st.markdown(f"<style>{_dark_css}</style>", unsafe_allow_html=True)
+
 
 def load_css_app_light(compact: bool = False):
     compact_css = """
@@ -553,30 +793,10 @@ def load_css_app_light(compact: bool = False):
         }
     """ if compact else ""
 
+    st.markdown(f"<style>{_root_vars()}</style>", unsafe_allow_html=True)
     st.markdown(
         f"""
         <style>
-        :root {{ color-scheme: light !important; }}
-        html, body {{ color-scheme: light !important; }}
-
-        :root{{
-          --bg:#f5f7fb;
-          --panel:#ffffff;
-          --panel-soft:#fbfcff;
-          --border:rgba(17,24,39,0.08);
-          --border2:rgba(17,24,39,0.10);
-          --text:#0f172a;
-          --muted:#64748b;
-          --primary:#2563EB;
-          --primary-light:#3B82F6;
-          --success:#10B981;
-          --warning:#F59E0B;
-          --danger:#EF4444;
-          --shadow:0 12px 28px rgba(15,23,42,0.08);
-          --shadow-sm:0 2px 8px rgba(15,23,42,0.04);
-          --shadow-lg:0 20px 40px rgba(15,23,42,0.12);
-        }}
-
         * {{ box-sizing: border-box; }}
 
         html, body,
@@ -960,5 +1180,8 @@ def load_css_app_light(compact: bool = False):
         """,
         unsafe_allow_html=True,
     )
+    _dark_css = _dark_widget_css()
+    if _dark_css:
+        st.markdown(f"<style>{_dark_css}</style>", unsafe_allow_html=True)
 
 # =========================

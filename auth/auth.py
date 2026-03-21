@@ -101,6 +101,10 @@ def require_login():
         apply_auth_session()
 
         if get_current_user_id():
+            # Check for pending post-signup redirect
+            after_page = st.session_state.pop("_after_signup_page", None)
+            if after_page:
+                st.session_state["page"] = after_page
             return
 
         st.error("Could not restore the logged-in user. Please sign in again.")
@@ -108,6 +112,14 @@ def require_login():
         st.session_state["sb_access_token"] = None
         st.session_state["sb_refresh_token"] = None
         st.stop()
+
+    # Inject theme CSS for the login page
+    _dark_login = st.session_state.get("ui_theme", "light") == "dark"
+    from styles.theme import _root_vars, _dark_widget_css
+    st.markdown(f"<style>{_root_vars()}</style>", unsafe_allow_html=True)
+    _dw = _dark_widget_css()
+    if _dw:
+        st.markdown(f"<style>{_dw}</style>", unsafe_allow_html=True)
 
     # Always use the light logo
     logo_bytes = load_logo_bytes()
@@ -153,46 +165,69 @@ def require_login():
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown('<div class="login-topbar">', unsafe_allow_html=True)
-
-    col_title, col_menu = st.columns([6, 2], vertical_alignment="center")
-
-    with col_title:
-        st.markdown(f"## {t('login_title')}")
-
-    with col_menu:
-        lang_choice = option_menu(
-            menu_title=None,
-            options=["EN", "ES"],
-            orientation="horizontal",
-            default_index=0 if st.session_state.get("ui_lang", "en") == "en" else 1,
-            key="login_lang_menu",
-            styles={
-                "container": {"padding": "0", "background": "transparent"},
-                "nav-link": {
-                    "font-size": "14px",
-                    "text-align": "center",
-                    "padding": "6px 8px",
-                },
-                "nav-link-selected": {
-                    "background-color": "#3B82F6",
-                    "color": "white",
-                },
-            },
-        )
-
-    if lang_choice == "EN" and st.session_state.get("ui_lang") != "en":
-        st.session_state["ui_lang"] = "en"
-        _set_query(lang="en")
-        st.rerun()
-
-    if lang_choice == "ES" and st.session_state.get("ui_lang") != "es":
-        st.session_state["ui_lang"] = "es"
-        _set_query(lang="es")
-        st.rerun()
-
     st.markdown("</div>", unsafe_allow_html=True)
 
-    tab_login, tab_signup = st.tabs([t("sign_in"), t("sign_up")])
+    # After explorer CTA, show signup tab first so it's the active tab
+    _from_explore = st.session_state.pop("_explore_go_signup", False)
+
+    _lang_tab_label = "🌐"
+    _theme_tab_label = "🌙" if not _dark_login else "☀️"
+
+    if _from_explore:
+        tab_signup, tab_login, tab_explore, tab_lang, tab_theme = st.tabs(
+            [t("sign_up"), t("sign_in"), t("explore_tab"), _lang_tab_label, _theme_tab_label]
+        )
+    else:
+        tab_explore, tab_login, tab_signup, tab_lang, tab_theme = st.tabs(
+            [t("explore_tab"), t("sign_in"), t("sign_up"), _lang_tab_label, _theme_tab_label]
+        )
+
+    with tab_theme:
+        st.markdown(f"#### {'🌙 ' + t('dark_mode') if not _dark_login else '☀️ ' + t('light_mode')}")
+        _current_theme = st.session_state.get("ui_theme", "light")
+        _new_theme = st.radio(
+            t("select_theme"),
+            ["light", "dark"],
+            index=0 if _current_theme == "light" else 1,
+            format_func=lambda x: f"☀️ {t('light_mode')}" if x == "light" else f"🌙 {t('dark_mode')}",
+            key="login_theme_radio",
+            horizontal=True,
+        )
+        if _new_theme != _current_theme:
+            st.session_state["ui_theme"] = _new_theme
+            st.rerun()
+
+    with tab_lang:
+        _cur = st.session_state.get("ui_lang", "en")
+        _lang_options = {"en": "🇬🇧 English", "es": "🇪🇸 Español", "tr": "🇹🇷 Türkçe"}
+        _selected = st.radio(
+            t("language_ui"),
+            list(_lang_options.keys()),
+            index=list(_lang_options.keys()).index(_cur) if _cur in _lang_options else 0,
+            format_func=lambda x: _lang_options[x],
+            key="login_lang_radio",
+            horizontal=True,
+        )
+        if _selected != _cur:
+            st.session_state["ui_lang"] = _selected
+            _set_query(lang=_selected)
+            st.rerun()
+
+    with tab_explore:
+        from helpers.goal_explorer import render_goal_explorer
+        wants_signup = render_goal_explorer()
+        if wants_signup:
+            # Switch to Create Account tab on next rerun
+            st.session_state["_explore_go_signup"] = True
+            st.rerun()
+
+    if _from_explore:
+        with tab_signup:
+            pending_page = st.session_state.get("_after_signup_page")
+            if pending_page:
+                st.info(t("explore_signup_prompt_feature", feature=t(pending_page.replace("add_", ""))))
+            else:
+                st.info(t("explore_signup_prompt"))
 
     with tab_login:
         email = st.text_input(t("email"), key="login_email")
@@ -251,12 +286,115 @@ def require_login():
                         on_conflict="user_id",
                     ).execute()
 
+                    # Auto-save pending lesson plan from explore page
+                    _save_pending_explore_plan(user.id, name.strip())
+
+                    # Auto-save pending worksheet from explore page
+                    _save_pending_explore_worksheet(user.id, name.strip())
+
+                    # Auto-save pending CV from explore page
+                    _save_pending_explore_cv(user.id, name.strip())
+
                 st.success(t("account_created_check_email"))
 
             except Exception as e:
                 st.error(f"{t('signup_failed')}: {e}")
 
     st.stop()
+
+
+def _save_pending_explore_plan(user_id: str, display_name: str) -> None:
+    """If the user generated a lesson plan on the explore page, save it to their account."""
+    pending = st.session_state.pop("_pending_plan_after_signup", None)
+    if not pending:
+        return
+    plan = pending.get("plan")
+    meta = pending.get("meta", {})
+    if not plan:
+        return
+    try:
+        from datetime import datetime as _dt, timezone
+        get_sb().table("lesson_plans").insert({
+            "user_id": user_id,
+            "subject": str(meta.get("subject", "")).strip(),
+            "topic": str(meta.get("topic", "")).strip(),
+            "learner_stage": str(meta.get("learner_stage", "")).strip(),
+            "level_or_band": str(meta.get("level_or_band", "")).strip(),
+            "lesson_purpose": str(meta.get("lesson_purpose", "")).strip(),
+            "plan_language": st.session_state.get("ui_lang", "en"),
+            "student_material_language": "",
+            "source_type": "template",
+            "planner_mode": "template",
+            "plan_json": plan,
+            "title": str(plan.get("title", "")).strip(),
+            "author_name": display_name or "Unknown",
+            "subject_display": str(meta.get("subject", "")).strip(),
+            "is_public": True,
+            "created_at": _dt.now(timezone.utc).isoformat(),
+        }).execute()
+        st.success(t("explore_plan_auto_saved"))
+    except Exception:
+        pass  # Non-critical; user can re-create the plan after login
+
+
+def _save_pending_explore_worksheet(user_id: str, display_name: str) -> None:
+    """If the user generated a worksheet on the explore page, save it to their account."""
+    pending = st.session_state.pop("_pending_worksheet_after_signup", None)
+    if not pending:
+        return
+    ws = pending.get("worksheet")
+    meta = pending.get("meta", {})
+    if not ws:
+        return
+    try:
+        from datetime import datetime as _dt, timezone
+        get_sb().table("worksheets").insert({
+            "user_id": user_id,
+            "subject": str(meta.get("subject", "")).strip(),
+            "topic": str(meta.get("topic", "")).strip(),
+            "learner_stage": str(meta.get("learner_stage", "")).strip(),
+            "level_or_band": str(meta.get("level_or_band", "")).strip(),
+            "worksheet_type": str(meta.get("worksheet_type", "")).strip(),
+            "plan_language": st.session_state.get("ui_lang", "en"),
+            "student_material_language": "",
+            "source_type": "ai",
+            "worksheet_json": ws,
+            "title": str(ws.get("title", "")).strip(),
+            "author_name": display_name or "Unknown",
+            "subject_display": str(meta.get("subject", "")).strip(),
+            "is_public": True,
+            "created_at": _dt.now(timezone.utc).isoformat(),
+        }).execute()
+        st.success(t("explore_ws_auto_saved"))
+    except Exception:
+        pass  # Non-critical; user can re-create the worksheet after login
+
+
+def _save_pending_explore_cv(user_id: str, display_name: str) -> None:
+    """If the user generated a CV on the explore page, save it to their account."""
+    pending = st.session_state.pop("_pending_cv_after_signup", None)
+    if not pending:
+        return
+    cv = pending.get("cv")
+    meta = pending.get("meta", {})
+    if not cv:
+        return
+    try:
+        from datetime import datetime as _dt, timezone
+        full_name = str(meta.get("full_name") or display_name or "").strip()
+        title = f"{full_name} CV" if full_name else "My CV"
+        get_sb().table("professional_profiles").insert({
+            "user_id": user_id,
+            "doc_type": "cv",
+            "title": title,
+            "source_type": "ai",
+            "cv_json": cv,
+            "ai_prompt": "",
+            "created_at": _dt.now(timezone.utc).isoformat(),
+        }).execute()
+        st.success(t("explore_cv_auto_saved"))
+    except Exception:
+        pass  # Non-critical; user can regenerate the CV after login
 
 
 def _profile_subject_label(subject: str) -> str:
@@ -381,11 +519,15 @@ def render_profile_dialog(user_id: str) -> None:
             c1, c2 = st.columns(2)
 
             with c1:
+                _lang_options = ["en", "es", "tr"]
+                _lang_labels = {"en": "english", "es": "spanish", "tr": "turkish"}
+                _lang_flags = {"en": "🇬🇧 ", "es": "🇪🇸 ", "tr": "🇹🇷 "}
+                _cur_lang = str(profile.get("preferred_ui_language") or st.session_state.get("ui_lang", "en"))
                 preferred_ui_language = st.selectbox(
                     t("preferred_ui_language"),
-                    ["en", "es"],
-                    index=0 if str(profile.get("preferred_ui_language") or st.session_state.get("ui_lang", "en")) == "en" else 1,
-                    format_func=lambda x: t("english") if x == "en" else t("spanish"),
+                    _lang_options,
+                    index=_lang_options.index(_cur_lang) if _cur_lang in _lang_options else 0,
+                    format_func=lambda x: _lang_flags.get(x, "") + t(_lang_labels.get(x, "english")),
                     key="profile_preferred_ui_language",
                 )
 
@@ -467,6 +609,50 @@ def render_profile_dialog(user_id: str) -> None:
                 key="profile_teaching_languages",
             )
 
+            _edu_options = ["", "edu_student", "edu_bachelors", "edu_masters", "edu_doctorate"]
+            _edu_default = str(profile.get("education_level") or "")
+            _edu_idx = _edu_options.index(_edu_default) if _edu_default in _edu_options else 0
+            education_level = st.selectbox(
+                t("education_level"),
+                _edu_options,
+                index=_edu_idx,
+                format_func=lambda x: t(x) if x else "—",
+                key="profile_education_level",
+            )
+
+            st.divider()
+            st.markdown(f"**� {t('appearance')}**")
+            _cur_theme = st.session_state.get("ui_theme", "light")
+            _theme_choice = st.radio(
+                t("select_theme"),
+                ["light", "dark"],
+                index=0 if _cur_theme == "light" else 1,
+                format_func=lambda x: f"☀️ {t('light_mode')}" if x == "light" else f"🌙 {t('dark_mode')}",
+                key="profile_theme_radio",
+                horizontal=True,
+            )
+            if _theme_choice != _cur_theme:
+                st.session_state["ui_theme"] = _theme_choice
+
+            st.divider()
+            st.markdown(f"**🌐 {t('show_community_profile')}**")
+            show_community_profile = st.toggle(
+                t("show_community_profile"),
+                value=bool(profile.get("show_community_profile", False)),
+                key="profile_show_community",
+                label_visibility="collapsed",
+                help=t("community_profile_hint"),
+            )
+            if show_community_profile:
+                show_community_contact = st.toggle(
+                    t("show_community_contact"),
+                    value=bool(profile.get("show_community_contact", False)),
+                    key="profile_show_community_contact",
+                    help=t("community_contact_hint"),
+                )
+            else:
+                show_community_contact = False
+
             save_profile = st.button(t("save_profile"), key="profile_save_btn", use_container_width=True)
 
             if save_profile:
@@ -498,10 +684,15 @@ def render_profile_dialog(user_id: str) -> None:
                         "date_of_birth": str(date_of_birth_val) if date_of_birth_val else None,
                         "sex": sex_val if sex_val else None,
                         "phone_number": phone_number_val.strip() or None,
+                        "education_level": education_level if education_level else None,
+                        "show_community_profile": show_community_profile,
+                        "show_community_contact": show_community_contact,
                     }
                 )
 
                 if ok:
+                    from core.database import update_active_student_count
+                    update_active_student_count(user_id)
                     st.session_state["user_name"] = display_name.strip() or st.session_state.get("user_name", "User")
                     st.session_state["avatar_url"] = new_avatar_url
                     st.session_state["ui_lang"] = preferred_ui_language

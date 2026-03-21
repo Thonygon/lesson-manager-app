@@ -4,11 +4,12 @@ from streamlit_option_menu import option_menu
 from core.i18n import t
 from core.navigation import go_to, PAGE_KEYS, _set_query
 from auth.auth import sign_out_user
+from styles.theme import _is_dark
 
 
 def render_top_nav(active_page: str):
     current_lang = st.session_state.get("ui_lang", "en")
-    if current_lang not in ("en", "es"):
+    if current_lang not in ("en", "es", "tr"):
         current_lang = "en"
 
     items = [
@@ -59,11 +60,11 @@ def render_top_nav(active_page: str):
             "container": {
                 "padding": "0 !important",
                 "margin": "0 0 1rem 0 !important",
-                "background": "transparent",
+                "background": "#0f172a" if _is_dark() else "transparent",
             },
             "icon": {
                 "font-size": "16px",
-                "color": "#2563EB",
+                "color": "#60A5FA" if _is_dark() else "#2563EB",
                 "transition": "all 200ms ease",
             },
             "nav-link": {
@@ -73,17 +74,17 @@ def render_top_nav(active_page: str):
                 "margin": "0 6px 0 0",
                 "padding": "0.65rem 1rem",
                 "border-radius": "12px",
-                "color": "#64748b",
-                "background": "rgba(255,255,255,0.5)",
-                "border": "1px solid rgba(17,24,39,0.08)",
+                "color": "#94a3b8" if _is_dark() else "#64748b",
+                "background": "transparent" if _is_dark() else "rgba(255,255,255,0.5)",
+                "border": "1px solid rgba(255,255,255,0.10)" if _is_dark() else "1px solid rgba(17,24,39,0.08)",
                 "transition": "all 200ms cubic-bezier(0.4, 0, 0.2, 1)",
-                "--hover-color": "#f1f5f9",
+                "--hover-color": "rgba(96,165,250,0.18)" if _is_dark() else "#f1f5f9",
             },
             "nav-link-selected": {
-                "background": "linear-gradient(180deg, #eff6ff, #dbeafe)",
-                "color": "#1D4ED8",
-                "border": "1px solid rgba(37,99,235,0.25)",
-                "box-shadow": "0 0 0 3px rgba(37,99,235,0.1), 0 4px 12px rgba(37,99,235,0.15)",
+                "background": "linear-gradient(180deg, #1e3a5f, #162844)" if _is_dark() else "linear-gradient(180deg, #eff6ff, #dbeafe)",
+                "color": "#f1f5f9" if _is_dark() else "#1D4ED8",
+                "border": "1px solid rgba(96,165,250,0.30)" if _is_dark() else "1px solid rgba(37,99,235,0.25)",
+                "box-shadow": ("0 0 0 4px rgba(96,165,250,0.08)" if _is_dark() else "0 0 0 3px rgba(37,99,235,0.1), 0 4px 12px rgba(37,99,235,0.15)"),
                 "transform": "translateY(-1px)",
             },
         },
