@@ -54,7 +54,8 @@ def apply_auth_session() -> None:
         user = sb.auth.get_user().user
         uid = user.id if hasattr(user, "id") else ""
         profile_name = get_user_display_name(uid)
-        _set_logged_in_user(user, profile_name=profile_name)
+        profile_username = get_user_username(uid)
+        _set_logged_in_user(user, profile_name=profile_name, profile_username=profile_username)
 
         # Sync auth email → profiles table (once per session, catches post-confirmation changes)
         if not st.session_state.get("_email_synced_to_profile"):
@@ -71,7 +72,7 @@ def apply_auth_session() -> None:
             st.session_state["_login_redirect_done"] = True
             try:
                 _pres = sb.table("profiles").select(
-                    "login_count, last_page, onboarding_completed, account_status, deleted_at"
+                    "login_count, last_page, onboarding_completed, account_status, deleted_at, username"
                 ).eq("user_id", str(uid)).limit(1).execute()
                 _prow = (getattr(_pres, "data", None) or [{}])[0]
 
@@ -84,13 +85,17 @@ def apply_auth_session() -> None:
                 _login_count = int(_prow.get("login_count") or 0)
                 _last_page   = str(_prow.get("last_page") or "").strip() or "dashboard"
                 _onboarded   = bool(_prow.get("onboarding_completed"))
+                _has_username = bool(str(_prow.get("username") or "").strip())
 
                 # Increment and persist
                 _new_count = _login_count + 1
                 sb.table("profiles").update({"login_count": _new_count}).eq("user_id", str(uid)).execute()
 
                 # Decide where to land
-                if not _onboarded or _login_count == 0:
+                if not _has_username:
+                    # Existing account without username → must choose one
+                    st.session_state["_post_login_action"] = "choose_username"
+                elif not _onboarded or _login_count == 0:
                     # First ever login → open profile dialog
                     st.session_state["_post_login_action"] = "profile_dialog"
                 elif _login_count == 1:
@@ -124,6 +129,43 @@ def get_user_display_name(user_id: str) -> str:
     except Exception:
         pass
     return ""
+
+
+def get_user_username(user_id: str) -> str:
+    try:
+        sb = get_sb()
+        res = (
+            sb.table("profiles")
+            .select("username")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        rows = res.data or []
+        if rows and rows[0].get("username"):
+            return rows[0]["username"]
+    except Exception:
+        pass
+    return ""
+
+
+def is_username_taken(username: str) -> bool:
+    """Check if a username is already in use by any profile."""
+    if not username or not username.strip():
+        return False
+    try:
+        sb = get_sb()
+        res = (
+            sb.table("profiles")
+            .select("user_id")
+            .eq("username", username.strip().lower())
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(res, "data", None) or []
+        return len(rows) > 0
+    except Exception:
+        return False
 
 
 # ---- Data access ----
@@ -405,7 +447,7 @@ def load_community_profiles() -> list:
         res = (
             sb.table("profiles")
             .select(
-                "user_id, display_name, avatar_url, country, primary_subjects, "
+                "user_id, display_name, username, avatar_url, country, primary_subjects, "
                 "teaching_stages, education_level, active_student_count, "
                 "show_community_profile, show_community_contact, phone_number, "
                 "email, role"

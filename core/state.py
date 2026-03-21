@@ -29,7 +29,7 @@ def with_owner(payload: dict) -> dict:
     return out
 
 
-def _set_logged_in_user(user, profile_name: str = "") -> None:
+def _set_logged_in_user(user, profile_name: str = "", profile_username: str = "") -> None:
     user_dict = _user_to_dict(user) or {}
     st.session_state["auth_user"] = user_dict
     st.session_state["user_id"] = user_dict.get("id")
@@ -42,6 +42,7 @@ def _set_logged_in_user(user, profile_name: str = "") -> None:
         or user_dict.get("email")
         or "User"
     )
+    st.session_state["user_username"] = profile_username or ""
 
 
 def _clear_logged_in_user() -> None:
@@ -49,6 +50,7 @@ def _clear_logged_in_user() -> None:
     st.session_state["user_id"] = None
     st.session_state["user_email"] = None
     st.session_state["user_name"] = None
+    st.session_state["user_username"] = None
     st.session_state["avatar_url"] = None
     st.session_state["_email_synced_to_profile"] = False
 

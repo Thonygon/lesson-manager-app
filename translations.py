@@ -43,7 +43,18 @@ I18N: Dict[str, Dict[str, str]] = {
         "signin_error": "Sign-in error",
         "signup_error": "Sign-up error",
         "account_created_now_signin": "Account created. Now sign in.",
-        "user_name": "User name",
+        "user_name": "Username",
+        "full_name_label": "Full name",
+        "username_taken": "This username is already taken.",
+        "username_available": "Username is available ✓",
+        "username_hint": "Choose a unique username (cannot be changed later).",
+        "username_not_editable": "Username cannot be changed.",
+        "check_availability": "Check availability",
+        "username_required": "Please enter a username.",
+        "full_name_required": "Please enter your full name.",
+        "choose_username_title": "Choose your username",
+        "choose_username_msg": "Welcome back! We now require a unique username. Please choose one to continue.",
+        "set_username_btn": "Set username",
 
         # -------------------------
         # DELETE / RESTORE ACCOUNT
@@ -902,6 +913,17 @@ I18N: Dict[str, Dict[str, str]] = {
         "signup_error": "Error al crear la cuenta",
         "account_created_now_signin": "Cuenta creada. Ahora inicia sesión.",
         "user_name": "Nombre de usuario",
+        "full_name_label": "Nombre completo",
+        "username_taken": "Este nombre de usuario ya está en uso.",
+        "username_available": "Nombre de usuario disponible ✓",
+        "username_hint": "Elige un nombre de usuario único (no se puede cambiar después).",
+        "username_not_editable": "El nombre de usuario no se puede cambiar.",
+        "check_availability": "Verificar disponibilidad",
+        "username_required": "Por favor, ingresa un nombre de usuario.",
+        "full_name_required": "Por favor, ingresa tu nombre completo.",
+        "choose_username_title": "Elige tu nombre de usuario",
+        "choose_username_msg": "¡Bienvenido de nuevo! Ahora requerimos un nombre de usuario único. Por favor elige uno para continuar.",
+        "set_username_btn": "Establecer nombre de usuario",
 
         # -------------------------
         # DELETE / RESTORE ACCOUNT
@@ -1761,6 +1783,17 @@ I18N: Dict[str, Dict[str, str]] = {
         "signup_error": "Kayıt hatası",
         "account_created_now_signin": "Hesap oluşturuldu. Şimdi giriş yapın.",
         "user_name": "Kullanıcı adı",
+        "full_name_label": "Tam ad",
+        "username_taken": "Bu kullanıcı adı zaten alınmış.",
+        "username_available": "Kullanıcı adı müsait ✓",
+        "username_hint": "Benzersiz bir kullanıcı adı seçin (daha sonra değiştirilemez).",
+        "username_not_editable": "Kullanıcı adı değiştirilemez.",
+        "check_availability": "Uygunluğu kontrol et",
+        "username_required": "Lütfen bir kullanıcı adı girin.",
+        "full_name_required": "Lütfen tam adınızı girin.",
+        "choose_username_title": "Kullanıcı adınızı seçin",
+        "choose_username_msg": "Tekrar hoş geldiniz! Artık benzersiz bir kullanıcı adı gereklidir. Devam etmek için lütfen birini seçin.",
+        "set_username_btn": "Kullanıcı adını belirle",
 
         # -------------------------
         # DELETE / RESTORE ACCOUNT

@@ -4,7 +4,7 @@ from core.i18n import t
 from core.navigation import go_to, home_go, PAGES
 from core.timezone import _get_qp
 from core.database import load_table, load_students, clear_app_caches
-from auth.auth import render_logout_button, render_profile_dialog
+from auth.auth import render_logout_button, render_profile_dialog, render_choose_username_dialog
 from styles.theme import load_css_home
 from styles.theme import _is_dark
 from streamlit_option_menu import option_menu
@@ -199,6 +199,11 @@ def render_home():
     # ---------- SIGN OUT CONFIRMATION ----------
     if st.session_state.get("confirm_sign_out"):
         st.warning(t("confirm_sign_out_msg"))
+
+    # ---------- CHOOSE USERNAME DIALOG ----------
+    if st.session_state.get("show_choose_username_dialog"):
+        st.session_state["show_choose_username_dialog"] = False
+        render_choose_username_dialog(user_id)
 
     # ---------- PROFILE DIALOG ----------
     if st.session_state.get("show_profile_dialog"):
@@ -720,6 +725,8 @@ def render_home():
 
                     _rank = _rank_map.get(_p.get("user_id"), "")
                     _display_name = str(_p.get("display_name") or "").strip() or "—"
+                    _username = str(_p.get("username") or "").strip()
+                    _private_name = f"@{_username}" if _username else t("community_private_user")
                     _active_count = int(_p.get("active_student_count") or 0)
                     _subjects = _p.get("primary_subjects") or []
                     _subj_labels = ", ".join([_subj_label_fn(s) for s in _subjects]) if _subjects else "—"
@@ -779,7 +786,7 @@ def render_home():
                                 {_rank_html}
                                 <div style='width:40px;height:40px;border-radius:50%;flex-shrink:0;background:linear-gradient(135deg,#334155,#475569);display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:1.1rem;'>👤</div>
                                 <div style='flex:1;min-width:0;'>
-                                    <div style='font-weight:600;font-size:0.93rem;color:#cbd5e1;'>{_display_name}</div>
+                                    <div style='font-weight:600;font-size:0.93rem;color:#cbd5e1;'>{_private_name}</div>
                                     <div style='font-size:0.8rem;color:#64748b;'>{_subj_labels}</div>
                                     <div style='font-size:0.8rem;color:#38bdf8;margin-top:3px;'>👥 {_active_count} {t('community_active_students')}</div>
                                 </div>

@@ -12,7 +12,7 @@ from core.timezone import DEFAULT_TZ_NAME
 from core.navigation import _set_query
 from core.database import (
     get_sb, clear_app_caches, apply_auth_session, get_user_display_name,
-    load_profile_row, upsert_profile_row,
+    load_profile_row, upsert_profile_row, is_username_taken, get_user_username,
 )
 from helpers.currency import CURRENCIES, CURRENCY_CODES
 from core.database import (
@@ -259,61 +259,77 @@ def require_login():
                     st.error(f"{t('reset_failed')}: {e}")
 
     with tab_signup:
-        name = st.text_input(t("user_name"), key="signup_name")
+        username = st.text_input(t("user_name"), key="signup_username", help=t("username_hint"))
+
+        if username.strip():
+            if is_username_taken(username.strip().lower()):
+                st.error(t("username_taken"))
+            else:
+                st.success(t("username_available"))
+
+        full_name = st.text_input(t("full_name_label"), key="signup_full_name")
         email2 = st.text_input(t("email"), key="signup_email")
         password2 = st.text_input(t("password"), type="password", key="signup_password")
 
         if st.button(t("create_account"), key="btn_signup"):
-            try:
-                resp = get_sb().auth.sign_up({"email": email2, "password": password2})
+            if not username.strip():
+                st.error(t("username_required"))
+            elif not full_name.strip():
+                st.error(t("full_name_required"))
+            elif is_username_taken(username.strip().lower()):
+                st.error(t("username_taken"))
+            else:
+                try:
+                    resp = get_sb().auth.sign_up({"email": email2, "password": password2})
 
-                user = resp.user
-                if user:
-                    get_sb().table("profiles").upsert(
-                        {
-                            "user_id": user.id,
-                            "email": email2.strip(),
-                            "display_name": name.strip(),
-                            "preferred_ui_language": st.session_state.get("ui_lang", "en"),
-                            "timezone": DEFAULT_TZ_NAME,
-                            "default_lesson_duration": 45,
-                            "role": "teacher",
-                            "primary_subjects": [],
-                            "teaching_stages": [],
-                            "teaching_languages": [],
-                            "onboarding_completed": False,
-                        },
-                        on_conflict="user_id",
-                    ).execute()
+                    user = resp.user
+                    if user:
+                        get_sb().table("profiles").upsert(
+                            {
+                                "user_id": user.id,
+                                "email": email2.strip(),
+                                "username": username.strip().lower(),
+                                "display_name": full_name.strip(),
+                                "preferred_ui_language": st.session_state.get("ui_lang", "en"),
+                                "timezone": DEFAULT_TZ_NAME,
+                                "default_lesson_duration": 45,
+                                "role": "teacher",
+                                "primary_subjects": [],
+                                "teaching_stages": [],
+                                "teaching_languages": [],
+                                "onboarding_completed": False,
+                            },
+                            on_conflict="user_id",
+                        ).execute()
 
-                    # Auto-save pending lesson plan from explore page
-                    _save_pending_explore_plan(user.id, name.strip())
+                        # Auto-save pending lesson plan from explore page
+                        _save_pending_explore_plan(user.id, full_name.strip())
 
-                    # Auto-save pending worksheet from explore page
-                    _save_pending_explore_worksheet(user.id, name.strip())
+                        # Auto-save pending worksheet from explore page
+                        _save_pending_explore_worksheet(user.id, full_name.strip())
 
-                    # Auto-save pending CV from explore page
-                    _save_pending_explore_cv(user.id, name.strip())
+                        # Auto-save pending CV from explore page
+                        _save_pending_explore_cv(user.id, full_name.strip())
 
-                st.success(t("account_created_check_email"))
+                    st.success(t("account_created_check_email"))
 
-            except Exception as e:
-                _err_str = str(e).lower()
-                if any(w in _err_str for w in ("already registered", "already been registered", "user already")):
-                    # Check if there's a deleted account with this email
-                    try:
-                        _check = get_sb().table("profiles").select("account_status").eq(
-                            "email", email2.strip()
-                        ).limit(1).execute()
-                        _rows = getattr(_check, "data", None) or []
-                        if _rows and _rows[0].get("account_status") == "deleted":
-                            st.warning(t("account_deleted_signup_hint"))
-                        else:
+                except Exception as e:
+                    _err_str = str(e).lower()
+                    if any(w in _err_str for w in ("already registered", "already been registered", "user already")):
+                        # Check if there's a deleted account with this email
+                        try:
+                            _check = get_sb().table("profiles").select("account_status").eq(
+                                "email", email2.strip()
+                            ).limit(1).execute()
+                            _rows = getattr(_check, "data", None) or []
+                            if _rows and _rows[0].get("account_status") == "deleted":
+                                st.warning(t("account_deleted_signup_hint"))
+                            else:
+                                st.error(f"{t('signup_failed')}: {e}")
+                        except Exception:
                             st.error(f"{t('signup_failed')}: {e}")
-                    except Exception:
+                    else:
                         st.error(f"{t('signup_failed')}: {e}")
-                else:
-                    st.error(f"{t('signup_failed')}: {e}")
 
     st.stop()
 
@@ -473,8 +489,19 @@ def render_profile_dialog(user_id: str) -> None:
                 label_visibility="collapsed",
             )
 
-            display_name = st.text_input(
+            # Username (non-editable)
+            _current_username = str(profile.get("username") or st.session_state.get("user_username") or "")
+            st.text_input(
                 t("user_name"),
+                value=_current_username,
+                disabled=True,
+                key="profile_username_display",
+                help=t("username_not_editable"),
+            )
+
+            # Full name (editable)
+            display_name = st.text_input(
+                t("full_name_label"),
                 value=str(profile.get("display_name") or st.session_state.get("user_name") or ""),
                 key="profile_display_name",
             )
@@ -812,6 +839,46 @@ def render_profile_dialog(user_id: str) -> None:
 
     except Exception:
         st.warning(t("edit_profile"))
+
+
+def render_choose_username_dialog(user_id: str) -> None:
+    """Show a dialog forcing existing users to pick a unique username."""
+    try:
+        @st.dialog(t("choose_username_title"))
+        def _choose_username_dlg():
+            st.info(t("choose_username_msg"))
+
+            username = st.text_input(
+                t("user_name"),
+                key="choose_username_input",
+                help=t("username_hint"),
+            )
+
+            if username.strip():
+                if is_username_taken(username.strip().lower()):
+                    st.error(t("username_taken"))
+                else:
+                    st.success(t("username_available"))
+
+            if st.button(t("set_username_btn"), key="btn_set_username", use_container_width=True, type="primary"):
+                if not username.strip():
+                    st.error(t("username_required"))
+                elif is_username_taken(username.strip().lower()):
+                    st.error(t("username_taken"))
+                else:
+                    ok = upsert_profile_row(user_id, {"username": username.strip().lower()})
+                    if ok:
+                        st.session_state["user_username"] = username.strip().lower()
+                        st.session_state["show_choose_username_dialog"] = False
+                        st.success(t("profile_updated"))
+                        st.rerun()
+                    else:
+                        st.error(t("save_failed"))
+
+        _choose_username_dlg()
+
+    except Exception:
+        st.warning(t("choose_username_title"))
 
 
 def sign_out_user() -> None:
