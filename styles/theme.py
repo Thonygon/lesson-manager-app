@@ -305,6 +305,53 @@ def _dark_widget_css() -> str:
         color: #94a3b8 !important;
         -webkit-text-fill-color: #94a3b8 !important;
       }
+
+      /* ── Dialog / modal overlay ── */
+      div[role="dialog"],
+      div[data-testid="stDialog"],
+      div[data-testid="stModal"] > div {
+        background: #1a2535 !important;
+        border: 1px solid rgba(255,255,255,0.10) !important;
+        color: #f1f5f9 !important;
+      }
+      div[role="dialog"] *,
+      div[data-testid="stDialog"] *,
+      div[data-testid="stModal"] * {
+        color: #f1f5f9 !important;
+        -webkit-text-fill-color: #f1f5f9 !important;
+      }
+      div[role="dialog"] .stMarkdown p,
+      div[role="dialog"] .stMarkdown li,
+      div[role="dialog"] .stCaption,
+      div[role="dialog"] .stCaption * {
+        color: #94a3b8 !important;
+        -webkit-text-fill-color: #94a3b8 !important;
+      }
+      div[role="dialog"] label,
+      div[role="dialog"] label * {
+        color: #f1f5f9 !important;
+        -webkit-text-fill-color: #f1f5f9 !important;
+      }
+      div[role="dialog"] .stDivider {
+        border-color: rgba(255,255,255,0.10) !important;
+      }
+      div[role="dialog"] hr {
+        border-color: rgba(255,255,255,0.10) !important;
+      }
+
+      /* ── File uploader / dropzone ── */
+      [data-testid="stFileUploader"],
+      [data-testid="stFileUploaderDropzone"] {
+        background: #1e293b !important;
+        border-color: rgba(255,255,255,0.14) !important;
+      }
+      [data-testid="stFileUploaderDropzone"] *,
+      [data-testid="stFileUploaderDropzone"] span,
+      [data-testid="stFileUploaderDropzone"] small,
+      [data-testid="stFileUploaderDropzone"] p {
+        color: #f1f5f9 !important;
+        -webkit-text-fill-color: #f1f5f9 !important;
+      }
     """
 
 

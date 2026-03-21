@@ -71,9 +71,16 @@ def apply_auth_session() -> None:
             st.session_state["_login_redirect_done"] = True
             try:
                 _pres = sb.table("profiles").select(
-                    "login_count, last_page, onboarding_completed"
+                    "login_count, last_page, onboarding_completed, account_status, deleted_at"
                 ).eq("user_id", str(uid)).limit(1).execute()
                 _prow = (getattr(_pres, "data", None) or [{}])[0]
+
+                # ── Check for deleted account ──
+                if _prow.get("account_status") == "deleted":
+                    st.session_state["_post_login_action"] = "restore_account"
+                    st.session_state["_deleted_at"] = _prow.get("deleted_at")
+                    return  # skip login count increment
+
                 _login_count = int(_prow.get("login_count") or 0)
                 _last_page   = str(_prow.get("last_page") or "").strip() or "dashboard"
                 _onboarded   = bool(_prow.get("onboarding_completed"))
@@ -444,3 +451,69 @@ def update_active_student_count(user_id: str) -> None:
         ).execute()
     except Exception:
         pass
+
+
+# ── Account deletion ────────────────────────────────────────────────────
+_DELETE_TABLES = [
+    "classes", "payments", "students", "schedules", "calendar_overrides",
+    "pricing_items", "app_settings", "lesson_plans", "ai_usage_logs",
+    "user_activity_log", "professional_profiles", "worksheets",
+]
+
+
+def delete_user_data(user_id: str) -> bool:
+    """Hard-delete all user data from every content table, then mark profile as deleted."""
+    if not user_id:
+        return False
+    sb = get_sb()
+    for tbl in _DELETE_TABLES:
+        try:
+            sb.table(tbl).delete().eq("user_id", str(user_id)).execute()
+        except Exception:
+            pass
+    # Mark profile as deleted (keep user_id + email for restore window)
+    sb.table("profiles").update({
+        "account_status": "deleted",
+        "deleted_at": datetime.now(timezone.utc).isoformat(),
+        "display_name": None,
+        "avatar_url": None,
+        "phone_number": None,
+        "show_community_profile": False,
+        "show_community_contact": False,
+        "onboarding_completed": False,
+        "login_count": 0,
+        "active_student_count": 0,
+    }).eq("user_id", str(user_id)).execute()
+    clear_app_caches()
+    return True
+
+
+def restore_deleted_account(user_id: str) -> bool:
+    """Re-activate a soft-deleted profile within the 90-day window."""
+    if not user_id:
+        return False
+    sb = get_sb()
+    sb.table("profiles").update({
+        "account_status": "active",
+        "deleted_at": None,
+        "onboarding_completed": False,
+    }).eq("user_id", str(user_id)).execute()
+    clear_app_caches()
+    return True
+
+
+def check_deleted_account(user_id: str) -> dict | None:
+    """Return deletion info if profile is soft-deleted, else None."""
+    if not user_id:
+        return None
+    sb = get_sb()
+    res = sb.table("profiles").select(
+        "account_status, deleted_at"
+    ).eq("user_id", str(user_id)).limit(1).execute()
+    rows = getattr(res, "data", None) or []
+    if not rows:
+        return None
+    row = rows[0]
+    if row.get("account_status") != "deleted":
+        return None
+    return row

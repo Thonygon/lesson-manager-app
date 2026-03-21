@@ -46,6 +46,24 @@ I18N: Dict[str, Dict[str, str]] = {
         "user_name": "User name",
 
         # -------------------------
+        # DELETE / RESTORE ACCOUNT
+        # -------------------------
+        "delete_account": "Delete account",
+        "delete_account_warning": "This will permanently delete all your data including students, lessons, payments, schedules, and settings. This action cannot be undone.",
+        "delete_account_confirm": "I understand and want to delete my account",
+        "delete_account_password": "Enter your password to confirm",
+        "delete_account_success": "Your account has been deleted. You can restore it within 90 days by signing in with the same email.",
+        "delete_account_btn": "Delete my account permanently",
+        "wrong_password": "Incorrect password",
+        "restore_account_title": "Account found",
+        "restore_account_msg": "This account was deleted on {date}. You have {days} days left to restore it. Would you like to restore your profile and start using Classio again?",
+        "restore_account_btn": "Restore my account",
+        "restore_account_cancel": "Cancel and sign out",
+        "account_restored": "Your account has been restored ✅",
+        "account_deleted_signup_hint": "An account with this email was recently deleted. Please sign in with your existing credentials to restore it.",
+        "supabase_retention_note": "Supabase retains deleted data for up to 90 days.",
+
+        # -------------------------
         # NAV / PAGES
         # -------------------------
         "menu": "Menu",
@@ -339,6 +357,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "author_name": "Author",
         "source_type": "Source",
         "download_pdf": "Download PDF",
+        "download_student_pdf": "📄 Student worksheet",
+        "download_teacher_pdf": "📋 Teacher version",
 
         # -------------------------
         # WORKSHEET MAKER
@@ -883,6 +903,24 @@ I18N: Dict[str, Dict[str, str]] = {
         "user_name": "Nombre de usuario",
 
         # -------------------------
+        # DELETE / RESTORE ACCOUNT
+        # -------------------------
+        "delete_account": "Eliminar cuenta",
+        "delete_account_warning": "Esto eliminará permanentemente todos tus datos, incluyendo estudiantes, clases, pagos, horarios y configuración. Esta acción no se puede deshacer.",
+        "delete_account_confirm": "Entiendo y quiero eliminar mi cuenta",
+        "delete_account_password": "Ingresa tu contraseña para confirmar",
+        "delete_account_success": "Tu cuenta ha sido eliminada. Puedes restaurarla dentro de 90 días iniciando sesión con el mismo correo.",
+        "delete_account_btn": "Eliminar mi cuenta permanentemente",
+        "wrong_password": "Contraseña incorrecta",
+        "restore_account_title": "Cuenta encontrada",
+        "restore_account_msg": "Esta cuenta fue eliminada el {date}. Te quedan {days} días para restaurarla. ¿Deseas restaurar tu perfil y volver a usar Classio?",
+        "restore_account_btn": "Restaurar mi cuenta",
+        "restore_account_cancel": "Cancelar y cerrar sesión",
+        "account_restored": "Tu cuenta ha sido restaurada ✅",
+        "account_deleted_signup_hint": "Una cuenta con este correo fue eliminada recientemente. Inicia sesión con tus credenciales existentes para restaurarla.",
+        "supabase_retention_note": "Supabase conserva los datos eliminados hasta por 90 días.",
+
+        # -------------------------
         # NAV / PAGES
         # -------------------------
         "menu": "Menú",
@@ -1175,6 +1213,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "author_name": "Autor",
         "source_type": "Fuente",
         "download_pdf": "Descargar PDF",
+        "download_student_pdf": "📄 Hoja del estudiante",
+        "download_teacher_pdf": "📋 Versión del profesor",
 
         # -------------------------
         # WORKSHEET MAKER
@@ -1721,6 +1761,24 @@ I18N: Dict[str, Dict[str, str]] = {
         "user_name": "Kullanıcı adı",
 
         # -------------------------
+        # DELETE / RESTORE ACCOUNT
+        # -------------------------
+        "delete_account": "Hesabı sil",
+        "delete_account_warning": "Bu işlem öğrenciler, dersler, ödemeler, programlar ve ayarlar dahil tüm verilerinizi kalıcı olarak silecektir. Bu işlem geri alınamaz.",
+        "delete_account_confirm": "Anlıyorum ve hesabımı silmek istiyorum",
+        "delete_account_password": "Onaylamak için şifrenizi girin",
+        "delete_account_success": "Hesabınız silindi. Aynı e-posta ile giriş yaparak 90 gün içinde geri yükleyebilirsiniz.",
+        "delete_account_btn": "Hesabımı kalıcı olarak sil",
+        "wrong_password": "Yanlış şifre",
+        "restore_account_title": "Hesap bulundu",
+        "restore_account_msg": "Bu hesap {date} tarihinde silindi. Geri yüklemek için {days} gününüz kaldı. Profilinizi geri yükleyip Classio'yu tekrar kullanmak ister misiniz?",
+        "restore_account_btn": "Hesabımı geri yükle",
+        "restore_account_cancel": "İptal et ve çıkış yap",
+        "account_restored": "Hesabınız geri yüklendi ✅",
+        "account_deleted_signup_hint": "Bu e-posta ile bir hesap yakın zamanda silindi. Geri yüklemek için mevcut bilgilerinizle giriş yapın.",
+        "supabase_retention_note": "Supabase silinen verileri 90 güne kadar saklar.",
+
+        # -------------------------
         # NAV / PAGES
         # -------------------------
         "menu": "Menü",
@@ -2012,6 +2070,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "untitled_plan": "Başlıksız plan",
         "author_name": "Yazar",
         "download_pdf": "PDF indir",
+        "download_student_pdf": "📄 Öğrenci çalışma kağıdı",
+        "download_teacher_pdf": "📋 Öğretmen versiyonu",
 
         # -------------------------
         # WORKSHEET MAKER

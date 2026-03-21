@@ -45,6 +45,9 @@ if _post_login_action:
     if _post_login_action == "profile_dialog":
         st.session_state["show_profile_dialog"] = True
         st.session_state["page"] = "home"
+    elif _post_login_action == "restore_account":
+        st.session_state["_show_restore_dialog"] = True
+        st.session_state["page"] = "home"
     elif _post_login_action == "dashboard":
         st.session_state["page"] = "dashboard"
         _set_query(page="dashboard", lang=st.session_state.get("ui_lang", "en"))
