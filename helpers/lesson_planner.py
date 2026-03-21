@@ -1266,6 +1266,13 @@ def normalize_planner_output(plan: dict) -> dict:
     if not isinstance(out["core_material"], dict):
         out["core_material"] = {}
 
+    # Rescue keys the AI may place at root instead of inside core_material
+    _cm_keys = ["gist_questions", "detail_questions", "pre_task_questions",
+                "target_vocabulary", "post_task"]
+    for _ck in _cm_keys:
+        if _ck in out and _ck not in out["core_material"]:
+            out["core_material"][_ck] = out.pop(_ck)
+
     list_keys = [
         "success_criteria",
         "warm_up",
@@ -1366,7 +1373,10 @@ def _build_ai_prompts(prompt_payload: dict) -> tuple[str, str]:
         "The core_material field must be a JSON object. "
         "Use the requested plan_language for teacher-facing sections. "
         "Use the requested student_material_language for reading_passage, listening_script, "
-        "target_vocabulary, and comprehension questions whenever appropriate."
+        "target_vocabulary, and comprehension questions whenever appropriate. "
+        "IMPORTANT: Never use the English JSON key names (like gist_questions, detail_questions, "
+        "core_material, pre_task_questions, etc.) as labels or headings inside text content. "
+        "Write all text content in the requested plan_language."
     )
 
     user_prompt = f"""

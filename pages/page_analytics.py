@@ -8,7 +8,7 @@ from core.navigation import page_header
 from core.database import load_table
 import matplotlib.pyplot as plt
 from helpers.analytics import build_income_analytics, money_fmt
-from helpers.ui_components import ts_today_naive, to_dt_naive, pretty_df, translate_df_headers, chart_series
+from helpers.ui_components import ts_today_naive, to_dt_naive, pretty_df, translate_df_headers, chart_series, render_styled_dataframe
 from helpers.language import translate_modality_value
 from helpers.dashboard import rebuild_dashboard
 from helpers.forecast import build_forecast_table
@@ -357,11 +357,7 @@ def render_analytics():
     def _show_raw_toggle(df: pd.DataFrame, toggle_key: str):
         show_raw = st.toggle(t("show_raw_data"), value=False, key=toggle_key)
         if show_raw:
-            st.dataframe(
-                translate_df_headers(pretty_df(df)),
-                use_container_width=True,
-                hide_index=True,
-            )
+            render_styled_dataframe(translate_df_headers(pretty_df(df)))
 
     # ---------- NEW: YTD + renewal pipeline projection (no more this_month*12) ----------
     def _ytd_income(payments_df: pd.DataFrame, year: int) -> float:

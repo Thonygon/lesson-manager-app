@@ -9,6 +9,65 @@ from core.timezone import now_local, today_local, get_app_tz
 from core.database import get_sb, load_table, load_students, register_cache, clear_app_caches
 
 
+# ── Cleanup code-like key names in AI-generated plan text ────────────
+_PLAN_KEY_PATTERNS = [
+    "core_material.pre_task_questions",
+    "core_material.gist_questions",
+    "core_material.detail_questions",
+    "core_material.target_vocabulary",
+    "core_material.post_task",
+    "core_material.worked_example",
+    "core_material.independent_practice",
+    "core_material.common_error_alert",
+    "core_material.concept_explanation",
+    "core_material.real_life_application",
+    "core_material.strategy_steps",
+    "core_material.performance_goal",
+    "core_material",
+    "reading_passage",
+    "listening_script",
+    "gist_questions",
+    "detail_questions",
+    "pre_task_questions",
+    "target_vocabulary",
+    "post_task",
+]
+
+
+def _clean_plan_text(text: str) -> str:
+    """Replace code-like key references with translated labels in plan content."""
+    if not text:
+        return text
+    for pat in _PLAN_KEY_PATTERNS:
+        # strip "core_material." prefix to get the translation key
+        tkey = pat.split(".")[-1]
+        translated = t(tkey)
+        # replace various quote/bracket styles: 'key', "key", `key`, key:
+        text = text.replace(f"'{pat}'", translated)
+        text = text.replace(f'"{pat}"', translated)
+        text = text.replace(f"`{pat}`", translated)
+        text = text.replace(f"{pat}:", f"{translated}:")
+        text = text.replace(f"{pat},", f"{translated},")
+        text = text.replace(f"{pat}.", f"{translated}.")
+        text = text.replace(f"{pat} ", f"{translated} ")
+    return text
+
+
+def _clean_plan_data(plan: dict) -> dict:
+    """Deep-clean all string values in a plan dict."""
+    out = {}
+    for k, v in plan.items():
+        if isinstance(v, str):
+            out[k] = _clean_plan_text(v)
+        elif isinstance(v, list):
+            out[k] = [_clean_plan_text(i) if isinstance(i, str) else i for i in v]
+        elif isinstance(v, dict):
+            out[k] = _clean_plan_data(v)
+        else:
+            out[k] = v
+    return out
+
+
 def _lp():
     """Lazy import to avoid circular dependency with lesson_planner."""
     import helpers.lesson_planner as lp
@@ -351,6 +410,7 @@ def render_quick_lesson_plan_result(
     topic: str = "",
     read_only: bool = False,
 ) -> None:
+    plan = _clean_plan_data(plan)
     if not read_only:
         st.success(t("lesson_plan_ready"))
     resolved_mode = st.session_state.get("quick_lesson_plan_mode_used", "template")
@@ -561,6 +621,7 @@ def build_lesson_plan_pdf_bytes(
     lesson_purpose: str = "",
     topic: str = "",
 ) -> bytes:
+    plan = _clean_plan_data(plan)
     import os
     from io import BytesIO
     from reportlab.lib.pagesizes import A4

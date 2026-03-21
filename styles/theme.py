@@ -979,6 +979,29 @@ def load_css_app_light(compact: bool = False):
           transition: all 100ms;
         }}
 
+        div[data-testid="stLinkButton"] a {{
+          border-radius: 12px !important;
+          padding: 0.7rem 1.2rem !important;
+          border: 1px solid var(--border2) !important;
+          background: linear-gradient(180deg, #ffffff, #f8fbff) !important;
+          color: var(--text) !important;
+          -webkit-text-fill-color: var(--text) !important;
+          font-weight: 600 !important;
+          font-size: 0.95rem !important;
+          transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: var(--shadow-sm);
+          text-decoration: none !important;
+        }}
+
+        div[data-testid="stLinkButton"] a:hover {{
+          transform: translateY(-2px);
+          border-color: rgba(37,99,235,0.3) !important;
+          background: linear-gradient(180deg, #ffffff, #eff6ff) !important;
+          box-shadow:
+            0 0 0 3px rgba(37,99,235,0.08),
+            0 12px 24px rgba(15,23,42,0.08);
+        }}
+
         div[data-testid="stTextInput"] input,
         div[data-testid="stTextArea"] textarea,
         div[data-testid="stNumberInput"] input,
@@ -1112,35 +1135,6 @@ def load_css_app_light(compact: bool = False):
         div[data-testid="stExpander"] details[open] summary {{
           border-bottom: 1px solid var(--border) !important;
           margin-bottom: 0.75rem !important;
-        }}
-
-        /* Tabs styling */
-        .stTabs [data-baseweb="tab-list"] {{
-          gap: 0.5rem;
-          background: transparent;
-        }}
-
-        .stTabs [data-baseweb="tab"] {{
-          border-radius: 10px !important;
-          padding: 0.6rem 1.2rem !important;
-          font-weight: 600 !important;
-          background: rgba(255,255,255,0.7) !important;
-          border: 1px solid var(--border) !important;
-          color: var(--muted) !important;
-          transition: all 200ms ease;
-        }}
-
-        .stTabs [data-baseweb="tab"]:hover {{
-          background: rgba(255,255,255,1) !important;
-          color: var(--text) !important;
-          border-color: rgba(37,99,235,0.2) !important;
-        }}
-
-        .stTabs [aria-selected="true"] {{
-          background: linear-gradient(180deg, #eff6ff, #dbeafe) !important;
-          color: var(--primary) !important;
-          border-color: var(--primary-light) !important;
-          box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
         }}
 
         /* Success/Warning/Error messages */

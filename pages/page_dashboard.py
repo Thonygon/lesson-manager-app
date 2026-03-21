@@ -10,7 +10,7 @@ from helpers.dashboard import rebuild_dashboard
 from helpers.student_meta import student_meta_maps
 from helpers.goals import load_app_settings_map, save_app_setting, render_home_indicator, YEAR_GOAL_SCOPE, get_next_lesson_display
 from helpers.kpi_bubbles import kpi_stat_cards
-from helpers.ui_components import pretty_df, translate_df_headers, translate_df, ts_today_naive
+from helpers.ui_components import pretty_df, translate_df_headers, translate_df, ts_today_naive, render_styled_dataframe
 from helpers.analytics import build_income_analytics
 from helpers.year_goals import get_year_goal
 from helpers.currency import format_currency, get_preferred_currency, get_exchange_rate
@@ -197,10 +197,14 @@ def render_dashboard():
                             key=f"today_link_{lesson_id}",
                         )
                     except Exception:
+                        from styles.theme import _is_dark as _dk
+                        _fb_bg = '#253349' if _dk() else 'linear-gradient(180deg,#ffffff,#f8fbff)'
+                        _fb_fg = '#f1f5f9' if _dk() else '#0f172a'
+                        _fb_bd = 'rgba(255,255,255,0.14)' if _dk() else 'rgba(17,24,39,0.10)'
                         st.markdown(
                             f"<a href='{link}' target='_blank' style='text-decoration:none;'>"
                             f"<button style='width:100%;padding:0.62rem 1.0rem;border-radius:14px;"
-                            f"border:1px solid rgba(255,255,255,0.14);background:#253349;color:#f1f5f9;font-weight:700;cursor:pointer;'>"
+                            f"border:1px solid {_fb_bd};background:{_fb_bg};color:{_fb_fg};font-weight:700;cursor:pointer;'>"
                             f"{t('open_link')}</button></a>",
                             unsafe_allow_html=True,
                         )
@@ -422,10 +426,10 @@ def render_dashboard():
             _rptA, _rptB = st.columns(2)
             with _rptA:
                 st.markdown(f"### {t('lessons')}")
-                st.dataframe(translate_df_headers(_rpt_lessons), use_container_width=True, hide_index=True)
+                render_styled_dataframe(translate_df_headers(_rpt_lessons))
             with _rptB:
                 st.markdown(f"### {t('payments')}")
-                st.dataframe(translate_df_headers(_rpt_payments), use_container_width=True, hide_index=True)
+                render_styled_dataframe(translate_df_headers(_rpt_payments))
 
             st.markdown(f"#### {t('report_actions')}")
             _pkg_df = d[d["Student"] == _rpt_student].copy()
@@ -489,11 +493,7 @@ def render_dashboard():
         d_display["Status"] = d_display["Status"].apply(translate_status)
         d_display["Modality"] = d_display.get("Modality", "").apply(translate_modality_value)
 
-        st.dataframe(
-            translate_df(pretty_df(d_display)),
-            use_container_width=True,
-            hide_index=True,
-        )
+        render_styled_dataframe(translate_df(pretty_df(d_display)))
 
     # ---------------------------------------
     # MISMATCHES
@@ -523,7 +523,7 @@ def render_dashboard():
         if "Modality" in mm_show.columns:
             mm_show["Modality"] = mm_show["Modality"].apply(translate_modality_value)
 
-        st.dataframe(translate_df(pretty_df(mm_show)), use_container_width=True, hide_index=True)
+        render_styled_dataframe(translate_df(pretty_df(mm_show)))
 
         st.markdown(f"### {t('normalize')}")
 

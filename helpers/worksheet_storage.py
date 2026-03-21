@@ -20,6 +20,48 @@ def _lp():
     return lp
 
 
+# ── Worksheet text cleanup helpers ──────────────────────────────────
+_LEADING_NUM_RE = re.compile(r"^\s*\d+[\.\)\-]\s*")
+
+
+def _strip_leading_number(text: str) -> str:
+    """Remove a leading number like '1. ', '2) ', '3- ' from a string."""
+    return _LEADING_NUM_RE.sub("", text)
+
+
+def _split_answer_key(answer_key) -> list[str]:
+    """Split an answer key string into individual numbered lines."""
+    if isinstance(answer_key, list):
+        return [str(a) for a in answer_key if str(a).strip()]
+    text = str(answer_key or "")
+    # Try splitting on numbered patterns like "1. ", "2. ", etc.
+    parts = re.split(r"(?:^|\n)\s*(\d+[\.\)\-])", text)
+    if len(parts) > 2:
+        # re.split with groups: ['prefix', '1.', 'answer1', '2.', 'answer2', ...]
+        lines = []
+        i = 1
+        while i < len(parts) - 1:
+            num = parts[i].strip()
+            body = parts[i + 1].strip()
+            if body:
+                lines.append(f"{num} {body}")
+            i += 2
+        if lines:
+            return lines
+    # Fallback: split on newlines
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    return lines if lines else [text]
+
+
+def _clean_worksheet_data(ws: dict) -> dict:
+    """Clean questions to strip leading numbers (prevents 1. 1. doubling)."""
+    out = dict(ws)
+    if isinstance(out.get("questions"), list):
+        out["questions"] = [_strip_leading_number(q) if isinstance(q, str) else q
+                            for q in out["questions"]]
+    return out
+
+
 # ── CRUD ──────────────────────────────────────────────────────────────
 
 def save_worksheet_record(
@@ -217,6 +259,7 @@ def render_worksheet_library_cards(df: pd.DataFrame, prefix: str, show_author: b
 def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
     if not ws:
         return
+    ws = _clean_worksheet_data(ws)
 
     if not read_only:
         st.success(t("worksheet_ready"))
@@ -241,11 +284,12 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
     if ws.get("questions"):
         st.markdown(f"**{t('ws_questions')}**")
         for idx, q in enumerate(ws["questions"], 1):
-            st.write(f"{idx}. {q}")
+            st.write(f"{idx}. {_strip_leading_number(q)}")
 
     if ws.get("answer_key"):
         with st.expander(t("ws_answer_key"), expanded=False):
-            st.write(ws["answer_key"])
+            for line in _split_answer_key(ws["answer_key"]):
+                st.write(line)
 
     if ws.get("teacher_notes"):
         with st.expander(t("ws_teacher_notes"), expanded=False):
@@ -389,11 +433,17 @@ def build_worksheet_pdf_bytes(
     if questions:
         story.append(Paragraph(t("ws_questions"), heading_style))
         for idx, q in enumerate(questions, 1):
-            story.append(Paragraph(f"{idx}. {q}", body_style))
+            story.append(Paragraph(f"{idx}. {_strip_leading_number(q)}", body_style))
         story.append(Spacer(1, 6))
 
     if not student_only:
-        _sec("ws_answer_key", ws.get("answer_key", ""))
+        # Answer key — split into numbered lines for readability
+        ak = ws.get("answer_key", "")
+        if ak:
+            story.append(Paragraph(t("ws_answer_key"), heading_style))
+            for line in _split_answer_key(ak):
+                story.append(Paragraph(str(line), body_style))
+            story.append(Spacer(1, 6))
         _sec("ws_teacher_notes", ws.get("teacher_notes", []))
 
     doc.build(story)

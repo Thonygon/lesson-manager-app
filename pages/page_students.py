@@ -11,7 +11,7 @@ from core.state import get_current_user_id
 from styles.theme import _is_dark
 from helpers.student_meta import load_students_df
 from helpers.history import show_student_history
-from helpers.ui_components import translate_df_headers
+from helpers.ui_components import translate_df_headers, render_styled_dataframe
 from helpers.whatsapp import _digits_only, normalize_phone_for_whatsapp, build_whatsapp_url
 from helpers.student_report import (
     build_student_report_pdf,
@@ -358,10 +358,10 @@ def render_students():
                 colA, colB = st.columns(2)
                 with colA:
                     st.markdown(f"### {t('lessons')}")
-                    st.dataframe(translate_df_headers(lessons_df), use_container_width=True, hide_index=True)
+                    render_styled_dataframe(translate_df_headers(lessons_df))
                 with colB:
                     st.markdown(f"### {t('payments')}")
-                    st.dataframe(translate_df_headers(payments_df), use_container_width=True, hide_index=True)
+                    render_styled_dataframe(translate_df_headers(payments_df))
 
                 st.markdown(f"#### {t('report_actions')}")
 
