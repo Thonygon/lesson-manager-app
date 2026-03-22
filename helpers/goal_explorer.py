@@ -140,6 +140,9 @@ def render_goal_explorer() -> bool:
             key="explore_custom_subject",
         ).strip()
 
+    # --- Achievability scale ---
+    # (Move this logic to where hours_per_week is defined and used, not here)
+
     # ── Modality ──
     modality_labels = {
         "online": t("explore_online"),
@@ -233,6 +236,20 @@ def render_goal_explorer() -> bool:
         hours_per_week = math.ceil(total_hours / _TEACHING_WEEKS_PER_YEAR) if _TEACHING_WEEKS_PER_YEAR else 0
         students_needed = math.ceil(hours_per_week / _LESSONS_PER_STUDENT_PER_WEEK) if _LESSONS_PER_STUDENT_PER_WEEK else 0
 
+        # --- Achievability scale and advice ---
+        if hours_per_week <= 24:
+            achievability = f"<span style='color:#16a34a;font-weight:700;'>{t('explore_achievability_green')}</span>"
+            advice = t('explore_advice_green')
+        elif 25 <= hours_per_week <= 31:
+            achievability = f"<span style='color:#eab308;font-weight:700;'>{t('explore_achievability_yellow')}</span>"
+            advice = t('explore_advice_yellow')
+        elif 32 <= hours_per_week <= 42:
+            achievability = f"<span style='color:#f97316;font-weight:700;'>{t('explore_achievability_orange')}</span>"
+            advice = t('explore_advice_orange')
+        else:
+            achievability = f"<span style='color:#dc2626;font-weight:700;'>{t('explore_achievability_red')}</span>"
+            advice = t('explore_advice_red')
+
         formatted_rate = f"{sym} {hourly_rate:,}"
         formatted_goal = f"{sym} {goal_amount:,}"
 
@@ -265,6 +282,10 @@ def render_goal_explorer() -> bool:
                         <td style="padding:6px 0; color:#475569;">{t('explore_plan_hours_week')}</td>
                         <td style="padding:6px 0; font-weight:700; text-align:right;">{hours_per_week}</td>
                     </tr>
+                    <tr>
+                        <td style="padding:6px 0; color:#475569;">{t('explore_achievability_label')}</td>
+                        <td style="padding:6px 0; font-weight:700; text-align:right;">{achievability}</td>
+                    </tr>
                     <tr style="border-top:2px solid rgba(37,99,235,0.18);">
                         <td style="padding:10px 0 4px 0; color:#1e40af; font-weight:700; font-size:1.05rem;">
                             {t('explore_plan_students')}
@@ -274,6 +295,9 @@ def render_goal_explorer() -> bool:
                         </td>
                     </tr>
                 </table>
+                <div style="margin:10px 0 0 0; color:#64748b; font-size:0.92rem;">
+                    <b>{t('explore_advice_label')}</b> {advice}
+                </div>
                 <p style="margin:12px 0 0 0; color:#64748b; font-size:0.82rem;">
                     {t('explore_plan_note')}
                 </p>
@@ -982,6 +1006,19 @@ def render_income_goal_calculator() -> None:
             formatted_rate = f"{sym} {hourly_rate:,}"
             formatted_goal = f"{sym} {goal_amount:,}"
 
+            # --- Achievability scale ---
+            if hours_per_week <= 24:
+                achievability = f"<span style='color:#16a34a;font-weight:700;'>{t('explore_achievability_green')}</span>"
+                advice = t('explore_advice_green')
+            elif 25 <= hours_per_week <= 31:
+                achievability = f"<span style='color:#eab308;font-weight:700;'>{t('explore_achievability_yellow')}</span>"
+                advice = t('explore_advice_yellow')
+            elif 32 <= hours_per_week <= 42:
+                achievability = f"<span style='color:#f97316;font-weight:700;'>{t('explore_achievability_orange')}</span>"
+                advice = t('explore_advice_orange')
+            else:
+                achievability = f"<span style='color:#dc2626;font-weight:700;'>{t('explore_achievability_red')}</span>"
+                advice = t('explore_advice_red')
             st.markdown(
                 f"""
                 <div style="
@@ -1001,10 +1038,13 @@ def render_income_goal_calculator() -> None:
                             <td style="padding:6px 0; font-weight:700; text-align:right;">{total_hours:,}</td></tr>
                         <tr><td style="padding:6px 0; color:#475569;">{t('explore_plan_hours_week')}</td>
                             <td style="padding:6px 0; font-weight:700; text-align:right;">{hours_per_week}</td></tr>
+                        <tr><td style="padding:6px 0; color:#475569;">{t('explore_achievability_label')}</td>
+                            <td style="padding:6px 0; font-weight:700; text-align:right;">{achievability}</td></tr>
                         <tr style="border-top:2px solid rgba(37,99,235,0.18);">
                             <td style="padding:10px 0 4px 0; color:#1e40af; font-weight:700; font-size:1.05rem;">{t('explore_plan_students')}</td>
                             <td style="padding:10px 0 4px 0; font-weight:800; text-align:right; color:#1e40af; font-size:1.15rem;">{students_needed}</td></tr>
                     </table>
+                    <div style="margin:10px 0 0 0; color:#64748b; font-size:0.92rem;"><b>{t('explore_advice_label')}</b> {advice}</div>
                     <p style="margin:12px 0 0 0; color:#64748b; font-size:0.82rem;">{t('explore_plan_note')}</p>
                 </div>
                 """,

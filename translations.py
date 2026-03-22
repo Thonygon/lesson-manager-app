@@ -9,6 +9,17 @@ from typing import Dict
 # =========================
 I18N: Dict[str, Dict[str, str]] = {
     "en": {
+        "explore_achievability_label": "Achievability",
+        "explore_advice_label": "Advice:",
+        # --- Goal Explorer Achievability/Advice ---
+        "explore_achievability_green": "🟢 Achievable",
+        "explore_achievability_yellow": "🟡 Busy but possible",
+        "explore_achievability_orange": "🟠 Hard but possible",
+        "explore_achievability_red": "🔴 Hard to achieve",
+        "explore_advice_green": "This goal is realistic if you have a good retention strategy.",
+        "explore_advice_yellow": "A busy schedule, but achievable if you plan your calendar and keep your students engaged.",
+        "explore_advice_orange": "This is a heavy schedule. You need a well-structured routine for planning and keeping your students happy.",
+        "explore_advice_red": "This is a very high workload. Consider raising your rates every 3–6 months, offering packages, or increasing student count only if your schedule allows.",
         # -------------------------
         # AUTH
         # -------------------------
@@ -878,6 +889,17 @@ I18N: Dict[str, Dict[str, str]] = {
     },
 
     "es": {
+        "explore_achievability_label": "Alcanzabilidad",
+        "explore_advice_label": "Consejo:",
+        # --- Goal Explorer Achievability/Advice ---
+        "explore_achievability_green": "🟢 Alcanzable",
+        "explore_achievability_yellow": "🟡 Ocupado pero posible",
+        "explore_achievability_orange": "🟠 Difícil pero posible",
+        "explore_achievability_red": "🔴 Difícil de lograr",
+        "explore_advice_green": "Esta meta es realista si tienes una buena estrategia de retención.",
+        "explore_advice_yellow": "Un horario ocupado, pero alcanzable si planificas tu calendario y mantienes a tus estudiantes motivados.",
+        "explore_advice_orange": "Es una agenda pesada. Necesitas una rutina bien estructurada para planificar y mantener felices a tus estudiantes.",
+        "explore_advice_red": "Esta es una carga de trabajo muy alta. Considera aumentar tus tarifas cada 3–6 meses, ofrecer paquetes o aumentar el número de estudiantes solo si tu agenda lo permite.",
         # -------------------------
         # AUTH
         # -------------------------
@@ -1748,6 +1770,17 @@ I18N: Dict[str, Dict[str, str]] = {
     },
 
     "tr": {
+        "explore_achievability_label": "Ulaşılabilirlik",
+        "explore_advice_label": "Tavsiye:",
+        # --- Goal Explorer Achievability/Advice ---
+        "explore_achievability_green": "🟢 Ulaşılabilir",
+        "explore_achievability_yellow": "🟡 Yoğun ama mümkün",
+        "explore_achievability_orange": "🟠 Zor ama mümkün",
+        "explore_achievability_red": "🔴 Ulaşılması zor",
+        "explore_advice_green": "İyi bir öğrenci tutma stratejiniz varsa bu hedef gerçekçidir.",
+        "explore_advice_yellow": "Yoğun bir program, ancak takviminizi planlarsanız ve öğrencilerinizi motive ederseniz ulaşılabilir.",
+        "explore_advice_orange": "Bu yoğun bir programdır. Planlama ve öğrencilerinizi mutlu tutmak için iyi yapılandırılmış bir rutine ihtiyacınız var.",
+        "explore_advice_red": "Bu çok yüksek bir iş yüküdür. Her 3–6 ayda bir ücretlerinizi artırmayı, paketler sunmayı veya yalnızca programınız uygunsa öğrenci sayısını artırmayı düşünün.",
         # -------------------------
         # AUTH
         # -------------------------
