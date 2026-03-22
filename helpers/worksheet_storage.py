@@ -277,6 +277,10 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
         st.markdown(f"**{t('ws_instructions')}**")
         st.write(ws["instructions"])
 
+    if ws.get("reading_passage"):
+        st.markdown(f"**{t('ws_reading_passage')}**")
+        st.write(ws["reading_passage"])
+
     if ws.get("vocabulary_bank"):
         st.markdown(f"**{t('ws_vocabulary_bank')}**")
         st.write(", ".join(ws["vocabulary_bank"]))
@@ -427,6 +431,9 @@ def build_worksheet_pdf_bytes(
 
     if ws.get("vocabulary_bank"):
         _sec("ws_vocabulary_bank", ", ".join(ws["vocabulary_bank"]))
+    
+    if ws.get("reading_passage"):
+        _sec("ws_reading_passage", ws["reading_passage"])
 
     # Questions as numbered list
     questions = ws.get("questions", [])

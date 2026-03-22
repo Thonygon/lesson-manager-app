@@ -544,7 +544,8 @@ def restore_deleted_account(user_id: str) -> bool:
     return True
 
 
-def check_deleted_account(user_id: str) -> dict | None:
+from typing import Optional
+def check_deleted_account(user_id: str) -> Optional[dict]:
     """Return deletion info if profile is soft-deleted, else None."""
     if not user_id:
         return None

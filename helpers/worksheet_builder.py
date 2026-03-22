@@ -40,7 +40,7 @@ def normalize_worksheet_output(raw: dict) -> dict:
     str_keys = [
         "title", "subject", "topic", "learner_stage", "level_or_band",
         "worksheet_type", "instructions", "answer_key",
-        "plan_language", "student_material_language",
+        "plan_language", "student_material_language", "reading_passage",
     ]
     for k in str_keys:
         if k not in out or out[k] is None:
@@ -66,7 +66,7 @@ def _build_worksheet_prompts(payload: dict) -> tuple[str, str]:
         "Do not use markdown. Do not use code fences. "
         "All list fields must be arrays of strings. "
         "Use the requested plan_language for teacher-facing sections (instructions, answer_key, teacher_notes). "
-        "Use the requested student_material_language for the questions and vocabulary_bank."
+        "Use the requested student_material_language for the questions, reading_passage, and vocabulary_bank."
     )
 
     user_prompt = f"""
@@ -78,8 +78,9 @@ Input:
 Design principles (Ed.D. methodology):
 - Scaffold questions from lower-order to higher-order thinking (Bloom's taxonomy).
 - Use clear, age-appropriate language for the target learner_stage and level.
-- Include 8-12 questions/items appropriate to the worksheet_type.
+- Include 12-15 questions/items appropriate to the worksheet_type.
 - For vocabulary-heavy subjects, include a vocabulary_bank list.
+- Ensure a reading_passage is included for reading_comprehension worksheets, with questions directly tied to the passage.
 - Provide concise student-facing instructions in the student_material_language.
 - answer_key must contain the correct answers for every question, numbered to match.
 - teacher_notes should include 2-3 practical tips for differentiation or extension.
@@ -96,6 +97,7 @@ Required JSON structure:
   "plan_language": "string",
   "student_material_language": "string",
   "instructions": "string (student-facing)",
+  "reading_passage": "string",
   "questions": ["string", ...],
   "vocabulary_bank": ["string", ...],
   "answer_key": "string",
