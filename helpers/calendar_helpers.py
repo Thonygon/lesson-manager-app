@@ -20,21 +20,24 @@ from helpers.ui_components import to_dt_naive
 def _parse_time_value(x) -> Tuple[int, int]:
     if x is None:
         return (0, 0)
+
     s = str(x).strip()
     if not s:
         return (0, 0)
+
     parts = s.split(":")
+
     try:
         return (int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
     except Exception:
         return (0, 0)
+
 
 def validate_hhmm(value: str) -> str:
     """
     Ensures a time string is in HH:MM 24h format.
     Returns the cleaned value or raises a user-friendly error.
     """
-
     s = str(value or "").strip()
 
     if re.fullmatch(r"([01]\d|2[0-3]):([0-5]\d)", s):
@@ -42,18 +45,22 @@ def validate_hhmm(value: str) -> str:
 
     raise ValueError(t("invalid_time_format"))
 
+
 def best_text_color(hex_color: str) -> str:
     try:
         c = str(hex_color or "").lstrip("#")
         if len(c) != 6:
             return "#0F172A"
+
         r = int(c[0:2], 16)
         g = int(c[2:4], 16)
         b = int(c[4:6], 16)
         lum = (0.299 * r + 0.587 * g + 0.114 * b)
+
         return "#0F172A" if lum > 160 else "#FFFFFF"
     except Exception:
         return "#0F172A"
+
 
 @st.cache_data(ttl=45, show_spinner=False)
 def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
@@ -67,7 +74,6 @@ def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
     # Recurring schedules
     # -------------------------
     if schedules is not None and not schedules.empty:
-        # be safe: ensure expected cols exist
         for c in ["student", "weekday", "time", "duration_minutes", "active"]:
             if c not in schedules.columns:
                 schedules[c] = None
@@ -81,15 +87,17 @@ def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
 
             for _, row in day_slots.iterrows():
                 h, m = _parse_time_value(row.get("time"))
-                dt = _dt(cur.year, cur.month, cur.day, h, m)  # tz-naive local
+                dt = _dt(cur.year, cur.month, cur.day, h, m)
 
                 student = str(row.get("student", "")).strip()
                 k = norm_student(student)
-                duration = int(pd.to_numeric(row.get("duration_minutes", 60), errors="coerce") or 60)
+                duration = int(
+                    pd.to_numeric(row.get("duration_minutes", 60), errors="coerce") or 60
+                )
 
                 events.append(
                     {
-                        "DateTime": dt,  # tz-naive local
+                        "DateTime": dt,
                         "Date": dt.date(),
                         "Student": student,
                         "Duration_Min": duration,
@@ -100,6 +108,7 @@ def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
                         "Original_Date": dt.date(),
                     }
                 )
+
             cur += timedelta(days=1)
 
     events_df = pd.DataFrame(events)
@@ -119,8 +128,8 @@ def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
             k = norm_student(student)
 
             status = str(row.get("status", "")).strip().lower()
-            new_dt = row.get("new_datetime")  # tz-naive local (from load_overrides)
-            original_date = row.get("original_date")  # date/timestamp-like
+            new_dt = row.get("new_datetime")
+            original_date = row.get("original_date")
             duration = int(pd.to_numeric(row.get("duration_minutes", 60), errors="coerce") or 60)
 
             # Remove recurring on original date
@@ -140,7 +149,6 @@ def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
                     if pd.isna(nd):
                         continue
 
-                    # keep only if inside current view window
                     if start_day <= nd.date() <= end_day:
                         add_row = {
                             "DateTime": nd.to_pydatetime() if hasattr(nd, "to_pydatetime") else nd,
@@ -151,20 +159,23 @@ def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
                             "Zoom_Link": zoom_map.get(k, ""),
                             "Source": "override",
                             "Override_ID": int(row.get("id")) if pd.notna(row.get("id")) else None,
-                            "Original_Date": pd.to_datetime(original_date, errors="coerce").date()
-                            if pd.notna(original_date)
-                            else nd.date(),
+                            "Original_Date": (
+                                pd.to_datetime(original_date, errors="coerce").date()
+                                if pd.notna(original_date)
+                                else nd.date()
+                            ),
                         }
-                        events_df = pd.concat([events_df, pd.DataFrame([add_row])], ignore_index=True)
+                        events_df = pd.concat(
+                            [events_df, pd.DataFrame([add_row])],
+                            ignore_index=True,
+                        )
                 except Exception:
                     pass
 
     if events_df is None or events_df.empty:
         return events_df
 
-    # Ensure tz-naive (important for sorting + consistency)
     events_df["DateTime"] = to_dt_naive(events_df["DateTime"], utc=False)
-
     events_df = events_df.dropna(subset=["DateTime"]).sort_values("DateTime").reset_index(drop=True)
     events_df["Time"] = pd.to_datetime(events_df["DateTime"], errors="coerce").dt.strftime("%H:%M")
     events_df["Date"] = pd.to_datetime(events_df["DateTime"], errors="coerce").dt.strftime("%Y-%m-%d")
@@ -179,6 +190,7 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
       ✅ Translated calendar UI buttons (Today/Month/Week/Day/List)
       ✅ Translated all-day label
       ✅ Translated "+n more" link
+      ✅ Week header shows weekday + day number (Mon 25, Tue 26, etc.)
       ✅ Safe for mobile dark mode rendering
     """
     if events is None or events.empty:
@@ -189,7 +201,11 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
     df["DateTime"] = pd.to_datetime(df["DateTime"], errors="coerce")
     df = df.dropna(subset=["DateTime"])
 
-    df["Duration_Min"] = pd.to_numeric(df.get("Duration_Min"), errors="coerce").fillna(60).astype(int)
+    df["Duration_Min"] = pd.to_numeric(
+        df.get("Duration_Min"),
+        errors="coerce",
+    ).fillna(60).astype(int)
+
     df["end"] = df["DateTime"] + pd.to_timedelta(df["Duration_Min"], unit="m")
 
     fc_events = []
@@ -236,8 +252,9 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
 
     <style>
       .fc {{ color:#0f172a; }}
+
       /* Fix iPhone dark mode text disappearing */
-      #calendar, #calendar * {{ color: #0f172a !important; }}
+      #calendar, #calendar * {{ color:#0f172a !important; }}
 
       .fc .fc-button,
       .fc .fc-button-primary {{
@@ -282,16 +299,28 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
       }}
 
       .fc .fc-col-header-cell-cushion,
-      .fc .fc-daygrid-day-number {{ color:#0f172a; }}
-      .fc .fc-timegrid-slot-label-cushion {{ color:#334155; }}
+      .fc .fc-daygrid-day-number {{
+        color:#0f172a !important;
+        text-decoration:none !important;
+        font-weight:600;
+      }}
+
+      .fc .fc-timegrid-slot-label-cushion {{
+        color:#334155 !important;
+      }}
+
       .fc .fc-toolbar-title {{
-        color:#0f172a;
+        color:#0f172a !important;
         font-weight:800;
         font-size:1.1rem;
         line-height:1.15;
       }}
-      @media (max-width: 768px){{
-        .fc .fc-toolbar-title {{ font-size:0.95rem; }}
+
+      @media (max-width: 768px) {{
+        .fc .fc-toolbar-title {{
+          font-size:0.95rem;
+        }}
+
         .fc .fc-button {{
           padding:0.35rem 0.55rem;
           font-size:0.85rem;
@@ -301,35 +330,32 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
 
     <script>
       const events = {payload};
-      const calendarEl = document.getElementById('calendar');
+      const calendarEl = document.getElementById("calendar");
       const isMobile = () => window.innerWidth < 768;
 
       const toolbarDesktop = {{
-        left: 'prev,next today',
-        center: 'title',
-        right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
+        left: "prev,next today",
+        center: "title",
+        right: "dayGridMonth,timeGridWeek,timeGridDay,listWeek"
       }};
 
       const toolbarMobile = {{
-        left: 'prev,next',
-        center: 'title',
-        right: 'timeGridDay,timeGridWeek,dayGridMonth'
+        left: "prev,next",
+        center: "title",
+        right: "timeGridDay,timeGridWeek,dayGridMonth"
       }};
 
       const calendar = new FullCalendar.Calendar(calendarEl, {{
-        initialView: 'timeGridWeek',
+        initialView: "timeGridWeek",
         height: {height},
         expandRows: true,
         nowIndicator: true,
         stickyHeaderDates: true,
         handleWindowResize: true,
-
-        // ✅ Monday first (Mon–Sun)
         firstDay: 1,
 
         headerToolbar: isMobile() ? toolbarMobile : toolbarDesktop,
 
-        // ✅ i18n for the calendar UI
         locale: "{fc_locale}",
         buttonText: {{
           today: "{btn_today}",
@@ -338,35 +364,47 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
           day: "{btn_day}",
           list: "{btn_list}"
         }},
+
         views: {{
-          dayGridMonth: {{ buttonText: "{btn_month}" }},
-          timeGridWeek: {{ buttonText: "{btn_week}" }},
-          timeGridDay:  {{ buttonText: "{btn_day}" }},
-          listWeek:     {{ buttonText: "{btn_list}" }}
+          dayGridMonth: {{
+            buttonText: "{btn_month}",
+            dayHeaderFormat: {{ weekday: "short" }}
+          }},
+          timeGridWeek: {{
+            buttonText: "{btn_week}",
+            dayHeaderFormat: {{ weekday: "short", day: "numeric" }}
+          }},
+          timeGridDay: {{
+            buttonText: "{btn_day}",
+            dayHeaderFormat: {{ weekday: "short", day: "numeric", month: "short" }}
+          }},
+          listWeek: {{
+            buttonText: "{btn_list}"
+          }}
         }},
+
         allDayText: "{all_day_text}",
         moreLinkText: function(n) {{
           return "{more_template}".replace("{{n}}", n);
         }},
 
-        titleFormat: {{ year: 'numeric', month: 'short', day: 'numeric' }},
-        dayHeaderFormat: {{ weekday: 'short' }},
-        slotLabelFormat: {{ hour: 'numeric', minute: '2-digit', meridiem: 'short' }},
+        titleFormat: {{ year: "numeric", month: "short", day: "numeric" }},
+        dayHeaderFormat: {{ weekday: "short", day: "numeric" }},
+        slotLabelFormat: {{ hour: "numeric", minute: "2-digit", meridiem: "short" }},
 
         windowResize: function() {{
-          calendar.setOption('headerToolbar', isMobile() ? toolbarMobile : toolbarDesktop);
+          calendar.setOption("headerToolbar", isMobile() ? toolbarMobile : toolbarDesktop);
         }},
 
-        slotMinTime: '06:00:00',
-        slotMaxTime: '23:00:00',
+        slotMinTime: "06:00:00",
+        slotMaxTime: "23:00:00",
         allDaySlot: false,
-
         events: events,
 
         eventClick: function(info) {{
           if (info.event.url) {{
             info.jsEvent.preventDefault();
-            window.open(info.event.url, '_blank');
+            window.open(info.event.url, "_blank");
           }}
         }}
       }});
@@ -374,6 +412,7 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
       calendar.render();
     </script>
     """
+
     components.html(html, height=height + 70, scrolling=True)
 
 # =========================
