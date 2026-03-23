@@ -12,6 +12,7 @@ import math
 import html
 import textwrap
 from core.navigation import home_go
+import re
 
 def _wb():
     import helpers.worksheet_builder as wb
@@ -64,6 +65,29 @@ def _clean_worksheet_data(ws: dict) -> dict:
                             for q in out["questions"]]
     return out
 
+def _clean_display_text(text: str) -> str:
+    s = str(text or "").strip()
+
+    # Collapse repeated spaces
+    s = re.sub(r"\s+", " ", s)
+
+    # Remove spaces before punctuation
+    s = re.sub(r"\s+([.,!?;:])", r"\1", s)
+
+    # Normalize surrounding spaces around hyphens/slashes
+    s = re.sub(r"\s*-\s*", " - ", s)
+    s = re.sub(r"\s*/\s*", " / ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+
+    # Capitalize first letter
+    if s:
+        s = s[0].upper() + s[1:]
+
+    return s
+
+
+def _clean_card_fields(title: str, topic: str) -> tuple[str, str]:
+    return _clean_display_text(title), _clean_display_text(topic)
 
 # ── CRUD ──────────────────────────────────────────────────────────────
 
@@ -78,7 +102,7 @@ def save_worksheet_record(
     try:
         payload = with_owner({
             "subject": str(subject).strip(),
-            "topic": str(topic).strip(),
+            "topic": _clean_display_text(topic),
             "learner_stage": str(learner_stage).strip(),
             "level_or_band": str(level_or_band).strip(),
             "worksheet_type": str(worksheet_type).strip(),
@@ -86,7 +110,7 @@ def save_worksheet_record(
             "student_material_language": str(worksheet.get("student_material_language") or "").strip(),
             "source_type": "ai",
             "worksheet_json": worksheet,
-            "title": str(worksheet.get("title") or "").strip(),
+            "title": _clean_display_text(worksheet.get("title") or ""),
             "author_name": str(st.session_state.get("user_name") or "Unknown").strip(),
             "subject_display": subject,
             "is_public": True,
@@ -236,6 +260,7 @@ def render_worksheet_library_cards(
             title = str(row.get("title") or t("untitled_worksheet")).strip()
             subject = str(row.get("subject") or "").strip()
             topic = str(row.get("topic") or "").strip()
+            title, topic = _clean_card_fields(title, topic)
             learner_stage = str(row.get("learner_stage") or "").strip()
             level_or_band = str(row.get("level_or_band") or "").strip()
             worksheet_type = str(row.get("worksheet_type") or "").strip()

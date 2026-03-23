@@ -216,7 +216,7 @@ def ensure_student(student: str) -> None:
         return
     uid = get_current_user_id()
     if not uid:
-        raise ValueError("Missing user_id while ensuring student.")
+        raise ValueError("missing_user_id")
     sb = get_sb()
     existing = (
         sb.table("students")
@@ -246,6 +246,59 @@ def _load_students_cached(uid: str) -> List[str]:
     return sorted([n for n in names if str(n).lower() != "nan"])
 
 register_cache(_load_students_cached)
+
+
+def rename_student_everywhere(old_name: str, new_name: str) -> None:
+    old_name = str(old_name or "").strip()
+    new_name = str(new_name or "").strip()
+    uid = get_current_user_id()
+
+    if not uid:
+        raise ValueError("missing_user_id")
+    if not old_name or not new_name:
+        raise ValueError("no_data")
+    if norm_student(old_name) == norm_student(new_name):
+        return
+
+    sb = get_sb()
+
+    existing = (
+        sb.table("students")
+        .select("id, student")
+        .eq("user_id", uid)
+        .execute()
+    )
+    rows = getattr(existing, "data", None) or []
+
+    if any(norm_student(r.get("student", "")) == norm_student(new_name) for r in rows):
+        raise ValueError("student_name_exists")
+
+    (
+        sb.table("students")
+        .update({"student": new_name})
+        .eq("user_id", uid)
+        .eq("student", old_name)
+        .execute()
+    )
+
+    failed_tables = []
+
+    for table_name in ["classes", "payments", "schedules", "calendar_overrides"]:
+        try:
+            (
+                sb.table(table_name)
+                .update({"student": new_name})
+                .eq("user_id", uid)
+                .eq("student", old_name)
+                .execute()
+            )
+        except Exception:
+            failed_tables.append(table_name)
+
+        if failed_tables:
+            raise ValueError("rename_student_partial_failed")
+
+    clear_app_caches()
 
 
 def load_students() -> List[str]:

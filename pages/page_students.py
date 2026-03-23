@@ -6,7 +6,13 @@ import pandas as pd
 from core.i18n import t
 from core.navigation import page_header
 from core.database import load_table, load_students, get_sb
-from core.database import ensure_student, clear_app_caches, norm_student, update_student_profile
+from core.database import (
+    ensure_student,
+    clear_app_caches,
+    norm_student,
+    update_student_profile,
+    rename_student_everywhere
+)
 from core.state import get_current_user_id
 from styles.theme import _is_dark
 from helpers.student_meta import load_students_df
@@ -166,7 +172,12 @@ def render_students():
         with tab_list:
             s_col1, s_col2 = st.columns([2, 1])
             with s_col1:
-                q = st.text_input(t("search"), value="", placeholder="Type a name…", key="students_list_search")
+                q = st.text_input(
+                    t("search"),
+                    value="",
+                    placeholder=t("search_name_placeholder"),
+                    key="students_list_search"
+                )
             with s_col2:
                 st.caption(f"Total: **{len(students)}**")
 
@@ -318,12 +329,14 @@ def render_students():
                     ):
                         st.warning(t("student_name_exists"))
                     else:
-                        get_sb().table("students").update({"student": stripped}).eq(
-                            "student", selected_student
-                        ).eq("user_id", get_current_user_id()).execute()
-                        clear_app_caches()
-                        st.success(t("done_ok"))
-                        st.rerun()
+                        try:
+                            rename_student_everywhere(selected_student, stripped)
+                            st.success(t("done_ok"))
+                            st.rerun()
+                        except ValueError as e:
+                            st.error(t(str(e)))
+                        except Exception as e:
+                           st.error(f"{t('rename_student_failed')}\n\n{e}")
 
             col1, col2 = st.columns(2)
             with col1:
@@ -432,11 +445,11 @@ def render_students():
                 confirm = st.checkbox(t("confirm_delete_student"), key="delete_student_confirm")
                 if st.button(t("delete"), type="primary", disabled=not confirm, key="btn_delete_student"):
                     try:
-                        get_sb().table("students").delete().eq("student", del_student).execute()
+                        get_sb().table("students").delete().eq("student", del_student).eq("user_id", get_current_user_id()).execute()
                         clear_app_caches()
                         st.success(t("done_ok"))
                         st.rerun()
                     except Exception as e:
-                        st.error(f"{t('delete')} failed.\n\n{e}")
+                        st.error(f"{t('delete_student_failed')}\n\n{e}")
 
 # =========================

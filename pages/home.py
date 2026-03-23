@@ -119,7 +119,7 @@ def render_home_teaching_resources_preview():
             plans_to_show = filtered_plans if plan_q else filtered_plans.head(4)
 
             if plans_to_show.empty:
-                st.info(t("be_first_to_share"))
+                st.info(t("be_the_first_to_share"))
             else:
                 if plan_q:
                     st.caption(f"{len(plans_to_show)} {t('community_plans').lower()}")
@@ -175,7 +175,7 @@ def render_home_teaching_resources_preview():
             ws_to_show = filtered_ws if ws_q else filtered_ws.head(4)
 
             if ws_to_show.empty:
-                st.info(t("no_data"))
+                st.info(t("be_the_first_to_share"))
             else:
                 if ws_q:
                     st.caption(f"{len(ws_to_show)} {t('community_worksheets').lower()}")
@@ -238,16 +238,17 @@ def render_home():
         if "home_action_menu_nonce" not in st.session_state:
             st.session_state["home_action_menu_nonce"] = 0
 
-        default_action_index = 1 if panel == "community" else (2 if panel == "files" else 3)
+        default_action_index = 2 if panel == "files" else 1
 
-        # Keep prev in sync with whatever the menu is currently showing
         if "home_action_menu_prev" not in st.session_state:
-            st.session_state["home_action_menu_prev"] = t("files") if panel == "files" else (t("community") if panel == "community" else t("sign_out"))
+            st.session_state["home_action_menu_prev"] = t("files") if panel == "files" else t("home")
+
+        default_label = t("files") if panel == "files" else t("home")
 
         action = option_menu(
             menu_title=None,
-            options=[t("profile"), t("community"), t("files"), t("sign_out")],
-            icons=["person-circle", "people-fill", "folder2-open", "box-arrow-right"],
+            options=[t("profile"), t("home"), t("files"), t("sign_out")],
+            icons=["person-circle", "house", "folder2-open", "box-arrow-right"],
             orientation="horizontal",
             default_index=default_action_index,
             key=f"home_action_menu_{st.session_state.get('home_action_menu_nonce', 0)}",
@@ -275,8 +276,6 @@ def render_home():
             },
         )
 
-        # The "default" item is effectively deselected/neutral – treat it as a no-op baseline
-        default_label = t("community") if panel == "community" else (t("files") if panel == "files" else t("sign_out"))
 
     with left:
         st.markdown(
@@ -310,10 +309,10 @@ def render_home():
                 home_go("home", panel="files")
                 st.rerun()
 
-            elif action == t("community"):
-                st.session_state["home_action_menu_prev"] = t("community")
+            elif action == t("home"):
+                st.session_state["home_action_menu_prev"] = t("home")
                 st.session_state.pop("confirm_sign_out", None)
-                home_go("home", panel="community")
+                home_go("home", panel=None)
                 st.rerun()
 
             elif action == t("sign_out"):
@@ -383,11 +382,14 @@ def render_home():
                 if subject_filter != t("all") and "subject" in filtered.columns:
                     filtered = filtered[filtered["subject"].astype(str) == subject_filter]
 
-                render_plan_library_cards(
-                    filtered,
-                    prefix="my_plans",
-                    show_author=False,
-                )
+                if filtered.empty:
+                    st.info(t("no_data"))
+                else:
+                    render_plan_library_cards(
+                        filtered,
+                        prefix="my_plans",
+                        show_author=False,
+                     )
 
         with tab2:
             ws_df = load_my_worksheets()
@@ -488,7 +490,7 @@ def render_home():
                         filtered_public = filtered_public[filtered_public["source_type"].astype(str) == source_filter_public]
 
                     if filtered_public.empty:
-                        st.info(t("no_data"))
+                        st.info(t("be_the_first_to_share"))
                     else:
                         st.caption(f"{len(filtered_public)} {t('community_plans').lower()}")
                         render_plan_library_cards(filtered_public, prefix="community_plans", show_author=True)
@@ -567,7 +569,7 @@ def render_home():
                         pub_ws_filtered = pub_ws_filtered[pub_ws_filtered["source_type"].astype(str) == pub_ws_src_filter]
 
                     if pub_ws_filtered.empty:
-                        st.info(t("no_data"))
+                        st.info(t("be_the_first_to_share"))
                     else:
                         st.caption(f"{len(pub_ws_filtered)} {t('community_worksheets').lower()}")
                         render_worksheet_library_cards(pub_ws_filtered, prefix="pub_ws", show_author=True)
@@ -746,8 +748,18 @@ def render_home():
         import re as _re_comm
         from auth.auth import _profile_subject_label as _subj_label_fn
 
-        st.markdown(f"### 🌐 {t('community_tab_title')}")
-        st.caption(t("community_subtitle"))
+        head_left, head_right = st.columns([6, 1], vertical_alignment="center")
+
+        with head_left:
+            st.markdown(f"### 🌐 {t('community_tab_title')}")
+            st.caption(t("community_subtitle"))
+
+        with head_right:
+            if st.button(f"{t('close')}", key="close_community_top", help=t("close_community"), use_container_width=True):
+               st.session_state["home_action_menu_prev"] = t("home")
+               st.session_state["home_action_menu_nonce"] += 1
+               home_go("home", panel=None)
+               st.rerun()
 
         _all_profiles_raw = load_community_profiles()
 
@@ -924,13 +936,6 @@ def render_home():
                             """,
                             unsafe_allow_html=True,
                         )
-
-        st.divider()
-        if st.button(t("close_community"), key="close_community_panel", use_container_width=True):
-            st.session_state["home_action_menu_prev"] = t("profile")
-            st.session_state["home_action_menu_nonce"] += 1
-            home_go("home", panel=None)
-            st.rerun()
 
         return
 
