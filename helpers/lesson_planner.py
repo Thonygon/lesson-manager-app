@@ -112,8 +112,29 @@ def _purpose_label(purpose: str) -> str:
 
 
 def _topic_clean(topic: str) -> str:
-    return str(topic or "").strip()
+    return _clean_display_text(topic)
 
+def _clean_display_text(text: str) -> str:
+    s = str(text or "").strip()
+
+    # Collapse repeated spaces
+    s = re.sub(r"\s+", " ", s)
+
+    # Remove spaces before punctuation
+    s = re.sub(r"\s+([.,!?;:])", r"\1", s)
+
+    # Normalize spaces around hyphens and slashes
+    s = re.sub(r"\s*-\s*", " - ", s)
+    s = re.sub(r"\s*/\s*", " / ", s)
+
+    # Final trim
+    s = re.sub(r"\s+", " ", s).strip()
+
+    # Capitalize first letter
+    if s:
+        s = s[0].upper() + s[1:]
+
+    return s
 
 def _capitalize_topic(topic: str) -> str:
     s = _topic_clean(topic)
@@ -1287,6 +1308,14 @@ def normalize_planner_output(plan: dict) -> dict:
     for k in list_keys:
         if not isinstance(out.get(k), list):
             out[k] = [] if out.get(k) in (None, "") else [str(out.get(k))]
+
+    out["title"] = _clean_display_text(out.get("title", ""))
+    if "core_material" not in out or not isinstance(out["core_material"], dict):
+        out["core_material"] = {}
+
+    # Keep topic only if it exists in AI output; otherwise leave empty
+    if "topic" in out:
+        out["topic"] = _clean_display_text(out.get("topic", ""))
 
     return out
 
