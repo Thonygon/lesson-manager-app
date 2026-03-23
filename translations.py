@@ -19,7 +19,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_advice_green": "This goal is realistic if you have a good retention strategy.",
         "explore_advice_yellow": "A busy schedule, but achievable if you plan your calendar and keep your students engaged.",
         "explore_advice_orange": "This is a heavy schedule. You need a well-structured routine for planning and keeping your students happy.",
-        "explore_advice_red": "This is a very high workload. Consider raising your rates every 3–6 months, offering packages, or increasing student count only if your schedule allows.",
+        "explore_advice_red": "This is a very high workload. Consider raising your fees, offering group lessons, or adjusting your goal.",
         "explore_teaching_resources_subtitle": "Discover the latest lesson plans and worksheets shared by the community.",
         # -------------------------
         # AUTH
@@ -67,7 +67,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "choose_username_title": "Choose your username",
         "choose_username_msg": "Welcome back! We now require a unique username. Please choose one to continue.",
         "set_username_btn": "Set username",
-
+        "missing_user_id": "Session expired. Please reload the page and log in again.",
+        
         # -------------------------
         # DELETE / RESTORE ACCOUNT
         # -------------------------
@@ -572,7 +573,11 @@ I18N: Dict[str, Dict[str, str]] = {
         "delete_student": "Delete student",
         "delete_student_warning": "This deletes the student profile. Lessons/payments remain in the database unless you delete them separately.",
         "confirm_delete_student": "I understand and want to delete this student",
-
+        "rename_student_failed": "Could not rename student.",
+        "delete_student_failed": "Could not delete student.",
+        "search_name_placeholder": "Type a name…",
+        "rename_student_partial_failed": "Some related student records could not be updated.",
+        
         # student profile fields
         "email": "Email",
         "zoom_link": "Zoom link",
@@ -909,7 +914,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_advice_green": "Esta meta es realista si tienes una buena estrategia de retención.",
         "explore_advice_yellow": "Un horario ocupado, pero alcanzable si planificas tu calendario y mantienes a tus estudiantes motivados.",
         "explore_advice_orange": "Es una agenda pesada. Necesitas una rutina bien estructurada para planificar y mantener felices a tus estudiantes.",
-        "explore_advice_red": "Esta es una carga de trabajo muy alta. Considera aumentar tus tarifas cada 3–6 meses, ofrecer paquetes o aumentar el número de estudiantes solo si tu agenda lo permite.",
+        "explore_advice_red": "Esta es una carga de trabajo muy alta. Considera aumentar tus tarifas, ofrecer clases grupales o ajustar tu objetivo.",
         "explore_teaching_resources_subtitle": "Descubre los planes de clase y hojas de trabajo más recientes compartidos por la comunidad.",
         # -------------------------
         # AUTH
@@ -957,7 +962,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "choose_username_title": "Elige tu nombre de usuario",
         "choose_username_msg": "¡Bienvenido de nuevo! Ahora requerimos un nombre de usuario único. Por favor elige uno para continuar.",
         "set_username_btn": "Establecer nombre de usuario",
-
+        "missing_user_id": "Su sesión ha expirado. Por favor reinicia la aplicación e inicia sesión nuevamente.",
+        
         # -------------------------
         # DELETE / RESTORE ACCOUNT
         # -------------------------
@@ -1463,7 +1469,11 @@ I18N: Dict[str, Dict[str, str]] = {
         "delete_student": "Eliminar estudiante",
         "delete_student_warning": "Esto elimina el perfil del estudiante. Las clases/pagos permanecen en la base de datos a menos que los elimines por separado.",
         "confirm_delete_student": "Entiendo y quiero eliminar este estudiante",
-
+        "rename_student_failed": "No se pudo cambiar el nombre del estudiante.",
+        "delete_student_failed": "No se pudo eliminar al estudiante.",
+        "search_name_placeholder": "Escribe un nombre…",
+        "rename_student_partial_failed": "Algunos registros relacionados del estudiante no pudieron actualizarse.",
+        
         # student profile fields
         "email": "Correo",
         "zoom_link": "Enlace de Zoom",
@@ -1799,7 +1809,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_advice_green": "İyi bir öğrenci tutma stratejiniz varsa bu hedef gerçekçidir.",
         "explore_advice_yellow": "Yoğun bir program, ancak takviminizi planlarsanız ve öğrencilerinizi motive ederseniz ulaşılabilir.",
         "explore_advice_orange": "Bu yoğun bir programdır. Planlama ve öğrencilerinizi mutlu tutmak için iyi yapılandırılmış bir rutine ihtiyacınız var.",
-        "explore_advice_red": "Bu çok yüksek bir iş yüküdür. Her 3–6 ayda bir ücretlerinizi artırmayı, paketler sunmayı veya yalnızca programınız uygunsa öğrenci sayısını artırmayı düşünün.",
+        "explore_advice_red": "Bu çok yüksek bir iş yüküdür. Ücretlerinizi artırmayı, grup dersleri sunmayı veya hedefinizi ayarlamayı düşünün.",
         "explore_teaching_resources_subtitle": "Topluluk tarafından paylaşılan en yeni ders planlarını ve çalışma kağıtlarını keşfedin.",
         # -------------------------
         # AUTH
@@ -1847,6 +1857,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "choose_username_title": "Kullanıcı adınızı seçin",
         "choose_username_msg": "Tekrar hoş geldiniz! Artık benzersiz bir kullanıcı adı gereklidir. Devam etmek için lütfen birini seçin.",
         "set_username_btn": "Kullanıcı adını belirle",
+        "missing_user_id": "Oturum süresi doldu. Lütfen tekrar giriş yapın.",
 
         # -------------------------
         # DELETE / RESTORE ACCOUNT
@@ -2346,7 +2357,11 @@ I18N: Dict[str, Dict[str, str]] = {
         "delete_student": "Öğrenciyi sil",
         "delete_student_warning": "Bu, öğrenci profilini siler. Dersler/ödemeler ayrı silinmediği sürece veritabanında kalır.",
         "confirm_delete_student": "Anlıyorum ve bu öğrenciyi silmek istiyorum",
-
+        "rename_student_failed": "Öğrenci adını değiştirme başarısız.",
+        "delete_student_failed": "Öğrenciyi silme başarısız.",
+        "search_name_placeholder": "Öğrenci adı ara",
+        "rename_student_partial_failed": "Öğrenciye ait bazı ilgili kayıtlar güncellenemedi.",
+        
         # student profile fields
         "zoom_link": "Zoom bağlantısı",
         "whatsapp_phone": "WhatsApp telefonu",

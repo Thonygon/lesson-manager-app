@@ -17,9 +17,7 @@ QUICK_SUBJECTS = [
     "Mathematics",
     "Science",
     "Music",
-    "Study Skills",
-    "Other",
-]
+    "Study Skills",] 
 
 SUBJECT_ENGINE_MAP = {
     "english": "language",
@@ -27,9 +25,7 @@ SUBJECT_ENGINE_MAP = {
     "mathematics": "math",
     "science": "science",
     "music": "music",
-    "study skills": "study_skills",
-    "other": "general",
-}
+    "study skills": "study_skills",}
 
 LEARNER_STAGES = [
     "early_primary",
