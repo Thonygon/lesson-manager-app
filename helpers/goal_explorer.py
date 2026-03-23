@@ -12,6 +12,8 @@ from helpers.currency import CURRENCIES, currency_symbol
 from helpers.planner_storage import load_public_lesson_plans, render_plan_library_cards
 from helpers.worksheet_storage import load_public_worksheets, render_worksheet_library_cards
 from styles.theme import load_css_home
+import re
+import pandas as pd
 
 # ── Hourly rate ranges by subject and modality (USD) ──
 # (min, default, max) — based on current private-tutoring market data.
@@ -73,6 +75,96 @@ _TEACHING_WEEKS_PER_YEAR = 44        # ~8 weeks of holidays / breaks
 _LESSONS_PER_STUDENT_PER_WEEK = 1.5  # avg mix of weekly and biweekly
 
 
+def _normalize(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "").strip().casefold())
+
+def _tokens(query: str) -> list[str]:
+    return [t for t in re.split(r"[^a-zA-Z0-9]+", _normalize(query)) if t]
+
+def _prepare_searchable_resources(df: pd.DataFrame, kind: str) -> pd.DataFrame:
+    out = df.copy()
+
+    def _safe_t(value: str) -> str:
+        try:
+            return t(value) if value else ""
+        except Exception:
+            return str(value or "")
+
+    if "subject" in out.columns:
+        out["_search_subject"] = out["subject"].fillna("").astype(str)
+
+    if "learner_stage" in out.columns:
+        out["_search_stage"] = out["learner_stage"].fillna("").astype(str).apply(_safe_t)
+
+    if "level_or_band" in out.columns:
+        def _level_label(v: str) -> str:
+            v = str(v or "")
+            if v in ["A1", "A2", "B1", "B2", "C1", "C2"]:
+                return v
+            return _safe_t(v)
+        out["_search_level"] = out["level_or_band"].fillna("").astype(str).apply(_level_label)
+
+    if kind == "plan" and "lesson_purpose" in out.columns:
+        out["_search_type"] = out["lesson_purpose"].fillna("").astype(str).apply(_safe_t)
+
+    if kind == "worksheet" and "worksheet_type" in out.columns:
+        out["_search_type"] = out["worksheet_type"].fillna("").astype(str).apply(_safe_t)
+
+    return out
+
+def _rank_search(df: pd.DataFrame, query: str, weights: dict) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    q = _normalize(query)
+    toks = _tokens(query)
+
+    if not q or not toks:
+        if "created_at" in df.columns:
+            return df.sort_values("created_at", ascending=False)
+        return df.copy()
+
+    def score(row):
+        s = 0.0
+        matched = False
+
+        for field, w in weights.items():
+            text = _normalize(row.get(field, ""))
+
+            if not text:
+                continue
+
+            # strong full-phrase match
+            if q in text:
+                s += w * 4
+                matched = True
+
+            # token matches
+            for tok in toks:
+                if tok in text:
+                    s += w
+                    matched = True
+
+        # only give recency boost if there was at least one text match
+        if matched and pd.notna(row.get("created_at")):
+            s += 0.2
+
+        return s
+
+    ranked = df.copy()
+    ranked["_score"] = ranked.apply(score, axis=1)
+    ranked = ranked[ranked["_score"] > 0]
+
+    if ranked.empty:
+        return ranked
+
+    if "created_at" in ranked.columns:
+        ranked = ranked.sort_values(["_score", "created_at"], ascending=[False, False])
+    else:
+        ranked = ranked.sort_values(["_score"], ascending=[False])
+
+    return ranked
+
 def _range_in_currency(
     subject: str, modality: str, currency: str,
     audience: str = "adults", education: str = "bachelors",
@@ -115,43 +207,127 @@ def _render_explore_teaching_resources() -> None:
         f"📋 {t('community_worksheets')}",
     ])
 
+    # ---------------------------
+    # LESSON PLANS
+    # ---------------------------
     with tab1:
         public_plans = load_public_lesson_plans()
 
         if public_plans.empty:
             st.info(t("community_library_empty"))
         else:
-            preview_plans = public_plans.copy()
-            if "created_at" in preview_plans.columns:
-                preview_plans = preview_plans.sort_values("created_at", ascending=False)
-            preview_plans = preview_plans.head(6)
+            plan_q = st.text_input(
+                t("explore_resource_search"),
+                key="explore_public_plans_q",
+                placeholder=t("explore_resource_search_placeholder"),
+            ).strip()
 
-            render_plan_library_cards(
-                preview_plans,
-                prefix="explore_public_plans",
-                show_author=True,
-                open_in_files=False,
-                require_signup=True,
+            searchable_plans = _prepare_searchable_resources(public_plans, kind="plan")
+
+            if plan_q:
+                filtered_plans = _rank_search(
+                    searchable_plans,
+                    plan_q,
+                    weights={
+                        "title": 5,
+                        "topic": 4,
+                        "_search_subject": 3,
+                        "_search_type": 3,
+                        "_search_stage": 2,
+                        "_search_level": 2,
+                        "author_name": 1,
+                    },
+                )
+            else:
+                filtered_plans = searchable_plans.copy()
+
+            if "created_at" in filtered_plans.columns:
+                filtered_plans = filtered_plans.sort_values("created_at", ascending=False)
+
+            # clean temporary search columns
+            filtered_plans = filtered_plans.drop(
+                columns=[c for c in filtered_plans.columns if c.startswith("_search")],
+                errors="ignore"
             )
+            
+            plans_to_show = filtered_plans if plan_q else filtered_plans.head(6)
 
+            if plans_to_show.empty:
+                st.info(t("be_the_first_to_share"))
+            else:
+                if plan_q:
+                    st.caption(f"{len(plans_to_show)} {t('community_plans').lower()}")
+                else:
+                    st.caption(t("explore_latest_resources_note").format(count=6))
+
+                render_plan_library_cards(
+                    plans_to_show,
+                    prefix="explore_public_plans",
+                    show_author=True,
+                    open_in_files=False,
+                    require_signup=True,
+                )
+
+    # ---------------------------
+    # WORKSHEETS
+    # ---------------------------
     with tab2:
         public_ws = load_public_worksheets()
 
         if public_ws.empty:
             st.info(t("community_library_empty"))
         else:
-            preview_ws = public_ws.copy()
-            if "created_at" in preview_ws.columns:
-                preview_ws = preview_ws.sort_values("created_at", ascending=False)
-            preview_ws = preview_ws.head(6)
+            ws_q = st.text_input(
+                t("explore_resource_search"),
+                key="explore_public_ws_q",
+                placeholder=t("explore_resource_search_placeholder"),
+            ).strip()
 
-            render_worksheet_library_cards(
-                preview_ws,
-                prefix="explore_public_ws",
-                show_author=True,
-                open_in_files=False,
-                require_signup=True,
+            searchable_ws = _prepare_searchable_resources(public_ws, kind="worksheet")
+
+            if ws_q:
+                filtered_ws = _rank_search(
+                    searchable_ws,
+                    ws_q,
+                    weights={
+                        "title": 5,
+                        "topic": 4,
+                        "_search_subject": 3,
+                        "_search_type": 3,
+                        "_search_stage": 2,
+                        "_search_level": 2,
+                        "author_name": 1,
+                    },
+                )
+            else:
+                filtered_ws = searchable_ws.copy()
+
+            if "created_at" in filtered_ws.columns:
+                filtered_ws = filtered_ws.sort_values("created_at", ascending=False)
+
+            # clean temporary search columns
+            filtered_ws = filtered_ws.drop(
+                columns=[c for c in filtered_ws.columns if c.startswith("_search")],
+                errors="ignore"
             )
+            
+            ws_to_show = filtered_ws if ws_q else filtered_ws.head(6)
+
+            if ws_to_show.empty:
+                st.info(t("be_the_first_to_share"))
+            else:
+                if ws_q:
+                    st.caption(f"{len(ws_to_show)} {t('community_worksheets').lower()}")
+                else:
+                    st.caption(t("explore_latest_resources_note").format(count=6))
+
+                render_worksheet_library_cards(
+                    ws_to_show,
+                    prefix="explore_public_ws",
+                    show_author=True,
+                    open_in_files=False,
+                    require_signup=True,
+                )
 
 def render_goal_explorer() -> bool:
     """

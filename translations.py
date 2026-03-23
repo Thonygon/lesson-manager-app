@@ -891,6 +891,11 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_feat_analytics": "Income trends, charts and insights.",
         "explore_try_feature": "Get started",
         "explore_signup_prompt_feature": "Create a free account to access {feature} and all other features!",
+        "explore_resource_search": "What are you looking for?",
+        "explore_resource_search_placeholder": "Search by topic, title, subject, level, type…",
+        "explore_latest_resources_note": "Showing the latest {count} resources. Use the search box to explore more.",
+        "be_the_first_to_share": "WoOW! No resources yet. This must be innovative! Be the first to share a resource!",
+   
     },
 
     "es": {
@@ -1777,6 +1782,10 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_feat_analytics": "Tendencias de ingresos, gráficos y análisis.",
         "explore_try_feature": "Empezar",
         "explore_signup_prompt_feature": "¡Crea una cuenta gratuita para acceder a {feature} y todas las demás funciones!",
+        "explore_resource_search": "¿Qué estás buscando?",
+        "explore_resource_search_placeholder": "Busca por tema, título, asignatura, nivel, tipo…",
+        "explore_latest_resources_note": "Mostrando los últimos {count} recursos. Usa el buscador para explorar más.",
+        "be_the_first_to_share": "¡Oh! Aún no hay recursos. ¡Esto debe ser innovador! Sé el primero en compartir un recurso.",
     },
 
     "tr": {
@@ -2649,5 +2658,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_feat_analytics": "Gelir eğilimleri, grafikler ve analizler.",
         "explore_try_feature": "Başla",
         "explore_signup_prompt_feature": "{feature} ve tüm diğer özelliklere erişmek için ücretsiz bir hesap oluşturun!",
+        "explore_resource_search": "Ne arıyorsunuz?",
+        "explore_resource_search_placeholder": "Konu, başlık, ders, seviye, tür ile ara…",
+        "explore_latest_resources_note": "En son {count} kaynak gösteriliyor. Daha fazlasını keşfetmek için arama kutusunu kullanın.",
+        "be_the_first_to_share": "Bu konu hakkında henüz kaynak yok. İlk paylaşan siz olun!",
     },
     }

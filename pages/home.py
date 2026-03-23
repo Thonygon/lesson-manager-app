@@ -18,6 +18,7 @@ from helpers.worksheet_storage import load_my_worksheets, load_public_worksheets
 from helpers.worksheet_builder import normalize_worksheet_output
 from helpers.goal_explorer import render_income_goal_calculator
 from core.database import load_community_profiles
+from helpers.goal_explorer import _rank_search
 
 
 def _render_restore_dialog(user_id: str) -> None:
@@ -80,51 +81,113 @@ def render_home_teaching_resources_preview():
         f"📋 {t('community_worksheets')}",
     ])
 
+    # =========================
+    # LESSON PLANS
+    # =========================
     with res_tab1:
         public_df = load_public_lesson_plans()
 
         if public_df.empty:
             st.info(t("community_library_empty"))
         else:
-            preview_plans = public_df.copy()
+            plan_q = st.text_input(
+                t("explore_resource_search"),
+                key="home_public_plans_q",
+                placeholder=t("explore_resource_search_placeholder"),
+            ).strip()
 
-            if "created_at" in preview_plans.columns:
-                preview_plans = preview_plans.sort_values("created_at", ascending=False)
+            if plan_q:
+                filtered_plans = _rank_search(
+                    public_df,
+                    plan_q,
+                    weights={
+                        "title": 5,
+                        "topic": 4,
+                        "subject": 3,
+                        "lesson_purpose": 3,
+                        "learner_stage": 2,
+                        "level_or_band": 2,
+                        "author_name": 1,
+                    },
+                )
+            else:
+                filtered_plans = public_df.copy()
 
-            preview_plans = preview_plans.head(4)
+            if "created_at" in filtered_plans.columns:
+                filtered_plans = filtered_plans.sort_values("created_at", ascending=False)
 
-            st.caption(f"{len(preview_plans)} {t('community_plans').lower()}")
-            render_plan_library_cards(
-                preview_plans,
-                prefix="home_public_plans",
-                show_author=True,
-                open_in_files=True,
-            )
+            plans_to_show = filtered_plans if plan_q else filtered_plans.head(4)
+
+            if plans_to_show.empty:
+                st.info(t("no_data"))
+            else:
+                if plan_q:
+                    st.caption(f"{len(plans_to_show)} {t('community_plans').lower()}")
+                else:
+                    st.caption(t("explore_latest_resources_note").format(count=4))
+
+                render_plan_library_cards(
+                    plans_to_show,
+                    prefix="home_public_plans",
+                    show_author=True,
+                    open_in_files=True,
+                )
 
             if st.button(t("see_all_lesson_plans"), key="home_see_all_plans", use_container_width=True):
                 home_go("home", panel="files")
                 st.rerun()
 
+    # =========================
+    # WORKSHEETS
+    # =========================
     with res_tab2:
         public_ws_df = load_public_worksheets()
 
         if public_ws_df.empty:
             st.info(t("community_library_empty"))
         else:
-            preview_ws = public_ws_df.copy()
+            ws_q = st.text_input(
+                t("explore_resource_search"),
+                key="home_public_ws_q",
+                placeholder=t("explore_resource_search_placeholder"),
+            ).strip()
 
-            if "created_at" in preview_ws.columns:
-                preview_ws = preview_ws.sort_values("created_at", ascending=False)
+            if ws_q:
+                filtered_ws = _rank_search(
+                    public_ws_df,
+                    ws_q,
+                    weights={
+                        "title": 5,
+                        "topic": 4,
+                        "subject": 3,
+                        "worksheet_type": 3,
+                        "learner_stage": 2,
+                        "level_or_band": 2,
+                        "author_name": 1,
+                    },
+                )
+            else:
+                filtered_ws = public_ws_df.copy()
 
-            preview_ws = preview_ws.head(4)
+            if "created_at" in filtered_ws.columns:
+                filtered_ws = filtered_ws.sort_values("created_at", ascending=False)
 
-            st.caption(f"{len(preview_ws)} {t('community_worksheets').lower()}")
-            render_worksheet_library_cards(
-                preview_ws,
-                prefix="home_public_ws",
-                show_author=True,
-                open_in_files=True,
-)
+            ws_to_show = filtered_ws if ws_q else filtered_ws.head(4)
+
+            if ws_to_show.empty:
+                st.info(t("no_data"))
+            else:
+                if ws_q:
+                    st.caption(f"{len(ws_to_show)} {t('community_worksheets').lower()}")
+                else:
+                    st.caption(t("explore_latest_resources_note").format(count=4))
+
+                render_worksheet_library_cards(
+                    ws_to_show,
+                    prefix="home_public_ws",
+                    show_author=True,
+                    open_in_files=True,
+                )
 
             if st.button(t("see_all_worksheets"), key="home_see_all_ws", use_container_width=True):
                 home_go("home", panel="files")
