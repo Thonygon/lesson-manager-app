@@ -202,23 +202,28 @@ def _dark_widget_css() -> str:
       }
 
       /* ── Expanders ── */
-      div[data-testid="stExpander"] {
-        background: #1a2535 !important;
-        border: 1px solid rgba(255,255,255,0.10) !important;
-        border-radius: 14px !important;
-      }
-      div[data-testid="stExpander"] summary,
-      div[data-testid="stExpander"] summary *,
-      div[data-testid="stExpander"] [data-testid="stExpanderToggleIcon"] {
-        color: #94a3b8 !important;
-        -webkit-text-fill-color: #94a3b8 !important;
-      }
-      div[data-testid="stExpander"] p,
-      div[data-testid="stExpander"] span,
-      div[data-testid="stExpander"] li {
-        color: var(--text) !important;
-        -webkit-text-fill-color: var(--text) !important;
-      }
+        div[data-testid="stExpander"]{
+          border-radius:16px;
+          border:1px solid var(--border);
+          background:linear-gradient(180deg,var(--panel),var(--panel-2));
+          box-shadow:var(--shadow-md);
+          transition: all 250ms ease;
+        }
+
+        div[data-testid="stExpander"]:hover{
+          box-shadow:var(--shadow-lg);
+          border-color:rgba(59,130,246,0.2);
+        }
+
+        div[data-testid="stExpander"] summary{
+          font-weight: 600;
+          font-size: 0.95rem;
+          padding: 0.9rem 1.1rem;
+        }
+
+        div[data-testid="stExpander"] details[open]{
+          padding-bottom: 0.5rem;
+        }
 
       /* ── Text inputs / textareas ── */
       div[data-testid="stTextInput"] input,
@@ -354,6 +359,95 @@ def _dark_widget_css() -> str:
       }
     """
 
+def _resource_cards_css() -> str:
+    return """
+      /* ---------- Shared resource cards ---------- */
+      .cm-resource-card{
+        background: linear-gradient(180deg, var(--panel, rgba(255,255,255,0.96)), var(--panel-2, rgba(248,250,255,0.92)));
+        border: 1px solid var(--border-strong, rgba(17,24,39,0.08));
+        border-left: 5px solid #60A5FA;
+        border-radius: 20px;
+        padding: 16px;
+        box-shadow: var(--shadow-md);
+        margin-bottom: 0.45rem;
+        min-height: 210px;
+      }
+
+      .cm-resource-plan{
+        border-left-color: #60A5FA;
+      }
+
+      .cm-resource-worksheet{
+        border-left-color: #A78BFA;
+      }
+
+      .cm-resource-card__title{
+        font-size: 1.02rem;
+        font-weight: 800;
+        line-height: 1.3;
+        color: var(--text);
+        margin-bottom: 10px;
+      }
+
+      .cm-resource-chip-row{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .cm-resource-chip{
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-size: 0.76rem;
+        font-weight: 700;
+        white-space: nowrap;
+        color: var(--text);
+        background: rgba(96,165,250,0.10);
+        border: 1px solid rgba(96,165,250,0.18);
+      }
+
+      .cm-resource-worksheet .cm-resource-chip{
+        background: rgba(167,139,250,0.10);
+        border: 1px solid rgba(167,139,250,0.18);
+      }
+
+      .cm-resource-preview{
+        background: rgba(148,163,184,0.08);
+        border-radius: 14px;
+        padding: 12px;
+        font-size: 0.84rem;
+        line-height: 1.45;
+        color: var(--text);
+        min-height: 72px;
+        margin-bottom: 10px;
+      }
+
+      .cm-resource-meta{
+        font-size: 0.78rem;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+
+      @media (max-width: 768px){
+        .cm-resource-card{
+          min-height: auto;
+          padding: 14px;
+          border-radius: 18px;
+        }
+
+        .cm-resource-card__title{
+          font-size: 0.96rem;
+        }
+
+        .cm-resource-preview{
+          min-height: auto;
+        }
+      }
+    """
 
 def load_css_home():
     st.markdown(f"<style>{_root_vars()}</style>", unsafe_allow_html=True)
@@ -815,12 +909,15 @@ def load_css_home():
         """,
         unsafe_allow_html=True,
     )
+
+    st.markdown(f"<style>{_resource_cards_css()}</style>", unsafe_allow_html=True)
+
     _dark_css = _dark_widget_css()
     if _dark_css:
         st.markdown(f"<style>{_dark_css}</style>", unsafe_allow_html=True)
 
-
 def load_css_app_light(compact: bool = False):
+    _resource_css = _resource_cards_css()
     compact_css = """
         section[data-testid="stMain"] > div {
           padding-top: 0rem !important;
@@ -1217,6 +1314,7 @@ def load_css_app_light(compact: bool = False):
         }}
 
         {compact_css}
+        {_resource_css}
         </style>
         """,
         unsafe_allow_html=True,

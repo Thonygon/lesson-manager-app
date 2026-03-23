@@ -63,6 +63,72 @@ def _render_restore_dialog(user_id: str) -> None:
 
     _restore_dlg()
 
+# TEACHING RESOURCES PREVIEW 
+# =========================
+def render_home_teaching_resources_preview():
+    st.markdown(
+        f"""
+        <div class="home-section-line">
+          <span>{t("teaching_resources")}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    res_tab1, res_tab2 = st.tabs([
+        f"📝 {t('community_plans')}",
+        f"📋 {t('community_worksheets')}",
+    ])
+
+    with res_tab1:
+        public_df = load_public_lesson_plans()
+
+        if public_df.empty:
+            st.info(t("community_library_empty"))
+        else:
+            preview_plans = public_df.copy()
+
+            if "created_at" in preview_plans.columns:
+                preview_plans = preview_plans.sort_values("created_at", ascending=False)
+
+            preview_plans = preview_plans.head(4)
+
+            st.caption(f"{len(preview_plans)} {t('community_plans').lower()}")
+            render_plan_library_cards(
+                preview_plans,
+                prefix="home_public_plans",
+                show_author=True,
+                open_in_files=True,
+            )
+
+            if st.button(t("see_all_lesson_plans"), key="home_see_all_plans", use_container_width=True):
+                home_go("home", panel="files")
+                st.rerun()
+
+    with res_tab2:
+        public_ws_df = load_public_worksheets()
+
+        if public_ws_df.empty:
+            st.info(t("community_library_empty"))
+        else:
+            preview_ws = public_ws_df.copy()
+
+            if "created_at" in preview_ws.columns:
+                preview_ws = preview_ws.sort_values("created_at", ascending=False)
+
+            preview_ws = preview_ws.head(4)
+
+            st.caption(f"{len(preview_ws)} {t('community_worksheets').lower()}")
+            render_worksheet_library_cards(
+                preview_ws,
+                prefix="home_public_ws",
+                show_author=True,
+                open_in_files=True,
+)
+
+            if st.button(t("see_all_worksheets"), key="home_see_all_ws", use_container_width=True):
+                home_go("home", panel="files")
+                st.rerun()
 
 # 10) HOME SCREEN UI (DARK)
 # =========================
@@ -898,6 +964,8 @@ def render_home():
                         go_to(key)
                         st.rerun()
         st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+
+    render_home_teaching_resources_preview()
 
     st.markdown('<div class="home-bottom-space"></div>', unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)

@@ -9,6 +9,9 @@ import math
 import streamlit as st
 from core.i18n import t
 from helpers.currency import CURRENCIES, currency_symbol
+from helpers.planner_storage import load_public_lesson_plans, render_plan_library_cards
+from helpers.worksheet_storage import load_public_worksheets, render_worksheet_library_cards
+from styles.theme import load_css_home
 
 # ── Hourly rate ranges by subject and modality (USD) ──
 # (min, default, max) — based on current private-tutoring market data.
@@ -92,12 +95,70 @@ def _blended_range(
     off = _range_in_currency(subject, "offline", currency, audience, education)
     return (min(on[0], off[0]), round((on[1] + off[1]) / 2), max(on[2], off[2]))
 
+def _render_explore_teaching_resources() -> None:
+    st.markdown(
+        f"""
+        <div style="text-align:center; padding:12px 0 8px 0;">
+            <h3 style="margin:0 0 4px 0; font-size:1.2rem; font-weight:800; color:#0f172a;">
+                📚 {t("teaching_resources")}
+            </h3>
+            <p style="margin:0; color:#475569; font-size:0.9rem;">
+                {t("explore_teaching_resources_subtitle")}
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    tab1, tab2 = st.tabs([
+        f"📝 {t('community_plans')}",
+        f"📋 {t('community_worksheets')}",
+    ])
+
+    with tab1:
+        public_plans = load_public_lesson_plans()
+
+        if public_plans.empty:
+            st.info(t("community_library_empty"))
+        else:
+            preview_plans = public_plans.copy()
+            if "created_at" in preview_plans.columns:
+                preview_plans = preview_plans.sort_values("created_at", ascending=False)
+            preview_plans = preview_plans.head(6)
+
+            render_plan_library_cards(
+                preview_plans,
+                prefix="explore_public_plans",
+                show_author=True,
+                open_in_files=False,
+                require_signup=True,
+            )
+
+    with tab2:
+        public_ws = load_public_worksheets()
+
+        if public_ws.empty:
+            st.info(t("community_library_empty"))
+        else:
+            preview_ws = public_ws.copy()
+            if "created_at" in preview_ws.columns:
+                preview_ws = preview_ws.sort_values("created_at", ascending=False)
+            preview_ws = preview_ws.head(6)
+
+            render_worksheet_library_cards(
+                preview_ws,
+                prefix="explore_public_ws",
+                show_author=True,
+                open_in_files=False,
+                require_signup=True,
+            )
 
 def render_goal_explorer() -> bool:
     """
     Render the pre-login goal-setting card.
     Returns True when the user clicks the CTA to find students (triggers sign-up).
     """
+    load_css_home()
 
     st.markdown(
         f"""
@@ -320,6 +381,10 @@ def render_goal_explorer() -> bool:
     # ── AI Tools (functional in explore mode) ──
     st.markdown("---")
     _render_explore_ai_tools()
+
+    # ── Teaching Resources preview ──
+    st.markdown("---")
+    _render_explore_teaching_resources()    
 
     # ── Manage Your Students — feature showcase ──
     st.markdown("---")
