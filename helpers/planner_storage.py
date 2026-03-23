@@ -7,7 +7,9 @@ from core.i18n import t
 from core.state import get_current_user_id, with_owner
 from core.timezone import now_local, today_local, get_app_tz
 from core.database import get_sb, load_table, load_students, register_cache, clear_app_caches
-
+import html
+import textwrap
+from core.navigation import home_go
 
 # ── Cleanup code-like key names in AI-generated plan text ────────────
 _PLAN_KEY_PATTERNS = [
@@ -239,52 +241,80 @@ def render_plan_library_cards(
     df: pd.DataFrame,
     prefix: str,
     show_author: bool = False,
+    open_in_files: bool = False,
+    require_signup: bool = False,
 ) -> None:
     if df is None or df.empty:
         return
 
-    for i, row in df.reset_index(drop=True).iterrows():
-        row_id = row.get("id", i)
-        title = str(row.get("title") or t("untitled_plan")).strip()
-        subject = str(row.get("subject") or "").strip()
-        topic = str(row.get("topic") or "").strip()
-        learner_stage = str(row.get("learner_stage") or "").strip()
-        level_or_band = str(row.get("level_or_band") or "").strip()
-        lesson_purpose = str(row.get("lesson_purpose") or "").strip()
-        source_type = str(row.get("source_type") or "").strip()
-        author_name = str(row.get("author_name") or "").strip()
-        created_at = format_plan_datetime(row.get("created_at"))
+    rows = df.reset_index(drop=True).to_dict("records")
 
-        with st.container(border=True):
-            top_l, top_r = st.columns([5, 1])
+    for idx in range(0, len(rows), 2):
+        pair = rows[idx:idx + 2]
+        cols = st.columns(2, gap="medium")
 
-            with top_l:
-                st.markdown(f"**{title}**")
-                meta_parts = []
+        for col_idx, row in enumerate(pair):
+            row_id = row.get("id", idx + col_idx)
+            title = str(row.get("title") or t("untitled_plan")).strip()
+            subject = str(row.get("subject") or "").strip()
+            topic = str(row.get("topic") or "").strip()
+            learner_stage = str(row.get("learner_stage") or "").strip()
+            level_or_band = str(row.get("level_or_band") or "").strip()
+            lesson_purpose = str(row.get("lesson_purpose") or "").strip()
+            source_type = str(row.get("source_type") or "").strip()
+            author_name = str(row.get("author_name") or "").strip()
+            created_at = format_plan_datetime(row.get("created_at"))
 
-                if subject:
-                    subj_key = "subject_" + subject.strip().lower().replace(" ", "_")
-                    meta_parts.append(f"{t('subject_label')}: {t(subj_key)}")
-                if topic:
-                    meta_parts.append(f"{t('topic_label')}: {topic}")
-                if learner_stage:
-                    meta_parts.append(f"{t('learner_stage')}: {t(learner_stage)}")
-                if level_or_band:
-                    meta_parts.append(f"{t('level_or_band')}: {t(level_or_band) if level_or_band not in ['A1','A2','B1','B2','C1','C2'] else level_or_band}")
-                if lesson_purpose:
-                    meta_parts.append(f"{t('lesson_purpose')}: {t(lesson_purpose)}")
-                if source_type:
-                    meta_parts.append(f"{t('source_type')}: {t('mode_ai') if source_type == 'ai' else t('mode_template')}")
-                if show_author and author_name:
-                    meta_parts.append(f"{t('author_name')}: {author_name}")
-                if created_at:
-                    meta_parts.append(f"{t('date')}: {created_at}")
+            subject_label = ""
+            if subject:
+                subj_key = "subject_" + subject.strip().lower().replace(" ", "_")
+                subject_label = t(subj_key)
 
-                if meta_parts:
-                    st.caption(" · ".join(meta_parts))
+            level_label = ""
+            if level_or_band:
+                if level_or_band in ["A1", "A2", "B1", "B2", "C1", "C2"]:
+                    level_label = level_or_band
+                else:
+                    level_label = t(level_or_band)
 
-            with top_r:
-                if st.button(t("view_plan"), key=f"{prefix}_view_{row_id}_{i}", use_container_width=True):
+            purpose_label = t(lesson_purpose) if lesson_purpose else ""
+            stage_label = t(learner_stage) if learner_stage else ""
+            source_label = t("mode_ai") if source_type == "ai" else t("mode_template")
+
+            safe_title = html.escape(title)
+            safe_author = html.escape(author_name)
+            preview_text = html.escape((topic or t("no_description_available"))[:180])
+
+            chips = "".join([
+                f'<span class="cm-resource-chip">📚 {html.escape(subject_label)}</span>' if subject_label else "",
+                f'<span class="cm-resource-chip">🎯 {html.escape(purpose_label)}</span>' if purpose_label else "",
+                f'<span class="cm-resource-chip">👥 {html.escape(stage_label)}</span>' if stage_label else "",
+                f'<span class="cm-resource-chip">🏷️ {html.escape(level_label)}</span>' if level_label else "",
+                f'<span class="cm-resource-chip">⚙️ {html.escape(source_label)}</span>' if source_label else "",
+            ])
+
+            meta = "".join([
+                f'<div class="cm-resource-meta">👤 {safe_author}</div>' if show_author and author_name else "",
+                f'<div class="cm-resource-meta">🕒 {html.escape(created_at)}</div>' if created_at else "",
+            ])
+
+            card_html = (
+                f'<div class="cm-resource-card cm-resource-plan">'
+                f'<div class="cm-resource-card__title">{safe_title}</div>'
+                f'<div class="cm-resource-chip-row">{chips}</div>'
+                f'<div class="cm-resource-preview">{preview_text}</div>'
+                f'{meta}'
+                f'</div>'
+            )
+
+            with cols[col_idx]:
+                st.markdown(card_html, unsafe_allow_html=True)
+
+                if st.button(
+                    t("view_plan"),
+                    key=f"{prefix}_view_{row_id}_{idx}_{col_idx}",
+                    use_container_width=True,
+                ):
                     st.session_state["files_selected_plan"] = row.get("plan_json") or {}
                     st.session_state["files_selected_subject"] = subject
                     st.session_state["files_selected_stage"] = learner_stage
@@ -293,7 +323,16 @@ def render_plan_library_cards(
                     st.session_state["files_selected_topic"] = topic
                     st.session_state["files_selected_source_type"] = source_type
                     st.session_state["files_selected_title"] = title
-                    st.toast(t("scroll_down_to_view"))
+
+                    if require_signup:
+                        st.session_state["_post_signup_open_panel"] = "files"
+                        st.session_state["_post_signup_open_tab"] = "community_library"
+                        st.session_state["_explore_go_signup"] = True
+                    elif open_in_files:
+                        home_go("home", panel="files")
+                    else:
+                        st.toast(t("scroll_down_to_view"))
+
                     st.rerun()
 
 def log_user_activity(

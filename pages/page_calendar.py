@@ -17,6 +17,7 @@ def render_calendar():
     page_header(t("calendar"))
     st.caption(t("create_and_manage_your_weekly_program"))
     students = load_students()
+    schedules = load_schedules()
     # =======================================
     # SCHEDULE SECTION
     # =======================================

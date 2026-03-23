@@ -20,6 +20,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_advice_yellow": "A busy schedule, but achievable if you plan your calendar and keep your students engaged.",
         "explore_advice_orange": "This is a heavy schedule. You need a well-structured routine for planning and keeping your students happy.",
         "explore_advice_red": "This is a very high workload. Consider raising your rates every 3–6 months, offering packages, or increasing student count only if your schedule allows.",
+        "explore_teaching_resources_subtitle": "Discover the latest lesson plans and worksheets shared by the community.",
         # -------------------------
         # AUTH
         # -------------------------
@@ -138,6 +139,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "avatar_upload_storage_failed": "Storage upload failed",
         "avatar_upload_url_failed": "Could not generate avatar URL",
         "avatar_upload_no_public_url": "Upload succeeded, but no public URL was returned.",
+        "teaching_resources": "Teaching Resources",
+        "see_all_lesson_plans": "See all lesson plans",
+        "see_all_worksheets": "See all worksheets",
 
         # -------------------------
         # ROFILE
@@ -875,7 +879,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "edu_masters": "Master's degree",
         "edu_doctorate": "Doctorate (PhD)",
         "explore_ai_tools_title": "Try our AI Tools",
-        "explore_ai_tools_subtitle": "Create lesson plans and worksheets powered by AI — try them free before signing up.",
+        "explore_ai_tools_subtitle": "Create lesson plans and worksheets with a few clicks.",
         "explore_feat_ai_tools": "Create lesson plans, worksheets and more with AI.",
         "explore_features_title": "Manage Your Students",
         "explore_features_subtitle": "Everything you need to run your private teaching business.",
@@ -901,6 +905,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_advice_yellow": "Un horario ocupado, pero alcanzable si planificas tu calendario y mantienes a tus estudiantes motivados.",
         "explore_advice_orange": "Es una agenda pesada. Necesitas una rutina bien estructurada para planificar y mantener felices a tus estudiantes.",
         "explore_advice_red": "Esta es una carga de trabajo muy alta. Considera aumentar tus tarifas cada 3–6 meses, ofrecer paquetes o aumentar el número de estudiantes solo si tu agenda lo permite.",
+        "explore_teaching_resources_subtitle": "Descubre los planes de clase y hojas de trabajo más recientes compartidos por la comunidad.",
         # -------------------------
         # AUTH
         # -------------------------
@@ -1018,6 +1023,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "avatar_upload_storage_failed": "Error al subir la imagen al almacenamiento",
         "avatar_upload_url_failed": "No se pudo generar la URL pública de la imagen",
         "avatar_upload_no_public_url": "La imagen se subió, pero no se obtuvo una URL pública.",
+        "teaching_resources": "Recursos didácticos",
+        "see_all_lesson_plans": "Ver todos los planes de clase",
+        "see_all_worksheets": "Ver todas las hojas de trabajo",
 
         # -------------------------
         # PROFILE
@@ -1757,7 +1765,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "edu_masters": "Máster",
         "edu_doctorate": "Doctorado",
         "explore_ai_tools_title": "Prueba nuestras herramientas IA",
-        "explore_ai_tools_subtitle": "Crea planes de clase y fichas de trabajo con IA — pruébalos gratis antes de registrarte.",
+        "explore_ai_tools_subtitle": "Crea planes de clase y fichas de trabajo en segundos",
         "explore_feat_ai_tools": "Crea planes de clase, fichas y más con IA.",
         "explore_features_title": "Gestiona tus Estudiantes",
         "explore_features_subtitle": "Todo lo que necesitas para administrar tu negocio de clases particulares.",
@@ -1783,6 +1791,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_advice_yellow": "Yoğun bir program, ancak takviminizi planlarsanız ve öğrencilerinizi motive ederseniz ulaşılabilir.",
         "explore_advice_orange": "Bu yoğun bir programdır. Planlama ve öğrencilerinizi mutlu tutmak için iyi yapılandırılmış bir rutine ihtiyacınız var.",
         "explore_advice_red": "Bu çok yüksek bir iş yüküdür. Her 3–6 ayda bir ücretlerinizi artırmayı, paketler sunmayı veya yalnızca programınız uygunsa öğrenci sayısını artırmayı düşünün.",
+        "explore_teaching_resources_subtitle": "Topluluk tarafından paylaşılan en yeni ders planlarını ve çalışma kağıtlarını keşfedin.",
         # -------------------------
         # AUTH
         # -------------------------
@@ -1901,6 +1910,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "avatar_upload_storage_failed": "Depolama yüklemesi başarısız",
         "avatar_upload_url_failed": "Avatar URL'si oluşturulamadı",
         "avatar_upload_no_public_url": "Yükleme başarılı ancak genel URL döndürülemedi.",
+        "teaching_resources": "Öğretim Kaynakları",
+        "see_all_lesson_plans": "Tüm ders planlarını gör",
+        "see_all_worksheets": "Tüm çalışma kağıtlarını gör",
 
         # -------------------------
         # PROFILE
@@ -2625,7 +2637,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "edu_masters": "Yüksek lisans",
         "edu_doctorate": "Doktora",
         "explore_ai_tools_title": "Yapay Zeka Araçlarımızı Deneyin",
-        "explore_ai_tools_subtitle": "Yapay zeka destekli ders planları ve çalışma kağıtları oluşturun — kayıt olmadan önce ücretsiz deneyin.",
+        "explore_ai_tools_subtitle": "Birkaç saniyede ders planları ve çalışma kağıtları oluşturun.",
         "explore_feat_ai_tools": "Yapay zeka ile ders planları, çalışma kağıtları ve daha fazlasını oluşturun.",
         "explore_features_title": "Öğrencilerinizi Yönetin",
         "explore_features_subtitle": "Özel ders işinizi yürütmek için ihtiyacınız olan her şey.",
