@@ -12,84 +12,14 @@ from helpers.ui_components import pretty_df, translate_df_headers, render_styled
 
 # 12.5) PAGE: CALENDAR
 # =========================
+
 def render_calendar():
     page_header(t("calendar"))
     st.caption(t("create_and_manage_your_weekly_program"))
     students = load_students()
-
-    # ---------------------------------------
-    # VIEW SELECTOR
-    # ---------------------------------------
-    view = st.radio(
-        t("view"),
-        options=["today", "this_week", "this_month"],
-        index=1,
-        horizontal=True,
-        key="calendar_view",
-        format_func=lambda k: t(k),
-    )
-
-    today_d = today_local()
-
-    if view == "today":
-        start_day = today_d
-        end_day = today_d
-    elif view == "this_week":
-        start_day = today_d - timedelta(days=today_d.weekday())
-        end_day = start_day + timedelta(days=6)
-    else:
-        start_day = date(today_d.year, today_d.month, 1)
-        next_month = (
-            date(today_d.year + 1, 1, 1)
-            if today_d.month == 12
-            else date(today_d.year, today_d.month + 1, 1)
-        )
-        end_day = next_month - timedelta(days=1)
-
-    events = build_calendar_events(start_day, end_day)
-
-    # ---------------------------------------
-    # CALENDAR RENDER
-    # ---------------------------------------
-    if events.empty:
-        st.info(t("no_data"))
-    else:
-        students_list = sorted(events["Student"].unique().tolist())
-
-        if "calendar_filter_students" not in st.session_state:
-            st.session_state.calendar_filter_students = students_list
-        else:
-            missing = [
-                s for s in students_list
-                if s not in st.session_state.calendar_filter_students
-            ]
-            if missing:
-                st.session_state.calendar_filter_students = students_list
-
-        colA, colB = st.columns([3, 1])
-        with colA:
-            selected_students = st.multiselect(
-                t("filter_students"),
-                students_list,
-                key="calendar_filter_students",
-            )
-        with colB:
-            if st.button(t("reset"), use_container_width=True, key="calendar_reset"):
-                st.session_state.calendar_filter_students = students_list
-                st.rerun()
-
-        filtered = events[events["Student"].isin(selected_students)].copy()
-
-        render_fullcalendar(
-            filtered,
-            height=980 if st.session_state.get("compact_mode", False) else 1050,
-        )
-
     # =======================================
     # SCHEDULE SECTION
     # =======================================
-    st.subheader(t("schedule"))
-
     if not students:
         st.info(t("no_students"))
     else:
@@ -104,13 +34,20 @@ def render_calendar():
 
             with c1:
                 sch_student = st.selectbox(
-                    t("select_student"), students, key="cal_sch_student"
+                    t("select_student"),
+                    students,
+                    key="cal_sch_student",
                 )
 
             with c2:
                 weekday_names = [
-                    t("monday"), t("tuesday"), t("wednesday"),
-                    t("thursday"), t("friday"), t("saturday"), t("sunday")
+                    t("monday"),
+                    t("tuesday"),
+                    t("wednesday"),
+                    t("thursday"),
+                    t("friday"),
+                    t("saturday"),
+                    t("sunday"),
                 ]
                 sch_weekday = st.selectbox(
                     t("weekday"),
@@ -140,7 +77,9 @@ def render_calendar():
 
             with c5:
                 sch_active = st.checkbox(
-                    t("active_flag"), value=True, key="cal_sch_active"
+                    t("active_flag"),
+                    value=True,
+                    key="cal_sch_active",
                 )
 
             if st.button(t("add"), key="cal_btn_add_schedule"):
@@ -159,62 +98,47 @@ def render_calendar():
                 except Exception as e:
                     st.error(f"{t('save')} failed.\n\n{e}")
 
-        # ---------------------------------------
-        # CURRENT SCHEDULE TABLE (TRANSLATED)
-        # ---------------------------------------
-        with st.expander(t("current_schedule"), expanded=False):
+    # ---------------------------------------
+    # CALENDAR DATA WINDOW
+    # ---------------------------------------
+    today_d = today_local()
 
-            if schedules.empty:
-                st.info(t("no_data"))
-            else:
-                show = schedules.copy()
+    start_day = today_d - timedelta(days=365)
+    end_day = today_d + timedelta(days=365)
 
-                for c in ["id", "student", "weekday", "time", "duration_minutes", "active"]:
-                    if c not in show.columns:
-                        show[c] = None
+    events = build_calendar_events(start_day, end_day)
 
-                weekday_names = [
-                    t("monday"), t("tuesday"), t("wednesday"),
-                    t("thursday"), t("friday"), t("saturday"), t("sunday")
-                ]
+    # ---------------------------------------
+    # CALENDAR RENDER
+    # ---------------------------------------
+    if events is None or events.empty:
+        st.info(t("no_data"))
+    else:
+        students_list = sorted(events["Student"].dropna().unique().tolist())
 
-                show["weekday"] = pd.to_numeric(
-                    show["weekday"], errors="coerce"
-                ).fillna(0).astype(int).clip(0, 6)
+        if "calendar_filter_students" not in st.session_state:
+            st.session_state["calendar_filter_students"] = students_list.copy()
+        else:
+            st.session_state["calendar_filter_students"] = [
+                s for s in st.session_state["calendar_filter_students"]
+                if s in students_list
+            ]
 
-                show["weekday"] = show["weekday"].apply(
-                    lambda i: weekday_names[int(i)]
-                )
+        selected_students = st.multiselect(
+            t("filter_students"),
+            options=students_list,
+            key="calendar_filter_students",
+        )
 
-                show = show[
-                    ["id", "student", "weekday", "time", "duration_minutes", "active"]
-                ].sort_values(["student", "weekday", "time"])
+        if selected_students:
+            filtered = events[events["Student"].isin(selected_students)].copy()
+        else:
+            filtered = events.copy()
 
-                render_styled_dataframe(translate_df_headers(pretty_df(show)))
-
-                st.markdown(f"#### {t('delete_scheduled_lesson')}")
-                st.caption(t("delete_schedule_warning"))
-
-                del_id = st.number_input(
-                    t("schedule_id"),
-                    min_value=1,
-                    step=1,
-                    key="cal_del_schedule_id",
-                )
-
-                confirm_del_s = st.checkbox(
-                    t("delete_warning_undo"),
-                    key="confirm_del_schedule",
-                )
-
-                if st.button(
-                    t("delete"),
-                    disabled=not confirm_del_s,
-                    key="cal_btn_delete_schedule",
-                ):
-                    delete_schedule(del_id)
-                    st.success(t("deleted"))
-                    st.rerun()
+        render_fullcalendar(
+            filtered,
+            height=980 if st.session_state.get("compact_mode", False) else 1050,
+        )
 
     # =======================================
     # MODIFY CALENDAR (OVERRIDES)
@@ -223,6 +147,69 @@ def render_calendar():
 
     overrides = load_overrides()
     students_master = load_students()
+
+    # ---------------------------------------
+    # CURRENT SCHEDULE TABLE
+    # ---------------------------------------
+    with st.expander(t("current_schedule"), expanded=False):
+
+        if schedules.empty:
+            st.info(t("no_data"))
+        else:
+            show = schedules.copy()
+
+            for c in ["id", "student", "weekday", "time", "duration_minutes", "active"]:
+                if c not in show.columns:
+                     show[c] = None
+
+            weekday_names = [
+                t("monday"),
+                t("tuesday"),
+                t("wednesday"),
+                t("thursday"),
+                t("friday"),
+                t("saturday"),
+                t("sunday"),
+            ]
+
+            show["weekday"] = pd.to_numeric(
+                show["weekday"],
+                errors="coerce",
+            ).fillna(0).astype(int).clip(0, 6)
+
+            show["weekday"] = show["weekday"].apply(
+                lambda i: weekday_names[int(i)]
+            )
+
+            show = show[
+                ["id", "student", "weekday", "time", "duration_minutes", "active"]
+            ].sort_values(["student", "weekday", "time"])
+
+            render_styled_dataframe(translate_df_headers(pretty_df(show)))
+
+            st.markdown(f"#### {t('delete_scheduled_lesson')}")
+            st.caption(t("delete_schedule_warning"))
+
+            del_id = st.number_input(
+                t("schedule_id"),
+                min_value=1,
+                step=1,
+                key="cal_del_schedule_id",
+            )
+
+            confirm_del_s = st.checkbox(
+                t("delete_warning_undo"),
+                key="confirm_del_schedule",
+            )
+
+            if st.button(
+                t("delete"),
+                disabled=not confirm_del_s,
+                key="cal_btn_delete_schedule",
+            ):
+                delete_schedule(del_id)
+                st.success(t("deleted"))
+                st.rerun()
 
     # ---------------------------------------
     # CANCEL OR RESCHEDULE
@@ -250,10 +237,11 @@ def render_calendar():
                 ov_status = st.selectbox(
                     t("override_status"),
                     options=["scheduled", "cancelled"],
-                    format_func=lambda x:
+                    format_func=lambda x: (
                         t("override_scheduled")
                         if x == "scheduled"
-                        else t("override_cancel"),
+                        else t("override_cancel")
+                    ),
                     key="ov_status",
                 )
 
@@ -287,17 +275,6 @@ def render_calendar():
                 key="ov_note",
             )
 
-            new_dt = None
-            if ov_status == "scheduled":
-                hh, mm = _parse_time_value(ov_new_time)
-                new_dt = _dt(
-                    ov_new_dt.year,
-                    ov_new_dt.month,
-                    ov_new_dt.day,
-                    hh,
-                    mm,
-                )
-
             if st.button(t("change"), key="ov_btn_save"):
                 try:
                     if ov_status == "scheduled":
@@ -324,7 +301,7 @@ def render_calendar():
                     st.error(f"{t('override_save_failed')}\n\n{e}")
 
     # ---------------------------------------
-    # PREVIOUS CHANGES TABLE (TRANSLATED)
+    # PREVIOUS CHANGES TABLE
     # ---------------------------------------
     with st.expander(t("previous_changes"), expanded=False):
 
@@ -333,21 +310,31 @@ def render_calendar():
         else:
             show = overrides.copy()
 
-            for c in ["id", "student", "original_date", "new_datetime",
-                      "duration_minutes", "status", "note"]:
+            for c in [
+                "id",
+                "student",
+                "original_date",
+                "new_datetime",
+                "duration_minutes",
+                "status",
+                "note",
+            ]:
                 if c not in show.columns:
                     show[c] = None
 
             show["original_date"] = pd.to_datetime(
-                show["original_date"], errors="coerce"
+                show["original_date"],
+                errors="coerce",
             ).dt.strftime("%Y-%m-%d")
 
             show["new_datetime"] = pd.to_datetime(
-                show["new_datetime"], errors="coerce"
+                show["new_datetime"],
+                errors="coerce",
             ).dt.strftime("%Y-%m-%d %H:%M").fillna("—")
 
             show["duration_minutes"] = pd.to_numeric(
-                show["duration_minutes"], errors="coerce"
+                show["duration_minutes"],
+                errors="coerce",
             ).fillna(60).astype(int)
 
             def _translate_override_status(x):
@@ -361,9 +348,15 @@ def render_calendar():
             show["status"] = show["status"].apply(_translate_override_status)
 
             show = show[
-                ["id", "student", "original_date",
-                 "new_datetime", "duration_minutes",
-                 "status", "note"]
+                [
+                    "id",
+                    "student",
+                    "original_date",
+                    "new_datetime",
+                    "duration_minutes",
+                    "status",
+                    "note",
+                ]
             ].sort_values(["original_date", "student"])
 
             render_styled_dataframe(translate_df_headers(pretty_df(show)))
@@ -388,5 +381,3 @@ def render_calendar():
                 delete_override(del_id)
                 st.success(t("deleted"))
                 st.rerun()
-
-# =========================
