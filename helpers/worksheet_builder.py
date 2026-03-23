@@ -52,8 +52,18 @@ def normalize_worksheet_output(raw: dict) -> dict:
         if not isinstance(out.get(k), list):
             out[k] = [] if out.get(k) in (None, "") else [str(out.get(k))]
 
-    return out
+    if out.get("worksheet_type") != "reading_comprehension":
+        out["reading_passage"] = ""
 
+    out["title"] = re.sub(r"\s+", " ", str(out.get("title") or "")).strip()
+    out["topic"] = re.sub(r"\s+", " ", str(out.get("topic") or "")).strip()
+
+    if out["title"]:
+        out["title"] = out["title"][0].upper() + out["title"][1:]
+    if out["topic"]:
+        out["topic"] = out["topic"][0].upper() + out["topic"][1:]
+        
+    return out
 
 # ── AI prompt (Ed.D. pedagogy-driven) ────────────────────────────────
 def _build_worksheet_prompts(payload: dict) -> tuple[str, str]:
@@ -79,12 +89,15 @@ Design principles (Ed.D. methodology):
 - Scaffold questions from lower-order to higher-order thinking (Bloom's taxonomy).
 - Use clear, age-appropriate language for the target learner_stage and level.
 - Include 12-15 questions/items appropriate to the worksheet_type.
-- For vocabulary-heavy subjects, include a vocabulary_bank list.
-- Ensure a reading_passage is included for reading_comprehension worksheets, with questions directly tied to the passage.
+- For vocabulary-heavy subjects, include a vocabulary_bank list only when it is genuinely useful.
+- Include a reading_passage only for reading_comprehension worksheets.
+- For reading_comprehension worksheets, questions must be directly tied to the passage.
+- For all other worksheet types, do not create a reading passage.
 - Provide concise student-facing instructions in the student_material_language.
 - answer_key must contain the correct answers for every question, numbered to match.
 - teacher_notes should include 2-3 practical tips for differentiation or extension.
 - Keep content factually accurate and pedagogically current.
+- Do not invent sections that are not needed for the requested worksheet_type.
 
 Required JSON structure:
 {{
@@ -103,9 +116,13 @@ Required JSON structure:
   "answer_key": "string",
   "teacher_notes": ["string", ...]
 }}
+
+Important validation rules:
+- reading_passage must be "" unless worksheet_type == "reading_comprehension".
+- vocabulary_bank should only be included when it is genuinely useful; otherwise return [].
+- Do not invent sections that are not needed for the requested worksheet_type.
 """
     return system_prompt, user_prompt
-
 
 def generate_ai_worksheet(
     subject: str,

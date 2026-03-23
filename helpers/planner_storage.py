@@ -69,6 +69,27 @@ def _clean_plan_data(plan: dict) -> dict:
             out[k] = v
     return out
 
+def _clean_display_text(text: str) -> str:
+    s = str(text or "").strip()
+
+    # Collapse repeated spaces
+    s = re.sub(r"\s+", " ", s)
+
+    # Remove spaces before punctuation
+    s = re.sub(r"\s+([.,!?;:])", r"\1", s)
+
+    # Normalize spaces around hyphens and slashes
+    s = re.sub(r"\s*-\s*", " - ", s)
+    s = re.sub(r"\s*/\s*", " / ", s)
+
+    # Final trim
+    s = re.sub(r"\s+", " ", s).strip()
+
+    # Capitalize first letter
+    if s:
+        s = s[0].upper() + s[1:]
+
+    return s
 
 def _lp():
     """Lazy import to avoid circular dependency with lesson_planner."""
@@ -132,7 +153,7 @@ def planner_payload_from_inputs(
 ) -> dict:
     return with_owner({
         "subject": str(subject).strip(),
-        "topic": str(topic).strip(),
+        "topic": _clean_display_text(topic),
         "learner_stage": str(learner_stage).strip(),
         "level_or_band": str(level_or_band).strip(),
         "lesson_purpose": str(lesson_purpose).strip(),
@@ -141,7 +162,7 @@ def planner_payload_from_inputs(
         "source_type": "ai" if str(mode).strip().lower() == "ai" else "template",
         "planner_mode": mode,
         "plan_json": plan,
-        "title": str(plan.get("title") or "").strip(),
+        "title": _clean_display_text(plan.get("title") or ""),
         "author_name": str(st.session_state.get("user_name") or "Unknown").strip(),
         "subject_display": subject,
         "is_public": True,
@@ -255,9 +276,9 @@ def render_plan_library_cards(
 
         for col_idx, row in enumerate(pair):
             row_id = row.get("id", idx + col_idx)
-            title = str(row.get("title") or t("untitled_plan")).strip()
+            title = _clean_display_text(row.get("title") or t("untitled_plan"))
             subject = str(row.get("subject") or "").strip()
-            topic = str(row.get("topic") or "").strip()
+            topic = _clean_display_text(row.get("topic") or "")
             learner_stage = str(row.get("learner_stage") or "").strip()
             level_or_band = str(row.get("level_or_band") or "").strip()
             lesson_purpose = str(row.get("lesson_purpose") or "").strip()

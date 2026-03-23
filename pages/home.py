@@ -119,7 +119,7 @@ def render_home_teaching_resources_preview():
             plans_to_show = filtered_plans if plan_q else filtered_plans.head(4)
 
             if plans_to_show.empty:
-                st.info(t("no_data"))
+                st.info(t("be_first_to_share"))
             else:
                 if plan_q:
                     st.caption(f"{len(plans_to_show)} {t('community_plans').lower()}")
