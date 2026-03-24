@@ -89,7 +89,7 @@ if _current_page_for_last not in ("home",) and st.session_state.get("user_id"):
             pass
 
 # ── Route ──
-from pages.router import route_pages
+from app_pages.router import route_app_pages
 
 page = st.session_state.get("page", "home")
 if page not in PAGE_KEYS:
@@ -97,4 +97,4 @@ if page not in PAGE_KEYS:
     st.session_state["page"] = "home"
     _set_query(page="home", lang=st.session_state.get("ui_lang", "en"))
 
-route_pages(page)
+route_app_pages(page)
