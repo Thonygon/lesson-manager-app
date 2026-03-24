@@ -143,6 +143,10 @@ I18N: Dict[str, Dict[str, str]] = {
         "teaching_resources": "Teaching Resources",
         "see_all_lesson_plans": "See all lesson plans",
         "see_all_worksheets": "See all worksheets",
+        "theme": "Theme",
+        "theme_auto": "Auto",
+        "theme_light": "Light",
+        "theme_dark": "Dark",
 
         # -------------------------
         # ROFILE
@@ -1037,6 +1041,10 @@ I18N: Dict[str, Dict[str, str]] = {
         "teaching_resources": "Recursos didácticos",
         "see_all_lesson_plans": "Ver todos los planes de clase",
         "see_all_worksheets": "Ver todas las hojas de trabajo",
+        "theme": "Modo",
+        "theme_auto": "Auto",
+        "theme_light": "Claro",
+        "theme_dark": "Oscuro",
 
         # -------------------------
         # PROFILE
@@ -1933,6 +1941,10 @@ I18N: Dict[str, Dict[str, str]] = {
         "teaching_resources": "Öğretim Kaynakları",
         "see_all_lesson_plans": "Tüm ders planlarını gör",
         "see_all_worksheets": "Tüm çalışma kağıtlarını gör",
+        "theme": "Tema",
+        "theme_auto": "Otomatik",
+        "theme_light": "Aydınlık",
+        "theme_dark": "Karanlık",
 
         # -------------------------
         # PROFILE

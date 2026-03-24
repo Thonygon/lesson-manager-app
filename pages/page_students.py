@@ -14,7 +14,6 @@ from core.database import (
     rename_student_everywhere
 )
 from core.state import get_current_user_id
-from styles.theme import _is_dark
 from helpers.student_meta import load_students_df
 from helpers.history import show_student_history
 from helpers.ui_components import translate_df_headers, render_styled_dataframe
@@ -223,34 +222,24 @@ def render_students():
                         continue
 
                     chips = []
-                    is_dark = _is_dark()
                     email_chip_style = (
                         "display:inline-flex;align-items:center;gap:4px;padding:4px 12px;"
-                        "border-radius:20px;background:#1e3a5f;color:#dbeafe;font-size:13px;"
-                        "text-decoration:none;border:1px solid #31598c;"
-                        if is_dark else
-                        "display:inline-flex;align-items:center;gap:4px;padding:4px 12px;"
-                        "border-radius:20px;background:#EFF6FF;color:#1D4ED8;font-size:13px;"
-                        "text-decoration:none;border:1px solid #BFDBFE;"
+                        "border-radius:20px;background:rgba(59,130,246,0.12);color:var(--text);font-size:13px;"
+                        "text-decoration:none;border:1px solid rgba(59,130,246,0.28);"
                     )
+
                     whatsapp_chip_style = (
                         "display:inline-flex;align-items:center;gap:4px;padding:4px 12px;"
-                        "border-radius:20px;background:#14332a;color:#d1fae5;font-size:13px;"
-                        "text-decoration:none;border:1px solid #256b54;"
-                        if is_dark else
-                        "display:inline-flex;align-items:center;gap:4px;padding:4px 12px;"
-                        "border-radius:20px;background:#F0FDF4;color:#166534;font-size:13px;"
-                        "text-decoration:none;border:1px solid #BBF7D0;"
+                        "border-radius:20px;background:rgba(16,185,129,0.12);color:var(--text);font-size:13px;"
+                        "text-decoration:none;border:1px solid rgba(16,185,129,0.28);"
                     )
+
                     zoom_chip_style = (
                         "display:inline-flex;align-items:center;gap:4px;padding:4px 12px;"
-                        "border-radius:20px;background:#2e1a4f;color:#ede9fe;font-size:13px;"
-                        "text-decoration:none;border:1px solid #5b3b8c;"
-                        if is_dark else
-                        "display:inline-flex;align-items:center;gap:4px;padding:4px 12px;"
-                        "border-radius:20px;background:#EDE9FE;color:#5B21B6;font-size:13px;"
-                        "text-decoration:none;border:1px solid #C4B5FD;"
+                        "border-radius:20px;background:rgba(139,92,246,0.12);color:var(--text);font-size:13px;"
+                        "text-decoration:none;border:1px solid rgba(139,92,246,0.28);"
                     )
+
                     if s_email:
                         mail_href = f"mailto:{urllib.parse.quote(s_email)}"
                         chips.append(

@@ -1,5 +1,25 @@
 import streamlit as st
 
+THEME_MODES = ("auto", "light", "dark")
+
+def get_theme_mode() -> str:
+    mode = str(st.session_state.get("ui_theme_mode", "auto")).strip().lower()
+    if mode not in THEME_MODES:
+        mode = "auto"
+    st.session_state["ui_theme_mode"] = mode
+    return mode
+
+def set_theme_mode(mode: str) -> None:
+    mode = str(mode or "auto").strip().lower()
+    if mode not in THEME_MODES:
+        mode = "auto"
+    st.session_state["ui_theme_mode"] = mode
+
+def _is_dark() -> bool:
+    # Legacy compatibility only for places still importing it.
+    # True only when the app is manually forced to dark.
+    return get_theme_mode() == "dark"
+
 
 def remove_streamlit_top_spacing():
     st.markdown(
@@ -43,64 +63,81 @@ def remove_streamlit_top_spacing():
     )
 
 
-
-
-
-def _is_dark() -> bool:
-    return st.session_state.get("ui_theme", "light") == "dark"
-
-
 def _root_vars() -> str:
-    dark = _is_dark()
-    if dark:
-        return """
-          :root { color-scheme: dark; }
-          html, body { color-scheme: dark; }
-          :root {
-            --bg-1:#0f172a; --bg-2:#1a2640; --bg-3:#162032;
-            --bg:#0f172a;
-            --text:#f1f5f9; --muted:#94a3b8;
-            --panel:rgba(30,41,59,0.92); --panel-2:rgba(20,30,48,0.85);
-            --panel-soft:#1e2d42;
-            --border:rgba(255,255,255,0.08); --border-strong:rgba(255,255,255,0.14);
-            --border2:rgba(255,255,255,0.10);
-            --primary:#3B82F6; --primary-strong:#60A5FA; --primary-light:#60A5FA;
-            --success:#34D399; --warning:#FBBF24; --danger:#F87171;
-            --shadow:0 12px 28px rgba(0,0,0,0.30);
-            --shadow-sm:0 2px 8px rgba(0,0,0,0.20);
-            --shadow-md:0 12px 28px rgba(0,0,0,0.30); --shadow-lg:0 22px 55px rgba(0,0,0,0.40);
-            --radius-xl:24px; --radius-lg:18px; --radius-md:14px;
-            --platform-card-bg:#1e2b3f; --platform-card-border:rgba(96,165,250,0.22);
-            --platform-card-hover-bg:#243450; --platform-card-hover-border:#60a5fa;
-          }
-        """
-    return """
-          :root { color-scheme: light; }
-          html, body { color-scheme: light; }
-          :root {
-            --bg-1:#f5f7fb; --bg-2:#f8faff; --bg-3:#eef4ff;
-            --bg:#f5f7fb;
-            --text:#0f172a; --muted:#475569;
-            --panel:rgba(255,255,255,0.88); --panel-2:rgba(255,255,255,0.72);
-            --panel-soft:#fbfcff;
-            --border:rgba(17,24,39,0.08); --border-strong:rgba(17,24,39,0.12);
-            --border2:rgba(17,24,39,0.10);
-            --primary:#2563EB; --primary-strong:#1D4ED8; --primary-light:#3B82F6;
-            --success:#10B981; --warning:#F59E0B; --danger:#EF4444;
-            --shadow:0 12px 28px rgba(15,23,42,0.08);
-            --shadow-sm:0 2px 8px rgba(15,23,42,0.04);
-            --shadow-md:0 12px 28px rgba(15,23,42,0.08); --shadow-lg:0 22px 55px rgba(15,23,42,0.10);
-            --radius-xl:24px; --radius-lg:18px; --radius-md:14px;
-            --platform-card-bg:#eff6ff; --platform-card-border:rgba(59,130,246,0.25);
-            --platform-card-hover-bg:#dbeafe; --platform-card-hover-border:#3b82f6;
-          }
-        """
+    mode = st.session_state.get("ui_theme_mode", "auto")
 
+    force_dark = mode == "dark"
+    force_light = mode == "light"
+
+    return f"""
+      :root {{
+        color-scheme: light dark;
+      }}
+
+      /* AUTO MODE */
+      @media (prefers-color-scheme: dark) {{
+        :root {{
+          --bg-1:#0f172a; --bg-2:#1a2640; --bg-3:#162032;
+          --bg:#0f172a;
+          --text:#f1f5f9; --muted:#94a3b8;
+          --panel:rgba(30,41,59,0.92); --panel-2:rgba(20,30,48,0.85);
+          --panel-soft:#1e2d42;
+          --border:rgba(255,255,255,0.08); --border-strong:rgba(255,255,255,0.14);
+          --border2:rgba(255,255,255,0.10);
+          --primary:#3B82F6; --primary-strong:#60A5FA; --primary-light:#60A5FA;
+          --success:#34D399; --warning:#FBBF24; --danger:#F87171;
+          --shadow:0 12px 28px rgba(0,0,0,0.30);
+          --shadow-sm:0 2px 8px rgba(0,0,0,0.20);
+          --shadow-md:0 12px 28px rgba(0,0,0,0.30);
+          --shadow-lg:0 22px 55px rgba(0,0,0,0.40);
+          --radius-xl:24px; --radius-lg:18px; --radius-md:14px;
+          --platform-card-bg:#1e2b3f; --platform-card-border:rgba(96,165,250,0.22);
+          --platform-card-hover-bg:#243450; --platform-card-hover-border:#60a5fa;
+        }}
+
+        html, body {{
+          color-scheme: dark;
+        }}
+      }}
+
+      @media (prefers-color-scheme: light) {{
+        :root {{
+          --bg-1:#f5f7fb; --bg-2:#f8faff; --bg-3:#eef4ff;
+          --bg:#f5f7fb;
+          --text:#0f172a; --muted:#475569;
+          --panel:rgba(255,255,255,0.88); --panel-2:rgba(255,255,255,0.72);
+          --panel-soft:#fbfcff;
+          --border:rgba(17,24,39,0.08); --border-strong:rgba(17,24,39,0.12);
+          --border2:rgba(17,24,39,0.10);
+          --primary:#2563EB; --primary-strong:#1D4ED8; --primary-light:#3B82F6;
+          --success:#10B981; --warning:#F59E0B; --danger:#EF4444;
+          --shadow:0 12px 28px rgba(15,23,42,0.08);
+          --shadow-sm:0 2px 8px rgba(15,23,42,0.04);
+          --shadow-md:0 12px 28px rgba(15,23,42,0.08);
+          --shadow-lg:0 22px 55px rgba(15,23,42,0.10);
+          --radius-xl:24px; --radius-lg:18px; --radius-md:14px;
+          --platform-card-bg:#eff6ff; --platform-card-border:rgba(59,130,246,0.25);
+          --platform-card-hover-bg:#dbeafe; --platform-card-hover-border:#3b82f6;
+        }}
+
+        html, body {{
+          color-scheme: light;
+        }}
+      }}
+
+      /* MANUAL OVERRIDE: DARK */
+      {"html, body, :root { color-scheme: dark !important; }" if force_dark else ""}
+      {" :root { --bg-1:#0f172a; --bg-2:#1a2640; --bg-3:#162032; --bg:#0f172a; --text:#f1f5f9; --muted:#94a3b8; --panel:rgba(30,41,59,0.92); --panel-2:rgba(20,30,48,0.85); --panel-soft:#1e2d42; --border:rgba(255,255,255,0.08); --border-strong:rgba(255,255,255,0.14); --border2:rgba(255,255,255,0.10); --primary:#3B82F6; --primary-strong:#60A5FA; --primary-light:#60A5FA; --success:#34D399; --warning:#FBBF24; --danger:#F87171; --shadow:0 12px 28px rgba(0,0,0,0.30); --shadow-sm:0 2px 8px rgba(0,0,0,0.20); --shadow-md:0 12px 28px rgba(0,0,0,0.30); --shadow-lg:0 22px 55px rgba(0,0,0,0.40); --radius-xl:24px; --radius-lg:18px; --radius-md:14px; --platform-card-bg:#1e2b3f; --platform-card-border:rgba(96,165,250,0.22); --platform-card-hover-bg:#243450; --platform-card-hover-border:#60a5fa; }" if force_dark else ""}
+
+      /* MANUAL OVERRIDE: LIGHT */
+      {"html, body, :root { color-scheme: light !important; }" if force_light else ""}
+      {" :root { --bg-1:#f5f7fb; --bg-2:#f8faff; --bg-3:#eef4ff; --bg:#f5f7fb; --text:#0f172a; --muted:#475569; --panel:rgba(255,255,255,0.88); --panel-2:rgba(255,255,255,0.72); --panel-soft:#fbfcff; --border:rgba(17,24,39,0.08); --border-strong:rgba(17,24,39,0.12); --border2:rgba(17,24,39,0.10); --primary:#2563EB; --primary-strong:#1D4ED8; --primary-light:#3B82F6; --success:#10B981; --warning:#F59E0B; --danger:#EF4444; --shadow:0 12px 28px rgba(15,23,42,0.08); --shadow-sm:0 2px 8px rgba(15,23,42,0.04); --shadow-md:0 12px 28px rgba(15,23,42,0.08); --shadow-lg:0 22px 55px rgba(15,23,42,0.10); --radius-xl:24px; --radius-lg:18px; --radius-md:14px; --platform-card-bg:#eff6ff; --platform-card-border:rgba(59,130,246,0.25); --platform-card-hover-bg:#dbeafe; --platform-card-hover-border:#3b82f6; }" if force_light else ""}
+    """
 
 def _dark_widget_css() -> str:
-    if not _is_dark():
-        return ""
-    return """
+    mode = get_theme_mode()
+
+    dark_rules = """
       /* ── Background ── */
       html, body,
       .stApp,
@@ -115,7 +152,6 @@ def _dark_widget_css() -> str:
         color: var(--text) !important;
       }
 
-      /* ── Text reset (broad) ── */
       .stApp, .stApp * {
         color: var(--text);
         -webkit-text-fill-color: var(--text);
@@ -133,7 +169,6 @@ def _dark_widget_css() -> str:
         -webkit-text-fill-color: var(--text) !important;
       }
 
-      /* ── Streamlit border-wrapper cards (all pages) ── */
       div[data-testid="stVerticalBlockBorderWrapper"] {
         background: #1a2535 !important;
         border: 1px solid rgba(255,255,255,0.10) !important;
@@ -148,7 +183,6 @@ def _dark_widget_css() -> str:
         -webkit-text-fill-color: var(--text) !important;
       }
 
-      /* ── Metric cards ── */
       div[data-testid="metric-container"] {
         background: #1a2535 !important;
         border: 1px solid rgba(255,255,255,0.10) !important;
@@ -160,7 +194,6 @@ def _dark_widget_css() -> str:
         -webkit-text-fill-color: var(--text) !important;
       }
 
-      /* ── Buttons — uniform dark gray with white text ── */
       div[data-testid="stButton"] button,
       div[data-testid="stLinkButton"] a,
       button[kind="primary"],
@@ -185,15 +218,7 @@ def _dark_widget_css() -> str:
         transform: translateY(-1px);
       }
 
-      /* ── Form submit / use_container_width buttons ── */
-      div[data-testid="stFormSubmitButton"] button {
-        background: #253349 !important;
-        color: #f1f5f9 !important;
-        -webkit-text-fill-color: #f1f5f9 !important;
-        border: 1px solid rgba(255,255,255,0.14) !important;
-      }
-
-      /* ── Download button ── */
+      div[data-testid="stFormSubmitButton"] button,
       div[data-testid="stDownloadButton"] button {
         background: #253349 !important;
         color: #f1f5f9 !important;
@@ -201,31 +226,6 @@ def _dark_widget_css() -> str:
         border: 1px solid rgba(255,255,255,0.14) !important;
       }
 
-      /* ── Expanders ── */
-        div[data-testid="stExpander"]{
-          border-radius:16px;
-          border:1px solid var(--border);
-          background:linear-gradient(180deg,var(--panel),var(--panel-2));
-          box-shadow:var(--shadow-md);
-          transition: all 250ms ease;
-        }
-
-        div[data-testid="stExpander"]:hover{
-          box-shadow:var(--shadow-lg);
-          border-color:rgba(59,130,246,0.2);
-        }
-
-        div[data-testid="stExpander"] summary{
-          font-weight: 600;
-          font-size: 0.95rem;
-          padding: 0.9rem 1.1rem;
-        }
-
-        div[data-testid="stExpander"] details[open]{
-          padding-bottom: 0.5rem;
-        }
-
-      /* ── Text inputs / textareas ── */
       div[data-testid="stTextInput"] input,
       div[data-testid="stTextArea"] textarea,
       div[data-testid="stNumberInput"] input,
@@ -236,7 +236,6 @@ def _dark_widget_css() -> str:
         border-color: rgba(255,255,255,0.14) !important;
       }
 
-      /* ── Selects / multiselects ── */
       div[data-testid="stSelectbox"] [data-baseweb="select"] > div,
       div[data-testid="stMultiSelect"] [data-baseweb="select"] > div {
         background: #1e293b !important;
@@ -250,7 +249,6 @@ def _dark_widget_css() -> str:
       [data-baseweb="option"]:hover,
       [data-baseweb="option"][aria-selected="true"] { background: #273549 !important; }
 
-      /* ── Tabs ── */
       [data-baseweb="tab-list"] {
         background: transparent !important;
         border-bottom-color: rgba(255,255,255,0.10) !important;
@@ -264,13 +262,11 @@ def _dark_widget_css() -> str:
         -webkit-text-fill-color: #f1f5f9 !important;
       }
 
-      /* ── Forms ── */
       [data-testid="stForm"] {
         background: #1a2535 !important;
         border-color: rgba(255,255,255,0.10) !important;
       }
 
-      /* ── KPI stat cards (kpi_bubbles.py) ── */
       .kpi-stat-card {
         background: #1a2535 !important;
         border-color: transparent !important;
@@ -278,40 +274,34 @@ def _dark_widget_css() -> str:
       .kpi-stat-value { color: #f1f5f9 !important; }
       .kpi-stat-label { color: #94a3b8 !important; }
 
-      /* ── Inline HTML cards (dashboard action cards, student cards) ── */
       .dark-card {
         background: #1a2535 !important;
         border-color: rgba(255,255,255,0.10) !important;
         color: var(--text) !important;
       }
 
-      /* ── Dataframe ── */
       div[data-testid="stDataFrame"] {
         background: #1a2535 !important;
         border-color: rgba(255,255,255,0.10) !important;
       }
 
-      /* ── Popover ── */
       div[data-testid="stPopover"] > div > div {
         background: #1a2535 !important;
         border-color: rgba(255,255,255,0.10) !important;
       }
 
-      /* ── Subheader / text headings ── */
       h1, h2, h3, h4, h5, h6,
       [data-testid="stHeadingWithActionElements"] * {
         color: #f1f5f9 !important;
         -webkit-text-fill-color: #f1f5f9 !important;
       }
 
-      /* ── Navigation top bar ── */
       div[data-testid="stHorizontalBlock"] button,
       [data-testid="stNavLink"] {
         color: #94a3b8 !important;
         -webkit-text-fill-color: #94a3b8 !important;
       }
 
-      /* ── Dialog / modal overlay ── */
       div[role="dialog"],
       div[data-testid="stDialog"],
       div[data-testid="stModal"] > div {
@@ -325,26 +315,7 @@ def _dark_widget_css() -> str:
         color: #f1f5f9 !important;
         -webkit-text-fill-color: #f1f5f9 !important;
       }
-      div[role="dialog"] .stMarkdown p,
-      div[role="dialog"] .stMarkdown li,
-      div[role="dialog"] .stCaption,
-      div[role="dialog"] .stCaption * {
-        color: #94a3b8 !important;
-        -webkit-text-fill-color: #94a3b8 !important;
-      }
-      div[role="dialog"] label,
-      div[role="dialog"] label * {
-        color: #f1f5f9 !important;
-        -webkit-text-fill-color: #f1f5f9 !important;
-      }
-      div[role="dialog"] .stDivider {
-        border-color: rgba(255,255,255,0.10) !important;
-      }
-      div[role="dialog"] hr {
-        border-color: rgba(255,255,255,0.10) !important;
-      }
 
-      /* ── File uploader / dropzone ── */
       [data-testid="stFileUploader"],
       [data-testid="stFileUploaderDropzone"] {
         background: #1e293b !important;
@@ -358,6 +329,14 @@ def _dark_widget_css() -> str:
         -webkit-text-fill-color: #f1f5f9 !important;
       }
     """
+
+    if mode == "light":
+        return ""
+
+    if mode == "dark":
+        return f"<style>{dark_rules}</style>"
+
+    return f"<style>@media (prefers-color-scheme: dark) {{{dark_rules}}}</style>"
 
 def _resource_cards_css() -> str:
     return """
@@ -912,11 +891,9 @@ def load_css_home():
 
     st.markdown(f"<style>{_resource_cards_css()}</style>", unsafe_allow_html=True)
 
-    _dark_css = _dark_widget_css()
-    if _dark_css:
-        st.markdown(f"<style>{_dark_css}</style>", unsafe_allow_html=True)
+    st.markdown(_dark_widget_css(), unsafe_allow_html=True)
 
-def load_css_app_light(compact: bool = False):
+def load_css_app(compact: bool = False):
     _resource_css = _resource_cards_css()
     compact_css = """
         section[data-testid="stMain"] > div {
@@ -956,7 +933,7 @@ def load_css_app_light(compact: bool = False):
         .stApp {{
           background:
             radial-gradient(900px 420px at 0% 0%, rgba(37,99,235,0.06), transparent 55%),
-            linear-gradient(180deg, #f8faff 0%, var(--bg) 100%) !important;
+            linear-gradient(180deg, var(--bg-2) 0%, var(--bg) 100%) !important;
           color: var(--text) !important;
         }}
 
@@ -1021,7 +998,7 @@ def load_css_app_light(compact: bool = False):
         }}
 
         div[data-testid="stVerticalBlockBorderWrapper"] {{
-          background: linear-gradient(180deg, #ffffff, #fcfdff) !important;
+          background: linear-gradient(180deg, var(--panel), var(--panel-2)) !important;
           border: 1px solid var(--border) !important;
           border-radius: 16px !important;
           padding: 1.25rem !important;
@@ -1035,7 +1012,7 @@ def load_css_app_light(compact: bool = False):
         }}
 
         div[data-testid="metric-container"] {{
-          background: linear-gradient(180deg, #ffffff, #fbfdff) !important;
+          background: linear-gradient(180deg, var(--panel), var(--panel-2)) !important;
           border: 1px solid var(--border) !important;
           padding: 1rem 1.2rem !important;
           border-radius: 16px !important;
@@ -1052,7 +1029,7 @@ def load_css_app_light(compact: bool = False):
           border-radius: 12px !important;
           padding: 0.7rem 1.2rem !important;
           border: 1px solid var(--border2) !important;
-          background: linear-gradient(180deg, #ffffff, #f8fbff) !important;
+          background: linear-gradient(180deg, var(--panel), var(--panel-2)) !important;
           color: var(--text) !important;
           -webkit-text-fill-color: var(--text) !important;
           font-weight: 600 !important;
@@ -1065,7 +1042,7 @@ def load_css_app_light(compact: bool = False):
         div[data-testid="stButton"] button:hover {{
           transform: translateY(-2px);
           border-color: rgba(37,99,235,0.3) !important;
-          background: linear-gradient(180deg, #ffffff, #eff6ff) !important;
+          background: linear-gradient(180deg, var(--panel-soft), var(--panel)) !important;
           box-shadow:
             0 0 0 3px rgba(37,99,235,0.08),
             0 12px 24px rgba(15,23,42,0.08);
@@ -1080,7 +1057,7 @@ def load_css_app_light(compact: bool = False):
           border-radius: 12px !important;
           padding: 0.7rem 1.2rem !important;
           border: 1px solid var(--border2) !important;
-          background: linear-gradient(180deg, #ffffff, #f8fbff) !important;
+          background: linear-gradient(180deg, var(--panel), var(--panel-2)) !important;
           color: var(--text) !important;
           -webkit-text-fill-color: var(--text) !important;
           font-weight: 600 !important;
@@ -1093,7 +1070,7 @@ def load_css_app_light(compact: bool = False):
         div[data-testid="stLinkButton"] a:hover {{
           transform: translateY(-2px);
           border-color: rgba(37,99,235,0.3) !important;
-          background: linear-gradient(180deg, #ffffff, #eff6ff) !important;
+          background: linear-gradient(180deg, var(--panel-soft), var(--panel)) !important;
           box-shadow:
             0 0 0 3px rgba(37,99,235,0.08),
             0 12px 24px rgba(15,23,42,0.08);
@@ -1104,7 +1081,7 @@ def load_css_app_light(compact: bool = False):
         div[data-testid="stNumberInput"] input,
         div[data-testid="stDateInput"] input {{
           border-radius: 12px !important;
-          background: white !important;
+          background: var(--panel-soft) !important;
           border: 1.5px solid var(--border2) !important;
           color: var(--text) !important;
           -webkit-text-fill-color: var(--text) !important;
@@ -1124,7 +1101,7 @@ def load_css_app_light(compact: bool = False):
 
         div[data-testid="stSelectbox"] [data-baseweb="select"] > div {{
           border-radius: 12px !important;
-          background: white !important;
+          background: var(--panel-soft) !important;
           border: 1.5px solid var(--border2) !important;
           color: var(--text) !important;
           -webkit-text-fill-color: var(--text) !important;
@@ -1211,7 +1188,7 @@ def load_css_app_light(compact: bool = False):
         div[data-testid="stExpander"] {{
           border: 1px solid var(--border) !important;
           border-radius: 14px !important;
-          background: linear-gradient(180deg, #ffffff, #fafbfc) !important;
+          background: linear-gradient(180deg, var(--panel), var(--panel-2)) !important;
           box-shadow: var(--shadow-sm) !important;
           margin-bottom: 0.75rem !important;
           transition: all 200ms ease;
@@ -1241,27 +1218,13 @@ def load_css_app_light(compact: bool = False):
           border-left: 4px solid !important;
           font-size: 0.95rem !important;
           margin: 0.75rem 0 !important;
+          background: linear-gradient(180deg, var(--panel), var(--panel-2)) !important;
         }}
 
-        .stSuccess {{
-          background: linear-gradient(90deg, #d1fae5 0%, #f0fdf4 100%) !important;
-          border-left-color: var(--success) !important;
-        }}
-
-        .stWarning {{
-          background: linear-gradient(90deg, #fef3c7 0%, #fefce8 100%) !important;
-          border-left-color: var(--warning) !important;
-        }}
-
-        .stError {{
-          background: linear-gradient(90deg, #fee2e2 0%, #fef2f2 100%) !important;
-          border-left-color: var(--danger) !important;
-        }}
-
-        .stInfo {{
-          background: linear-gradient(90deg, #dbeafe 0%, #eff6ff 100%) !important;
-          border-left-color: var(--primary) !important;
-        }}
+        .stSuccess {{ border-left-color: var(--success) !important; }}
+        .stWarning {{ border-left-color: var(--warning) !important; }}
+        .stError   {{ border-left-color: var(--danger) !important; }}
+        .stInfo    {{ border-left-color: var(--primary) !important; }}
 
         /* Loading spinners */
         .stSpinner > div {{
@@ -1319,8 +1282,6 @@ def load_css_app_light(compact: bool = False):
         """,
         unsafe_allow_html=True,
     )
-    _dark_css = _dark_widget_css()
-    if _dark_css:
-        st.markdown(f"<style>{_dark_css}</style>", unsafe_allow_html=True)
+    st.markdown(_dark_widget_css(), unsafe_allow_html=True)
 
 # =========================

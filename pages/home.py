@@ -6,7 +6,7 @@ from core.timezone import _get_qp
 from core.database import load_table, load_students, clear_app_caches
 from auth.auth import render_logout_button, render_profile_dialog, render_choose_username_dialog
 from styles.theme import load_css_home
-from styles.theme import _is_dark
+from styles.theme import load_css_home
 from streamlit_option_menu import option_menu
 from core.database import get_profile_avatar_url
 from auth.auth import sign_out_user
@@ -256,22 +256,24 @@ def render_home():
                 "container": {
                     "padding": "0 !important",
                     "margin": "0 !important",
-                    "background": "#0f172a" if _is_dark() else "transparent",
+                    "background": "var(--panel)",
+                    "border": "1px solid var(--border)",
+                    "border-radius": "14px",
                 },
                 "nav-link": {
                     "font-size": "14px",
                     "text-align": "center",
                     "padding": "6px 8px",
-                    "color": "#94a3b8" if _is_dark() else "#475569",
-                    "--hover-color": "rgba(96,165,250,0.18)" if _is_dark() else "rgba(59,130,246,0.15)",
+                    "color": "var(--muted)",
+                    "--hover-color": "var(--panel-soft)",
                 },
                 "nav-link-selected": {
-                    "background": "linear-gradient(180deg, #1e3a5f, #162844)" if _is_dark() else "#3B82F6",
+                    "background": "var(--primary)",
                     "color": "#f1f5f9",
                 },
                 "icon": {
                     "font-size": "16px",
-                    "color": "#60A5FA" if _is_dark() else "inherit",
+                    "color": "var(--primary-light)",
                 },
             },
         )

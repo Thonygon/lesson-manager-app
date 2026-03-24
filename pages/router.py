@@ -4,7 +4,6 @@ from streamlit_option_menu import option_menu
 from core.i18n import t
 from core.navigation import go_to, PAGE_KEYS, _set_query
 from auth.auth import sign_out_user
-from styles.theme import _is_dark
 
 
 def render_top_nav(active_page: str):
@@ -60,22 +59,24 @@ def render_top_nav(active_page: str):
             "container": {
                 "padding": "0 !important",
                 "margin": "0 0 1rem 0 !important",
-                "background": "#0f172a" if _is_dark() else "transparent",
+                "background": "var(--panel)",
+                "border": "1px solid var(--border)",
+                "border-radius": "14px",
             },
             "nav-link": {
                 "font-size": "14px",
                 "text-align": "center",
                 "padding": "6px 8px",
-                "color": "#94a3b8" if _is_dark() else "#475569",
-                "--hover-color": "rgba(96,165,250,0.18)" if _is_dark() else "rgba(59,130,246,0.15)",
+                "color": "var(--muted)",
+                "--hover-color": "var(--panel-soft)",
             },
             "nav-link-selected": {
-                "background": "linear-gradient(180deg, #1e3a5f, #162844)" if _is_dark() else "#3B82F6",
+                "background": "var(--primary)",
                 "color": "#f1f5f9",
             },
             "icon": {
                 "font-size": "16px",
-                "color": "#60A5FA" if _is_dark() else "inherit",
+                "color": "var(--primary-light)",
             },
         },
     )
@@ -98,7 +99,6 @@ def render_top_nav(active_page: str):
 
 
 def route_pages(page: str):
-    """Dispatch to the correct page renderer."""
     from pages.home import render_home
     from pages.page_dashboard import render_dashboard
     from pages.page_students import render_students
@@ -106,14 +106,14 @@ def route_pages(page: str):
     from pages.page_add_payment import render_add_payment
     from pages.page_calendar import render_calendar
     from pages.page_analytics import render_analytics
-    from styles.theme import load_css_home, load_css_app_light
+    from styles.theme import load_css_home, load_css_app
 
     if page == "home":
         load_css_home()
         render_home()
         st.stop()
 
-    load_css_app_light(compact=bool(st.session_state.get("compact_mode", False)))
+    load_css_app(compact=bool(st.session_state.get("compact_mode", False)))
     render_top_nav(page)
 
     if page == "dashboard":
