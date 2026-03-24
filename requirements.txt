@@ -10,4 +10,4 @@ openai
 google-genai
 reportlab
 pypdf
-
+streamlit>=1.55,<1.60
