@@ -344,7 +344,17 @@ def render_home():
         _render_restore_dialog(user_id)
 
     if panel == "files":
-        st.markdown(f"### {t('files')}")
+
+        head_left, head_right = st.columns([6, 1], vertical_alignment="center")
+
+        with head_left:
+            st.markdown (f"### 📁 {t('files')}")
+        with head_right:
+            if st.button(t("close"), key="close_files_panel_top", help=t("close_files"), use_container_width=True):
+                st.session_state["home_action_menu_prev"] = t("home")
+                st.session_state["home_action_menu_nonce"] += 1
+                home_go("home", panel=None)
+                st.rerun()
 
         tab1, tab2, tab3, tab4 = st.tabs([t("my_plans"), t("my_worksheets"), t("community_library"), t("professional")])
 
@@ -733,13 +743,6 @@ def render_home():
                 )
 
         st.markdown("</div>", unsafe_allow_html=True)
-
-        st.divider()
-        if st.button(t("close_files"), key="close_files_panel", use_container_width=True):
-            st.session_state["home_action_menu_prev"] = t("profile")
-            st.session_state["home_action_menu_nonce"] += 1
-            home_go("home", panel=None)
-            st.rerun()
 
         return
 
