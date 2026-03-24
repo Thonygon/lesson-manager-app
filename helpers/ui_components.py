@@ -7,6 +7,82 @@ import re
 from core.navigation import go_to
 from core.timezone import now_local
 from helpers.language import translate_status, translate_modality_value, translate_language_value
+import streamlit as st
+import streamlit.components.v1 as components
+
+
+def inject_loading_screen():
+    st.markdown(
+        """
+        <style>
+        #app-preloader {
+            position: fixed;
+            inset: 0;
+            z-index: 999999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 14px;
+            background:
+                radial-gradient(circle at top left, rgba(59,130,246,0.16), transparent 35%),
+                radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 30%),
+                linear-gradient(180deg, #0f172a 0%, #111827 100%);
+            color: #f8fafc;
+            transition: opacity 0.35s ease;
+        }
+
+        #app-preloader.hide {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .preloader-spinner {
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            border: 4px solid rgba(255,255,255,0.12);
+            border-top-color: #60A5FA;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .preloader-title {
+            font-weight: 700;
+            font-size: 18px;
+        }
+
+        .preloader-sub {
+            font-size: 13px;
+            opacity: 0.7;
+        }
+        </style>
+
+        <div id="app-preloader">
+            <div class="preloader-spinner"></div>
+            <div class="preloader-title">Classio</div>
+            <div class="preloader-sub">Loading your workspace...</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    components.html(
+        """
+        <script>
+        setTimeout(function() {
+            const loader = window.parent.document.getElementById("app-preloader");
+            if(loader){
+                loader.classList.add("hide");
+            }
+        }, 900);
+        </script>
+        """,
+        height=0,
+    )
 
 # 08) UI COMPONENTS
 # =========================

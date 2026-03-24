@@ -19,7 +19,91 @@ from helpers.worksheet_builder import normalize_worksheet_output
 from helpers.goal_explorer import render_income_goal_calculator
 from core.database import load_community_profiles
 from helpers.goal_explorer import _rank_search
+import streamlit as st
+import streamlit.components.v1 as components
 
+def inject_loading_screen():
+    st.markdown(
+        """
+        <style>
+        /* Full-screen splash */
+        #app-preloader {
+            position: fixed;
+            inset: 0;
+            z-index: 999999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 14px;
+            background:
+                radial-gradient(circle at top left, rgba(59,130,246,0.16), transparent 35%),
+                radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 30%),
+                linear-gradient(180deg, #0f172a 0%, #111827 100%);
+            color: #f8fafc;
+            transition: opacity 0.35s ease, visibility 0.35s ease;
+        }
+
+        #app-preloader.hide {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .preloader-logo {
+            font-size: 1.6rem;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+        }
+
+        .preloader-sub {
+            font-size: 0.95rem;
+            color: rgba(241,245,249,0.78);
+        }
+
+        .preloader-spinner {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            border: 4px solid rgba(255,255,255,0.12);
+            border-top-color: #60A5FA;
+            animation: app-spin 0.9s linear infinite;
+            box-shadow: 0 0 30px rgba(96,165,250,0.18);
+        }
+
+        @keyframes app-spin {
+            to { transform: rotate(360deg); }
+        }
+        </style>
+
+        <div id="app-preloader">
+            <div class="preloader-spinner"></div>
+            <div class="preloader-logo">Classio</div>
+            <div class="preloader-sub">Loading your workspace...</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    components.html(
+        """
+        <script>
+        function hidePreloader() {
+            const p = window.parent.document.getElementById("app-preloader");
+            if (p) p.classList.add("hide");
+        }
+
+        // Hide after page settles a bit
+        window.addEventListener("load", () => {
+            setTimeout(hidePreloader, 500);
+        });
+
+        // Fallback in case load fires earlier/later in Streamlit
+        setTimeout(hidePreloader, 1200);
+        </script>
+        """,
+        height=0,
+    )
 
 def _render_restore_dialog(user_id: str) -> None:
     """Show a dialog for users whose account was soft-deleted within 90 days."""
