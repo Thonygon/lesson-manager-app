@@ -114,7 +114,8 @@ def require_login():
         st.stop()
 
     # Inject theme CSS for the login page
-    _dark_login = st.session_state.get("ui_theme", "light") == "dark"
+    _theme_mode = st.session_state.get("ui_theme_mode", "auto")
+    _dark_login = _theme_mode == "dark"
     from styles.theme import _root_vars, _dark_widget_css
     st.markdown(f"<style>{_root_vars()}</style>", unsafe_allow_html=True)
     _dw = _dark_widget_css()
@@ -183,18 +184,25 @@ def require_login():
         )
 
     with tab_theme:
-        st.markdown(f"#### {'🌙 ' + t('dark_mode') if not _dark_login else '☀️ ' + t('light_mode')}")
-        _current_theme = st.session_state.get("ui_theme", "light")
-        _new_theme = st.radio(
+        _current_theme_mode = st.session_state.get("ui_theme_mode", "auto")
+
+        st.markdown(f"#### 🎨 {t('theme')}")
+
+        _theme_options = ["auto", "light", "dark"]
+        _new_theme_mode = st.radio(
             t("select_theme"),
-            ["light", "dark"],
-            index=0 if _current_theme == "light" else 1,
-            format_func=lambda x: f"☀️ {t('light_mode')}" if x == "light" else f"🌙 {t('dark_mode')}",
+            _theme_options,
+            index=_theme_options.index(_current_theme_mode) if _current_theme_mode in _theme_options else 0,
+            format_func=lambda x: {
+                "auto": f"🖥️ {t('theme_auto')}",
+                "light": f"☀️ {t('theme_light')}",
+                "dark": f"🌙 {t('theme_dark')}",
+            }[x],
             key="login_theme_radio",
             horizontal=True,
         )
-        if _new_theme != _current_theme:
-            st.session_state["ui_theme"] = _new_theme
+        if _new_theme_mode != _current_theme_mode:
+            st.session_state["ui_theme_mode"] = _new_theme_mode
             st.rerun()
 
     with tab_lang:
@@ -663,18 +671,24 @@ def render_profile_dialog(user_id: str) -> None:
             )
 
             st.divider()
-            st.markdown(f"**� {t('appearance')}**")
-            _cur_theme = st.session_state.get("ui_theme", "light")
+            st.markdown(f"**🎨 {t('appearance')}**")
+            _cur_theme_mode = st.session_state.get("ui_theme_mode", "auto")
+            _theme_options = ["auto", "light", "dark"]
+
             _theme_choice = st.radio(
                 t("select_theme"),
-                ["light", "dark"],
-                index=0 if _cur_theme == "light" else 1,
-                format_func=lambda x: f"☀️ {t('light_mode')}" if x == "light" else f"🌙 {t('dark_mode')}",
+                _theme_options,
+                index=_theme_options.index(_cur_theme_mode) if _cur_theme_mode in _theme_options else 0,
+                format_func=lambda x: {
+                    "auto": f"🖥️ {t('theme_auto')}",
+                    "light": f"☀️ {t('theme_light')}",
+                    "dark": f"🌙 {t('theme_dark')}",
+                }[x],
                 key="profile_theme_radio",
                 horizontal=True,
             )
-            if _theme_choice != _cur_theme:
-                st.session_state["ui_theme"] = _theme_choice
+            if _theme_choice != _cur_theme_mode:
+                st.session_state["ui_theme_mode"] = _theme_choice
 
             st.divider()
             st.markdown(f"**🌐 {t('show_community_profile')}**")

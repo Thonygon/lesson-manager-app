@@ -197,16 +197,15 @@ def render_dashboard():
                             key=f"today_link_{lesson_id}",
                         )
                     except Exception:
-                        from styles.theme import _is_dark as _dk
-                        _fb_bg = '#253349' if _dk() else 'linear-gradient(180deg,#ffffff,#f8fbff)'
-                        _fb_fg = '#f1f5f9' if _dk() else '#0f172a'
-                        _fb_bd = 'rgba(255,255,255,0.14)' if _dk() else 'rgba(17,24,39,0.10)'
                         st.markdown(
                             f"<a href='{link}' target='_blank' style='text-decoration:none;'>"
                             f"<button style='width:100%;padding:0.62rem 1.0rem;border-radius:14px;"
-                            f"border:1px solid {_fb_bd};background:{_fb_bg};color:{_fb_fg};font-weight:700;cursor:pointer;'>"
+                            f"border:1px solid var(--border2, rgba(17,24,39,0.10));"
+                            f"background:linear-gradient(180deg, var(--panel), var(--panel-2));"
+                            f"color:var(--text);font-weight:700;cursor:pointer;'>"
                             f"{t('open_link')}</button></a>",
                             unsafe_allow_html=True,
+                        
                         )
                 else:
                     st.markdown("<div style='height:38px;'></div>", unsafe_allow_html=True)
