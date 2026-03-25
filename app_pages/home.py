@@ -19,8 +19,10 @@ from helpers.worksheet_builder import normalize_worksheet_output
 from helpers.goal_explorer import render_income_goal_calculator
 from core.database import load_community_profiles
 from helpers.goal_explorer import _rank_search
+from app_pages.render_home_welcome import render_home_welcome
 import streamlit as st
 import streamlit.components.v1 as components
+
 
 def inject_loading_screen():
     st.markdown(
@@ -1051,6 +1053,11 @@ def render_home():
 
         return
 
+    if panel in ("", None):
+        if render_home_welcome(user_name=user_name):
+            st.markdown("</div>", unsafe_allow_html=True)
+            return
+        
     # ---------- REAL VALUES ----------
     # Load preferred currency from profile (once per session)
     if "preferred_currency" not in st.session_state and user_id:

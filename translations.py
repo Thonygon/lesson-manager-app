@@ -41,7 +41,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "login_failed": "Login failed",
         "reset_email_sent": "Reset email sent. Check your inbox.",
         "reset_failed": "Reset failed",
-        "account_created_check_email": "Account created. If confirmations are enabled, check your email, then log in.",
+        "account_created_check_email": "Account created.",
         "signup_failed": "Sign up failed",
 
         "update_profile_photo": "Update profile photo",
@@ -68,7 +68,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "choose_username_msg": "Welcome back! We now require a unique username. Please choose one to continue.",
         "set_username_btn": "Set username",
         "missing_user_id": "Session expired. Please reload the page and log in again.",
-        
+        "confirm_email_then_login": "We sent you a confirmation email. Please confirm your account, then log in.",
+        "profile_setup_after_login_failed": "Your account is ready, but part of your profile could not be completed automatically",
+
         # -------------------------
         # DELETE / RESTORE ACCOUNT
         # -------------------------
@@ -105,7 +107,6 @@ I18N: Dict[str, Dict[str, str]] = {
         # -------------------------
         # HOME / TOP NAV
         # -------------------------
-        "choose_where_to_go": "Choose where you want to go",
         "language_ui": "Language",
         "english": "English",
         "spanish": "Spanish",
@@ -119,7 +120,6 @@ I18N: Dict[str, Dict[str, str]] = {
         "welcome": "Welcome",
         "alerts": "Alerts",
         "settings": "Settings",
-        "home_slogan": "One student is all it takes to start",
         "find_private_students": "Find private students",
         "home_find_students": "Find private students",
         "find_students_rec_title": "Recommendation",
@@ -143,10 +143,20 @@ I18N: Dict[str, Dict[str, str]] = {
         "teaching_resources": "Teaching Resources",
         "see_all_lesson_plans": "See all lesson plans",
         "see_all_worksheets": "See all worksheets",
-        "theme": "Theme",
-        "theme_auto": "Auto",
-        "theme_light": "Light",
-        "theme_dark": "Dark",
+
+        # -------------------------
+        # WELCOME PAGE
+        # -------------------------
+
+        "welcome_home_title": "Welcome {name} to Classio, your teaching business assistant",
+        "welcome_home_subtitle": "Start with one action and build your workspace step by step.",
+        "choose_where_to_go": "What do you want to do today?",
+        "getting_started": "Getting started",
+        "create_lesson_plan_cta": "Create Lesson Plan",
+        "create_worksheet_cta": "Create Worksheet",
+        "set_income_goal": "Set Income Goal",
+        "welcome_slogan": "One student is all it takes to start.",
+        "skip": "Skip",
 
         # -------------------------
         # ROFILE
@@ -940,7 +950,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "login_failed": "Error al iniciar sesión",
         "reset_email_sent": "Correo de restablecimiento enviado. Revisa tu bandeja de entrada.",
         "reset_failed": "Error al restablecer la contraseña",
-        "account_created_check_email": "Cuenta creada. Si las confirmaciones están activadas, revisa tu correo y luego inicia sesión.",
+        "account_created_check_email": "Cuenta creada.",
         "signup_failed": "Error al crear la cuenta",
 
         "update_profile_photo": "Actualizar foto de perfil",
@@ -967,6 +977,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "choose_username_msg": "¡Bienvenido de nuevo! Ahora requerimos un nombre de usuario único. Por favor elige uno para continuar.",
         "set_username_btn": "Establecer nombre de usuario",
         "missing_user_id": "Su sesión ha expirado. Por favor reinicia la aplicación e inicia sesión nuevamente.",
+        "confirm_email_then_login": "Te enviamos un correo de confirmación. Por favor, confirma tu cuenta y luego inicia sesión.",
+        "profile_setup_after_login_failed": "Tu cuenta está lista, pero una parte de tu perfil no se pudo completar automáticamente",
         
         # -------------------------
         # DELETE / RESTORE ACCOUNT
@@ -1004,7 +1016,6 @@ I18N: Dict[str, Dict[str, str]] = {
         # -------------------------
         # HOME / TOP NAV
         # -------------------------
-        "choose_where_to_go": "Elige a dónde quieres ir",
         "language_ui": "Idioma",
         "english": "Inglés",
         "spanish": "Español",
@@ -1018,7 +1029,6 @@ I18N: Dict[str, Dict[str, str]] = {
         "welcome": "Bienvenido",
         "alerts": "Alertas",
         "settings": "Ajustes",
-        "home_slogan": "Solo un estudiante basta",
         "home_find_students": "Encuentra estudiantes privados",
         "find_students_rec_title": "Recomendación",
         "find_students_step_1": "Completa tu perfil y crea tu CV en la página de inicio.",
@@ -1041,10 +1051,21 @@ I18N: Dict[str, Dict[str, str]] = {
         "teaching_resources": "Recursos didácticos",
         "see_all_lesson_plans": "Ver todos los planes de clase",
         "see_all_worksheets": "Ver todas las hojas de trabajo",
-        "theme": "Modo",
-        "theme_auto": "Auto",
-        "theme_light": "Claro",
-        "theme_dark": "Oscuro",
+
+        # -------------------------
+        # WELCOME PAGE
+        # -------------------------
+
+        "welcome_home_title": "Bienvenid@ {name} a Classio, tu asistente de negocios educativos",
+        "welcome_home_subtitle": "Comienza con una acción y construye tu espacio de trabajo paso a paso.",
+        "choose_where_to_go": "¿Qué quieres hacer hoy?",
+        "getting_started": "Comenzando",
+        "create_lesson_plan_cta": "Crear plan de clase",
+        "create_worksheet_cta": "Crear hoja de trabajo",
+        "set_income_goal": "Establecer meta de ingresos",
+        "welcome_slogan": "Un estudiante es todo lo que se necesita para comenzar.",
+        "skip": "Saltar",
+
 
         # -------------------------
         # PROFILE
@@ -1839,7 +1860,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "login_failed": "Giriş başarısız",
         "reset_email_sent": "Sıfırlama e-postası gönderildi. Gelen kutunuzu kontrol edin.",
         "reset_failed": "Sıfırlama başarısız",
-        "account_created_check_email": "Hesap oluşturuldu. Onay etkinse e-postanızı kontrol edin ve giriş yapın.",
+        "account_created_check_email": "Hesap oluşturuldu.",
         "signup_failed": "Kayıt başarısız",
 
         "update_profile_photo": "Profil fotoğrafını güncelle",
@@ -1866,6 +1887,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "choose_username_msg": "Tekrar hoş geldiniz! Artık benzersiz bir kullanıcı adı gereklidir. Devam etmek için lütfen birini seçin.",
         "set_username_btn": "Kullanıcı adını belirle",
         "missing_user_id": "Oturum süresi doldu. Lütfen tekrar giriş yapın.",
+        "confirm_email_then_login": "Size bir onay e-postası gönderdik. Lütfen hesabınızı onaylayın ve ardından giriş yapın.",
+        "profile_setup_after_login_failed": "Hesabınız hazır, ancak profilinizin bir kısmı otomatik olarak tamamlanamadı",
 
         # -------------------------
         # DELETE / RESTORE ACCOUNT
@@ -1903,7 +1926,6 @@ I18N: Dict[str, Dict[str, str]] = {
         # -------------------------
         # HOME / TOP NAV
         # -------------------------
-        "choose_where_to_go": "Nereye gitmek istediğinizi seçin",
         "language_ui": "Dil",
         "english": "İngilizce",
         "spanish": "İspanyolca",
@@ -1917,7 +1939,6 @@ I18N: Dict[str, Dict[str, str]] = {
         "welcome": "Hoş geldiniz",
         "alerts": "Uyarılar",
         "settings": "Ayarlar",
-        "home_slogan": "Tek bir öğrenci başlamak için yeterli",
         "find_private_students": "Özel öğrenci bul",
         "home_find_students": "Özel öğrenci bul",
         "find_students_rec_title": "Öneri",
@@ -1941,10 +1962,21 @@ I18N: Dict[str, Dict[str, str]] = {
         "teaching_resources": "Öğretim Kaynakları",
         "see_all_lesson_plans": "Tüm ders planlarını gör",
         "see_all_worksheets": "Tüm çalışma kağıtlarını gör",
-        "theme": "Tema",
-        "theme_auto": "Otomatik",
-        "theme_light": "Aydınlık",
-        "theme_dark": "Karanlık",
+
+        # -------------------------
+        # WELCOME PAGE
+        # -------------------------
+
+        "welcome_home_title": "Hoş geldin {name}, Classio — öğretmenlik iş asistanın",
+        "welcome_home_subtitle": "Tek bir adımla başlayın ve çalışma alanınızı adım adım oluşturun.",
+        "choose_where_to_go": "Bugün ne yapmak istiyorsunuz?",
+        "getting_started": "Başlangıç Adımları",
+        "create_lesson_plan_cta": "Ders Planı Oluştur",
+        "create_worksheet_cta": "Çalışma Kağıdı Oluştur",
+        "set_income_goal": "Gelir Hedefi Belirle",
+        "welcome_slogan": "Başlamak için tek bir öğrenci yeter.",
+        "skip": "Atla",
+
 
         # -------------------------
         # PROFILE

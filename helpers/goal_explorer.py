@@ -191,10 +191,10 @@ def _render_explore_teaching_resources() -> None:
     st.markdown(
         f"""
         <div style="text-align:center; padding:12px 0 8px 0;">
-            <h3 style="margin:0 0 4px 0; font-size:1.2rem; font-weight:800; color:var(--text);">
+            <h3 style="margin:0 0 4px 0; font-size:1.2rem; font-weight:800; color:#0f172a;">
                 📚 {t("teaching_resources")}
             </h3>
-            <p style="margin:0; color:var(--muted); font-size:0.9rem;">
+            <p style="margin:0; color:#475569; font-size:0.9rem;">
                 {t("explore_teaching_resources_subtitle")}
             </p>
         </div>
@@ -341,10 +341,10 @@ def render_goal_explorer() -> bool:
         <div style="
             text-align:center; padding:18px 10px 6px 10px;
         ">
-            <h3 style="margin:0 0 2px 0; font-size:1.35rem; font-weight:800; color:var(--text);">
+            <h3 style="margin:0 0 2px 0; font-size:1.35rem; font-weight:800; color:#0f172a;">
                 {t('explore_goal_title')}
             </h3>
-            <p style="margin:0; color:var(--muted); font-size:0.95rem;">
+            <p style="margin:0; color:#475569; font-size:0.95rem;">
                 {t('explore_goal_subtitle')}
             </p>
         </div>
@@ -494,55 +494,54 @@ def render_goal_explorer() -> bool:
         st.markdown(
             f"""
             <div style="
-                background:linear-gradient(180deg,var(--panel),var(--panel-2));
+                background:linear-gradient(135deg,#eef4ff,#e0f2fe);
                 border-radius:16px;
                 padding:22px 20px;
-                border:1px solid var(--border);
-                box-shadow:var(--shadow-md);
+                border:1px solid rgba(37,99,235,0.12);
             ">
-                <h4 style="margin:0 0 10px 0; color:var(--primary); font-size:1.15rem;">
+                <h4 style="margin:0 0 10px 0; color:#1e40af; font-size:1.15rem;">
                     📋 {t('explore_your_plan')}
                 </h4>
                 <table style="width:100%; border-collapse:collapse; font-size:0.97rem;">
                     <tr>
-                        <td style="padding:6px 0; color:var(--muted);">{t('explore_plan_goal')}</td>
-                        <td style="padding:6px 0; font-weight:700; text-align:right; color:var(--text);">{formatted_goal}</td>
+                        <td style="padding:6px 0; color:#475569;">{t('explore_plan_goal')}</td>
+                        <td style="padding:6px 0; font-weight:700; text-align:right;">{formatted_goal}</td>
                     </tr>
                     <tr>
-                        <td style="padding:6px 0; color:var(--muted);">{t('explore_plan_rate')}</td>
-                        <td style="padding:6px 0; font-weight:700; text-align:right; color:var(--text);">{formatted_rate} <span style="font-weight:400;color:var(--muted);font-size:0.85rem;">({t('explore_your_choice')})</span></td>
+                        <td style="padding:6px 0; color:#475569;">{t('explore_plan_rate')}</td>
+                        <td style="padding:6px 0; font-weight:700; text-align:right;">{formatted_rate} <span style="font-weight:400;color:#64748b;font-size:0.85rem;">({t('explore_your_choice')})</span></td>
                     </tr>
                     <tr>
-                        <td style="padding:6px 0; color:var(--muted);">{t('explore_plan_hours_year')}</td>
-                        <td style="padding:6px 0; font-weight:700; text-align:right; color:var(--text);">{total_hours:,}</td>
+                        <td style="padding:6px 0; color:#475569;">{t('explore_plan_hours_year')}</td>
+                        <td style="padding:6px 0; font-weight:700; text-align:right;">{total_hours:,}</td>
                     </tr>
                     <tr>
-                        <td style="padding:6px 0; color:var(--muted);">{t('explore_plan_hours_week')}</td>
-                        <td style="padding:6px 0; font-weight:700; text-align:right; color:var(--text);">{hours_per_week}</td>
+                        <td style="padding:6px 0; color:#475569;">{t('explore_plan_hours_week')}</td>
+                        <td style="padding:6px 0; font-weight:700; text-align:right;">{hours_per_week}</td>
                     </tr>
                     <tr>
-                        <td style="padding:6px 0; color:var(--muted);">{t('explore_achievability_label')}</td>
-                        <td style="padding:6px 0; font-weight:700; text-align:right; color:var(--text);">{achievability}</td>
+                        <td style="padding:6px 0; color:#475569;">{t('explore_achievability_label')}</td>
+                        <td style="padding:6px 0; font-weight:700; text-align:right;">{achievability}</td>
                     </tr>
                     <tr style="border-top:2px solid rgba(37,99,235,0.18);">
-                        <td style="padding:10px 0 4px 0; color:var(--primary); font-weight:700; font-size:1.05rem;">
+                        <td style="padding:10px 0 4px 0; color:#1e40af; font-weight:700; font-size:1.05rem;">
                             {t('explore_plan_students')}
                         </td>
-                        <td style="padding:10px 0 4px 0; font-weight:800; text-align:right; color:var(--primary); font-size:1.15rem;">
+                        <td style="padding:10px 0 4px 0; font-weight:800; text-align:right; color:#1e40af; font-size:1.15rem;">
                             {students_needed}
                         </td>
                     </tr>
                 </table>
-                <div style="margin:10px 0 0 0; color:var(--muted); font-size:0.92rem;">
+                <div style="margin:10px 0 0 0; color:#64748b; font-size:0.92rem;">
                     <b>{t('explore_advice_label')}</b> {advice}
                 </div>
-                <p style="margin:12px 0 0 0; color:var(--muted); font-size:0.82rem;">
+                <p style="margin:12px 0 0 0; color:#64748b; font-size:0.82rem;">
                     {t('explore_plan_note')}
                 </p>
             </div>
             """,
             unsafe_allow_html=True,
-        )        
+        )
 
         st.markdown("")
 
@@ -783,10 +782,10 @@ def _render_explore_ai_tools() -> None:
     st.markdown(
         f"""
         <div style="text-align:center; padding:12px 0 8px 0;">
-            <h3 style="margin:0 0 4px 0; font-size:1.2rem; font-weight:800; color:var(--text);">
+            <h3 style="margin:0 0 4px 0; font-size:1.2rem; font-weight:800; color:#0f172a;">
                 🤖 {t('explore_ai_tools_title')}
             </h3>
-            <p style="margin:0; color:var(--muted); font-size:0.9rem;">
+            <p style="margin:0; color:#475569; font-size:0.9rem;">
                 {t('explore_ai_tools_subtitle')}
             </p>
         </div>
@@ -1264,31 +1263,30 @@ def render_income_goal_calculator() -> None:
             st.markdown(
                 f"""
                 <div style="
-                    background:linear-gradient(180deg,var(--panel),var(--panel-2));
+                    background:linear-gradient(135deg,#eef4ff,#e0f2fe);
                     border-radius:16px; padding:22px 20px;
-                    border:1px solid var(--border);
-                    box-shadow:var(--shadow-md);
+                    border:1px solid rgba(37,99,235,0.12);
                 ">
-                    <h4 style="margin:0 0 10px 0; color:var(--primary); font-size:1.15rem;">
+                    <h4 style="margin:0 0 10px 0; color:#1e40af; font-size:1.15rem;">
                         📋 {t('explore_your_plan')}
                     </h4>
                     <table style="width:100%; border-collapse:collapse; font-size:0.97rem;">
-                        <tr><td style="padding:6px 0; color:var(--muted);">{t('explore_plan_goal')}</td>
-                            <td style="padding:6px 0; font-weight:700; text-align:right; color:var(--text);">{formatted_goal}</td></tr>
-                        <tr><td style="padding:6px 0; color:var(--muted);">{t('explore_plan_rate')}</td>
-                            <td style="padding:6px 0; font-weight:700; text-align:right; color:var(--text);">{formatted_rate}</td></tr>
-                        <tr><td style="padding:6px 0; color:var(--muted);">{t('explore_plan_hours_year')}</td>
-                            <td style="padding:6px 0; font-weight:700; text-align:right; color:var(--text);">{total_hours:,}</td></tr>
-                        <tr><td style="padding:6px 0; color:var(--muted);">{t('explore_plan_hours_week')}</td>
-                            <td style="padding:6px 0; font-weight:700; text-align:right; color:var(--text);">{hours_per_week}</td></tr>
-                        <tr><td style="padding:6px 0; color:var(--muted);">{t('explore_achievability_label')}</td>
-                            <td style="padding:6px 0; font-weight:700; text-align:right; color:var(--text);">{achievability}</td></tr>
+                        <tr><td style="padding:6px 0; color:#475569;">{t('explore_plan_goal')}</td>
+                            <td style="padding:6px 0; font-weight:700; text-align:right;">{formatted_goal}</td></tr>
+                        <tr><td style="padding:6px 0; color:#475569;">{t('explore_plan_rate')}</td>
+                            <td style="padding:6px 0; font-weight:700; text-align:right;">{formatted_rate}</td></tr>
+                        <tr><td style="padding:6px 0; color:#475569;">{t('explore_plan_hours_year')}</td>
+                            <td style="padding:6px 0; font-weight:700; text-align:right;">{total_hours:,}</td></tr>
+                        <tr><td style="padding:6px 0; color:#475569;">{t('explore_plan_hours_week')}</td>
+                            <td style="padding:6px 0; font-weight:700; text-align:right;">{hours_per_week}</td></tr>
+                        <tr><td style="padding:6px 0; color:#475569;">{t('explore_achievability_label')}</td>
+                            <td style="padding:6px 0; font-weight:700; text-align:right;">{achievability}</td></tr>
                         <tr style="border-top:2px solid rgba(37,99,235,0.18);">
-                            <td style="padding:10px 0 4px 0; color:var(--primary); font-weight:700; font-size:1.05rem;">{t('explore_plan_students')}</td>
-                            <td style="padding:10px 0 4px 0; font-weight:800; text-align:right; color:var(--primary); font-size:1.15rem;">{students_needed}</td></tr>
+                            <td style="padding:10px 0 4px 0; color:#1e40af; font-weight:700; font-size:1.05rem;">{t('explore_plan_students')}</td>
+                            <td style="padding:10px 0 4px 0; font-weight:800; text-align:right; color:#1e40af; font-size:1.15rem;">{students_needed}</td></tr>
                     </table>
-                    <div style="margin:10px 0 0 0; color:var(--muted); font-size:0.92rem;"><b>{t('explore_advice_label')}</b> {advice}</div>
-                    <p style="margin:12px 0 0 0; color:var(--muted); font-size:0.82rem;">{t('explore_plan_note')}</p>
+                    <div style="margin:10px 0 0 0; color:#64748b; font-size:0.92rem;"><b>{t('explore_advice_label')}</b> {advice}</div>
+                    <p style="margin:12px 0 0 0; color:#64748b; font-size:0.82rem;">{t('explore_plan_note')}</p>
                 </div>
                 """,
                 unsafe_allow_html=True,

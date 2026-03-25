@@ -7,82 +7,6 @@ import re
 from core.navigation import go_to
 from core.timezone import now_local
 from helpers.language import translate_status, translate_modality_value, translate_language_value
-import streamlit as st
-import streamlit.components.v1 as components
-
-
-def inject_loading_screen():
-    st.markdown(
-        """
-        <style>
-        #app-preloader {
-            position: fixed;
-            inset: 0;
-            z-index: 999999;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-            gap: 14px;
-            background:
-                radial-gradient(circle at top left, rgba(59,130,246,0.16), transparent 35%),
-                radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 30%),
-                linear-gradient(180deg, #0f172a 0%, #111827 100%);
-            color: #f8fafc;
-            transition: opacity 0.35s ease;
-        }
-
-        #app-preloader.hide {
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        .preloader-spinner {
-            width: 54px;
-            height: 54px;
-            border-radius: 50%;
-            border: 4px solid rgba(255,255,255,0.12);
-            border-top-color: #60A5FA;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .preloader-title {
-            font-weight: 700;
-            font-size: 18px;
-        }
-
-        .preloader-sub {
-            font-size: 13px;
-            opacity: 0.7;
-        }
-        </style>
-
-        <div id="app-preloader">
-            <div class="preloader-spinner"></div>
-            <div class="preloader-title">Classio</div>
-            <div class="preloader-sub">Loading your workspace...</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    components.html(
-        """
-        <script>
-        setTimeout(function() {
-            const loader = window.parent.document.getElementById("app-preloader");
-            if(loader){
-                loader.classList.add("hide");
-            }
-        }, 900);
-        </script>
-        """,
-        height=0,
-    )
 
 # 08) UI COMPONENTS
 # =========================
@@ -291,82 +215,72 @@ def inject_pwa_head():
     )
 
 
+from styles.theme import _is_dark as _ui_is_dark
+
+
 def render_styled_dataframe(df: pd.DataFrame, max_rows: int = 200):
     """Render a DataFrame as a styled HTML table matching the app theme."""
     if df is None or df.empty:
         st.caption(t("no_data"))
         return
 
+    dark = _ui_is_dark()
     show = df.head(max_rows)
+
+    # Theme colours
+    if dark:
+        hdr_bg   = "#162032"
+        hdr_fg   = "#f1f5f9"
+        row_bg   = "#1a2535"
+        alt_bg   = "#1e2d42"
+        row_fg   = "#e2e8f0"
+        bdr      = "rgba(255,255,255,0.08)"
+        hover_bg = "#243450"
+    else:
+        hdr_bg   = "#eff6ff"
+        hdr_fg   = "#1e293b"
+        row_bg   = "#ffffff"
+        alt_bg   = "#f8fafc"
+        row_fg   = "#334155"
+        bdr      = "rgba(17,24,39,0.08)"
+        hover_bg = "#f1f5f9"
 
     uid = f"stbl_{id(df)}"
 
     rows_html = []
     for i, (_, row) in enumerate(show.iterrows()):
-        row_class = "cm-row-alt" if i % 2 else "cm-row"
+        bg = alt_bg if i % 2 else row_bg
         cells = "".join(
-            f'<td style="padding:8px 12px;border-bottom:1px solid var(--border);'
-            f'color:var(--text);font-size:0.85rem;white-space:nowrap;">{_esc(v)}</td>'
+            f'<td style="padding:8px 12px;border-bottom:1px solid {bdr};color:{row_fg};'
+            f'font-size:0.85rem;white-space:nowrap;">{_esc(v)}</td>'
             for v in row
         )
-        rows_html.append(f'<tr class="{row_class}">{cells}</tr>')
+        rows_html.append(
+            f'<tr style="background:{bg};transition:background 150ms;"'
+            f' onmouseover="this.style.background=\'{hover_bg}\'"'
+            f' onmouseout="this.style.background=\'{bg}\'">{cells}</tr>'
+        )
 
     header_cells = "".join(
         f'<th style="padding:8px 12px;text-align:left;font-weight:700;font-size:0.78rem;'
-        f'text-transform:uppercase;letter-spacing:0.04em;color:var(--text);'
-        f'border-bottom:2px solid var(--border);white-space:nowrap;">{_esc(c)}</th>'
+        f'text-transform:uppercase;letter-spacing:0.04em;color:{hdr_fg};'
+        f'border-bottom:2px solid {bdr};white-space:nowrap;">{_esc(c)}</th>'
         for c in show.columns
     )
 
     html = f"""
-    <style>
-    .{uid}-wrap {{
-      overflow-x: auto;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      background: var(--panel);
-      margin: 8px 0;
-    }}
-
-    .{uid}-table {{
-      width: 100%;
-      border-collapse: collapse;
-      font-family: Inter, system-ui, sans-serif;
-    }}
-
-    .{uid}-table thead tr {{
-      background: var(--panel-2);
-    }}
-
-    .{uid}-table .cm-row {{
-      background: var(--panel);
-      transition: background 150ms;
-    }}
-
-    .{uid}-table .cm-row-alt {{
-      background: var(--panel-soft);
-      transition: background 150ms;
-    }}
-
-    .{uid}-table .cm-row:hover,
-    .{uid}-table .cm-row-alt:hover {{
-      background: var(--bg-3);
-    }}
-    </style>
-
-    <div class="{uid}-wrap">
-      <table class="{uid}-table">
-        <thead><tr>{header_cells}</tr></thead>
+    <div style="overflow-x:auto;border:1px solid {bdr};border-radius:12px;
+                background:{row_bg};margin:8px 0;">
+      <table style="width:100%;border-collapse:collapse;font-family:Inter,system-ui,sans-serif;">
+        <thead><tr style="background:{hdr_bg};">{header_cells}</tr></thead>
         <tbody>{"".join(rows_html)}</tbody>
       </table>
     </div>
     """
 
     if len(df) > max_rows:
-        html += (
-            f'<p style="color:var(--muted);font-size:0.8rem;opacity:0.85;text-align:center;">'
-            f'{t("showing")} {max_rows} / {len(df)}</p>'
-        )
+        html += f'<p style="color:{row_fg};font-size:0.8rem;opacity:0.7;text-align:center;">' \
+                f'{t("showing")} {max_rows} / {len(df)}</p>'
 
     st.markdown(html, unsafe_allow_html=True)
 

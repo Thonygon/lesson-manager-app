@@ -92,14 +92,17 @@ def apply_auth_session() -> None:
                 sb.table("profiles").update({"login_count": _new_count}).eq("user_id", str(uid)).execute()
 
                 # Decide where to land
-                if not _has_username:
-                    # Existing account without username → must choose one
+                if _login_count == 0:
+                    # First ever login → go home so Welcome page can show
+                    st.session_state["_post_login_action"] = "page:home"
+                elif not _has_username:
+                    # Legacy fallback only
                     st.session_state["_post_login_action"] = "choose_username"
-                elif not _onboarded or _login_count == 0:
-                    # First ever login → open profile dialog
-                    st.session_state["_post_login_action"] = "profile_dialog"
+                elif not _onboarded:
+                    # Incomplete onboarding → go home so Welcome page can keep showing
+                    st.session_state["_post_login_action"] = "page:home"
                 elif _login_count == 1:
-                    # Second login → go to dashboard
+                    # Second login after onboarding → go to dashboard
                     st.session_state["_post_login_action"] = "dashboard"
                 else:
                     # Third+ login → restore last visited page
