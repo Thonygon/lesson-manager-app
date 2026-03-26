@@ -290,7 +290,7 @@ def render_home():
 
     if isinstance(user, dict):
         user_id = user.get("id") or user_id
-
+        
     user_metadata = user.get("user_metadata", {}) if isinstance(user, dict) else {}
 
     user_name = (
@@ -300,6 +300,26 @@ def render_home():
         or st.session_state.get("user_email")
         or "User"
     )
+
+    # ---------- WELCOME PAGE ----------
+    from app_pages.render_home_welcome import render_home_welcome
+
+    profile = load_profile_row(user_id) if user_id else {}
+
+    if panel in ("", None) and profile:
+        students_count = int(profile.get("students_count") or 0)
+        lesson_plans_count = int(profile.get("lesson_plans_count") or 0)
+        worksheets_count = int(profile.get("worksheets_count") or 0)
+
+        all_empty = (
+            students_count == 0 and
+            lesson_plans_count == 0 and
+            worksheets_count == 0
+        )
+
+        if all_empty:
+            render_home_welcome(user_name)
+            return
 
     # Load avatar from DB once per session
     if user_id and not st.session_state.get("avatar_url"):
