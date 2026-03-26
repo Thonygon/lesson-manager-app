@@ -36,7 +36,7 @@ def render_analytics():
     cpi_data = fetch_cpi_data(INFLATION_COUNTRIES.get(inflation_country, "TUR")) if inflation_on else {}
     _sym = CURRENCIES.get(display_cur, {}).get("symbol", "")
 
-    # Display-settings expander (currency + inflation)
+        # Display-settings expander (currency + inflation)
     with st.expander(f"⚙️ {t('display_settings')}"):
         ds1, ds2 = st.columns(2)
         _cur_options = list(CURRENCIES.keys())
@@ -102,6 +102,71 @@ def render_analytics():
         by_student = _apply_fx(by_student)
         sold_by_subject = _apply_fx(sold_by_subject)
         sold_by_modality = _apply_fx(sold_by_modality)
+    
+    # -------------------------
+    # Yearly goal (persistent across devices)
+    # -------------------------
+    _current_year = int(today.year)
+    _is_all_time = True
+    _sel_year = _current_year
+    if _is_all_time or _sel_year == _current_year:
+        st.markdown(f"### {t('goal')}")
+        scope = YEAR_GOAL_SCOPE
+        current_year = _current_year
+
+        goal_state_key = f"year_goal_{current_year}_{scope}"
+        goal_loaded_key = f"{current_year}_{scope}"
+
+        if "year_goal_loaded" not in st.session_state:
+            st.session_state.year_goal_loaded = {}
+
+        if goal_loaded_key not in st.session_state.year_goal_loaded:
+            st.session_state[goal_state_key] = get_year_goal(current_year, scope=scope, default=0.0)
+            st.session_state.year_goal_loaded[goal_loaded_key] = True
+
+        gcol1, gcol2 = st.columns([2, 1])
+        with gcol1:
+            new_goal = st.number_input(
+                f"{t('yearly_income_goal')} ({current_year})",
+                min_value=0.0,
+                value=float(st.session_state.get(goal_state_key, 0.0) or 0.0),
+                step=1000.0,
+                key=f"year_goal_input_{current_year}_{scope}",
+                )
+        with gcol2:
+            if st.button("Save", key=f"save_goal_{current_year}_{scope}", use_container_width=True):
+                ok = set_year_goal(current_year, float(new_goal), scope=scope)
+                if ok:
+                    st.session_state[goal_state_key] = float(new_goal)
+                    try:
+                        st.cache_data.clear()
+                    except Exception:
+                        pass
+
+                    st.toast("Saved", icon="✅")
+                    st.rerun()
+                else:
+                    st.toast("Could not save goal", icon="⚠️")
+
+        goal_val = float(st.session_state.get(goal_state_key, 0.0) or 0.0)
+        if goal_val > 0:
+            prog = max(0.0, min(1.0, ytd_cash / goal_val))
+            st.progress(prog)
+            st.write(f"**{prog*100.0:.1f}%** — {t('goal_progress')}")
+
+            remaining = max(0.0, goal_val - ytd_cash)
+            months_left = max(0, 12 - int(today.month))
+            avg_needed = (remaining / months_left) if months_left > 0 else remaining
+
+            g1, g2, g3 = st.columns(3)
+            with g1:
+                st.metric(t("ytd_income"), cfmt(ytd_cash))
+            with g2:
+                st.metric(t("remaining_to_goal"), cfmt(remaining))
+            with g3:
+                st.metric(t("avg_needed_month"), cfmt(avg_needed))
+        else:
+            st.info("Set a yearly goal to see your progress bar.")    
 
     # --- Income section ---
     st.markdown(f"### {t('income')}")
@@ -731,67 +796,6 @@ def render_analytics():
             if inflation_on and cpi_data and _sel_year != _current_year:
                 st.caption(f"📊 {t('values_adjusted_to')} {_current_year}")
 
-        # -------------------------
-        # Yearly goal (persistent across devices)
-        # -------------------------
-        if _is_all_time or _sel_year == _current_year:
-            st.markdown(f"#### {t('goal')}")
-            scope = YEAR_GOAL_SCOPE
-            current_year = _current_year
-
-            goal_state_key = f"year_goal_{current_year}_{scope}"
-            goal_loaded_key = f"{current_year}_{scope}"
-
-            if "year_goal_loaded" not in st.session_state:
-                st.session_state.year_goal_loaded = {}
-
-            if goal_loaded_key not in st.session_state.year_goal_loaded:
-                st.session_state[goal_state_key] = get_year_goal(current_year, scope=scope, default=0.0)
-                st.session_state.year_goal_loaded[goal_loaded_key] = True
-
-            gcol1, gcol2 = st.columns([2, 1])
-            with gcol1:
-                new_goal = st.number_input(
-                    f"{t('yearly_income_goal')} ({current_year})",
-                    min_value=0.0,
-                    value=float(st.session_state.get(goal_state_key, 0.0) or 0.0),
-                    step=1000.0,
-                    key=f"year_goal_input_{current_year}_{scope}",
-                )
-            with gcol2:
-                if st.button("Save", key=f"save_goal_{current_year}_{scope}", use_container_width=True):
-                    ok = set_year_goal(current_year, float(new_goal), scope=scope)
-                    if ok:
-                        st.session_state[goal_state_key] = float(new_goal)
-                        try:
-                            st.cache_data.clear()
-                        except Exception:
-                            pass
-
-                        st.toast("Saved", icon="✅")
-                        st.rerun()
-                    else:
-                        st.toast("Could not save goal", icon="⚠️")
-
-            goal_val = float(st.session_state.get(goal_state_key, 0.0) or 0.0)
-            if goal_val > 0:
-                prog = max(0.0, min(1.0, ytd_cash / goal_val))
-                st.progress(prog)
-                st.write(f"**{prog*100.0:.1f}%** — {t('goal_progress')}")
-
-                remaining = max(0.0, goal_val - ytd_cash)
-                months_left = max(0, 12 - int(today.month))
-                avg_needed = (remaining / months_left) if months_left > 0 else remaining
-
-                g1, g2, g3 = st.columns(3)
-                with g1:
-                    st.metric(t("ytd_income"), cfmt(ytd_cash))
-                with g2:
-                    st.metric(t("remaining_to_goal"), cfmt(remaining))
-                with g3:
-                    st.metric(t("avg_needed_month"), cfmt(avg_needed))
-            else:
-                st.info("Set a yearly goal to see your progress bar.")
         # -------------------------
         # Summary callout + actions (unchanged)
         # -------------------------

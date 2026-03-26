@@ -246,11 +246,63 @@ def require_login():
                 resp = get_sb().auth.sign_in_with_password(
                     {"email": email, "password": password}
                 )
+
                 _set_auth_session(resp)
+
+                user_id = get_current_user_id()
+                if not user_id:
+                    raise Exception("Login succeeded but user_id was not restored.")
+
+                auth_user = st.session_state.get("auth_user") or {}
+                user_metadata = auth_user.get("user_metadata", {}) if isinstance(auth_user, dict) else {}
+
+                pending_profile = st.session_state.get("_pending_profile_after_signup") or {
+                    "email": email.strip(),
+                    "username": str(user_metadata.get("username") or "").strip().lower(),
+                    "display_name": str(
+                        user_metadata.get("display_name")
+                        or user_metadata.get("full_name")
+                        or ""
+                    ).strip(),
+                    "preferred_ui_language": str(
+                        user_metadata.get("preferred_ui_language")
+                        or st.session_state.get("ui_lang", "en")
+                    ),
+                    "timezone": DEFAULT_TZ_NAME,
+                    "default_lesson_duration": 45,
+                    "role": "teacher",
+                    "primary_subjects": [],
+                    "teaching_stages": [],
+                    "teaching_languages": [],
+                    "onboarding_completed": False,
+                }
+
+                if pending_profile.get("username") or pending_profile.get("display_name"):
+                    try:
+                        get_sb().table("profiles").upsert(
+                            {
+                                "user_id": user_id,
+                                **pending_profile,
+                            },
+                            on_conflict="user_id",
+                        ).execute()
+
+                        st.session_state["user_username"] = pending_profile.get("username", "").strip()
+                        st.session_state["user_name"] = pending_profile.get("display_name", "").strip()
+
+                        _save_pending_explore_plan(user_id, pending_profile.get("display_name", "").strip())
+                        _save_pending_explore_worksheet(user_id, pending_profile.get("display_name", "").strip())
+                        _save_pending_explore_cv(user_id, pending_profile.get("display_name", "").strip())
+
+                        st.session_state.pop("_pending_profile_after_signup", None)
+
+                    except Exception as profile_e:
+                        st.warning(f"{t('profile_setup_after_login_failed')}: {profile_e}")
+
                 apply_auth_session()
 
                 if not get_current_user_id():
-                    raise Exception("Login succeeded but user_id was not restored.")
+                    raise Exception("Login succeeded but user_id was not restored after session apply.")
 
                 st.success(t("logged_in_ok"))
                 st.rerun()
@@ -288,38 +340,51 @@ def require_login():
                 st.error(t("username_taken"))
             else:
                 try:
-                    resp = get_sb().auth.sign_up({"email": email2, "password": password2})
+                    resp = get_sb().auth.sign_up(
+                        {
+                            "email": email2,
+                            "password": password2,
+                            "options": {
+                                "email_redirect_to": st.secrets.get("SITE_URL", "http://localhost:8501"),
+                                "data": {
+                                    "username": username.strip().lower(),
+                                    "display_name": full_name.strip(),
+                                    "preferred_ui_language": st.session_state.get("ui_lang", "en"),
+                                },
+                            },
+                        },
+                    )
+
 
                     user = resp.user
-                    if user:
-                        get_sb().table("profiles").upsert(
-                            {
-                                "user_id": user.id,
-                                "email": email2.strip(),
-                                "username": username.strip().lower(),
-                                "display_name": full_name.strip(),
-                                "preferred_ui_language": st.session_state.get("ui_lang", "en"),
-                                "timezone": DEFAULT_TZ_NAME,
-                                "default_lesson_duration": 45,
-                                "role": "teacher",
-                                "primary_subjects": [],
-                                "teaching_stages": [],
-                                "teaching_languages": [],
-                                "onboarding_completed": False,
-                            },
-                            on_conflict="user_id",
-                        ).execute()
 
-                        # Auto-save pending lesson plan from explore page
-                        _save_pending_explore_plan(user.id, full_name.strip())
 
-                        # Auto-save pending worksheet from explore page
-                        _save_pending_explore_worksheet(user.id, full_name.strip())
+                    # Auto-save pending lesson plan from explore page
+                    _save_pending_explore_plan(user.id, full_name.strip())
 
-                        # Auto-save pending CV from explore page
-                        _save_pending_explore_cv(user.id, full_name.strip())
+                    # Auto-save pending worksheet from explore page
+                    _save_pending_explore_worksheet(user.id, full_name.strip())
+                    
+                    # Auto-save pending CV from explore page
+                    _save_pending_explore_cv(user.id, full_name.strip())
+                    
+                    # Save pending signup profile data for first real login
+                    st.session_state["_pending_profile_after_signup"] = {
+                        "email": email2.strip(),
+                        "username": username.strip().lower(),
+                        "display_name": full_name.strip(),
+                        "preferred_ui_language": st.session_state.get("ui_lang", "en"),
+                        "timezone": DEFAULT_TZ_NAME,
+                        "default_lesson_duration": 45,
+                        "role": "teacher",
+                        "primary_subjects": [],
+                        "teaching_stages": [],
+                        "teaching_languages": [],
+                        "onboarding_completed": False,
+                    }
 
                     st.success(t("account_created_check_email"))
+                    st.info(t("confirm_email_then_login"))
 
                 except Exception as e:
                     _err_str = str(e).lower()
