@@ -111,10 +111,13 @@ def _normalize_wordsearch_words(words: list[str], max_words: int = 12) -> list[s
     return out[:max_words]
 
 
-def _generate_wordsearch_grid(words: list[str], size: int | None = None) -> tuple[list[list[str]], list[str]]:
+def _generate_wordsearch_grid(
+    words: list[str],
+    size: int | None = None
+) -> tuple[list[list[str]], list[str], list[dict]]:
     words = _normalize_wordsearch_words(words)
     if not words:
-        return [], []
+        return [], [], []
 
     longest = max(len(w) for w in words)
     if size is None:
@@ -130,13 +133,13 @@ def _generate_wordsearch_grid(words: list[str], size: int | None = None) -> tupl
     import random
     alphabet = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
-    def try_build() -> list[list[str]] | None:
+    def try_build():
         grid = [["" for _ in range(size)] for _ in range(size)]
+        placements = []
 
         for word in words:
             placed = False
 
-            # Try many times for each word
             for _ in range(300):
                 dr, dc = random.choice(directions)
 
@@ -144,52 +147,56 @@ def _generate_wordsearch_grid(words: list[str], size: int | None = None) -> tupl
                     r = random.randint(0, size - 1)
                 elif dr == 1:
                     r = random.randint(0, size - len(word))
-                else:  # dr == -1
+                else:
                     r = random.randint(len(word) - 1, size - 1)
 
                 if dc == 0:
                     c = random.randint(0, size - 1)
-                else:  # dc == 1
+                else:
                     c = random.randint(0, size - len(word))
 
                 ok = True
                 rr, cc = r, c
+                coords = []
+
                 for ch in word:
                     cell = grid[rr][cc]
                     if cell not in ("", ch):
                         ok = False
                         break
+                    coords.append((rr, cc))
                     rr += dr
                     cc += dc
 
                 if not ok:
                     continue
 
-                rr, cc = r, c
-                for ch in word:
+                for (rr, cc), ch in zip(coords, word):
                     grid[rr][cc] = ch
-                    rr += dr
-                    cc += dc
 
+                placements.append({
+                    "word": word,
+                    "coords": coords,
+                })
                 placed = True
                 break
 
             if not placed:
-                return None
+                return None, None
 
         for r in range(size):
             for c in range(size):
                 if not grid[r][c]:
                     grid[r][c] = random.choice(alphabet)
 
-        return grid
+        return grid, placements
 
     for _ in range(20):
-        built = try_build()
-        if built is not None:
-            return built, words
+        built_grid, placements = try_build()
+        if built_grid is not None:
+            return built_grid, words, placements
 
-    return [], words
+    return [], words, []
 
 def _render_wordsearch_grid(grid: list[list[str]]) -> None:
     if not grid:
@@ -221,6 +228,61 @@ def _render_wordsearch_grid(grid: list[list[str]]) -> None:
             font-weight: 700;
             font-size: 0.95rem;
             border-radius: 6px;
+        }}
+        </style>
+        <div class="ws-wordsearch-wrap">
+          <table class="ws-wordsearch-grid">
+            {''.join(html_rows)}
+          </table>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+def _render_wordsearch_answer_grid(grid: list[list[str]], placements: list[dict]) -> None:
+    if not grid:
+        st.warning(t("word_search_grid_failed"))
+        return
+
+    hit_cells = set()
+    for item in placements or []:
+        for coord in item.get("coords", []):
+            hit_cells.add(tuple(coord))
+
+    html_rows = []
+    for r, row in enumerate(grid):
+        cells = []
+        for c, ch in enumerate(row):
+            cls = "ws-answer-hit" if (r, c) in hit_cells else ""
+            cells.append(f"<td class='{cls}'>{html.escape(ch)}</td>")
+        html_rows.append(f"<tr>{''.join(cells)}</tr>")
+
+    st.markdown(
+        f"""
+        <style>
+        .ws-wordsearch-wrap {{
+            overflow-x: auto;
+            margin: 0.5rem 0 1rem 0;
+        }}
+        .ws-wordsearch-grid {{
+            border-collapse: collapse;
+            margin: 0 auto;
+        }}
+        .ws-wordsearch-grid td {{
+            width: 32px;
+            height: 32px;
+            text-align: center;
+            vertical-align: middle;
+            border: 1px solid rgba(148,163,184,.35);
+            font-weight: 700;
+            font-size: 0.95rem;
+            border-radius: 6px;
+        }}
+        .ws-wordsearch-grid td.ws-answer-hit {{
+            background: rgba(59,130,246,.20);
+            border: 2px solid rgba(29,78,216,.85);
+            color: #0F172A;
+            box-shadow: inset 0 0 0 1px rgba(29,78,216,.15);
         }}
         </style>
         <div class="ws-wordsearch-wrap">
@@ -512,18 +574,20 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
 
     if ws.get("worksheet_type") == "word_search_vocab":
         st.markdown(f"**{t('word_search_grid')}**")
-        grid, placed_words = _generate_wordsearch_grid(ws.get("vocabulary_bank", []))
+        grid, _, _ = _generate_wordsearch_grid(ws.get("vocabulary_bank", []))
         _render_wordsearch_grid(grid)
 
-        if placed_words:
-            st.caption(f"{t('find_these_words')}: " + ", ".join(placed_words))
-
-    if ws.get("questions"):
+    if ws.get("worksheet_type") != "word_search_vocab" and ws.get("questions"):
         st.markdown(f"**{t('ws_questions')}**")
         for idx, q in enumerate(ws["questions"], 1):
             st.write(f"{idx}. {_strip_leading_number(q)}")
 
-    if ws.get("answer_key"):
+    if ws.get("worksheet_type") == "word_search_vocab":
+        with st.expander(t("ws_answer_key"), expanded=False):
+            answer_grid, _, placements = _generate_wordsearch_grid(ws.get("vocabulary_bank", []))
+            _render_wordsearch_answer_grid(answer_grid, placements)
+
+    elif ws.get("answer_key"):
         with st.expander(t("ws_answer_key"), expanded=False):
             for line in _split_answer_key(ws["answer_key"]):
                 st.write(line)
@@ -616,7 +680,7 @@ def build_worksheet_pdf_bytes(
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import cm
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem, Table, TableStyle, PageBreak
     from reportlab.platypus import Image as RLImage
     from reportlab.lib import colors
 
@@ -671,52 +735,129 @@ def build_worksheet_pdf_bytes(
         _sec("ws_vocabulary_bank", ", ".join(ws["vocabulary_bank"]))
 
     if ws.get("worksheet_type") == "word_search_vocab":
-        grid, placed_words = _generate_wordsearch_grid(ws.get("vocabulary_bank", []))
+        grid, _, _ = _generate_wordsearch_grid(ws.get("vocabulary_bank", []), size=12)
 
         if grid:
             story.append(Paragraph(t("word_search_grid"), heading_style))
+            story.append(Spacer(1, 12))  
 
-            mono_style = ParagraphStyle(
-                "WsMono",
+            page_width = A4[0] - doc.leftMargin - doc.rightMargin
+            grid_size = len(grid)
+            cell_size = (page_width / grid_size) * 0.85
+
+            grid_cell_style = ParagraphStyle(
+                "GridCell",
                 parent=body_style,
-                fontName="Courier",
-                fontSize=9,
-                leading=11,
+                fontName="Courier-Bold",
+                fontSize=max(10, min(12, int(cell_size / 1.4))),
+                leading=max(10, int(cell_size / 1.2)),
+                alignment=1,
             )
 
-            for row in grid:
-                story.append(Paragraph(" ".join(row), mono_style))
+            table_data = [
+                [Paragraph(ch, grid_cell_style) for ch in row]
+                for row in grid
+            ]
 
-            story.append(Spacer(1, 6))
-
-        if placed_words:
-            story.append(
-                Paragraph(
-                    f"<b>{t('find_these_words')}:</b> {', '.join(placed_words)}",
-                    body_style,
-                )
+            ws_table = Table(
+                table_data,
+                colWidths=[cell_size] * grid_size,
+                rowHeights=[cell_size] * grid_size,
+                hAlign="CENTER",
             )
-            story.append(Spacer(1, 6))
+
+            ws_table.setStyle(TableStyle([
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#94A3B8")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]))
+
+            story.append(ws_table)
+            story.append(Spacer(1, 12))      
     # Reading passage
     if ws.get("worksheet_type") == "reading_comprehension" and str(ws.get("reading_passage") or "").strip():
         _sec("ws_reading_passage", ws["reading_passage"])
 
     # Questions as numbered list
     questions = ws.get("questions", [])
-    if questions:
+    if ws.get("worksheet_type") != "word_search_vocab" and questions:
         story.append(Paragraph(t("ws_questions"), heading_style))
         for idx, q in enumerate(questions, 1):
             story.append(Paragraph(f"{idx}. {_strip_leading_number(q)}", body_style))
         story.append(Spacer(1, 6))
 
     if not student_only:
-        # Answer key — split into numbered lines for readability
-        ak = ws.get("answer_key", "")
-        if ak:
-            story.append(Paragraph(t("ws_answer_key"), heading_style))
-            for line in _split_answer_key(ak):
-                story.append(Paragraph(str(line), body_style))
-            story.append(Spacer(1, 6))
+        if ws.get("worksheet_type") == "word_search_vocab":
+            answer_grid, _, placements = _generate_wordsearch_grid(ws.get("vocabulary_bank", []), size=12)
+
+            if answer_grid:
+                story.append(PageBreak())
+                story.append(Paragraph(t("ws_answer_key"), heading_style))
+                story.append(Spacer(1, 6))
+
+                hit_cells = set()
+                for item in placements or []:
+                    for coord in item.get("coords", []):
+                        hit_cells.add(tuple(coord))
+
+                grid_size = len(answer_grid)
+                page_width = A4[0] - doc.leftMargin - doc.rightMargin
+                cell_size = (page_width / grid_size) * 0.85
+
+                grid_cell_style = ParagraphStyle(
+                    "GridCellAnswer",
+                    parent=body_style,
+                    fontName="Courier-Bold",
+                    fontSize=max(10, min(12, int(cell_size / 1.4))),
+                    leading=max(10, int(cell_size / 1.2)),
+                    alignment=1,
+                    textColor=colors.HexColor("#0F172A"),
+                )
+
+                table_data = []
+                for r, row in enumerate(answer_grid):
+                    table_row = []
+                    for c, ch in enumerate(row):
+                        table_row.append(Paragraph(ch, grid_cell_style))
+                    table_data.append(table_row)
+
+                ws_answer_table = Table(
+                    table_data,
+                    colWidths=[cell_size] * grid_size,
+                    rowHeights=[cell_size] * grid_size,
+                    hAlign="CENTER",
+                )
+
+                style_cmds = [
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#94A3B8")),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
+
+                for r, c in hit_cells:
+                    style_cmds.append(("BACKGROUND", (c, r), (c, r), colors.HexColor("#DBEAFE")))
+                    style_cmds.append(("BOX", (c, r), (c, r), 1.2, colors.HexColor("#2563EB")))
+
+                ws_answer_table.setStyle(TableStyle(style_cmds))
+                story.append(ws_answer_table)
+                story.append(Spacer(1, 8))
+
+        else:
+            ak = ws.get("answer_key", "")
+            if ak:
+                story.append(Paragraph(t("ws_answer_key"), heading_style))
+                for line in _split_answer_key(ak):
+                    story.append(Paragraph(str(line), body_style))
+                story.append(Spacer(1, 6))
+
         _sec("ws_teacher_notes", ws.get("teacher_notes", []))
 
     doc.build(story)
