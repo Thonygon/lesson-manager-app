@@ -89,6 +89,149 @@ def _clean_display_text(text: str) -> str:
 def _clean_card_fields(title: str, topic: str) -> tuple[str, str]:
     return _clean_display_text(title), _clean_display_text(topic)
 
+# ── Word search helpers ──────────────────────────────────────────────
+
+def _normalize_wordsearch_words(words: list[str], max_words: int = 12) -> list[str]:
+    out = []
+    seen = set()
+
+    for w in words or []:
+        s = str(w or "").strip().upper()
+        s = re.sub(r"[^A-ZÁÉÍÓÚÜÑÇĞİÖŞ0-9 ]", "", s)
+        s = re.sub(r"\s+", "", s)  # remove spaces so multi-word phrases fit the grid
+        if len(s) < 2:
+            continue
+        if s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+
+    # longest first = easier placement
+    out.sort(key=len, reverse=True)
+    return out[:max_words]
+
+
+def _generate_wordsearch_grid(words: list[str], size: int | None = None) -> tuple[list[list[str]], list[str]]:
+    words = _normalize_wordsearch_words(words)
+    if not words:
+        return [], []
+
+    longest = max(len(w) for w in words)
+    if size is None:
+        size = max(10, min(16, longest + 3, len(words) + longest))
+
+    directions = [
+        (0, 1),   # right
+        (1, 0),   # down
+        (1, 1),   # down-right
+        (-1, 1),  # up-right
+    ]
+
+    import random
+    alphabet = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+    def try_build() -> list[list[str]] | None:
+        grid = [["" for _ in range(size)] for _ in range(size)]
+
+        for word in words:
+            placed = False
+
+            # Try many times for each word
+            for _ in range(300):
+                dr, dc = random.choice(directions)
+
+                if dr == 0:
+                    r = random.randint(0, size - 1)
+                elif dr == 1:
+                    r = random.randint(0, size - len(word))
+                else:  # dr == -1
+                    r = random.randint(len(word) - 1, size - 1)
+
+                if dc == 0:
+                    c = random.randint(0, size - 1)
+                else:  # dc == 1
+                    c = random.randint(0, size - len(word))
+
+                ok = True
+                rr, cc = r, c
+                for ch in word:
+                    cell = grid[rr][cc]
+                    if cell not in ("", ch):
+                        ok = False
+                        break
+                    rr += dr
+                    cc += dc
+
+                if not ok:
+                    continue
+
+                rr, cc = r, c
+                for ch in word:
+                    grid[rr][cc] = ch
+                    rr += dr
+                    cc += dc
+
+                placed = True
+                break
+
+            if not placed:
+                return None
+
+        for r in range(size):
+            for c in range(size):
+                if not grid[r][c]:
+                    grid[r][c] = random.choice(alphabet)
+
+        return grid
+
+    for _ in range(20):
+        built = try_build()
+        if built is not None:
+            return built, words
+
+    return [], words
+
+def _render_wordsearch_grid(grid: list[list[str]]) -> None:
+    if not grid:
+        st.warning(t("word_search_grid_failed"))
+        return
+
+    html_rows = []
+    for row in grid:
+        cells = "".join(f"<td>{html.escape(ch)}</td>" for ch in row)
+        html_rows.append(f"<tr>{cells}</tr>")
+
+    st.markdown(
+        f"""
+        <style>
+        .ws-wordsearch-wrap {{
+            overflow-x: auto;
+            margin: 0.5rem 0 1rem 0;
+        }}
+        .ws-wordsearch-grid {{
+            border-collapse: collapse;
+            margin: 0 auto;
+        }}
+        .ws-wordsearch-grid td {{
+            width: 32px;
+            height: 32px;
+            text-align: center;
+            vertical-align: middle;
+            border: 1px solid rgba(148,163,184,.35);
+            font-weight: 700;
+            font-size: 0.95rem;
+            border-radius: 6px;
+        }}
+        </style>
+        <div class="ws-wordsearch-wrap">
+          <table class="ws-wordsearch-grid">
+            {''.join(html_rows)}
+          </table>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 # ── CRUD ──────────────────────────────────────────────────────────────
 
 def save_worksheet_record(
@@ -367,6 +510,14 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
         st.markdown(f"**{t('ws_vocabulary_bank')}**")
         st.write(", ".join(ws["vocabulary_bank"]))
 
+    if ws.get("worksheet_type") == "word_search_vocab":
+        st.markdown(f"**{t('word_search_grid')}**")
+        grid, placed_words = _generate_wordsearch_grid(ws.get("vocabulary_bank", []))
+        _render_wordsearch_grid(grid)
+
+        if placed_words:
+            st.caption(f"{t('find_these_words')}: " + ", ".join(placed_words))
+
     if ws.get("questions"):
         st.markdown(f"**{t('ws_questions')}**")
         for idx, q in enumerate(ws["questions"], 1):
@@ -382,14 +533,20 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
             for note in ws["teacher_notes"]:
                 st.write(f"- {note}")
 
-    # ── Actions ──
     subject = meta.get("subject", ws.get("subject", ""))
     topic = meta.get("topic", ws.get("topic", ""))
     ws_type = meta.get("worksheet_type", ws.get("worksheet_type", ""))
     learner_stage = meta.get("learner_stage", ws.get("learner_stage", ""))
     level_or_band = meta.get("level_or_band", ws.get("level_or_band", ""))
 
-    _pdf_kwargs = dict(subject=subject, topic=topic, ws_type=ws_type, learner_stage=learner_stage, level_or_band=level_or_band)
+    _pdf_kwargs = dict(
+        subject=subject,
+        topic=topic,
+        ws_type=ws_type,
+        learner_stage=learner_stage,
+        level_or_band=level_or_band,
+    )
+
     student_pdf = build_worksheet_pdf_bytes(ws, student_only=True, **_pdf_kwargs)
     teacher_pdf = build_worksheet_pdf_bytes(ws, student_only=False, **_pdf_kwargs)
     safe_title = re.sub(r"[^A-Za-z0-9._-]+", "_", str(ws.get("title") or "worksheet").strip()) or "worksheet"
@@ -444,7 +601,6 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
                 key=f"dl_ws_tch_inline_{safe_title}",
                 use_container_width=True,
             )
-
 
 # ── PDF generation ───────────────────────────────────────────────────
 
@@ -514,6 +670,33 @@ def build_worksheet_pdf_bytes(
     if ws.get("vocabulary_bank"):
         _sec("ws_vocabulary_bank", ", ".join(ws["vocabulary_bank"]))
 
+    if ws.get("worksheet_type") == "word_search_vocab":
+        grid, placed_words = _generate_wordsearch_grid(ws.get("vocabulary_bank", []))
+
+        if grid:
+            story.append(Paragraph(t("word_search_grid"), heading_style))
+
+            mono_style = ParagraphStyle(
+                "WsMono",
+                parent=body_style,
+                fontName="Courier",
+                fontSize=9,
+                leading=11,
+            )
+
+            for row in grid:
+                story.append(Paragraph(" ".join(row), mono_style))
+
+            story.append(Spacer(1, 6))
+
+        if placed_words:
+            story.append(
+                Paragraph(
+                    f"<b>{t('find_these_words')}:</b> {', '.join(placed_words)}",
+                    body_style,
+                )
+            )
+            story.append(Spacer(1, 6))
     # Reading passage
     if ws.get("worksheet_type") == "reading_comprehension" and str(ws.get("reading_passage") or "").strip():
         _sec("ws_reading_passage", ws["reading_passage"])

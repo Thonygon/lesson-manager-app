@@ -2,6 +2,7 @@ import streamlit as st
 from core.i18n import t
 from core.navigation import go_to, home_go
 from core.database import load_students
+from core.state import get_current_user_id
 from helpers.planner_storage import load_my_lesson_plans
 from helpers.worksheet_storage import load_my_worksheets
 
@@ -12,6 +13,21 @@ def _safe_count(obj) -> int:
     except Exception:
         return 0
 
+def _welcome_skip_key() -> str:
+    uid = str(get_current_user_id() or "").strip()
+    return f"home_welcome_skipped::{uid}" if uid else "home_welcome_skipped::anon"
+
+
+def _is_welcome_skipped() -> bool:
+    return bool(st.session_state.get(_welcome_skip_key(), False))
+
+
+def _set_welcome_skipped(value: bool) -> None:
+    st.session_state[_welcome_skip_key()] = bool(value)
+
+
+def _clear_welcome_skipped_for_current_user() -> None:
+    st.session_state.pop(_welcome_skip_key(), None)
 
 def get_welcome_progress() -> dict:
     students_df = load_students()
@@ -62,7 +78,7 @@ def should_show_welcome() -> tuple[bool, bool, dict]:
     if progress["all_empty"]:
         return True, False, progress
 
-    if st.session_state.get("home_welcome_skipped", False):
+    if _is_welcome_skipped():
         return False, True, progress
 
     return True, True, progress
@@ -153,12 +169,15 @@ def render_home_welcome(user_name: str) -> bool:
     done_plan = "✅" if progress["lesson_plans_done"] else "⬜"
     done_ws = "✅" if progress["worksheets_done"] else "⬜"
 
-    st.markdown(
+    bottom_left, bottom_right = st.columns([6, 1], vertical_alignment="center")
+
+    with bottom_left:
+        st.markdown(
         f"""
         <div style="font-weight: 700; margin-bottom: 10px; color: var(--text, #0f172a);">
             🤖 {t("do_this")}
         </div>
-        <div style="display:grid; gap:8px; color: var(--text, #0f172a);">
+        <div style="display:grid; margin-bottom: 10px; gap:8px; color: var(--text, #0f172a);">
             <div>{done_student} {t("add_student")}</div>
             <div>{done_plan} {t("create_lesson_plan_cta")}</div>
             <div>{done_ws} {t("create_worksheet_cta")}</div>
@@ -166,11 +185,29 @@ def render_home_welcome(user_name: str) -> bool:
         """,
         unsafe_allow_html=True,
     )
+    with bottom_right:
+        if allow_skip:
+            if st.button(t("skip"), key="welcome_skip_btn", use_container_width=True):
+                _set_welcome_skipped(True)
+                st.session_state["home_action_menu_prev"] = t("home")
+                st.session_state["home_action_menu_nonce"] = st.session_state.get("home_action_menu_nonce", 0) + 1
 
-    if allow_skip:
-        if st.button(t("skip"), key="welcome_skip_btn"):
-            st.session_state["home_welcome_skipped"] = True
-            st.rerun()
+                # clear transient welcome helpers
+                st.session_state.pop("welcome_focus_tool", None)
 
+                # force actual navigation to Home
+                go_to("home")
+                home_go("home", panel="home")
+
+                st.rerun()
+
+    st.markdown(
+        """
+        <div class="home-section-line"> 
+          <span>🤖</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     return True
