@@ -187,11 +187,9 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
     """
     FullCalendar renderer with:
       ✅ Mon-first week (firstDay=1)
-      ✅ Translated calendar UI buttons (Today/Month/Week/Day/List)
-      ✅ Translated all-day label
-      ✅ Translated "+n more" link
-      ✅ Week header shows weekday + day number (Mon 25, Tue 26, etc.)
-      ✅ Safe for mobile dark mode rendering
+      ✅ Translated calendar UI buttons
+      ✅ Dark/light/auto theme support inside iframe
+      ✅ Safe for mobile
     """
     if events is None or events.empty:
         st.info(t("no_events"))
@@ -229,8 +227,8 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
 
     payload = json.dumps(fc_events)
 
-    # ---- FullCalendar UI translations (based on ui_lang) ----
     ui_lang = st.session_state.get("ui_lang", "en")
+    theme_mode = str(st.session_state.get("ui_theme_mode", "auto")).strip().lower()
     is_es = ui_lang == "es"
 
     fc_locale = "es" if is_es else "en"
@@ -245,85 +243,158 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
     more_template = "+{n} más" if is_es else "+{n} more"
 
     html = f"""
-    <div id="calendar" style="background:#ffffff;border:1px solid rgba(17,24,39,0.10);border-radius:16px;padding:10px;"></div>
+    <div id="calendar-wrap">
+      <div id="calendar"></div>
+    </div>
 
-    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
+    <script>
+      window.__THEME_MODE__ = "{theme_mode}";
+    </script>
+
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
 
     <style>
-      .fc {{ color:#0f172a; }}
+      :root {{
+        --cal-bg: #ffffff;
+        --cal-panel: #ffffff;
+        --cal-border: rgba(17,24,39,0.10);
+        --cal-text: #0f172a;
+        --cal-muted: #334155;
+        --cal-btn-bg: rgba(96,165,250,0.22);
+        --cal-btn-bg-hover: rgba(96,165,250,0.32);
+        --cal-btn-border: rgba(96,165,250,0.45);
+        --cal-btn-border-strong: rgba(96,165,250,0.60);
+      }}
 
-      /* Fix iPhone dark mode text disappearing */
-      #calendar, #calendar * {{ color:#0f172a !important; }}
+      html, body {{
+        margin: 0;
+        padding: 0;
+        background: transparent;
+      }}
+
+      body.theme-dark {{
+        --cal-bg: #0f172a;
+        --cal-panel: #1e293b;
+        --cal-border: rgba(255,255,255,0.10);
+        --cal-text: #f1f5f9;
+        --cal-muted: #cbd5e1;
+        --cal-btn-bg: rgba(96,165,250,0.18);
+        --cal-btn-bg-hover: rgba(96,165,250,0.28);
+        --cal-btn-border: rgba(96,165,250,0.35);
+        --cal-btn-border-strong: rgba(96,165,250,0.52);
+      }}
+
+      #calendar-wrap {{
+        background: var(--cal-panel);
+        border: 1px solid var(--cal-border);
+        border-radius: 16px;
+        padding: 10px;
+      }}
+
+      #calendar,
+      .fc {{
+        color: var(--cal-text) !important;
+      }}
+
+      .fc-theme-standard td,
+      .fc-theme-standard th,
+      .fc-theme-standard .fc-scrollgrid,
+      .fc-theme-standard .fc-list {{
+        border-color: var(--cal-border) !important;
+      }}
+
+      .fc .fc-scrollgrid,
+      .fc .fc-timegrid,
+      .fc .fc-view-harness,
+      .fc .fc-timegrid-body,
+      .fc .fc-timegrid-slots,
+      .fc .fc-timegrid-cols,
+      .fc .fc-col-header,
+      .fc .fc-col-header-cell,
+      .fc .fc-timegrid-axis,
+      .fc .fc-timegrid-slot,
+      .fc .fc-timegrid-slot-lane {{
+        background: var(--cal-panel) !important;
+      }}
+
+      .fc .fc-col-header-cell,
+      .fc .fc-timegrid-axis {{
+        background: rgba(255,255,255,0.04) !important;
+      }}
+
+      .fc .fc-col-header-cell-cushion {{
+        color: var(--cal-text) !important;
+        text-decoration: none !important;
+        font-weight: 700;
+      }}    
 
       .fc .fc-button,
       .fc .fc-button-primary {{
-        border-radius:10px;
-        border:1px solid rgba(96,165,250,0.45) !important;
-        background:rgba(96,165,250,0.30) !important;
-        color:#0f172a !important;
-        box-shadow:none !important;
+        border-radius: 10px;
+        border: 1px solid var(--cal-btn-border) !important;
+        background: var(--cal-btn-bg) !important;
+        color: var(--cal-text) !important;
+        box-shadow: none !important;
       }}
 
       .fc .fc-button:hover,
       .fc .fc-button-primary:hover {{
-        border:1px solid rgba(96,165,250,0.55) !important;
-        background:rgba(96,165,250,0.40) !important;
-        color:#0f172a !important;
+        border: 1px solid var(--cal-btn-border-strong) !important;
+        background: var(--cal-btn-bg-hover) !important;
+        color: var(--cal-text) !important;
       }}
 
       .fc .fc-button:focus,
       .fc .fc-button-primary:focus,
       .fc .fc-button:active,
-      .fc .fc-button-primary:active {{
-        border:1px solid rgba(96,165,250,0.55) !important;
-        background:rgba(96,165,250,0.40) !important;
-        color:#0f172a !important;
-        box-shadow:none !important;
-      }}
-
+      .fc .fc-button-primary:active,
       .fc .fc-button-active,
       .fc .fc-button-primary.fc-button-active {{
-        border:1px solid rgba(96,165,250,0.65) !important;
-        background:rgba(96,165,250,0.45) !important;
-        color:#0f172a !important;
-        box-shadow:none !important;
+        border: 1px solid var(--cal-btn-border-strong) !important;
+        background: var(--cal-btn-bg-hover) !important;
+        color: var(--cal-text) !important;
+        box-shadow: none !important;
       }}
 
       .fc .fc-button:disabled,
       .fc .fc-button-primary:disabled {{
-        border:1px solid rgba(96,165,250,0.28) !important;
-        background:rgba(96,165,250,0.18) !important;
-        color:#64748b !important;
-        opacity:1 !important;
+        opacity: 0.65 !important;
+        color: var(--cal-muted) !important;
       }}
 
+      .fc .fc-toolbar-title,
       .fc .fc-col-header-cell-cushion,
-      .fc .fc-daygrid-day-number {{
-        color:#0f172a !important;
-        text-decoration:none !important;
-        font-weight:600;
+      .fc .fc-daygrid-day-number,
+      .fc .fc-list-day-text,
+      .fc .fc-list-day-side-text {{
+        color: var(--cal-text) !important;
+        text-decoration: none !important;
       }}
 
-      .fc .fc-timegrid-slot-label-cushion {{
-        color:#334155 !important;
+      .fc .fc-timegrid-slot-label-cushion,
+      .fc .fc-list-event-time,
+      .fc .fc-list-event-title {{
+        color: var(--cal-muted) !important;
+      }}
+
+      .fc .fc-day-today {{
+        background: rgba(96,165,250,0.10) !important;
       }}
 
       .fc .fc-toolbar-title {{
-        color:#0f172a !important;
-        font-weight:800;
-        font-size:1.1rem;
-        line-height:1.15;
+        font-weight: 800;
+        font-size: 1.1rem;
+        line-height: 1.15;
       }}
 
       @media (max-width: 768px) {{
         .fc .fc-toolbar-title {{
-          font-size:0.95rem;
+          font-size: 0.95rem;
         }}
 
         .fc .fc-button {{
-          padding:0.35rem 0.55rem;
-          font-size:0.85rem;
+          padding: 0.35rem 0.55rem;
+          font-size: 0.85rem;
         }}
       }}
     </style>
@@ -332,6 +403,23 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
       const events = {payload};
       const calendarEl = document.getElementById("calendar");
       const isMobile = () => window.innerWidth < 768;
+
+      function applyTheme() {{
+        const mode = window.__THEME_MODE__ || "auto";
+        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const dark = mode === "dark" || (mode === "auto" && prefersDark);
+
+        document.body.classList.toggle("theme-dark", dark);
+      }}
+
+      applyTheme();
+
+      const media = window.matchMedia("(prefers-color-scheme: dark)");
+      if (media && media.addEventListener) {{
+        media.addEventListener("change", () => {{
+          applyTheme();
+        }});
+      }}
 
       const toolbarDesktop = {{
         left: "prev,next today",
