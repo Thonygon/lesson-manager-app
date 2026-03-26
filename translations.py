@@ -440,6 +440,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "ws_community": "Worksheets Library",
         "no_saved_worksheets": "You do not have any saved worksheets yet.",
         "generating": "Generating…",
+        "word_search_grid": "Word Search Grid",
+        "find_these_words": "Find these words",
+        "word_search_grid_failed": "Could not generate the word search grid.",
 
         # -------------------------
         # QUICK LESSON PLANNER
@@ -1355,7 +1358,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "ws_community": "Biblioteca de fichas",
         "no_saved_worksheets": "Todavía no tienes fichas guardadas.",
         "generating": "Generando…",
-
+        "word_search_grid": "Sopa de letras",
+        "find_these_words": "Encuentra estas palabras",
+        "word_search_grid_failed": "No se pudo generar la sopa de letras.",
 
         # -------------------------
         # QUICK LESSON PLANNER
@@ -2269,6 +2274,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "ws_community": "Çalışma Kağıdı Kütüphanesi",
         "no_saved_worksheets": "Henüz kaydedilmiş çalışma kağıdınız yok.",
         "generating": "Oluşturuluyor…",
+        "word_search_grid": "Kelime Bulmacası",
+        "find_these_words": "Bu kelimeleri bul",
+        "word_search_grid_failed": "Kelime bulmacası oluşturulamadı.",
 
         # -------------------------
         # QUICK LESSON PLANNER

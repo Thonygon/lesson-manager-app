@@ -304,23 +304,10 @@ def render_home():
     # ---------- WELCOME PAGE ----------
     from app_pages.render_home_welcome import render_home_welcome
 
-    profile = load_profile_row(user_id) if user_id else {}
-
-    if panel in ("", None) and profile:
-        students_count = int(profile.get("students_count") or 0)
-        lesson_plans_count = int(profile.get("lesson_plans_count") or 0)
-        worksheets_count = int(profile.get("worksheets_count") or 0)
-
-        all_empty = (
-            students_count == 0 and
-            lesson_plans_count == 0 and
-            worksheets_count == 0
-        )
-
-        if all_empty:
-            render_home_welcome(user_name)
+    if panel in ("", None):
+        if render_home_welcome(user_name):
             return
-
+    
     # Load avatar from DB once per session
     if user_id and not st.session_state.get("avatar_url"):
         st.session_state["avatar_url"] = get_profile_avatar_url(user_id)

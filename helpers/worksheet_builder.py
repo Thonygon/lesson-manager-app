@@ -62,7 +62,21 @@ def normalize_worksheet_output(raw: dict) -> dict:
         out["title"] = out["title"][0].upper() + out["title"][1:]
     if out["topic"]:
         out["topic"] = out["topic"][0].upper() + out["topic"][1:]
-        
+    if out.get("worksheet_type") == "word_search_vocab":
+        cleaned_vocab = []
+        seen = set()
+        for w in out.get("vocabulary_bank", []):
+            s = str(w or "").strip()
+            if not s:
+                continue
+            if s.lower() in seen:
+                continue
+            seen.add(s.lower())
+            cleaned_vocab.append(s)
+        out["vocabulary_bank"] = cleaned_vocab
+
+        if not out.get("instructions"):
+            out["instructions"] = "Find the hidden words in the grid."        
     return out
 
 # ── AI prompt (Ed.D. pedagogy-driven) ────────────────────────────────
