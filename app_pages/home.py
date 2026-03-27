@@ -979,61 +979,84 @@ def render_home():
                     _rank_html = f"<div style='font-size:0.85rem;font-weight:800;color:#f59e0b;min-width:26px;text-align:center;padding-top:16px;align-self:flex-start;'>#{_rank}</div>" if _rank else ""
 
                     if _show_full:
+                        import html as _html
+
+                        _safe_display_name = _html.escape(_display_name)
+                        _safe_subj_labels = _html.escape(_subj_labels)
+                        _safe_country = _html.escape(_country)
+                        _safe_edu_display = _html.escape(_edu_display)
+
                         _avatar_html = (
                             f"<img src='{_avatar}' style='width:52px;height:52px;border-radius:50%;object-fit:cover;flex-shrink:0;' referrerpolicy='no-referrer' />"
                             if _avatar
                             else "<div style='width:52px;height:52px;border-radius:50%;flex-shrink:0;background:linear-gradient(135deg,#60A5FA,#A78BFA);'></div>"
                         )
-                        _contact_html = ""
+
+                        _contact_parts = []
+
                         if _country:
-                            _contact_html += f"<span style='font-size:0.82rem;color:#64748b;'>🌍 {_country}</span>"
+                            _contact_parts.append(
+                                f"<span style='font-size:0.82rem;color:#64748b;'>🌍 {_safe_country}</span>"
+                            )
+
                         if _show_contact:
                             _btns = ""
                             if _wa_num:
-                                _btns += _contact_btn(f"https://wa.me/{_wa_num.lstrip('+')}", _wa_svg, "#25D366", "WhatsApp")
+                                _btns += _contact_btn(
+                                    f"https://wa.me/{_wa_num.lstrip('+')}",
+                                    _wa_svg,
+                                    "#25D366",
+                                    "WhatsApp",
+                                )
                             if _email:
-                                _btns += _contact_btn(f"mailto:{_email}", _email_svg, "#3B82F6", "Email")
+                                _btns += _contact_btn(
+                                    f"mailto:{_email}",
+                                    _email_svg,
+                                    "#3B82F6",
+                                    "Email",
+                                )
+
                             if _btns:
-                                _contact_html += f"<span style='margin-left:8px;display:inline-flex;gap:6px;vertical-align:middle;'>{_btns}</span>"
-                        if _contact_html:
-                            _contact_html = f"<div style='margin-top:5px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;'>{_contact_html}</div>"
+                                _contact_parts.append(
+                                    f"<span style='margin-left:8px;display:inline-flex;gap:6px;vertical-align:middle;'>{_btns}</span>"
+                                )
 
-                        st.markdown(
-                            f"""
-                            <div style='display:flex;align-items:flex-start;gap:10px;background:#1e293b;border-radius:12px;padding:14px 16px;margin-bottom:10px;border:1px solid #334155;'>
-                                {_rank_html}
-                                {_avatar_html}
-                                <div style='flex:1;min-width:0;'>
-                                    <div style='font-weight:700;font-size:1rem;color:#f1f5f9;'>{_display_name}{_badge_self}</div>
-                                    <div style='font-size:0.82rem;color:#94a3b8;margin-top:2px;'>{_subj_labels}</div>
-                                    <div style='display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;'>
-                                        <div style='font-size:0.82rem;color:#38bdf8;'>👥 {_active_count} {t('community_active_students')}</div>
-                                        {(f"<div style='font-size:0.82rem;color:#a78bfa;'>🎓 {_edu_display}</div>") if _edu_display else ""}
-                                    </div>
-                                    {_contact_html}
-                                </div>
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        st.markdown(
-                            f"""
-                            <div style='display:flex;align-items:center;gap:10px;background:#1e293b;border-radius:12px;padding:12px 16px;margin-bottom:10px;border:1px solid #334155;opacity:0.75;'>
-                                {_rank_html}
-                                <div style='width:40px;height:40px;border-radius:50%;flex-shrink:0;background:linear-gradient(135deg,#334155,#475569);display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:1.1rem;'>👤</div>
-                                <div style='flex:1;min-width:0;'>
-                                    <div style='font-weight:600;font-size:0.93rem;color:#cbd5e1;'>{_private_name}</div>
-                                    <div style='font-size:0.8rem;color:#64748b;'>{_subj_labels}</div>
-                                    <div style='font-size:0.8rem;color:#38bdf8;margin-top:3px;'>👥 {_active_count} {t('community_active_students')}</div>
-                                </div>
-                                <div style='font-size:0.72rem;color:#475569;white-space:nowrap;'>{t('community_private_user')}</div>
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
+                        if _contact_parts:
+                            _contact_html = (
+                                "<div style='margin-top:5px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;'>"
+                                + "".join(_contact_parts)
+                                + "</div>"
+                            )
+                        else:
+                            _contact_html = (
+                                f"<div style='margin-top:5px;font-size:0.8rem;color:#64748b;opacity:0.8;'>"
+                                f"{t('community_profile_empty')}"
+                                f"</div>"
+                            )
+
+                        _edu_html = (
+                            f"<div style='font-size:0.82rem;color:#a78bfa;'>🎓 {_safe_edu_display}</div>"
+                            if _edu_display
+                            else ""
                         )
 
-        return
+                        _card_html = (
+                            "<div style='display:flex;align-items:flex-start;gap:10px;background:#1e293b;border-radius:12px;padding:14px 16px;margin-bottom:10px;border:1px solid #334155;'>"
+                            f"{_rank_html}"
+                            f"{_avatar_html}"
+                            "<div style='flex:1;min-width:0;'>"
+                            f"<div style='font-weight:700;font-size:1rem;color:#f1f5f9;'>{_safe_display_name}{_badge_self}</div>"
+                            f"<div style='font-size:0.82rem;color:#94a3b8;margin-top:2px;'>{_safe_subj_labels}</div>"
+                            "<div style='display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;'>"
+                            f"<div style='font-size:0.82rem;color:#38bdf8;'>👥 {_active_count} {t('community_active_students')}</div>"
+                            f"{_edu_html}"
+                            "</div>"
+                            f"{_contact_html}"
+                            "</div>"
+                            "</div>"
+                        )
+
+                        st.markdown(_card_html, unsafe_allow_html=True)
 
     # ---------- AI TOOLS PANEL ----------
     if panel == "ai_tools":

@@ -35,7 +35,7 @@ def render_dashboard():
 
     dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
     if dash is None or dash.empty:
-        st.info(t("no_data"))
+        st.info(t("no_dashboard_data"))
         st.stop()
 
     d = dash.copy()
