@@ -10,7 +10,6 @@ from core.state import get_current_user_id, with_owner, _set_logged_in_user, _cl
 # ---- Supabase client (lazy singleton) ----
 _sb = None
 
-
 def get_sb():
     global _sb
     if _sb is None:
@@ -92,18 +91,23 @@ def apply_auth_session() -> None:
                 sb.table("profiles").update({"login_count": _new_count}).eq("user_id", str(uid)).execute()
 
                 # Decide where to land
-                if not _has_username:
-                    # Existing account without username → must choose one
+                if _login_count == 0:
+                    st.session_state["_post_login_action"] = "page:home"
+                elif not _has_username:
                     st.session_state["_post_login_action"] = "choose_username"
-                elif not _onboarded or _login_count == 0:
-                    # First ever login → open profile dialog
-                    st.session_state["_post_login_action"] = "profile_dialog"
-                elif _login_count == 1:
-                    # Second login → go to dashboard
-                    st.session_state["_post_login_action"] = "dashboard"
                 else:
-                    # Third+ login → restore last visited page
-                    st.session_state["_post_login_action"] = f"page:{_last_page}"
+                    try:
+                        from app_pages.render_home_welcome import get_welcome_progress
+                        _welcome_progress = get_welcome_progress()
+                    except Exception:
+                        _welcome_progress = {"all_done": True}
+
+                    if not _welcome_progress.get("all_done", True):
+                        st.session_state["_post_login_action"] = "page:home"
+                    elif _login_count == 1:
+                        st.session_state["_post_login_action"] = "dashboard"
+                    else:
+                        st.session_state["_post_login_action"] = f"page:{_last_page}"
             except Exception:
                 pass  # Non-fatal; app just opens normally
 
@@ -372,22 +376,26 @@ def upsert_profile_row(user_id: str, payload: dict) -> bool:
 
 
 # ---- CRUD ----
-def add_class(student: str, number_of_lesson: int, lesson_date: str,
-              modality: str, note: str = "", subject: Optional[str] = None) -> None:
-    student = str(student).strip()
-    ensure_student(student)
+def add_class(
+    student,
+    number_of_lesson,
+    lesson_date,
+    modality,
+    note="",
+    subject=None,
+    subject_custom=None,
+): 
     sb = get_sb()
     payload = with_owner({
         "student": student,
-        "number_of_lesson": int(number_of_lesson),
+        "number_of_lesson": number_of_lesson,
         "lesson_date": lesson_date,
-        "modality": str(modality).strip(),
-        "note": str(note).strip() if note else "",
-        "subject": str(subject).strip() if subject else None,
+        "modality": modality,
+        "note": note,
+        "subject": subject,
+        "subject_custom": subject_custom,
     })
     sb.table("classes").insert(payload).execute()
-    clear_app_caches()
-
 
 def add_payment(student: str, number_of_lesson: int, payment_date: str,
                 paid_amount: float, modality: str, subject: str = "",

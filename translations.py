@@ -192,7 +192,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "phone_format_hint": "Only digits and + allowed (e.g. +905551234567)",
         # CV Builder
         "quick_cv_builder": "Quick CV builder",
-        "quick_cv_caption": "Build a professional teacher CV in seconds — auto-filled from your profile",
+        "quick_cv_caption": "Complete your Classio profile and this will auto-fill for you.",
         "cv_personal_info": "Personal information",
         "cv_full_name_label": "CV full name",
         "cv_teaching_info": "Teaching profile",
@@ -328,7 +328,12 @@ I18N: Dict[str, Dict[str, str]] = {
         "duration_45": "45 minutes",
         "duration_60": "60 minutes",
         "duration_90": "90 minutes",
-
+        "ai_usage_log_insert_failed": "AI usage log insert failed",
+        "cv_ai_default_prompt": "Create a professional, polished teacher/tutor CV.",
+        "cv_cl_default_prompt": "Write a strong general cover letter for private tutoring opportunities.",
+        "subject_turkish": "Turkish",
+        "select_option": "Select...",
+        
         # -------------------------
         # COMMON ACTIONS / STATES
         # -------------------------
@@ -522,6 +527,13 @@ I18N: Dict[str, Dict[str, str]] = {
         "plan_language_note": "The plan follows the app language.",
         "student_material_language": "Student material language",
         "plan_language": "Plan language",
+        "other": "Other",
+        "english": "English",
+        "spanish": "Spanish",
+        "mathematics": "Mathematics",
+        "science": "Science",
+        "music": "Music",
+        "study_skills": "Study Skills",
 
         # -------------------------
         # AI PLANNER
@@ -707,7 +719,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "lessons_by_modality": "Lessons by modality",
         "estimated_finish_date": "Estimated finish date",
         "reminder_date": "Reminder date",
-
+        "could_not_save_goal": "Could not save goal. Please try again.",
+        "set_year_goal_to_see_progress": "Set a yearly goal to see your progress bar.",
+        "no_data_week": "You have not received any payments this week.",
 
         # forecast inside analytics
         "forecast": "Forecast",
@@ -724,6 +738,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "normalize_failed": "Normalization failed.",
         "normalized_default_note": "Package normalized / adjustment applied.",
         "packages_bought": "Total packages",
+        "some_updates_failed": "Some updates failed.",
+        "please_select_currency": "Please select a currency.",
+        "payments": "payments",
         # =========================
         # PRICING SECTION
         # =========================
@@ -923,7 +940,30 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_resource_search_placeholder": "Search by topic, title, subject, level, type…",
         "explore_latest_resources_note": "Showing the latest {count} resources. Use the search box to explore more.",
         "be_the_first_to_share": "WoOW! No resources yet. This must be innovative! Be the first to share a resource!",
-   
+        # -------------------------
+        # MISSING KEYS 2
+        # -------------------------
+        "my_cv": "My CV",
+        "my_cover_letter": "My Cover Letter",
+        "cv_default_subjects": "various subjects",
+        "cv_default_age_groups": "various age groups",
+        "cv_default_summary": "Dedicated {role} with experience teaching {subjects}. Specialises in working with {stages}. Delivers engaging, effective lessons tailored to each student's needs.",
+        "cv_save_failed": "Could not save CV",
+        "cover_letter_save_failed": "Could not save cover letter",
+        "cv_load_failed": "Could not load CVs",
+        "cover_letter_load_failed": "Could not load cover letters",
+        "ai_usage_log_failed": "AI usage log insert failed",
+        "record_delete_failed": "Could not delete record",
+        "calendar_btn_today": "Today",
+        "calendar_btn_month": "Month",
+        "calendar_btn_week": "Week",
+        "calendar_btn_day": "Day",
+        "calendar_btn_list": "List",
+        "calendar_all_day": "All-day",
+        "calendar_more_template": "+{n} more",
+        "confirm_email_then_login": "We sent you a confirmation email. Please confirm your account and then sign in.",
+        "profile_setup_after_login_failed": "Your account is ready, but part of your profile could not be completed automatically.",
+        "preview": "Preview",
     },
 
     "es": {
@@ -988,6 +1028,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "missing_user_id": "Su sesión ha expirado. Por favor reinicia la aplicación e inicia sesión nuevamente.",
         "confirm_email_then_login": "Te enviamos un correo de confirmación. Por favor, confirma tu cuenta y luego inicia sesión.",
         "profile_setup_after_login_failed": "Tu cuenta está lista, pero una parte de tu perfil no se pudo completar automáticamente",
+        "preview": "Ver",
 
         # -------------------------
         # DELETE / RESTORE ACCOUNT
@@ -1110,7 +1151,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "phone_format_hint": "Solo dígitos y + permitidos (ej. +905551234567)",
         # CV Builder
         "quick_cv_builder": "Creador rápido de CV",
-        "quick_cv_caption": "Crea un CV docente profesional en segundos — rellenado automáticamente desde tu perfil",
+        "quick_cv_caption": "Completa tu perfil Classio y esto se rellenará automáticamente.",
         "cv_personal_info": "Información personal",
         "cv_full_name_label": "Nombre completo del CV",
         "cv_teaching_info": "Perfil docente",
@@ -1246,6 +1287,11 @@ I18N: Dict[str, Dict[str, str]] = {
         "duration_45": "45 minutos",
         "duration_60": "60 minutos",
         "duration_90": "90 minutos",
+        "ai_usage_log_insert_failed": "Error al registrar el uso de IA",
+        "cv_ai_default_prompt": "Crea un CV profesional para un profesor privado.",
+        "cv_cl_default_prompt": "Escribe una carta de presentación general sólida para oportunidades de tutoría privada.",
+        "subject_turkish": "Turco",
+        "select_option": "Opciones",
 
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -1440,6 +1486,13 @@ I18N: Dict[str, Dict[str, str]] = {
         "plan_language_note": "El plan sigue el idioma de la app.",
         "student_material_language": "Idioma del material del estudiante",
         "plan_language": "Idioma del plan",
+        "other": "Otro",
+        "english": "Inglés",
+        "spanish": "Español",
+        "mathematics": "Matemáticas",
+        "science": "Ciencias",
+        "music": "Música",
+        "study_skills": "Habilidades de estudio",        
 
         # -------------------------
         # AI PLANNER
@@ -1627,6 +1680,10 @@ I18N: Dict[str, Dict[str, str]] = {
         "units_per_day": "Clases por día",
         "estimated_finish_date": "Fecha de cierre estimada",
         "reminder_date": "Fecha de recordatorio",
+        "could_not_save_goal": "No se pudo guardar la meta. Por favor, inténtalo de nuevo.",
+        "set_year_goal_to_see_progress": "Establece una meta anual para ver tu barra de progreso.",
+        "no_data_week": "No has recibido ningún pago esta semana.",
+
 
         # forecast inside analytics
         "forecast": "Proyección",
@@ -1643,6 +1700,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "package_normalized": "Paquete normalizado",
         "packages_bought": "Paquetes comprados",
         "add_student": "Añadir estudiante",
+        "some_updates_failed": "Algunas actualizaciones fallaron.",
+        "please_select_currency": "Por favor, selecciona una moneda.",
+        "payments": "pagos",
 
         # =========================
         # PRICING SECTION
@@ -1842,6 +1902,28 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_resource_search_placeholder": "Busca por tema, título, asignatura, nivel, tipo…",
         "explore_latest_resources_note": "Mostrando los últimos {count} recursos. Usa el buscador para explorar más.",
         "be_the_first_to_share": "¡Oh! Aún no hay recursos. ¡Esto debe ser innovador! Sé el primero en compartir un recurso.",
+
+        # -------------------------
+        # MISSING KEYS 2
+        # -------------------------
+        "my_cv": "Mi CV",
+        "my_cover_letter": "Mi carta de presentación",
+        "cv_default_subjects": "varias materias",
+        "cv_default_age_groups": "varios grupos de edad",
+        "cv_default_summary": "{role} con experiencia enseñando {subjects}. Se especializa en trabajar con {stages}. Ofrece clases dinámicas y eficaces adaptadas a las necesidades de cada estudiante.",
+        "cv_save_failed": "No se pudo guardar el CV",
+        "cover_letter_save_failed": "No se pudo guardar la carta de presentación",
+        "cv_load_failed": "No se pudieron cargar los CV",
+        "cover_letter_load_failed": "No se pudieron cargar las cartas de presentación",
+        "ai_usage_log_failed": "No se pudo registrar el uso de IA",
+        "record_delete_failed": "No se pudo eliminar el registro",
+        "calendar_btn_today": "Hoy",
+        "calendar_btn_month": "Mes",
+        "calendar_btn_week": "Semana",
+        "calendar_btn_day": "Día",
+        "calendar_btn_list": "Lista",
+        "calendar_all_day": "Todo el día",
+        "calendar_more_template": "+{n} más",  
     },
 
     "tr": {
@@ -1906,6 +1988,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "missing_user_id": "Oturum süresi doldu. Lütfen tekrar giriş yapın.",
         "confirm_email_then_login": "Size bir onay e-postası gönderdik. Lütfen hesabınızı onaylayın ve ardından giriş yapın.",
         "profile_setup_after_login_failed": "Hesabınız hazır, ancak profilinizin bir kısmı otomatik olarak tamamlanamadı",
+        "preview": "İncele",
 
         # -------------------------
         # DELETE / RESTORE ACCOUNT
@@ -2028,7 +2111,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "phone_format_hint": "Sadece rakam ve + kullanılabilir (ör. +905551234567)",
         # CV Oluşturucu
         "quick_cv_builder": "Hızlı CV oluşturucu",
-        "quick_cv_caption": "Profilinizden otomatik doldurularak saniyeler içinde profesyonel bir öğretmen CV'si oluşturun",
+        "quick_cv_caption": "Classio profilinizi tamamlayın ve bu sizin için otomatik olarak doldurulsun.",
         "cv_personal_info": "Kişisel bilgiler",
         "cv_full_name_label": "CV tam adı",
         "cv_teaching_info": "Öğretim profili",
@@ -2164,6 +2247,11 @@ I18N: Dict[str, Dict[str, str]] = {
         "duration_45": "45 dakika",
         "duration_60": "60 dakika",
         "duration_90": "90 dakika",
+        "ai_usage_log_insert_failed": "IA kullanım kaydı eklenemedi",
+        "cv_ai_default_prompt": "Profilinizden otomatik doldurularak profesyonel bir öğretmen CV'si oluşturun.",
+        "cv_cl_default_prompt": "Özel ders fırsatları için güçlü bir genel ön yazı yazın.",
+        "subject_turkish": "Türkçe",
+        "select_option": "Seçin",
 
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -2355,6 +2443,13 @@ I18N: Dict[str, Dict[str, str]] = {
         "plan_language_note": "Plan uygulama dilini takip eder.",
         "student_material_language": "Öğrenci materyali dili",
         "plan_language": "Plan dili",
+        "other": "Diğer",
+        "english": "İngilizce",
+        "spanish": "İspanyolca",
+        "mathematics": "Matematik",
+        "science": "Fen",
+        "music": "Müzik",
+        "study_skills": "Çalışma Becerileri",       
 
         # -------------------------
         # AI PLANNER
@@ -2534,6 +2629,10 @@ I18N: Dict[str, Dict[str, str]] = {
         "lessons_by_modality": "Yönteme göre dersler",
         "estimated_finish_date": "Tahmini bitiş tarihi",
         "reminder_date": "Hatırlatma tarihi",
+        "could_not_save_goal": "Hedef kaydedilemedi. Lütfen geçerli bir sayı girin.",
+        "set_year_goal_to_see_progress": "Lütfen yıllık gelir hedefinizi görmek için geçerli bir sayı girin.",
+        "no_data_week": "Bu hafta için herhangi bir ödeme almadınız.",
+
 
         # forecast inside analytics
         "forecast": "Tahmin",
@@ -2550,6 +2649,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "normalize_failed": "Normalleştirme başarısız.",
         "normalized_default_note": "Paket normalleştirildi / düzeltme uygulandı.",
         "packages_bought": "Toplam paketler",
+        "some_updates_failed": "Bazı güncellemeler başarısız oldu.",
+        "please_select_currency": "Lütfen bir para birimi seçin.",
+        "payments": "ödeme",
 
         # =========================
         # PRICING SECTION
@@ -2746,5 +2848,27 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_resource_search_placeholder": "Konu, başlık, ders, seviye, tür ile ara…",
         "explore_latest_resources_note": "En son {count} kaynak gösteriliyor. Daha fazlasını keşfetmek için arama kutusunu kullanın.",
         "be_the_first_to_share": "Bu konu hakkında henüz kaynak yok. İlk paylaşan siz olun!",
+
+        # -------------------------
+        # MISSING KEYS 2
+        # -------------------------    
+        "my_cv": "CV'm",
+        "my_cover_letter": "Ön yazım",
+        "cv_default_subjects": "çeşitli dersler",
+        "cv_default_age_groups": "çeşitli yaş grupları",
+        "cv_default_summary": "{subjects} alanında eğitim verme deneyimine sahip, özverili bir {role}. {stages} ile çalışma konusunda uzmanlaşmıştır. Her öğrencinin ihtiyaçlarına göre uyarlanmış, etkili ve ilgi çekici dersler sunar.",
+        "cv_save_failed": "CV kaydedilemedi",
+        "cover_letter_save_failed": "Ön yazı kaydedilemedi",
+        "cv_load_failed": "CV'ler yüklenemedi",
+        "cover_letter_load_failed": "Ön yazılar yüklenemedi",
+        "ai_usage_log_failed": "Yapay zeka kullanım kaydı eklenemedi",
+        "record_delete_failed": "Kayıt silinemedi",
+        "calendar_btn_today": "Bugün",
+        "calendar_btn_month": "Ay",
+        "calendar_btn_week": "Hafta",
+        "calendar_btn_day": "Gün",
+        "calendar_btn_list": "Liste",
+        "calendar_all_day": "Tüm gün",
+        "calendar_more_template": "+{n} daha fazla",
     },
     }

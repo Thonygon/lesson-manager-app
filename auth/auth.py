@@ -304,6 +304,14 @@ def require_login():
                 if not get_current_user_id():
                     raise Exception("Login succeeded but user_id was not restored after session apply.")
 
+                uid = str(get_current_user_id() or "").strip()
+                if uid:
+                    st.session_state.pop(f"home_welcome_skipped::{uid}", None)
+
+                # also reset one-session login helpers for a truly fresh login cycle
+                st.session_state.pop("_login_redirect_done", None)
+                st.session_state.pop("_post_login_action", None)
+                
                 st.success(t("logged_in_ok"))
                 st.rerun()
             except Exception as e:
@@ -503,12 +511,13 @@ def _save_pending_explore_cv(user_id: str, display_name: str) -> None:
 
 def _profile_subject_label(subject: str) -> str:
     mapping = {
-        "English": t("subject_english"),
-        "Spanish": t("subject_spanish"),
-        "Mathematics": t("subject_mathematics"),
-        "Science": t("subject_science"),
-        "Music": t("subject_music"),
-        "Study Skills": t("subject_study_skills"),
+        "english": t("subject_english"),
+        "spanish": t("subject_spanish"),
+        "mathematics": t("subject_mathematics"),
+        "science": t("subject_science"),
+        "music": t("subject_music"),
+        "study_skills": t("subject_study_skills"),
+        "other": t("other"),
     }
     return mapping.get(subject, subject)
 
@@ -528,6 +537,7 @@ def _profile_lang_label(lang_code: str) -> str:
     mapping = {
         "en": t("english"),
         "es": t("spanish"),
+        "tr": t("turkish"),
     }
     return mapping.get(lang_code, lang_code)
 
@@ -961,6 +971,8 @@ def render_choose_username_dialog(user_id: str) -> None:
 
 
 def sign_out_user() -> None:
+    uid = str(get_current_user_id() or "").strip()
+
     try:
         get_sb().auth.sign_out()
     except Exception:
@@ -971,21 +983,35 @@ def sign_out_user() -> None:
     st.session_state["sb_access_token"] = None
     st.session_state["sb_refresh_token"] = None
 
+    if uid:
+        st.session_state.pop(f"home_welcome_skipped::{uid}", None)
+
+    st.session_state.pop("_login_redirect_done", None)
+    st.session_state.pop("_post_login_action", None)
+    st.session_state.pop("_email_synced_to_profile", None)
+
     st.rerun()
 
 def render_logout_button():
     if st.button(t("sign_out"), key="btn_logout"):
+        uid = str(get_current_user_id() or "").strip()
+
         try:
             get_sb().auth.sign_out()
         except Exception:
             pass
 
-        # clear auth session
         st.session_state["sb_access_token"] = None
         st.session_state["sb_refresh_token"] = None
         st.session_state["show_profile_dialog"] = False
 
-        # clear user info
+        if uid:
+            st.session_state.pop(f"home_welcome_skipped::{uid}", None)
+
+        st.session_state.pop("_login_redirect_done", None)
+        st.session_state.pop("_post_login_action", None)
+        st.session_state.pop("_email_synced_to_profile", None)
+
         _clear_logged_in_user()
 
         st.rerun()

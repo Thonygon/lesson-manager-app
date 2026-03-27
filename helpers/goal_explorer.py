@@ -19,12 +19,12 @@ import pandas as pd
 # (min, default, max) — based on current private-tutoring market data.
 # Base rates assume adult learners (most common / highest rate segment).
 _RATE_RANGES_USD: dict[str, dict[str, tuple[int, int, int]]] = {
-    "English":      {"online": (25, 40, 80), "offline": (30, 50, 90)},
-    "Spanish":      {"online": (25, 40, 80), "offline": (30, 50, 90)},
-    "Mathematics":  {"online": (30, 50, 100), "offline": (35, 55, 110)},
-    "Science":      {"online": (30, 50, 100), "offline": (35, 55, 110)},
-    "Music":        {"online": (25, 45, 90), "offline": (30, 50, 100)},
-    "Study Skills": {"online": (20, 35, 70), "offline": (25, 40, 80)},
+    "english":      {"online": (25, 40, 80), "offline": (30, 50, 90)},
+    "spanish":      {"online": (25, 40, 80), "offline": (30, 50, 90)},
+    "mathematics":  {"online": (30, 50, 100), "offline": (35, 55, 110)},
+    "science":      {"online": (30, 50, 100), "offline": (35, 55, 110)},
+    "music":        {"online": (25, 45, 90), "offline": (30, 50, 100)},
+    "study_skills": {"online": (20, 35, 70), "offline": (25, 40, 80)},
 }
 
 # ── Audience multipliers (market research) ──
@@ -354,13 +354,13 @@ def render_goal_explorer() -> bool:
 
     # ── Subject ──
     subject_labels = {
-        "English": t("subject_english"),
-        "Spanish": t("subject_spanish"),
-        "Mathematics": t("subject_mathematics"),
-        "Science": t("subject_science"),
-        "Music": t("subject_music"),
-        "Study Skills": t("subject_study_skills"),
-        "Other": t("explore_other"),
+        "english": t("subject_english"),
+        "spanish": t("subject_spanish"),
+        "mathematics": t("subject_mathematics"),
+        "science": t("subject_science"),
+        "music": t("subject_music"),
+        "study_skills": t("subject_study_skills"),
+        "other": t("explore_other"),
     }
     subject_keys = list(subject_labels.keys())
     subject = st.selectbox(
@@ -371,7 +371,7 @@ def render_goal_explorer() -> bool:
     )
 
     custom_subject = ""
-    if subject == "Other":
+    if subject == "other":
         custom_subject = st.text_input(
             t("explore_other_subject_input"),
             key="explore_custom_subject",
@@ -433,7 +433,7 @@ def render_goal_explorer() -> bool:
 
     # ── Fee range slider ──
     sym = currency_symbol(currency)
-    rate_subject = subject if subject != "Other" else "English"  # fallback range
+    rate_subject = subject if subject != "other" else "english"  # fallback range
     if modality == "both":
         rate_min, rate_default, rate_max = _blended_range(rate_subject, currency, audience=audience, education=education)
     else:
@@ -648,7 +648,7 @@ def _render_feature_showcase() -> None:
 # Explore-page CV builder (AI-powered, 1-use limit for anon)
 # ─────────────────────────────────────────────────────────────
 
-_EXPLORE_CV_SUBJECTS = ["English", "Spanish", "Mathematics", "Science", "Music", "Study Skills"]
+_EXPLORE_CV_SUBJECTS = ["english", "spanish", "mathematics", "science", "music", "study_skills", "other"]
 _EXPLORE_CV_STAGES = [
     "early_primary",
     "upper_primary",
@@ -667,6 +667,7 @@ _EXPLORE_CV_STAGE_LABELS = {
 
 def _render_explore_cv_builder() -> None:
     """Quick CV builder for anonymous users. AI with 1-use limit. Save requires signup."""
+    import helpers.lesson_planner as lp
     from helpers.cv_builder import build_ai_cv
     from helpers.cv_storage import render_cv_result
 
@@ -690,8 +691,16 @@ def _render_explore_cv_builder() -> None:
         subjects = st.multiselect(
             t("subject_label"),
             options=_EXPLORE_CV_SUBJECTS,
+            format_func=lp.subject_label,
             key="explore_cv_subjects",
         )
+        other_cv_subject = ""
+        if "other" in subjects:
+            other_cv_subject = st.text_input(
+                t("other_subject_label"),
+                key="explore_cv_other_subject",
+            ).strip()
+        
         teaching_stages = st.multiselect(
             t("learner_stage"),
             options=_EXPLORE_CV_STAGES,
@@ -714,11 +723,15 @@ def _render_explore_cv_builder() -> None:
             key="explore_cv_ai_prompt",
         )
 
+        effective_subjects = [s for s in subjects if s != "other"]
+        if "other" in subjects and other_cv_subject:
+            effective_subjects.append(other_cv_subject)
+
         if st.button(t("generate_cv"), key="btn_explore_gen_cv", use_container_width=True):
             if not full_name:
                 st.error(t("cv_name_required"))
             elif ai_remaining <= 0:
-                st.warning(t("explore_ai_limit_reached"))
+                st.warning(t("explore_ai_limit_reached")) 
             else:
                 with st.spinner(t("generating_cv")):
                     try:
@@ -729,7 +742,7 @@ def _render_explore_cv_builder() -> None:
                             location="",
                             date_of_birth="",
                             sex="",
-                            subjects=subjects,
+                            subjects=effective_subjects,
                             teaching_stages=teaching_stages,
                             teaching_languages=[],
                             professional_summary=summary,
@@ -739,7 +752,7 @@ def _render_explore_cv_builder() -> None:
                             skills_text="",
                             availability="",
                             rate="",
-                            role="Teacher / Tutor",
+                            role=f"{t('teacher_role')} / {t('tutor_role')}",
                             user_prompt=ai_prompt,
                         )
                         st.session_state["explore_generated_cv"] = cv
@@ -831,13 +844,14 @@ def _render_explore_worksheet_maker() -> None:
             st.warning(t("explore_ai_limit_reached"))
 
         subject = st.selectbox(
-            t("subject_label"),
-            lp.QUICK_SUBJECTS,
-            key="explore_ws_subject",
-        )
+           t("subject_label"),
+           lp.QUICK_SUBJECTS,
+           format_func=lp.subject_label,
+           key="explore_ws_subject",
+       )
 
         other_subject_name = ""
-        if subject == "Other":
+        if subject == "other":
             other_subject_name = st.text_input(t("other_subject_label"), key="explore_ws_other_subject").strip()
 
         learner_stage = st.selectbox(
@@ -873,12 +887,12 @@ def _render_explore_worksheet_maker() -> None:
         if st.button(t("generate_worksheet"), key="btn_explore_gen_ws", use_container_width=True):
             if not topic.strip():
                 st.error(t("enter_topic"))
-            elif subject == "Other" and not other_subject_name:
+            elif subject == "other" and not other_subject_name:
                 st.error(t("enter_subject_name"))
             elif ai_remaining <= 0:
                 st.warning(t("explore_ai_limit_reached"))
             else:
-                effective_subject = other_subject_name if subject == "Other" else subject
+                effective_subject = other_subject_name if subject == "other" else subject
                 with st.spinner(t("generating")):
                     try:
                         ws = generate_ai_worksheet(
@@ -978,11 +992,12 @@ def _render_explore_lesson_planner() -> None:
         plan_subject = st.selectbox(
             t("subject_label"),
             lp.QUICK_SUBJECTS,
+            format_func=lp.subject_label,
             key="explore_plan_subject",
         )
 
         other_subject_name = ""
-        if plan_subject == "Other":
+        if plan_subject == "other":
             other_subject_name = st.text_input(
                 t("other_subject_label"),
                 key="explore_plan_other_subject",
@@ -1026,12 +1041,12 @@ def _render_explore_lesson_planner() -> None:
         if st.button(t("generate_plan"), key="btn_explore_generate_plan", use_container_width=True):
             if not topic.strip():
                 st.error(t("enter_topic"))
-            elif plan_subject == "Other" and not other_subject_name:
+            elif plan_subject == "other" and not other_subject_name:
                 st.error(t("enter_subject_name"))
             elif ai_remaining <= 0:
                 st.warning(t("explore_ai_limit_reached"))
             else:
-                effective_subject = other_subject_name if plan_subject == "Other" else plan_subject
+                effective_subject = other_subject_name if plan_subject == "other" else plan_subject
                 with st.spinner(t("generating")):
                     try:
                         ai_plan = lp.generate_ai_lesson_plan(
@@ -1146,13 +1161,13 @@ def render_income_goal_calculator() -> None:
         )
 
         subject_labels = {
-            "English": t("subject_english"),
-            "Spanish": t("subject_spanish"),
-            "Mathematics": t("subject_mathematics"),
-            "Science": t("subject_science"),
-            "Music": t("subject_music"),
-            "Study Skills": t("subject_study_skills"),
-            "Other": t("explore_other"),
+            "english": t("subject_english"),
+            "spanish": t("subject_spanish"),
+            "mathematics": t("subject_mathematics"),
+            "science": t("subject_science"),
+            "music": t("subject_music"),
+            "study_skills": t("subject_study_skills"),
+            "other": t("explore_other"),
         }
         subject = st.selectbox(
             t("explore_subject"),
@@ -1161,7 +1176,7 @@ def render_income_goal_calculator() -> None:
             key="ait_goal_subject",
         )
 
-        if subject == "Other":
+        if subject == "other":
             st.text_input(t("explore_other_subject_input"), key="ait_goal_custom_subject")
 
         modality_labels = {
@@ -1214,7 +1229,7 @@ def render_income_goal_calculator() -> None:
         )
 
         sym = currency_symbol(currency)
-        rate_subject = subject if subject != "Other" else "English"
+        rate_subject = subject if subject != "other" else "english"
         if modality == "both":
             rate_min, rate_default, rate_max = _blended_range(rate_subject, currency, audience=audience, education=education)
         else:

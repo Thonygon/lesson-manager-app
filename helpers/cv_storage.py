@@ -13,7 +13,13 @@ from core.database import get_sb, load_table, clear_app_caches
 AI_CV_DAILY_LIMIT = 3
 AI_CV_COOLDOWN_SECONDS = 30
 
-SEX_OPTIONS_RAW = ["", "Male", "Female", "Other", "Prefer not to say"]
+SEX_OPTIONS_RAW = [
+    "male",
+    "female",
+    "other",
+    "prefer_not_to_say",
+    "",
+]
 
 
 def _parse_dob(raw) -> "date | None":
@@ -43,6 +49,58 @@ def _cv():
     import helpers.cv_builder as cb
     return cb
 
+def _sex_label(value: str) -> str:
+    key_map = {
+        "male": "sex_male",
+        "female": "sex_female",
+        "other": "sex_other",
+        "prefer_not_to_say": "sex_prefer_not_to_say",
+        "": "select_option",
+    }
+
+    key = key_map.get(str(value or "").strip(), "")
+    return t(key) if key else str(value or "")
+
+
+def _role_label(value: str) -> str:
+    v = str(value or "").strip().lower()
+    mapping = {
+        "teacher": t("teacher_role"),
+        "tutor": t("tutor_role"),
+    }
+    return mapping.get(v, str(value or ""))
+
+
+def _subject_label(value: str) -> str:
+    mapping = {
+        "english": t("subject_english"),
+        "spanish": t("subject_spanish"),
+        "turkish": t("subject_turkish"),
+        "math": t("subject_math"),
+        "science": t("subject_science"),
+        "other": t("other"),
+    }
+    v = str(value or "").strip().lower()
+    return mapping.get(v, str(value or ""))
+
+
+def _translate_cv_list(key: str, values) -> list[str]:
+    items = values if isinstance(values, list) else [values]
+    out = []
+    for item in items:
+        s = str(item or "").strip()
+        if not s:
+            continue
+        if key == "subjects":
+            out.append(_subject_label(s))
+        elif key == "teaching_stages":
+            out.append(_stage_label(s))
+        elif key == "teaching_languages":
+            out.append(_lang_label(s))
+        else:
+            out.append(s)
+    return out
+
 
 def _stage_label(stage: str) -> str:
     labels = {
@@ -56,7 +114,12 @@ def _stage_label(stage: str) -> str:
 
 
 def _lang_label(code: str) -> str:
-    return t("english") if code == "en" else t("spanish")
+    labels = {
+        "en": t("english"),
+        "es": t("spanish"),
+        "tr": t("turkish"),
+    }
+    return labels.get(str(code), str(code))
 
 
 # -----------------------------------------------------------------------
@@ -67,7 +130,7 @@ def save_cv_record(cv_dict: dict, source_type: str, title: str, ai_prompt: str =
     try:
         payload = with_owner({
             "doc_type": "cv",
-            "title": str(title or "").strip() or "My CV",
+            "title": str(title or "").strip() or t("my_cv"),
             "source_type": source_type,
             "cv_json": cv_dict,
             "ai_prompt": str(ai_prompt or "").strip(),
@@ -77,7 +140,7 @@ def save_cv_record(cv_dict: dict, source_type: str, title: str, ai_prompt: str =
         clear_app_caches()
         return True
     except Exception as e:
-        st.warning(f"Could not save CV: {e}")
+        st.warning(f"{t('cv_save_failed')}: {e}")
         return False
 
 
@@ -90,7 +153,7 @@ def save_cover_letter_record(
     try:
         payload = with_owner({
             "doc_type": "cover_letter",
-            "title": str(title or "").strip() or "My Cover Letter",
+            "title": str(title or "").strip() or t("my_cover_letter"),
             "source_type": "ai",
             "content": str(content or "").strip(),
             "ai_prompt": str(ai_prompt or "").strip(),
@@ -101,7 +164,7 @@ def save_cover_letter_record(
         clear_app_caches()
         return True
     except Exception as e:
-        st.warning(f"Could not save cover letter: {e}")
+        st.warning(f"{t('cover_letter_save_failed')}: {e}")
         return False
 
 
@@ -115,7 +178,7 @@ def load_my_cvs() -> pd.DataFrame:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
         return df.sort_values("created_at", ascending=False, na_position="last").reset_index(drop=True)
     except Exception as e:
-        st.error(f"Could not load CVs: {e}")
+        st.error(f"{t('cv_load_failed')}: {e}")
         return pd.DataFrame()
 
 
@@ -129,7 +192,7 @@ def load_my_cover_letters() -> pd.DataFrame:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
         return df.sort_values("created_at", ascending=False, na_position="last").reset_index(drop=True)
     except Exception as e:
-        st.error(f"Could not load cover letters: {e}")
+        st.error(f"{t('cover_letter_load_failed')}: {e}")
         return pd.DataFrame()
 
 
@@ -197,7 +260,7 @@ def _log_ai_cv(status: str, meta: dict = None) -> None:
         get_sb().table("ai_usage_logs").insert(payload).execute()
         clear_app_caches()
     except Exception as e:
-        st.warning(f"ai_usage_logs insert failed: {e}")
+        st.warning(f"{t('ai_usage_log_insert_failed')}: {e}")
 
 
 # -----------------------------------------------------------------------
@@ -234,10 +297,17 @@ def build_cv_pdf_bytes(cv: dict) -> bytes:
 
     story = []
 
-    full_name = str(cv.get("full_name") or cv.get("title") or "CV").strip()
-    role = str(cv.get("role") or "").strip()
+    full_name = str(cv.get("full_name") or cv.get("title") or t("cv")).strip()
+    role = _role_label(cv.get("role"))
 
-    contact_parts = [str(cv.get(f) or "").strip() for f in ("email", "phone", "location", "date_of_birth", "sex") if str(cv.get(f) or "").strip()]
+    contact_parts = []
+    for field in ("email", "phone", "location", "date_of_birth", "sex"):
+        raw = str(cv.get(field) or "").strip()
+        if not raw:
+            continue
+        if field == "sex":
+            raw = _sex_label(raw)
+        contact_parts.append(raw)
 
     # ── Centered name / role / contact, optional photo beside name ───
     avatar_url = str(cv.get("avatar_url") or "").strip()
@@ -313,7 +383,8 @@ def build_cv_pdf_bytes(cv: dict) -> bytes:
             continue
         _sec(label)
         if is_list:
-            _bullets(val if isinstance(val, list) else [str(val)])
+            translated_vals = _translate_cv_list(key, val)
+            _bullets(translated_vals)
         else:
             _body(str(val))
         story.append(Spacer(1, 4))
@@ -388,8 +459,18 @@ def render_cv_result(
 
     avatar_url = str(cv.get("avatar_url") or "").strip()
     full_name_display = cv.get("full_name") or cv.get("title") or t("cv")
-    role_val = str(cv.get("role") or "").strip()
-    contact = " · ".join(filter(None, [cv.get(f) for f in ("email", "phone", "location", "date_of_birth", "sex")]))
+    role_val = _role_label(cv.get("role"))
+
+    contact_parts = []
+    for field in ("email", "phone", "location", "date_of_birth", "sex"):
+        raw = str(cv.get(field) or "").strip()
+        if not raw:
+            continue
+        if field == "sex":
+            raw = _sex_label(raw)
+        contact_parts.append(raw)
+
+    contact = " · ".join(contact_parts)
 
     if avatar_url:
         hdr_col, photo_col = st.columns([5, 1])
@@ -433,7 +514,7 @@ def render_cv_result(
         val = cv.get(key)
         if val:
             _sec(label)
-            st.write(", ".join(val) if isinstance(val, list) else str(val))
+            st.write(", ".join(_translate_cv_list(key, val)))
 
     for key, label in [
         ("education",     t("cv_education")),
@@ -475,7 +556,7 @@ def render_cv_result(
                 ok = save_cv_record(
                     cv_dict=cv,
                     source_type=source_type,
-                    title=title or str(cv.get("title") or cv.get("full_name") or "My CV"),
+                    title=title or str(cv.get("title") or cv.get("full_name") or t("my_cv")),
                     ai_prompt=ai_prompt,
                 )
                 if ok:
@@ -500,7 +581,7 @@ def delete_cv_record(record_id: str) -> bool:
         clear_app_caches()
         return True
     except Exception as e:
-        st.warning(f"Could not delete record: {e}")
+        st.warning(f"{t('record_delete_failed')}: {e}")
         return False
 
 
@@ -547,6 +628,15 @@ def render_cv_library_cards(df: pd.DataFrame, prefix: str) -> None:
 # -----------------------------------------------------------------------
 # UI: MAIN CV BUILDER EXPANDER
 # -----------------------------------------------------------------------
+def _sex_label(value: str) -> str:
+    mapping = {
+        "male": t("sex_male"),
+        "female": t("sex_female"),
+        "other": t("other"), 
+        "prefer_not_to_say": t("sex_prefer_not_to_say"),
+        "": t("select_option"), 
+    }
+    return mapping.get(str(value), str(value))
 
 def render_quick_cv_builder_expander() -> None:
     from core.database import load_profile_row, upsert_profile_row
@@ -724,22 +814,24 @@ def render_quick_cv_builder_expander() -> None:
                 key="cv_dob",
             )
         with pi6:
-            _sex_val = str(profile.get("sex") or "")
-            _sex_idx = SEX_OPTIONS_RAW.index(_sex_val) if _sex_val in SEX_OPTIONS_RAW else 0
+            _profile_sex = str(st.session_state.get("cv_sex") or profile.get("sex") or "")
+            if _profile_sex not in SEX_OPTIONS_RAW:
+                _profile_sex = "sex_prefer_not_to_say"
+
             cv_sex = st.selectbox(
                 t("sex"),
-                SEX_OPTIONS_RAW,
-                index=_sex_idx,
-                format_func=lambda x: t(f"sex_{x.lower().replace(' ', '_')}") if x else t("prefer_not_to_say"),
+                options=SEX_OPTIONS_RAW,
+                index=SEX_OPTIONS_RAW.index(_profile_sex),
+                format_func=_sex_label,
                 key="cv_sex",
             )
 
         # ── Teaching profile ─────────────────────────────────────────────
-        st.markdown(f"**{t('cv_teaching_info')}**")
         cv_subjects = st.multiselect(
             t("primary_subjects_label"),
             PROFILE_SUBJECT_OPTIONS,
             default=[x for x in (profile.get("primary_subjects") or []) if x in PROFILE_SUBJECT_OPTIONS],
+            format_func=lambda x: t(f"subject_{x.lower()}"),
             key="cv_subjects",
         )
         cv_col1, cv_col2 = st.columns(2)
@@ -841,7 +933,7 @@ def render_quick_cv_builder_expander() -> None:
 
         cv_doc_title = st.text_input(
             t("cv_document_title"),
-            value=f"CV \u2013 {cv_full_name.strip()}" if cv_full_name.strip() else "My CV",
+            value=f"{t('cv')} – {cv_full_name.strip()}" if cv_full_name.strip() else t("my_cv"),
             key="cv_doc_title",
         )
 
@@ -888,7 +980,7 @@ def render_quick_cv_builder_expander() -> None:
                             _profile_patch = {}
                             if cv_dob:
                                 _profile_patch["date_of_birth"] = str(cv_dob)
-                            if cv_sex and cv_sex != "Prefer not to say":
+                            if cv_sex:
                                 _profile_patch["sex"] = cv_sex
                             if cv_phone.strip():
                                 _profile_patch["phone_number"] = cv_phone.strip()
@@ -913,7 +1005,11 @@ def render_quick_cv_builder_expander() -> None:
                             )
                             _log_ai_cv("success", {"doc": "cover_letter"})
                             st.session_state["quick_cl_result"]    = cl_text
-                            st.session_state["quick_cl_title"]     = f"Cover Letter \u2013 {cv_full_name.strip()}"
+                            st.session_state["quick_cl_title"] = (
+                                f"{t('cover_letter')} – {cv_full_name.strip()}"
+                                if cv_full_name.strip()
+                                else t("my_cover_letter")
+                            )
                             st.session_state["quick_cl_ai_prompt"] = cv_cl_prompt
                         except Exception as e:
                             st.error(f"{t('cv_generation_failed')}: {e}")
@@ -942,7 +1038,7 @@ def render_quick_cv_builder_expander() -> None:
                 height=300,
                 key="cv_cl_display",
             )
-            cl_title = st.session_state.get("quick_cl_title", "My Cover Letter")
+            cl_title = st.session_state.get("quick_cl_title", t("my_cover_letter"))
             cl_pdf   = build_cover_letter_pdf_bytes(cl_result, cl_title)
             safe_cl  = re.sub(r"[^A-Za-z0-9._-]+", "_", cl_title) or "cover_letter"
             st.download_button(
