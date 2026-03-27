@@ -12,12 +12,13 @@ from translations import I18N
 # =========================
 
 QUICK_SUBJECTS = [
-    "English",
-    "Spanish",
-    "Mathematics",
-    "Science",
-    "Music",
-    "Study Skills",] 
+    "english",
+    "spanish",
+    "mathematics",
+    "science",
+    "music",
+    "study_skills",
+    "other"] 
 
 SUBJECT_ENGINE_MAP = {
     "english": "language",
@@ -25,7 +26,7 @@ SUBJECT_ENGINE_MAP = {
     "mathematics": "math",
     "science": "science",
     "music": "music",
-    "study skills": "study_skills",}
+    "study_skills": "study_skills",}
 
 LEARNER_STAGES = [
     "early_primary",
@@ -46,6 +47,10 @@ LESSON_PURPOSES = [
     "discussion_exploration",
 ]
 
+def subject_label(subject_key: str) -> str:
+    if str(subject_key).strip().lower() == "other":
+        return t("explore_other")
+    return t(f"subject_{subject_key}")
 
 def get_subject_engine(subject: str) -> str:
     s = str(subject or "").strip().lower()
@@ -701,7 +706,7 @@ def _language_plan(subject: str, stage: str, level: str, purpose: str, topic: st
     }
 
     return {
-        "title": f"{subject}: {topic_cap}",
+       "title": f"{subject_label(subject)}: {topic_cap}",
         "objective": qlp_txt(
             f"Students will develop their language skills while working on {topic_cap}.",
             f"El estudiante desarrollará sus habilidades lingüísticas mientras trabaja con {topic_cap}.",
@@ -866,8 +871,8 @@ def _math_material(topic: str) -> dict:
 
 def _math_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
     material = _math_material(topic)
-    return {
-        "title": f"Mathematics: {_capitalize_topic(topic)}",
+    return { 
+        "title": f"{subject_label('mathematics')}: {_capitalize_topic(topic)}",
         "objective": qlp_txt(
             f"Students will understand and apply {topic} through modeling and guided practice.",
             f"El estudiante comprenderá y aplicará {topic} mediante modelado y práctica guiada.",
@@ -953,7 +958,7 @@ def _science_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
     }
 
     return {
-        "title": f"Science: {_capitalize_topic(topic)}",
+        "title": f"{subject_label('science')}: {_capitalize_topic(topic)}",
         "objective": qlp_txt(
             f"Students will understand the main idea behind {topic} and connect it to a real example.",
             f"El estudiante comprenderá la idea principal de {topic} y la conectará con un ejemplo real.",
@@ -1026,7 +1031,7 @@ def _music_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
     }
 
     return {
-        "title": f"Music: {_capitalize_topic(topic)}",
+        "title": f"{subject_label('music')}: {_capitalize_topic(topic)}",
         "objective": qlp_txt(
             f"Students will practice {topic} through demonstration, imitation, and short performance.",
             f"El estudiante practicará {topic} mediante demostración, imitación y una breve ejecución.",
@@ -1105,7 +1110,7 @@ def _study_skills_plan(stage: str, level: str, purpose: str, topic: str) -> dict
     )
 
     return {
-        "title": f"Study Skills: {_capitalize_topic(topic)}",
+        "title": f"{subject_label('study_skills')}: {_capitalize_topic(topic)}",
         "objective": qlp_txt(
             f"Students will learn and apply a practical study strategy connected to {topic}.",
             f"El estudiante aprenderá y aplicará una estrategia de estudio práctica relacionada con {topic}.",

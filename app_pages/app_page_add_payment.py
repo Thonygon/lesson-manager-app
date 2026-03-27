@@ -14,6 +14,43 @@ from helpers.lesson_planner import QUICK_SUBJECTS
 
 # 12.4) PAGE: ADD PAYMENT
 # =========================
+def translate_subject_value(value: str) -> str:
+    v = str(value or "").strip().lower()
+    subject_map = {
+        "english": t("subject_english"),
+        "spanish": t("subject_spanish"),
+        "mathematics": t("subject_mathematics"),
+        "science": t("subject_science"),
+        "music": t("subject_music"),
+        "study_skills": t("subject_study_skills"),
+        "other": t("other"),
+    }
+    return subject_map.get(v, str(value or ""))
+
+SUBJECT_DB_MAP = {
+    "english": "English",
+    "spanish": "Spanish",
+    "mathematics": "Mathematics",
+    "science": "Science",
+    "music": "Music",
+    "study_skills": "Study Skills",
+    "other": "Other",
+}
+
+DB_TO_KEY_MAP = {v: k for k, v in SUBJECT_DB_MAP.items()}
+
+def normalize_subject_key_for_editor(value: str) -> str:
+    s = str(value or "").strip()
+    if not s:
+        return ""
+    low = s.lower()
+    if low in SUBJECT_DB_MAP:
+        return low
+    return DB_TO_KEY_MAP.get(s, "")
+
+def _clean_subject_custom(text: str) -> str:
+    return " ".join(str(text or "").split()).strip()
+
 def render_add_payment():
     page_header(t("payment"))
     st.caption(t("add_and_manage_your_payments"))
@@ -28,7 +65,6 @@ def render_add_payment():
 
     with tab_view:
         _render_view_payments()
-
 
 def _render_add_payment_form():
     """Add payment form + payment editor (original logic)."""
@@ -84,16 +120,25 @@ def _render_add_payment_form():
         )
 
         # Subject selector
-        _subj_options = QUICK_SUBJECTS + [t("other")]
-        pay_subject_choice = st.selectbox(
+        _subject_options = list(QUICK_SUBJECTS)
+        _subject_default_idx = 0 if _subject_options else None
+
+        subject_choice = st.selectbox(
             t("subject"),
-            _subj_options,
+            _subject_options,
+            index=_subject_default_idx,
+            format_func=translate_subject_value,
             key="pay_subject_select",
         )
-        if pay_subject_choice == t("other"):
-            pay_subject = st.text_input(t("subject_other"), key="pay_subject_other").strip()
-        else:
-            pay_subject = pay_subject_choice
+
+        pay_subject_custom = None
+        pay_subject_db = SUBJECT_DB_MAP.get(subject_choice)
+
+        if subject_choice == "other":
+            pay_subject_custom = _clean_subject_custom(
+                st.text_input(t("subject_other"), key="pay_subject_other")
+            )
+            pay_subject_db = "Other"
 
         use_custom_start = st.checkbox(
             t("starts_different"),
@@ -109,16 +154,18 @@ def _render_add_payment_form():
         pkg_expiry = None
 
         if st.button(t("save"), key="btn_save_payment"):
-            if not pay_currency:
-                st.error("Please select a currency.")
+            if subject_choice == "other" and not pay_subject_custom:
+                st.error(t("subject_other_required"))
                 st.stop()
+
             add_payment(
                 student=student_p,
                 number_of_lesson=int(lessons_paid),
                 payment_date=payment_date.isoformat(),
                 paid_amount=float(paid_amount),
                 modality=str(modality_p),
-                subject=pay_subject,
+                subject=pay_subject_db,
+                subject_custom=pay_subject_custom,
                 package_start_date=pkg_start.isoformat() if pkg_start else payment_date.isoformat(),
                 package_expiry_date=pkg_expiry.isoformat() if pkg_expiry else None,
                 lesson_adjustment_units=0,
@@ -126,8 +173,6 @@ def _render_add_payment_form():
                 normalized_note="",
                 currency=pay_currency,
             )
-            st.success(t("saved"))
-            st.rerun()
 
         # ----------------------------
         # PAYMENT EDITOR (BULK + DELETE BY ID INSIDE)
@@ -193,7 +238,7 @@ def _render_add_payment_form():
                     payments["lesson_adjustment_units"] = pd.to_numeric(payments["lesson_adjustment_units"], errors="coerce").fillna(0).astype(int)
                     payments["package_normalized"] = payments["package_normalized"].fillna(False).astype(bool)
                     payments["subject"] = payments["subject"].fillna("").astype(str).str.strip()
-                    payments["modality"] = payments["modality"].fillna("Online").astype(str).str.strip()
+                    payments["modality"] = payments["modality"].fillna("online").astype(str).str.strip()
 
                     show_cols = [
                         "id",
@@ -230,10 +275,13 @@ def _render_add_payment_form():
                                 options=["Online", "Offline"],
                                 format_func=lambda x: t("online") if x == "Online" else t("offline"),
                             ),
+
                             "subject": st.column_config.SelectboxColumn(
                                 t("subject"),
-                                options=QUICK_SUBJECTS + [t("other"), ""],
+                                options=QUICK_SUBJECTS,
+                                format_func=translate_subject_value,
                             ),
+
                             "package_start_date": st.column_config.DateColumn(t("package_start")),
                             "package_expiry_date": st.column_config.DateColumn(t("package_expiry")),
                             "lesson_adjustment_units": st.column_config.NumberColumn(t("adjust_units"), step=1),
@@ -327,7 +375,7 @@ def _render_view_payments():
     payments["paid_amount"] = pd.to_numeric(payments["paid_amount"], errors="coerce").fillna(0.0)
     payments["number_of_lesson"] = pd.to_numeric(payments["number_of_lesson"], errors="coerce").fillna(0).astype(int)
     payments["student"] = payments["student"].fillna("").astype(str).str.strip()
-    payments["modality"] = payments["modality"].fillna("Online").astype(str).str.strip()
+    payments["modality"] = payments["modality"].fillna("online").astype(str).str.strip()
     payments["subject"] = payments["subject"].fillna("").astype(str).str.strip()
     payments["currency"] = payments["currency"].fillna("").astype(str).str.strip()
 
@@ -353,7 +401,7 @@ def _render_view_payments():
         st.info(t("no_payments_year", year=selected_year))
         return
 
-    st.caption(f"**{len(year_df)}** payments · {selected_year}")
+    st.caption(f"**{len(year_df)}** {t('payments')} · {selected_year}")
 
     for _, row in year_df.iterrows():
         date_str = row["payment_date"].strftime("%d %b %Y")
@@ -365,8 +413,8 @@ def _render_view_payments():
         cur = row["currency"]
         sym = currency_symbol(cur) if cur else ""
 
-        modality_label = t("online") if modality == "Online" else t("offline")
-        modality_color = "#0ea5e9" if modality == "Online" else "#f59e0b"
+        modality_label = t("online") if modality == "online" else t("offline")
+        modality_color = "#0ea5e9" if modality == "online" else "#f59e0b"
         amount_str = f"{sym} {amount:,.0f}" if sym else f"{amount:,.0f}"
 
         st.markdown(

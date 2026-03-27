@@ -69,15 +69,19 @@ def normalize_worksheet_output(raw: dict) -> dict:
             s = str(w or "").strip()
             if not s:
                 continue
-            if s.lower() in seen:
+            key = s.lower()
+            if key in seen:
                 continue
-            seen.add(s.lower())
+            seen.add(key)
             cleaned_vocab.append(s)
+
         out["vocabulary_bank"] = cleaned_vocab
+        out["questions"] = []
+        out["answer_key"] = ""
+        out["teacher_notes"] = out.get("teacher_notes", [])
 
         if not out.get("instructions"):
-            out["instructions"] = "Find the hidden words in the grid."        
-    return out
+            out["instructions"] = "Find the hidden words in the grid."
 
 # ── AI prompt (Ed.D. pedagogy-driven) ────────────────────────────────
 def _build_worksheet_prompts(payload: dict) -> tuple[str, str]:

@@ -227,20 +227,20 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
 
     payload = json.dumps(fc_events)
 
-    ui_lang = st.session_state.get("ui_lang", "en")
+    ui_lang = str(st.session_state.get("ui_lang", "en") or "en").strip().lower()
     theme_mode = str(st.session_state.get("ui_theme_mode", "auto")).strip().lower()
-    is_es = ui_lang == "es"
 
-    fc_locale = "es" if is_es else "en"
+    locale_map = {"en": "en", "es": "es", "tr": "tr"}
+    fc_locale = locale_map.get(ui_lang, "en")
 
-    btn_today = "Hoy" if is_es else "Today"
-    btn_month = "Mes" if is_es else "Month"
-    btn_week = "Semana" if is_es else "Week"
-    btn_day = "Día" if is_es else "Day"
-    btn_list = "Lista" if is_es else "List"
+    btn_today = t("calendar_btn_today")
+    btn_month = t("calendar_btn_month")
+    btn_week = t("calendar_btn_week")
+    btn_day = t("calendar_btn_day")
+    btn_list = t("calendar_btn_list")
 
-    all_day_text = "Todo el día" if is_es else "All-day"
-    more_template = "+{n} más" if is_es else "+{n} more"
+    all_day_text = t("calendar_all_day")
+    more_template = t("calendar_more_template")
 
     html = f"""
     <div id="calendar-wrap">

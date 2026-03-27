@@ -877,11 +877,12 @@ def render_quick_worksheet_maker_expander() -> None:
         subject = st.selectbox(
             t("subject_label"),
             _lp().QUICK_SUBJECTS,
-            key="ws_subject",
+            format_func=_lp().subject_label,
+            key="quick_ws_subject",
         )
 
         other_subject_name = ""
-        if subject == "Other":
+        if subject == "other":
             other_subject_name = st.text_input(t("other_subject_label"), key="ws_other_subject").strip()
 
         learner_stage = st.selectbox(
@@ -917,10 +918,10 @@ def render_quick_worksheet_maker_expander() -> None:
         if st.button(t("generate_worksheet"), key="btn_gen_ws", use_container_width=True):
             if not topic.strip():
                 st.error(t("enter_topic"))
-            elif subject == "Other" and not other_subject_name:
+            elif subject == "other" and not other_subject_name:
                 st.error(t("enter_subject_name"))
             else:
-                effective_subject = other_subject_name if subject == "Other" else subject
+                effective_subject = other_subject_name if subject == "other" else subject
                 with st.spinner(t("generating")):
                     ws, warning = _wb().generate_worksheet_with_limit(
                         subject=effective_subject,

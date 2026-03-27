@@ -831,11 +831,12 @@ def render_quick_lesson_planner_expander() -> None:
         subject = st.selectbox(
             t("subject_label"),
             _lp().QUICK_SUBJECTS,
+            format_func=_lp().subject_label,
             key="quick_plan_subject",
         )
 
         other_subject_name = ""
-        if subject == "Other":
+        if subject == "other":
             other_subject_name = st.text_input(
                 t("other_subject_label"),
                 key="quick_plan_other_subject",
@@ -844,9 +845,9 @@ def render_quick_lesson_planner_expander() -> None:
         learner_stage = st.selectbox(
             t("learner_stage"),
             _lp().LEARNER_STAGES,
-            format_func=_lp()._stage_label,
-            key="quick_plan_stage",
-        )
+            format_func=lambda x: t(x),
+            key="quick_plan_learner_stage",
+        )    
 
         default_level = _lp().recommend_default_level(subject, learner_stage)
         level_options = _lp().get_level_options(subject)
@@ -883,9 +884,9 @@ def render_quick_lesson_planner_expander() -> None:
         if st.button(t("generate_plan"), key="btn_generate_quick_plan", use_container_width=True):
             if not topic.strip():
                 st.error(t("enter_topic"))
-            elif subject == "Other" and not other_subject_name:
+            elif subject == "other" and not other_subject_name:
                 st.error(t("enter_subject_name"))
-            elif subject == "Other" and quick_plan_mode == "template":
+            elif subject == "other" and quick_plan_mode == "template":
                 # For "Other" in template mode: look up the community library first
                 community_row = _find_community_plan_for_other(other_subject_name, topic, learner_stage, level_or_band, lesson_purpose)
                 if community_row is not None:
@@ -912,7 +913,7 @@ def render_quick_lesson_planner_expander() -> None:
                     st.session_state["quick_lesson_no_template"] = True
             else:
                 st.session_state["quick_lesson_no_template"] = False
-                effective_subject = other_subject_name if subject == "Other" else subject
+                effective_subject = other_subject_name if subject == "other" else subject
                 plan, resolved_mode, warning_msg = _lp().generate_quick_lesson_plan_with_fallback(
                     mode=quick_plan_mode,
                     subject=effective_subject,
@@ -950,7 +951,7 @@ def render_quick_lesson_planner_expander() -> None:
                     },
                 )
 
-        if subject == "Other" and st.session_state.get("quick_lesson_no_template"):
+        if subject == "other" and st.session_state.get("quick_lesson_no_template"):
             st.info(t("no_template_for_subject"))
         elif st.session_state.get("quick_lesson_plan_result"):
             if st.session_state.get("quick_lesson_plan_kept"):

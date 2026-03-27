@@ -1,6 +1,6 @@
 import json, os, re
 from typing import Optional
-
+from core.i18n import t
 # -----------------------------------------------------------------------
 # CV BUILDER — template + AI generation
 # Reuses the same AI infrastructure as helpers/lesson_planner.py
@@ -40,17 +40,22 @@ def _call_ai(system_prompt: str, user_prompt: str) -> str:
 
 def _stage_label(stage: str) -> str:
     labels = {
-        "early_primary": "Early Primary (6–8)",
-        "upper_primary": "Upper Primary (9–11)",
-        "lower_secondary": "Lower Secondary (12–14)",
-        "upper_secondary": "Upper Secondary (15–18)",
-        "adult_stage": "Adult",
+        "early_primary": t("stage_early_primary"),
+        "upper_primary": t("stage_upper_primary"),
+        "lower_secondary": t("stage_lower_secondary"),
+        "upper_secondary": t("stage_upper_secondary"),
+        "adult_stage": t("stage_adult"),        
     }
     return labels.get(str(stage), str(stage))
 
 
 def _lang_label(code: str) -> str:
-    return {"en": "English", "es": "Spanish"}.get(str(code).strip().lower(), str(code))
+    labels = {
+        "en": t("english"),
+        "es": t("spanish"),
+        "tr": t("turkish"),
+    }
+    return labels.get(str(code).strip().lower(), str(code))
 
 
 def _parse_lines(text: str) -> list:
@@ -82,29 +87,31 @@ def build_template_cv(
     skills_text: str,
     availability: str,
     rate: str,
-    role: str = "Teacher",
+    role: str = "teacher",
     avatar_url: str = "",
 ) -> dict:
     stage_labels = [_stage_label(s) for s in (teaching_stages or [])]
     lang_labels  = [_lang_label(l) for l in (teaching_languages or [])]
 
     if not str(professional_summary or "").strip():
-        subject_str = ", ".join(subjects) if subjects else "various subjects"
-        professional_summary = (
-            f"Dedicated {str(role).lower()} with experience teaching {subject_str}. "
-            f"Specialises in working with {', '.join(stage_labels) if stage_labels else 'various age groups'}. "
-            f"Delivers engaging, effective lessons tailored to each student's needs."
+        subject_str = ", ".join(subjects) if subjects else t("cv_default_subjects")
+        role_label = t("teacher_role") if str(role).strip().lower() == "teacher" else t("tutor_role")
+        professional_summary = t(
+            "cv_default_summary",
+            role=role_label.lower(),
+            subjects=subject_str,
+            stages=", ".join(stage_labels) if stage_labels else t("cv_default_age_groups"),
         )
 
     return {
-        "title": f"CV \u2013 {full_name}" if full_name else "My CV",
+        "title": f"{t('cv')} \u2013 {full_name}" if full_name else t("my_cv"),
         "full_name": str(full_name or "").strip(),
         "email": str(email or "").strip(),
         "phone": str(phone or "").strip(),
         "location": str(location or "").strip(),
         "date_of_birth": str(date_of_birth or "").strip(),
         "sex": str(sex or "").strip(),
-        "role": str(role or "Teacher").strip().title(),
+        "role": str(role or t("teacher_role")).strip().title(),
         "professional_summary": str(professional_summary or "").strip(),
         "subjects": list(subjects or []),
         "teaching_stages": stage_labels,

@@ -13,7 +13,13 @@ from core.database import get_sb, load_table, clear_app_caches
 AI_CV_DAILY_LIMIT = 3
 AI_CV_COOLDOWN_SECONDS = 30
 
-SEX_OPTIONS_RAW = ["", "Male", "Female", "Other", "Prefer not to say"]
+SEX_OPTIONS_RAW = [
+    "sex_male",
+    "sex_female",
+    "sex_other",
+    "sex_prefer_not_to_say",
+    "",
+]
 
 
 def _parse_dob(raw) -> "date | None":
@@ -56,7 +62,12 @@ def _stage_label(stage: str) -> str:
 
 
 def _lang_label(code: str) -> str:
-    return t("english") if code == "en" else t("spanish")
+    labels = {
+        "en": t("english"),
+        "es": t("spanish"),
+        "tr": t("turkish"),
+    }
+    return labels.get(str(code), str(code))
 
 
 # -----------------------------------------------------------------------
@@ -67,7 +78,7 @@ def save_cv_record(cv_dict: dict, source_type: str, title: str, ai_prompt: str =
     try:
         payload = with_owner({
             "doc_type": "cv",
-            "title": str(title or "").strip() or "My CV",
+            "title": str(title or "").strip() or t("my_cv"),
             "source_type": source_type,
             "cv_json": cv_dict,
             "ai_prompt": str(ai_prompt or "").strip(),
@@ -77,7 +88,7 @@ def save_cv_record(cv_dict: dict, source_type: str, title: str, ai_prompt: str =
         clear_app_caches()
         return True
     except Exception as e:
-        st.warning(f"Could not save CV: {e}")
+        st.warning(f"{t('cv_save_failed')}: {e}")
         return False
 
 
@@ -90,7 +101,7 @@ def save_cover_letter_record(
     try:
         payload = with_owner({
             "doc_type": "cover_letter",
-            "title": str(title or "").strip() or "My Cover Letter",
+            "title": str(title or "").strip() or t("my_cover_letter"),
             "source_type": "ai",
             "content": str(content or "").strip(),
             "ai_prompt": str(ai_prompt or "").strip(),
@@ -101,7 +112,7 @@ def save_cover_letter_record(
         clear_app_caches()
         return True
     except Exception as e:
-        st.warning(f"Could not save cover letter: {e}")
+        st.warning(f"{t('cover_letter_save_failed')}: {e}")
         return False
 
 
@@ -115,7 +126,7 @@ def load_my_cvs() -> pd.DataFrame:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
         return df.sort_values("created_at", ascending=False, na_position="last").reset_index(drop=True)
     except Exception as e:
-        st.error(f"Could not load CVs: {e}")
+        st.error(f"{t('cv_load_failed')}: {e}")
         return pd.DataFrame()
 
 
@@ -129,7 +140,7 @@ def load_my_cover_letters() -> pd.DataFrame:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
         return df.sort_values("created_at", ascending=False, na_position="last").reset_index(drop=True)
     except Exception as e:
-        st.error(f"Could not load cover letters: {e}")
+        st.error(f"{t('cover_letter_load_failed')}: {e}")
         return pd.DataFrame()
 
 
@@ -500,7 +511,7 @@ def delete_cv_record(record_id: str) -> bool:
         clear_app_caches()
         return True
     except Exception as e:
-        st.warning(f"Could not delete record: {e}")
+        st.warning(f"{t('record_delete_failed')}: {e}")
         return False
 
 
@@ -547,6 +558,14 @@ def render_cv_library_cards(df: pd.DataFrame, prefix: str) -> None:
 # -----------------------------------------------------------------------
 # UI: MAIN CV BUILDER EXPANDER
 # -----------------------------------------------------------------------
+def _sex_label(value: str) -> str:
+    mapping = {
+        "male": t("sex_male"),
+        "female": t("sex_female"),
+        "prefer_not_to_say": t("prefer_not_to_say"),
+        "": t("prefer_not_to_say"),
+    }
+    return mapping.get(str(value), str(value))
 
 def render_quick_cv_builder_expander() -> None:
     from core.database import load_profile_row, upsert_profile_row
@@ -728,10 +747,9 @@ def render_quick_cv_builder_expander() -> None:
             _sex_idx = SEX_OPTIONS_RAW.index(_sex_val) if _sex_val in SEX_OPTIONS_RAW else 0
             cv_sex = st.selectbox(
                 t("sex"),
-                SEX_OPTIONS_RAW,
-                index=_sex_idx,
-                format_func=lambda x: t(f"sex_{x.lower().replace(' ', '_')}") if x else t("prefer_not_to_say"),
-                key="cv_sex",
+                options=SEX_OPTIONS_RAW,
+                format_func=_sex_label,
+                key="cv_sex"
             )
 
         # ── Teaching profile ─────────────────────────────────────────────
@@ -888,7 +906,7 @@ def render_quick_cv_builder_expander() -> None:
                             _profile_patch = {}
                             if cv_dob:
                                 _profile_patch["date_of_birth"] = str(cv_dob)
-                            if cv_sex and cv_sex != "Prefer not to say":
+                            if cv_sex and cv_sex != "prefer_not_to_say":
                                 _profile_patch["sex"] = cv_sex
                             if cv_phone.strip():
                                 _profile_patch["phone_number"] = cv_phone.strip()
