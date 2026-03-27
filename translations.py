@@ -192,7 +192,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "phone_format_hint": "Only digits and + allowed (e.g. +905551234567)",
         # CV Builder
         "quick_cv_builder": "Quick CV builder",
-        "quick_cv_caption": "Build a professional teacher CV in seconds — auto-filled from your profile",
+        "quick_cv_caption": "Complete your Classio profile and this will auto-fill for you.",
         "cv_personal_info": "Personal information",
         "cv_full_name_label": "CV full name",
         "cv_teaching_info": "Teaching profile",
@@ -328,7 +328,12 @@ I18N: Dict[str, Dict[str, str]] = {
         "duration_45": "45 minutes",
         "duration_60": "60 minutes",
         "duration_90": "90 minutes",
-
+        "ai_usage_log_insert_failed": "AI usage log insert failed",
+        "cv_ai_default_prompt": "Create a professional, polished teacher/tutor CV.",
+        "cv_cl_default_prompt": "Write a strong general cover letter for private tutoring opportunities.",
+        "subject_turkish": "Turkish",
+        "select_option": "Select...",
+        
         # -------------------------
         # COMMON ACTIONS / STATES
         # -------------------------
@@ -716,6 +721,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "reminder_date": "Reminder date",
         "could_not_save_goal": "Could not save goal. Please try again.",
         "set_year_goal_to_see_progress": "Set a yearly goal to see your progress bar.",
+        "no_data_week": "You have not received any payments this week.",
 
         # forecast inside analytics
         "forecast": "Forecast",
@@ -957,7 +963,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "calendar_more_template": "+{n} more",
         "confirm_email_then_login": "We sent you a confirmation email. Please confirm your account and then sign in.",
         "profile_setup_after_login_failed": "Your account is ready, but part of your profile could not be completed automatically.",
-
+        "preview": "Preview",
     },
 
     "es": {
@@ -1022,6 +1028,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "missing_user_id": "Su sesión ha expirado. Por favor reinicia la aplicación e inicia sesión nuevamente.",
         "confirm_email_then_login": "Te enviamos un correo de confirmación. Por favor, confirma tu cuenta y luego inicia sesión.",
         "profile_setup_after_login_failed": "Tu cuenta está lista, pero una parte de tu perfil no se pudo completar automáticamente",
+        "preview": "Ver",
 
         # -------------------------
         # DELETE / RESTORE ACCOUNT
@@ -1144,7 +1151,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "phone_format_hint": "Solo dígitos y + permitidos (ej. +905551234567)",
         # CV Builder
         "quick_cv_builder": "Creador rápido de CV",
-        "quick_cv_caption": "Crea un CV docente profesional en segundos — rellenado automáticamente desde tu perfil",
+        "quick_cv_caption": "Completa tu perfil Classio y esto se rellenará automáticamente.",
         "cv_personal_info": "Información personal",
         "cv_full_name_label": "Nombre completo del CV",
         "cv_teaching_info": "Perfil docente",
@@ -1280,6 +1287,11 @@ I18N: Dict[str, Dict[str, str]] = {
         "duration_45": "45 minutos",
         "duration_60": "60 minutos",
         "duration_90": "90 minutos",
+        "ai_usage_log_insert_failed": "Error al registrar el uso de IA",
+        "cv_ai_default_prompt": "Crea un CV profesional para un profesor privado.",
+        "cv_cl_default_prompt": "Escribe una carta de presentación general sólida para oportunidades de tutoría privada.",
+        "subject_turkish": "Turco",
+        "select_option": "Opciones",
 
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -1670,6 +1682,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "reminder_date": "Fecha de recordatorio",
         "could_not_save_goal": "No se pudo guardar la meta. Por favor, inténtalo de nuevo.",
         "set_year_goal_to_see_progress": "Establece una meta anual para ver tu barra de progreso.",
+        "no_data_week": "No has recibido ningún pago esta semana.",
 
 
         # forecast inside analytics
@@ -1975,6 +1988,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "missing_user_id": "Oturum süresi doldu. Lütfen tekrar giriş yapın.",
         "confirm_email_then_login": "Size bir onay e-postası gönderdik. Lütfen hesabınızı onaylayın ve ardından giriş yapın.",
         "profile_setup_after_login_failed": "Hesabınız hazır, ancak profilinizin bir kısmı otomatik olarak tamamlanamadı",
+        "preview": "İncele",
 
         # -------------------------
         # DELETE / RESTORE ACCOUNT
@@ -2097,7 +2111,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "phone_format_hint": "Sadece rakam ve + kullanılabilir (ör. +905551234567)",
         # CV Oluşturucu
         "quick_cv_builder": "Hızlı CV oluşturucu",
-        "quick_cv_caption": "Profilinizden otomatik doldurularak saniyeler içinde profesyonel bir öğretmen CV'si oluşturun",
+        "quick_cv_caption": "Classio profilinizi tamamlayın ve bu sizin için otomatik olarak doldurulsun.",
         "cv_personal_info": "Kişisel bilgiler",
         "cv_full_name_label": "CV tam adı",
         "cv_teaching_info": "Öğretim profili",
@@ -2233,6 +2247,11 @@ I18N: Dict[str, Dict[str, str]] = {
         "duration_45": "45 dakika",
         "duration_60": "60 dakika",
         "duration_90": "90 dakika",
+        "ai_usage_log_insert_failed": "IA kullanım kaydı eklenemedi",
+        "cv_ai_default_prompt": "Profilinizden otomatik doldurularak profesyonel bir öğretmen CV'si oluşturun.",
+        "cv_cl_default_prompt": "Özel ders fırsatları için güçlü bir genel ön yazı yazın.",
+        "subject_turkish": "Türkçe",
+        "select_option": "Seçin",
 
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -2612,6 +2631,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "reminder_date": "Hatırlatma tarihi",
         "could_not_save_goal": "Hedef kaydedilemedi. Lütfen geçerli bir sayı girin.",
         "set_year_goal_to_see_progress": "Lütfen yıllık gelir hedefinizi görmek için geçerli bir sayı girin.",
+        "no_data_week": "Bu hafta için herhangi bir ödeme almadınız.",
+
 
         # forecast inside analytics
         "forecast": "Tahmin",

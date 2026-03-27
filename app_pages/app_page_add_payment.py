@@ -221,6 +221,7 @@ def _render_add_payment_form():
                         "paid_amount",
                         "modality",
                         "subject",
+                        "subject_custom",
                         "package_start_date",
                         "package_expiry_date",
                         "lesson_adjustment_units",
@@ -233,12 +234,30 @@ def _render_add_payment_form():
                     payments["payment_date"] = pd.to_datetime(payments["payment_date"], errors="coerce").dt.date
                     payments["package_start_date"] = pd.to_datetime(payments["package_start_date"], errors="coerce").dt.date
                     payments["package_expiry_date"] = pd.to_datetime(payments["package_expiry_date"], errors="coerce").dt.date
-                    payments["number_of_lesson"] = pd.to_numeric(payments["number_of_lesson"], errors="coerce").fillna(0).astype(int)
-                    payments["paid_amount"] = pd.to_numeric(payments["paid_amount"], errors="coerce").fillna(0.0)
-                    payments["lesson_adjustment_units"] = pd.to_numeric(payments["lesson_adjustment_units"], errors="coerce").fillna(0).astype(int)
+                    payments["number_of_lesson"] = pd.to_numeric(
+                        payments["number_of_lesson"], errors="coerce"
+                    ).fillna(0).astype(int)
+                    payments["paid_amount"] = pd.to_numeric(
+                        payments["paid_amount"], errors="coerce"
+                    ).fillna(0.0)
+                    payments["lesson_adjustment_units"] = pd.to_numeric(
+                        payments["lesson_adjustment_units"], errors="coerce"
+                    ).fillna(0).astype(int)
                     payments["package_normalized"] = payments["package_normalized"].fillna(False).astype(bool)
-                    payments["subject"] = payments["subject"].fillna("").astype(str).str.strip()
-                    payments["modality"] = payments["modality"].fillna("online").astype(str).str.strip()
+                    payments["subject"] = (
+                        payments["subject"]
+                        .fillna("")
+                        .astype(str)
+                        .apply(normalize_subject_key_for_editor)
+                    )
+                    payments["subject_custom"] = (
+                        payments["subject_custom"]
+                        .fillna("")
+                        .astype(str)
+                        .map(_clean_subject_custom)
+                    )
+                    payments["modality"] = payments["modality"].fillna("Online").astype(str).str.strip()
+                    payments["normalized_note"] = payments["normalized_note"].fillna("").astype(str)
 
                     show_cols = [
                         "id",
@@ -247,6 +266,7 @@ def _render_add_payment_form():
                         "paid_amount",
                         "modality",
                         "subject",
+                        "subject_custom",
                         "package_start_date",
                         "package_expiry_date",
                         "lesson_adjustment_units",
@@ -282,6 +302,7 @@ def _render_add_payment_form():
                                 format_func=translate_subject_value,
                             ),
 
+                            "subject_custom": st.column_config.TextColumn(t("subject_other")),
                             "package_start_date": st.column_config.DateColumn(t("package_start")),
                             "package_expiry_date": st.column_config.DateColumn(t("package_expiry")),
                             "lesson_adjustment_units": st.column_config.NumberColumn(t("adjust_units"), step=1),
@@ -296,7 +317,18 @@ def _render_add_payment_form():
                         for _, r in edited.iterrows():
                             pid = int(r["id"])
 
-                            subject_val = str(r.get("subject") or "").strip()
+                            subject_key = str(r.get("subject", "") or "").strip().lower()
+                            subject_custom = _clean_subject_custom(r.get("subject_custom", ""))
+
+                            subject_db = SUBJECT_DB_MAP.get(subject_key) if subject_key else None
+
+                            if subject_key == "other":
+                                if not subject_custom:
+                                    st.error(t("subject_other_required"))
+                                    ok_all = False
+                                    continue
+                            else:
+                                subject_custom = None
 
                             modality_val = str(r.get("modality") or "Online").strip()
                             if modality_val not in ("Online", "Offline"):
@@ -309,7 +341,8 @@ def _render_add_payment_form():
                                 "number_of_lesson": int(r["number_of_lesson"]),
                                 "paid_amount": float(r["paid_amount"]),
                                 "modality": modality_val,
-                                "subject": subject_val,
+                                "subject": subject_db,
+                                "subject_custom": subject_custom,
                                 "package_start_date": pd.to_datetime(r["package_start_date"]).date().isoformat()
                                 if pd.notna(r["package_start_date"])
                                 else None,
@@ -367,7 +400,7 @@ def _render_view_payments():
         return
 
     # Normalise columns
-    for col in ["payment_date", "paid_amount", "number_of_lesson", "student", "modality", "subject", "currency"]:
+    for col in ["payment_date", "paid_amount", "number_of_lesson", "student", "modality", "subject", "subject_custom", "currency"]:
         if col not in payments.columns:
             payments[col] = None
 
@@ -377,6 +410,7 @@ def _render_view_payments():
     payments["student"] = payments["student"].fillna("").astype(str).str.strip()
     payments["modality"] = payments["modality"].fillna("online").astype(str).str.strip()
     payments["subject"] = payments["subject"].fillna("").astype(str).str.strip()
+    payments["subject_custom"] = payments["subject_custom"].fillna("").astype(str).str.strip()
     payments["currency"] = payments["currency"].fillna("").astype(str).str.strip()
 
     valid = payments.dropna(subset=["payment_date"]).copy()
@@ -410,6 +444,9 @@ def _render_view_payments():
         amount = float(row["paid_amount"])
         modality = row["modality"]
         subject = row["subject"] or "—"
+        subject_custom = row.get("subject_custom", "") or ""
+        if subject == "Other" and subject_custom.strip():
+            subject = subject_custom.strip()
         cur = row["currency"]
         sym = currency_symbol(cur) if cur else ""
 

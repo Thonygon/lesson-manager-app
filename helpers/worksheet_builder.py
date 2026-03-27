@@ -81,8 +81,9 @@ def normalize_worksheet_output(raw: dict) -> dict:
         out["teacher_notes"] = out.get("teacher_notes", [])
 
         if not out.get("instructions"):
-            out["instructions"] = "Find the hidden words in the grid."
+            out["instructions"] = t("find_hidden_words_in_grid")
 
+    return out
 # ── AI prompt (Ed.D. pedagogy-driven) ────────────────────────────────
 def _build_worksheet_prompts(payload: dict) -> tuple[str, str]:
     system_prompt = (

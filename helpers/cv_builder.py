@@ -48,6 +48,18 @@ def _stage_label(stage: str) -> str:
     }
     return labels.get(str(stage), str(stage))
 
+def _subject_label(value: str) -> str:
+    mapping = {
+        "english": t("subject_english"),
+        "spanish": t("subject_spanish"),
+        "turkish": t("subject_turkish"),
+        "math": t("subject_math"),
+        "science": t("subject_science"),
+        "other": t("other"),
+    }
+    v = str(value or "").strip().lower()
+    return mapping.get(v, str(value or ""))
+
 
 def _lang_label(code: str) -> str:
     labels = {
@@ -94,7 +106,7 @@ def build_template_cv(
     lang_labels  = [_lang_label(l) for l in (teaching_languages or [])]
 
     if not str(professional_summary or "").strip():
-        subject_str = ", ".join(subjects) if subjects else t("cv_default_subjects")
+        subject_str = ", ".join(_subject_label(s) for s in subjects) if subjects else t("cv_default_subjects")
         role_label = t("teacher_role") if str(role).strip().lower() == "teacher" else t("tutor_role")
         professional_summary = t(
             "cv_default_summary",
@@ -111,9 +123,9 @@ def build_template_cv(
         "location": str(location or "").strip(),
         "date_of_birth": str(date_of_birth or "").strip(),
         "sex": str(sex or "").strip(),
-        "role": str(role or t("teacher_role")).strip().title(),
+        "role": str(role or "teacher").strip().lower(),
+        "subjects": [str(s).strip() for s in (subjects or []) if str(s).strip()],
         "professional_summary": str(professional_summary or "").strip(),
-        "subjects": list(subjects or []),
         "teaching_stages": stage_labels,
         "teaching_languages": lang_labels,
         "education": _parse_lines(education_text),
@@ -193,7 +205,7 @@ def build_ai_cv(
 - Date of birth: {date_of_birth}
 - Sex: {sex}
 - Role: {role}
-- Subjects: {', '.join(subjects) or 'various'}
+- Subjects: {', '.join(_subject_label(s) for s in subjects) or t('cv_default_subjects')}
 - Teaching stages: {', '.join(stage_labels) or 'various'}
 - Teaching languages: {', '.join(lang_labels) or 'various'}
 - Current summary: {professional_summary or 'N/A'}
@@ -205,7 +217,7 @@ def build_ai_cv(
 - Rate: {rate or 'N/A'}
 
 User customisation / instructions:
-{user_prompt or 'Create a professional, polished teacher/tutor CV.'}"""
+{user_prompt or t("cv_ai_default_prompt")}"""
 
     raw = _call_ai(_CV_SYSTEM_PROMPT, user_msg)
 
@@ -240,7 +252,8 @@ _CL_SYSTEM_PROMPT = (
 def build_ai_cover_letter(cv: dict, user_prompt: str) -> str:
     full_name    = str(cv.get("full_name") or "").strip()
     email        = str(cv.get("email") or "").strip()
-    role         = str(cv.get("role") or "Teacher").strip()
+    role         = str(cv.get("role") or "teacher").strip().lower()
+    role_display = t("teacher_role") if role == "teacher" else t("tutor_role")
     subjects     = cv.get("subjects") or []
     stages       = cv.get("teaching_stages") or []
     summary      = str(cv.get("professional_summary") or "").strip()
@@ -250,7 +263,7 @@ def build_ai_cover_letter(cv: dict, user_prompt: str) -> str:
     user_msg = f"""Candidate:
 - Name: {full_name}
 - Email: {email}
-- Role: {role}
+- Role: {role_display}
 - Subjects: {', '.join(subjects) if subjects else 'various'}
 - Teaching stages: {', '.join(stages) if stages else 'various'}
 - Summary: {summary}
@@ -258,7 +271,7 @@ def build_ai_cover_letter(cv: dict, user_prompt: str) -> str:
 - Certifications: {', '.join(certs) if certs else 'N/A'}
 
 Cover letter instructions:
-{user_prompt or 'Write a strong general cover letter for private tutoring opportunities.'}
+{user_prompt or t("cv_cl_default_prompt")}
 
 Write the complete cover letter text only."""
 
@@ -279,12 +292,12 @@ _IMPORT_SYSTEM_PROMPT = (
     '  "phone": "string",\n'
     '  "location": "string",\n'
     '  "date_of_birth": "YYYY-MM-DD or empty string",\n'
-    '  "sex": "Male|Female|Other|Prefer not to say|empty string",\n'
+    '  "sex": "sex_male|sex_female|sex_other|sex_prefer_not_to_say|empty string",\n'
     '  "role": "teacher|tutor",\n'
     '  "professional_summary": "string",\n'
     '  "subjects": ["string"],\n'
     '  "teaching_stages": ["early_primary|upper_primary|lower_secondary|upper_secondary|adult_stage"],\n'
-    '  "teaching_languages": ["en|es"],\n'
+    '  "teaching_languages": ["en|es|tr"],\n'
     '  "education": ["one entry per item"],\n'
     '  "certifications": ["string"],\n'
     '  "experience": ["one entry per item"],\n'

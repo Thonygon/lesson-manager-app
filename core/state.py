@@ -35,6 +35,7 @@ def _set_logged_in_user(user, profile_name: str = "", profile_username: str = ""
     st.session_state["user_id"] = user_dict.get("id")
     st.session_state["user_email"] = user_dict.get("email")
     metadata = user_dict.get("user_metadata") or {}
+
     st.session_state["user_name"] = (
         profile_name
         or metadata.get("full_name")
@@ -42,7 +43,12 @@ def _set_logged_in_user(user, profile_name: str = "", profile_username: str = ""
         or user_dict.get("email")
         or "User"
     )
-    st.session_state["user_username"] = profile_username or ""
+
+    st.session_state["user_username"] = (
+        profile_username
+        or metadata.get("username")
+        or ""
+    )
 
 
 def _clear_logged_in_user() -> None:
@@ -57,12 +63,12 @@ def _clear_logged_in_user() -> None:
 
 # ---- Profile option constants ----
 PROFILE_SUBJECT_OPTIONS = [
-    "English", "Spanish", "Mathematics", "Science", "Music", "Study Skills",
+    "english", "spanish", "mathematics", "science", "music", "study_skills", "other",
 ]
 PROFILE_STAGE_OPTIONS = [
     "early_primary", "upper_primary", "lower_secondary", "upper_secondary", "adult_stage",
 ]
-PROFILE_TEACH_LANG_OPTIONS = ["en", "es"]
+PROFILE_TEACH_LANG_OPTIONS = ["en", "es", "tr"]
 PROFILE_DURATION_OPTIONS = [30, 45, 60, 90]
 PROFILE_TIMEZONE_OPTIONS = sorted(available_timezones())
 PROFILE_COUNTRY_OPTIONS = ["Select..."] + sorted([c.name for c in pycountry.countries])

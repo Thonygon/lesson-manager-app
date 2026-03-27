@@ -91,37 +91,97 @@ def _clean_card_fields(title: str, topic: str) -> tuple[str, str]:
 
 # ── Word search helpers ──────────────────────────────────────────────
 
+def _wordsearch_safe_upper(text: str) -> str:
+    s = str(text or "").strip()
+
+    # Turkish-safe upper first
+    s = (
+        s.replace("i", "İ")
+         .replace("ı", "I")
+    )
+
+    return s.upper()
+
+
 def _normalize_wordsearch_words(words: list[str], max_words: int = 12) -> list[str]:
     out = []
     seen = set()
 
     for w in words or []:
-        s = str(w or "").strip().upper()
+        s = str(w or "").strip()
+
+        # Remove translations inside parentheses
+        # Example: "LEVANTARSE (to get up)" → "LEVANTARSE"
+        s = re.sub(r"\(.*?\)", "", s)
+
+        # Remove dash translations
+        # Example: "LEVANTARSE - to get up"
+        s = re.split(r"\s[-–—]\s", s)[0]
+
+        # Remove comma translations
+        # Example: "LEVANTARSE, to get up"
+        s = s.split(",")[0]
+
+        # Uppercase safely
+        s = _wordsearch_safe_upper(s)
+
+        # Keep Spanish + Turkish + Latin
         s = re.sub(r"[^A-ZÁÉÍÓÚÜÑÇĞİÖŞ0-9 ]", "", s)
-        s = re.sub(r"\s+", "", s)  # remove spaces so multi-word phrases fit the grid
+
+        # Remove spaces
+        s = re.sub(r"\s+", "", s)
+
         if len(s) < 2:
             continue
-        if s in seen:
+
+        key = s.casefold()
+        if key in seen:
             continue
-        seen.add(s)
+
+        seen.add(key)
         out.append(s)
 
-    # longest first = easier placement
     out.sort(key=len, reverse=True)
     return out[:max_words]
 
 
+def _build_wordsearch_alphabet(words: list[str]) -> list[str]:
+    chars = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    for word in words or []:
+        for ch in str(word):
+            if ch.strip():
+                chars.add(ch)
+    return sorted(chars)
+
+
+def _resolve_wordsearch_size(words: list[str], size: int | None = None) -> int:
+    if not words:
+        return 0
+
+    longest = max(len(w) for w in words)
+    suggested = max(
+        10,
+        longest + 2,
+        int(math.ceil(math.sqrt(sum(len(w) for w in words)))) + 3,
+        len(words) + 3,
+    )
+
+    if size is None:
+        return suggested
+
+    return max(size, longest + 1)
+
+
 def _generate_wordsearch_grid(
     words: list[str],
-    size: int | None = None
+    size: int | None = None,
+    seed: str | int | None = None,
 ) -> tuple[list[list[str]], list[str], list[dict]]:
     words = _normalize_wordsearch_words(words)
     if not words:
         return [], [], []
 
-    longest = max(len(w) for w in words)
-    if size is None:
-        size = max(10, min(16, longest + 3, len(words) + longest))
+    size = _resolve_wordsearch_size(words, size=size)
 
     directions = [
         (0, 1),   # right
@@ -131,7 +191,8 @@ def _generate_wordsearch_grid(
     ]
 
     import random
-    alphabet = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    rng = random.Random(seed if seed is not None else "|".join(words))
+    alphabet = _build_wordsearch_alphabet(words)
 
     def try_build():
         grid = [["" for _ in range(size)] for _ in range(size)]
@@ -140,30 +201,45 @@ def _generate_wordsearch_grid(
         for word in words:
             placed = False
 
-            for _ in range(300):
-                dr, dc = random.choice(directions)
+            for _ in range(500):
+                dr, dc = rng.choice(directions)
 
+                # row start range
                 if dr == 0:
-                    r = random.randint(0, size - 1)
+                    r_min, r_max = 0, size - 1
                 elif dr == 1:
-                    r = random.randint(0, size - len(word))
-                else:
-                    r = random.randint(len(word) - 1, size - 1)
+                    r_min, r_max = 0, size - len(word)
+                else:  # dr == -1
+                    r_min, r_max = len(word) - 1, size - 1
 
+                # col start range
                 if dc == 0:
-                    c = random.randint(0, size - 1)
+                    c_min, c_max = 0, size - 1
+                elif dc == 1:
+                    c_min, c_max = 0, size - len(word)
                 else:
-                    c = random.randint(0, size - len(word))
+                    c_min, c_max = len(word) - 1, size - 1
+
+                if r_min > r_max or c_min > c_max:
+                    continue
+
+                r = rng.randint(r_min, r_max)
+                c = rng.randint(c_min, c_max)
 
                 ok = True
                 rr, cc = r, c
                 coords = []
 
                 for ch in word:
+                    if not (0 <= rr < size and 0 <= cc < size):
+                        ok = False
+                        break
+
                     cell = grid[rr][cc]
                     if cell not in ("", ch):
                         ok = False
                         break
+
                     coords.append((rr, cc))
                     rr += dr
                     cc += dc
@@ -187,7 +263,7 @@ def _generate_wordsearch_grid(
         for r in range(size):
             for c in range(size):
                 if not grid[r][c]:
-                    grid[r][c] = random.choice(alphabet)
+                    grid[r][c] = rng.choice(alphabet)
 
         return grid, placements
 
@@ -572,10 +648,18 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
         st.markdown(f"**{t('ws_vocabulary_bank')}**")
         st.write(", ".join(ws["vocabulary_bank"]))
 
+    wordsearch_grid = None
+    wordsearch_placements = None
+
     if ws.get("worksheet_type") == "word_search_vocab":
         st.markdown(f"**{t('word_search_grid')}**")
-        grid, _, _ = _generate_wordsearch_grid(ws.get("vocabulary_bank", []))
-        _render_wordsearch_grid(grid)
+
+        wordsearch_seed = "|".join(_normalize_wordsearch_words(ws.get("vocabulary_bank", [])))
+        wordsearch_grid, _, wordsearch_placements = _generate_wordsearch_grid(
+            ws.get("vocabulary_bank", []),
+            seed=wordsearch_seed,
+        )
+        _render_wordsearch_grid(wordsearch_grid)
 
     if ws.get("worksheet_type") != "word_search_vocab" and ws.get("questions"):
         st.markdown(f"**{t('ws_questions')}**")
@@ -584,8 +668,7 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
 
     if ws.get("worksheet_type") == "word_search_vocab":
         with st.expander(t("ws_answer_key"), expanded=False):
-            answer_grid, _, placements = _generate_wordsearch_grid(ws.get("vocabulary_bank", []))
-            _render_wordsearch_answer_grid(answer_grid, placements)
+            _render_wordsearch_answer_grid(wordsearch_grid, wordsearch_placements)
 
     elif ws.get("answer_key"):
         with st.expander(t("ws_answer_key"), expanded=False):
@@ -694,6 +777,18 @@ def build_worksheet_pdf_bytes(
 
     story = []
 
+    wordsearch_grid = None
+    wordsearch_placements = None
+    wordsearch_seed = None
+
+    if ws.get("worksheet_type") == "word_search_vocab":
+        wordsearch_seed = "|".join(_normalize_wordsearch_words(ws.get("vocabulary_bank", [])))
+        wordsearch_grid, _, wordsearch_placements = _generate_wordsearch_grid(
+            ws.get("vocabulary_bank", []),
+            seed=wordsearch_seed,
+            size=12,  # safe now because helper auto-expands if needed
+        )    
+
     logo_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "static", "logo_classio_light.png"))
     if os.path.isfile(logo_path):
         story.append(RLImage(logo_path, width=2.8*cm, height=2.8*cm, kind="proportional"))
@@ -703,7 +798,11 @@ def build_worksheet_pdf_bytes(
 
     meta_parts = []
     if subject:
-        meta_parts.append(f"<b>{t('subject_label')}:</b> {subject}")
+        subject_key = "subject_" + str(subject).strip().lower().replace(" ", "_")
+        subject_label = t(subject_key)
+        if subject_label == subject_key:
+            subject_label = str(subject).strip()
+        meta_parts.append(f"<b>{t('subject_label')}:</b> {subject_label}")
     if topic:
         meta_parts.append(f"<b>{t('topic_label')}:</b> {topic}")
     if ws_type:
@@ -735,7 +834,7 @@ def build_worksheet_pdf_bytes(
         _sec("ws_vocabulary_bank", ", ".join(ws["vocabulary_bank"]))
 
     if ws.get("worksheet_type") == "word_search_vocab":
-        grid, _, _ = _generate_wordsearch_grid(ws.get("vocabulary_bank", []), size=12)
+        grid = wordsearch_grid
 
         if grid:
             story.append(Paragraph(t("word_search_grid"), heading_style))
@@ -792,7 +891,8 @@ def build_worksheet_pdf_bytes(
 
     if not student_only:
         if ws.get("worksheet_type") == "word_search_vocab":
-            answer_grid, _, placements = _generate_wordsearch_grid(ws.get("vocabulary_bank", []), size=12)
+            answer_grid = wordsearch_grid
+            placements = wordsearch_placements
 
             if answer_grid:
                 story.append(PageBreak())
