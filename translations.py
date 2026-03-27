@@ -258,6 +258,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "show_community_contact": "Show my contact info in the community",
         "community_profile_hint": "When enabled, other teachers can see your full profile card including picture and contact details.",
         "community_contact_hint": "Share your phone number and country in your community card.",
+        "community_profile_empty": "No profile information yet",
         "no_saved_cvs": "You haven't created any CVs yet.",
         "no_saved_cover_letters": "You haven't created any cover letters yet.",
         "cv": "CV",
@@ -566,6 +567,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "contact_student": "Contact the student",
         "lessons_left": "Lessons left",
         "last_lesson_date": "Last lesson date",
+        "no_dashboard_data": "No packages or students found. Start by adding a student, scheduling a lesson, and recording a payment!",
 
         # status (canonical + UI)
         "status": "Status",
@@ -722,6 +724,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "could_not_save_goal": "Could not save goal. Please try again.",
         "set_year_goal_to_see_progress": "Set a yearly goal to see your progress bar.",
         "no_data_week": "You have not received any payments this week.",
+        "analytics_simple_explanation": "Come back after adding a payment or two to see your insights!",
 
         # forecast inside analytics
         "forecast": "Forecast",
@@ -1217,6 +1220,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "show_community_contact": "Mostrar mi información de contacto en la comunidad",
         "community_profile_hint": "Cuando está activado, otros profesores pueden ver tu tarjeta de perfil completa, incluyendo foto y datos de contacto.",
         "community_contact_hint": "Comparte tu teléfono y país en tu tarjeta de la comunidad.",
+        "community_profile_empty": "Aún no hay información del perfil",
         "no_saved_cvs": "Aún no has creado ningún CV.",
         "no_saved_cover_letters": "Aún no has creado ninguna carta de presentación.",
         "cv": "CV",
@@ -1526,6 +1530,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "contact_student": "Contactar al estudiante",
         "lessons_left": "Clases restantes",
         "last_lesson_date": "Fecha de última clase",
+        "no_dashboard_data": "No se encontraron paquetes ni estudiantes. Comienza agregando un estudiante, programando una clase y registrando un pago.",
 
         # status (canonical + UI)
         "status": "Estado",
@@ -1683,7 +1688,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "could_not_save_goal": "No se pudo guardar la meta. Por favor, inténtalo de nuevo.",
         "set_year_goal_to_see_progress": "Establece una meta anual para ver tu barra de progreso.",
         "no_data_week": "No has recibido ningún pago esta semana.",
-
+        "analytics_simple_explanation": "Vuelve después de agregar uno o dos pagos para ver tu información estratégica.",
 
         # forecast inside analytics
         "forecast": "Proyección",
@@ -2177,6 +2182,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "show_community_contact": "İletişim bilgilerimi toplulukta göster",
         "community_profile_hint": "Etkinleştirildiğinde, diğer öğretmenler fotoğraf ve iletişim bilgileri dahil tam profil kartınızı görebilir.",
         "community_contact_hint": "Topluluk kartınızda telefon numaranızı ve ülkenizi paylaşın.",
+        "community_profile_empty": "Henüz profil bilgisi yok",
         "no_saved_cvs": "Henüz CV oluşturmadınız.",
         "no_saved_cover_letters": "Henüz ön yazı oluşturmadınız.",
         "cv": "CV",
@@ -2481,6 +2487,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "open_whatsapp": "WhatsApp'ı aç",
         "contact_student": "Öğrenciyle iletişime geç",
         "last_lesson_date": "Son ders tarihi",
+        "no_dashboard_data": "Hiç paket veya öğrenci bulunamadı. Bir öğrenci ekleyerek, ders planlayarak ve ödeme kaydı oluşturarak başlayın!",
 
         # status (canonical + UI)
         "status": "Durum",
@@ -2632,7 +2639,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "could_not_save_goal": "Hedef kaydedilemedi. Lütfen geçerli bir sayı girin.",
         "set_year_goal_to_see_progress": "Lütfen yıllık gelir hedefinizi görmek için geçerli bir sayı girin.",
         "no_data_week": "Bu hafta için herhangi bir ödeme almadınız.",
-
+        "analytics_simple_explanation": "Bir veya iki ödeme ekledikten sonra içgörülerinizi görmek için geri gelin!",
 
         # forecast inside analytics
         "forecast": "Tahmin",

@@ -984,19 +984,47 @@ def render_home():
                             if _avatar
                             else "<div style='width:52px;height:52px;border-radius:50%;flex-shrink:0;background:linear-gradient(135deg,#60A5FA,#A78BFA);'></div>"
                         )
-                        _contact_html = ""
+                        _contact_parts = []
+
                         if _country:
-                            _contact_html += f"<span style='font-size:0.82rem;color:#64748b;'>🌍 {_country}</span>"
+                            _contact_parts.append(
+                                f"<span style='font-size:0.82rem;color:#64748b;'>🌍 {_country}</span>"
+                            )
+
                         if _show_contact:
                             _btns = ""
                             if _wa_num:
-                                _btns += _contact_btn(f"https://wa.me/{_wa_num.lstrip('+')}", _wa_svg, "#25D366", "WhatsApp")
+                                _btns += _contact_btn(
+                                    f"https://wa.me/{_wa_num.lstrip('+')}",
+                                    _wa_svg,
+                                    "#25D366",
+                                    "WhatsApp",
+                                )
                             if _email:
-                                _btns += _contact_btn(f"mailto:{_email}", _email_svg, "#3B82F6", "Email")
+                                _btns += _contact_btn(
+                                    f"mailto:{_email}",
+                                    _email_svg,
+                                    "#3B82F6",
+                                    "Email",
+                                )
+
                             if _btns:
-                                _contact_html += f"<span style='margin-left:8px;display:inline-flex;gap:6px;vertical-align:middle;'>{_btns}</span>"
-                        if _contact_html:
-                            _contact_html = f"<div style='margin-top:5px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;'>{_contact_html}</div>"
+                                _contact_parts.append(
+                                    f"<span style='margin-left:8px;display:inline-flex;gap:6px;vertical-align:middle;'>{_btns}</span>"
+                                )
+
+                        if _contact_parts:
+                            _contact_html = (
+                                f"<div style='margin-top:5px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;'>"
+                                f"{''.join(_contact_parts)}"
+                                f"</div>"
+                            )
+                        else:
+                            _contact_html = (
+                                f"<div style='margin-top:5px;font-size:0.8rem;color:#64748b;opacity:0.8;'>"
+                                f"{t('community_profile_empty')}"
+                                f"</div>"
+                            )
 
                         st.markdown(
                             f"""
