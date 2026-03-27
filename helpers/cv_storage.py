@@ -1,3 +1,6 @@
+# CV_STORAGE.PY
+#===============================
+
 import streamlit as st
 import re, math
 import pandas as pd
@@ -39,9 +42,19 @@ def _parse_dob(raw) -> "date | None":
 
 
 def _sanitize_phone(val: str) -> str:
-    """Keep only digits and leading +."""
+    """Keep only digits, +, ( and ) for CV phone input."""
     import re as _re
-    return _re.sub(r"[^\d+]", "", str(val or "")).strip()
+    return _re.sub(r"[^\d+()]", "", str(val or "")).strip()
+
+
+def _is_valid_cv_phone(val: str) -> bool:
+    s = str(val or "").strip()
+    if not s:
+        return True
+    if not re.fullmatch(r"[\d+()]+", s):
+        return False
+    digits = re.sub(r"\D", "", s)
+    return len(digits) >= 6
 
 
 def _cv():
@@ -120,6 +133,22 @@ def _lang_label(code: str) -> str:
         "tr": t("turkish"),
     }
     return labels.get(str(code), str(code))
+
+def _country_options() -> list[str]:
+    try:
+        import pycountry
+        names = sorted({c.name for c in pycountry.countries if getattr(c, "name", None)})
+        return [""] + names
+    except Exception:
+        return [""]
+
+
+def _normalize_country_value(raw: str) -> str:
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    opts = set(_country_options())
+    return s if s in opts else ""
 
 
 # -----------------------------------------------------------------------
@@ -632,11 +661,11 @@ def _sex_label(value: str) -> str:
     mapping = {
         "male": t("sex_male"),
         "female": t("sex_female"),
-        "other": t("other"), 
+        "other": t("sex_other"),
         "prefer_not_to_say": t("sex_prefer_not_to_say"),
-        "": t("select_option"), 
+        "": t("select_option"),
     }
-    return mapping.get(str(value), str(value))
+    return mapping.get(str(value or "").strip(), str(value or ""))
 
 def render_quick_cv_builder_expander() -> None:
     from core.database import load_profile_row, upsert_profile_row
@@ -644,9 +673,26 @@ def render_quick_cv_builder_expander() -> None:
     user_id = get_current_user_id()
     profile = load_profile_row(user_id) if user_id else {}
 
+    _current_cv_owner = str(st.session_state.get("_quick_cv_owner") or "")
+    _current_user_id = str(user_id or "")
+
+    if _current_cv_owner != _current_user_id:
+        for k in (
+            "quick_cv_result",
+            "quick_cv_title",
+            "quick_cv_source_type",
+            "quick_cv_ai_prompt",
+            "quick_cl_result",
+            "quick_cl_title",
+            "quick_cl_ai_prompt",
+            "cv_import_applied",
+        ):
+            st.session_state.pop(k, None)
+
+        st.session_state["_quick_cv_owner"] = _current_user_id
+
     with st.expander(t("quick_cv_builder"), expanded=False):
         st.caption(t("quick_cv_caption"))
-
         usage = get_ai_cv_usage_status()
 
         # ── Import from existing PDF ──────────────────────────────────────
@@ -774,32 +820,44 @@ def render_quick_cv_builder_expander() -> None:
         if "cv_phone" not in st.session_state:
             st.session_state["cv_phone"] = _sanitize_phone(profile.get("phone_number") or "")
         if "cv_location" not in st.session_state:
-            st.session_state["cv_location"] = str(profile.get("country") or "")
+            st.session_state["cv_location"] = _normalize_country_value(profile.get("country") or "")
 
         pi1, pi2, pi3 = st.columns(3)
+        
         with pi1:
             cv_full_name = st.text_input(
                 t("cv_full_name_label"),
                 key="cv_full_name",
             )
+
         with pi2:
             cv_email = st.text_input(
                 t("email"),
                 key="cv_email",
             )
+
         with pi3:
-            cv_phone = st.text_input(
+            cv_phone_raw = st.text_input(
                 t("phone"),
                 placeholder="+1234567890",
                 key="cv_phone",
                 help=t("phone_format_hint"),
             )
-            cv_phone = _sanitize_phone(cv_phone)
-
+            cv_phone = _sanitize_phone(cv_phone_raw)
+  
         pi4, pi5, pi6 = st.columns(3)
         with pi4:
-            cv_location = st.text_input(
+            _country_opts = _country_options()
+            _current_country = _normalize_country_value(st.session_state.get("cv_location"))
+            if _current_country not in _country_opts:
+                _current_country = ""
+                st.session_state["cv_location"] = ""
+
+            cv_location = st.selectbox(
                 t("country_label"),
+                options=_country_opts,
+                index=_country_opts.index(_current_country) if _current_country in _country_opts else 0,
+                format_func=lambda x: x if x else t("select_option"),
                 key="cv_location",
             )
         with pi5:
@@ -813,43 +871,68 @@ def render_quick_cv_builder_expander() -> None:
                 format="YYYY-MM-DD",
                 key="cv_dob",
             )
+
         with pi6:
-            _profile_sex = str(st.session_state.get("cv_sex") or profile.get("sex") or "")
-            if _profile_sex not in SEX_OPTIONS_RAW:
-                _profile_sex = "sex_prefer_not_to_say"
+            def _normalize_sex_value(raw) -> str:
+                v = str(raw or "").strip().lower()
+                aliases = {
+                    "male": "male",
+                    "female": "female",
+                    "other": "other",
+                    "prefer_not_to_say": "prefer_not_to_say",
+                    "prefer not to say": "prefer_not_to_say",
+                    "prefer-not-to-say": "prefer_not_to_say",
+                    "not specified": "",
+                    "unknown": "",
+                    "none": "",
+                    "null": "",
+                    "nan": "",
+                    "": "",
+                }
+                return aliases.get(v, "")
+
+            _saved_profile_sex = _normalize_sex_value(profile.get("sex"))
+            _session_sex = _normalize_sex_value(st.session_state.get("cv_sex"))
+
+            if not _session_sex and _saved_profile_sex:
+                st.session_state["cv_sex"] = _saved_profile_sex
+            elif "cv_sex" not in st.session_state:
+                st.session_state["cv_sex"] = ""
 
             cv_sex = st.selectbox(
                 t("sex"),
                 options=SEX_OPTIONS_RAW,
-                index=SEX_OPTIONS_RAW.index(_profile_sex),
                 format_func=_sex_label,
                 key="cv_sex",
             )
 
         # ── Teaching profile ─────────────────────────────────────────────
         cv_subjects = st.multiselect(
-            t("primary_subjects_label"),
-            PROFILE_SUBJECT_OPTIONS,
-            default=[x for x in (profile.get("primary_subjects") or []) if x in PROFILE_SUBJECT_OPTIONS],
-            format_func=lambda x: t(f"subject_{x.lower()}"),
+            t("main_subjects"),
+            options=PROFILE_SUBJECT_OPTIONS,
+            default=st.session_state.get("cv_subjects", []),
+            format_func=_subject_label,
             key="cv_subjects",
+            placeholder=t("select_option"),
         )
         cv_col1, cv_col2 = st.columns(2)
         with cv_col1:
             cv_stages = st.multiselect(
-                t("teaching_stages_label"),
-                PROFILE_STAGE_OPTIONS,
-                default=[x for x in (profile.get("teaching_stages") or []) if x in PROFILE_STAGE_OPTIONS],
+                t("teaching_stages"),
+                options=PROFILE_STAGE_OPTIONS,
+                default=st.session_state.get("cv_stages", []),
                 format_func=_stage_label,
                 key="cv_stages",
+                placeholder=t("select_option"),
             )
         with cv_col2:
             cv_langs = st.multiselect(
-                t("teaching_languages_label"),
-                PROFILE_TEACH_LANG_OPTIONS,
-                default=[x for x in (profile.get("teaching_languages") or []) if x in PROFILE_TEACH_LANG_OPTIONS],
+                t("teaching_languages"),
+                options=PROFILE_TEACH_LANG_OPTIONS,
+                default=st.session_state.get("cv_langs", []),
                 format_func=_lang_label,
                 key="cv_langs",
+                placeholder=t("select_option"),
             )
 
         role_val = str(profile.get("role") or "teacher")
@@ -938,20 +1021,65 @@ def render_quick_cv_builder_expander() -> None:
         )
 
         if st.button(t("generate_cv"), key="btn_generate_cv", use_container_width=True):
+            validation_errors = []
+
             if not cv_full_name.strip():
-                st.error(t("cv_name_required"))
-            elif cv_mode == "ai" and usage["used_today"] >= AI_CV_DAILY_LIMIT:
-                st.error(t("ai_limit_reached"))
-            elif cv_mode == "ai" and not usage["cooldown_ok"]:
-                st.warning(t("ai_cooldown_active", seconds=usage["seconds_left"]))
+                validation_errors.append(t("cv_name_required"))
+
+            if cv_phone_raw.strip() and not _is_valid_cv_phone(cv_phone_raw):
+                validation_errors.append(t("cv_phone_invalid"))
+
+            if not cv_location.strip():
+                validation_errors.append(t("cv_country_required"))
+            elif not _normalize_country_value(cv_location):
+                validation_errors.append(t("cv_country_invalid"))
+
+            if not cv_subjects:
+                validation_errors.append(t("cv_subject_required"))
+
+            if not cv_stages:
+                validation_errors.append(t("cv_stage_required"))
+
+            if not cv_langs:
+                validation_errors.append(t("cv_language_required"))
+
+            if cv_mode == "ai" and usage["used_today"] >= AI_CV_DAILY_LIMIT:
+                validation_errors.append(t("ai_limit_reached"))
+
+            if cv_mode == "ai" and not usage["cooldown_ok"]:
+                validation_errors.append(
+                    t("ai_cooldown_active", seconds=usage["seconds_left"])
+                )
+
+            if validation_errors:
+                for msg in validation_errors:
+                    st.error(msg)
             else:
+                if user_id:
+                    _profile_patch = {
+                        "country": cv_location.strip(),
+                        "date_of_birth": str(cv_dob) if cv_dob else None,
+                        "sex": _normalize_sex_value(cv_sex) if cv_sex else None,
+                        "primary_subjects": cv_subjects,
+                        "teaching_stages": cv_stages,
+                        "teaching_languages": cv_langs,
+                        "role": cv_role,
+                    }
+
+                    _profile_ok = upsert_profile_row(user_id, _profile_patch)
+                    if not _profile_ok:
+                        st.error(t("cv_profile_save_failed"))
+                        st.stop()
+
+                    clear_app_caches()
+
                 _kwargs = dict(
                     full_name=cv_full_name.strip(),
                     email=cv_email.strip(),
                     phone=cv_phone.strip(),
                     location=cv_location.strip(),
                     date_of_birth=str(cv_dob) if cv_dob else "",
-                    sex=cv_sex or "",
+                    sex=_normalize_sex_value(cv_sex) if cv_sex else "",
                     subjects=cv_subjects,
                     teaching_stages=cv_stages,
                     teaching_languages=cv_langs,
@@ -970,27 +1098,19 @@ def render_quick_cv_builder_expander() -> None:
                     try:
                         if cv_mode == "ai":
                             _log_ai_cv("requested", {"doc": "cv"})
-                            generated_cv = _cv().build_ai_cv(**_kwargs, user_prompt=cv_ai_prompt)
+                            generated_cv = _cv().build_ai_cv(
+                                **_kwargs,
+                                user_prompt=cv_ai_prompt,
+                            )
                             _log_ai_cv("success", {"doc": "cv"})
                         else:
                             generated_cv = _cv().build_template_cv(**_kwargs)
 
-                        # Persist new profile fields if provided
-                        if user_id:
-                            _profile_patch = {}
-                            if cv_dob:
-                                _profile_patch["date_of_birth"] = str(cv_dob)
-                            if cv_sex:
-                                _profile_patch["sex"] = cv_sex
-                            if cv_phone.strip():
-                                _profile_patch["phone_number"] = cv_phone.strip()
-                            if _profile_patch:
-                                upsert_profile_row(user_id, _profile_patch)
-
-                        st.session_state["quick_cv_result"]      = generated_cv
-                        st.session_state["quick_cv_title"]       = cv_doc_title.strip()
+                        st.session_state["quick_cv_result"] = generated_cv
+                        st.session_state["quick_cv_title"] = cv_doc_title.strip()
                         st.session_state["quick_cv_source_type"] = cv_mode
-                        st.session_state["quick_cv_ai_prompt"]   = cv_ai_prompt
+                        st.session_state["quick_cv_ai_prompt"] = cv_ai_prompt
+                        st.session_state["_quick_cv_owner"] = str(user_id or "")
 
                     except Exception as e:
                         st.error(f"{t('cv_generation_failed')}: {e}")
@@ -1004,7 +1124,7 @@ def render_quick_cv_builder_expander() -> None:
                                 user_prompt=cv_cl_prompt,
                             )
                             _log_ai_cv("success", {"doc": "cover_letter"})
-                            st.session_state["quick_cl_result"]    = cl_text
+                            st.session_state["quick_cl_result"] = cl_text
                             st.session_state["quick_cl_title"] = (
                                 f"{t('cover_letter')} – {cv_full_name.strip()}"
                                 if cv_full_name.strip()
@@ -1013,7 +1133,6 @@ def render_quick_cv_builder_expander() -> None:
                             st.session_state["quick_cl_ai_prompt"] = cv_cl_prompt
                         except Exception as e:
                             st.error(f"{t('cv_generation_failed')}: {e}")
-
         # ── Display CV result ────────────────────────────────────────────
         cv_result = st.session_state.get("quick_cv_result")
         if cv_result:

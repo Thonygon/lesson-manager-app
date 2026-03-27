@@ -408,7 +408,7 @@ def _render_view_payments():
     payments["paid_amount"] = pd.to_numeric(payments["paid_amount"], errors="coerce").fillna(0.0)
     payments["number_of_lesson"] = pd.to_numeric(payments["number_of_lesson"], errors="coerce").fillna(0).astype(int)
     payments["student"] = payments["student"].fillna("").astype(str).str.strip()
-    payments["modality"] = payments["modality"].fillna("online").astype(str).str.strip()
+    payments["modality"] = payments["modality"].fillna("Online").astype(str).str.strip()
     payments["subject"] = payments["subject"].fillna("").astype(str).str.strip()
     payments["subject_custom"] = payments["subject_custom"].fillna("").astype(str).str.strip()
     payments["currency"] = payments["currency"].fillna("").astype(str).str.strip()
@@ -450,39 +450,39 @@ def _render_view_payments():
         cur = row["currency"]
         sym = currency_symbol(cur) if cur else ""
 
-        modality_label = t("online") if modality == "online" else t("offline")
-        modality_color = "#0ea5e9" if modality == "online" else "#f59e0b"
+        modality_label = t("online") if modality == "Online" else t("offline")
+        modality_color = "#0ea5e9" if modality == "Online" else "#f59e0b"
         amount_str = f"{sym} {amount:,.0f}" if sym else f"{amount:,.0f}"
 
         st.markdown(
             f"""
             <div style="
-                background:#fff;
-                border:1px solid rgba(17,24,39,0.08);
-                border-left:4px solid #3B82F6;
+                background:linear-gradient(180deg, var(--panel), var(--panel-2));
+                border:1px solid var(--border);
+                border-left:4px solid var(--primary);
                 border-radius:12px;
                 padding:14px 16px 12px 16px;
                 margin-bottom:10px;
-                box-shadow:0 1px 4px rgba(0,0,0,0.04);
+                box-shadow:var(--shadow-md);
             ">
                 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
-                    <div style="font-weight:700;font-size:1rem;color:#0f172a;">
+                    <div style="font-weight:700;font-size:1rem;color:var(--text);">
                         {student_name}
                     </div>
-                    <div style="font-size:1.05rem;font-weight:800;color:#1e40af;">
+                    <div style="font-size:1.05rem;font-weight:800;color:var(--primary-strong);">
                         {amount_str}
                     </div>
                 </div>
                 <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
-                    <span style="font-size:0.82rem;color:#64748b;">📅 {date_str}</span>
-                    <span style="font-size:0.82rem;color:#64748b;">·</span>
-                    <span style="font-size:0.82rem;color:#64748b;">📚 {lessons} {t('lessons_paid')}</span>
-                    <span style="font-size:0.82rem;color:#64748b;">·</span>
+                    <span style="font-size:0.82rem;color:var(--muted);">📅 {date_str}</span>
+                    <span style="font-size:0.82rem;color:var(--muted);">·</span>
+                    <span style="font-size:0.82rem;color:var(--muted);">📚 {lessons} {t('lessons_paid')}</span>
+                    <span style="font-size:0.82rem;color:var(--muted);">·</span>
                     <span style="font-size:0.82rem;padding:2px 8px;border-radius:10px;
                                  background:{modality_color}22;color:{modality_color};font-weight:600;">
                         {modality_label}
                     </span>
-                    {f'<span style="font-size:0.82rem;color:#64748b;">· 📖 {subject}</span>' if subject != "—" else ""}
+                    {f'<span style="font-size:0.82rem;color:var(--muted);">· 📖 {subject}</span>' if subject != "—" else ""}
                 </div>
             </div>
             """,

@@ -668,7 +668,7 @@ def render_analytics():
             pw = pw[(pw["payment_date"] >= week_start) & (pw["payment_date"] <= week_end)].copy()
 
             if pw.empty:
-                st.info(t("no_data"))
+                st.info(t("no_data_week"))
             else:
                 pw["Day"] = pw["payment_date"].dt.strftime("%a %d")
                 weekly = pw.groupby("Day", as_index=False)["paid_amount"].sum().rename(columns={"paid_amount": "Income"})
@@ -808,7 +808,7 @@ def render_analytics():
         else:
             _callout(
                 t("what_this_means"),
-                "This section explains your teaching business in simple numbers: income, stability, and what to do next.",
+                t("analytics_simple_explanation"),
             )
 
         st.markdown(f"#### {t('next_steps')}")

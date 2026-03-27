@@ -53,7 +53,7 @@ def _subject_label(value: str) -> str:
         "english": t("subject_english"),
         "spanish": t("subject_spanish"),
         "turkish": t("subject_turkish"),
-        "math": t("subject_math"),
+        "mathematics": t("subject_mathematics"),
         "science": t("subject_science"),
         "other": t("other"),
     }
@@ -292,7 +292,7 @@ _IMPORT_SYSTEM_PROMPT = (
     '  "phone": "string",\n'
     '  "location": "string",\n'
     '  "date_of_birth": "YYYY-MM-DD or empty string",\n'
-    '  "sex": "sex_male|sex_female|sex_other|sex_prefer_not_to_say|empty string",\n'
+    '  "sex": "male|female|other|prefer_not_to_say|empty string",\n'
     '  "role": "teacher|tutor",\n'
     '  "professional_summary": "string",\n'
     '  "subjects": ["string"],\n'

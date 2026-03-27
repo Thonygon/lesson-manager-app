@@ -2,9 +2,6 @@
 # CLASSIO — Streamlit App Entrypoint
 # ============================================================
 import streamlit as st
-from helpers.ui_components import inject_loading_screen
-
-inject_loading_screen()
 
 st.set_page_config(
     page_title="Classio",
@@ -12,6 +9,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+from helpers.ui_components import inject_loading_screen
+
+inject_loading_screen()
 
 from styles.theme import remove_streamlit_top_spacing
 from helpers.ui_components import inject_pwa_head
