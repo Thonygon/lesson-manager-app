@@ -40,18 +40,32 @@ def _clean_plan_text(text: str) -> str:
     """Replace code-like key references with translated labels in plan content."""
     if not text:
         return text
+
+    def _fallback_label(key: str) -> str:
+        return str(key or "").replace("_", " ").strip().capitalize()
+
     for pat in _PLAN_KEY_PATTERNS:
-        # strip "core_material." prefix to get the translation key
         tkey = pat.split(".")[-1]
         translated = t(tkey)
-        # replace various quote/bracket styles: 'key', "key", `key`, key:
+
+        # Fallback in case the translation key is missing
+        if not translated or translated == tkey:
+            translated = _fallback_label(tkey)
+
+        # Replace exact quoted/code forms first
         text = text.replace(f"'{pat}'", translated)
         text = text.replace(f'"{pat}"', translated)
         text = text.replace(f"`{pat}`", translated)
-        text = text.replace(f"{pat}:", f"{translated}:")
-        text = text.replace(f"{pat},", f"{translated},")
-        text = text.replace(f"{pat}.", f"{translated}.")
-        text = text.replace(f"{pat} ", f"{translated} ")
+
+        # Replace both full key and short key safely inside punctuation/brackets
+        variants = [pat, tkey]
+        for variant in variants:
+            text = re.sub(
+                rf"(?<![A-Za-z0-9_]){re.escape(variant)}(?![A-Za-z0-9_])",
+                translated,
+                text,
+            )
+
     return text
 
 
@@ -163,7 +177,7 @@ def planner_payload_from_inputs(
         "planner_mode": mode,
         "plan_json": plan,
         "title": _clean_display_text(plan.get("title") or ""),
-        "author_name": str(st.session_state.get("user_name") or "Unknown").strip(),
+        "author_name": str(st.session_state.get("user_name") or t("unknown")).strip(),
         "subject_display": subject,
         "is_public": True,
         "created_at": _dt.now(timezone.utc).isoformat(),
@@ -192,7 +206,7 @@ def save_lesson_plan_record(
         get_sb().table("lesson_plans").insert(payload).execute()
         return True
     except Exception as e:
-        st.warning(f"Could not save lesson plan: {e}")
+        st.warning(f"{t('could_not_save_lesson_plan')}: {e}")
         return False
 
 def load_my_lesson_plans() -> pd.DataFrame:
@@ -213,7 +227,7 @@ def load_my_lesson_plans() -> pd.DataFrame:
         return df.reset_index(drop=True)
 
     except Exception as e:
-        st.error(f"Could not load your lesson plans: {e}")
+        st.error(f"{t('could_not_load_your_lesson_plans')}: {e}")
         return pd.DataFrame()
 
 
@@ -238,7 +252,7 @@ def load_public_lesson_plans() -> pd.DataFrame:
         return df.reset_index(drop=True)
 
     except Exception as e:
-        st.error(f"Could not load community lesson plans: {e}")
+        st.error(f"{t('could_not_load_community_lesson_plans')}: {e}")
         return pd.DataFrame()
 
 def format_plan_datetime(value) -> str:
@@ -782,14 +796,14 @@ def build_lesson_plan_pdf_bytes(
         add_section("target_vocabulary", [", ".join(core_material.get("target_vocabulary", []))])
     if core_material.get("language_frames"):
         add_section("language_frames", core_material.get("language_frames", []))
+    if core_material.get("pre_task_questions"):    
+        add_section("pre_task_questions", core_material.get("pre_task_questions", []))
+    if core_material.get("gist_questions"):
+        add_section("gist_questions", core_material.get("gist_questions", []))        
     if plan.get("reading_passage"):
         add_section("reading_passage", plan.get("reading_passage", ""))
     if plan.get("listening_script"):
         add_section("listening_script", plan.get("listening_script", ""))
-    if core_material.get("pre_task_questions"):
-        add_section("pre_task_questions", core_material.get("pre_task_questions", []))
-    if core_material.get("gist_questions"):
-        add_section("gist_questions", core_material.get("gist_questions", []))
     if core_material.get("detail_questions"):
         add_section("detail_questions", core_material.get("detail_questions", []))
     if core_material.get("post_task"):

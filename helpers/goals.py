@@ -129,7 +129,7 @@ def save_app_setting(key: str, value, key_fallbacks: list[str] | None = None) ->
 
     uid = get_current_user_id()
     if not uid:
-        st.error("Missing user_id while saving app setting.")
+        st.error(t("missing_user_id_app_setting"))
         return False
 
     try:
@@ -140,7 +140,7 @@ def save_app_setting(key: str, value, key_fallbacks: list[str] | None = None) ->
         clear_app_caches()
         return True
     except Exception as e:
-        st.error(f"Could not save app setting '{key}': {e}")
+        st.error(t("error_save_app_setting").format(key=key, error=e))
         return False
 
 
@@ -279,10 +279,10 @@ def render_home_indicator(
 
     if items is None:
         items = [
-            (t("students"), "0"),
-            (t("ytd_income"), "₺0"),   # fixed key (was "ydt_income")
-            (t("goal"), "0"),
             (t("next"), t("no_events")),
+            (t("goal"), "0"),
+            (t("ytd_income"), "₺0"),  
+            (t("students"), "0"),
         ]
     else:
         # If caller passed raw keys like ("students","0"), translate labels

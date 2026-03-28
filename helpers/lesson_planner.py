@@ -1443,7 +1443,7 @@ def _generate_with_openrouter(system_prompt: str, user_prompt: str) -> str:
         api_key = str(os.getenv("OPENROUTER_API_KEY", "")).strip()
 
     if not api_key:
-        raise RuntimeError("Missing OPENROUTER_API_KEY.")
+        raise RuntimeError(t("missing_openrouter_api_key"))
 
     client = OpenAI(
         api_key=api_key,
@@ -1461,7 +1461,7 @@ def _generate_with_openrouter(system_prompt: str, user_prompt: str) -> str:
 
     raw_text = str(response.choices[0].message.content or "").strip()
     if not raw_text:
-        raise ValueError("Empty AI response.")
+        raise ValueError(t("empty_ai_response"))
 
     return raw_text
 
@@ -1479,7 +1479,7 @@ def _generate_with_gemini(system_prompt: str, user_prompt: str) -> str:
         api_key = str(os.getenv("GEMINI_API_KEY", "")).strip()
 
     if not api_key:
-        raise RuntimeError ("Missing GEMINI_API_KEY.")
+        raise RuntimeError (t("missing_gemini_api_key"))
 
     client = genai.Client(api_key=api_key)
 
@@ -1492,7 +1492,7 @@ def _generate_with_gemini(system_prompt: str, user_prompt: str) -> str:
 
     raw_text = str(getattr(response, "text", "") or "").strip()
     if not raw_text:
-        raise ValueError("Empty Gemini response.")
+        raise ValueError(t("empty_gemini_response"))
 
     return raw_text
 
@@ -1602,11 +1602,13 @@ def generate_quick_lesson_plan_with_fallback(
     usage = get_ai_planner_usage_status()
 
     if usage["used_today"] >= AI_DAILY_LIMIT:
-        return template_plan, "template", t("ai_limit_reached") if "ai_limit_reached" in I18N.get(get_plan_language(), {}) else "AI daily limit reached. Template plan generated instead."
+        return template_plan, "template", t("ai_limit_reached")
 
     if not usage["cooldown_ok"]:
-        return template_plan, "template", f"AI cooldown active. Please wait {usage['seconds_left']} seconds. Template plan generated instead."
-
+        return template_plan, "template", t(
+            "ai_cooldown_active",
+            seconds=usage["seconds_left"]
+        )
     try:
         log_ai_usage(
             request_kind="quick_lesson_ai",

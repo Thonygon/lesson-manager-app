@@ -61,6 +61,11 @@ def render_add_lesson():
     render_quick_lesson_planner_expander()
 
     st.markdown(f"### {t('record_attendance')}")
+
+    if st.session_state.get("lesson_saved"):
+        st.success(t("saved"))
+        del st.session_state["lesson_saved"]
+
     if not students:
         st.info(t("no_students"))
     else:
@@ -74,13 +79,14 @@ def render_add_lesson():
             format_func=lambda x: t("online") if x == "Online" else t("offline"),
             key="lesson_modality",
         )
-        note = st.text_input(t("notes_optional"), key="lesson_note")
+
+        note = st.text_input(t("note_lesson"), key="lesson_note")
 
         pkg_lang = latest_payment_languages_for_student(student)
         _, lang_default = allowed_lesson_language_from_package(pkg_lang)
 
         # Subject selector — QUICK_SUBJECTS
-        _subject_options = QUICK_SUBJECTS 
+        _subject_options = QUICK_SUBJECTS
         _subject_default_idx = 0
         if lang_default in QUICK_SUBJECTS:
             _subject_default_idx = QUICK_SUBJECTS.index(lang_default)
@@ -116,7 +122,8 @@ def render_add_lesson():
                 subject=subject_db,
                 subject_custom=subject_custom,
             )
-            st.success(t("saved"))
+
+            st.session_state["lesson_saved"] = True
             st.rerun()
 
         with st.expander(t("lesson_editor"), expanded=False):
