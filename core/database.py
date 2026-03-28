@@ -359,12 +359,31 @@ def load_profile_row(user_id: str) -> dict:
         st.error(f"Could not load profile: {e}")
     return {}
 
+def _normalize_profile_sex(raw) -> str | None:
+    v = str(raw or "").strip().lower()
+    aliases = {
+        "male": "male",
+        "female": "female",
+        "other": "other",
+        "prefer_not_to_say": "prefer_not_to_say",
+        "prefer not to say": "prefer_not_to_say",
+        "prefer-not-to-say": "prefer_not_to_say",
+        "": None,
+        "none": None,
+        "null": None,
+    }
+    return aliases.get(v, None)
 
 def upsert_profile_row(user_id: str, payload: dict) -> bool:
     if not user_id:
         return False
+
     clean = dict(payload or {})
     clean["user_id"] = str(user_id)
+
+    if "sex" in clean:
+        clean["sex"] = _normalize_profile_sex(clean.get("sex"))
+
     try:
         sb = get_sb()
         sb.table("profiles").upsert(clean, on_conflict="user_id").execute()
@@ -373,6 +392,8 @@ def upsert_profile_row(user_id: str, payload: dict) -> bool:
     except Exception as e:
         st.error(f"Could not save profile: {e}")
         return False
+
+
 
 
 # ---- CRUD ----
@@ -399,6 +420,7 @@ def add_class(
 
 def add_payment(student: str, number_of_lesson: int, payment_date: str,
                 paid_amount: float, modality: str, subject: str = "",
+                subject_custom: Optional[str] = None,
                 package_start_date: Optional[str] = None,
                 package_expiry_date: Optional[str] = None,
                 lesson_adjustment_units: int = 0,
@@ -417,6 +439,7 @@ def add_payment(student: str, number_of_lesson: int, payment_date: str,
         "paid_amount": float(paid_amount),
         "modality": str(modality).strip(),
         "subject": str(subject).strip() if subject else "",
+        "subject_custom": str(subject_custom).strip() if subject_custom else None,
         "package_start_date": package_start_date,
         "package_expiry_date": package_expiry_date if package_expiry_date else None,
         "lesson_adjustment_units": int(lesson_adjustment_units),

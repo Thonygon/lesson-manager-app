@@ -334,6 +334,12 @@ I18N: Dict[str, Dict[str, str]] = {
         "cv_cl_default_prompt": "Write a strong general cover letter for private tutoring opportunities.",
         "subject_turkish": "Turkish",
         "select_option": "Select...",
+        "cv_phone_invalid": "Phone number can only contain numbers, +, ( and ).",
+        "cv_country_required": "Please select a country.",
+        "cv_subject_required": "Please select at least one main subject.",
+        "cv_stage_required": "Please select at least one teaching stage.",
+        "cv_language_required": "Please select at least one teaching language.",
+        "cv_profile_save_failed": "Your profile could not be saved, so the CV was not generated.",
         
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -1273,8 +1279,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "passwords_do_not_match": "Las contraseñas no coinciden.",
         "password_too_short": "La contraseña debe tener al menos 6 caracteres.",
         "wrong_current_password": "La contraseña actual es incorrecta.",
-        "teacher_role": "Profesor",
-        "tutor_role": "Tutor",
+        "teacher_role": "Profesor/a",
+        "tutor_role": "Tutor/a",
         "role_label": "Rol",
         "subject_english": "Inglés",
         "subject_spanish": "Español",
@@ -1295,7 +1301,13 @@ I18N: Dict[str, Dict[str, str]] = {
         "cv_ai_default_prompt": "Crea un CV profesional para un profesor privado.",
         "cv_cl_default_prompt": "Escribe una carta de presentación general sólida para oportunidades de tutoría privada.",
         "subject_turkish": "Turco",
-        "select_option": "Opciones",
+        "select_option": "Selecciona...",
+        "cv_phone_invalid": "El número de teléfono solo puede contener números, +, ( y ).",
+        "cv_country_required": "Por favor selecciona un país.",
+        "cv_subject_required": "Por favor selecciona al menos una materia principal.",
+        "cv_stage_required": "Por favor selecciona al menos una etapa educativa.",
+        "cv_language_required": "Por favor selecciona al menos un idioma que enseñas.",
+        "cv_profile_save_failed": "No se pudo guardar tu perfil, así que el CV no fue generado.",
 
         # -------------------------
         # COMMON ACTIONS / STATES
@@ -1753,7 +1765,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "whatsapp_tpl_cancel": "3) Cancelar clase",
 
         "whatsapp_no_students_for_template": "No hay estudiantes disponibles para esta plantilla en este momento.",
-                # -------------------------
+        
+        # -------------------------
         # ANALYTICS PAGE
         # -------------------------
 
@@ -2257,7 +2270,14 @@ I18N: Dict[str, Dict[str, str]] = {
         "cv_ai_default_prompt": "Profilinizden otomatik doldurularak profesyonel bir öğretmen CV'si oluşturun.",
         "cv_cl_default_prompt": "Özel ders fırsatları için güçlü bir genel ön yazı yazın.",
         "subject_turkish": "Türkçe",
-        "select_option": "Seçin",
+        "select_option": "Seçin...",
+        "cv_phone_invalid": "Telefon numarası yalnızca rakam, +, ( ve ) içerebilir.",
+        "cv_country_required": "Lütfen bir ülke seçin.",
+        "cv_subject_required": "Lütfen en az bir ana ders seçin.",
+        "cv_stage_required": "Lütfen en az bir öğretim kademesi seçin.",
+        "cv_language_required": "Lütfen öğrettiğiniz en az bir dili seçin.",
+        "cv_profile_save_failed": "Profiliniz kaydedilemediği için CV oluşturulmadı.",
+
 
         # -------------------------
         # COMMON ACTIONS / STATES
