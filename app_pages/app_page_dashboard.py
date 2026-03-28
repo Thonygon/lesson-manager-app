@@ -8,7 +8,7 @@ from core.navigation import page_header, go_to
 from core.database import norm_student, update_payment_row, clear_app_caches
 from helpers.dashboard import rebuild_dashboard
 from helpers.student_meta import student_meta_maps
-from helpers.goals import load_app_settings_map, save_app_setting, render_home_indicator, YEAR_GOAL_SCOPE, get_next_lesson_display
+from helpers.goals import render_home_indicator, YEAR_GOAL_SCOPE, get_next_lesson_display
 from helpers.kpi_bubbles import kpi_stat_cards
 from helpers.ui_components import pretty_df, translate_df_headers, translate_df, ts_today_naive, render_styled_dataframe
 from helpers.analytics import build_income_analytics
@@ -25,9 +25,209 @@ from helpers.student_report import (
     build_report_email_url,
 )
 import re as _re
+import html as _html
 
 # 12.1) PAGE: DASHBOARD
 # =========================
+def _svg_zoom_icon() -> str:
+    return """
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+      <path d="M15 8.5V6.8c0-.86 0-1.29-.17-1.62a1.5 1.5 0 0 0-.66-.66C13.84 4.35 13.41 4.35 12.55 4.35H6.45c-.86 0-1.29 0-1.62.17a1.5 1.5 0 0 0-.66.66C4 5.51 4 5.94 4 6.8v6.4c0 .86 0 1.29.17 1.62.15.29.37.51.66.66.33.17.76.17 1.62.17h6.1c.86 0 1.29 0 1.62-.17.29-.15.51-.37.66-.66.17-.33.17-.76.17-1.62V11.5l3.2 2.4c.45.34.68.51.87.52a.75.75 0 0 0 .55-.19c.16-.14.16-.43.16-1V7.77c0-.57 0-.86-.16-1a.75.75 0 0 0-.55-.19c-.19.01-.42.18-.87.52L15 8.5Z" fill="currentColor"/>
+    </svg>
+    """
+
+def _svg_whatsapp_icon() -> str:
+    return """
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+      <path d="M12 4a8 8 0 0 0-6.93 12l-.82 3.02 3.1-.8A8 8 0 1 0 12 4Zm4.27 11.24c-.18.5-.9.92-1.25.97-.32.05-.72.08-1.16-.06-.27-.09-.62-.2-1.07-.39-1.88-.82-3.1-2.73-3.2-2.86-.1-.13-.76-1.01-.76-1.93 0-.92.48-1.37.65-1.56.17-.18.37-.23.5-.23h.36c.11 0 .26-.04.4.3.15.35.5 1.2.54 1.29.05.09.08.2.02.33-.06.13-.09.21-.18.32-.09.1-.19.24-.27.32-.09.09-.18.18-.08.35.1.17.45.74.96 1.2.66.59 1.22.78 1.39.87.17.08.27.07.37-.04.1-.11.42-.49.53-.66.11-.17.22-.14.37-.08.15.05.96.45 1.12.53.16.08.27.12.31.19.04.07.04.42-.14.92Z" fill="currentColor"/>
+    </svg>
+    """
+
+def _render_today_lessons_cards(df: pd.DataFrame, phone_map: dict) -> None:
+    st.markdown(
+        """
+        <style>
+          .dash-today-list{
+            display:flex;
+            flex-direction:column;
+            gap:12px;
+            margin-top:8px;
+          }
+
+          .dash-today-card{
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:14px;
+            padding:14px 16px;
+            border-radius:18px;
+            background:linear-gradient(180deg, var(--panel), var(--panel-2));
+            border:1px solid var(--border);
+            box-shadow:var(--shadow-sm);
+          }
+
+          .dash-today-main{
+            min-width:0;
+            flex:1 1 auto;
+          }
+
+          .dash-today-top{
+            display:flex;
+            align-items:center;
+            flex-wrap:wrap;
+            gap:8px;
+            margin-bottom:8px;
+          }
+
+          .dash-today-name{
+            font-size:1rem;
+            font-weight:800;
+            color:var(--text);
+            line-height:1.2;
+          }
+
+          .dash-today-time{
+            display:inline-flex;
+            align-items:center;
+            padding:4px 10px;
+            border-radius:999px;
+            font-size:0.78rem;
+            font-weight:800;
+            color:var(--primary-strong);
+            background:rgba(59,130,246,0.10);
+            border:1px solid rgba(59,130,246,0.20);
+            white-space:nowrap;
+          }
+
+          .dash-today-meta{
+            display:flex;
+            flex-wrap:wrap;
+            gap:8px;
+          }
+
+          .dash-today-chip{
+            display:inline-flex;
+            align-items:center;
+            gap:6px;
+            padding:4px 10px;
+            border-radius:999px;
+            font-size:0.78rem;
+            font-weight:700;
+            color:var(--muted);
+            background:rgba(148,163,184,0.08);
+            border:1px solid var(--border);
+            white-space:nowrap;
+          }
+
+          .dash-today-actions{
+            display:flex;
+            align-items:center;
+            justify-content:flex-end;
+            gap:8px;
+            flex:0 0 auto;
+          }
+
+          .dash-today-icon-btn{
+            width:42px;
+            height:42px;
+            border-radius:14px;
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            text-decoration:none !important;
+            border:1px solid var(--border);
+            background:linear-gradient(180deg, var(--panel-soft), var(--panel));
+            color:var(--text) !important;
+            box-shadow:var(--shadow-sm);
+            transition:transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+          }
+
+          .dash-today-icon-btn:hover{
+            transform:translateY(-1px);
+            border-color:rgba(59,130,246,0.28);
+            box-shadow:var(--shadow-md);
+          }
+
+          .dash-today-icon-btn--zoom{
+            color:#2563EB !important;
+          }
+
+          .dash-today-icon-btn--wa{
+            color:#22C55E !important;
+          }
+
+          @media (max-width: 768px){
+            .dash-today-card{
+              align-items:flex-start;
+              flex-direction:column;
+            }
+
+            .dash-today-actions{
+              width:100%;
+              justify-content:flex-start;
+            }
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    cards = []
+
+    for _, r in df.iterrows():
+        student = str(r.get("Student", "") or "").strip()
+        when = str(r.get("Time", "") or "").strip()
+        zoom_link = str(r.get("Zoom_Link", "") or "").strip()
+        subject = str(r.get("Subject", "") or "").strip()
+        modality_raw = str(r.get("Modality", "") or "").strip()
+        source = str(r.get("Source", "") or "").strip().lower()
+
+        phone_raw = str(phone_map.get(norm_student(student), "") or "").strip()
+        wa_url = build_whatsapp_url("", raw_phone=phone_raw) if phone_raw else ""
+
+        meta_bits = []
+        if subject:
+            meta_bits.append(
+                f"<span class='dash-today-chip'>📚 {_html.escape(subject)}</span>"
+            )
+        if modality_raw:
+            meta_bits.append(
+                f"<span class='dash-today-chip'>📍 {_html.escape(translate_modality_value(modality_raw))}</span>"
+            )
+
+        actions = []
+        if zoom_link.startswith("http"):
+            actions.append(
+                f"<a class='dash-today-icon-btn dash-today-icon-btn--zoom' "
+                f"href='{_html.escape(zoom_link, quote=True)}' target='_blank' rel='noopener noreferrer' "
+                f"title='Zoom'>{_svg_zoom_icon()}</a>"
+            )
+        if wa_url and phone_raw:
+            actions.append(
+                f"<a class='dash-today-icon-btn dash-today-icon-btn--wa' "
+                f"href='{_html.escape(wa_url, quote=True)}' target='_blank' rel='noopener noreferrer' "
+                f"title='WhatsApp'>{_svg_whatsapp_icon()}</a>"
+            )
+
+        card_html = (
+            f'<div class="dash-today-card">'
+            f'  <div class="dash-today-main">'
+            f'    <div class="dash-today-top">'
+            f'      <span class="dash-today-name">{_html.escape(student or "—")}</span>'
+            f'      {"<span class=\"dash-today-time\">🕒 " + _html.escape(when) + "</span>" if when else ""}'
+            f'    </div>'
+            f'    {"<div class=\"dash-today-meta\">" + "".join(meta_bits) + "</div>" if meta_bits else ""}'
+            f'  </div>'
+            f'  {"<div class=\"dash-today-actions\">" + "".join(actions) + "</div>" if actions else ""}'
+            f'</div>'
+        )
+        cards.append(card_html)
+
+    if cards:
+        st.markdown(
+            "<div class='dash-today-list'>" + "".join(cards) + "</div>",
+            unsafe_allow_html=True,
+        )
 
 def render_dashboard():
     page_header(t("dashboard"))
@@ -95,19 +295,9 @@ def render_dashboard():
             st.rerun()
 
     # ---------------------------------------
-    # TODAY'S LESSONS (row: done | student+time | link)
+    # TODAY'S LESSONS
     # ---------------------------------------
     st.subheader("📅 " + t("todays_lessons"))
-
-    st.markdown(
-        """
-        <style>
-          .tl-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
-          .tl-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
 
     today = today_local()
     today_events = build_calendar_events(today, today)
@@ -119,96 +309,24 @@ def render_dashboard():
         st.caption(t("no_events_today"))
     else:
         df = today_events.copy()
-        df["Student"] = df["Student"].astype(str).str.strip()
-        df["Time"] = df["Time"].astype(str).str.strip()
-        df["Zoom_Link"] = df.get("Zoom_Link", "").fillna("").astype(str).str.strip()
-        df["Source"] = df.get("Source", "").fillna("").astype(str).str.strip().str.lower()
+
+        for col in ["Student", "Time", "Zoom_Link", "Source", "Subject", "Modality"]:
+            if col not in df.columns:
+                df[col] = ""
+
+        df["Student"] = df["Student"].fillna("").astype(str).str.strip()
+        df["Time"] = df["Time"].fillna("").astype(str).str.strip()
+        df["Zoom_Link"] = df["Zoom_Link"].fillna("").astype(str).str.strip()
+        df["Source"] = df["Source"].fillna("").astype(str).str.strip().str.lower()
+        df["Subject"] = df["Subject"].fillna("").astype(str).str.strip()
+        df["Modality"] = df["Modality"].fillna("").astype(str).str.strip()
+
         df = df.sort_values("Time").reset_index(drop=True)
 
-        # Save for WhatsApp Templates
         today_df = df.copy()
-        settings_map = load_app_settings_map()
 
-        for _, r in df.iterrows():
-            student = str(r.get("Student", "")).strip()
-            when = str(r.get("Time", "")).strip()
-            link = str(r.get("Zoom_Link", "")).strip()
-
-            # Stable unique lesson key per event
-            lesson_id = f"{today.isoformat()}_{student}_{when}"
-            key_done = f"today_done_{lesson_id}"
-
-            # Load persisted value once per run
-            saved_done_raw = settings_map.get(key_done, "0")
-            saved_done = str(saved_done_raw).strip().lower() in ("1", "true", "yes", "y", "on")
-
-            if key_done not in st.session_state:
-                st.session_state[key_done] = saved_done
-
-            # ✅ Row layout: Done | Info | Link
-            c_done, c_info, c_link = st.columns([0.55, 2.2, 1.3], vertical_alignment="center")
-
-            with c_done:
-                old_done = saved_done
-                done_now = st.toggle(
-                    t("mark_done"),
-                    value=bool(st.session_state.get(key_done, saved_done)),
-                    key=f"{key_done}_widget",
-                )
-
-                if done_now != old_done:
-                    ok = save_app_setting(key_done, "1" if done_now else "0")
-                    if ok:
-                        st.session_state[key_done] = done_now
-                    else:
-                       st.session_state[key_done] = old_done
-                       st.error("Could not save lesson completion status.")
-
-            # Styling AFTER the toggle value is known
-            done_effective = bool(st.session_state.get(key_done, saved_done))
-
-            name_style = "font-weight:900;"
-            time_style = "font-weight:900;"
-            if done_effective:
-                name_style += "text-decoration:line-through; opacity:0.55;"
-                time_style += "text-decoration:line-through; opacity:0.55;"
-
-            with c_info:
-                st.markdown(
-                    f"""
-                    <div class='tl-row'>
-                      <div class='tl-left'>
-                        <span style="{name_style}">{student}</span>
-                        <span style="{time_style}">{when}</span>
-                      </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-            with c_link:
-                # Link disappears when done (keeps dashboard clean)
-                if (not done_effective) and link.startswith("http"):
-                    try:
-                        st.link_button(
-                            t("open_link"),
-                            link,
-                            use_container_width=True,
-                            key=f"today_link_{lesson_id}",
-                        )
-                    except Exception:
-                        st.markdown(
-                            f"<a href='{link}' target='_blank' style='text-decoration:none;'>"
-                            f"<button style='width:100%;padding:0.62rem 1.0rem;border-radius:14px;"
-                            f"border:1px solid var(--border2, rgba(17,24,39,0.10));"
-                            f"background:linear-gradient(180deg, var(--panel), var(--panel-2));"
-                            f"color:var(--text);font-weight:700;cursor:pointer;'>"
-                            f"{t('open_link')}</button></a>",
-                            unsafe_allow_html=True,
-                        
-                        )
-                else:
-                    st.markdown("<div style='height:38px;'></div>", unsafe_allow_html=True)
+        _, _, _, phone_map = student_meta_maps()
+        _render_today_lessons_cards(df, phone_map)
 
     # ---------------------------------------
     # TAKE ACTION

@@ -88,9 +88,10 @@ def _subject_label(value: str) -> str:
     mapping = {
         "english": t("subject_english"),
         "spanish": t("subject_spanish"),
-        "turkish": t("subject_turkish"),
-        "math": t("subject_math"),
+        "mathematics": t("subject_mathematics"),
         "science": t("subject_science"),
+        "music": t("subject_music"),
+        "study_skills": t("subject_study_skills"),
         "other": t("other"),
     }
     v = str(value or "").strip().lower()
@@ -848,15 +849,17 @@ def render_quick_cv_builder_expander() -> None:
         pi4, pi5, pi6 = st.columns(3)
         with pi4:
             _country_opts = _country_options()
+
+            if "cv_location" not in st.session_state:
+                st.session_state["cv_location"] = _normalize_country_value(profile.get("country") or "")
+
             _current_country = _normalize_country_value(st.session_state.get("cv_location"))
             if _current_country not in _country_opts:
-                _current_country = ""
                 st.session_state["cv_location"] = ""
 
             cv_location = st.selectbox(
                 t("country_label"),
                 options=_country_opts,
-                index=_country_opts.index(_current_country) if _current_country in _country_opts else 0,
                 format_func=lambda x: x if x else t("select_option"),
                 key="cv_location",
             )
@@ -908,17 +911,25 @@ def render_quick_cv_builder_expander() -> None:
 
         # ── Teaching profile ─────────────────────────────────────────────
         cv_subjects = st.multiselect(
-            t("main_subjects"),
+            t("primary_subjects_label"),
             options=PROFILE_SUBJECT_OPTIONS,
             default=st.session_state.get("cv_subjects", []),
             format_func=_subject_label,
             key="cv_subjects",
             placeholder=t("select_option"),
         )
+
+        cv_other_subject = ""
+        if "other" in cv_subjects:
+            cv_other_subject = st.text_input(
+                t("other_subject_label"),
+                key="cv_other_subject",
+            ).strip()
+
         cv_col1, cv_col2 = st.columns(2)
         with cv_col1:
             cv_stages = st.multiselect(
-                t("teaching_stages"),
+                t("teaching_stages_label"),
                 options=PROFILE_STAGE_OPTIONS,
                 default=st.session_state.get("cv_stages", []),
                 format_func=_stage_label,
@@ -927,7 +938,7 @@ def render_quick_cv_builder_expander() -> None:
             )
         with cv_col2:
             cv_langs = st.multiselect(
-                t("teaching_languages"),
+                t("teaching_languages_label"),
                 options=PROFILE_TEACH_LANG_OPTIONS,
                 default=st.session_state.get("cv_langs", []),
                 format_func=_lang_label,
@@ -1037,6 +1048,9 @@ def render_quick_cv_builder_expander() -> None:
             if not cv_subjects:
                 validation_errors.append(t("cv_subject_required"))
 
+            if "other" in cv_subjects and not cv_other_subject:
+                validation_errors.append(t("enter_subject_name"))    
+
             if not cv_stages:
                 validation_errors.append(t("cv_stage_required"))
 
@@ -1060,7 +1074,7 @@ def render_quick_cv_builder_expander() -> None:
                         "country": cv_location.strip(),
                         "date_of_birth": str(cv_dob) if cv_dob else None,
                         "sex": _normalize_sex_value(cv_sex) if cv_sex else None,
-                        "primary_subjects": cv_subjects,
+                        "primary_subjects": effective_cv_subjects,
                         "teaching_stages": cv_stages,
                         "teaching_languages": cv_langs,
                         "role": cv_role,
@@ -1080,7 +1094,7 @@ def render_quick_cv_builder_expander() -> None:
                     location=cv_location.strip(),
                     date_of_birth=str(cv_dob) if cv_dob else "",
                     sex=_normalize_sex_value(cv_sex) if cv_sex else "",
-                    subjects=cv_subjects,
+                    subjects=effective_cv_subjects,
                     teaching_stages=cv_stages,
                     teaching_languages=cv_langs,
                     professional_summary=cv_summary.strip(),
@@ -1096,6 +1110,10 @@ def render_quick_cv_builder_expander() -> None:
 
                 with st.spinner(t("generating_cv")):
                     try:
+                        effective_cv_subjects = [s for s in cv_subjects if s != "other"]
+                        if "other" in cv_subjects and cv_other_subject:
+                            effective_cv_subjects.append(cv_other_subject) 
+
                         if cv_mode == "ai":
                             _log_ai_cv("requested", {"doc": "cv"})
                             generated_cv = _cv().build_ai_cv(
