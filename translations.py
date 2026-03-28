@@ -147,6 +147,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "theme_auto": "Auto",
         "theme_light": "Light",
         "theme_dark": "Dark",
+        "missing_user_id_app_setting": "Missing user ID while saving app setting.",
+        "error_save_app_setting": "Could not save app setting '{key}': {error}",
 
         # -------------------------
         # WELCOME PAGE
@@ -455,6 +457,13 @@ I18N: Dict[str, Dict[str, str]] = {
         "word_search_grid": "Word Search Grid",
         "find_these_words": "Find these words",
         "word_search_grid_failed": "Could not generate the word search grid.",
+        "missing_openrouter_api_key": "OpenRouter is sleeping.",
+        "missing_gemini_api_key": "Gemini is sleeping.",
+        "empty_ai_response": "Empty AI response.",
+        "empty_gemini_response": "Empty Gemini response.",
+        "ai_limit_reached": "AI daily limit reached.",
+        "ai_cooldown_active": "AI cooldown active. Please wait a few seconds and try again.",
+        
 
         # -------------------------
         # QUICK LESSON PLANNER
@@ -541,6 +550,10 @@ I18N: Dict[str, Dict[str, str]] = {
         "science": "Science",
         "music": "Music",
         "study_skills": "Study Skills",
+        "could_not_save_lesson_plan": "Could not save lesson plan",
+        "could_not_load_your_lesson_plans": "Could not load your lesson plans",
+        "could_not_load_community_lesson_plans": "Could not load community lesson plans",
+
 
         # -------------------------
         # AI PLANNER
@@ -554,7 +567,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "template_plan_saved": "Template plan saved.",
         "ai_limit_reached": "AI daily limit reached. Template plan generated instead.",
         "ai_cooldown_active": "AI cooldown active. Please wait {seconds} seconds. Template plan generated instead.",
-        "ai_unavailable_fallback": "AI planner unavailable. Template plan generated instead.",
+        "ai_unavailable_fallback": "AI planner unavailable at the moment. Please try again later.",
         "no_template_for_subject": "No template for this subject/topic yet. Try AI model.",
         "community_plan_found_note": "Plan found in the community library.",
 
@@ -639,6 +652,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "delete_lesson_help": "Use this if you registered a lesson by mistake.",
         "lesson_id": "Lesson ID",
         "lesson_date": "Lesson date",
+        "note_lesson": "Note (Topic or \"Cancelled\")",        
 
         # -------------------------
         # PAYMENTS PAGE
@@ -682,6 +696,14 @@ I18N: Dict[str, Dict[str, str]] = {
         "duration_minutes": "Duration (min)", 
         "active": "Active",
         "invalid_time_format": "Incorrect time inserted. Please use 24-hour (HH:MM) format.",
+        "monday": "Monday",
+        "tuesday": "Tuesday",
+        "wednesday": "Wednesday",
+        "thursday": "Thursday",
+        "friday": "Friday",
+        "saturday": "Saturday",
+        "sunday": "Sunday",
+
 
         # overrides
         "modify_calendar": "Modify calendar",
@@ -749,7 +771,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "packages_bought": "Total packages",
         "some_updates_failed": "Some updates failed.",
         "please_select_currency": "Please select a currency.",
-        "payments": "payments",
+
         # =========================
         # PRICING SECTION
         # =========================
@@ -887,7 +909,7 @@ I18N: Dict[str, Dict[str, str]] = {
         # GOAL EXPLORER (pre-login)
         # -------------------------
         "explore_tab": "Explore",
-        "explore_goal_title": "Set your teaching goal",
+        "explore_goal_title": "Set your Teaching Income Goal",
         "explore_goal_subtitle": "See how many students you need to reach your income target.",
         "explore_subject": "What subject do you teach?",
         "explore_online": "Online",
@@ -1114,7 +1136,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "theme_auto": "Auto",
         "theme_light": "Claro",
         "theme_dark": "Oscuro",
-
+        "missing_user_id_app_setting": "Error: falta usuario en la configuración de la aplicación",
+        "error_save_app_setting": "No se pudo guardar la configuración de la aplicación '{key}': {error}",
 
         # -------------------------
         # WELCOME PAGE
@@ -1423,6 +1446,12 @@ I18N: Dict[str, Dict[str, str]] = {
         "word_search_grid": "Sopa de letras",
         "find_these_words": "Encuentra estas palabras",
         "word_search_grid_failed": "No se pudo generar la sopa de letras.",
+        "missing_openrouter_api_key": "OpenRouter está durmiendo.",
+        "missing_gemini_api_key": "Gemini está durmiendo.",
+        "empty_ai_response": "Respuesta de IA vacía.",
+        "empty_gemini_response": "Respuesta de Gemini vacía.",
+        "ai_limit_reached": "Límite diario de IA alcanzado.",
+        "ai_cooldown_active": "Enfriamiento de IA activo. Por favor, espera unos segundos e inténtalo de nuevo.",               
 
         # -------------------------
         # QUICK LESSON PLANNER
@@ -1509,6 +1538,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "science": "Ciencias",
         "music": "Música",
         "study_skills": "Habilidades de estudio",        
+        "could_not_save_lesson_plan": "No se pudo guardar el plan de la lección",
+        "could_not_load_your_lesson_plans": "No se pudieron cargar tus planes de lección",
+        "could_not_load_community_lesson_plans": "No se pudieron cargar los planes de lección de la comunidad",
 
         # -------------------------
         # AI PLANNER
@@ -1522,7 +1554,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "template_plan_saved": "Plan de plantilla guardado.",
         "ai_limit_reached": "Se alcanzó el límite diario de IA. Se generó un plan de plantilla en su lugar.",
         "ai_cooldown_active": "La IA está en enfriamiento. Espera {seconds} segundos. Se generó un plan de plantilla en su lugar.",
-        "ai_unavailable_fallback": "El planificador con IA no está disponible. Se generó un plan de plantilla en su lugar.",
+        "ai_unavailable_fallback": "El planificador con IA no está disponible en estos momentos. Por favor, intenta de nuevo más tarde.",
         "no_template_for_subject": "Aún no hay plantilla para esta materia/tema. Prueba el modo IA.",
         "community_plan_found_note": "Plan encontrado en la biblioteca comunitaria.",
 
@@ -1608,6 +1640,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "delete_lesson_help": "Usa esto si registraste una clase por error.",
         "lesson_id": "ID de clase",
         "lesson_date": "Fecha de clase",
+        "note_lesson": "Nota (Tema o \"Cancelada\")",
+
 
         # -------------------------
         # PAYMENTS PAGE
@@ -1651,6 +1685,14 @@ I18N: Dict[str, Dict[str, str]] = {
         "duration_minutes": "Duración (min)", 
         "active": "Activo",
         "invalid_time_format": "Hora incorrecta. Utilice el formato 24 horas HH:MM.",
+        "monday": "Lunes",
+        "tuesday": "Martes",
+        "wednesday": "Miércoles",
+        "thursday": "Jueves",
+        "friday": "Viernes",
+        "saturday": "Sábado",
+        "sunday": "Domingo",
+
 
         # overrides
         "modify_calendar": "Modificar calendario",
@@ -1719,7 +1761,6 @@ I18N: Dict[str, Dict[str, str]] = {
         "add_student": "Añadir estudiante",
         "some_updates_failed": "Algunas actualizaciones fallaron.",
         "please_select_currency": "Por favor, selecciona una moneda.",
-        "payments": "pagos",
 
         # =========================
         # PRICING SECTION
@@ -1858,7 +1899,7 @@ I18N: Dict[str, Dict[str, str]] = {
         # GOAL EXPLORER (pre-login)
         # -------------------------
         "explore_tab": "Explorar",
-        "explore_goal_title": "Establece tu meta como profesor",
+        "explore_goal_title": "Establece tu meta de ingresos como profesor",
         "explore_goal_subtitle": "Descubre cuántos estudiantes necesitas para alcanzar tu objetivo de ingresos.",
         "explore_subject": "¿Qué materia enseñas?",
         "explore_online": "Online",
@@ -2084,6 +2125,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "theme_auto": "Otomatik",
         "theme_light": "Aydınlık",
         "theme_dark": "Karanlık",
+        "missing_user_id_app_setting": "Kullanıcı kimliği eksik (oturum süresi dolmuş olabilir).",
+        "error_save_app_setting": "Uygulama ayarı '{key}' kaydedilemedi: {error}",
 
         # -------------------------
         # WELCOME PAGE
@@ -2391,6 +2434,12 @@ I18N: Dict[str, Dict[str, str]] = {
         "word_search_grid": "Kelime Bulmacası",
         "find_these_words": "Bu kelimeleri bul",
         "word_search_grid_failed": "Kelime bulmacası oluşturulamadı.",
+        "missing_openrouter_api_key": "OpenRouter uyuyor",
+        "missing_gemini_api_key": "Gemini uyuyor",
+        "empty_ai_response": "Yapay zeka yanıtı boş.",
+        "empty_gemini_response": "Gemini yanıtı boş.",
+        "ai_limit_reached": "Yapay zeka kullanım sınırına ulaşıldı.",
+        "ai_cooldown_active": "Yapay zeka soğuma süresi aktif. Lütfen birkaç saniye bekleyin ve tekrar deneyin.",        
 
         # -------------------------
         # QUICK LESSON PLANNER
@@ -2475,7 +2524,10 @@ I18N: Dict[str, Dict[str, str]] = {
         "mathematics": "Matematik",
         "science": "Fen",
         "music": "Müzik",
-        "study_skills": "Çalışma Becerileri",       
+        "study_skills": "Çalışma Becerileri",
+        "could_not_save_lesson_plan": "Ders planı kaydedilemedi",
+        "could_not_load_your_lesson_plans": "Ders planlarınız yüklenemedi",
+        "could_not_load_community_lesson_plans": "Topluluk ders planları yüklenemedi",              
 
         # -------------------------
         # AI PLANNER
@@ -2489,7 +2541,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "template_plan_saved": "Şablon plan kaydedildi.",
         "ai_limit_reached": "Günlük yapay zeka limiti doldu. Bunun yerine şablon plan oluşturuldu.",
         "ai_cooldown_active": "Yapay zeka bekleme süresinde. Lütfen {seconds} saniye bekleyin. Bunun yerine şablon plan oluşturuldu.",
-        "ai_unavailable_fallback": "Yapay zeka planlayıcı kullanılamıyor. Bunun yerine şablon plan oluşturuldu.",
+        "ai_unavailable_fallback": "Yapay zeka şu anda planlayıcı kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
         "no_template_for_subject": "Bu ders/konu için henüz şablon yok. Yapay zeka modunu deneyin.",
         "community_plan_found_note": "Topluluk kütüphanesinde plan bulundu.",
 
@@ -2570,6 +2622,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "delete_lesson_help": "Yanlışlıkla kaydettiğiniz bir ders varsa bunu kullanın.",
         "lesson_id": "Ders ID",
         "lesson_date": "Ders tarihi",
+        "note_lesson": "Not (Konu veya \"İptal edildi\")",        
 
         # -------------------------
         # PAYMENTS PAGE
@@ -2611,6 +2664,13 @@ I18N: Dict[str, Dict[str, str]] = {
         "delete_schedule_warning": "Dikkat! Bu kalıcı olarak silinir.",
         "duration_minutes": "Süre (dk)",
         "invalid_time_format": "Yanlış saat girildi. Lütfen 24 saat (SS:DD) formatını kullanın.",
+        "monday": "Pazartesi",
+        "tuesday": "Salı",
+        "wednesday": "Çarşamba",
+        "thursday": "Perşembe",
+        "friday": "Cuma",
+        "saturday": "Cumartesi",
+        "sunday": "Pazar",
 
         # overrides
         "modify_calendar": "Takvimi düzenle",
@@ -2678,7 +2738,6 @@ I18N: Dict[str, Dict[str, str]] = {
         "packages_bought": "Toplam paketler",
         "some_updates_failed": "Bazı güncellemeler başarısız oldu.",
         "please_select_currency": "Lütfen bir para birimi seçin.",
-        "payments": "ödeme",
 
         # =========================
         # PRICING SECTION
@@ -2813,7 +2872,7 @@ I18N: Dict[str, Dict[str, str]] = {
         # GOAL EXPLORER (pre-login)
         # -------------------------
         "explore_tab": "Keşfet",
-        "explore_goal_title": "Öğretmenlik hedefinizi belirleyin",
+        "explore_goal_title": "Öğretmenlik Gelir Hedefinizi Belirleyin",
         "explore_goal_subtitle": "Gelir hedefinize ulaşmak için kaç öğrenciye ihtiyacınız olduğunu görün.",
         "explore_subject": "Hangi dersi veriyorsunuz?",
         "explore_online": "Online",

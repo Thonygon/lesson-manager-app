@@ -43,129 +43,111 @@ def _svg_whatsapp_icon() -> str:
     </svg>
     """
 
-def _render_today_lessons_cards(df: pd.DataFrame, phone_map: dict) -> None:
+def _render_today_lessons_cards(df: pd.DataFrame, color_map: dict, phone_map: dict) -> None:
     st.markdown(
         """
         <style>
           .dash-today-list{
             display:flex;
             flex-direction:column;
-            gap:12px;
+            gap:10px;
             margin-top:8px;
           }
 
-          .dash-today-card{
-            display:flex;
-            align-items:center;
-            justify-content:space-between;
-            gap:14px;
+          .dash-student-card{
+            background:var(--panel, #fff);
+            border:1px solid var(--border-strong, rgba(17,24,39,0.08));
+            border-radius:12px;
             padding:14px 16px;
-            border-radius:18px;
-            background:linear-gradient(180deg, var(--panel), var(--panel-2));
-            border:1px solid var(--border);
-            box-shadow:var(--shadow-sm);
+            margin-bottom:0;
+            box-shadow:0 1px 4px rgba(0,0,0,0.06);
           }
 
-          .dash-today-main{
-            min-width:0;
-            flex:1 1 auto;
-          }
-
-          .dash-today-top{
+          .dash-student-card-top{
             display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:12px;
+            flex-wrap:wrap;
+            margin-bottom:8px;
+          }
+
+          .dash-student-card-name{
+            font-weight:700;
+            font-size:1rem;
+            color:var(--text, #0f172a);
+            line-height:1.2;
+          }
+
+          .dash-student-card-time{
+            display:inline-flex;
             align-items:center;
+            gap:6px;
+            padding:4px 12px;
+            border-radius:20px;
+            background:rgba(59,130,246,0.12);
+            color:var(--text);
+            font-size:13px;
+            text-decoration:none;
+            border:1px solid rgba(59,130,246,0.28);
+            white-space:nowrap;
+            font-weight:700;
+          }
+
+          .dash-student-card-info{
+            display:flex;
             flex-wrap:wrap;
             gap:8px;
             margin-bottom:8px;
           }
 
-          .dash-today-name{
-            font-size:1rem;
-            font-weight:800;
-            color:var(--text);
-            line-height:1.2;
-          }
-
-          .dash-today-time{
+          .dash-student-chip{
             display:inline-flex;
             align-items:center;
-            padding:4px 10px;
-            border-radius:999px;
-            font-size:0.78rem;
-            font-weight:800;
-            color:var(--primary-strong);
-            background:rgba(59,130,246,0.10);
-            border:1px solid rgba(59,130,246,0.20);
+            gap:4px;
+            padding:4px 12px;
+            border-radius:20px;
+            color:var(--text);
+            font-size:13px;
+            text-decoration:none;
+            border:1px solid var(--border, rgba(148,163,184,0.22));
+            background:rgba(148,163,184,0.08);
             white-space:nowrap;
           }
 
-          .dash-today-meta{
+          .dash-action-row{
             display:flex;
             flex-wrap:wrap;
-            gap:8px;
-          }
-
-          .dash-today-chip{
-            display:inline-flex;
-            align-items:center;
             gap:6px;
-            padding:4px 10px;
-            border-radius:999px;
-            font-size:0.78rem;
-            font-weight:700;
-            color:var(--muted);
-            background:rgba(148,163,184,0.08);
-            border:1px solid var(--border);
-            white-space:nowrap;
           }
 
-          .dash-today-actions{
-            display:flex;
-            align-items:center;
-            justify-content:flex-end;
-            gap:8px;
-            flex:0 0 auto;
-          }
-
-          .dash-today-icon-btn{
-            width:42px;
-            height:42px;
-            border-radius:14px;
+          .dash-action-chip{
             display:inline-flex;
             align-items:center;
-            justify-content:center;
+            gap:4px;
+            padding:4px 12px;
+            border-radius:20px;
+            color:var(--text);
+            font-size:13px;
             text-decoration:none !important;
-            border:1px solid var(--border);
-            background:linear-gradient(180deg, var(--panel-soft), var(--panel));
-            color:var(--text) !important;
-            box-shadow:var(--shadow-sm);
-            transition:transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+            border:1px solid transparent;
+            white-space:nowrap;
+            transition:transform 0.15s ease, opacity 0.15s ease;
           }
 
-          .dash-today-icon-btn:hover{
+          .dash-action-chip:hover{
             transform:translateY(-1px);
-            border-color:rgba(59,130,246,0.28);
-            box-shadow:var(--shadow-md);
+            opacity:0.96;
           }
 
-          .dash-today-icon-btn--zoom{
-            color:#2563EB !important;
+          .dash-action-chip--zoom{
+            background:rgba(139,92,246,0.12);
+            border-color:rgba(139,92,246,0.28);
           }
 
-          .dash-today-icon-btn--wa{
-            color:#22C55E !important;
-          }
-
-          @media (max-width: 768px){
-            .dash-today-card{
-              align-items:flex-start;
-              flex-direction:column;
-            }
-
-            .dash-today-actions{
-              width:100%;
-              justify-content:flex-start;
-            }
+          .dash-action-chip--wa{
+            background:rgba(16,185,129,0.12);
+            border-color:rgba(16,185,129,0.28);
           }
         </style>
         """,
@@ -180,54 +162,66 @@ def _render_today_lessons_cards(df: pd.DataFrame, phone_map: dict) -> None:
         zoom_link = str(r.get("Zoom_Link", "") or "").strip()
         subject = str(r.get("Subject", "") or "").strip()
         modality_raw = str(r.get("Modality", "") or "").strip()
-        source = str(r.get("Source", "") or "").strip().lower()
+
+        s_color = str(color_map.get(norm_student(student), "#3B82F6") or "#3B82F6").strip()
 
         phone_raw = str(phone_map.get(norm_student(student), "") or "").strip()
         wa_url = build_whatsapp_url("", raw_phone=phone_raw) if phone_raw else ""
 
-        meta_bits = []
+        info_bits = []
         if subject:
-            meta_bits.append(
-                f"<span class='dash-today-chip'>📚 {_html.escape(subject)}</span>"
+            info_bits.append(
+                f"<span class='dash-student-chip'>📚 {_html.escape(subject)}</span>"
             )
         if modality_raw:
-            meta_bits.append(
-                f"<span class='dash-today-chip'>📍 {_html.escape(translate_modality_value(modality_raw))}</span>"
+            info_bits.append(
+                f"<span class='dash-student-chip'>📍 {_html.escape(translate_modality_value(modality_raw))}</span>"
             )
 
-        actions = []
+        action_bits = []
         if zoom_link.startswith("http"):
-            actions.append(
-                f"<a class='dash-today-icon-btn dash-today-icon-btn--zoom' "
-                f"href='{_html.escape(zoom_link, quote=True)}' target='_blank' rel='noopener noreferrer' "
-                f"title='Zoom'>{_svg_zoom_icon()}</a>"
+            action_bits.append(
+                f"<a class='dash-action-chip dash-action-chip--zoom' "
+                f"href='{_html.escape(zoom_link, quote=True)}' target='_blank' rel='noopener noreferrer'>"
+                f"🎥 {t('open_zoom')}</a>"
             )
         if wa_url and phone_raw:
-            actions.append(
-                f"<a class='dash-today-icon-btn dash-today-icon-btn--wa' "
-                f"href='{_html.escape(wa_url, quote=True)}' target='_blank' rel='noopener noreferrer' "
-                f"title='WhatsApp'>{_svg_whatsapp_icon()}</a>"
+            action_bits.append(
+                f"<a class='dash-action-chip dash-action-chip--wa' "
+                f"href='{_html.escape(wa_url, quote=True)}' target='_blank' rel='noopener noreferrer'>"
+                f"💬 {t('send_whatsapp')}</a>"
             )
 
+        time_html = (
+            f"<span class='dash-student-card-time'>🕒 {_html.escape(when)}</span>"
+            if when else ""
+        )
+
+        info_html = (
+            f"<div class='dash-student-card-info'>{''.join(info_bits)}</div>"
+            if info_bits else ""
+        )
+
+        actions_html = (
+            f"<div class='dash-action-row'>{''.join(action_bits)}</div>"
+            if action_bits else ""
+        )
+
         card_html = (
-            f'<div class="dash-today-card">'
-            f'  <div class="dash-today-main">'
-            f'    <div class="dash-today-top">'
-            f'      <span class="dash-today-name">{_html.escape(student or "—")}</span>'
-            f'      {"<span class=\"dash-today-time\">🕒 " + _html.escape(when) + "</span>" if when else ""}'
-            f'    </div>'
-            f'    {"<div class=\"dash-today-meta\">" + "".join(meta_bits) + "</div>" if meta_bits else ""}'
+            f'<div class="dash-student-card" style="border-left:4px solid {s_color};">'
+            f'  <div class="dash-student-card-top">'
+            f'    <div class="dash-student-card-name">{_html.escape(student or "—")}</div>'
+            f'    {time_html}'
             f'  </div>'
-            f'  {"<div class=\"dash-today-actions\">" + "".join(actions) + "</div>" if actions else ""}'
+            f'  {info_html}'
+            f'  {actions_html}'
             f'</div>'
         )
         cards.append(card_html)
 
     if cards:
-        st.markdown(
-            "<div class='dash-today-list'>" + "".join(cards) + "</div>",
-            unsafe_allow_html=True,
-        )
+        html = "<div class='dash-today-list'>" + "".join(cards) + "</div>"
+        st.markdown(html, unsafe_allow_html=True)
 
 def render_dashboard():
     page_header(t("dashboard"))
@@ -280,10 +274,11 @@ def render_dashboard():
             status=t("online"),
             badge=now_local().strftime("%d %b %Y"),
             items=[
+                (t("next"), next_lesson),
                 (t("goal"), format_currency(goal_display)),
                 (t("ytd_income"), format_currency(income_display)),
                 (t("students"), str(active_students)),
-                (t("next"), next_lesson),
+                
             ],
             progress=goal_progress,
             accent="#3B82F6",
@@ -325,8 +320,8 @@ def render_dashboard():
 
         today_df = df.copy()
 
-        _, _, _, phone_map = student_meta_maps()
-        _render_today_lessons_cards(df, phone_map)
+        color_map, _, _, phone_map = student_meta_maps()
+        _render_today_lessons_cards(df, color_map, phone_map)
 
     # ---------------------------------------
     # TAKE ACTION
