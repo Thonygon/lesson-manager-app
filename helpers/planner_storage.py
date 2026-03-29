@@ -657,10 +657,23 @@ def render_quick_lesson_plan_result(
                 use_container_width=True,
         )
     else:
-        c1, c2, c3 = st.columns(3)
+        pdf_bytes = build_lesson_plan_pdf_bytes(
+            plan=plan,
+            subject=subject,
+            learner_stage=learner_stage,
+            level_or_band=level_or_band,
+            lesson_purpose=lesson_purpose,
+            topic=topic,
+        )
 
-        with c1:
-            if resolved_mode == "template":
+        safe_title = re.sub(r"[^A-Za-z0-9._-]+", "_", str(plan.get("title") or "lesson_plan").strip())
+        if not safe_title:
+            safe_title = "lesson_plan"
+
+        if resolved_mode == "template":
+            a1, a2, a3 = st.columns(3)
+
+            with a1:
                 if st.button(t("save_template_plan"), key="btn_save_template_plan", use_container_width=True):
                     ok = save_lesson_plan_record(
                         subject=subject,
@@ -680,17 +693,38 @@ def render_quick_lesson_plan_result(
                         )
                         st.success(t("template_plan_saved"))
 
-        with c2:
-            if st.button(t("keep_plan"), key="btn_keep_quick_plan", use_container_width=True):
-                st.session_state["quick_lesson_plan_kept"] = True
-                st.success(t("plan_kept"))
+            with a2:
+                st.download_button(
+                    label=t("download_pdf"),
+                    data=pdf_bytes,
+                    file_name=f"{safe_title}.pdf",
+                    mime="application/pdf",
+                    key=f"{action_key_prefix}_download_pdf_inline",
+                    use_container_width=True,
+                )
 
-        with c3:
-            if st.button(t("delete_plan"), key="btn_delete_quick_plan", use_container_width=True):
-                _lp().reset_quick_lesson_planner_state()
-                st.success(t("plan_deleted"))
-                st.rerun()    
+            with a3:
+                if st.button(t("close"), key="btn_close_quick_plan", use_container_width=True):
+                    _lp().reset_quick_lesson_planner_state()
+                    st.rerun()
 
+        else:
+            a1, a2 = st.columns(2)
+
+            with a1:
+                st.download_button(
+                    label=t("download_pdf"),
+                    data=pdf_bytes,
+                    file_name=f"{safe_title}.pdf",
+                    mime="application/pdf",
+                    key=f"{action_key_prefix}_download_pdf_inline",
+                    use_container_width=True,
+                )
+
+            with a2:
+                if st.button(t("close"), key="btn_close_quick_plan", use_container_width=True):
+                    _lp().reset_quick_lesson_planner_state()
+                    st.rerun()
 def build_lesson_plan_pdf_bytes(
     plan: dict,
     subject: str = "",
@@ -932,14 +966,16 @@ def render_quick_lesson_planner_expander() -> None:
             else:
                 st.session_state["quick_lesson_no_template"] = False
                 effective_subject = other_subject_name if subject == "other" else subject
-                plan, resolved_mode, warning_msg = _lp().generate_quick_lesson_plan_with_fallback(
-                    mode=quick_plan_mode,
-                    subject=effective_subject,
-                    learner_stage=learner_stage,
-                    level_or_band=level_or_band,
-                    lesson_purpose=lesson_purpose,
-                    topic=topic,
-                )
+
+                with st.spinner(t("generating")):
+                    plan, resolved_mode, warning_msg = _lp().generate_quick_lesson_plan_with_fallback(
+                        mode=quick_plan_mode,
+                        subject=effective_subject,
+                        learner_stage=learner_stage,
+                        level_or_band=level_or_band,
+                        lesson_purpose=lesson_purpose,
+                        topic=topic,
+                    )
 
                 st.session_state["quick_lesson_plan_result"] = plan
                 st.session_state["quick_lesson_plan_kept"] = False
@@ -977,7 +1013,7 @@ def render_quick_lesson_planner_expander() -> None:
 
             render_quick_lesson_plan_result(
                 st.session_state["quick_lesson_plan_result"],
-                subject=subject,
+                subject=other_subject_name if subject == "other" else subject,
                 learner_stage=learner_stage,
                 level_or_band=level_or_band,
                 lesson_purpose=lesson_purpose,
