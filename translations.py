@@ -775,7 +775,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "normalize_failed": "Normalization failed.",
         "normalized_default_note": "Package normalized / adjustment applied.",
         "packages_bought": "Total packages",
-        "add_student": "Add a student",
+        "add_student": "Add Students",
         "some_updates_failed": "Some updates failed.",
         "please_select_currency": "Please select a currency.",
 
@@ -1154,8 +1154,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "welcome_home_subtitle": "Comienza con una acción y construye tu espacio de trabajo paso a paso.",
         "choose_where_to_go": "¿Qué quieres hacer hoy?",
         "do_this": "Haz esto para desbloquear más!",
-        "create_lesson_plan_cta": "Crear plan de clase",
-        "create_worksheet_cta": "Crear hoja de trabajo",
+        "create_lesson_plan_cta": "Crear Plan de Clase",
+        "create_worksheet_cta": "Crear Hoja de Trabajo",
         "set_income_goal": "Establecer meta de ingresos",
         "welcome_slogan": "Solo basta un estudiante para comenzar",
         "skip": "Saltar",
@@ -1771,7 +1771,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "normalized_default_note": "Paquete normalizado / ajuste aplicado.",
         "package_normalized": "Paquete normalizado",
         "packages_bought": "Paquetes comprados",
-        "add_student": "Añadir estudiante",
+        "add_student": "Añadir Estudiante",
         "some_updates_failed": "Algunas actualizaciones fallaron.",
         "please_select_currency": "Por favor, selecciona una moneda.",
 
@@ -2755,7 +2755,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "normalize_failed": "Normalleştirme başarısız.",
         "normalized_default_note": "Paket normalleştirildi / düzeltme uygulandı.",
         "packages_bought": "Toplam paketler",
-        "add_student": "Öğrenci ekle",
+        "add_student": "Öğrenci Ekle",
         "some_updates_failed": "Bazı güncellemeler başarısız oldu.",
         "please_select_currency": "Lütfen bir para birimi seçin.",
 
