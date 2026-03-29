@@ -1,3 +1,5 @@
+# CLASSIO — Planner  Storage
+# ============================================================
 import streamlit as st
 import json, datetime, os, re, time, math
 from typing import Optional
@@ -475,6 +477,8 @@ def get_ai_planner_usage_status() -> dict:
         "last_request_at": last_request_at,
     }
 
+
+
 def render_quick_lesson_plan_result(
     plan: dict,
     subject: str = "",
@@ -483,6 +487,7 @@ def render_quick_lesson_plan_result(
     lesson_purpose: str = "",
     topic: str = "",
     read_only: bool = False,
+    action_key_prefix: str = "quick_plan",
 ) -> None:
     plan = _clean_plan_data(plan)
     if not read_only:
@@ -538,7 +543,7 @@ def render_quick_lesson_plan_result(
             t("reading_passage"),
             value=plan["reading_passage"],
             height=190,
-            key="quick_plan_reading_passage_view",
+            key=f"{action_key_prefix}_reading_passage_view",
         )
 
     if plan.get("listening_script"):
@@ -547,7 +552,7 @@ def render_quick_lesson_plan_result(
             t("listening_script"),
             value=plan["listening_script"],
             height=190,
-            key="quick_plan_listening_script_view",
+            key=f"{action_key_prefix}_listening_script_view",
         )
 
     if cm.get("gist_questions"):
@@ -568,7 +573,6 @@ def render_quick_lesson_plan_result(
         else:
             st.write(f"- {item}")
 
-    # subject-specific core material
     if cm.get("worked_example"):
         st.markdown(f"**{t('worked_example')}**")
         for item in cm["worked_example"]:
@@ -645,12 +649,12 @@ def render_quick_lesson_plan_result(
             safe_title = "lesson_plan"
 
         st.download_button(
-            label=t("download_pdf"),
-            data=pdf_bytes,
-            file_name=f"{safe_title}.pdf",
-            mime="application/pdf",
-            key=f"download_plan_pdf_{safe_title}",
-            use_container_width=True,
+                label=t("download_pdf"),
+                data=pdf_bytes,
+                file_name=f"{safe_title}.pdf",
+                mime="application/pdf",
+                key=f"{action_key_prefix}_download_pdf",
+                use_container_width=True,
         )
     else:
         c1, c2, c3 = st.columns(3)
@@ -685,7 +689,7 @@ def render_quick_lesson_plan_result(
             if st.button(t("delete_plan"), key="btn_delete_quick_plan", use_container_width=True):
                 _lp().reset_quick_lesson_planner_state()
                 st.success(t("plan_deleted"))
-                st.rerun()     
+                st.rerun()    
 
 def build_lesson_plan_pdf_bytes(
     plan: dict,

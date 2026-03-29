@@ -1,16 +1,11 @@
-# ============================================================
 # CLASSIO — Pre-login Goal Explorer
-# ------------------------------------------------------------
-# Lets prospective users estimate how many private students
-# they need to reach a yearly income goal, try the lesson
-# planner, then invites them to sign up.
 # ============================================================
 import math
 import streamlit as st
 from core.i18n import t
 from helpers.currency import CURRENCIES, currency_symbol
-from helpers.planner_storage import load_public_lesson_plans, render_plan_library_cards
-from helpers.worksheet_storage import load_public_worksheets, render_worksheet_library_cards
+from helpers.planner_storage import load_public_lesson_plans,render_plan_library_cards,render_quick_lesson_plan_result
+from helpers.worksheet_storage import load_public_worksheets, render_worksheet_library_cards, render_worksheet_result
 from styles.theme import load_css_home
 import re
 import pandas as pd
@@ -921,10 +916,15 @@ def _render_explore_worksheet_maker() -> None:
         ws = st.session_state.get("explore_generated_worksheet")
         ws_meta = st.session_state.get("explore_generated_worksheet_meta", {})
         if ws:
-            st.success(t("lesson_plan_ready"))
-
-            # Render worksheet preview
-            _render_worksheet_preview(ws)
+            render_worksheet_result(
+                ws,
+                read_only=True,
+                subject=ws_meta.get("subject", ""),
+                learner_stage=ws_meta.get("learner_stage", ""),
+                level_or_band=ws_meta.get("level_or_band", ""),
+                worksheet_type=ws_meta.get("worksheet_type", ""),
+                topic=ws_meta.get("topic", ""),
+            )
 
             if st.button(
                 t("explore_save_worksheet_cta"),
@@ -938,34 +938,6 @@ def _render_explore_worksheet_maker() -> None:
                 }
                 st.session_state["_explore_go_signup"] = True
                 st.rerun()
-
-
-def _render_worksheet_preview(ws: dict) -> None:
-    """Renders a simplified read-only worksheet preview."""
-    st.markdown(f"### {ws.get('title', '')}")
-
-    if ws.get("instructions"):
-        st.markdown(f"**{t('ws_instructions')}**")
-        st.write(ws["instructions"])
-
-    if ws.get("questions"):
-        st.markdown(f"**{t('ws_questions')}**")
-        for i, q in enumerate(ws["questions"], 1):
-            st.write(f"{i}. {q}")
-
-    if ws.get("vocabulary_bank"):
-        st.markdown(f"**{t('ws_vocabulary_bank')}**")
-        st.write(", ".join(ws["vocabulary_bank"]))
-
-    if ws.get("answer_key"):
-        with st.expander(t("ws_answer_key")):
-            st.write(ws["answer_key"])
-
-    if ws.get("teacher_notes"):
-        with st.expander(t("ws_teacher_notes")):
-            for note in ws["teacher_notes"]:
-                st.write(f"- {note}")
-
 
 # ─────────────────────────────────────────────────────────────
 # Explore-page lesson planner (AI-powered, 1-use limit for anon)
@@ -1080,16 +1052,19 @@ def _render_explore_lesson_planner() -> None:
             resolved_mode = meta.get("mode", "template")
             warning_msg = st.session_state.get("explore_plan_warning")
 
-            st.success(t("lesson_plan_ready"))
-            st.caption(t("mode_used", mode=resolved_mode.upper()))
-            if warning_msg:
-                st.warning(warning_msg)
-
             st.session_state["quick_lesson_plan_mode_used"] = resolved_mode
-            st.session_state["quick_lesson_plan_warning"] = None
+            st.session_state["quick_lesson_plan_warning"] = warning_msg
 
-            # Render plan preview
-            _render_plan_preview(plan, meta)
+            render_quick_lesson_plan_result(
+                plan,
+                subject=meta.get("subject", ""),
+                learner_stage=meta.get("learner_stage", ""),
+                level_or_band=meta.get("level_or_band", ""),
+                lesson_purpose=meta.get("lesson_purpose", ""),
+                topic=meta.get("topic", ""),
+                read_only=True,
+                action_key_prefix="explore_plan",
+            )
 
             if st.button(
                 t("explore_save_plan_cta"),
@@ -1104,7 +1079,6 @@ def _render_explore_lesson_planner() -> None:
                 }
                 st.session_state["_explore_go_signup"] = True
                 st.rerun()
-
 
 def _render_plan_preview(plan: dict, meta: dict) -> None:
     """Renders a simplified read-only lesson plan preview."""
