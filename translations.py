@@ -775,7 +775,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "normalize_failed": "Normalization failed.",
         "normalized_default_note": "Package normalized / adjustment applied.",
         "packages_bought": "Total packages",
-        "add_student": "Add a student",
+        "add_student": "Add Students",
         "some_updates_failed": "Some updates failed.",
         "please_select_currency": "Please select a currency.",
 
@@ -1771,7 +1771,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "normalized_default_note": "Paquete normalizado / ajuste aplicado.",
         "package_normalized": "Paquete normalizado",
         "packages_bought": "Paquetes comprados",
-        "add_student": "Añadir estudiante",
+        "add_student": "Añadir Estudiante",
         "some_updates_failed": "Algunas actualizaciones fallaron.",
         "please_select_currency": "Por favor, selecciona una moneda.",
 
@@ -2755,7 +2755,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "normalize_failed": "Normalleştirme başarısız.",
         "normalized_default_note": "Paket normalleştirildi / düzeltme uygulandı.",
         "packages_bought": "Toplam paketler",
-        "add_student": "Öğrenci ekle",
+        "add_student": "Öğrenci Ekle",
         "some_updates_failed": "Bazı güncellemeler başarısız oldu.",
         "please_select_currency": "Lütfen bir para birimi seçin.",
 
