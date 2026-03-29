@@ -163,8 +163,14 @@ I18N: Dict[str, Dict[str, str]] = {
         "set_income_goal": "Set Income Goal",
         "welcome_slogan": "One student is all it takes to start",
         "skip": "Skip",
-        "add_student": "Add First Student",
         "greeting": "Hello!",
+        "add_student_done": "Students",
+        "create_lesson_plan_done": "Plans",
+        "create_worksheet_done": "Worksheets",
+        "setup_progress": "Setup Progress",
+        "welcome_progress_start": "Let's get started 😊",
+        "welcome_progress_almost": "You're almost there 🎉",
+        "welcome_progress_done": "You're all set 🎊",
 
         # -------------------------
         # ROFILE
@@ -769,6 +775,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "normalize_failed": "Normalization failed.",
         "normalized_default_note": "Package normalized / adjustment applied.",
         "packages_bought": "Total packages",
+        "add_student": "Add a student",
         "some_updates_failed": "Some updates failed.",
         "please_select_currency": "Please select a currency.",
 
@@ -1152,8 +1159,14 @@ I18N: Dict[str, Dict[str, str]] = {
         "set_income_goal": "Establecer meta de ingresos",
         "welcome_slogan": "Solo basta un estudiante para comenzar",
         "skip": "Saltar",
-        "add_student": "Agregar primer estudiante",
         "greeting": "¡Hola!",
+        "add_student_done": "Alumnos",
+        "create_lesson_plan_done": "Planes",
+        "create_worksheet_done": "Fichas",
+        "setup_progress": "Progreso de configuración",
+        "welcome_progress_start": "Comencemos 😊",
+        "welcome_progress_almost": "¡Casi lo logras 🎉!",
+        "welcome_progress_done": "¡Todo listo 🎊!",        
 
         # -------------------------
         # PROFILE
@@ -2141,8 +2154,14 @@ I18N: Dict[str, Dict[str, str]] = {
         "set_income_goal": "Gelir Hedefi Belirle",
         "welcome_slogan": "Başlamak için tek bir öğrenci yeter",
         "skip": "Atla",
-        "add_student": "İlk Öğrenciyi Ekle",
         "greeting": "Merhaba!",
+        "add_student_done": "Öğrenciler",
+        "create_lesson_plan_done": "Planlar",
+        "create_worksheet_done": "Çalışmalar",
+        "setup_progress": "Kurulum ilerlemesi",
+        "welcome_progress_start": "Başlayalım 😊",
+        "welcome_progress_almost": "Neredeyse tamam 🎉!",
+        "welcome_progress_done": "Her şey hazır 🎊!", 
 
         # -------------------------
         # PROFILE
@@ -2736,6 +2755,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "normalize_failed": "Normalleştirme başarısız.",
         "normalized_default_note": "Paket normalleştirildi / düzeltme uygulandı.",
         "packages_bought": "Toplam paketler",
+        "add_student": "Öğrenci ekle",
         "some_updates_failed": "Bazı güncellemeler başarısız oldu.",
         "please_select_currency": "Lütfen bir para birimi seçin.",
 

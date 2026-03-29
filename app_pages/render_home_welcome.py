@@ -165,26 +165,76 @@ def render_home_welcome(user_name: str) -> bool:
         unsafe_allow_html=True,
     )
 
-    done_student = "✅" if progress["students_done"] else "⬜"
-    done_plan = "✅" if progress["lesson_plans_done"] else "⬜"
-    done_ws = "✅" if progress["worksheets_done"] else "⬜"
+    # ---------- Welcome Progress ----------
+    total_steps = 3
+    done_steps = sum([
+        progress["students_done"],
+        progress["lesson_plans_done"],
+        progress["worksheets_done"],
+    ])
+
+    progress_percent = int((done_steps / total_steps) * 100)
+
+    if progress_percent == 0:
+        progress_text = t("welcome_progress_start")
+    elif progress_percent < 100:
+        progress_text = t("welcome_progress_almost")
+    else:
+        progress_text = t("welcome_progress_done")
 
     bottom_left, bottom_right = st.columns([6, 1], vertical_alignment="center")
 
     with bottom_left:
         st.markdown(
-        f"""
-        <div style="font-weight: 700; margin-bottom: 10px; color: var(--text, #0f172a);">
-            🤖 {t("do_this")}
-        </div>
-        <div style="display:grid; margin-bottom: 10px; gap:8px; color: var(--text, #0f172a);">
-            <div>{done_student} {t("add_student")}</div>
-            <div>{done_plan} {t("create_lesson_plan_cta")}</div>
-            <div>{done_ws} {t("create_worksheet_cta")}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            f"""
+            <div style="font-weight:700;margin-bottom:8px;color:var(--text);">
+                🚀 {t("setup_progress")}
+            </div>
+
+            <div style="
+                width:100%;
+                background:var(--panel-2, rgba(148,163,184,0.15));
+                border-radius:14px;
+                overflow:hidden;
+                height:14px;
+                margin-bottom:8px;
+                border:1px solid var(--border-strong, rgba(148,163,184,0.25));
+            ">
+                <div style="
+                    width:{progress_percent}%;
+                    height:14px;
+                    background:linear-gradient(90deg,#22c55e,#3b82f6,#8b5cf6);
+                    box-shadow:0 0 10px rgba(59,130,246,0.6),
+                               0 0 18px rgba(139,92,246,0.4);
+                    transition:width 0.4s ease;
+                "></div>
+            </div>
+
+            <div style="
+                font-size:0.85rem;
+                color:var(--muted);
+                font-weight:600;
+            ">
+                {progress_percent}% — {progress_text}
+            </div>
+            <div style="
+                display:flex;
+                gap:14px;
+                font-size:0.85rem;
+                color:var(--muted);
+                padding:12px 0;
+                justify-content:center;
+                align-items:center; 
+                flex-wrap:wrap;
+                text-align:center;
+            ">
+                <span>{"✅" if progress["students_done"] else "👤"} {t("add_student_done")}</span>
+                <span>{"✅" if progress["lesson_plans_done"] else "📚"} {t("create_lesson_plan_done")}</span>
+                <span>{"✅" if progress["worksheets_done"] else "🧩"} {t("create_worksheet_done")}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     with bottom_right:
         if allow_skip:
             if st.button(t("skip"), key="welcome_skip_btn", use_container_width=True):
