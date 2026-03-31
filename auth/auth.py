@@ -1,88 +1,31 @@
 import streamlit as st
 import os
-from streamlit_option_menu import option_menu
-
 from core.i18n import t
 from core.state import (
-    get_current_user_id, _set_logged_in_user, _clear_logged_in_user,
-    PROFILE_SUBJECT_OPTIONS, PROFILE_STAGE_OPTIONS, PROFILE_TEACH_LANG_OPTIONS,
-    PROFILE_DURATION_OPTIONS, PROFILE_TIMEZONE_OPTIONS, PROFILE_COUNTRY_OPTIONS,
+    get_current_user_id,
+    _set_logged_in_user,
+    _clear_logged_in_user,
+    PROFILE_SUBJECT_OPTIONS,
+    PROFILE_STAGE_OPTIONS,
+    PROFILE_TEACH_LANG_OPTIONS,
+    PROFILE_DURATION_OPTIONS,
+    PROFILE_TIMEZONE_OPTIONS,
+    PROFILE_COUNTRY_OPTIONS,
 )
 from core.timezone import DEFAULT_TZ_NAME
 from core.navigation import _set_query
 from core.database import (
-    get_sb, clear_app_caches, apply_auth_session, get_user_display_name,
-    load_profile_row, upsert_profile_row, is_username_taken, get_user_username,
+    get_sb,
+    load_profile_row,
+    upsert_profile_row,
+    is_username_taken,
+    get_user_username,
+    get_profile_by_email,
+    apply_auth_session,
+    get_profile_avatar_url,
+    save_profile_avatar_url,
 )
 from helpers.currency import CURRENCIES, CURRENCY_CODES
-from core.database import (
-    get_profile_avatar_url, save_profile_avatar_url,
-)
-
-def _has_tokens() -> bool:
-    return bool(st.session_state.get("sb_access_token"))
-
-def _set_auth_session(resp) -> None:
-    """
-    Robustly store Supabase session tokens + user id into st.session_state
-    Works with supabase-py v1/v2 response shapes.
-    """
-    session = None
-    user = None
-
-    # supabase-py v2: resp.session / resp.user
-    if hasattr(resp, "session"):
-        session = resp.session
-    if hasattr(resp, "user"):
-        user = resp.user
-
-    # Sometimes resp is dict-like
-    if session is None and isinstance(resp, dict):
-        session = resp.get("session") or resp.get("data") or resp
-
-    if user is None:
-        # Try multiple places for user
-        if isinstance(resp, dict):
-            user = resp.get("user") or (resp.get("session", {}) if isinstance(resp.get("session"), dict) else None)
-        if user is None and hasattr(session, "user"):
-            user = session.user
-
-    # Extract tokens
-    access_token = None
-    refresh_token = None
-
-    if isinstance(session, dict):
-        access_token = session.get("access_token") or session.get("accessToken")
-        refresh_token = session.get("refresh_token") or session.get("refreshToken")
-    else:
-        access_token = getattr(session, "access_token", None) or getattr(session, "accessToken", None)
-        refresh_token = getattr(session, "refresh_token", None) or getattr(session, "refreshToken", None)
-
-    if not access_token:
-        raise Exception("Login succeeded but no access_token was returned (cannot persist session).")
-
-    st.session_state["sb_access_token"] = str(access_token)
-    st.session_state["sb_refresh_token"] = str(refresh_token or "")
-
-    # Extract user if needed from session
-    if user is None:
-        if isinstance(session, dict):
-            user = session.get("user")
-        else:
-            user = getattr(session, "user", None)
-
-    # Store standardized session user
-    _set_logged_in_user(user)
-
-def _apply_auth_to_client():
-    at = st.session_state.get("sb_access_token")
-    rt = st.session_state.get("sb_refresh_token")
-    if not at:
-        return
-    try:
-        get_sb().auth.set_session(at, rt)
-    except Exception as e:
-        st.warning(f"Could not apply auth session (RLS may fail): {e}")
 
 
 @st.cache_data(show_spinner=False)
@@ -92,46 +35,198 @@ def load_logo_bytes() -> bytes:
         return f.read()
 
 
+def _get_logged_in_email() -> str:
+    if getattr(st.user, "is_logged_in", False):
+        return str(getattr(st.user, "email", "") or "").strip().lower()
+    return ""
+
+
+def _ensure_profile_for_oidc_user() -> str:
+    """
+    Ensure a profile row exists for the currently logged-in OIDC user.
+    Returns user_id if a profile exists or is created, else "".
+    """
+    email = _get_logged_in_email()
+    if not email:
+        return ""
+
+    existing = get_profile_by_email(email)
+    if existing:
+        return str(existing.get("user_id") or "").strip()
+
+    try:
+        import uuid
+
+        user_id = str(uuid.uuid4())
+        display_name = str(getattr(st.user, "name", "") or "").strip()
+
+        ok = upsert_profile_row(
+            user_id,
+            {
+                "email": email,
+                "display_name": display_name,
+                "preferred_ui_language": st.session_state.get("ui_lang", "en"),
+                "timezone": DEFAULT_TZ_NAME,
+                "default_lesson_duration": 45,
+                "role": "teacher",
+                "primary_subjects": [],
+                "teaching_stages": [],
+                "teaching_languages": [],
+                "onboarding_completed": False,
+                "login_count": 0,
+                "active_student_count": 0,
+                "account_status": "active",
+            },
+        )
+        return user_id if ok else ""
+    except Exception:
+        return ""
+
+
+def _restore_user_from_email() -> str:
+    """
+    Map Streamlit OIDC user -> your app user/profile row.
+    Returns user_id if found, else "".
+    """
+    email = _get_logged_in_email()
+    if not email:
+        return ""
+
+    try:
+        row = get_profile_by_email(email)
+        if not row:
+            user_id = _ensure_profile_for_oidc_user()
+            if not user_id:
+                return ""
+            row = get_profile_by_email(email)
+
+        if not row:
+            return ""
+
+        user_id = str(row.get("user_id") or "").strip()
+        if not user_id:
+            return ""
+
+        oidc_user = {
+            "email": email,
+            "user_metadata": {
+                "display_name": str(
+                    getattr(st.user, "name", "") or row.get("display_name") or ""
+                ).strip(),
+            },
+        }
+
+        _set_logged_in_user(
+            oidc_user,
+            profile_name=str(row.get("display_name") or "").strip(),
+            profile_username=str(row.get("username") or "").strip(),
+            user_id=user_id,
+        )
+
+        return user_id
+    except Exception:
+        return ""
+
+def render_google_auth_card(
+    title_key,
+    body_key=None,
+    button_key=None,
+    button_widget_key=None,
+    show_signup_note=False
+):
+
+    google_svg = """
+    <svg width="24" height="24" viewBox="0 0 48 48">
+    <path fill="#EA4335" d="M24 9.5c3.3 0 6.3 1.1 8.6 3.3l6.4-6.4C34.9 2.6 29.8 0 24 0 14.7 0 6.7 5.4 2.7 13.3l7.9 6.1C12.7 13.2 17.9 9.5 24 9.5z"/>
+    <path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.2-.4-4.7H24v9h12.5c-.5 2.7-2.1 5-4.5 6.6l7 5.4c4.1-3.8 6.5-9.3 6.5-16.3z"/>
+    <path fill="#FBBC05" d="M10.6 28.4c-.6-1.7-.9-3.5-.9-5.4s.3-3.7.9-5.4l-7.9-6.1C1 15.1 0 19.4 0 24s1 8.9 2.7 12.5l7.9-6.1z"/>
+    <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.8-5.7l-7-5.4c-2 1.4-4.6 2.2-8.8 2.2-6.1 0-11.3-3.7-13.2-9l-7.9 6.1C6.7 42.6 14.7 48 24 48z"/>
+    </svg>
+    """
+
+    body_html = ""
+    if body_key:
+        body_html = f'<div class="classio-auth-body">{t(body_key)}</div>'
+
+    html = f"""
+    <style>
+    .classio-auth-card {{
+        border-radius:18px;
+        padding:18px;
+        border:1px solid rgba(127,127,127,0.18);
+    }}
+
+    .classio-auth-head {{
+        display:flex;
+        align-items:center;
+        gap:12px;
+    }}
+
+    .classio-auth-icon {{
+        width:42px;
+        height:42px;
+    }}
+
+    .classio-auth-title {{
+        font-weight:700;
+        font-size:1rem;
+    }}
+
+    .classio-auth-body {{
+        margin-top:6px;
+        opacity:0.85;
+    }}
+    </style>
+
+    <div class="classio-auth-card">
+        <div class="classio-auth-head">
+            <div class="classio-auth-icon">{google_svg}</div>
+            <div class="classio-auth-title">{t(title_key)}</div>
+        </div>
+        {body_html}
+    </div>
+    """
+
+    st.markdown(html, unsafe_allow_html=True)
+
+    st.button(
+        t(button_key),
+        on_click=st.login,
+        use_container_width=True,
+        key=button_widget_key,
+    )
+
+    if show_signup_note:
+        st.caption(t("google_auth_signup_note"))
+
 def require_login():
     """
-    Blocks the app unless a user is logged in.
+    Blocks the app unless a user is logged in with Streamlit OIDC.
     """
-    # If already logged in -> restore full session and continue
-    if _has_tokens():
-        apply_auth_session()
-
-        if get_current_user_id():
-            # Check for pending post-signup redirect
+    if getattr(st.user, "is_logged_in", False):
+        user_id = _restore_user_from_email()
+        if user_id:
+            apply_auth_session()
             after_page = st.session_state.pop("_after_signup_page", None)
             if after_page:
                 st.session_state["page"] = after_page
             return
 
-        st.error("Could not restore the logged-in user. Please sign in again.")
-        _clear_logged_in_user()
-        st.session_state["sb_access_token"] = None
-        st.session_state["sb_refresh_token"] = None
-        st.stop()
-
-    # Inject theme CSS for the login page
     _theme_mode = st.session_state.get("ui_theme_mode", "auto")
     _dark_login = _theme_mode == "dark"
     from styles.theme import _root_vars, _dark_widget_css
+
     st.markdown(f"<style>{_root_vars()}</style>", unsafe_allow_html=True)
     _dw = _dark_widget_css()
     if _dw:
         st.markdown(f"<style>{_dw}</style>", unsafe_allow_html=True)
 
-    # Always use the light logo
     logo_bytes = load_logo_bytes()
 
     st.markdown(
         """
         <style>
-        .login-topbar {
-            margin-bottom: 0px;
-        }
-
+        .login-topbar { margin-bottom: 0px; }
         .login-logo-wrap {
             display: flex;
             justify-content: center;
@@ -140,14 +235,12 @@ def require_login():
             margin-bottom: -18px !important;
             padding: 0 !important;
         }
-
         div[data-testid="stImage"] {
             margin-top: -40px !important;
             margin-bottom: -24px !important;
             padding: 0 !important;
             text-align: center;
         }
-
         div[data-testid="stImage"] img {
             display: block;
             margin: 0 auto !important;
@@ -158,19 +251,13 @@ def require_login():
         unsafe_allow_html=True,
     )
 
-    # Logo
     col_logo_left, col_logo_center, col_logo_right = st.columns([1, 2, 1])
     with col_logo_center:
         st.markdown('<div class="login-logo-wrap">', unsafe_allow_html=True)
         st.image(logo_bytes, width=500)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown('<div class="login-topbar">', unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # After explorer CTA, show signup tab first so it's the active tab
     _from_explore = st.session_state.pop("_explore_go_signup", False)
-
     _lang_tab_label = "🌐"
     _theme_tab_label = "🌙" if not _dark_login else "☀️"
 
@@ -185,9 +272,7 @@ def require_login():
 
     with tab_theme:
         _current_theme_mode = st.session_state.get("ui_theme_mode", "auto")
-
         st.markdown(f"#### 🎨 {t('theme')}")
-
         _theme_options = ["auto", "light", "dark"]
         _new_theme_mode = st.radio(
             t("select_theme"),
@@ -221,292 +306,54 @@ def require_login():
             _set_query(lang=_selected)
             st.rerun()
 
+    with tab_login:
+        render_google_auth_card(
+            title_key="google_signin_title",
+            body_key="google_signin_body",
+            button_key="continue_with_google",
+            button_widget_key="btn_google_signin",
+        )
+
+    with tab_signup:
+        render_google_auth_card(
+            title_key="google_signup_title",
+            body_key="account_managed_by_provider",
+            button_key="create_account_google",
+            button_widget_key="btn_google_signup",
+            show_signup_note=True,
+        )
+
     with tab_explore:
         from helpers.goal_explorer import render_goal_explorer
         wants_signup = render_goal_explorer()
         if wants_signup:
-            # Switch to Create Account tab on next rerun
             st.session_state["_explore_go_signup"] = True
             st.rerun()
-
-    if _from_explore:
-        with tab_signup:
-            pending_page = st.session_state.get("_after_signup_page")
-            if pending_page:
-                st.info(t("explore_signup_prompt_feature", feature=t(pending_page.replace("add_", ""))))
-            else:
-                st.info(t("explore_signup_prompt"))
-
-    with tab_login:
-        email = st.text_input(t("email"), key="login_email")
-        password = st.text_input(t("password"), type="password", key="login_password")
-
-        if st.button(t("sign_in"), key="btn_login"):
-            try:
-                resp = get_sb().auth.sign_in_with_password(
-                    {"email": email, "password": password}
-                )
-
-                _set_auth_session(resp)
-
-                user_id = get_current_user_id()
-                if not user_id:
-                    raise Exception("Login succeeded but user_id was not restored.")
-
-                auth_user = st.session_state.get("auth_user") or {}
-                user_metadata = auth_user.get("user_metadata", {}) if isinstance(auth_user, dict) else {}
-
-                pending_profile = st.session_state.get("_pending_profile_after_signup") or {
-                    "email": email.strip(),
-                    "username": str(user_metadata.get("username") or "").strip().lower(),
-                    "display_name": str(
-                        user_metadata.get("display_name")
-                        or user_metadata.get("full_name")
-                        or ""
-                    ).strip(),
-                    "preferred_ui_language": str(
-                        user_metadata.get("preferred_ui_language")
-                        or st.session_state.get("ui_lang", "en")
-                    ),
-                    "timezone": DEFAULT_TZ_NAME,
-                    "default_lesson_duration": 45,
-                    "role": "teacher",
-                    "primary_subjects": [],
-                    "teaching_stages": [],
-                    "teaching_languages": [],
-                    "onboarding_completed": False,
-                }
-
-                if pending_profile.get("username") or pending_profile.get("display_name"):
-                    try:
-                        get_sb().table("profiles").upsert(
-                            {
-                                "user_id": user_id,
-                                **pending_profile,
-                            },
-                            on_conflict="user_id",
-                        ).execute()
-
-                        st.session_state["user_username"] = pending_profile.get("username", "").strip()
-                        st.session_state["user_name"] = pending_profile.get("display_name", "").strip()
-
-                        _save_pending_explore_plan(user_id, pending_profile.get("display_name", "").strip())
-                        _save_pending_explore_worksheet(user_id, pending_profile.get("display_name", "").strip())
-                        _save_pending_explore_cv(user_id, pending_profile.get("display_name", "").strip())
-
-                        st.session_state.pop("_pending_profile_after_signup", None)
-
-                    except Exception as profile_e:
-                        st.warning(f"{t('profile_setup_after_login_failed')}: {profile_e}")
-
-                apply_auth_session()
-
-                if not get_current_user_id():
-                    raise Exception("Login succeeded but user_id was not restored after session apply.")
-
-                uid = str(get_current_user_id() or "").strip()
-                if uid:
-                    st.session_state.pop(f"home_welcome_skipped::{uid}", None)
-
-                # also reset one-session login helpers for a truly fresh login cycle
-                st.session_state.pop("_login_redirect_done", None)
-                st.session_state.pop("_post_login_action", None)
-                
-                st.success(t("logged_in_ok"))
-                st.rerun()
-            except Exception as e:
-                st.error(f"{t('login_failed')}: {e}")
-
-        with st.expander(t("forgot_password")):
-            reset_email = st.text_input(t("email_reset_link"), key="reset_email")
-            if st.button(t("send_reset_email"), key="btn_reset"):
-                try:
-                    get_sb().auth.reset_password_for_email(reset_email)
-                    st.success(t("reset_email_sent"))
-                except Exception as e:
-                    st.error(f"{t('reset_failed')}: {e}")
-
-    with tab_signup:
-        username = st.text_input(t("user_name"), key="signup_username", help=t("username_hint"))
-
-        if username.strip():
-            if is_username_taken(username.strip().lower()):
-                st.error(t("username_taken"))
-            else:
-                st.success(t("username_available"))
-
-        full_name = st.text_input(t("full_name_label"), key="signup_full_name")
-        email2 = st.text_input(t("email"), key="signup_email")
-        password2 = st.text_input(t("password"), type="password", key="signup_password")
-
-        if st.button(t("create_account"), key="btn_signup"):
-            if not username.strip():
-                st.error(t("username_required"))
-            elif not full_name.strip():
-                st.error(t("full_name_required"))
-            elif is_username_taken(username.strip().lower()):
-                st.error(t("username_taken"))
-            else:
-                try:
-                    resp = get_sb().auth.sign_up(
-                        {
-                            "email": email2,
-                            "password": password2,
-                            "options": {
-                                "email_redirect_to": st.secrets.get("SITE_URL", "http://localhost:8501"),
-                                "data": {
-                                    "username": username.strip().lower(),
-                                    "display_name": full_name.strip(),
-                                    "preferred_ui_language": st.session_state.get("ui_lang", "en"),
-                                },
-                            },
-                        },
-                    )
-
-
-                    user = resp.user
-
-
-                    # Auto-save pending lesson plan from explore page
-                    _save_pending_explore_plan(user.id, full_name.strip())
-
-                    # Auto-save pending worksheet from explore page
-                    _save_pending_explore_worksheet(user.id, full_name.strip())
-                    
-                    # Auto-save pending CV from explore page
-                    _save_pending_explore_cv(user.id, full_name.strip())
-                    
-                    # Save pending signup profile data for first real login
-                    st.session_state["_pending_profile_after_signup"] = {
-                        "email": email2.strip(),
-                        "username": username.strip().lower(),
-                        "display_name": full_name.strip(),
-                        "preferred_ui_language": st.session_state.get("ui_lang", "en"),
-                        "timezone": DEFAULT_TZ_NAME,
-                        "default_lesson_duration": 45,
-                        "role": "teacher",
-                        "primary_subjects": [],
-                        "teaching_stages": [],
-                        "teaching_languages": [],
-                        "onboarding_completed": False,
-                    }
-
-                    st.success(t("account_created_check_email"))
-                    st.info(t("confirm_email_then_login"))
-
-                except Exception as e:
-                    _err_str = str(e).lower()
-                    if any(w in _err_str for w in ("already registered", "already been registered", "user already")):
-                        # Check if there's a deleted account with this email
-                        try:
-                            _check = get_sb().table("profiles").select("account_status").eq(
-                                "email", email2.strip()
-                            ).limit(1).execute()
-                            _rows = getattr(_check, "data", None) or []
-                            if _rows and _rows[0].get("account_status") == "deleted":
-                                st.warning(t("account_deleted_signup_hint"))
-                            else:
-                                st.error(f"{t('signup_failed')}: {e}")
-                        except Exception:
-                            st.error(f"{t('signup_failed')}: {e}")
-                    else:
-                        st.error(f"{t('signup_failed')}: {e}")
 
     st.stop()
 
 
-def _save_pending_explore_plan(user_id: str, display_name: str) -> None:
-    """If the user generated a lesson plan on the explore page, save it to their account."""
-    pending = st.session_state.pop("_pending_plan_after_signup", None)
-    if not pending:
-        return
-    plan = pending.get("plan")
-    meta = pending.get("meta", {})
-    if not plan:
-        return
-    try:
-        from datetime import datetime as _dt, timezone
-        get_sb().table("lesson_plans").insert({
-            "user_id": user_id,
-            "subject": str(meta.get("subject", "")).strip(),
-            "topic": str(meta.get("topic", "")).strip(),
-            "learner_stage": str(meta.get("learner_stage", "")).strip(),
-            "level_or_band": str(meta.get("level_or_band", "")).strip(),
-            "lesson_purpose": str(meta.get("lesson_purpose", "")).strip(),
-            "plan_language": st.session_state.get("ui_lang", "en"),
-            "student_material_language": "",
-            "source_type": "template",
-            "planner_mode": "template",
-            "plan_json": plan,
-            "title": str(plan.get("title", "")).strip(),
-            "author_name": display_name or "Unknown",
-            "subject_display": str(meta.get("subject", "")).strip(),
-            "is_public": True,
-            "created_at": _dt.now(timezone.utc).isoformat(),
-        }).execute()
-        st.success(t("explore_plan_auto_saved"))
-    except Exception:
-        pass  # Non-critical; user can re-create the plan after login
+def sign_out_user() -> None:
+    uid = str(get_current_user_id() or "").strip()
+
+    _clear_logged_in_user()
+    st.session_state.pop("user_id", None)
+    st.session_state.pop("user_email", None)
+    st.session_state.pop("user_name", None)
+    st.session_state.pop("user_username", None)
+
+    if uid:
+        st.session_state.pop(f"home_welcome_skipped::{uid}", None)
+
+    st.session_state.pop("_login_redirect_done", None)
+    st.session_state.pop("_post_login_action", None)
+    st.session_state.pop("_email_synced_to_profile", None)
+
+    st.logout()
 
 
-def _save_pending_explore_worksheet(user_id: str, display_name: str) -> None:
-    """If the user generated a worksheet on the explore page, save it to their account."""
-    pending = st.session_state.pop("_pending_worksheet_after_signup", None)
-    if not pending:
-        return
-    ws = pending.get("worksheet")
-    meta = pending.get("meta", {})
-    if not ws:
-        return
-    try:
-        from datetime import datetime as _dt, timezone
-        get_sb().table("worksheets").insert({
-            "user_id": user_id,
-            "subject": str(meta.get("subject", "")).strip(),
-            "topic": str(meta.get("topic", "")).strip(),
-            "learner_stage": str(meta.get("learner_stage", "")).strip(),
-            "level_or_band": str(meta.get("level_or_band", "")).strip(),
-            "worksheet_type": str(meta.get("worksheet_type", "")).strip(),
-            "plan_language": st.session_state.get("ui_lang", "en"),
-            "student_material_language": "",
-            "source_type": "ai",
-            "worksheet_json": ws,
-            "title": str(ws.get("title", "")).strip(),
-            "author_name": display_name or "Unknown",
-            "subject_display": str(meta.get("subject", "")).strip(),
-            "is_public": True,
-            "created_at": _dt.now(timezone.utc).isoformat(),
-        }).execute()
-        st.success(t("explore_ws_auto_saved"))
-    except Exception:
-        pass  # Non-critical; user can re-create the worksheet after login
-
-
-def _save_pending_explore_cv(user_id: str, display_name: str) -> None:
-    """If the user generated a CV on the explore page, save it to their account."""
-    pending = st.session_state.pop("_pending_cv_after_signup", None)
-    if not pending:
-        return
-    cv = pending.get("cv")
-    meta = pending.get("meta", {})
-    if not cv:
-        return
-    try:
-        from datetime import datetime as _dt, timezone
-        full_name = str(meta.get("full_name") or display_name or "").strip()
-        title = f"{full_name} CV" if full_name else "My CV"
-        get_sb().table("professional_profiles").insert({
-            "user_id": user_id,
-            "doc_type": "cv",
-            "title": title,
-            "source_type": "ai",
-            "cv_json": cv,
-            "ai_prompt": "",
-            "created_at": _dt.now(timezone.utc).isoformat(),
-        }).execute()
-        st.success(t("explore_cv_auto_saved"))
-    except Exception:
-        pass  # Non-critical; user can regenerate the CV after login
+def render_logout_button():
+    st.button(t("sign_out"), key="btn_logout", on_click=sign_out_user)
 
 
 def _profile_subject_label(subject: str) -> str:
@@ -552,7 +399,6 @@ def _profile_duration_label(minutes: int) -> str:
     return mapping.get(int(minutes), f"{minutes} min")
 
 
-
 def render_profile_dialog(user_id: str) -> None:
     profile = load_profile_row(user_id)
 
@@ -572,7 +418,6 @@ def render_profile_dialog(user_id: str) -> None:
                 label_visibility="collapsed",
             )
 
-            # Username (non-editable)
             _current_username = str(profile.get("username") or st.session_state.get("user_username") or "")
             st.text_input(
                 t("user_name"),
@@ -582,7 +427,6 @@ def render_profile_dialog(user_id: str) -> None:
                 help=t("username_not_editable"),
             )
 
-            # Full name (editable)
             display_name = st.text_input(
                 t("full_name_label"),
                 value=str(profile.get("display_name") or st.session_state.get("user_name") or ""),
@@ -673,13 +517,12 @@ def render_profile_dialog(user_id: str) -> None:
                     country_options = PROFILE_COUNTRY_OPTIONS
 
                 country = st.selectbox(
-    t("country_label"),
-    country_options,
-    index=0,
-    key="profile_country",
-)
+                    t("country_label"),
+                    country_options,
+                    index=0,
+                    key="profile_country",
+                )
 
-                # Preferred currency
                 _cur_value = str(profile.get("preferred_currency") or st.session_state.get("preferred_currency", "TRY"))
                 _cur_idx = CURRENCY_CODES.index(_cur_value) if _cur_value in CURRENCY_CODES else 0
                 preferred_currency = st.selectbox(
@@ -818,7 +661,7 @@ def render_profile_dialog(user_id: str) -> None:
                         "education_level": education_level if education_level else None,
                         "show_community_profile": show_community_profile,
                         "show_community_contact": show_community_contact,
-                    }
+                    },
                 )
 
                 if ok:
@@ -836,64 +679,19 @@ def render_profile_dialog(user_id: str) -> None:
                 else:
                     st.error(t("save_failed"))
 
-            # ── Change email & password ──────────────────────────────────────
             st.divider()
             with st.expander(t("change_email_password")):
                 st.caption(t("change_email_password_hint"))
-                new_email_val = st.text_input(t("new_email"), key="profile_new_email")
-                current_pwd_val = st.text_input(
-                    t("current_password"), type="password", key="profile_current_pwd"
-                )
-                new_pwd_val = st.text_input(
-                    t("new_password"), type="password", key="profile_new_pwd"
-                )
-                confirm_pwd_val = st.text_input(
-                    t("confirm_new_password"), type="password", key="profile_confirm_pwd"
-                )
+                st.info(t("email_managed_by_provider"))
+                st.info(t("password_managed_by_provider"))
 
-                if st.button(
-                    t("update_email_password"), key="btn_update_email_pwd", use_container_width=True
-                ):
-                    if not new_email_val.strip():
-                        st.error(t("new_email_required"))
-                    elif not current_pwd_val:
-                        st.error(t("current_password_required"))
-                    elif not new_pwd_val:
-                        st.error(t("new_password_required"))
-                    elif new_pwd_val != confirm_pwd_val:
-                        st.error(t("passwords_do_not_match"))
-                    elif len(new_pwd_val) < 6:
-                        st.error(t("password_too_short"))
-                    else:
-                        try:
-                            # Verify current password before making any changes
-                            get_sb().auth.sign_in_with_password(
-                                {"email": current_auth_email, "password": current_pwd_val}
-                            )
-                            # Update password immediately
-                            get_sb().auth.update_user({"password": new_pwd_val})
-                            # Request email change — confirmation sent to new address
-                            get_sb().auth.update_user({"email": new_email_val.strip()})
-                            st.success(t("email_change_confirmation_sent"))
-                        except Exception as _e:
-                            _err = str(_e).lower()
-                            if any(w in _err for w in ("invalid", "credentials", "wrong", "incorrect")):
-                                st.error(t("wrong_current_password"))
-                            else:
-                                st.error(f"{t('update_failed')}: {_e}")
-
-            # ── Delete account ───────────────────────────────────────────
             st.divider()
             with st.expander(f"⚠️ {t('delete_account')}"):
                 st.warning(t("delete_account_warning"))
                 st.caption(t("supabase_retention_note"))
                 _del_confirm = st.checkbox(
-                    t("delete_account_confirm"), key="profile_delete_confirm"
-                )
-                _del_pwd = st.text_input(
-                    t("delete_account_password"),
-                    type="password",
-                    key="profile_delete_pwd",
+                    t("delete_account_confirm"),
+                    key="profile_delete_confirm",
                 )
                 if st.button(
                     t("delete_account_btn"),
@@ -902,27 +700,13 @@ def render_profile_dialog(user_id: str) -> None:
                     type="primary",
                     disabled=not _del_confirm,
                 ):
-                    if not _del_pwd:
-                        st.error(t("delete_account_password"))
-                    else:
-                        try:
-                            # Verify password
-                            get_sb().auth.sign_in_with_password(
-                                {"email": current_auth_email, "password": _del_pwd}
-                            )
-                            # Delete all user data
-                            from core.database import delete_user_data
-                            delete_user_data(user_id)
-                            st.success(t("delete_account_success"))
-                            import time; time.sleep(2)
-                            # Sign out
-                            sign_out_user()
-                        except Exception as _e:
-                            _err = str(_e).lower()
-                            if any(w in _err for w in ("invalid", "credentials", "wrong", "incorrect")):
-                                st.error(t("wrong_password"))
-                            else:
-                                st.error(f"{t('delete_failed')}: {_e}")
+                    try:
+                        from core.database import delete_user_data
+                        delete_user_data(user_id)
+                        st.success(t("delete_account_success"))
+                        sign_out_user()
+                    except Exception as _e:
+                        st.error(f"{t('delete_failed')}: {_e}")
 
         _profile_dialog()
 
@@ -949,7 +733,12 @@ def render_choose_username_dialog(user_id: str) -> None:
                 else:
                     st.success(t("username_available"))
 
-            if st.button(t("set_username_btn"), key="btn_set_username", use_container_width=True, type="primary"):
+            if st.button(
+                t("set_username_btn"),
+                key="btn_set_username",
+                use_container_width=True,
+                type="primary",
+            ):
                 if not username.strip():
                     st.error(t("username_required"))
                 elif is_username_taken(username.strip().lower()):
@@ -968,51 +757,3 @@ def render_choose_username_dialog(user_id: str) -> None:
 
     except Exception:
         st.warning(t("choose_username_title"))
-
-
-def sign_out_user() -> None:
-    uid = str(get_current_user_id() or "").strip()
-
-    try:
-        get_sb().auth.sign_out()
-    except Exception:
-        pass
-
-    _clear_logged_in_user()
-
-    st.session_state["sb_access_token"] = None
-    st.session_state["sb_refresh_token"] = None
-
-    if uid:
-        st.session_state.pop(f"home_welcome_skipped::{uid}", None)
-
-    st.session_state.pop("_login_redirect_done", None)
-    st.session_state.pop("_post_login_action", None)
-    st.session_state.pop("_email_synced_to_profile", None)
-
-    st.rerun()
-
-def render_logout_button():
-    if st.button(t("sign_out"), key="btn_logout"):
-        uid = str(get_current_user_id() or "").strip()
-
-        try:
-            get_sb().auth.sign_out()
-        except Exception:
-            pass
-
-        st.session_state["sb_access_token"] = None
-        st.session_state["sb_refresh_token"] = None
-        st.session_state["show_profile_dialog"] = False
-
-        if uid:
-            st.session_state.pop(f"home_welcome_skipped::{uid}", None)
-
-        st.session_state.pop("_login_redirect_done", None)
-        st.session_state.pop("_post_login_action", None)
-        st.session_state.pop("_email_synced_to_profile", None)
-
-        _clear_logged_in_user()
-
-        st.rerun()
-

@@ -7,8 +7,28 @@ from supabase import create_client
 
 from core.state import get_current_user_id, with_owner, _set_logged_in_user, _clear_logged_in_user
 
+
+def get_profile_by_email(email: str) -> dict:
+    if not email:
+        return {}
+    try:
+        sb = get_sb()
+        res = (
+            sb.table("profiles")
+            .select("*")
+            .eq("email", str(email).strip().lower())
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(res, "data", None) or []
+        return rows[0] if rows else {}
+    except Exception:
+        return {}
+
+
 # ---- Supabase client (lazy singleton) ----
 _sb = None
+
 
 def get_sb():
     global _sb
@@ -41,56 +61,88 @@ def clear_app_caches() -> None:
             pass
 
 
-# ---- Auth helpers ----
+# ---- Auth helpers (OIDC-compatible) ----
 def apply_auth_session() -> None:
-    at = st.session_state.get("sb_access_token")
-    rt = st.session_state.get("sb_refresh_token")
-    if not at or not rt:
+    """
+    Compatibility helper for the new Streamlit OIDC auth flow.
+
+    Restores the current app user from:
+    1) st.user.email when available, or
+    2) st.session_state['user_email'] as fallback.
+
+    Also runs the login-count / redirect logic once per session.
+    """
+    email = ""
+
+    if getattr(st.user, "is_logged_in", False):
+        email = str(getattr(st.user, "email", "") or "").strip().lower()
+
+    if not email:
+        email = str(st.session_state.get("user_email") or "").strip().lower()
+
+    if not email:
         return
+
     try:
         sb = get_sb()
-        sb.auth.set_session(at, rt)
-        user = sb.auth.get_user().user
-        uid = user.id if hasattr(user, "id") else ""
-        profile_name = get_user_display_name(uid)
-        profile_username = get_user_username(uid)
-        _set_logged_in_user(user, profile_name=profile_name, profile_username=profile_username)
+        profile = get_profile_by_email(email)
+        if not profile:
+            return
 
-        # Sync auth email → profiles table (once per session, catches post-confirmation changes)
+        uid = str(profile.get("user_id") or "").strip()
+        if not uid:
+            return
+
+        display_name = str(profile.get("display_name") or "").strip()
+        username = str(profile.get("username") or "").strip()
+
+        oidc_user = {
+            "email": email,
+            "user_metadata": {
+                "display_name": str(getattr(st.user, "name", "") or display_name).strip(),
+            },
+        }
+
+        _set_logged_in_user(
+            oidc_user,
+            profile_name=display_name,
+            profile_username=username,
+            user_id=uid,
+        )
+
+        # Sync email into profiles once per session if needed
         if not st.session_state.get("_email_synced_to_profile"):
-            _auth_email = getattr(user, "email", None)
-            if uid and _auth_email:
-                try:
-                    sb.table("profiles").update({"email": _auth_email}).eq("user_id", str(uid)).execute()
-                except Exception:
-                    pass
+            try:
+                sb.table("profiles").update({"email": email}).eq("user_id", uid).execute()
+            except Exception:
+                pass
             st.session_state["_email_synced_to_profile"] = True
 
-        # ── Login-count & last-page redirect (run once per session) ──────────
+        # Login-count & redirect logic (run once per session)
         if uid and not st.session_state.get("_login_redirect_done"):
             st.session_state["_login_redirect_done"] = True
             try:
-                _pres = sb.table("profiles").select(
-                    "login_count, last_page, onboarding_completed, account_status, deleted_at, username"
-                ).eq("user_id", str(uid)).limit(1).execute()
+                _pres = (
+                    sb.table("profiles")
+                    .select("login_count, last_page, onboarding_completed, account_status, deleted_at, username")
+                    .eq("user_id", uid)
+                    .limit(1)
+                    .execute()
+                )
                 _prow = (getattr(_pres, "data", None) or [{}])[0]
 
-                # ── Check for deleted account ──
                 if _prow.get("account_status") == "deleted":
                     st.session_state["_post_login_action"] = "restore_account"
                     st.session_state["_deleted_at"] = _prow.get("deleted_at")
-                    return  # skip login count increment
+                    return
 
                 _login_count = int(_prow.get("login_count") or 0)
-                _last_page   = str(_prow.get("last_page") or "").strip() or "dashboard"
-                _onboarded   = bool(_prow.get("onboarding_completed"))
+                _last_page = str(_prow.get("last_page") or "").strip() or "dashboard"
                 _has_username = bool(str(_prow.get("username") or "").strip())
 
-                # Increment and persist
                 _new_count = _login_count + 1
-                sb.table("profiles").update({"login_count": _new_count}).eq("user_id", str(uid)).execute()
+                sb.table("profiles").update({"login_count": _new_count}).eq("user_id", uid).execute()
 
-                # Decide where to land
                 if _login_count == 0:
                     st.session_state["_post_login_action"] = "page:home"
                 elif not _has_username:
@@ -109,11 +161,9 @@ def apply_auth_session() -> None:
                     else:
                         st.session_state["_post_login_action"] = f"page:{_last_page}"
             except Exception:
-                pass  # Non-fatal; app just opens normally
+                pass
 
     except Exception:
-        st.session_state["sb_access_token"] = None
-        st.session_state["sb_refresh_token"] = None
         _clear_logged_in_user()
 
 
@@ -127,7 +177,7 @@ def get_user_display_name(user_id: str) -> str:
             .limit(1)
             .execute()
         )
-        rows = res.data or []
+        rows = getattr(res, "data", None) or []
         if rows and rows[0].get("display_name"):
             return rows[0]["display_name"]
     except Exception:
@@ -145,7 +195,7 @@ def get_user_username(user_id: str) -> str:
             .limit(1)
             .execute()
         )
-        rows = res.data or []
+        rows = getattr(res, "data", None) or []
         if rows and rows[0].get("username"):
             return rows[0]["username"]
     except Exception:
@@ -177,9 +227,18 @@ def is_username_taken(username: str) -> bool:
 def _load_table_cached(name: str, uid: str, limit: int = 10000, page_size: int = 1000) -> pd.DataFrame:
     all_rows = []
     owner_scoped_tables = {
-        "students", "classes", "payments", "schedules", "calendar_overrides",
-        "pricing_items", "app_settings", "profiles", "lesson_plans",
-        "ai_usage_logs", "user_activity_log", "professional_profiles",
+        "students",
+        "classes",
+        "payments",
+        "schedules",
+        "calendar_overrides",
+        "pricing_items",
+        "app_settings",
+        "profiles",
+        "lesson_plans",
+        "ai_usage_logs",
+        "user_activity_log",
+        "professional_profiles",
         "worksheets",
     }
     try:
@@ -201,6 +260,7 @@ def _load_table_cached(name: str, uid: str, limit: int = 10000, page_size: int =
     except Exception as e:
         st.error(f"Supabase error loading table '{name}'.\n\n{e}")
         return pd.DataFrame()
+
 
 register_cache(_load_table_cached)
 
@@ -248,6 +308,7 @@ def _load_students_cached(uid: str) -> List[str]:
         .replace("", pd.NA).dropna().unique().tolist()
     )
     return sorted([n for n in names if str(n).lower() != "nan"])
+
 
 register_cache(_load_students_cached)
 
@@ -299,8 +360,8 @@ def rename_student_everywhere(old_name: str, new_name: str) -> None:
         except Exception:
             failed_tables.append(table_name)
 
-        if failed_tables:
-            raise ValueError("rename_student_partial_failed")
+    if failed_tables:
+        raise ValueError("rename_student_partial_failed")
 
     clear_app_caches()
 
@@ -359,6 +420,7 @@ def load_profile_row(user_id: str) -> dict:
         st.error(f"Could not load profile: {e}")
     return {}
 
+
 def _normalize_profile_sex(raw) -> str | None:
     v = str(raw or "").strip().lower()
     aliases = {
@@ -373,6 +435,7 @@ def _normalize_profile_sex(raw) -> str | None:
         "null": None,
     }
     return aliases.get(v, None)
+
 
 def upsert_profile_row(user_id: str, payload: dict) -> bool:
     if not user_id:
@@ -394,8 +457,6 @@ def upsert_profile_row(user_id: str, payload: dict) -> bool:
         return False
 
 
-
-
 # ---- CRUD ----
 def add_class(
     student,
@@ -405,7 +466,7 @@ def add_class(
     note="",
     subject=None,
     subject_custom=None,
-): 
+):
     sb = get_sb()
     payload = with_owner({
         "student": student,
@@ -418,15 +479,22 @@ def add_class(
     })
     sb.table("classes").insert(payload).execute()
 
-def add_payment(student: str, number_of_lesson: int, payment_date: str,
-                paid_amount: float, modality: str, subject: str = "",
-                subject_custom: Optional[str] = None,
-                package_start_date: Optional[str] = None,
-                package_expiry_date: Optional[str] = None,
-                lesson_adjustment_units: int = 0,
-                package_normalized: bool = False,
-                normalized_note: str = "",
-                currency: str = "TRY") -> None:
+
+def add_payment(
+    student: str,
+    number_of_lesson: int,
+    payment_date: str,
+    paid_amount: float,
+    modality: str,
+    subject: str = "",
+    subject_custom: Optional[str] = None,
+    package_start_date: Optional[str] = None,
+    package_expiry_date: Optional[str] = None,
+    lesson_adjustment_units: int = 0,
+    package_normalized: bool = False,
+    normalized_note: str = "",
+    currency: str = "TRY",
+) -> None:
     student = str(student).strip()
     ensure_student(student)
     if not package_start_date:
@@ -469,7 +537,7 @@ def normalize_latest_package(student: str, payment_id: int, note: str = "") -> b
         payload = {
             "package_normalized": True,
             "normalized_note": str(note or "").strip(),
-            "normalized_at": datetime.now(timezone.utc).isoformat()
+            "normalized_at": datetime.now(timezone.utc).isoformat(),
         }
         q = sb.table("payments").update(payload).eq("id", int(payment_id))
         if uid:
@@ -481,13 +549,15 @@ def normalize_latest_package(student: str, payment_id: int, note: str = "") -> b
         return False
 
 
-def update_student_profile(student: str, email: str, zoom_link: str,
-                           notes: str, color: str, phone: str) -> None:
+def update_student_profile(student: str, email: str, zoom_link: str, notes: str, color: str, phone: str) -> None:
     uid = get_current_user_id()
     sb = get_sb()
     q = sb.table("students").update({
-        "email": email, "zoom_link": zoom_link,
-        "notes": notes, "color": color, "phone": phone,
+        "email": email,
+        "zoom_link": zoom_link,
+        "notes": notes,
+        "color": color,
+        "phone": phone,
     }).eq("student", student)
     if uid:
         q = q.eq("user_id", uid)
@@ -524,8 +594,7 @@ def update_class_row(class_id: int, updates: dict) -> bool:
 
 
 def load_community_profiles() -> list:
-    """Return all profiles that have opted into the community (show_community_profile=True or NULL).
-    Returns a list of dicts with safe public fields only."""
+    """Return all community-visible profiles."""
     try:
         sb = get_sb()
         res = (
@@ -549,15 +618,13 @@ def update_active_student_count(user_id: str) -> None:
     if not user_id:
         return
     try:
-        import pandas as pd
         import datetime as _dt
         sb = get_sb()
         cutoff = (_dt.date.today() - _dt.timedelta(days=183)).isoformat()
 
-        # Count unique active students via recent lessons or payments
         cls_res = sb.table("classes").select("student, lesson_date").eq("user_id", str(user_id)).execute()
         cls_rows = getattr(cls_res, "data", None) or []
-        pay_res  = sb.table("payments").select("student, payment_date").eq("user_id", str(user_id)).execute()
+        pay_res = sb.table("payments").select("student, payment_date").eq("user_id", str(user_id)).execute()
         pay_rows = getattr(pay_res, "data", None) or []
 
         active_students: set = set()
@@ -581,9 +648,18 @@ def update_active_student_count(user_id: str) -> None:
 
 # ── Account deletion ────────────────────────────────────────────────────
 _DELETE_TABLES = [
-    "classes", "payments", "students", "schedules", "calendar_overrides",
-    "pricing_items", "app_settings", "lesson_plans", "ai_usage_logs",
-    "user_activity_log", "professional_profiles", "worksheets",
+    "classes",
+    "payments",
+    "students",
+    "schedules",
+    "calendar_overrides",
+    "pricing_items",
+    "app_settings",
+    "lesson_plans",
+    "ai_usage_logs",
+    "user_activity_log",
+    "professional_profiles",
+    "worksheets",
 ]
 
 
@@ -597,7 +673,7 @@ def delete_user_data(user_id: str) -> bool:
             sb.table(tbl).delete().eq("user_id", str(user_id)).execute()
         except Exception:
             pass
-    # Mark profile as deleted (keep user_id + email for restore window)
+
     sb.table("profiles").update({
         "account_status": "deleted",
         "deleted_at": datetime.now(timezone.utc).isoformat(),
@@ -628,15 +704,18 @@ def restore_deleted_account(user_id: str) -> bool:
     return True
 
 
-from typing import Optional
 def check_deleted_account(user_id: str) -> Optional[dict]:
     """Return deletion info if profile is soft-deleted, else None."""
     if not user_id:
         return None
     sb = get_sb()
-    res = sb.table("profiles").select(
-        "account_status, deleted_at"
-    ).eq("user_id", str(user_id)).limit(1).execute()
+    res = (
+        sb.table("profiles")
+        .select("account_status, deleted_at")
+        .eq("user_id", str(user_id))
+        .limit(1)
+        .execute()
+    )
     rows = getattr(res, "data", None) or []
     if not rows:
         return None
