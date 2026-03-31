@@ -70,6 +70,16 @@ I18N: Dict[str, Dict[str, str]] = {
         "missing_user_id": "Session expired. Please reload the page and log in again.",
         "confirm_email_then_login": "Te enviamos un correo de confirmación. Por favor, confirma tu cuenta y luego inicia sesión.",
         "profile_setup_after_login_failed": "Tu cuenta está lista, pero una parte de tu perfil no se pudo completar automáticamente",
+        "preview": "Preview",
+        "email_managed_by_provider": "Your email is managed by your login provider.",
+        "password_managed_by_provider": "Your password is managed by your login provider.",
+        "continue_with_google": "Continue with Google",
+        "create_account_google": "Create account with Google",
+        "account_managed_by_provider": "Account creation is handled by your login provider.",
+        "google_signin_title": "Sign in securely with Google",
+        "google_signin_body": "Use your Google account to access Classio on any device.",
+        "google_signup_title": "Create your Classio account with Google",
+        "google_auth_signup_note": "Fast, secure, and no extra password to remember.",
 
         # -------------------------
         # DELETE / RESTORE ACCOUNT
@@ -810,7 +820,11 @@ I18N: Dict[str, Dict[str, str]] = {
         "pricing_add_package": "Add a package",
         "pricing_add": "Add",
         "pricing_set_price_hint": "Please set your prices below before registering payments.",
-        
+
+        "pricing_duplicate_package_error": "You already have a package with that number of lessons.",
+        "pricing_duplicate_hourly_error": "You already have an hourly price for this modality.",
+        "payload_must_be_a_dict": "Payload must include hours and price.",
+
         # -------------------------
         # WHATSAPP (DASHBOARD)
         # -------------------------
@@ -1000,8 +1014,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "calendar_all_day": "All-day",
         "calendar_more_template": "+{n} more",
         "confirm_email_then_login": "We sent you a confirmation email. Please confirm your account and then sign in.",
-        "profile_setup_after_login_failed": "Your account is ready, but part of your profile could not be completed automatically.",
-        "preview": "Preview",
+        
     },
 
     "es": {
@@ -1067,6 +1080,15 @@ I18N: Dict[str, Dict[str, str]] = {
         "confirm_email_then_login": "Te enviamos un correo de confirmación. Por favor, confirma tu cuenta y luego inicia sesión.",
         "profile_setup_after_login_failed": "Tu cuenta está lista, pero una parte de tu perfil no se pudo completar automáticamente",
         "preview": "Ver",
+        "email_managed_by_provider": "Tu correo electrónico es gestionado por tu proveedor de inicio de sesión.",
+        "password_managed_by_provider": "Tu contraseña es gestionada por tu proveedor de inicio de sesión.",
+        "continue_with_google": "Continuar con Google",
+        "create_account_google": "Crear cuenta con Google",
+        "account_managed_by_provider": "La creación de la cuenta es gestionada por tu proveedor de inicio de sesión.",
+        "google_signin_title": "Inicia sesión de forma segura con Google",
+        "google_signin_body": "Usa tu cuenta de Google para acceder a Classio desde cualquier dispositivo.",
+        "google_signup_title": "Crea tu cuenta de Classio con Google",
+        "google_auth_signup_note": "Rápido, seguro y sin otra contraseña que recordar.",
 
         # -------------------------
         # DELETE / RESTORE ACCOUNT
@@ -1806,7 +1828,11 @@ I18N: Dict[str, Dict[str, str]] = {
         "pricing_add_package": "Agregar un paquete",
         "pricing_add": "Agregar",
         "pricing_set_price_hint": "Por favor establece tus precios antes de registrar pagos.",
-        
+
+        "pricing_duplicate_package_error": "Ya tienes un paquete con esa cantidad de clases.",
+        "pricing_duplicate_hourly_error": "Ya tienes un precio por hora para esta modalidad.",
+        "payload_must_be_a_dict": "Los datos deben incluir el número de horas y el precio.",
+
         # -------------------------
         # WHATSAPP (DASHBOARD)
         # -------------------------
@@ -2061,6 +2087,15 @@ I18N: Dict[str, Dict[str, str]] = {
         "confirm_email_then_login": "Size bir onay e-postası gönderdik. Lütfen hesabınızı onaylayın ve ardından giriş yapın.",
         "profile_setup_after_login_failed": "Hesabınız hazır, ancak profilinizin bir kısmı otomatik olarak tamamlanamadı",
         "preview": "İncele",
+        "email_managed_by_provider": "E-posta adresiniz giriş sağlayıcınız tarafından yönetilmektedir.",
+        "password_managed_by_provider": "Şifreniz giriş sağlayıcınız tarafından yönetilmektedir.",
+        "continue_with_google": "Google ile devam et",
+        "create_account_google": "Google ile hesap oluştur",
+        "account_managed_by_provider": "Hesap oluşturma işlemi giriş sağlayıcınız tarafından yönetilmektedir.", 
+        "google_signin_title": "Google ile güvenli giriş yapın",
+        "google_signin_body": "Classio'ya herhangi bir cihazdan erişmek için Google hesabınızı kullanın.",
+        "google_signup_title": "Classio hesabınızı Google ile oluşturun",
+        "google_auth_signup_note": "Hızlı, güvenli ve hatırlamanız gereken ek bir şifre yok.",
 
         # -------------------------
         # DELETE / RESTORE ACCOUNT
@@ -2789,6 +2824,10 @@ I18N: Dict[str, Dict[str, str]] = {
         "pricing_add_package": "Paket ekle",
         "pricing_add": "Ekle",
         "pricing_set_price_hint": "Lütfen ödeme kaydetmeden önce fiyatlarınızı ayarlayın.",
+
+        "pricing_duplicate_package_error": "Bu ders sayısına sahip bir paketiniz zaten var.",
+        "pricing_duplicate_hourly_error": "Bu ders türü için zaten saatlik bir fiyatınız var.",
+        "payload_must_be_a_dict": "Paket için saat sayısı ve fiyat girilmelidir.",
 
         # -------------------------
         # WHATSAPP (DASHBOARD)

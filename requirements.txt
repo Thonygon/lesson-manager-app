@@ -1,4 +1,5 @@
-streamlit
+streamlit==1.55.0
+Authlib==1.6.5
 pandas
 supabase
 matplotlib
@@ -10,4 +11,3 @@ openai
 google-genai
 reportlab
 pypdf
-streamlit>=1.55,<1.60

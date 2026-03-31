@@ -18,7 +18,8 @@ QUICK_SUBJECTS = [
     "science",
     "music",
     "study_skills",
-    "other"] 
+    "other",
+]
 
 SUBJECT_ENGINE_MAP = {
     "english": "language",
@@ -26,7 +27,8 @@ SUBJECT_ENGINE_MAP = {
     "mathematics": "math",
     "science": "science",
     "music": "music",
-    "study_skills": "study_skills",}
+    "study_skills": "study_skills",
+}
 
 LEARNER_STAGES = [
     "early_primary",
@@ -47,10 +49,12 @@ LESSON_PURPOSES = [
     "discussion_exploration",
 ]
 
+
 def subject_label(subject_key: str) -> str:
     if str(subject_key).strip().lower() == "other":
         return t("explore_other")
     return t(f"subject_{subject_key}")
+
 
 def get_subject_engine(subject: str) -> str:
     s = str(subject or "").strip().lower()
@@ -59,7 +63,7 @@ def get_subject_engine(subject: str) -> str:
 
 def get_plan_language() -> str:
     lang = str(st.session_state.get("ui_lang", "en")).strip().lower()
-    return "es" if lang == "es" else "en"
+    return lang if lang in {"en", "es", "tr"} else "en"
 
 
 def get_student_material_language(subject: str) -> str:
@@ -71,8 +75,13 @@ def get_student_material_language(subject: str) -> str:
     return get_plan_language()
 
 
-def qlp_txt(en: str, es: str) -> str:
-    return es if get_plan_language() == "es" else en
+def qlp_txt(en: str, es: str, tr: str) -> str:
+    lang = get_plan_language()
+    if lang == "es":
+        return es
+    if lang == "tr":
+        return tr
+    return en
 
 
 def get_level_options(subject: str) -> list[str]:
@@ -115,27 +124,18 @@ def _purpose_label(purpose: str) -> str:
 def _topic_clean(topic: str) -> str:
     return _clean_display_text(topic)
 
+
 def _clean_display_text(text: str) -> str:
     s = str(text or "").strip()
-
-    # Collapse repeated spaces
     s = re.sub(r"\s+", " ", s)
-
-    # Remove spaces before punctuation
     s = re.sub(r"\s+([.,!?;:])", r"\1", s)
-
-    # Normalize spaces around hyphens and slashes
     s = re.sub(r"\s*-\s*", " - ", s)
     s = re.sub(r"\s*/\s*", " / ", s)
-
-    # Final trim
     s = re.sub(r"\s+", " ", s).strip()
-
-    # Capitalize first letter
     if s:
         s = s[0].upper() + s[1:]
-
     return s
+
 
 def _capitalize_topic(topic: str) -> str:
     s = _topic_clean(topic)
@@ -145,33 +145,93 @@ def _capitalize_topic(topic: str) -> str:
 def _teacher_move_block(engine: str, purpose: str) -> list[str]:
     if engine == "language":
         base = [
-            qlp_txt("Model one answer before asking the student to answer alone.", "Modela una respuesta antes de pedirle al estudiante que responda solo."),
-            qlp_txt("If the student struggles, give a sentence starter instead of the full answer.", "Si el estudiante tiene dificultad, dale un inicio de oración en vez de la respuesta completa."),
-            qlp_txt("Correct only the error that blocks meaning first.", "Corrige primero solo el error que bloquea el significado."),
+            qlp_txt(
+                "Model one answer before asking the student to answer alone.",
+                "Modela una respuesta antes de pedirle al estudiante que responda solo.",
+                "Öğrenciden tek başına cevap vermesini istemeden önce bir örnek cevap modelleyin.",
+            ),
+            qlp_txt(
+                "If the student struggles, give a sentence starter instead of the full answer.",
+                "Si el estudiante tiene dificultad, dale un inicio de oración en vez de la respuesta completa.",
+                "Öğrenci zorlanırsa tam cevabı vermek yerine bir cümle başlangıcı verin.",
+            ),
+            qlp_txt(
+                "Correct only the error that blocks meaning first.",
+                "Corrige primero solo el error que bloquea el significado.",
+                "Önce yalnızca anlamı engelleyen hatayı düzeltin.",
+            ),
         ]
     elif engine == "math":
         base = [
-            qlp_txt("Ask the student to explain each step aloud.", "Pídele al estudiante que explique cada paso en voz alta."),
-            qlp_txt("If the student gets stuck, reveal only the next step.", "Si el estudiante se bloquea, muestra solo el siguiente paso."),
-            qlp_txt("Check whether the mistake is conceptual or just arithmetic.", "Comprueba si el error es conceptual o solo aritmético."),
+            qlp_txt(
+                "Ask the student to explain each step aloud.",
+                "Pídele al estudiante que explique cada paso en voz alta.",
+                "Öğrenciden her adımı yüksek sesle açıklamasını isteyin.",
+            ),
+            qlp_txt(
+                "If the student gets stuck, reveal only the next step.",
+                "Si el estudiante se bloquea, muestra solo el siguiente paso.",
+                "Öğrenci takılırsa yalnızca bir sonraki adımı gösterin.",
+            ),
+            qlp_txt(
+                "Check whether the mistake is conceptual or just arithmetic.",
+                "Comprueba si el error es conceptual o solo aritmético.",
+                "Hatanın kavramsal mı yoksa yalnızca işlem hatası mı olduğunu kontrol edin.",
+            ),
         ]
     elif engine == "science":
         base = [
-            qlp_txt("Ask for a prediction before explaining the concept.", "Pide una predicción antes de explicar el concepto."),
-            qlp_txt("Use one real-life example before giving the formal explanation.", "Usa un ejemplo de la vida real antes de dar la explicación formal."),
-            qlp_txt("Rebuild understanding from the phenomenon, not from memorized definitions.", "Reconstruye la comprensión desde el fenómeno, no desde definiciones memorizadas."),
+            qlp_txt(
+                "Ask for a prediction before explaining the concept.",
+                "Pide una predicción antes de explicar el concepto.",
+                "Kavramı açıklamadan önce öğrenciden bir tahmin isteyin.",
+            ),
+            qlp_txt(
+                "Use one real-life example before giving the formal explanation.",
+                "Usa un ejemplo de la vida real antes de dar la explicación formal.",
+                "Resmî açıklamayı vermeden önce günlük hayattan bir örnek kullanın.",
+            ),
+            qlp_txt(
+                "Rebuild understanding from the phenomenon, not from memorized definitions.",
+                "Reconstruye la comprensión desde el fenómeno, no desde definiciones memorizadas.",
+                "Anlayışı ezberlenmiş tanımlardan değil, gözlenen olgudan başlayarak kurun.",
+            ),
         ]
     elif engine == "music":
         base = [
-            qlp_txt("Demonstrate first, then ask for imitation.", "Demuestra primero y luego pide imitación."),
-            qlp_txt("Correct one thing at a time.", "Corrige una cosa a la vez."),
-            qlp_txt("Use short repetition cycles instead of long explanations.", "Usa ciclos cortos de repetición en lugar de explicaciones largas."),
+            qlp_txt(
+                "Demonstrate first, then ask for imitation.",
+                "Demuestra primero y luego pide imitación.",
+                "Önce gösterin, sonra taklit etmesini isteyin.",
+            ),
+            qlp_txt(
+                "Correct one thing at a time.",
+                "Corrige una cosa a la vez.",
+                "Her seferinde yalnızca bir şeyi düzeltin.",
+            ),
+            qlp_txt(
+                "Use short repetition cycles instead of long explanations.",
+                "Usa ciclos cortos de repetición en lugar de explicaciones largas.",
+                "Uzun açıklamalar yerine kısa tekrar döngüleri kullanın.",
+            ),
         ]
     else:
         base = [
-            qlp_txt("Model the strategy with a real example.", "Modela la estrategia con un ejemplo real."),
-            qlp_txt("Ask the student where they could use this this week.", "Pregúntale al estudiante dónde podría usar esto esta semana."),
-            qlp_txt("Focus on transfer, not just explanation.", "Enfócate en la transferencia, no solo en la explicación."),
+            qlp_txt(
+                "Model the strategy with a real example.",
+                "Modela la estrategia con un ejemplo real.",
+                "Stratejiyi gerçek bir örnekle modelleyin.",
+            ),
+            qlp_txt(
+                "Ask the student where they could use this this week.",
+                "Pregúntale al estudiante dónde podría usar esto esta semana.",
+                "Öğrenciye bunu bu hafta nerede kullanabileceğini sorun.",
+            ),
+            qlp_txt(
+                "Focus on transfer, not just explanation.",
+                "Enfócate en la transferencia, no solo en la explicación.",
+                "Sadece açıklamaya değil, transfer etmeye de odaklanın.",
+            ),
         ]
 
     if purpose == "diagnose_difficulty":
@@ -179,6 +239,7 @@ def _teacher_move_block(engine: str, purpose: str) -> list[str]:
             qlp_txt(
                 "Delay correction briefly so you can see exactly where the confusion starts.",
                 "Retrasa un poco la corrección para ver exactamente dónde empieza la confusión.",
+                "Karışıklığın tam olarak nerede başladığını görmek için düzeltmeyi kısa bir süre geciktirin.",
             )
         )
 
@@ -320,6 +381,72 @@ LANGUAGE_CONTENT_BANK = {
                 ],
                 "post_task": "Pide al estudiante que explique si viajar es más educativo o más relajante."
             }
+        },
+        "tr": {
+            "A1_A2": {
+                "target_vocabulary": ["seyahat", "gezi", "bilet", "otel", "ziyaret"],
+                "warm_up": [
+                    "Daha önce başka bir şehre ya da ülkeye seyahat ettin mi?",
+                    "İnsanlar bir yolculuktan önce genellikle nelere ihtiyaç duyar?",
+                    "Hangi yerleri ziyaret etmeyi seversin?"
+                ],
+                "reading_passage": (
+                    "Marta hafta sonu için Ankara'ya bir gezi planlıyor. Otobüsle gitmek istiyor çünkü uçaktan daha ucuz. "
+                    "Küçük bir çantası, rahat ayakkabıları ve ziyaret etmek istediği yerlerin bir listesi hazır. Cumartesi sabahı eski şehri görmek, "
+                    "yerel yemekler yemek ve ailesi için bir hediye almak istiyor. Çok sık seyahat etmediği için heyecanlı."
+                ),
+                "listening_script": (
+                    "Günaydın arkadaşlar. Bugün seyahat planları hakkında konuşuyoruz. Marta bu hafta sonu Ankara'ya gidiyor. "
+                    "Otobüsle gidiyor ve eski şehri ziyaret etmek, yerel yemekler denemek ve bir hatıra almak istiyor. "
+                    "Çok sık seyahat etmediği için heyecanlı hissediyor."
+                ),
+                "pre_task_questions": [
+                    "İnsanlar bir yolculuktan önce genellikle ne hazırlar?",
+                    "Seyahatle ilgili bir metinde hangi kelimeleri duymayı beklersin?"
+                ],
+                "gist_questions": [
+                    "Metin genel olarak ne hakkında?",
+                    "Marta gezi hakkında nasıl hissediyor?"
+                ],
+                "detail_questions": [
+                    "Marta nereye gidiyor?",
+                    "Neden otobüsle gidiyor?",
+                    "Cumartesi günü ne yapmak istiyor?"
+                ],
+                "post_task": "Öğrenciden yapmak isteyeceği bir geziyi tarif etmesini isteyin."
+            },
+            "B1_B2": {
+                "target_vocabulary": ["varış noktası", "deneyim", "yolculuk", "program", "bütçe"],
+                "warm_up": [
+                    "Bir geziyi unutulmaz yapan şey nedir?",
+                    "Detaylı plan yapmayı mı yoksa spontane seyahati mi tercih edersin?",
+                    "Yolculuk sırasında ne gibi sorunlar yaşanabilir?"
+                ],
+                "reading_passage": (
+                    "Birçok insan için seyahat, bir yerden başka bir yere gitmekten daha fazlasıdır. Öğrenmenin, dinlenmenin veya yeni bakış açıları keşfetmenin bir yolu olabilir. "
+                    "Bazı gezginler ulaşım, konaklama ve günlük etkinlikler dahil her ayrıntıyı planlamayı tercih eder. Diğerleri ise spontane davranmaya yer bırakır; "
+                    "çünkü beklenmedik deneyimlerin yolculuğun en unutulmaz kısmı olduğuna inanırlar. Her iki durumda da seyahat, insanlara uyum sağlamayı, "
+                    "iletişim kurmayı ve alışılmadık durumlarda karar vermeyi öğretir."
+                ),
+                "listening_script": (
+                    "Bugün insanların neden seyahat ettiğine dair kısa bir konuşma dinleyeceğiz. Bazıları dinlenmek için, bazıları ise farklı kültürleri öğrenmek için seyahat eder. "
+                    "Konuşmacı, seyahatin iletişim becerilerini geliştirdiğini ve insanlara alışılmadık durumlarla karşılaştıklarında daha esnek olmayı öğrettiğini açıklıyor."
+                ),
+                "pre_task_questions": [
+                    "İnsanlar neden seyahat eder?",
+                    "Seyahat bir insana ne gibi faydalar sağlayabilir?"
+                ],
+                "gist_questions": [
+                    "Konuşmacının seyahat hakkındaki ana fikri nedir?",
+                    "Seyahatin hangi genel faydaları belirtiliyor?"
+                ],
+                "detail_questions": [
+                    "Plan yapanlarla spontane gezginler arasındaki fark nedir?",
+                    "Seyahat yoluyla hangi beceriler gelişebilir?",
+                    "Alışılmadık durumlar neden önemlidir?"
+                ],
+                "post_task": "Öğrenciden seyahatin daha çok eğitici mi yoksa rahatlatıcı mı olduğunu açıklamasını isteyin."
+            }
         }
     },
 
@@ -389,9 +516,44 @@ LANGUAGE_CONTENT_BANK = {
                 ],
                 "post_task": "Pide al estudiante que describa su comida favorita."
             }
+        },
+        "tr": {
+            "A1_A2": {
+                "target_vocabulary": ["yemek", "öğün", "restoran", "pişirmek", "kahvaltı"],
+                "warm_up": [
+                    "En çok hangi yemeği seversin?",
+                    "Kahvaltıda genellikle ne yersin?",
+                    "Basit bir yemek pişirebilir misin?"
+                ],
+                "reading_passage": (
+                    "Leo sade ve taze yemekleri sever. Sabahları genellikle ekmek, peynir ve meyve yer. "
+                    "Öğle vakti bazen ofisinin yakınındaki küçük bir restorana gider. En sevdiği yemek pilav ve salatayla servis edilen ızgara tavuktur. "
+                    "Hafta sonları kız kardeşiyle yemek yapmaktan hoşlanır çünkü birlikte yeni tarifler deneyebilirler."
+                ),
+                "listening_script": (
+                    "Herkese merhaba. Bugün yemek alışkanlıklarıyla ilgili kısa bir metin dinliyoruz. Leo ekmek, peynir, meyve ve ızgara tavuk gibi sade öğünleri seviyor. "
+                    "Ayrıca hafta sonu kız kardeşiyle yemek yapmayı da seviyor."
+                ),
+                "pre_task_questions": [
+                    "İnsanlar gün içinde hangi öğünleri yer?",
+                    "Yemekle ilgili zaten bildiğin hangi kelimeler var?"
+                ],
+                "gist_questions": [
+                    "Metin genel olarak ne hakkında?",
+                    "Leo nasıl yemekleri seviyor?"
+                ],
+                "detail_questions": [
+                    "Leo sabah ne yiyor?",
+                    "Öğle vakti bazen nereye gidiyor?",
+                    "Hafta sonu kiminle yemek yapıyor?"
+                ],
+                "post_task": "Öğrenciden en sevdiği yemeği anlatmasını isteyin."
+            }
         }
     }
 }
+
+
 def _language_bank_key(topic: str) -> str:
     return str(topic or "").strip().casefold()
 
@@ -406,9 +568,11 @@ def _language_bank_bucket(level: str) -> str:
 
 def _get_language_bank_entry(topic: str, level: str, material_lang: str) -> dict:
     topic_key = _language_bank_key(topic)
-    lang_key = "es" if str(material_lang).strip().lower() == "es" else "en"
-    bucket = _language_bank_bucket(level)
+    lang_key = str(material_lang).strip().lower()
+    if lang_key not in {"en", "es", "tr"}:
+        lang_key = "en"
 
+    bucket = _language_bank_bucket(level)
     topic_block = LANGUAGE_CONTENT_BANK.get(topic_key, {})
     lang_block = topic_block.get(lang_key, {})
     entry = lang_block.get(bucket)
@@ -416,7 +580,6 @@ def _get_language_bank_entry(topic: str, level: str, material_lang: str) -> dict
     if isinstance(entry, dict):
         return entry
 
-    # fallback to easier bucket if advanced bank does not exist yet
     if bucket == "C1_C2":
         fallback = lang_block.get("B1_B2")
         if isinstance(fallback, dict):
@@ -424,12 +587,26 @@ def _get_language_bank_entry(topic: str, level: str, material_lang: str) -> dict
 
     return {}
 
+
 def _language_target_vocab(topic: str, level: str) -> list[str]:
-    entry = _get_language_bank_entry(topic, level, get_student_material_language(st.session_state.get("quick_plan_subject", "English")))
+    entry = _get_language_bank_entry(
+        topic,
+        level,
+        get_student_material_language(st.session_state.get("quick_plan_subject", "English")),
+    )
     if entry.get("target_vocabulary"):
         return entry["target_vocabulary"]
 
     topic = _topic_clean(topic)
+    material_lang = get_student_material_language(st.session_state.get("quick_plan_subject", "English"))
+
+    if material_lang == "tr":
+        if level in ("A1", "A2"):
+            return [topic, "örnek", "fikir", "kullanım", "günlük hayat"]
+        if level in ("B1", "B2"):
+            return [topic, "deneyim", "görüş", "avantaj", "durum"]
+        return [topic, "bakış açısı", "etki", "zorluk", "yorumlama"]
+
     if level in ("A1", "A2"):
         return [topic, "example", "idea", "use", "daily life"]
     if level in ("B1", "B2"):
@@ -443,7 +620,26 @@ def _language_warmup_questions(topic: str, stage: str, level: str) -> list[str]:
     if entry.get("warm_up"):
         return entry["warm_up"]
 
-    if get_plan_language() == "es":
+    if material_lang == "tr":
+        if level in ("A1", "A2"):
+            return [
+                f"{topic} hakkında hangi kelimeleri biliyorsun?",
+                f"{topic} ilgini çekiyor mu? Neden?",
+                f"Daha önce {topic} gördün ya da kullandın mı?",
+            ]
+        if level in ("B1", "B2"):
+            return [
+                f"{topic} hakkında zaten ne biliyorsun?",
+                f"{topic} gerçek hayatta nerede karşımıza çıkar?",
+                f"{topic} hakkında ne düşünüyorsun?",
+            ]
+        return [
+            f"Sence {topic} neden farklı görüşlere yol açabilir?",
+            f"{topic} ile hangi kişisel ya da toplumsal deneyimi ilişkilendirebilirsin?",
+            f"{topic} ile ilgili en ilginç ya da tartışmalı kısım hangisi?",
+        ]
+
+    if material_lang == "es":
         if level in ("A1", "A2"):
             return [
                 f"¿Qué palabras conoces sobre {topic}?",
@@ -487,6 +683,30 @@ def _language_reading_text(topic: str, level: str, material_lang: str) -> str:
         return entry["reading_passage"]
 
     topic_cap = _capitalize_topic(topic)
+
+    if material_lang == "tr":
+        if level == "A1":
+            return (
+                f"{topic_cap} günlük hayatın bir parçasıdır. Birçok insan evde, okulda ve arkadaşlarıyla {topic} hakkında konuşur. "
+                f"Bu derste öğrenci basit kelimeler öğrenir ve {topic} hakkında temel fikirler ifade edebilir. "
+                f"Dersin sonunda öğrenci kişisel bir örnek verebilir."
+            )
+        if level == "A2":
+            return (
+                f"{topic_cap} günlük yaşamda birçok durumda karşımıza çıkar. Bazı insanlar bunu sık kullanır, bazıları ise çok fazla düşünmez. "
+                f"{topic} hakkında konuşmak, öğrencilerin yararlı kelimeleri kullanmasını, beğeni ve tercihlerini ifade etmesini ve deneyimlerinden basit örnekler vermesini sağlar."
+            )
+        if level in ("B1", "B2"):
+            return (
+                f"{topic_cap}, iletişim için yararlı bir konudur çünkü insanların deneyimler, görüşler ve gerçek yaşam durumları hakkında konuşmasına olanak tanır. "
+                f"Öğrenciler {topic} hakkında bir metinle çalıştıklarında yalnızca yeni kelimeler öğrenmez, aynı zamanda fikirlerini daha açık ifade etmeyi de uygularlar. "
+                f"Ayrıca, konuyu kişisel deneyimle ilişkilendirmek öğrenmeyi daha kalıcı hâle getirir."
+            )
+        return (
+            f"{topic_cap}, kişisel deneyim, toplumsal bakış açıları ve dildeki incelikleri incelemeye olanak sağladığı için analiz açısından zengin bir konudur. "
+            f"Akademik bir bağlamda bu konu üzerinde çalışmak, öğrencilerin bilgiyi yorumlamasına, görüşlerini gerekçelendirmesine ve daha net cevaplar üretmesine yardımcı olur. "
+            f"Metni gerçek yaşam bağlamlarıyla ne kadar çok ilişkilendirirlerse, anlayışları da o kadar derinleşir."
+        )
 
     if material_lang == "es":
         if level == "A1":
@@ -535,12 +755,30 @@ def _language_reading_text(topic: str, level: str, material_lang: str) -> str:
         f"The more they connect the text to real contexts, the deeper their understanding becomes."
     )
 
+
 def _language_listening_text(topic: str, level: str, material_lang: str) -> str:
     entry = _get_language_bank_entry(topic, level, material_lang)
     if entry.get("listening_script"):
         return entry["listening_script"]
 
     topic_cap = _capitalize_topic(topic)
+
+    if material_lang == "tr":
+        if level in ("A1", "A2"):
+            return (
+                f"Merhaba. Bugün {topic} hakkında konuşacağız. Bu günlük hayattan bir konudur. "
+                f"Önce bazı basit fikirleri dinleyeceğiz ve sonra kısa soruları cevaplayacağız. "
+                f"Daha sonra her öğrenci {topic} ile ilgili kişisel bir örnek verecek."
+            )
+        if level in ("B1", "B2"):
+            return (
+                f"Günaydın. Bugünkü ders {topic} üzerine odaklanıyor. Önce ana fikirleri dinleyeceğiz, sonra ayrıntılara dikkat edeceğiz "
+                f"ve en sonunda konuyu kendi deneyimlerimizle ilişkilendireceğiz. Bu tür bir etkinlik anlama becerisini ve konuşma güvenini geliştirir."
+            )
+        return (
+            f"Günaydın. Bugünkü odağımız {topic}. Ana fikirleri, incelikleri ve önemli ayrıntıları belirlemek için kısa bir metin dinleyeceğiz. "
+            f"Daha sonra bu konunun gerçek yaşamla ve farklı bakış açılarıyla nasıl bağlantılı olduğunu tartışacağız."
+        )
 
     if material_lang == "es":
         if level in ("A1", "A2"):
@@ -575,6 +813,7 @@ def _language_listening_text(topic: str, level: str, material_lang: str) -> str:
         f"After that, we will discuss how the topic connects to real experience and to different perspectives."
     )
 
+
 def _language_text_questions(topic: str, level: str, plan_lang: str) -> tuple[list[str], list[str], list[str]]:
     material_lang = get_student_material_language(st.session_state.get("quick_plan_subject", "English"))
     entry = _get_language_bank_entry(topic, level, material_lang)
@@ -585,6 +824,54 @@ def _language_text_questions(topic: str, level: str, plan_lang: str) -> tuple[li
         detail = entry.get("detail_questions", [])
         if pre or gist or detail:
             return pre, gist, detail
+
+    if plan_lang == "tr":
+        if level in ("A1", "A2"):
+            pre = [
+                f"{topic} hakkında zaten ne biliyorsun?",
+                f"{topic} hakkında hangi kelimeleri duymayı ya da okumayı beklersin?",
+            ]
+            gist = [
+                "Metnin ana fikri nedir?",
+                "Metin olumlu, olumsuz yoksa nötr mü?",
+            ]
+            detail = [
+                "Metinden bir özel ayrıntı söyle.",
+                "Metinde hangi örnek geçiyor?",
+                "Metindeki kişi ne yapıyor ya da ne düşünüyor?",
+            ]
+            return pre, gist, detail
+
+        if level in ("B1", "B2"):
+            pre = [
+                f"{topic} ile hangi sorunları, avantajları ya da deneyimleri ilişkilendiriyorsun?",
+                "Metinde nasıl bir bilgi yer almasını bekliyorsun?",
+            ]
+            gist = [
+                "Metnin temel mesajı nedir?",
+                "Yazar ya da konuşmacı en çok hangi fikri vurgulamak istiyor?",
+            ]
+            detail = [
+                "Ana fikri destekleyen iki ayrıntı hangileri?",
+                "Metinde hangi somut örnek veriliyor?",
+                "Konu gerçek yaşamla nasıl ilişkilendiriliyor?",
+            ]
+            return pre, gist, detail
+
+        pre = [
+            f"{topic} hakkında hangi farklı bakış açıları ortaya çıkabilir?",
+            "Metinde nasıl bir ton ya da duruş bulmayı bekliyorsun?",
+        ]
+        gist = [
+            "Metnin baskın tezi ya da ana fikri nedir?",
+            "Hangi önemli karşıtlık ya da incelik yer alıyor?",
+        ]
+        detail = [
+            "Hangi ayrıntı ana argümanı en iyi destekliyor?",
+            "Metinden hangi çıkarım yapılabilir?",
+            "Metnin hangi bölümü yazarın ya da konuşmacının tutumunu en açık biçimde gösteriyor?",
+        ]
+        return pre, gist, detail
 
     if plan_lang == "es":
         if level in ("A1", "A2"):
@@ -702,14 +989,16 @@ def _language_plan(subject: str, stage: str, level: str, purpose: str, topic: st
         "post_task": _get_language_bank_entry(topic, level, material_lang).get("post_task") or qlp_txt(
             f"Ask the student to connect the text to one personal experience with {topic}.",
             f"Pide al estudiante que conecte el texto con una experiencia personal sobre {topic}.",
+            f"Öğrenciden metni {topic} ile ilgili kişisel bir deneyimle ilişkilendirmesini isteyin.",
         ),
     }
 
     return {
-       "title": f"{subject_label(subject)}: {topic_cap}",
+        "title": f"{subject_label(subject)}: {topic_cap}",
         "objective": qlp_txt(
             f"Students will develop their language skills while working on {topic_cap}.",
             f"El estudiante desarrollará sus habilidades lingüísticas mientras trabaja con {topic_cap}.",
+            f"Öğrenciler {topic_cap} üzerinde çalışırken dil becerilerini geliştirecekler.",
         ),
         "recommended_level": level,
         "plan_language": plan_lang,
@@ -718,10 +1007,12 @@ def _language_plan(subject: str, stage: str, level: str, purpose: str, topic: st
             qlp_txt(
                 f"The student can answer the main idea and detail questions about {topic}.",
                 f"El estudiante puede responder preguntas globales y de detalle sobre {topic}.",
+                f"Öğrenci, {topic} ile ilgili ana fikir ve ayrıntı sorularını cevaplayabilir.",
             ),
             qlp_txt(
                 "The student uses at least 3 useful words from the lesson.",
                 "El estudiante usa al menos 3 palabras útiles de la clase.",
+                "Öğrenci dersten en az 3 yararlı kelime kullanır.",
             ),
         ],
         "warm_up": warm,
@@ -729,30 +1020,36 @@ def _language_plan(subject: str, stage: str, level: str, purpose: str, topic: st
             qlp_txt(
                 f"Activate prior knowledge about {topic}.",
                 f"Activa conocimientos previos sobre {topic}.",
+                f"{topic} ile ilgili önceki bilgileri etkinleştirin.",
             ),
             qlp_txt(
                 "Guide the student from global understanding to detail.",
                 "Guía al estudiante desde la comprensión global hacia el detalle.",
+                "Öğrenciyi genel anlamadan ayrıntıya doğru yönlendirin.",
             ),
         ],
         "core_examples": [
             qlp_txt(
                 "Model one complete answer before asking for independent production.",
                 "Modela una respuesta completa antes de pedir producción independiente.",
+                "Bağımsız üretim istemeden önce tam bir cevabı modelleyin.",
             ),
             qlp_txt(
                 "Recycle target vocabulary during feedback.",
                 "Recicla el vocabulario objetivo durante la retroalimentación.",
+                "Geri bildirim sırasında hedef kelimeleri yeniden kullanın.",
             ),
         ],
         "guided_practice": [
             qlp_txt(
                 "Do the pre-task questions first, then the gist questions, and finally the detail questions.",
                 "Haz primero las preguntas previas, luego las globales y por último las de detalle.",
+                "Önce ön hazırlık sorularını, sonra genel anlama sorularını ve en son ayrıntı sorularını yapın.",
             ),
             qlp_txt(
                 "If the student struggles, return to one sentence or one key idea.",
                 "Si el estudiante tiene dificultad, vuelve a una oración o idea clave.",
+                "Öğrenci zorlanırsa bir cümleye ya da tek bir ana fikre geri dönün.",
             ),
         ],
         "practice_questions": gist_q + detail_q,
@@ -760,30 +1057,36 @@ def _language_plan(subject: str, stage: str, level: str, purpose: str, topic: st
             qlp_txt(
                 f"Student gives a short spoken or written response about {topic}.",
                 f"El estudiante da una respuesta breve oral o escrita sobre {topic}.",
+                f"Öğrenci {topic} hakkında kısa bir sözlü ya da yazılı cevap verir.",
             ),
             qlp_txt(
                 "Teacher gives quick feedback on clarity, vocabulary, and accuracy.",
                 "El profesor da retroalimentación breve sobre claridad, vocabulario y precisión.",
+                "Öğretmen açıklık, kelime kullanımı ve doğruluk hakkında kısa geri bildirim verir.",
             ),
         ],
         "wrap_up": [
             qlp_txt(
                 "Review the key vocabulary and one main idea from the text.",
                 "Repasa el vocabulario clave y una idea principal del texto.",
+                "Anahtar kelimeleri ve metindeki bir ana fikri gözden geçirin.",
             ),
             qlp_txt(
                 "Ask the student to summarize the text in 1–2 sentences.",
                 "Pide al estudiante que resuma el texto en 1–2 oraciones.",
+                "Öğrenciden metni 1-2 cümleyle özetlemesini isteyin.",
             ),
         ],
         "teacher_moves": _teacher_move_block("language", purpose),
         "extension_task": qlp_txt(
             f"Ask the student to create 2 extra questions about {topic} and answer them.",
             f"Pide al estudiante que cree 2 preguntas extra sobre {topic} y las responda.",
+            f"Öğrenciden {topic} hakkında 2 ek soru oluşturmasını ve bunları cevaplamasını isteyin.",
         ),
         "homework": qlp_txt(
             f"Review today’s language from the lesson on {topic}.",
             f"Repasa el lenguaje trabajado hoy sobre {topic}.",
+            f"Bugün derste {topic} hakkında işlenen dili gözden geçirin.",
         ),
         "reading_passage": _language_reading_text(topic, level, material_lang) if use_reading else "",
         "listening_script": _language_listening_text(topic, level, material_lang) if use_listening else "",
@@ -796,6 +1099,25 @@ def _language_plan(subject: str, stage: str, level: str, purpose: str, topic: st
 # -------------------------
 
 def _math_warmup_questions(topic: str, band: str) -> list[str]:
+    if get_plan_language() == "tr":
+        if band == "beginner_band":
+            return [
+                f"{topic} ile daha önce nerede karşılaştın?",
+                f"{topic} konusunun hangi kısmı kolay ya da zor görünüyor?",
+                f"{topic} hakkında zaten ne hatırlıyorsun?",
+            ]
+        if band == "intermediate_band":
+            return [
+                f"{topic} hakkında hangi kuralı ya da fikri hatırlıyorsun?",
+                f"{topic} üzerinde çalışırken hangi hata sık yapılır?",
+                f"{topic} konusunu kendi sözlerinle nasıl açıklarsın?",
+            ]
+        return [
+            f"{topic} ile ilgili bir görevi çözmek için en verimli strateji ne olurdu?",
+            f"{topic} konusunda hangi kavramsal hata ortaya çıkabilir?",
+            f"{topic} çözerken her adımı nasıl gerekçelendirirdin?",
+        ]
+
     if get_plan_language() == "es":
         if band == "beginner_band":
             return [
@@ -835,6 +1157,23 @@ def _math_warmup_questions(topic: str, band: str) -> list[str]:
 
 
 def _math_material(topic: str) -> dict:
+    if get_plan_language() == "tr":
+        return {
+            "starter_problem": f"Başlangıç problemi: {topic} ile ilgili basit bir görev oluşturun ve öğrenciden ilk adımı açıklamasını isteyin.",
+            "worked_example": [
+                f"{topic} üzerine çözümlü örnek:",
+                "1. Önemli bilgileri belirleyin.",
+                "2. Hangi kuralın ya da yöntemin kullanılacağına karar verin.",
+                "3. Adım adım çözün.",
+                "4. Cevabın mantıklı olup olmadığını kontrol edin.",
+            ],
+            "independent_practice": [
+                f"{topic} hakkında 2 kısa alıştırma çözün.",
+                f"Ardından {topic} ile ilgili 1 yeni alıştırma oluşturun.",
+            ],
+            "common_error_alert": f"Yaygın hata: önce doğru kuralı ya da yöntemi belirlemeden {topic} çözmeye çalışmak.",
+        }
+
     if get_plan_language() == "es":
         return {
             "starter_problem": f"Problema inicial: crea una tarea sencilla relacionada con {topic} y pide al estudiante que explique el primer paso.",
@@ -871,11 +1210,12 @@ def _math_material(topic: str) -> dict:
 
 def _math_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
     material = _math_material(topic)
-    return { 
+    return {
         "title": f"{subject_label('mathematics')}: {_capitalize_topic(topic)}",
         "objective": qlp_txt(
             f"Students will understand and apply {topic} through modeling and guided practice.",
             f"El estudiante comprenderá y aplicará {topic} mediante modelado y práctica guiada.",
+            f"Öğrenciler {topic} konusunu modelleme ve rehberli uygulama yoluyla anlayacak ve uygulayacaktır.",
         ),
         "recommended_level": level,
         "plan_language": get_plan_language(),
@@ -884,10 +1224,12 @@ def _math_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
             qlp_txt(
                 f"The student can solve a basic task about {topic}.",
                 f"El estudiante puede resolver una tarea básica sobre {topic}.",
+                f"Öğrenci {topic} ile ilgili temel bir görevi çözebilir.",
             ),
             qlp_txt(
                 "The student can explain at least one step clearly.",
                 "El estudiante puede explicar con claridad al menos un paso.",
+                "Öğrenci en az bir adımı açıkça açıklayabilir.",
             ),
         ],
         "warm_up": _math_warmup_questions(topic, level),
@@ -895,10 +1237,12 @@ def _math_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
             qlp_txt(
                 f"Present the key concept in {topic}.",
                 f"Presenta el concepto clave de {topic}.",
+                f"{topic} içindeki temel kavramı sunun.",
             ),
             qlp_txt(
                 "Work through one full example before independent practice.",
                 "Resuelve un ejemplo completo antes de la práctica independiente.",
+                "Bağımsız uygulamadan önce tam bir örneği birlikte çözün.",
             ),
         ],
         "core_examples": [
@@ -909,31 +1253,43 @@ def _math_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
             qlp_txt(
                 "Guide the student through one similar task.",
                 "Guía al estudiante en una tarea similar.",
+                "Öğrenciyi benzer bir görev boyunca yönlendirin.",
             ),
             qlp_txt(
                 "Ask the student to justify each step aloud.",
                 "Pide al estudiante que justifique cada paso en voz alta.",
+                "Öğrenciden her adımı yüksek sesle gerekçelendirmesini isteyin.",
             ),
         ],
         "practice_questions": [
-            qlp_txt("What is the first step?", "¿Cuál es el primer paso?"),
-            qlp_txt("Why is that step correct?", "¿Por qué ese paso es correcto?"),
-            qlp_txt("Which rule are we using here?", "¿Qué regla estamos usando aquí?"),
-            qlp_txt("Can you solve a similar task alone?", "¿Puedes resolver una tarea similar solo?"),
+            qlp_txt("What is the first step?", "¿Cuál es el primer paso?", "İlk adım nedir?"),
+            qlp_txt("Why is that step correct?", "¿Por qué ese paso es correcto?", "Bu adım neden doğru?"),
+            qlp_txt("Which rule are we using here?", "¿Qué regla estamos usando aquí?", "Burada hangi kuralı kullanıyoruz?"),
+            qlp_txt("Can you solve a similar task alone?", "¿Puedes resolver una tarea similar solo?", "Benzer bir görevi tek başına çözebilir misin?"),
         ],
         "freer_task": material["independent_practice"],
         "wrap_up": [
-            qlp_txt("Review the rule, formula, or strategy.", "Repasa la regla, fórmula o estrategia."),
-            qlp_txt("Ask the student to explain the topic simply.", "Pide al estudiante que explique el tema de forma simple."),
+            qlp_txt(
+                "Review the rule, formula, or strategy.",
+                "Repasa la regla, fórmula o estrategia.",
+                "Kuralı, formülü ya da stratejiyi gözden geçirin.",
+            ),
+            qlp_txt(
+                "Ask the student to explain the topic simply.",
+                "Pide al estudiante que explique el tema de forma simple.",
+                "Öğrenciden konuyu basit şekilde açıklamasını isteyin.",
+            ),
         ],
         "teacher_moves": _teacher_move_block("math", purpose),
         "extension_task": qlp_txt(
             f"Ask the student to create one extra problem about {topic} and solve it.",
             f"Pide al estudiante que cree un problema extra sobre {topic} y lo resuelva.",
+            f"Öğrenciden {topic} ile ilgili bir ek problem oluşturmasını ve çözmesini isteyin.",
         ),
         "homework": qlp_txt(
             f"Solve 3 more short tasks about {topic}.",
             f"Resuelve 3 tareas cortas más sobre {topic}.",
+            f"{topic} hakkında 3 kısa görev daha çözün.",
         ),
         "reading_passage": "",
         "listening_script": "",
@@ -946,14 +1302,17 @@ def _science_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
         "concept_explanation": qlp_txt(
             f"{_capitalize_topic(topic)} should be explained through a simple phenomenon, a clear cause, and one real-life example.",
             f"{_capitalize_topic(topic)} debe explicarse mediante un fenómeno simple, una causa clara y un ejemplo de la vida real.",
+            f"{_capitalize_topic(topic)}, basit bir olgu, açık bir neden ve günlük hayattan bir örnek üzerinden açıklanmalıdır.",
         ),
         "real_life_application": qlp_txt(
             f"Ask where {topic} can be seen in daily life.",
             f"Pregunta dónde se puede observar {topic} en la vida diaria.",
+            f"{topic} konusunun günlük hayatta nerede görülebileceğini sorun.",
         ),
         "common_error_alert": qlp_txt(
             "Check for memorized definitions without real understanding.",
             "Comprueba si hay definiciones memorizadas sin comprensión real.",
+            "Gerçek anlayış olmadan ezberlenmiş tanımlar olup olmadığını kontrol edin.",
         ),
     }
 
@@ -962,6 +1321,7 @@ def _science_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
         "objective": qlp_txt(
             f"Students will understand the main idea behind {topic} and connect it to a real example.",
             f"El estudiante comprenderá la idea principal de {topic} y la conectará con un ejemplo real.",
+            f"Öğrenciler {topic} konusunun arkasındaki ana fikri anlayacak ve bunu gerçek bir örnekle ilişkilendirecek.",
         ),
         "recommended_level": level,
         "plan_language": get_plan_language(),
@@ -970,51 +1330,99 @@ def _science_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
             qlp_txt(
                 f"The student can explain {topic} in simple words.",
                 f"El estudiante puede explicar {topic} con palabras simples.",
+                f"Öğrenci {topic} konusunu basit kelimelerle açıklayabilir.",
             ),
             qlp_txt(
                 "The student can connect the idea to one real-life case.",
                 "El estudiante puede conectar la idea con un caso de la vida real.",
+                "Öğrenci fikri gerçek hayattan bir örnekle ilişkilendirebilir.",
             ),
         ],
         "warm_up": [
-            qlp_txt(f"What do you observe about {topic}?", f"¿Qué observas sobre {topic}?"),
-            qlp_txt(f"Where can we see {topic} in real life?", f"¿Dónde podemos ver {topic} en la vida real?"),
-            qlp_txt(f"What do you think causes {topic}?", f"¿Qué crees que causa {topic}?"),
+            qlp_txt(
+                f"What do you observe about {topic}?",
+                f"¿Qué observas sobre {topic}?",
+                f"{topic} hakkında ne gözlemliyorsun?",
+            ),
+            qlp_txt(
+                f"Where can we see {topic} in real life?",
+                f"¿Dónde podemos ver {topic} en la vida real?",
+                f"{topic} konusunu gerçek hayatta nerede görebiliriz?",
+            ),
+            qlp_txt(
+                f"What do you think causes {topic}?",
+                f"¿Qué crees que causa {topic}?",
+                f"Sence {topic} neyin sonucu olarak ortaya çıkıyor?",
+            ),
         ],
         "main_activity": [
-            qlp_txt("Start from observation and move to explanation.", "Empieza desde la observación y pasa a la explicación."),
-            qlp_txt("Check understanding with why/how questions.", "Comprueba la comprensión con preguntas de por qué/cómo."),
+            qlp_txt(
+                "Start from observation and move to explanation.",
+                "Empieza desde la observación y pasa a la explicación.",
+                "Gözlemden başlayıp açıklamaya geçin.",
+            ),
+            qlp_txt(
+                "Check understanding with why/how questions.",
+                "Comprueba la comprensión con preguntas de por qué/cómo.",
+                "Anlamayı neden/nasıl sorularıyla kontrol edin.",
+            ),
         ],
         "core_examples": [
             material["concept_explanation"],
             material["real_life_application"],
         ],
         "guided_practice": [
-            qlp_txt("Ask the student to predict before explaining.", "Pide una predicción antes de explicar."),
-            qlp_txt("Rebuild the explanation from one concrete example.", "Reconstruye la explicación a partir de un ejemplo concreto."),
+            qlp_txt(
+                "Ask the student to predict before explaining.",
+                "Pide una predicción antes de explicar.",
+                "Açıklamadan önce öğrenciden tahmin yapmasını isteyin.",
+            ),
+            qlp_txt(
+                "Rebuild the explanation from one concrete example.",
+                "Reconstruye la explicación a partir de un ejemplo concreto.",
+                "Açıklamayı somut bir örnekten yola çıkarak yeniden kurun.",
+            ),
         ],
         "practice_questions": [
-            qlp_txt(f"What is {topic}?", f"¿Qué es {topic}?"),
-            qlp_txt(f"Why does {topic} happen?", f"¿Por qué ocurre {topic}?"),
-            qlp_txt("What is one real-life example?", "¿Cuál es un ejemplo de la vida real?"),
-            qlp_txt("What would change if one condition changed?", "¿Qué cambiaría si una condición cambiara?"),
+            qlp_txt(f"What is {topic}?", f"¿Qué es {topic}?", f"{topic} nedir?"),
+            qlp_txt(f"Why does {topic} happen?", f"¿Por qué ocurre {topic}?", f"{topic} neden olur?"),
+            qlp_txt("What is one real-life example?", "¿Cuál es un ejemplo de la vida real?", "Gerçek hayattan bir örnek nedir?"),
+            qlp_txt(
+                "What would change if one condition changed?",
+                "¿Qué cambiaría si una condición cambiara?",
+                "Bir koşul değişseydi ne değişirdi?",
+            ),
         ],
         "freer_task": [
-            qlp_txt(f"Student explains {topic} in their own words.", f"El estudiante explica {topic} con sus propias palabras."),
-            qlp_txt("Student adds one new example.", "El estudiante añade un ejemplo nuevo."),
+            qlp_txt(
+                f"Student explains {topic} in their own words.",
+                f"El estudiante explica {topic} con sus propias palabras.",
+                f"Öğrenci {topic} konusunu kendi sözleriyle açıklar.",
+            ),
+            qlp_txt(
+                "Student adds one new example.",
+                "El estudiante añade un ejemplo nuevo.",
+                "Öğrenci yeni bir örnek ekler.",
+            ),
         ],
         "wrap_up": [
-            qlp_txt("Review the main explanation.", "Repasa la explicación principal."),
-            qlp_txt("Ask one final check-for-understanding question.", "Haz una pregunta final de comprobación."),
+            qlp_txt("Review the main explanation.", "Repasa la explicación principal.", "Ana açıklamayı gözden geçirin."),
+            qlp_txt(
+                "Ask one final check-for-understanding question.",
+                "Haz una pregunta final de comprobación.",
+                "Son bir anlama kontrolü sorusu sorun.",
+            ),
         ],
         "teacher_moves": _teacher_move_block("science", purpose),
         "extension_task": qlp_txt(
             f"Ask the student to describe a second real-life case related to {topic}.",
             f"Pide al estudiante que describa un segundo caso de la vida real relacionado con {topic}.",
+            f"Öğrenciden {topic} ile ilgili ikinci bir gerçek yaşam örneğini açıklamasını isteyin.",
         ),
         "homework": qlp_txt(
             f"Write 3 facts and 1 question about {topic}.",
             f"Escribe 3 hechos y 1 pregunta sobre {topic}.",
+            f"{topic} hakkında 3 bilgi ve 1 soru yazın.",
         ),
         "reading_passage": "",
         "listening_script": "",
@@ -1027,6 +1435,7 @@ def _music_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
         "performance_goal": qlp_txt(
             f"Perform one short pattern or focused task related to {topic}.",
             f"Realizar un patrón corto o una tarea focalizada relacionada con {topic}.",
+            f"{topic} ile ilgili kısa bir kalıbı ya da odaklı bir görevi uygulayın.",
         )
     }
 
@@ -1035,6 +1444,7 @@ def _music_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
         "objective": qlp_txt(
             f"Students will practice {topic} through demonstration, imitation, and short performance.",
             f"El estudiante practicará {topic} mediante demostración, imitación y una breve ejecución.",
+            f"Öğrenciler {topic} konusunu gösterim, taklit ve kısa performans yoluyla çalışacaktır.",
         ),
         "recommended_level": level,
         "plan_language": get_plan_language(),
@@ -1043,47 +1453,87 @@ def _music_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
             qlp_txt(
                 f"The student can perform or repeat the key pattern from {topic}.",
                 f"El estudiante puede ejecutar o repetir el patrón clave de {topic}.",
+                f"Öğrenci {topic} içindeki temel kalıbı uygulayabilir ya da tekrar edebilir.",
             ),
             qlp_txt(
                 "The student can describe one improvement from the practice.",
                 "El estudiante puede describir una mejora tras la práctica.",
+                "Öğrenci çalışmadan sonra bir gelişmeyi açıklayabilir.",
             ),
         ],
         "warm_up": [
-            qlp_txt(f"What do you notice first about {topic}?", f"¿Qué notas primero sobre {topic}?"),
-            qlp_txt(f"Have you practiced {topic} before?", f"¿Has practicado {topic} antes?"),
-            qlp_txt("What part may be difficult today?", "¿Qué parte puede ser difícil hoy?"),
+            qlp_txt(
+                f"What do you notice first about {topic}?",
+                f"¿Qué notas primero sobre {topic}?",
+                f"{topic} hakkında ilk neyi fark ediyorsun?",
+            ),
+            qlp_txt(
+                f"Have you practiced {topic} before?",
+                f"¿Has practicado {topic} antes?",
+                f"Daha önce {topic} çalıştın mı?",
+            ),
+            qlp_txt(
+                "What part may be difficult today?",
+                "¿Qué parte puede ser difícil hoy?",
+                "Bugün hangi kısım zor olabilir?",
+            ),
         ],
         "main_activity": [
-            qlp_txt("Demonstrate first, then ask for imitation.", "Demuestra primero y luego pide imitación."),
-            qlp_txt("Keep practice in short cycles.", "Mantén la práctica en ciclos cortos."),
+            qlp_txt(
+                "Demonstrate first, then ask for imitation.",
+                "Demuestra primero y luego pide imitación.",
+                "Önce gösterin, sonra taklit etmesini isteyin.",
+            ),
+            qlp_txt(
+                "Keep practice in short cycles.",
+                "Mantén la práctica en ciclos cortos.",
+                "Çalışmayı kısa döngüler hâlinde sürdürün.",
+            ),
         ],
         "core_examples": [material["performance_goal"]],
         "guided_practice": [
-            qlp_txt("Repeat in short chunks with correction.", "Repite en fragmentos cortos con corrección."),
-            qlp_txt("Increase independence after each attempt.", "Aumenta la independencia después de cada intento."),
+            qlp_txt(
+                "Repeat in short chunks with correction.",
+                "Repite en fragmentos cortos con corrección.",
+                "Düzeltmeyle birlikte kısa parçalar hâlinde tekrar edin.",
+            ),
+            qlp_txt(
+                "Increase independence after each attempt.",
+                "Aumenta la independencia después de cada intento.",
+                "Her denemeden sonra bağımsızlığı artırın.",
+            ),
         ],
         "practice_questions": [
-            qlp_txt("What changed in the second attempt?", "¿Qué cambió en el segundo intento?"),
-            qlp_txt("What needs more control?", "¿Qué necesita más control?"),
-            qlp_txt("What improved?", "¿Qué mejoró?"),
+            qlp_txt("What changed in the second attempt?", "¿Qué cambió en el segundo intento?", "İkinci denemede ne değişti?"),
+            qlp_txt("What needs more control?", "¿Qué necesita más control?", "Neyin daha fazla kontrole ihtiyacı var?"),
+            qlp_txt("What improved?", "¿Qué mejoró?", "Ne gelişti?"),
         ],
         "freer_task": [
-            qlp_txt("Student performs with less support.", "El estudiante ejecuta con menos apoyo."),
-            qlp_txt("Teacher asks for a short reflection.", "El profesor pide una reflexión breve."),
+            qlp_txt("Student performs with less support.", "El estudiante ejecuta con menos apoyo.", "Öğrenci daha az destekle uygular."),
+            qlp_txt("Teacher asks for a short reflection.", "El profesor pide una reflexión breve.", "Öğretmen kısa bir yansıtma ister."),
         ],
         "wrap_up": [
-            qlp_txt("Review the musical focus of the lesson.", "Repasa el foco musical de la clase."),
-            qlp_txt("End with one final repetition or mini performance.", "Termina con una repetición final o mini ejecución."),
+            qlp_txt(
+                "Review the musical focus of the lesson.",
+                "Repasa el foco musical de la clase.",
+                "Dersin müzikal odağını gözden geçirin.",
+            ),
+            qlp_txt(
+                "End with one final repetition or mini performance.",
+                "Termina con una repetición final o mini ejecución.",
+                "Bir son tekrar ya da mini performansla bitirin.",
+            ),
         ],
         "teacher_moves": _teacher_move_block("music", purpose),
         "extension_task": qlp_txt(
             f"Repeat the pattern again with one small variation related to {topic}.",
             f"Repite el patrón otra vez con una pequeña variación relacionada con {topic}.",
+            f"Kalibi {topic} ile ilgili küçük bir değişiklikle tekrar edin.",
         ),
         "homework": qlp_txt(
             f"Practice {topic} for 5 minutes.",
             f"Practica {topic} durante 5 minutos.",
+            f"{topic} konusunu 5 dakika çalışın.",
         ),
         "reading_passage": "",
         "listening_script": "",
@@ -1092,73 +1542,139 @@ def _music_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
 
 
 def _study_skills_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
-    steps = (
-        [
-            "1. Name the task.",
-            "2. Break it into smaller parts.",
-            "3. Decide the first action.",
-            "4. Check progress at the end.",
+    lang = get_plan_language()
+
+    if lang == "tr":
+        steps = [
+            "1. Görevi adlandır.",
+            "2. Görevi daha küçük parçalara ayır.",
+            "3. İlk adımı belirle.",
+            "4. Sonunda ilerlemeyi kontrol et.",
         ]
-        if get_plan_language() == "en"
-        else
-        [
+    elif lang == "es":
+        steps = [
             "1. Nombra la tarea.",
             "2. Divídela en partes pequeñas.",
             "3. Decide la primera acción.",
             "4. Revisa el progreso al final.",
         ]
-    )
+    else:
+        steps = [
+            "1. Name the task.",
+            "2. Break it into smaller parts.",
+            "3. Decide the first action.",
+            "4. Check progress at the end.",
+        ]
 
     return {
         "title": f"{subject_label('study_skills')}: {_capitalize_topic(topic)}",
         "objective": qlp_txt(
             f"Students will learn and apply a practical study strategy connected to {topic}.",
             f"El estudiante aprenderá y aplicará una estrategia de estudio práctica relacionada con {topic}.",
+            f"Öğrenciler {topic} ile bağlantılı pratik bir çalışma stratejisini öğrenecek ve uygulayacak.",
         ),
         "recommended_level": level,
         "plan_language": get_plan_language(),
         "student_material_language": get_plan_language(),
         "success_criteria": [
-            qlp_txt("The student can explain the strategy clearly.", "El estudiante puede explicar la estrategia con claridad."),
-            qlp_txt("The student can apply the strategy to a real task.", "El estudiante puede aplicar la estrategia a una tarea real."),
+            qlp_txt(
+                "The student can explain the strategy clearly.",
+                "El estudiante puede explicar la estrategia con claridad.",
+                "Öğrenci stratejiyi açıkça açıklayabilir.",
+            ),
+            qlp_txt(
+                "The student can apply the strategy to a real task.",
+                "El estudiante puede aplicar la estrategia a una tarea real.",
+                "Öğrenci stratejiyi gerçek bir göreve uygulayabilir.",
+            ),
         ],
         "warm_up": [
-            qlp_txt(f"What usually feels difficult about {topic}?", f"¿Qué suele sentirse difícil en {topic}?"),
-            qlp_txt("What distracts you when you study?", "¿Qué te distrae cuando estudias?"),
-            qlp_txt("What helps you focus?", "¿Qué te ayuda a concentrarte?"),
+            qlp_txt(
+                f"What usually feels difficult about {topic}?",
+                f"¿Qué suele sentirse difícil en {topic}?",
+                f"{topic} konusunda genellikle hangi şey zor geliyor?",
+            ),
+            qlp_txt(
+                "What distracts you when you study?",
+                "¿Qué te distrae cuando estudias?",
+                "Çalışırken dikkatini ne dağıtıyor?",
+            ),
+            qlp_txt(
+                "What helps you focus?",
+                "¿Qué te ayuda a concentrarte?",
+                "Odaklanmana ne yardımcı oluyor?",
+            ),
         ],
         "main_activity": [
-            qlp_txt("Introduce one practical strategy.", "Presenta una estrategia práctica."),
-            qlp_txt("Model the strategy with a real school task.", "Modela la estrategia con una tarea escolar real."),
+            qlp_txt(
+                "Introduce one practical strategy.",
+                "Presenta una estrategia práctica.",
+                "Bir pratik strateji tanıtın.",
+            ),
+            qlp_txt(
+                "Model the strategy with a real school task.",
+                "Modela la estrategia con una tarea escolar real.",
+                "Stratejiyi gerçek bir okul göreviyle modelleyin.",
+            ),
         ],
         "core_examples": [
-            qlp_txt("Strategy name: 10-minute planning routine.", "Nombre de la estrategia: rutina de planificación de 10 minutos."),
+            qlp_txt(
+                "Strategy name: 10-minute planning routine.",
+                "Nombre de la estrategia: rutina de planificación de 10 minutos.",
+                "Stratejinin adı: 10 dakikalık planlama rutini.",
+            ),
         ],
         "guided_practice": [
-            qlp_txt("Student tries the strategy on a small real task.", "El estudiante prueba la estrategia en una tarea real pequeña."),
-            qlp_txt("Teacher helps adapt the strategy to the student’s reality.", "El profesor ayuda a adaptar la estrategia a la realidad del estudiante."),
+            qlp_txt(
+                "Student tries the strategy on a small real task.",
+                "El estudiante prueba la estrategia en una tarea real pequeña.",
+                "Öğrenci stratejiyi küçük bir gerçek görev üzerinde dener.",
+            ),
+            qlp_txt(
+                "Teacher helps adapt the strategy to the student’s reality.",
+                "El profesor ayuda a adaptar la estrategia a la realidad del estudiante.",
+                "Öğretmen stratejinin öğrencinin gerçekliğine uyarlanmasına yardımcı olur.",
+            ),
         ],
         "practice_questions": [
-            qlp_txt("Which step seems most useful?", "¿Qué paso parece más útil?"),
-            qlp_txt("What usually blocks you?", "¿Qué suele bloquearte?"),
-            qlp_txt("How will you use this tomorrow?", "¿Cómo vas a usar esto mañana?"),
+            qlp_txt("Which step seems most useful?", "¿Qué paso parece más útil?", "Hangi adım en yararlı görünüyor?"),
+            qlp_txt("What usually blocks you?", "¿Qué suele bloquearte?", "Seni genellikle ne engelliyor?"),
+            qlp_txt("How will you use this tomorrow?", "¿Cómo vas a usar esto mañana?", "Bunu yarın nasıl kullanacaksın?"),
         ],
         "freer_task": [
-            qlp_txt("Student applies the strategy independently.", "El estudiante aplica la estrategia de forma independiente."),
-            qlp_txt("Student decides where to use it this week.", "El estudiante decide dónde usarla esta semana."),
+            qlp_txt(
+                "Student applies the strategy independently.",
+                "El estudiante aplica la estrategia de forma independiente.",
+                "Öğrenci stratejiyi bağımsız olarak uygular.",
+            ),
+            qlp_txt(
+                "Student decides where to use it this week.",
+                "El estudiante decide dónde usarla esta semana.",
+                "Öğrenci bu hafta bunu nerede kullanacağına karar verir.",
+            ),
         ],
         "wrap_up": [
-            qlp_txt("Review the steps of the strategy.", "Repasa los pasos de la estrategia."),
-            qlp_txt("Ask the student to name one real use for it.", "Pide al estudiante que nombre un uso real para ella."),
+            qlp_txt(
+                "Review the steps of the strategy.",
+                "Repasa los pasos de la estrategia.",
+                "Stratejinin adımlarını gözden geçirin.",
+            ),
+            qlp_txt(
+                "Ask the student to name one real use for it.",
+                "Pide al estudiante que nombre un uso real para ella.",
+                "Öğrenciden bunun için gerçek bir kullanım örneği vermesini isteyin.",
+            ),
         ],
         "teacher_moves": _teacher_move_block("study_skills", purpose),
         "extension_task": qlp_txt(
             "Ask the student to adapt the strategy to a second subject.",
             "Pide al estudiante que adapte la estrategia a una segunda materia.",
+            "Öğrenciden stratejiyi ikinci bir derse uyarlamasını isteyin.",
         ),
         "homework": qlp_txt(
             f"Use the strategy once this week while working on {topic}.",
             f"Usa la estrategia una vez esta semana mientras trabajas en {topic}.",
+            f"Bu hafta {topic} üzerinde çalışırken stratejiyi bir kez kullanın.",
         ),
         "reading_passage": "",
         "listening_script": "",
@@ -1172,6 +1688,7 @@ def _general_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
         "objective": qlp_txt(
             f"Students will explore and develop understanding of {topic}.",
             f"El estudiante explorará y desarrollará comprensión sobre {topic}.",
+            f"Öğrenciler {topic} konusunu keşfedecek ve anlayış geliştirecek.",
         ),
         "recommended_level": level,
         "plan_language": get_plan_language(),
@@ -1180,53 +1697,91 @@ def _general_plan(stage: str, level: str, purpose: str, topic: str) -> dict:
             qlp_txt(
                 f"The student can explain the main idea of {topic}.",
                 f"El estudiante puede explicar la idea principal de {topic}.",
+                f"Öğrenci {topic} konusunun ana fikrini açıklayabilir.",
             ),
             qlp_txt(
                 "The student can give at least one practical example.",
                 "El estudiante puede dar al menos un ejemplo práctico.",
+                "Öğrenci en az bir pratik örnek verebilir.",
             ),
         ],
         "warm_up": [
-            qlp_txt(f"What do you already know about {topic}?", f"¿Qué sabes ya sobre {topic}?"),
-            qlp_txt(f"Where have you encountered {topic} before?", f"¿Dónde has encontrado {topic} antes?"),
+            qlp_txt(
+                f"What do you already know about {topic}?",
+                f"¿Qué sabes ya sobre {topic}?",
+                f"{topic} hakkında zaten ne biliyorsun?",
+            ),
+            qlp_txt(
+                f"Where have you encountered {topic} before?",
+                f"¿Dónde has encontrado {topic} antes?",
+                f"{topic} ile daha önce nerede karşılaştın?",
+            ),
         ],
         "main_activity": [
-            qlp_txt(f"Introduce the key concept of {topic}.", f"Presenta el concepto clave de {topic}."),
-            qlp_txt("Work through one example together.", "Trabaja un ejemplo juntos."),
+            qlp_txt(
+                f"Introduce the key concept of {topic}.",
+                f"Presenta el concepto clave de {topic}.",
+                f"{topic} konusunun temel kavramını tanıtın.",
+            ),
+            qlp_txt(
+                "Work through one example together.",
+                "Trabaja un ejemplo juntos.",
+                "Bir örneği birlikte yapın.",
+            ),
         ],
         "core_examples": [
             qlp_txt(
                 f"Give one clear example that illustrates {topic}.",
                 f"Da un ejemplo claro que ilustre {topic}.",
+                f"{topic} konusunu açıklayan net bir örnek verin.",
             ),
         ],
         "guided_practice": [
-            qlp_txt("Guide the student through one task.", "Guía al estudiante en una tarea."),
-            qlp_txt("Ask for explanation at each step.", "Pide la explicación en cada paso."),
+            qlp_txt(
+                "Guide the student through one task.",
+                "Guía al estudiante en una tarea.",
+                "Öğrenciyi bir görev boyunca yönlendirin.",
+            ),
+            qlp_txt(
+                "Ask for explanation at each step.",
+                "Pide la explicación en cada paso.",
+                "Her adımda açıklama isteyin.",
+            ),
         ],
         "practice_questions": [
-            qlp_txt(f"What is {topic}?", f"¿Qué es {topic}?"),
-            qlp_txt("Can you give an example?", "¿Puedes dar un ejemplo?"),
-            qlp_txt("Where can you apply this?", "¿Dónde puedes aplicar esto?"),
+            qlp_txt(f"What is {topic}?", f"¿Qué es {topic}?", f"{topic} nedir?"),
+            qlp_txt("Can you give an example?", "¿Puedes dar un ejemplo?", "Bir örnek verebilir misin?"),
+            qlp_txt("Where can you apply this?", "¿Dónde puedes aplicar esto?", "Bunu nerede uygulayabilirsin?"),
         ],
         "freer_task": [
             qlp_txt(
                 "Student applies or explains the concept independently.",
                 "El estudiante aplica o explica el concepto de forma independiente.",
+                "Öğrenci kavramı bağımsız olarak uygular ya da açıklar.",
             ),
         ],
         "wrap_up": [
-            qlp_txt("Review the key idea from the lesson.", "Repasa la idea clave de la clase."),
-            qlp_txt("Ask one final check question.", "Haz una pregunta final de comprobación."),
+            qlp_txt(
+                "Review the key idea from the lesson.",
+                "Repasa la idea clave de la clase.",
+                "Dersteki ana fikri gözden geçirin.",
+            ),
+            qlp_txt(
+                "Ask one final check question.",
+                "Haz una pregunta final de comprobación.",
+                "Son bir kontrol sorusu sorun.",
+            ),
         ],
         "teacher_moves": _teacher_move_block("study_skills", purpose),
         "extension_task": qlp_txt(
             f"Research one more aspect of {topic} and share it next lesson.",
             f"Investiga un aspecto más de {topic} y compártelo en la próxima clase.",
+            f"{topic} ile ilgili bir yönü daha araştırın ve bunu sonraki derste paylaşın.",
         ),
         "homework": qlp_txt(
             f"Review today's work on {topic}.",
             f"Repasa el trabajo de hoy sobre {topic}.",
+            f"Bugün {topic} üzerine yapılan çalışmayı gözden geçirin.",
         ),
         "reading_passage": "",
         "listening_script": "",
@@ -1255,6 +1810,7 @@ def build_quick_lesson_plan(
         return _study_skills_plan(learner_stage, level_or_band, lesson_purpose, topic)
 
     return _general_plan(learner_stage, level_or_band, lesson_purpose, topic)
+
 
 def normalize_planner_output(plan: dict) -> dict:
     plan = dict(plan or {})
@@ -1288,9 +1844,13 @@ def normalize_planner_output(plan: dict) -> dict:
     if not isinstance(out["core_material"], dict):
         out["core_material"] = {}
 
-    # Rescue keys the AI may place at root instead of inside core_material
-    _cm_keys = ["gist_questions", "detail_questions", "pre_task_questions",
-                "target_vocabulary", "post_task"]
+    _cm_keys = [
+        "gist_questions",
+        "detail_questions",
+        "pre_task_questions",
+        "target_vocabulary",
+        "post_task",
+    ]
     for _ck in _cm_keys:
         if _ck in out and _ck not in out["core_material"]:
             out["core_material"][_ck] = out.pop(_ck)
@@ -1314,11 +1874,11 @@ def normalize_planner_output(plan: dict) -> dict:
     if "core_material" not in out or not isinstance(out["core_material"], dict):
         out["core_material"] = {}
 
-    # Keep topic only if it exists in AI output; otherwise leave empty
     if "topic" in out:
         out["topic"] = _clean_display_text(out.get("topic", ""))
 
     return out
+
 
 def get_ai_provider() -> str:
     provider = ""
@@ -1356,6 +1916,7 @@ def get_ai_model() -> str:
 
     return "openrouter/free"
 
+
 def get_default_model_for_provider(provider: str) -> str:
     p = str(provider or "").strip().lower()
     if p == "gemini":
@@ -1377,6 +1938,7 @@ def get_ai_model_for_provider(provider: str) -> str:
         return custom_model
 
     return get_default_model_for_provider(provider)
+
 
 def _extract_json_object_from_text(text: str) -> dict:
     s = str(text or "").strip()
@@ -1406,7 +1968,10 @@ def _build_ai_prompts(prompt_payload: dict) -> tuple[str, str]:
         "target_vocabulary, and comprehension questions whenever appropriate. "
         "IMPORTANT: Never use the English JSON key names (like gist_questions, detail_questions, "
         "core_material, pre_task_questions, etc.) as labels or headings inside text content. "
-        "Write all text content in the requested plan_language."
+        "Write all text content in the requested plan_language. "
+        "IMPORTANT: plan_language may be en, es, or tr. "
+        "If plan_language is tr, write teacher-facing content in Turkish. "
+        "If student_material_language is tr, write student-facing material in Turkish."
     )
 
     user_prompt = f"""
@@ -1432,7 +1997,6 @@ Rules:
 
 
 def _generate_with_openrouter(system_prompt: str, user_prompt: str) -> str:
-
     api_key = ""
     try:
         api_key = str(st.secrets.get("OPENROUTER_API_KEY", "")).strip()
@@ -1479,10 +2043,9 @@ def _generate_with_gemini(system_prompt: str, user_prompt: str) -> str:
         api_key = str(os.getenv("GEMINI_API_KEY", "")).strip()
 
     if not api_key:
-        raise RuntimeError (t("missing_gemini_api_key"))
+        raise RuntimeError(t("missing_gemini_api_key"))
 
     client = genai.Client(api_key=api_key)
-
     full_prompt = f"{system_prompt}\n\n{user_prompt}"
 
     response = client.models.generate_content(
@@ -1569,8 +2132,10 @@ def generate_ai_lesson_plan(
 
     raise RuntimeError(" | ".join(errors))
 
+
 AI_DAILY_LIMIT = 3
 AI_COOLDOWN_SECONDS = 10
+
 
 def generate_quick_lesson_plan_with_fallback(
     mode: str,
@@ -1609,6 +2174,7 @@ def generate_quick_lesson_plan_with_fallback(
             "ai_cooldown_active",
             seconds=usage["seconds_left"]
         )
+
     try:
         log_ai_usage(
             request_kind="quick_lesson_ai",
@@ -1657,6 +2223,7 @@ def generate_quick_lesson_plan_with_fallback(
         )
         return template_plan, "template", f"{t('ai_unavailable_fallback')} ({str(e)})"
 
+
 def reset_quick_lesson_planner_state() -> None:
     keys_to_clear = [
         "quick_lesson_plan_result",
@@ -1673,5 +2240,3 @@ def reset_quick_lesson_planner_state() -> None:
     ]
     for k in keys_to_clear:
         st.session_state.pop(k, None)
-
-# =========================
