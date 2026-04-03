@@ -323,7 +323,9 @@ def _render_explore_teaching_resources() -> None:
                     open_in_files=False,
                     require_signup=True,
                 )
+  
 
+    # ── Teaching Income Goal ──
 def render_goal_explorer() -> bool:
     """
     Render the pre-login goal-setting card.
@@ -331,6 +333,14 @@ def render_goal_explorer() -> bool:
     """
     load_css_home()
 
+    # ── Work Smart Tools ── 
+    _render_explore_ai_tools()  
+
+    # ── Teaching Resources preview ──
+    st.markdown("---")
+    _render_explore_teaching_resources()
+
+    st.markdown("---")
     st.markdown(
         f"""
         <div style="
@@ -550,18 +560,18 @@ def render_goal_explorer() -> bool:
         ):
             return True
 
-    # ── AI Tools (functional in explore mode) ──
-    st.markdown("---")
-    _render_explore_ai_tools()
-
-    # ── Teaching Resources preview ──
-    st.markdown("---")
-    _render_explore_teaching_resources()    
-
     # ── Manage Your Students — feature showcase ──
     st.markdown("---")
     _render_feature_showcase()
 
+    st.markdown(
+        """
+        <div class="home-section-line"> 
+          <span>🤖</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     return False
 
 
@@ -787,10 +797,10 @@ _EXPLORE_AI_LIMIT = 1  # anonymous users: 1 AI use per tool
 
 
 def _render_explore_ai_tools() -> None:
-    """AI Tools section for the explore page: Lesson Planner + Worksheet Maker + Income Calculator."""
+    """AI Tools section for the explore page: Lesson Planner + Worksheet Maker."""
     st.markdown(
         f"""
-        <div style="text-align:center; padding:12px 0 8px 0;">
+        <div style="text-align:center; padding:0px 0 8px 0;">
             <h3 style="margin:0 0 4px 0; font-size:1.2rem; font-weight:800; color:var(--text);">
                 🤖 {t('explore_ai_tools_title')}
             </h3>
@@ -802,15 +812,73 @@ def _render_explore_ai_tools() -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Lesson Planner ──
-    _render_explore_lesson_planner()
+    selected = st.session_state.get("explore_ai_tool_selected", "")
 
-    # ── Worksheet Maker ──
-    _render_explore_worksheet_maker()
+    cols = st.columns(2, gap="medium")
 
-    # ── CV Builder ──
-    _render_explore_cv_builder()
+    cards = [
+        {
+            "key": "planner",
+            "icon": "📝",
+            "title": t("quick_lesson_planner"),
+            "glow": "rgba(59,130,246,0.55)",
+            "desc": t("explore_planner_caption_one"),
+        },
+        {
+            "key": "worksheet",
+            "icon": "📋",
+            "title": t("worksheet_maker"),
+            "glow": "rgba(16,185,129,0.55)",
+            "desc": t("worksheet_maker_caption_one"),
+        },
+    ]
 
+    for col, card in zip(cols, cards):
+        with col:
+            is_active = selected == card["key"]
+            border_style = (
+                "2px solid var(--primary)"
+                if is_active
+                else "1px solid var(--border-strong, rgba(17,24,39,0.08))"
+            )
+
+            st.markdown(
+                f"""
+                <div style="
+                    background: linear-gradient(180deg, var(--panel, rgba(255,255,255,0.92)), var(--panel-2, rgba(248,250,255,0.85)));
+                    border: {border_style};
+                    border-radius: 16px;
+                    padding: 18px 14px 12px 14px;
+                    text-align: center;
+                    box-shadow: 0 4px 18px {card["glow"]};
+                    min-height: 120px;
+                ">
+                    <div style="font-size:1.8rem; margin-bottom:6px;">{card["icon"]}</div>
+                    <div style="font-weight:700; font-size:1rem; color:var(--text, #0f172a);">
+                        {card["title"]}
+                    </div>
+                    <div style="font-size:0.82rem; color:var(--muted, #64748b); margin-top:6px; line-height:1.35;">
+                        {card["desc"]}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            button_label = t("close") if is_active else t("try_now")
+            if st.button(button_label, key=f"explore_ai_card_{card['key']}", use_container_width=True):
+                if is_active:
+                    st.session_state["explore_ai_tool_selected"] = ""
+                else:
+                    st.session_state["explore_ai_tool_selected"] = card["key"]
+                st.rerun()
+
+            if is_active:
+                st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+                if card["key"] == "planner":
+                    _render_explore_lesson_planner()
+                elif card["key"] == "worksheet":
+                    _render_explore_worksheet_maker()
 
 # ─────────────────────────────────────────────────────────────
 # Explore-page worksheet maker (AI-powered, 1-use limit for anon)
@@ -827,118 +895,119 @@ def _render_explore_worksheet_maker() -> None:
         get_student_material_language,
     )
 
-    with st.expander(t("worksheet_maker"), expanded=False):
-        st.caption(t("worksheet_maker_caption"))
+    st.markdown(f"### 📋 {t('worksheet_maker')}")
+    st.caption(t("worksheet_maker_caption"))
 
-        ai_used = st.session_state.get("_explore_ws_ai_used", 0)
-        ai_remaining = max(0, _EXPLORE_AI_LIMIT - ai_used)
+    ai_used = st.session_state.get("_explore_ws_ai_used", 0)
+    ai_remaining = max(0, _EXPLORE_AI_LIMIT - ai_used)
 
-        if ai_remaining > 0:
-            st.caption(t("explore_ai_remaining", remaining=ai_remaining))
-        else:
-            st.warning(t("explore_ai_limit_reached"))
+    if ai_remaining > 0:
+        st.caption(t("explore_ai_remaining", remaining=ai_remaining))
+    else:
+        st.warning(t("explore_ai_limit_reached"))
 
-        subject = st.selectbox(
-           t("subject_label"),
-           lp.QUICK_SUBJECTS,
-           format_func=lp.subject_label,
-           key="explore_ws_subject",
-       )
+    subject = st.selectbox(
+        t("subject_label"),
+        lp.QUICK_SUBJECTS,
+        format_func=lp.subject_label,
+        key="explore_ws_subject",
+    )
 
-        other_subject_name = ""
-        if subject == "other":
-            other_subject_name = st.text_input(t("other_subject_label"), key="explore_ws_other_subject").strip()
+    other_subject_name = ""
+    if subject == "other":
+        other_subject_name = st.text_input(
+            t("other_subject_label"),
+            key="explore_ws_other_subject",
+        ).strip()
 
-        learner_stage = st.selectbox(
-            t("learner_stage"),
-            lp.LEARNER_STAGES,
-            format_func=lp._stage_label,
-            key="explore_ws_stage",
+    learner_stage = st.selectbox(
+        t("learner_stage"),
+        lp.LEARNER_STAGES,
+        format_func=lp._stage_label,
+        key="explore_ws_stage",
+    )
+
+    default_level = lp.recommend_default_level(subject, learner_stage)
+    level_options = lp.get_level_options(subject)
+    if st.session_state.get("explore_ws_level") not in level_options:
+        st.session_state["explore_ws_level"] = default_level
+
+    c1, c2 = st.columns(2)
+    with c1:
+        level_or_band = st.selectbox(
+            t("level_or_band"),
+            level_options,
+            format_func=lp._level_label,
+            key="explore_ws_level",
+        )
+    with c2:
+        worksheet_type = st.selectbox(
+            t("worksheet_type_label"),
+            WORKSHEET_TYPES,
+            format_func=lambda x: t(x),
+            key="explore_ws_type",
         )
 
-        default_level = lp.recommend_default_level(subject, learner_stage)
-        level_options = lp.get_level_options(subject)
-        if st.session_state.get("explore_ws_level") not in level_options:
-            st.session_state["explore_ws_level"] = default_level
+    topic = st.text_input(t("topic_label"), key="explore_ws_topic")
 
-        c1, c2 = st.columns(2)
-        with c1:
-            level_or_band = st.selectbox(
-                t("level_or_band"),
-                level_options,
-                format_func=lp._level_label,
-                key="explore_ws_level",
-            )
-        with c2:
-            worksheet_type = st.selectbox(
-                t("worksheet_type_label"),
-                WORKSHEET_TYPES,
-                format_func=lambda x: t(x),
-                key="explore_ws_type",
-            )
+    if st.button(t("generate_worksheet"), key="btn_explore_gen_ws", use_container_width=True):
+        if not topic.strip():
+            st.error(t("enter_topic"))
+        elif subject == "other" and not other_subject_name:
+            st.error(t("enter_subject_name"))
+        elif ai_remaining <= 0:
+            st.warning(t("explore_ai_limit_reached"))
+        else:
+            effective_subject = other_subject_name if subject == "other" else subject
+            with st.spinner(t("generating")):
+                try:
+                    ws = generate_ai_worksheet(
+                        subject=effective_subject,
+                        learner_stage=learner_stage,
+                        level_or_band=level_or_band,
+                        worksheet_type=worksheet_type,
+                        topic=topic.strip(),
+                        plan_language=get_plan_language(),
+                        student_material_language=get_student_material_language(effective_subject),
+                    )
+                    ws = normalize_worksheet_output(ws)
+                    st.session_state["explore_generated_worksheet"] = ws
+                    st.session_state["explore_generated_worksheet_meta"] = {
+                        "subject": effective_subject,
+                        "learner_stage": learner_stage,
+                        "level_or_band": level_or_band,
+                        "worksheet_type": worksheet_type,
+                        "topic": topic.strip(),
+                    }
+                    st.session_state["_explore_ws_ai_used"] = ai_used + 1
+                except Exception as e:
+                    st.error(f"{t('ai_unavailable_fallback')} ({e})")
 
-        topic = st.text_input(t("topic_label"), key="explore_ws_topic")
+    ws = st.session_state.get("explore_generated_worksheet")
+    ws_meta = st.session_state.get("explore_generated_worksheet_meta", {})
+    if ws:
+        render_worksheet_result(
+            ws,
+            read_only=True,
+            subject=ws_meta.get("subject", ""),
+            learner_stage=ws_meta.get("learner_stage", ""),
+            level_or_band=ws_meta.get("level_or_band", ""),
+            worksheet_type=ws_meta.get("worksheet_type", ""),
+            topic=ws_meta.get("topic", ""),
+        )
 
-        if st.button(t("generate_worksheet"), key="btn_explore_gen_ws", use_container_width=True):
-            if not topic.strip():
-                st.error(t("enter_topic"))
-            elif subject == "other" and not other_subject_name:
-                st.error(t("enter_subject_name"))
-            elif ai_remaining <= 0:
-                st.warning(t("explore_ai_limit_reached"))
-            else:
-                effective_subject = other_subject_name if subject == "other" else subject
-                with st.spinner(t("generating")):
-                    try:
-                        ws = generate_ai_worksheet(
-                            subject=effective_subject,
-                            learner_stage=learner_stage,
-                            level_or_band=level_or_band,
-                            worksheet_type=worksheet_type,
-                            topic=topic.strip(),
-                            plan_language=get_plan_language(),
-                            student_material_language=get_student_material_language(effective_subject),
-                        )
-                        ws = normalize_worksheet_output(ws)
-                        st.session_state["explore_generated_worksheet"] = ws
-                        st.session_state["explore_generated_worksheet_meta"] = {
-                            "subject": effective_subject,
-                            "learner_stage": learner_stage,
-                            "level_or_band": level_or_band,
-                            "worksheet_type": worksheet_type,
-                            "topic": topic.strip(),
-                        }
-                        st.session_state["_explore_ws_ai_used"] = ai_used + 1
-                    except Exception as e:
-                        st.error(f"{t('ai_unavailable_fallback')} ({e})")
-
-        # Display generated worksheet
-        ws = st.session_state.get("explore_generated_worksheet")
-        ws_meta = st.session_state.get("explore_generated_worksheet_meta", {})
-        if ws:
-            render_worksheet_result(
-                ws,
-                read_only=True,
-                subject=ws_meta.get("subject", ""),
-                learner_stage=ws_meta.get("learner_stage", ""),
-                level_or_band=ws_meta.get("level_or_band", ""),
-                worksheet_type=ws_meta.get("worksheet_type", ""),
-                topic=ws_meta.get("topic", ""),
-            )
-
-            if st.button(
-                t("explore_save_worksheet_cta"),
-                type="primary",
-                use_container_width=True,
-                key="btn_explore_save_ws",
-            ):
-                st.session_state["_pending_worksheet_after_signup"] = {
-                    "worksheet": ws,
-                    "meta": ws_meta,
-                }
-                st.session_state["_explore_go_signup"] = True
-                st.rerun()
-
+        if st.button(
+            t("explore_save_worksheet_cta"),
+            type="primary",
+            use_container_width=True,
+            key="btn_explore_save_ws",
+        ):
+            st.session_state["_pending_worksheet_after_signup"] = {
+                "worksheet": ws,
+                "meta": ws_meta,
+            }
+            st.session_state["_explore_go_signup"] = True
+            st.rerun()
 # ─────────────────────────────────────────────────────────────
 # Explore-page lesson planner (AI-powered, 1-use limit for anon)
 # ─────────────────────────────────────────────────────────────
@@ -948,137 +1017,133 @@ def _render_explore_lesson_planner() -> None:
     """Lesson planner for anonymous users. AI with limit. Save requires signup."""
     import helpers.lesson_planner as lp
 
-    with st.expander(t("quick_lesson_planner"), expanded=False):
-        st.caption(t("explore_planner_caption"))
+    st.markdown(f"### 📝 {t('quick_lesson_planner')}")
+    st.caption(t("explore_planner_caption"))
 
-        # Track anonymous AI usage in session state
-        ai_used = st.session_state.get("_explore_ai_used", 0)
-        ai_remaining = max(0, _EXPLORE_AI_LIMIT - ai_used)
+    ai_used = st.session_state.get("_explore_ai_used", 0)
+    ai_remaining = max(0, _EXPLORE_AI_LIMIT - ai_used)
 
-        if ai_remaining > 0:
-            st.caption(t("explore_ai_remaining", remaining=ai_remaining))
-        else:
+    if ai_remaining > 0:
+        st.caption(t("explore_ai_remaining", remaining=ai_remaining))
+    else:
+        st.warning(t("explore_ai_limit_reached"))
+
+    plan_subject = st.selectbox(
+        t("subject_label"),
+        lp.QUICK_SUBJECTS,
+        format_func=lp.subject_label,
+        key="explore_plan_subject",
+    )
+
+    other_subject_name = ""
+    if plan_subject == "other":
+        other_subject_name = st.text_input(
+            t("other_subject_label"),
+            key="explore_plan_other_subject",
+        ).strip()
+
+    learner_stage = st.selectbox(
+        t("learner_stage"),
+        lp.LEARNER_STAGES,
+        format_func=lp._stage_label,
+        key="explore_plan_stage",
+    )
+
+    default_level = lp.recommend_default_level(plan_subject, learner_stage)
+    level_options = lp.get_level_options(plan_subject)
+
+    if st.session_state.get("explore_plan_level") not in level_options:
+        st.session_state["explore_plan_level"] = default_level
+
+    c1, c2 = st.columns(2)
+    with c1:
+        level_or_band = st.selectbox(
+            t("level_or_band"),
+            level_options,
+            format_func=lp._level_label,
+            key="explore_plan_level",
+        )
+    with c2:
+        lesson_purpose = st.selectbox(
+            t("lesson_purpose"),
+            lp.LESSON_PURPOSES,
+            format_func=lp._purpose_label,
+            key="explore_plan_purpose",
+        )
+
+    topic = st.text_input(t("topic_label"), key="explore_plan_topic")
+
+    rec_level = lp.recommend_default_level(plan_subject, learner_stage)
+    rec_label = rec_level if rec_level in lp.LANGUAGE_LEVELS else t(rec_level)
+    st.caption(f"{t('recommended_level')}: {rec_label}")
+
+    if st.button(t("generate_plan"), key="btn_explore_generate_plan", use_container_width=True):
+        if not topic.strip():
+            st.error(t("enter_topic"))
+        elif plan_subject == "other" and not other_subject_name:
+            st.error(t("enter_subject_name"))
+        elif ai_remaining <= 0:
             st.warning(t("explore_ai_limit_reached"))
+        else:
+            effective_subject = other_subject_name if plan_subject == "other" else plan_subject
+            with st.spinner(t("generating")):
+                try:
+                    ai_plan = lp.generate_ai_lesson_plan(
+                        subject=effective_subject,
+                        learner_stage=learner_stage,
+                        level_or_band=level_or_band,
+                        lesson_purpose=lesson_purpose,
+                        topic=topic.strip(),
+                        plan_language=lp.get_plan_language(),
+                        student_material_language=lp.get_student_material_language(effective_subject),
+                    )
+                    plan = lp.normalize_planner_output(ai_plan)
+                    st.session_state["_explore_ai_used"] = ai_used + 1
+                    st.session_state["explore_generated_plan"] = plan
+                    st.session_state["explore_generated_plan_meta"] = {
+                        "subject": effective_subject,
+                        "learner_stage": learner_stage,
+                        "level_or_band": level_or_band,
+                        "lesson_purpose": lesson_purpose,
+                        "topic": topic.strip(),
+                        "mode": "ai",
+                    }
+                    st.session_state["explore_plan_warning"] = None
+                except Exception as e:
+                    st.error(f"{t('ai_unavailable_fallback')} ({e})")
 
-        # Subject
-        plan_subject = st.selectbox(
-            t("subject_label"),
-            lp.QUICK_SUBJECTS,
-            format_func=lp.subject_label,
-            key="explore_plan_subject",
+    plan = st.session_state.get("explore_generated_plan")
+    meta = st.session_state.get("explore_generated_plan_meta", {})
+    if plan:
+        resolved_mode = meta.get("mode", "template")
+        warning_msg = st.session_state.get("explore_plan_warning")
+
+        st.session_state["quick_lesson_plan_mode_used"] = resolved_mode
+        st.session_state["quick_lesson_plan_warning"] = warning_msg
+
+        render_quick_lesson_plan_result(
+            plan,
+            subject=meta.get("subject", ""),
+            learner_stage=meta.get("learner_stage", ""),
+            level_or_band=meta.get("level_or_band", ""),
+            lesson_purpose=meta.get("lesson_purpose", ""),
+            topic=meta.get("topic", ""),
+            read_only=True,
+            action_key_prefix="explore_plan",
         )
 
-        other_subject_name = ""
-        if plan_subject == "other":
-            other_subject_name = st.text_input(
-                t("other_subject_label"),
-                key="explore_plan_other_subject",
-            ).strip()
-
-        learner_stage = st.selectbox(
-            t("learner_stage"),
-            lp.LEARNER_STAGES,
-            format_func=lp._stage_label,
-            key="explore_plan_stage",
-        )
-
-        default_level = lp.recommend_default_level(plan_subject, learner_stage)
-        level_options = lp.get_level_options(plan_subject)
-
-        if st.session_state.get("explore_plan_level") not in level_options:
-            st.session_state["explore_plan_level"] = default_level
-
-        c1, c2 = st.columns(2)
-        with c1:
-            level_or_band = st.selectbox(
-                t("level_or_band"),
-                level_options,
-                format_func=lp._level_label,
-                key="explore_plan_level",
-            )
-        with c2:
-            lesson_purpose = st.selectbox(
-                t("lesson_purpose"),
-                lp.LESSON_PURPOSES,
-                format_func=lp._purpose_label,
-                key="explore_plan_purpose",
-            )
-
-        topic = st.text_input(t("topic_label"), key="explore_plan_topic")
-
-        rec_level = lp.recommend_default_level(plan_subject, learner_stage)
-        rec_label = rec_level if rec_level in lp.LANGUAGE_LEVELS else t(rec_level)
-        st.caption(f"{t('recommended_level')}: {rec_label}")
-
-        if st.button(t("generate_plan"), key="btn_explore_generate_plan", use_container_width=True):
-            if not topic.strip():
-                st.error(t("enter_topic"))
-            elif plan_subject == "other" and not other_subject_name:
-                st.error(t("enter_subject_name"))
-            elif ai_remaining <= 0:
-                st.warning(t("explore_ai_limit_reached"))
-            else:
-                effective_subject = other_subject_name if plan_subject == "other" else plan_subject
-                with st.spinner(t("generating")):
-                    try:
-                        ai_plan = lp.generate_ai_lesson_plan(
-                            subject=effective_subject,
-                            learner_stage=learner_stage,
-                            level_or_band=level_or_band,
-                            lesson_purpose=lesson_purpose,
-                            topic=topic.strip(),
-                            plan_language=lp.get_plan_language(),
-                            student_material_language=lp.get_student_material_language(effective_subject),
-                        )
-                        plan = lp.normalize_planner_output(ai_plan)
-                        st.session_state["_explore_ai_used"] = ai_used + 1
-                        st.session_state["explore_generated_plan"] = plan
-                        st.session_state["explore_generated_plan_meta"] = {
-                            "subject": effective_subject,
-                            "learner_stage": learner_stage,
-                            "level_or_band": level_or_band,
-                            "lesson_purpose": lesson_purpose,
-                            "topic": topic.strip(),
-                            "mode": "ai",
-                        }
-                        st.session_state["explore_plan_warning"] = None
-                    except Exception as e:
-                        st.error(f"{t('ai_unavailable_fallback')} ({e})")
-
-        # Display generated plan
-        plan = st.session_state.get("explore_generated_plan")
-        meta = st.session_state.get("explore_generated_plan_meta", {})
-        if plan:
-            resolved_mode = meta.get("mode", "template")
-            warning_msg = st.session_state.get("explore_plan_warning")
-
-            st.session_state["quick_lesson_plan_mode_used"] = resolved_mode
-            st.session_state["quick_lesson_plan_warning"] = warning_msg
-
-            render_quick_lesson_plan_result(
-                plan,
-                subject=meta.get("subject", ""),
-                learner_stage=meta.get("learner_stage", ""),
-                level_or_band=meta.get("level_or_band", ""),
-                lesson_purpose=meta.get("lesson_purpose", ""),
-                topic=meta.get("topic", ""),
-                read_only=True,
-                action_key_prefix="explore_plan",
-            )
-
-            if st.button(
-                t("explore_save_plan_cta"),
-                type="primary",
-                use_container_width=True,
-                key="btn_explore_save_plan",
-            ):
-                # Stash the plan for auto-save after signup
-                st.session_state["_pending_plan_after_signup"] = {
-                    "plan": plan,
-                    "meta": meta,
-                }
-                st.session_state["_explore_go_signup"] = True
-                st.rerun()
+        if st.button(
+            t("explore_save_plan_cta"),
+            type="primary",
+            use_container_width=True,
+            key="btn_explore_save_plan",
+        ):
+            st.session_state["_pending_plan_after_signup"] = {
+                "plan": plan,
+                "meta": meta,
+            }
+            st.session_state["_explore_go_signup"] = True
+            st.rerun()
 
 def _render_plan_preview(plan: dict, meta: dict) -> None:
     """Renders a simplified read-only lesson plan preview."""

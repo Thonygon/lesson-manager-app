@@ -199,6 +199,15 @@ def render_google_auth_card(
     if show_signup_note:
         st.caption(t("google_auth_signup_note"))
 
+    st.markdown(
+        """
+        <div class="home-section-line"> 
+          <span>🤖</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 def require_login():
     """
     Blocks the app unless a user is logged in with Streamlit OIDC.
@@ -245,6 +254,20 @@ def require_login():
             display: block;
             margin: 0 auto !important;
             padding: 0 !important;
+        }
+        /* Remove extra space under tabs */
+        [data-baseweb="tab-panel"] {
+            padding-top: 0 !important;
+            margin-top: 0 !important;
+        }
+
+        [data-baseweb="tab-list"] {
+            margin-bottom: 0 !important;
+        }
+
+        [data-baseweb="tab-panel"] > div {
+            padding-top: 0 !important;
+            margin-top: 0 !important;
         }
         </style>
         """,

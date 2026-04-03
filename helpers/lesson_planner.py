@@ -1757,6 +1757,19 @@ def build_quick_lesson_plan(
 
     return _general_plan(learner_stage, level_or_band, lesson_purpose, topic)
 
+def _coerce_listlike(value):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        # Split multiline content into logical bullet items
+        parts = [line.strip() for line in text.splitlines() if line.strip()]
+        return parts if len(parts) > 1 else [text]
+    return [str(value).strip()]
 
 def normalize_planner_output(plan: dict) -> dict:
     plan = dict(plan or {})
@@ -1817,8 +1830,26 @@ def normalize_planner_output(plan: dict) -> dict:
         "teacher_moves",
     ]
     for key in list_keys:
-        if not isinstance(out.get(key), list):
-            out[key] = [] if out.get(key) in (None, "") else [str(out.get(key))]
+        out[key] = _coerce_listlike(out.get(key))
+    
+    core_material_list_keys = [
+        "target_vocabulary",
+        "language_frames",
+        "pre_task_questions",
+        "gist_questions",
+        "detail_questions",
+        "worked_example",
+        "independent_practice",
+        "strategy_steps",
+        "student_checklist",
+        "guided_problem_set",
+        "independent_problem_set",
+        "evidence_questions",
+    ]
+
+    for cm_key in core_material_list_keys:
+        if cm_key in out["core_material"]:
+            out["core_material"][cm_key] = _coerce_listlike(out["core_material"].get(cm_key))
 
     out["title"] = _clean_display_text(out.get("title", ""))
     return out

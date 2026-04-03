@@ -441,7 +441,8 @@ I18N: Dict[str, Dict[str, str]] = {
         # WORKSHEET MAKER
         # -------------------------
         "worksheet_maker": "Quick worksheet maker",
-        "worksheet_maker_caption": "AI-powered worksheets — topic-based, classroom-ready, printable",
+        "worksheet_maker_caption_one": "Topic-based, classroom-ready, printable AI-powered worksheets in a second.",
+        "worksheet_maker_caption": "Generate a ready-to-use worksheet in a second",
         "worksheet_type_label": "Worksheet type",
         "fill_in_the_blanks": "Fill in the blanks",
         "multiple_choice": "Multiple choice",
@@ -943,9 +944,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "cpi_no_data": "No CPI data available for this country",
 
         # -------------------------
-        # AI TOOLS / HOME
+        # WORK SMART TOOLS / HOME
         # -------------------------
-        "ai_tools": "AI Tools",
+        "ai_tools": "Work Smart Tools",
         "income_goal_calculator": "Income Goal Calculator",
         "goal_not_set_invite": "You haven't set a yearly goal yet. Go to Analytics to set one.",
 
@@ -979,7 +980,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_other": "Other",
         "explore_other_subject_input": "Enter your subject",
         "explore_planner_title": "Try the Lesson Planner",
-        "explore_planner_caption": "Generate a lesson plan powered by AI — 1 free AI plan, unlimited templates.",
+        "explore_planner_caption": "Here you have 1 free AI plan per day. Sign up for more free AI plans.",
+        "explore_planner_caption_one": "Generate lesson plans powered by AI in a second.", 
         "explore_save_plan_cta": "Save this plan to my account",
         "explore_plan_auto_saved": "Your lesson plan has been saved to your account ✅",
         "explore_ai_remaining": "You have {remaining} free AI plan(s) remaining.",
@@ -998,7 +1000,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "edu_bachelors": "Bachelor's degree",
         "edu_masters": "Master's degree",
         "edu_doctorate": "Doctorate (PhD)",
-        "explore_ai_tools_title": "Try our AI Tools",
+        "explore_ai_tools_title": "Work Smart Tools",
         "explore_ai_tools_subtitle": "Create lesson plans and worksheets with a few clicks.",
         "explore_feat_ai_tools": "Create lesson plans, worksheets and more with AI.",
         "explore_features_title": "Manage Your Students",
@@ -1015,6 +1017,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_resource_search_placeholder": "Search by topic, title, subject, level, type…",
         "explore_latest_resources_note": "Showing the latest {count} resources. Use the search box to explore more.",
         "be_the_first_to_share": "WoOW! No resources yet. This must be innovative! Be the first to share a resource!",
+        "try_now": "Use me",
         # -------------------------
         # MISSING KEYS 2
         # -------------------------
@@ -1472,7 +1475,8 @@ I18N: Dict[str, Dict[str, str]] = {
         # WORKSHEET MAKER
         # -------------------------
         "worksheet_maker": "Creador rápido de fichas",
-        "worksheet_maker_caption": "Fichas de trabajo con IA — basadas en el tema, listas para clase, imprimibles",
+        "worksheet_maker_caption_one": "Basadas en tus temas, listas para clase, imprimibles fichas de trabajo en segundos",
+        "worksheet_maker_caption": "Completa los campos para generar una ficha de trabajo personalizada para tu próxima clase.",
         "worksheet_type_label": "Tipo de ficha",
         "fill_in_the_blanks": "Completar los espacios",
         "multiple_choice": "Opción múltiple",
@@ -2012,7 +2016,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_other": "Otro",
         "explore_other_subject_input": "Escribe tu materia",
         "explore_planner_title": "Prueba el Planificador de Clases",
-        "explore_planner_caption": "Genera un plan de clase con IA — 1 plan con IA gratis, plantillas ilimitadas.",
+        "explore_planner_caption": "Aquí tienes 1 plan con IA gratis por día, crea una cuenta para más generaciones gratuitas.",
+        "explore_planner_caption_one": "Genera planes de clase con IA en segundos.",
         "explore_save_plan_cta": "Guardar este plan en mi cuenta",
         "explore_plan_auto_saved": "Tu plan de clase se ha guardado en tu cuenta ✅",
         "explore_ai_remaining": "Tienes {remaining} plan(es) con IA gratuito(s) restante(s).",
@@ -2031,7 +2036,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "edu_bachelors": "Licenciatura",
         "edu_masters": "Máster",
         "edu_doctorate": "Doctorado",
-        "explore_ai_tools_title": "Prueba nuestras herramientas IA",
+        "explore_ai_tools_title": "Herramientas inteligentes de trabajo",
         "explore_ai_tools_subtitle": "Crea planes de clase y fichas de trabajo en segundos",
         "explore_feat_ai_tools": "Crea planes de clase, fichas y más con IA.",
         "explore_features_title": "Gestiona tus Estudiantes",
@@ -2048,7 +2053,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_resource_search_placeholder": "Busca por tema, título, asignatura, nivel, tipo…",
         "explore_latest_resources_note": "Mostrando los últimos {count} recursos. Usa el buscador para explorar más.",
         "be_the_first_to_share": "¡Oh! Aún no hay recursos. ¡Esto debe ser innovador! Sé el primero en compartir un recurso.",
-
+        "try_now": "Usar",
+        
         # -------------------------
         # MISSING KEYS 2
         # -------------------------
@@ -2504,7 +2510,8 @@ I18N: Dict[str, Dict[str, str]] = {
         # WORKSHEET MAKER
         # -------------------------
         "worksheet_maker": "Hızlı Çalışma Kağıdı Oluşturucu",
-        "worksheet_maker_caption": "Yapay zeka destekli çalışma kağıtları — konu bazlı, sınıfa hazır, yazdırılabilir",
+        "worksheet_maker_caption_one": "Saniyeler içinde yapay zekâ destekli, derse hazır çalışma kağıtları.",
+        "worksheet_maker_caption": "Bir sonraki dersiniz için kişiselleştirilmiş çalışma kağıdı oluşturmak üzere alanları doldurun.",
         "worksheet_type_label": "Çalışma kağıdı türü",
         "fill_in_the_blanks": "Boşluk doldurma",
         "multiple_choice": "Çoktan seçmeli",
@@ -3030,7 +3037,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_other": "Diğer",
         "explore_other_subject_input": "Dersinizi yazın",
         "explore_planner_title": "Ders Planlayıcıyı Deneyin",
-        "explore_planner_caption": "Yapay zeka destekli ders planı oluşturun — 1 ücretsiz yapay zeka planı, sınırsız şablon.",
+        "explore_planner_caption": "Günde 1 ücretsiz yapay zekâ planı. Daha fazlası için kayıt olun.",
+        "explore_planner_caption_one": "Yapay zekâ destekli ders planlarını saniyeler içinde oluşturun.",
         "explore_save_plan_cta": "Bu planı hesabıma kaydet",
         "explore_plan_auto_saved": "Ders planınız hesabınıza kaydedildi ✅",
         "explore_ai_remaining": "{remaining} ücretsiz yapay zeka planınız kaldı.",
@@ -3049,7 +3057,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "edu_bachelors": "Lisans derecesi",
         "edu_masters": "Yüksek lisans",
         "edu_doctorate": "Doktora",
-        "explore_ai_tools_title": "Yapay Zeka Araçlarımızı Deneyin",
+        "explore_ai_tools_title": "Daha Akıllı Çalışma Araçları",
         "explore_ai_tools_subtitle": "Birkaç saniyede ders planları ve çalışma kağıtları oluşturun.",
         "explore_feat_ai_tools": "Yapay zeka ile ders planları, çalışma kağıtları ve daha fazlasını oluşturun.",
         "explore_features_title": "Öğrencilerinizi Yönetin",
@@ -3066,6 +3074,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "explore_resource_search_placeholder": "Konu, başlık, ders, seviye, tür ile ara…",
         "explore_latest_resources_note": "En son {count} kaynak gösteriliyor. Daha fazlasını keşfetmek için arama kutusunu kullanın.",
         "be_the_first_to_share": "Bu konu hakkında henüz kaynak yok. İlk paylaşan siz olun!",
+        "try_now": "Beni kullan",
 
         # -------------------------
         # MISSING KEYS 2
