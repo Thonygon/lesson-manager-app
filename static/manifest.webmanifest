@@ -1,6 +1,6 @@
 {
-  "name": "Classman",
-  "short_name": "Classman",
+  "name": "Classio",
+  "short_name": "Classio",
   "description": "Class Manager - student, payments, schedule and analytics",
   "start_url": "/?page=home",
   "scope": "/",

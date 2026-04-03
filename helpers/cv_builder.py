@@ -52,9 +52,10 @@ def _subject_label(value: str) -> str:
     mapping = {
         "english": t("subject_english"),
         "spanish": t("subject_spanish"),
-        "turkish": t("subject_turkish"),
         "mathematics": t("subject_mathematics"),
         "science": t("subject_science"),
+        "music": t("subject_music"),
+        "study_skills": t("subject_study_skills"),
         "other": t("other"),
     }
     v = str(value or "").strip().lower()
