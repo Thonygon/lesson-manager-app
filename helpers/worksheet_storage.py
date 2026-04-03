@@ -15,6 +15,10 @@ import html
 import textwrap
 from core.navigation import home_go
 import re
+import unicodedata
+from xml.sax.saxutils import escape as xml_escape
+from reportlab.lib.enums import TA_JUSTIFY
+
 
 def _wb():
     import helpers.worksheet_builder as wb
@@ -26,24 +30,119 @@ def _lp():
     return lp
 
 
-# ── Worksheet text cleanup helpers ──────────────────────────────────
 _LEADING_NUM_RE = re.compile(r"^\s*\d+[\.\)\-]\s*")
+_MC_OPTION_PREFIX_RE = re.compile(r"^\s*(?:[A-Da-d]|[1-9])[\)\.\-:]\s*")
+_MC_STEM_PREFIX_RE = re.compile(r"^\s*\d+[\)\.\-:]\s*")
+_LEADING_ENUM_RE = re.compile(r"^\s*(?:\d+|[A-Za-z])[\.\)\-:]\s*")
+
+def _strip_leading_enum(text: str) -> str:
+    return _LEADING_ENUM_RE.sub("", _normalize_text(text or "").strip())
+
+def _strip_mc_option_prefix(text: str) -> str:
+    return _MC_OPTION_PREFIX_RE.sub("", _normalize_text(text or "").strip())
+
+def _strip_mc_stem_prefix(text: str) -> str:
+    return _MC_STEM_PREFIX_RE.sub("", _normalize_text(text or "").strip())
 
 
 def _strip_leading_number(text: str) -> str:
-    """Remove a leading number like '1. ', '2) ', '3- ' from a string."""
-    return _LEADING_NUM_RE.sub("", text)
+    return _LEADING_NUM_RE.sub("", str(text or ""))
+
+
+def _normalize_text(value) -> str:
+    return unicodedata.normalize("NFC", str(value or ""))
+
+
+def _normalize_text_list(values) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return [_normalize_text(v) for v in values if str(v).strip()]
+
+
+def _normalize_mc_items(items) -> list[dict]:
+    out = []
+    if not isinstance(items, list):
+        return out
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        stem = _strip_mc_stem_prefix(item.get("stem", ""))
+        options = item.get("options") or []
+        if not isinstance(options, list):
+            options = [str(options)]
+
+        cleaned_options = []
+        for opt in options:
+            cleaned = _strip_mc_option_prefix(opt)
+            if cleaned:
+                cleaned_options.append(cleaned)
+
+        answer = _strip_mc_option_prefix(item.get("answer", ""))
+
+        if stem and len(cleaned_options) >= 3:
+            out.append({
+                "stem": stem,
+                "options": cleaned_options[:4],
+                "answer": answer,
+            })
+    return out
+
+
+def _normalize_worksheet_unicode(ws: dict) -> dict:
+    ws = dict(ws or {})
+
+    text_keys = [
+        "title",
+        "instructions",
+        "reading_passage",
+        "answer_key",
+        "topic",
+        "subject",
+        "worksheet_type",
+        "learner_stage",
+        "level_or_band",
+        "plan_language",
+        "student_material_language",
+        "source_text",
+        "text",
+    ]
+    for key in text_keys:
+        if key in ws:
+            ws[key] = _normalize_text(ws.get(key))
+
+    list_keys = [
+        "questions",
+        "teacher_notes",
+        "vocabulary_bank",
+        "true_false_statements",
+        "left_items",
+        "right_items",
+    ]
+    for key in list_keys:
+        if key in ws:
+            ws[key] = _normalize_text_list(ws.get(key))
+
+    if "multiple_choice_items" in ws:
+        ws["multiple_choice_items"] = _normalize_mc_items(ws.get("multiple_choice_items"))
+
+    return ws
+
+
+def _pdf_safe_text(value) -> str:
+    return xml_escape(_normalize_text(value))
+
 
 
 def _split_answer_key(answer_key) -> list[str]:
-    """Split an answer key string into individual numbered lines."""
     if isinstance(answer_key, list):
-        return [str(a) for a in answer_key if str(a).strip()]
-    text = str(answer_key or "")
-    # Try splitting on numbered patterns like "1. ", "2. ", etc.
+        return [_normalize_text(a) for a in answer_key if str(a).strip()]
+
+    text = _normalize_text(answer_key or "")
     parts = re.split(r"(?:^|\n)\s*(\d+[\.\)\-])", text)
+
     if len(parts) > 2:
-        # re.split with groups: ['prefix', '1.', 'answer1', '2.', 'answer2', ...]
         lines = []
         i = 1
         while i < len(parts) - 1:
@@ -54,34 +153,30 @@ def _split_answer_key(answer_key) -> list[str]:
             i += 2
         if lines:
             return lines
-    # Fallback: split on newlines
+
     lines = [l.strip() for l in text.split("\n") if l.strip()]
     return lines if lines else [text]
 
+# ── clean helpers ───────────────────────────────────────────────
 
 def _clean_worksheet_data(ws: dict) -> dict:
-    """Clean questions to strip leading numbers (prevents 1. 1. doubling)."""
-    out = dict(ws)
+    out = dict(ws or {})
     if isinstance(out.get("questions"), list):
-        out["questions"] = [_strip_leading_number(q) if isinstance(q, str) else q
-                            for q in out["questions"]]
+        out["questions"] = [
+            _strip_leading_enum(q) if isinstance(q, str) else q
+            for q in out["questions"]
+        ]
     return out
 
+
 def _clean_display_text(text: str) -> str:
-    s = str(text or "").strip()
-
-    # Collapse repeated spaces
+    s = _normalize_text(text).strip()
     s = re.sub(r"\s+", " ", s)
-
-    # Remove spaces before punctuation
     s = re.sub(r"\s+([.,!?;:])", r"\1", s)
-
-    # Normalize surrounding spaces around hyphens/slashes
     s = re.sub(r"\s*-\s*", " - ", s)
     s = re.sub(r"\s*/\s*", " / ", s)
     s = re.sub(r"\s+", " ", s).strip()
 
-    # Capitalize first letter
     if s:
         s = s[0].upper() + s[1:]
 
@@ -91,17 +186,13 @@ def _clean_display_text(text: str) -> str:
 def _clean_card_fields(title: str, topic: str) -> tuple[str, str]:
     return _clean_display_text(title), _clean_display_text(topic)
 
-# ── Word search helpers ──────────────────────────────────────────────
 
+
+
+# ── Wordsearch helpers ───────────────────────────────────────────────
 def _wordsearch_safe_upper(text: str) -> str:
-    s = str(text or "").strip()
-
-    # Turkish-safe upper first
-    s = (
-        s.replace("i", "İ")
-         .replace("ı", "I")
-    )
-
+    s = _normalize_text(text).strip()
+    s = s.replace("i", "İ").replace("ı", "I")
     return s.upper()
 
 
@@ -110,27 +201,12 @@ def _normalize_wordsearch_words(words: list[str], max_words: int = 12) -> list[s
     seen = set()
 
     for w in words or []:
-        s = str(w or "").strip()
-
-        # Remove translations inside parentheses
-        # Example: "LEVANTARSE (to get up)" → "LEVANTARSE"
+        s = _normalize_text(w).strip()
         s = re.sub(r"\(.*?\)", "", s)
-
-        # Remove dash translations
-        # Example: "LEVANTARSE - to get up"
         s = re.split(r"\s[-–—]\s", s)[0]
-
-        # Remove comma translations
-        # Example: "LEVANTARSE, to get up"
         s = s.split(",")[0]
-
-        # Uppercase safely
         s = _wordsearch_safe_upper(s)
-
-        # Keep Spanish + Turkish + Latin
         s = re.sub(r"[^A-ZÁÉÍÓÚÜÑÇĞİÖŞ0-9 ]", "", s)
-
-        # Remove spaces
         s = re.sub(r"\s+", "", s)
 
         if len(s) < 2:
@@ -184,13 +260,7 @@ def _generate_wordsearch_grid(
         return [], [], []
 
     size = _resolve_wordsearch_size(words, size=size)
-
-    directions = [
-        (0, 1),   # right
-        (1, 0),   # down
-        (1, 1),   # down-right
-        (-1, 1),  # up-right
-    ]
+    directions = [(0, 1), (1, 0), (1, 1), (-1, 1)]
 
     import random
     rng = random.Random(seed if seed is not None else "|".join(words))
@@ -206,15 +276,13 @@ def _generate_wordsearch_grid(
             for _ in range(500):
                 dr, dc = rng.choice(directions)
 
-                # row start range
                 if dr == 0:
                     r_min, r_max = 0, size - 1
                 elif dr == 1:
                     r_min, r_max = 0, size - len(word)
-                else:  # dr == -1
+                else:
                     r_min, r_max = len(word) - 1, size - 1
 
-                # col start range
                 if dc == 0:
                     c_min, c_max = 0, size - 1
                 elif dc == 1:
@@ -252,10 +320,7 @@ def _generate_wordsearch_grid(
                 for (rr, cc), ch in zip(coords, word):
                     grid[rr][cc] = ch
 
-                placements.append({
-                    "word": word,
-                    "coords": coords,
-                })
+                placements.append({"word": word, "coords": coords})
                 placed = True
                 break
 
@@ -275,6 +340,7 @@ def _generate_wordsearch_grid(
             return built_grid, words, placements
 
     return [], words, []
+
 
 def _render_wordsearch_grid(grid: list[list[str]]) -> None:
     if not grid:
@@ -306,6 +372,7 @@ def _render_wordsearch_grid(grid: list[list[str]]) -> None:
             font-weight: 700;
             font-size: 0.95rem;
             border-radius: 6px;
+            font-family: "DejaVu Sans", "Noto Sans", "Arial Unicode MS", Arial, sans-serif;
         }}
         </style>
         <div class="ws-wordsearch-wrap">
@@ -316,6 +383,7 @@ def _render_wordsearch_grid(grid: list[list[str]]) -> None:
         """,
         unsafe_allow_html=True,
     )
+
 
 def _render_wordsearch_answer_grid(grid: list[list[str]], placements: list[dict]) -> None:
     if not grid:
@@ -355,6 +423,7 @@ def _render_wordsearch_answer_grid(grid: list[list[str]], placements: list[dict]
             font-weight: 700;
             font-size: 0.95rem;
             border-radius: 6px;
+            font-family: "DejaVu Sans", "Noto Sans", "Arial Unicode MS", Arial, sans-serif;
         }}
         .ws-wordsearch-grid td.ws-answer-hit {{
             background: rgba(59,130,246,.20);
@@ -372,8 +441,255 @@ def _render_wordsearch_answer_grid(grid: list[list[str]], placements: list[dict]
         unsafe_allow_html=True,
     )
 
-# ── CRUD ──────────────────────────────────────────────────────────────
 
+# ── Matching helpers ─────────────────────────────────────────────────
+def _get_matching_pairs(ws: dict) -> list[dict]:
+    ws = dict(ws or {})
+    pairs = ws.get("matching_pairs") or []
+
+    out = []
+    if isinstance(pairs, list):
+        for item in pairs:
+            if not isinstance(item, dict):
+                continue
+            left = _normalize_text(item.get("left", "")).strip()
+            right = _normalize_text(item.get("right", "")).strip()
+            if left and right:
+                out.append({"left": left, "right": right})
+
+    if out:
+        return out
+
+    left_items = ws.get("left_items") or []
+    right_items = ws.get("right_items") or []
+
+    if isinstance(left_items, list) and isinstance(right_items, list):
+        for left, right in zip(left_items, right_items):
+            left = _normalize_text(left).strip()
+            right = _normalize_text(right).strip()
+            if left and right:
+                out.append({"left": left, "right": right})
+
+    return out
+
+
+def _build_matching_columns(ws: dict) -> tuple[list[str], list[str], list[tuple[int, str]]]:
+    pairs = _get_matching_pairs(ws)
+    if not pairs:
+        return [], [], []
+
+    import random
+
+    left_items = [p["left"] for p in pairs]
+    right_items = [p["right"] for p in pairs]
+
+    rng = random.Random("|".join(left_items + right_items))
+    shuffled_right = right_items[:]
+    rng.shuffle(shuffled_right)
+
+    letters = [chr(97 + i) for i in range(len(shuffled_right))]
+    right_lookup = {value: letters[idx] for idx, value in enumerate(shuffled_right)}
+    answer_map = [(idx + 1, right_lookup[p["right"]]) for idx, p in enumerate(pairs)]
+
+    return left_items, shuffled_right, answer_map
+
+
+def _render_matching_exercise(ws: dict) -> None:
+    left_items, right_items, _ = _build_matching_columns(ws)
+
+    if not left_items or not right_items:
+        st.warning(t("no_data"))
+        return
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.markdown(f"**{t('ws_column_a') if t('ws_column_a') != 'ws_column_a' else 'Column A'}**")
+        for idx, item in enumerate(left_items, 1):
+            st.write(f"{idx}. {_strip_leading_enum(item)}")
+
+    with c2:
+        st.markdown(f"**{t('ws_column_b') if t('ws_column_b') != 'ws_column_b' else 'Column B'}**")
+        for idx, item in enumerate(right_items):
+            letter = chr(97 + idx)
+            st.write(f"{letter}) {_strip_leading_enum(item)}")
+
+
+def _render_matching_answer_key(ws: dict) -> None:
+    _, _, answer_map = _build_matching_columns(ws)
+    if not answer_map:
+        st.warning(t("no_data"))
+        return
+    for num, letter in answer_map:
+        st.write(f"{num} → {letter}")
+
+
+# ── True/False helpers ───────────────────────────────────────────────
+def _get_true_false_statements(ws: dict) -> list[str]:
+    ws = dict(ws or {})
+
+    statements = ws.get("true_false_statements") or []
+    if isinstance(statements, list):
+        out = [_normalize_text(x).strip() for x in statements if str(x).strip()]
+        if out:
+            return out
+
+    questions = ws.get("questions") or []
+    if isinstance(questions, list):
+        return [_normalize_text(x).strip() for x in questions if str(x).strip()]
+
+    return []
+
+
+def _get_true_false_source_text(ws: dict) -> str:
+    ws = dict(ws or {})
+    for key in ["source_text", "reading_passage", "text"]:
+        value = _normalize_text(ws.get(key, "")).strip()
+        if value:
+            return value
+    return ""
+
+
+def _render_true_false_exercise(ws: dict) -> None:
+    source_text = _get_true_false_source_text(ws)
+    statements = _get_true_false_statements(ws)
+
+    if not source_text:
+        st.warning(
+            t("true_false_missing_text")
+            if t("true_false_missing_text") != "true_false_missing_text"
+            else "This true/false worksheet needs a source text."
+        )
+        return
+
+    st.markdown(
+        f"**{t('ws_read_and_decide') if t('ws_read_and_decide') != 'ws_read_and_decide' else 'Read the text and decide if the statements are true or false.'}**"
+    )
+    st.write(source_text)
+
+    if statements:
+        st.markdown(f"**{t('ws_questions')}**")
+        for idx, item in enumerate(statements, 1):
+            st.write(f"{idx}. {_strip_leading_enum(item)}")
+    else:
+        st.warning(t("no_data"))
+
+
+def _render_true_false_answer_key(ws: dict) -> None:
+    answer_key = ws.get("answer_key")
+
+    if isinstance(answer_key, list):
+        for line in answer_key:
+            if str(line).strip():
+                st.write(_normalize_text(line))
+        return
+
+    if answer_key:
+        for line in _split_answer_key(answer_key):
+            st.write(_normalize_text(line))
+        return
+
+    st.warning(t("no_data"))
+
+
+# ── Multiple choice helpers ──────────────────────────────────────────
+def _get_multiple_choice_items(ws: dict) -> list[dict]:
+    items = ws.get("multiple_choice_items") or []
+    items = _normalize_mc_items(items)
+
+    if items:
+        return items
+
+    # Fallback: parse old one-line question format
+    parsed = []
+    questions = ws.get("questions") or []
+    for q in questions:
+        text = _normalize_text(q).strip()
+        m = re.match(
+            r"^(.*?)(?:\s+A\)|\s+A\.)(.*?)(?:\s+B\)|\s+B\.)(.*?)(?:\s+C\)|\s+C\.)(.*?)(?:(?:\s+D\)|\s+D\.)(.*))?$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if m:
+            stem = m.group(1).strip()
+            opts = [m.group(2).strip(), m.group(3).strip(), m.group(4).strip()]
+            if m.group(5):
+                opts.append(m.group(5).strip())
+            parsed.append({"stem": stem, "options": opts, "answer": ""})
+
+    return parsed
+
+
+def _mc_item_is_compact(item: dict) -> bool:
+    stem = _normalize_text(item.get("stem", ""))
+    options = [_normalize_text(x) for x in item.get("options", [])]
+    if len(stem) > 120:
+        return False
+    if any(len(opt) > 55 for opt in options):
+        return False
+    return True
+
+
+def _render_multiple_choice_exercise(ws: dict) -> None:
+    items = _get_multiple_choice_items(ws)
+    if not items:
+        st.warning(t("no_data"))
+        return
+
+    rows = [items[i:i+2] for i in range(0, len(items), 2)]
+
+    global_idx = 1
+    for pair in rows:
+        cols = st.columns(2, gap="medium")
+        for col_idx, item in enumerate(pair):
+            with cols[col_idx]:
+                options_html = ""
+                for opt_idx, opt in enumerate(item["options"]):
+                    letter = chr(65 + opt_idx)
+                    options_html += f"<div style='margin-top:6px;'>{letter}) {html.escape(opt)}</div>"
+
+                card_html = f"""
+                <div style="
+                    border:1px solid rgba(148,163,184,.28);
+                    border-radius:16px;
+                    padding:14px 16px;
+                    margin-bottom:14px;
+                    background:rgba(255,255,255,.02);
+                    min-height:220px;
+                ">
+                    <div style="font-weight:700; margin-bottom:10px;">
+                        {global_idx}. {html.escape(item.get("stem", ""))}
+                    </div>
+                    <div style="line-height:1.6;">
+                        {options_html}
+                    </div>
+                </div>
+                """
+                st.markdown(card_html, unsafe_allow_html=True)
+                global_idx += 1
+
+
+def _render_multiple_choice_answer_key(ws: dict) -> None:
+    items = _get_multiple_choice_items(ws)
+
+    has_answers = any(_normalize_text(item.get("answer", "")).strip() for item in items)
+    if has_answers:
+        for idx, item in enumerate(items, 1):
+            ans = _normalize_text(item.get("answer", "")).strip()
+            if ans:
+                st.write(f"{idx}. {ans}")
+        return
+
+    answer_key = ws.get("answer_key")
+    if answer_key:
+        for line in _split_answer_key(answer_key):
+            st.write(_normalize_text(line))
+        return
+
+    st.warning(t("no_data"))
+
+
+# ── CRUD ──────────────────────────────────────────────────────────────
 def save_worksheet_record(
     subject: str,
     learner_stage: str,
@@ -383,6 +699,8 @@ def save_worksheet_record(
     worksheet: dict,
 ) -> bool:
     try:
+        worksheet = _normalize_worksheet_unicode(worksheet)
+
         payload = with_owner({
             "subject": str(subject).strip(),
             "topic": _clean_display_text(topic),
@@ -442,8 +760,7 @@ def load_public_worksheets() -> pd.DataFrame:
         return pd.DataFrame()
 
 
-# ── AI usage tracking (per-feature) ──────────────────────────────────
-
+# ── AI usage tracking ────────────────────────────────────────────────
 def log_ai_usage(request_kind: str, status: str, meta: Optional[dict] = None) -> None:
     try:
         payload = with_owner({
@@ -478,15 +795,21 @@ def _safe_ai_logs_df() -> pd.DataFrame:
 def get_ai_worksheet_usage_status() -> dict:
     df = _safe_ai_logs_df()
     now_utc = _dt.now(timezone.utc)
-    today_start_utc = _dt.combine(
-        today_local(), _dt.min.time()
-    ).replace(tzinfo=get_app_tz()).astimezone(timezone.utc)
+    today_start_utc = _dt.combine(today_local(), _dt.min.time()).replace(
+        tzinfo=get_app_tz()
+    ).astimezone(timezone.utc)
 
     limit = _wb().AI_WORKSHEET_DAILY_LIMIT
     cooldown = _wb().AI_WORKSHEET_COOLDOWN_SECONDS
 
     if df.empty:
-        return {"used_today": 0, "remaining_today": limit, "cooldown_ok": True, "seconds_left": 0, "last_request_at": None}
+        return {
+            "used_today": 0,
+            "remaining_today": limit,
+            "cooldown_ok": True,
+            "seconds_left": 0,
+            "last_request_at": None,
+        }
 
     feat_df = df[(df["feature_name"] == "quick_worksheet_ai") & (df["status"] == "success")].copy()
     today_df = feat_df[(feat_df["created_at"].notna()) & (feat_df["created_at"] >= today_start_utc)]
@@ -513,13 +836,13 @@ def get_ai_worksheet_usage_status() -> dict:
 
 
 # ── Library cards ────────────────────────────────────────────────────
-
 def _format_dt(value) -> str:
     try:
         dt = pd.to_datetime(value, errors="coerce")
         return "" if pd.isna(dt) else dt.strftime("%Y-%m-%d %H:%M")
     except Exception:
         return ""
+
 
 def render_worksheet_library_cards(
     df: pd.DataFrame,
@@ -619,11 +942,14 @@ def render_worksheet_library_cards(
                         st.toast(t("scroll_down_to_view"))
 
                     st.rerun()
-# ── Render worksheet result ──────────────────────────────────────────
 
+
+# ── Render worksheet result ──────────────────────────────────────────
 def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
     if not ws:
         return
+
+    ws = _normalize_worksheet_unicode(ws)
     ws = _clean_worksheet_data(ws)
 
     if not read_only:
@@ -632,30 +958,29 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
         if warning:
             st.warning(warning)
 
-    st.markdown(f"### {ws.get('title', '')}")
+    st.markdown(f"### {_normalize_text(ws.get('title', ''))}")
     st.caption(
-        f"{t('plan_language')}: {ws.get('plan_language', '').upper()} · "
-        f"{t('student_material_language')}: {ws.get('student_material_language', '').upper()}"
+        f"{t('plan_language')}: {_normalize_text(ws.get('plan_language', '')).upper()} · "
+        f"{t('student_material_language')}: {_normalize_text(ws.get('student_material_language', '')).upper()}"
     )
 
     if ws.get("instructions"):
         st.markdown(f"**{t('ws_instructions')}**")
-        st.write(ws["instructions"])
+        st.write(_normalize_text(ws["instructions"]))
 
-    if ws.get("worksheet_type") == "reading_comprehension" and ws.get("reading_passage", "").strip():
+    if ws.get("worksheet_type") == "reading_comprehension" and str(ws.get("reading_passage") or "").strip():
         st.markdown(f"**{t('ws_reading_passage')}**")
-        st.write(ws["reading_passage"])
+        st.write(_normalize_text(ws["reading_passage"]))
 
     if ws.get("vocabulary_bank"):
         st.markdown(f"**{t('ws_vocabulary_bank')}**")
-        st.write(", ".join(ws["vocabulary_bank"]))
+        st.write(", ".join(_normalize_text_list(ws["vocabulary_bank"])))
 
     wordsearch_grid = None
     wordsearch_placements = None
 
     if ws.get("worksheet_type") == "word_search_vocab":
         st.markdown(f"**{t('word_search_grid')}**")
-
         wordsearch_seed = "|".join(_normalize_wordsearch_words(ws.get("vocabulary_bank", [])))
         wordsearch_grid, _, wordsearch_placements = _generate_wordsearch_grid(
             ws.get("vocabulary_bank", []),
@@ -663,24 +988,47 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
         )
         _render_wordsearch_grid(wordsearch_grid)
 
-    if ws.get("worksheet_type") != "word_search_vocab" and ws.get("questions"):
+    if ws.get("worksheet_type") == "matching":
+        st.markdown(f"**{t('ws_matching_task') if t('ws_matching_task') != 'ws_matching_task' else 'Match the items'}**")
+        _render_matching_exercise(ws)
+
+    elif ws.get("worksheet_type") == "true_false":
+        _render_true_false_exercise(ws)
+
+    elif ws.get("worksheet_type") == "multiple_choice":
+        st.markdown(f"**{t('ws_questions')}**")
+        _render_multiple_choice_exercise(ws)
+
+    elif ws.get("worksheet_type") != "word_search_vocab" and ws.get("questions"):
         st.markdown(f"**{t('ws_questions')}**")
         for idx, q in enumerate(ws["questions"], 1):
-            st.write(f"{idx}. {_strip_leading_number(q)}")
+            st.write(f"{idx}. {_strip_leading_number(_normalize_text(q))}")
 
     if ws.get("worksheet_type") == "word_search_vocab":
         with st.expander(t("ws_answer_key"), expanded=False):
             _render_wordsearch_answer_grid(wordsearch_grid, wordsearch_placements)
 
+    elif ws.get("worksheet_type") == "matching":
+        with st.expander(t("ws_answer_key"), expanded=False):
+            _render_matching_answer_key(ws)
+
+    elif ws.get("worksheet_type") == "true_false":
+        with st.expander(t("ws_answer_key"), expanded=False):
+            _render_true_false_answer_key(ws)
+
+    elif ws.get("worksheet_type") == "multiple_choice":
+        with st.expander(t("ws_answer_key"), expanded=False):
+            _render_multiple_choice_answer_key(ws)
+
     elif ws.get("answer_key"):
         with st.expander(t("ws_answer_key"), expanded=False):
             for line in _split_answer_key(ws["answer_key"]):
-                st.write(line)
+                st.write(_normalize_text(line))
 
     if ws.get("teacher_notes"):
         with st.expander(t("ws_teacher_notes"), expanded=False):
             for note in ws["teacher_notes"]:
-                st.write(f"- {note}")
+                st.write(f"- {_normalize_text(note)}")
 
     subject = meta.get("subject", ws.get("subject", ""))
     topic = meta.get("topic", ws.get("topic", ""))
@@ -751,6 +1099,7 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
                 use_container_width=True,
             )
 
+
 # ── PDF generation ───────────────────────────────────────────────────
 
 def build_worksheet_pdf_bytes(
@@ -765,98 +1114,352 @@ def build_worksheet_pdf_bytes(
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import cm
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem, Table, TableStyle, PageBreak
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem,
+        Table, TableStyle, PageBreak, KeepTogether, CondPageBreak
+    )
     from reportlab.platypus import Image as RLImage
     from reportlab.lib import colors
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    ws = _normalize_worksheet_unicode(ws)
+    subject = _normalize_text(subject)
+    topic = _normalize_text(topic)
+    ws_type = _normalize_text(ws_type)
+    learner_stage = _normalize_text(learner_stage)
+    level_or_band = _normalize_text(level_or_band)
+
+    plan_lang = _normalize_text(ws.get("plan_language") or "").strip().lower()
+    student_lang = _normalize_text(ws.get("student_material_language") or "").strip().lower()
+    pdf_lang = plan_lang or student_lang or "en"
+
+    def _t_pdf(key: str, **kwargs):
+        try:
+            return t(key, lang=pdf_lang, **kwargs)
+        except TypeError:
+            return t(key, **kwargs)
 
     buf = BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=1.8*cm, rightMargin=1.8*cm, topMargin=1.5*cm, bottomMargin=1.5*cm)
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=1.8 * cm,
+        rightMargin=1.8 * cm,
+        topMargin=1.5 * cm,
+        bottomMargin=1.5 * cm,
+    )
+    
     styles = getSampleStyleSheet()
 
-    title_style = ParagraphStyle("WsTitle", parent=styles["Title"], fontSize=18, leading=22, textColor=colors.HexColor("#1D4ED8"), spaceAfter=10)
-    heading_style = ParagraphStyle("WsH", parent=styles["Heading2"], fontSize=12, leading=15, textColor=colors.HexColor("#0F172A"), spaceBefore=8, spaceAfter=4)
-    body_style = ParagraphStyle("WsBody", parent=styles["BodyText"], fontSize=10.5, leading=14, textColor=colors.HexColor("#0F172A"), spaceAfter=4)
+    font_candidates = [
+        (
+            os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "static", "fonts", "DejaVuSans.ttf")),
+            os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "static", "fonts", "DejaVuSans-Bold.ttf")),
+        ),
+        (
+            "/System/Library/Fonts/Supplemental/DejaVuSans.ttf",
+            "/System/Library/Fonts/Supplemental/DejaVuSans-Bold.ttf",
+        ),
+        (
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        ),
+        (
+            "/usr/share/fonts/DejaVuSans.ttf",
+            "/usr/share/fonts/DejaVuSans-Bold.ttf",
+        ),
+    ]
+
+    body_font = "Helvetica"
+    bold_font = "Helvetica-Bold"
+
+    for regular_path, bold_path in font_candidates:
+        if os.path.isfile(regular_path) and os.path.isfile(bold_path):
+            try:
+                pdfmetrics.registerFont(TTFont("ClassioUnicode", regular_path))
+                pdfmetrics.registerFont(TTFont("ClassioUnicode-Bold", bold_path))
+                body_font = "ClassioUnicode"
+                bold_font = "ClassioUnicode-Bold"
+                break
+            except Exception:
+                pass
+
+    title_style = ParagraphStyle(
+        "WsTitle",
+        parent=styles["Title"],
+        fontName=bold_font,
+        fontSize=18,
+        leading=22,
+        textColor=colors.HexColor("#1D4ED8"),
+        spaceAfter=10,
+    )
+
+    heading_style = ParagraphStyle(
+        "WsH",
+        parent=styles["Heading2"],
+        fontName=bold_font,
+        fontSize=12,
+        leading=15,
+        textColor=colors.HexColor("#0F172A"),
+        spaceBefore=8,
+        spaceAfter=4,
+    )
+
+    body_style = ParagraphStyle(
+        "WsBody",
+        parent=styles["BodyText"],
+        fontName=body_font,
+        fontSize=10.5,
+        leading=14,
+        textColor=colors.HexColor("#0F172A"),
+        spaceAfter=4,
+        alignment=TA_JUSTIFY,
+    )
+
+    mc_option_style = ParagraphStyle(
+        "WsMcOption",
+        parent=body_style,
+        spaceAfter=1,
+        leading=12.5,
+    )   
+
+    line_style = ParagraphStyle(
+        "WsLine",
+        parent=styles["BodyText"],
+        fontName=body_font,
+        fontSize=10.5,
+        leading=16,
+        textColor=colors.HexColor("#0F172A"),
+        spaceAfter=2,
+    )
 
     story = []
 
     wordsearch_grid = None
     wordsearch_placements = None
-    wordsearch_seed = None
 
     if ws.get("worksheet_type") == "word_search_vocab":
         wordsearch_seed = "|".join(_normalize_wordsearch_words(ws.get("vocabulary_bank", [])))
         wordsearch_grid, _, wordsearch_placements = _generate_wordsearch_grid(
             ws.get("vocabulary_bank", []),
             seed=wordsearch_seed,
-            size=12,  # safe now because helper auto-expands if needed
-        )    
+            size=12,
+        )
 
-    logo_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "static", "logo_classio_light.png"))
+    logo_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), os.pardir, "static", "logo_classio_light.png")
+    )
     if os.path.isfile(logo_path):
-        story.append(RLImage(logo_path, width=2.8*cm, height=2.8*cm, kind="proportional"))
+        story.append(RLImage(logo_path, width=2.8 * cm, height=2.8 * cm, kind="proportional"))
         story.append(Spacer(1, 6))
 
-    story.append(Paragraph(str(ws.get("title") or t("untitled_worksheet")), title_style))
+    story.append(Paragraph(_pdf_safe_text(ws.get("title") or _t_pdf("untitled_worksheet")), title_style))
 
-    meta_parts = []
+    def _mc_item_block(item: dict, idx: int):
+        block = [
+            Paragraph(_pdf_safe_text(f"{idx}. {item['stem']}"), body_style),
+            Spacer(1, 2),
+        ]
+        for opt_idx, opt in enumerate(item["options"]):
+            letter = chr(65 + opt_idx)
+            block.append(Paragraph(_pdf_safe_text(f"{letter}) {opt}"), mc_option_style))
+        block.append(Spacer(1, 3))
+        return block
+
+    def _answer_lines(count: int = 3):
+        line_flow = []
+        for _ in range(count):
+            line_tbl = Table(
+                [[""]],
+                colWidths=[16.2 * cm],
+                rowHeights=[0.6 * cm],
+                hAlign="LEFT",
+            )
+            line_tbl.setStyle(TableStyle([
+                ("LINEBELOW", (0, 0), (-1, -1), 0.6, colors.HexColor("#64748B")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]))
+            line_flow.append(line_tbl)
+            line_flow.append(Spacer(1, 4))
+        return line_flow
+
+    def _balanced_split(total_count: int) -> int:
+        split_at = (total_count + 1) // 2
+        if total_count - split_at == 1 and split_at > 2:
+            split_at -= 1
+        return split_at
+
+    meta_line = []
+
     if subject:
         subject_key = "subject_" + str(subject).strip().lower().replace(" ", "_")
-        subject_label = t(subject_key)
+        subject_label = _t_pdf(subject_key)
         if subject_label == subject_key:
             subject_label = str(subject).strip()
-        meta_parts.append(f"<b>{t('subject_label')}:</b> {subject_label}")
+        meta_line.append(
+            f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('subject_label'))}:</font> {_pdf_safe_text(subject_label)}"
+        )
+
     if topic:
-        meta_parts.append(f"<b>{t('topic_label')}:</b> {topic}")
+        meta_line.append(
+            f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('topic_label'))}:</font> {_pdf_safe_text(topic)}"
+        )
+
     if ws_type:
-        meta_parts.append(f"<b>{t('worksheet_type_label')}:</b> {t(ws_type)}")
+        meta_line.append(
+            f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('worksheet_type_label'))}:</font> {_pdf_safe_text(_t_pdf(ws_type))}"
+        )
+
     if learner_stage:
-        meta_parts.append(f"<b>{t('learner_stage')}:</b> {t(learner_stage)}")
+        stage_label = _t_pdf(learner_stage)
+        meta_line.append(
+            f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('learner_stage'))}:</font> {_pdf_safe_text(stage_label)}"
+        )
+
     if level_or_band:
-        lbl = level_or_band if level_or_band in ["A1","A2","B1","B2","C1","C2"] else t(level_or_band)
-        meta_parts.append(f"<b>{t('level_or_band')}:</b> {lbl}")
-    if meta_parts:
-        story.append(Paragraph(" | ".join(meta_parts), body_style))
+        lbl = level_or_band if level_or_band in ["A1", "A2", "B1", "B2", "C1", "C2"] else _t_pdf(level_or_band)
+        meta_line.append(
+            f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('level_or_band'))}:</font> {_pdf_safe_text(lbl)}"
+        )
+
+    if meta_line:
+        story.append(Paragraph(" | ".join(meta_line), body_style))
         story.append(Spacer(1, 8))
 
     def _sec(title_key, value):
         if not value:
             return
-        story.append(Paragraph(t(title_key), heading_style))
+        story.append(Paragraph(_pdf_safe_text(_t_pdf(title_key)), heading_style))
         if isinstance(value, list):
-            items = [ListItem(Paragraph(str(x), body_style)) for x in value if str(x).strip()]
+            items = [ListItem(Paragraph(_pdf_safe_text(x), body_style)) for x in value if str(x).strip()]
             if items:
                 story.append(ListFlowable(items, bulletType="bullet"))
         else:
-            story.append(Paragraph(str(value), body_style))
+            story.append(Paragraph(_pdf_safe_text(value), body_style))
         story.append(Spacer(1, 6))
+
+    def _render_vocab_bank(vocab_list):
+        if not vocab_list:
+            return []
+
+        story_block = []
+
+        story_block.append(
+            Paragraph(
+                _pdf_safe_text(_t_pdf("ws_vocabulary_bank")),
+                heading_style
+            )
+        )
+
+        cleaned_vocab = [_normalize_text(x).strip() for x in vocab_list if str(x).strip()]
+        has_tail = any((" - " in item or ":" in item) for item in cleaned_vocab)
+
+        if has_tail:
+            column_count = 2
+            col_widths = [8.2 * cm, 8.2 * cm]
+        else:
+            column_count = 5
+            col_widths = [3.2 * cm, 3.2 * cm, 3.2 * cm, 3.2 * cm, 3.2 * cm]
+
+        rows = []
+        row = []
+
+        for raw_word in cleaned_vocab:
+            if " - " in raw_word:
+                parts = raw_word.split(" - ", 1)
+                head = _pdf_safe_text(parts[0].strip().capitalize())
+                tail = _pdf_safe_text(parts[1].strip().capitalize())
+                formatted = f"<b>{head}</b> — {tail}"
+
+            elif ":" in raw_word:
+                parts = raw_word.split(":", 1)
+                head = _pdf_safe_text(parts[0].strip().capitalize())
+                tail = _pdf_safe_text(parts[1].strip().capitalize())
+                formatted = f"<b>{head}</b> — {tail}"
+
+            else:
+                formatted = f"<b>{_pdf_safe_text(raw_word.capitalize())}</b>"
+
+            row.append(Paragraph(formatted, body_style))
+
+            if len(row) == column_count:
+                rows.append(row)
+                row = []
+
+        if row:
+            while len(row) < column_count:
+                row.append(Paragraph("", body_style))
+            rows.append(row)
+
+        table = Table(
+            rows,
+            colWidths=col_widths,
+            hAlign="LEFT",
+        )
+
+        if column_count == 2:
+            table.setStyle(
+                TableStyle([
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ("LINEAFTER", (0, 0), (0, -1), 0.6, colors.HexColor("#CBD5E1")),
+                    ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+                ])
+            )
+        else:
+            table.setStyle(
+                TableStyle([
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ("LINEAFTER", (0, 0), (0, -1), 0.4, colors.HexColor("#E2E8F0")),
+                    ("LINEAFTER", (1, 0), (1, -1), 0.4, colors.HexColor("#E2E8F0")),
+                    ("LINEAFTER", (2, 0), (2, -1), 0.4, colors.HexColor("#E2E8F0")),
+                    ("LINEAFTER", (3, 0), (3, -1), 0.4, colors.HexColor("#E2E8F0")),
+                    ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+                ])
+            )
+
+        story_block.append(table)
+        story_block.append(Spacer(1, 6))
+
+        return story_block
 
     _sec("ws_instructions", ws.get("instructions", ""))
 
     if ws.get("vocabulary_bank"):
-        _sec("ws_vocabulary_bank", ", ".join(ws["vocabulary_bank"]))
+        story.extend(_render_vocab_bank(ws.get("vocabulary_bank")))
 
     if ws.get("worksheet_type") == "word_search_vocab":
         grid = wordsearch_grid
-
         if grid:
-            story.append(Paragraph(t("word_search_grid"), heading_style))
-            story.append(Spacer(1, 12))  
+            story.append(Paragraph(_pdf_safe_text(_t_pdf("word_search_grid")), heading_style))
+            story.append(Spacer(1, 12))
 
             page_width = A4[0] - doc.leftMargin - doc.rightMargin
             grid_size = len(grid)
-            cell_size = (page_width / grid_size) * 0.85
+            cell_size = (page_width / grid_size) * 0.75
 
             grid_cell_style = ParagraphStyle(
                 "GridCell",
                 parent=body_style,
-                fontName="Courier-Bold",
+                fontName=bold_font,
                 fontSize=max(10, min(12, int(cell_size / 1.4))),
                 leading=max(10, int(cell_size / 1.2)),
                 alignment=1,
             )
 
             table_data = [
-                [Paragraph(ch, grid_cell_style) for ch in row]
+                [Paragraph(_pdf_safe_text(ch), grid_cell_style) for ch in row]
                 for row in grid
             ]
 
@@ -878,27 +1481,228 @@ def build_worksheet_pdf_bytes(
             ]))
 
             story.append(ws_table)
-            story.append(Spacer(1, 12))      
-    # Reading passage
+            story.append(Spacer(1, 12))
+
     if ws.get("worksheet_type") == "reading_comprehension" and str(ws.get("reading_passage") or "").strip():
         _sec("ws_reading_passage", ws["reading_passage"])
 
-    # Questions as numbered list
     questions = ws.get("questions", [])
-    if ws.get("worksheet_type") != "word_search_vocab" and questions:
-        story.append(Paragraph(t("ws_questions"), heading_style))
+
+    if ws.get("worksheet_type") == "matching":
+        left_items, right_items, _ = _build_matching_columns(ws)
+
+        if left_items and right_items:
+            story.append(
+                Paragraph(
+                    _pdf_safe_text(
+                        _t_pdf("ws_matching_task") if _t_pdf("ws_matching_task") != "ws_matching_task" else "Match the items"
+                    ),
+                    heading_style
+                )
+            )
+            story.append(Spacer(1, 6))
+
+            box_style = ParagraphStyle(
+                "MatchBox",
+                parent=body_style,
+                fontName=bold_font,
+                fontSize=10.5,
+                leading=14,
+                alignment=1,
+                textColor=colors.HexColor("#0F172A"),
+            )
+
+            rows = []
+            max_len = max(len(left_items), len(right_items))
+
+            for i in range(max_len):
+                left_text = f"{i+1}. {_strip_leading_enum(left_items[i])}" if i < len(left_items) else ""
+                box_text = "[   ]" if i < len(left_items) else ""
+                right_text = f"{chr(97+i)}) {_strip_leading_enum(right_items[i])}" if i < len(right_items) else ""
+
+                rows.append([
+                    Paragraph(_pdf_safe_text(left_text), body_style),
+                    Paragraph(_pdf_safe_text(box_text), box_style),
+                    Paragraph(_pdf_safe_text(right_text), body_style),
+                ])
+
+            match_table = Table(
+                rows,
+                colWidths=[9.0 * cm, 1.0 * cm, 6.4 * cm],
+                hAlign="LEFT",
+            )
+
+            match_table.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("ALIGN", (1, 0), (1, -1), "CENTER"),
+                ("LEFTPADDING", (0, 0), (0, -1), 2),
+                ("RIGHTPADDING", (0, 0), (0, -1), 10),
+                ("LEFTPADDING", (1, 0), (1, -1), 0),
+                ("RIGHTPADDING", (1, 0), (1, -1), 0),
+                ("LEFTPADDING", (2, 0), (2, -1), 10),
+                ("RIGHTPADDING", (2, 0), (2, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]))
+
+            story.append(match_table)
+            story.append(Spacer(1, 8))
+
+    elif ws.get("worksheet_type") == "true_false":
+        source_text = _get_true_false_source_text(ws)
+        statements = _get_true_false_statements(ws)
+
+        if source_text:
+            story.append(Paragraph(_pdf_safe_text(_t_pdf("read_and_decide_true_false")), heading_style))
+            story.append(Spacer(1, 4))
+            story.append(Paragraph(_pdf_safe_text(source_text), body_style))
+            story.append(Spacer(1, 4))
+
+        if statements:
+            story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_questions")), heading_style))
+            story.append(Spacer(1, 4))
+
+            tf_label_style = ParagraphStyle(
+                "WsTFLabel",
+                parent=body_style,
+                fontName=bold_font,
+                fontSize=10.5,
+                leading=14,
+                alignment=1,
+                textColor=colors.HexColor("#0F172A"),
+            )
+
+            tf_rows = []
+            for idx, item in enumerate(statements, 1):
+                statement_text = f"{idx}. {_strip_leading_enum(item)}"
+                tf_rows.append([
+                    Paragraph(_pdf_safe_text(statement_text), body_style),
+                    Paragraph(_pdf_safe_text("True ☐   False ☐"), tf_label_style),
+                ])
+
+            tf_table = Table(
+                tf_rows,
+                colWidths=[12.8 * cm, 3.6 * cm],
+                hAlign="LEFT",
+                repeatRows=0,
+            )
+
+            tf_table.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ]))
+
+            story.append(tf_table)
+            story.append(Spacer(1, 6))
+
+    elif ws.get("worksheet_type") == "multiple_choice":
+        mc_items = _get_multiple_choice_items(ws)
+        if mc_items:
+            all_compact = all(_mc_item_is_compact(item) for item in mc_items)
+
+            if all_compact:
+                rows = [mc_items[i:i+2] for i in range(0, len(mc_items), 2)]
+
+                q_num = 1
+                for pair in rows:
+                    story.append(CondPageBreak(6 * cm))
+
+                    data_row = []
+                    for item in pair:
+                        data_row.append(_mc_item_block(item, q_num))
+                        q_num += 1
+
+                    if len(data_row) == 1:
+                        data_row.append([Paragraph("", body_style)])
+
+                    mc_table = Table(
+                        [data_row],
+                        colWidths=[8.2 * cm, 8.2 * cm],
+                        hAlign="LEFT",
+                    )
+                    mc_table.setStyle(TableStyle([
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                        ("TOPPADDING", (0, 0), (-1, -1), 4),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ]))
+
+                    story.append(KeepTogether([mc_table, Spacer(1, 4)]))
+
+            else:
+                split_at = len(mc_items)
+                if len(mc_items) > 5:
+                    split_at = _balanced_split(len(mc_items))
+
+                first_page = mc_items[:split_at]
+                second_page = mc_items[split_at:]
+
+                for idx, item in enumerate(first_page, 1):
+                    story.append(CondPageBreak(5 * cm))
+                    story.append(KeepTogether(_mc_item_block(item, idx)))
+
+                if second_page:
+                    story.append(PageBreak())
+                    start_idx = len(first_page) + 1
+                    for offset, item in enumerate(second_page):
+                        story.append(CondPageBreak(5 * cm))
+                        story.append(KeepTogether(_mc_item_block(item, start_idx + offset)))
+
+    elif ws.get("worksheet_type") == "short_answer" and questions:
+        story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_questions")), heading_style))
         for idx, q in enumerate(questions, 1):
-            story.append(Paragraph(f"{idx}. {_strip_leading_number(q)}", body_style))
+            block = [
+                Paragraph(_pdf_safe_text(f"{idx}. {_strip_leading_number(q)}"), body_style),
+                Spacer(1, 4),
+                *_answer_lines(2),
+                Spacer(1, 6),
+            ]
+            story.append(KeepTogether(block))
+
+    elif ws.get("worksheet_type") == "reading_comprehension" and questions:
+        story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_questions")), heading_style))
+        for idx, q in enumerate(questions, 1):
+            block = [
+                Paragraph(_pdf_safe_text(f"{idx}. {_strip_leading_number(q)}"), body_style),
+                Spacer(1, 4),
+                *_answer_lines(2),
+                Spacer(1, 6),
+            ]
+            story.append(KeepTogether(block))
+
+    elif ws.get("worksheet_type") == "fill_in_the_blanks" and questions:
+        story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_questions")), heading_style))
+
+        for idx, q in enumerate(questions, 1):
+            q = _strip_leading_number(q)
+            q = re.sub(r"_+", "______________", q)
+            story.append(
+                Paragraph(
+                    _pdf_safe_text(f"{idx}. {q}"),
+                    body_style
+                )
+            )
+            story.append(Spacer(1, 6))
+
+    elif ws.get("worksheet_type") != "word_search_vocab" and questions:
+        story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_questions")), heading_style))
+        for idx, q in enumerate(questions, 1):
+            story.append(Paragraph(_pdf_safe_text(f"{idx}. {_strip_leading_number(q)}"), body_style))
         story.append(Spacer(1, 6))
 
     if not student_only:
+        story.append(PageBreak())
+
         if ws.get("worksheet_type") == "word_search_vocab":
             answer_grid = wordsearch_grid
             placements = wordsearch_placements
 
             if answer_grid:
-                story.append(PageBreak())
-                story.append(Paragraph(t("ws_answer_key"), heading_style))
+                story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), heading_style))
                 story.append(Spacer(1, 6))
 
                 hit_cells = set()
@@ -913,7 +1717,7 @@ def build_worksheet_pdf_bytes(
                 grid_cell_style = ParagraphStyle(
                     "GridCellAnswer",
                     parent=body_style,
-                    fontName="Courier-Bold",
+                    fontName=bold_font,
                     fontSize=max(10, min(12, int(cell_size / 1.4))),
                     leading=max(10, int(cell_size / 1.2)),
                     alignment=1,
@@ -924,7 +1728,7 @@ def build_worksheet_pdf_bytes(
                 for r, row in enumerate(answer_grid):
                     table_row = []
                     for c, ch in enumerate(row):
-                        table_row.append(Paragraph(ch, grid_cell_style))
+                        table_row.append(Paragraph(_pdf_safe_text(ch), grid_cell_style))
                     table_data.append(table_row)
 
                 ws_answer_table = Table(
@@ -952,12 +1756,45 @@ def build_worksheet_pdf_bytes(
                 story.append(ws_answer_table)
                 story.append(Spacer(1, 8))
 
+        elif ws.get("worksheet_type") == "matching":
+            _, _, answer_map = _build_matching_columns(ws)
+            if answer_map:
+                story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), heading_style))
+                for num, letter in answer_map:
+                    story.append(Paragraph(_pdf_safe_text(f"{num} → {letter}"), body_style))
+                story.append(Spacer(1, 6))
+
+        elif ws.get("worksheet_type") == "true_false":
+            ak = ws.get("answer_key", "")
+            if ak:
+                story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), heading_style))
+                for line in _split_answer_key(ak):
+                    story.append(Paragraph(_pdf_safe_text(line), body_style))
+                story.append(Spacer(1, 6))
+
+        elif ws.get("worksheet_type") == "multiple_choice":
+            mc_items = _get_multiple_choice_items(ws)
+            if mc_items:
+                story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), heading_style))
+                for idx, item in enumerate(mc_items, 1):
+                    ans = _normalize_text(item.get("answer", "")).strip()
+                    if ans:
+                        story.append(Paragraph(_pdf_safe_text(f"{idx}. {ans}"), body_style))
+                story.append(Spacer(1, 6))
+            else:
+                ak = ws.get("answer_key", "")
+                if ak:
+                    story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), heading_style))
+                    for line in _split_answer_key(ak):
+                        story.append(Paragraph(_pdf_safe_text(line), body_style))
+                    story.append(Spacer(1, 6))
+
         else:
             ak = ws.get("answer_key", "")
             if ak:
-                story.append(Paragraph(t("ws_answer_key"), heading_style))
+                story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), heading_style))
                 for line in _split_answer_key(ak):
-                    story.append(Paragraph(str(line), body_style))
+                    story.append(Paragraph(_pdf_safe_text(line), body_style))
                 story.append(Spacer(1, 6))
 
         _sec("ws_teacher_notes", ws.get("teacher_notes", []))
@@ -968,13 +1805,18 @@ def build_worksheet_pdf_bytes(
 
 
 # ── Expander UI ──────────────────────────────────────────────────────
-
 def render_quick_worksheet_maker_expander() -> None:
     with st.expander(t("worksheet_maker"), expanded=False):
         st.caption(t("worksheet_maker_caption"))
 
         usage = get_ai_worksheet_usage_status()
-        st.caption(t("ai_plans_left_today", remaining=usage["remaining_today"], limit=_wb().AI_WORKSHEET_DAILY_LIMIT))
+        st.caption(
+            t(
+                "ai_plans_left_today",
+                remaining=usage["remaining_today"],
+                limit=_wb().AI_WORKSHEET_DAILY_LIMIT,
+            )
+        )
 
         subject = st.selectbox(
             t("subject_label"),
@@ -1036,11 +1878,11 @@ def render_quick_worksheet_maker_expander() -> None:
                 if warning and not ws:
                     st.warning(warning)
                 else:
+                    ws = _normalize_worksheet_unicode(ws)
                     st.session_state["worksheet_result"] = ws
                     st.session_state["worksheet_kept"] = False
                     st.session_state["worksheet_warning"] = warning
 
-                    # Auto-save to DB + community
                     save_worksheet_record(
                         subject=effective_subject,
                         learner_stage=learner_stage,
@@ -1062,5 +1904,3 @@ def render_quick_worksheet_maker_expander() -> None:
                 worksheet_type=worksheet_type,
                 topic=topic,
             )
-
-# =========================

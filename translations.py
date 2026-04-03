@@ -479,7 +479,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "empty_gemini_response": "Empty Gemini response.",
         "ai_limit_reached": "AI daily limit reached.",
         "ai_cooldown_active": "AI cooldown active. Please wait a few seconds and try again.",
-        
+        "read_and_decide_true_false": "Read the text and decide if the statements are true or false.",      
 
         # -------------------------
         # QUICK LESSON PLANNER
@@ -582,7 +582,6 @@ I18N: Dict[str, Dict[str, str]] = {
         "save_template_plan": "Save template plan",
         "template_plan_saved": "Template plan saved.",
         "ai_limit_reached": "AI daily limit reached. Template plan generated instead.",
-        "ai_cooldown_active": "AI cooldown active. Please wait {seconds} seconds. Template plan generated instead.",
         "ai_unavailable_fallback": "AI planner unavailable at the moment. Please try again later.",
         "no_template_for_subject": "No template for this subject/topic yet. Try AI model.",
         "community_plan_found_note": "Plan found in the community library.",
@@ -1486,7 +1485,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "empty_ai_response": "Respuesta de IA vacía.",
         "empty_gemini_response": "Respuesta de Gemini vacía.",
         "ai_limit_reached": "Límite diario de IA alcanzado.",
-        "ai_cooldown_active": "Enfriamiento de IA activo. Por favor, espera unos segundos e inténtalo de nuevo.",               
+        "ai_cooldown_active": "La IA está en enfriamiento. Por favor, espera unos segundos e inténtalo de nuevo.",               
+        "read_and_decide_true_false": "Lee el texto y decide si las afirmaciones son verdaderas o falsas.",
 
         # -------------------------
         # QUICK LESSON PLANNER
@@ -1588,7 +1588,6 @@ I18N: Dict[str, Dict[str, str]] = {
         "save_template_plan": "Guardar plan de plantilla",
         "template_plan_saved": "Plan de plantilla guardado.",
         "ai_limit_reached": "Se alcanzó el límite diario de IA. Se generó un plan de plantilla en su lugar.",
-        "ai_cooldown_active": "La IA está en enfriamiento. Espera {seconds} segundos. Se generó un plan de plantilla en su lugar.",
         "ai_unavailable_fallback": "El planificador con IA no está disponible en estos momentos. Por favor, intenta de nuevo más tarde.",
         "no_template_for_subject": "Aún no hay plantilla para esta materia/tema. Prueba el modo IA.",
         "community_plan_found_note": "Plan encontrado en la biblioteca comunitaria.",
@@ -2494,6 +2493,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "empty_gemini_response": "Gemini yanıtı boş.",
         "ai_limit_reached": "Yapay zeka kullanım sınırına ulaşıldı.",
         "ai_cooldown_active": "Yapay zeka soğuma süresi aktif. Lütfen birkaç saniye bekleyin ve tekrar deneyin.",        
+        "read_and_decide_true_false": "Metni okuyun ve ifadelerin doğru mu yanlış mı olduğunu belirleyin.",
 
         # -------------------------
         # QUICK LESSON PLANNER
@@ -2594,7 +2594,6 @@ I18N: Dict[str, Dict[str, str]] = {
         "save_template_plan": "Şablon planı kaydet",
         "template_plan_saved": "Şablon plan kaydedildi.",
         "ai_limit_reached": "Günlük yapay zeka limiti doldu. Bunun yerine şablon plan oluşturuldu.",
-        "ai_cooldown_active": "Yapay zeka bekleme süresinde. Lütfen {seconds} saniye bekleyin. Bunun yerine şablon plan oluşturuldu.",
         "ai_unavailable_fallback": "Yapay zeka şu anda planlayıcı kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
         "no_template_for_subject": "Bu ders/konu için henüz şablon yok. Yapay zeka modunu deneyin.",
         "community_plan_found_note": "Topluluk kütüphanesinde plan bulundu.",
