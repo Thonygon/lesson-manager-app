@@ -480,7 +480,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "empty_gemini_response": "Empty Gemini response.",
         "ai_limit_reached": "AI daily limit reached. Try again tomorrow.",
         "ai_cooldown_active": "AI cooldown active. Please wait a few seconds and try again.",
-        "read_and_decide_true_false": "Read the text and decide if the statements are true or false.",      
+        "read_and_decide_true_false": "Read the text and decide if the statements are true or false.",
+        "match_the_items": "Match the items",      
 
         # -------------------------
         # QUICK LESSON PLANNER
@@ -1515,6 +1516,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "ai_limit_reached": "Límite diario de IA alcanzado.",
         "ai_cooldown_active": "La IA está en enfriamiento. Por favor, espera unos segundos e inténtalo de nuevo.",               
         "read_and_decide_true_false": "Lee el texto y decide si las afirmaciones son verdaderas o falsas.",
+        "match_the_items": "Relaciona",
 
         # -------------------------
         # QUICK LESSON PLANNER
@@ -2550,6 +2552,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "ai_limit_reached": "Yapay zeka kullanım sınırına ulaşıldı. Yarın tekrar deneyin.",
         "ai_cooldown_active": "Yapay zeka soğuma süresi aktif. Lütfen birkaç saniye bekleyin ve tekrar deneyin.",        
         "read_and_decide_true_false": "Metni okuyun ve ifadelerin doğru mu yanlış mı olduğunu belirleyin.",
+        "match_the_items": "Öğeleri eşleştirin.",
 
         # -------------------------
         # QUICK LESSON PLANNER
