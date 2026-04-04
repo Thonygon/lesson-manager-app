@@ -989,7 +989,7 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
         _render_wordsearch_grid(wordsearch_grid)
 
     if ws.get("worksheet_type") == "matching":
-        st.markdown(f"**{t('ws_matching_task') if t('ws_matching_task') != 'ws_matching_task' else 'Match the items'}**")
+        st.markdown(f"**{t('ws_matching_task') if t('ws_matching_task') != 'ws_matching_task' else t('match_the_items')}**")
         _render_matching_exercise(ws)
 
     elif ws.get("worksheet_type") == "true_false":
@@ -1495,7 +1495,7 @@ def build_worksheet_pdf_bytes(
             story.append(
                 Paragraph(
                     _pdf_safe_text(
-                        _t_pdf("ws_matching_task") if _t_pdf("ws_matching_task") != "ws_matching_task" else "Match the items"
+                        _t_pdf("ws_matching_task") if _t_pdf("ws_matching_task") != "ws_matching_task" else _t_pdf("match_the_items")
                     ),
                     heading_style
                 )
