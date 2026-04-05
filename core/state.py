@@ -29,11 +29,16 @@ def with_owner(payload: dict) -> dict:
     return out
 
 
+def get_current_user_role() -> str:
+    return str(st.session_state.get("user_role") or "teacher")
+
+
 def _set_logged_in_user(
     user,
     profile_name: str = "",
     profile_username: str = "",
     user_id: str = "",
+    user_role: str = "teacher",
 ) -> None:
     user_dict = _user_to_dict(user) or {}
     st.session_state["auth_user"] = user_dict
@@ -68,6 +73,8 @@ def _set_logged_in_user(
         or str(st.session_state.get("user_username") or "").strip()
     )
 
+    st.session_state["user_role"] = user_role if user_role in ("teacher", "student") else "teacher"
+
 
 def _clear_logged_in_user() -> None:
     st.session_state["auth_user"] = None
@@ -75,6 +82,7 @@ def _clear_logged_in_user() -> None:
     st.session_state["user_email"] = None
     st.session_state["user_name"] = None
     st.session_state["user_username"] = None
+    st.session_state["user_role"] = None
     st.session_state["avatar_url"] = None
     st.session_state["_email_synced_to_profile"] = False
 

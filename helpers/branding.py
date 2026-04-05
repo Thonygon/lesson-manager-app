@@ -1,0 +1,743 @@
+# CLASSIO — Branding Helper
+# ============================================================
+import os
+import re
+import uuid
+import streamlit as st
+from io import BytesIO
+from datetime import datetime as _dt, timezone
+
+from core.database import get_sb
+from core.state import get_current_user_id
+from core.i18n import t
+
+
+# ── Constants ────────────────────────────────────────────────────────
+ALLOWED_IMAGE_TYPES = ("png", "jpg", "jpeg")
+MAX_UPLOAD_BYTES = 2 * 1024 * 1024  # 2 MB
+LOGO_MAX_HEIGHT_CM = 4.0
+FOOTER_MAX_HEIGHT_CM = 1.8
+_SAFE_FILENAME_RE = re.compile(r"[^a-zA-Z0-9_\-.]")
+BRANDING_BUCKET = "branding"
+
+_DEFAULT_LOGO_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), os.pardir, "static", "logo_classio_light.png")
+)
+
+
+# ── Data access ──────────────────────────────────────────────────────
+
+def get_user_branding(user_id: str | None = None) -> dict:
+    """
+    Return branding settings for the given user.
+    Returns a dict with all branding fields, using safe defaults
+    when no branding record exists.
+    """
+    uid = str(user_id or get_current_user_id() or "").strip()
+    if not uid:
+        return _default_branding()
+
+    cache_key = f"_branding_{uid}"
+    cached = st.session_state.get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        sb = get_sb()
+        res = (
+            sb.table("branding_settings")
+            .select("*")
+            .eq("user_id", uid)
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(res, "data", None) or []
+        if rows:
+            row = rows[0]
+            branding = {
+                "header_logo_url": str(row.get("header_logo_url") or "").strip(),
+                "footer_image_url": str(row.get("footer_image_url") or "").strip(),
+                "brand_name": str(row.get("brand_name") or "").strip(),
+                "department": str(row.get("department") or "").strip(),
+                "header_style": str(row.get("header_style") or "standard").strip(),
+                "header_enabled": bool(row.get("header_enabled")),
+                "footer_enabled": bool(row.get("footer_enabled")),
+            }
+            st.session_state[cache_key] = branding
+            return branding
+    except Exception:
+        pass
+
+    result = _default_branding()
+    st.session_state[cache_key] = result
+    return result
+
+
+def _default_branding() -> dict:
+    return {
+        "header_logo_url": "",
+        "footer_image_url": "",
+        "brand_name": "",
+        "department": "",
+        "header_style": "standard",
+        "header_enabled": False,
+        "footer_enabled": False,
+    }
+
+
+def save_user_branding(
+    brand_name: str = "",
+    department: str = "",
+    header_style: str = "standard",
+    header_enabled: bool = False,
+    footer_enabled: bool = False,
+    header_logo_url: str = "",
+    footer_image_url: str = "",
+) -> bool:
+    uid = get_current_user_id()
+    if not uid:
+        return False
+
+    if header_style not in ("standard", "school"):
+        header_style = "standard"
+
+    payload = {
+        "user_id": uid,
+        "brand_name": str(brand_name).strip()[:200],
+        "department": str(department).strip()[:200],
+        "header_style": header_style,
+        "header_enabled": bool(header_enabled),
+        "footer_enabled": bool(footer_enabled),
+        "header_logo_url": str(header_logo_url).strip(),
+        "footer_image_url": str(footer_image_url).strip(),
+        "updated_at": _dt.now(timezone.utc).isoformat(),
+    }
+
+    try:
+        sb = get_sb()
+        existing = (
+            sb.table("branding_settings")
+            .select("id")
+            .eq("user_id", uid)
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(existing, "data", None) or []
+
+        if rows:
+            sb.table("branding_settings").update(payload).eq("user_id", uid).execute()
+        else:
+            payload["created_at"] = _dt.now(timezone.utc).isoformat()
+            sb.table("branding_settings").insert(payload).execute()
+
+        # Clear cache
+        st.session_state.pop(f"_branding_{uid}", None)
+        return True
+    except Exception as e:
+        st.warning(f"{t('branding_save_failed')}: {e}")
+        return False
+
+
+def clear_branding_cache(user_id: str | None = None) -> None:
+    uid = str(user_id or get_current_user_id() or "").strip()
+    if uid:
+        st.session_state.pop(f"_branding_{uid}", None)
+
+
+# ── Image upload / validation ────────────────────────────────────────
+
+def _safe_filename(name: str) -> str:
+    name = str(name or "unknown.png").strip()
+    name = _SAFE_FILENAME_RE.sub("_", name)
+    return name[:100]
+
+
+def _validate_image_upload(uploaded_file) -> str | None:
+    """Validate uploaded file. Returns error message or None if OK."""
+    if uploaded_file is None:
+        return t("branding_no_file_selected")
+
+    name = str(getattr(uploaded_file, "name", "") or "").strip().lower()
+    ext = name.rsplit(".", 1)[-1] if "." in name else ""
+    if ext not in ALLOWED_IMAGE_TYPES:
+        return t("branding_invalid_file_type")
+
+    size = getattr(uploaded_file, "size", 0) or 0
+    if size > MAX_UPLOAD_BYTES:
+        return t("branding_file_too_large")
+
+    return None
+
+
+def upload_branding_image(uploaded_file, image_type: str = "header") -> str:
+    """
+    Upload a branding image to Supabase storage.
+    image_type: 'header' or 'footer'
+    Returns the public URL.
+    Raises RuntimeError on failure.
+    """
+    uid = get_current_user_id()
+    if not uid:
+        raise RuntimeError(t("branding_not_logged_in"))
+
+    error = _validate_image_upload(uploaded_file)
+    if error:
+        raise RuntimeError(error)
+
+    raw_name = str(getattr(uploaded_file, "name", "image.png")).strip()
+    ext = raw_name.rsplit(".", 1)[-1].lower() if "." in raw_name else "png"
+    safe_name = f"{image_type}_{uuid.uuid4().hex}.{ext}"
+    object_path = f"{uid}/{safe_name}"
+
+    content_type_map = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg"}
+    content_type = content_type_map.get(ext, "image/png")
+
+    file_bytes = uploaded_file.read()
+
+    try:
+        sb = get_sb()
+
+        # Remove old images of same type for this user
+        try:
+            existing = sb.storage.from_(BRANDING_BUCKET).list(uid)
+            for item in existing or []:
+                item_name = str(item.get("name") or "")
+                if item_name.startswith(f"{image_type}_"):
+                    sb.storage.from_(BRANDING_BUCKET).remove([f"{uid}/{item_name}"])
+        except Exception:
+            pass
+
+        sb.storage.from_(BRANDING_BUCKET).upload(
+            path=object_path,
+            file=file_bytes,
+            file_options={
+                "content-type": content_type,
+                "upsert": "true",
+            },
+        )
+    except Exception as e:
+        raise RuntimeError(f"{t('branding_upload_failed')}: {e}")
+
+    try:
+        public_url = sb.storage.from_(BRANDING_BUCKET).get_public_url(object_path)
+    except Exception as e:
+        raise RuntimeError(f"{t('branding_url_failed')}: {e}")
+
+    if isinstance(public_url, dict):
+        public_url = public_url.get("publicUrl") or public_url.get("public_url") or ""
+
+    public_url = str(public_url or "").strip()
+    if not public_url:
+        raise RuntimeError(t("branding_no_public_url"))
+
+    return public_url
+
+
+def delete_branding_image(image_type: str = "header") -> bool:
+    """Delete all branding images of the given type for the current user."""
+    uid = get_current_user_id()
+    if not uid:
+        return False
+
+    try:
+        sb = get_sb()
+        existing = sb.storage.from_(BRANDING_BUCKET).list(uid)
+        for item in existing or []:
+            item_name = str(item.get("name") or "")
+            if item_name.startswith(f"{image_type}_"):
+                sb.storage.from_(BRANDING_BUCKET).remove([f"{uid}/{item_name}"])
+        return True
+    except Exception:
+        return False
+
+
+# ── Branding state helpers ───────────────────────────────────────────
+
+def has_custom_branding(branding: dict | None = None) -> bool:
+    """Check if the user has any custom branding configured and enabled."""
+    if branding is None:
+        branding = get_user_branding()
+    return bool(
+        branding.get("header_enabled")
+        or branding.get("footer_enabled")
+        or branding.get("brand_name")
+        or branding.get("header_logo_url")
+    )
+
+
+def resolve_is_public(branding: dict | None = None) -> bool:
+    """
+    If custom branding is active, document must be private.
+    Community library always uses default Classio branding.
+    """
+    if has_custom_branding(branding):
+        return False
+    return True
+
+
+# ── PDF header builders ──────────────────────────────────────────────
+
+def build_worksheet_header(
+    story: list,
+    ws: dict,
+    branding: dict,
+    *,
+    styles: dict,
+    doc,
+    bold_font: str = "Helvetica-Bold",
+    body_font: str = "Helvetica",
+    _t_pdf=None,
+    _pdf_safe_text=None,
+    subject: str = "",
+    topic: str = "",
+    ws_type: str = "",
+    learner_stage: str = "",
+    level_or_band: str = "",
+) -> None:
+    """
+    Build the worksheet header. Dispatches to school or standard layout
+    based on branding['header_style'].
+
+    This builds the header portion of the PDF only — content follows after.
+    """
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Spacer, Paragraph, Table, TableStyle, Image as RLImage
+    from reportlab.lib import colors
+
+    if _t_pdf is None:
+        _t_pdf = lambda k, **kw: t(k, **kw)
+    if _pdf_safe_text is None:
+        from xml.sax.saxutils import escape as xml_escape
+        import unicodedata
+        _pdf_safe_text = lambda v: xml_escape(unicodedata.normalize("NFC", str(v or "")))
+
+    header_style = str(branding.get("header_style") or "standard").strip()
+    header_enabled = branding.get("header_enabled", False)
+    brand_name = str(branding.get("brand_name") or "").strip()
+    department = str(branding.get("department") or "").strip()
+    logo_url = str(branding.get("header_logo_url") or "").strip()
+
+    if header_style == "school" and header_enabled:
+        _build_school_header(
+            story, ws, branding,
+            styles=styles, doc=doc,
+            bold_font=bold_font, body_font=body_font,
+            _t_pdf=_t_pdf, _pdf_safe_text=_pdf_safe_text,
+        )
+    else:
+        _build_standard_header(
+            story, ws, branding,
+            styles=styles, doc=doc,
+            bold_font=bold_font, body_font=body_font,
+            _t_pdf=_t_pdf, _pdf_safe_text=_pdf_safe_text,
+            subject=subject, topic=topic,
+            ws_type=ws_type, learner_stage=learner_stage,
+            level_or_band=level_or_band,
+        )
+
+
+def _build_school_header(
+    story, ws, branding, *, styles, doc,
+    bold_font, body_font, _t_pdf, _pdf_safe_text,
+):
+    """
+    School-style worksheet header layout:
+    TOP CENTER: Logo, Brand name, Department, Title
+    TOP RIGHT: Date
+    Below: Name: ____  |  Class: ____
+    Then: Instructions
+    """
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Spacer, Paragraph, Table, TableStyle, Image as RLImage
+    from reportlab.lib import colors
+    from styles.pdf_styles import get_school_header_styles, C as _C
+
+    _hs = get_school_header_styles(body_font, bold_font)
+
+    logo_url = str(branding.get("header_logo_url") or "").strip()
+    brand_name = str(branding.get("brand_name") or "").strip()
+    department = str(branding.get("department") or "").strip()
+    title = str(ws.get("title") or _t_pdf("untitled_worksheet")).strip()
+
+    page_width = doc.width
+
+    # --- Centered logo ---
+    if logo_url:
+        try:
+            import urllib.request
+            from io import BytesIO as _BytesIO
+            req = urllib.request.Request(logo_url, headers={"User-Agent": "Classio/1.0"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                img_data = resp.read()
+            img_buf = _BytesIO(img_data)
+            logo_img = RLImage(img_buf, width=LOGO_MAX_HEIGHT_CM * cm, height=LOGO_MAX_HEIGHT_CM * cm, kind="proportional")
+            logo_table = Table(
+                [[logo_img]],
+                colWidths=[page_width],
+            )
+            logo_table.setStyle(TableStyle([
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]))
+            story.append(logo_table)
+            story.append(Spacer(1, 4))
+        except Exception:
+            pass
+
+    # --- Brand name (centered) ---
+    if brand_name:
+        story.append(Paragraph(_pdf_safe_text(brand_name), _hs["brand"]))
+
+    # --- Department (centered) ---
+    if department:
+        story.append(Paragraph(_pdf_safe_text(department), _hs["department"]))
+
+    story.append(Spacer(1, 4))
+
+    # --- Name / Class / Date fields (single row) ---
+    name_label = f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('student_name_label'))}:</font> _________________________________"
+    class_label = f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('class_label'))}:</font> __________"
+    date_label = f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('date_label'))}:</font> __________"
+
+    fields_table = Table(
+        [[Paragraph(name_label, _hs["field"]), Paragraph(class_label, _hs["field"]), Paragraph(date_label, _hs["field"])]],
+        colWidths=[page_width * 0.50, page_width * 0.25, page_width * 0.25],
+    )
+    fields_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+
+    story.append(fields_table)
+    story.append(Spacer(1, 6))
+
+    # --- Title (centered, after Name/Class/Date) ---
+    story.append(Paragraph(_pdf_safe_text(title), _hs["title"]))
+    story.append(Spacer(1, 4))
+
+    # --- Separator line ---
+    from reportlab.platypus import HRFlowable
+    story.append(HRFlowable(width="100%", thickness=0.8, color=_C.BORDER))
+    story.append(Spacer(1, 6))
+
+    # --- Instructions ---
+    instructions = str(ws.get("instructions") or "").strip()
+    if instructions:
+        story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_instructions")), _hs["instr_heading"]))
+        story.append(Paragraph(_pdf_safe_text(instructions), _hs["instr_body"]))
+        story.append(Spacer(1, 4))
+
+
+def _build_standard_header(
+    story, ws, branding, *, styles, doc,
+    bold_font, body_font, _t_pdf, _pdf_safe_text,
+    subject="", topic="", ws_type="", learner_stage="", level_or_band="",
+):
+    """
+    Standard header layout (existing behavior) with optional
+    custom branding logo instead of Classio logo.
+    """
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Spacer, Paragraph, Image as RLImage
+    from reportlab.lib import colors
+    from styles.pdf_styles import get_standard_header_styles
+
+    _hs = get_standard_header_styles(body_font, bold_font)
+
+    # Logo: custom if enabled and available, otherwise default Classio
+    logo_url = str(branding.get("header_logo_url") or "").strip()
+    header_enabled = branding.get("header_enabled", False)
+
+    if header_enabled and logo_url:
+        try:
+            import urllib.request
+            from io import BytesIO as _BytesIO
+            req = urllib.request.Request(logo_url, headers={"User-Agent": "Classio/1.0"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                img_data = resp.read()
+            img_buf = _BytesIO(img_data)
+            story.append(RLImage(img_buf, width=LOGO_MAX_HEIGHT_CM * cm, height=LOGO_MAX_HEIGHT_CM * cm, kind="proportional"))
+            story.append(Spacer(1, 6))
+        except Exception:
+            # Fall back to default logo
+            if os.path.isfile(_DEFAULT_LOGO_PATH):
+                story.append(RLImage(_DEFAULT_LOGO_PATH, width=2.8 * cm, height=2.8 * cm, kind="proportional"))
+                story.append(Spacer(1, 6))
+    else:
+        if os.path.isfile(_DEFAULT_LOGO_PATH):
+            story.append(RLImage(_DEFAULT_LOGO_PATH, width=2.8 * cm, height=2.8 * cm, kind="proportional"))
+            story.append(Spacer(1, 6))
+
+    # Brand name if enabled
+    if header_enabled and branding.get("brand_name"):
+        story.append(Paragraph(_pdf_safe_text(branding["brand_name"]), _hs["brand"]))
+
+    # Title
+    story.append(Paragraph(_pdf_safe_text(ws.get("title") or _t_pdf("untitled_worksheet")), _hs["title"]))
+
+    # Meta line
+    meta_line = []
+    if subject:
+        subject_key = "subject_" + str(subject).strip().lower().replace(" ", "_")
+        subject_label = _t_pdf(subject_key)
+        if subject_label == subject_key:
+            subject_label = str(subject).strip()
+        meta_line.append(
+            f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('subject_label'))}:</font> {_pdf_safe_text(subject_label)}"
+        )
+    if topic:
+        meta_line.append(
+            f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('topic_label'))}:</font> {_pdf_safe_text(topic)}"
+        )
+    if ws_type:
+        meta_line.append(
+            f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('worksheet_type_label'))}:</font> {_pdf_safe_text(_t_pdf(ws_type))}"
+        )
+    if learner_stage:
+        stage_label = _t_pdf(learner_stage)
+        meta_line.append(
+            f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('learner_stage'))}:</font> {_pdf_safe_text(stage_label)}"
+        )
+    if level_or_band:
+        lbl = level_or_band if level_or_band in ["A1", "A2", "B1", "B2", "C1", "C2"] else _t_pdf(level_or_band)
+        meta_line.append(
+            f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('level_or_band'))}:</font> {_pdf_safe_text(lbl)}"
+        )
+    if meta_line:
+        story.append(Paragraph(" | ".join(meta_line), _hs["body"]))
+        story.append(Spacer(1, 8))
+
+
+def build_pdf_footer_handler(branding: dict, bold_font: str = "Helvetica"):
+    """
+    Return a ReportLab onPage callback that draws the footer.
+    If branding footer is enabled and an image URL exists, draw it.
+    Otherwise draw the default 'Classio | page#' footer.
+    """
+    footer_enabled = branding.get("footer_enabled", False)
+    footer_url = str(branding.get("footer_image_url") or "").strip()
+    brand_name = str(branding.get("brand_name") or "").strip()
+
+    # Pre-fetch footer image bytes if applicable
+    footer_image_bytes = None
+    if footer_enabled and footer_url:
+        try:
+            import urllib.request
+            req = urllib.request.Request(footer_url, headers={"User-Agent": "Classio/1.0"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                footer_image_bytes = resp.read()
+        except Exception:
+            pass
+
+    def _draw_footer(canvas, doc):
+        from reportlab.lib.units import cm
+        from reportlab.lib import colors
+        from reportlab.platypus import Image as RLImage
+
+        canvas.saveState()
+
+        if footer_image_bytes:
+            try:
+                from reportlab.lib.utils import ImageReader
+                img_buf = BytesIO(footer_image_bytes)
+                img_reader = ImageReader(img_buf)
+                x = doc.leftMargin
+                y = 0.3 * cm
+                max_w = doc.pagesize[0] - doc.leftMargin - doc.rightMargin
+                max_h = FOOTER_MAX_HEIGHT_CM * cm
+                canvas.drawImage(
+                    img_reader, x, y, width=max_w, height=max_h,
+                    preserveAspectRatio=True, anchor="sw",
+                    mask="auto",
+                )
+            except Exception:
+                pass
+
+        footer_label = brand_name if (footer_enabled and brand_name) else "Classio"
+        footer_text = f"{footer_label} | {canvas.getPageNumber()}"
+        canvas.setFont(bold_font, 9)
+        canvas.setFillColor(colors.HexColor("#64748B"))
+        canvas.drawRightString(
+            doc.pagesize[0] - doc.rightMargin,
+            0.9 * cm,
+            footer_text,
+        )
+
+        canvas.restoreState()
+
+    return _draw_footer
+
+
+# ── Settings UI ──────────────────────────────────────────────────────
+
+def render_branding_settings() -> None:
+    """Render branding settings panel inside a Streamlit container."""
+    uid = get_current_user_id()
+    if not uid:
+        st.warning(t("login_required"))
+        return
+
+    branding = get_user_branding(uid)
+
+    st.markdown(f"#### 🎨 {t('branding_settings_title')}")
+    st.caption(t("branding_settings_caption"))
+
+    # Brand name
+    brand_name = st.text_input(
+        t("branding_brand_name"),
+        value=branding.get("brand_name", ""),
+        max_chars=200,
+        key="branding_brand_name_input",
+    )
+
+    # Department
+    department = st.text_input(
+        t("branding_department"),
+        value=branding.get("department", ""),
+        max_chars=200,
+        key="branding_department_input",
+    )
+
+    # Header style
+    style_options = ["standard", "school"]
+    style_labels = {
+        "standard": t("branding_style_standard"),
+        "school": t("branding_style_school"),
+    }
+    current_style = branding.get("header_style", "standard")
+    if current_style not in style_options:
+        current_style = "standard"
+
+    header_style = st.selectbox(
+        t("branding_header_style"),
+        style_options,
+        index=style_options.index(current_style),
+        format_func=lambda x: style_labels.get(x, x),
+        key="branding_header_style_select",
+    )
+
+    # Enable toggles
+    col_h, col_f = st.columns(2)
+    with col_h:
+        header_enabled = st.toggle(
+            t("branding_header_enabled"),
+            value=branding.get("header_enabled", False),
+            key="branding_header_enabled_toggle",
+        )
+    with col_f:
+        footer_enabled = st.toggle(
+            t("branding_footer_enabled"),
+            value=branding.get("footer_enabled", False),
+            key="branding_footer_enabled_toggle",
+        )
+
+    # Header logo upload
+    st.markdown(f"**{t('branding_header_logo')}**")
+    current_logo = branding.get("header_logo_url", "")
+    if current_logo:
+        st.image(current_logo, width=120, caption=t("branding_current_logo"))
+        if st.button(t("branding_remove_logo"), key="branding_remove_header_logo"):
+            delete_branding_image("header")
+            current_logo = ""
+            clear_branding_cache()
+            st.rerun()
+
+    header_file = st.file_uploader(
+        t("branding_upload_logo"),
+        type=list(ALLOWED_IMAGE_TYPES),
+        key="branding_header_file_upload",
+    )
+
+    if header_file:
+        error = _validate_image_upload(header_file)
+        if error:
+            st.error(error)
+            header_file = None
+
+    # Footer image upload
+    st.markdown(f"**{t('branding_footer_image')}**")
+    current_footer = branding.get("footer_image_url", "")
+    if current_footer:
+        st.image(current_footer, width=200, caption=t("branding_current_footer"))
+        if st.button(t("branding_remove_footer"), key="branding_remove_footer_image"):
+            delete_branding_image("footer")
+            current_footer = ""
+            clear_branding_cache()
+            st.rerun()
+
+    footer_file = st.file_uploader(
+        t("branding_upload_footer"),
+        type=list(ALLOWED_IMAGE_TYPES),
+        key="branding_footer_file_upload",
+    )
+
+    if footer_file:
+        error = _validate_image_upload(footer_file)
+        if error:
+            st.error(error)
+            footer_file = None
+
+    # Privacy notice
+    if brand_name or header_enabled or footer_enabled:
+        st.info(t("branding_privacy_notice"))
+
+    # Preview
+    st.markdown(f"**{t('branding_preview')}**")
+    preview_cols = st.columns([1, 3, 1])
+    with preview_cols[1]:
+        if header_enabled and current_logo:
+            st.image(current_logo, width=80)
+        if brand_name:
+            st.markdown(f"<div style='text-align:center;font-weight:700;font-size:1.1rem;color:#1D4ED8'>{brand_name}</div>", unsafe_allow_html=True)
+        if department:
+            st.markdown(f"<div style='text-align:center;font-size:0.9rem;color:#475569'>{department}</div>", unsafe_allow_html=True)
+        if header_style == "school":
+            st.markdown(f"<div style='text-align:center;font-weight:600;margin-top:4px'>{t('branding_preview_title')}</div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='display:flex;justify-content:space-between;margin-top:8px;font-size:0.9rem'>"
+                f"<span><b>{t('student_name_label')}:</b> ___________</span>"
+                f"<span><b>{t('class_label')}:</b> ___________</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+    # Save button
+    if st.button(t("branding_save_btn"), key="branding_save_settings", use_container_width=True, type="primary"):
+        new_logo_url = current_logo
+        new_footer_url = current_footer
+
+        if header_file:
+            try:
+                new_logo_url = upload_branding_image(header_file, "header")
+                st.success(t("branding_logo_uploaded"))
+            except RuntimeError as e:
+                st.error(str(e))
+                return
+
+        if footer_file:
+            try:
+                new_footer_url = upload_branding_image(footer_file, "footer")
+                st.success(t("branding_footer_uploaded"))
+            except RuntimeError as e:
+                st.error(str(e))
+                return
+
+        ok = save_user_branding(
+            brand_name=brand_name,
+            department=department,
+            header_style=header_style,
+            header_enabled=header_enabled,
+            footer_enabled=footer_enabled,
+            header_logo_url=new_logo_url,
+            footer_image_url=new_footer_url,
+        )
+        if ok:
+            st.success(t("branding_saved"))
+            clear_branding_cache()
+            st.rerun()

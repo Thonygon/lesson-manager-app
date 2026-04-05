@@ -16,6 +16,7 @@ inject_loading_screen()
 from styles.theme import remove_streamlit_top_spacing
 from helpers.ui_components import inject_pwa_head
 from core.navigation import PAGE_KEYS, _set_query, init_navigation_defaults
+from core.state import get_current_user_role
 from auth.auth import require_login
 
 st.markdown(
@@ -60,6 +61,9 @@ if _post_login_action:
     if _post_login_action == "choose_username":
         st.session_state["show_choose_username_dialog"] = True
         st.session_state["page"] = "home"
+    elif _post_login_action == "choose_role":
+        st.session_state["show_choose_role_dialog"] = True
+        st.session_state["page"] = "home"
     elif _post_login_action == "profile_dialog":
         st.session_state["show_profile_dialog"] = True
         st.session_state["page"] = "home"
@@ -67,8 +71,10 @@ if _post_login_action:
         st.session_state["_show_restore_dialog"] = True
         st.session_state["page"] = "home"
     elif _post_login_action == "dashboard":
-        st.session_state["page"] = "dashboard"
-        _set_query(page="dashboard", lang=st.session_state.get("ui_lang", "en"))
+        _role = get_current_user_role()
+        _dash_page = "student_home" if _role == "student" else "dashboard"
+        st.session_state["page"] = _dash_page
+        _set_query(page=_dash_page, lang=st.session_state.get("ui_lang", "en"))
     elif _post_login_action.startswith("page:"):
         _target = _post_login_action[5:]
         if _target in PAGE_KEYS:

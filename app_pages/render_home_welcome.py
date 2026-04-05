@@ -1,10 +1,13 @@
 import streamlit as st
+from datetime import datetime, timezone, timedelta
 from core.i18n import t
 from core.navigation import go_to, home_go
 from core.database import load_students
 from core.state import get_current_user_id
 from helpers.planner_storage import load_my_lesson_plans
 from helpers.worksheet_storage import load_my_worksheets
+
+_WELCOME_DONE_LINGER_HOURS = 24
 
 
 def _safe_count(obj) -> int:
@@ -28,6 +31,30 @@ def _set_welcome_skipped(value: bool) -> None:
 
 def _clear_welcome_skipped_for_current_user() -> None:
     st.session_state.pop(_welcome_skip_key(), None)
+
+
+def _welcome_done_ts_key() -> str:
+    uid = str(get_current_user_id() or "").strip()
+    return f"home_welcome_done_ts::{uid}" if uid else "home_welcome_done_ts::anon"
+
+
+def _mark_welcome_done() -> None:
+    """Record the timestamp when all 3 welcome tasks were first completed."""
+    key = _welcome_done_ts_key()
+    if key not in st.session_state:
+        st.session_state[key] = datetime.now(timezone.utc).isoformat()
+
+
+def _welcome_done_expired() -> bool:
+    """Return True if the 24-h linger window has passed."""
+    ts_str = st.session_state.get(_welcome_done_ts_key())
+    if not ts_str:
+        return False
+    try:
+        done_at = datetime.fromisoformat(ts_str)
+        return datetime.now(timezone.utc) - done_at > timedelta(hours=_WELCOME_DONE_LINGER_HOURS)
+    except Exception:
+        return False
 
 def get_welcome_progress() -> dict:
     students_df = load_students()
@@ -73,7 +100,11 @@ def should_show_welcome() -> tuple[bool, bool, dict]:
     progress = get_welcome_progress()
 
     if progress["all_done"]:
-        return False, False, progress
+        _mark_welcome_done()
+        if _welcome_done_expired():
+            return False, False, progress
+        # Still within the 24-h linger window — show completed state (no skip needed)
+        return True, False, progress
 
     if progress["all_empty"]:
         return True, False, progress

@@ -285,8 +285,22 @@ def _has_any_value(value) -> bool:
     return True
 
 
-def _write_list(items: list) -> None:
-    for item in items or []:
+def _normalize_list_for_display(items) -> list[str]:
+    if items is None:
+        return []
+    if isinstance(items, list):
+        return [str(x).strip() for x in items if str(x).strip()]
+    if isinstance(items, str):
+        text = items.strip()
+        if not text:
+            return []
+        parts = [line.strip() for line in text.splitlines() if line.strip()]
+        return parts if len(parts) > 1 else [text]
+    return [str(items).strip()]
+
+
+def _write_list(items) -> None:
+    for item in _normalize_list_for_display(items):
         st.write(f"- {item}")
 
 
@@ -468,6 +482,8 @@ def planner_payload_from_inputs(
     mode: str,
     plan: dict,
 ) -> dict:
+    from helpers.branding import resolve_is_public
+
     return with_owner(
         {
             "subject": str(subject).strip(),
@@ -483,7 +499,7 @@ def planner_payload_from_inputs(
             "title": _clean_display_text(plan.get("title") or ""),
             "author_name": str(st.session_state.get("user_name") or t("unknown")).strip(),
             "subject_display": _translated_subject_display(subject),
-            "is_public": True,
+            "is_public": resolve_is_public(),
             "created_at": _dt.now(timezone.utc).isoformat(),
         }
     )
@@ -961,70 +977,32 @@ def build_lesson_plan_pdf_bytes(
         Table,
         TableStyle,
     )
+    from styles.pdf_styles import (
+        ensure_pdf_fonts_registered,
+        get_plan_pdf_styles,
+        get_pdf_layout_constants,
+        C as _C,
+    )
+
+    body_font, bold_font = ensure_pdf_fonts_registered()
+    _PS = get_plan_pdf_styles(body_font, bold_font)
+    _L = get_pdf_layout_constants()
 
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        leftMargin=2.0 * cm,
-        rightMargin=2.0 * cm,
-        topMargin=1.5 * cm,
-        bottomMargin=1.5 * cm,
+        **_L["plan_margins"],
     )
 
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        "PlanTitle",
-        parent=styles["Title"],
-        fontSize=18,
-        leading=22,
-        textColor=colors.HexColor("#1D4ED8"),
-        spaceAfter=8,
-        alignment=TA_CENTER,
-    )
-    meta_style = ParagraphStyle(
-        "PlanMeta",
-        parent=styles["BodyText"],
-        fontSize=9.6,
-        leading=12,
-        textColor=colors.HexColor("#334155"),
-        spaceAfter=6,
-    )
-    section_title_style = ParagraphStyle(
-        "PlanSectionTitle",
-        parent=styles["Heading2"],
-        fontSize=12.3,
-        leading=15,
-        textColor=colors.HexColor("#0F172A"),
-        spaceBefore=8,
-        spaceAfter=6,
-    )
-    card_title_style = ParagraphStyle(
-        "PlanCardTitle",
-        parent=styles["Heading3"],
-        fontSize=10.8,
-        leading=13,
-        textColor=colors.HexColor("#0F172A"),
-        spaceAfter=4,
-    )
-    body_style = ParagraphStyle(
-        "PlanBody",
-        parent=styles["BodyText"],
-        fontSize=10.2,
-        leading=14,
-        textColor=colors.HexColor("#0F172A"),
-        spaceAfter=3,
-    )
+    title_style        = _PS["title"]
+    meta_style         = _PS["meta"]
+    section_title_style = _PS["section"]
+    card_title_style   = _PS["card_title"]
+    body_style         = _PS["body"]
 
     story = []
-
-    def _draw_footer(canvas, doc):
-        canvas.saveState()
-        footer_text = f"Classio | {canvas.getPageNumber()}"
-        canvas.setFont("Helvetica", 9)
-        canvas.setFillColor(colors.HexColor("#64748B"))
-        canvas.drawRightString(doc.pagesize[0] - doc.rightMargin, 0.9 * cm, footer_text)
-        canvas.restoreState()
 
     def _safe_para(text: str) -> str:
         return html.escape(str(text or "")).replace("\n", "<br/>")
@@ -1033,9 +1011,23 @@ def build_lesson_plan_pdf_bytes(
         story.append(Spacer(1, 4))
         story.append(Paragraph(label.upper(), section_title_style))
 
+    def _normalize_pdf_list(items):
+        if items is None:
+            return []
+        if isinstance(items, list):
+            return [str(x).strip() for x in items if str(x).strip()]
+        if isinstance(items, str):
+            text = items.strip()
+            if not text:
+                return []
+            parts = [line.strip() for line in text.splitlines() if line.strip()]
+            return parts if len(parts) > 1 else [text]
+        return [str(items).strip()]
+
     def _list_flow(items):
+        normalized = _normalize_pdf_list(items)
         return ListFlowable(
-            [ListItem(Paragraph(_safe_para(x), body_style)) for x in items if str(x).strip()],
+            [ListItem(Paragraph(_safe_para(x), body_style)) for x in normalized],
             bulletType="bullet",
             leftIndent=12,
         )
@@ -1053,8 +1045,8 @@ def build_lesson_plan_pdf_bytes(
         table.setStyle(
             TableStyle(
                 [
-                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),
-                    ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#D7E3F4")),
+                    ("BACKGROUND", (0, 0), (-1, -1), _C.BG_SUBTLE),
+                    ("BOX", (0, 0), (-1, -1), 0.8, _C.BORDER),
                     ("LEFTPADDING", (0, 0), (-1, -1), 10),
                     ("RIGHTPADDING", (0, 0), (-1, -1), 10),
                     ("TOPPADDING", (0, 0), (-1, -1), 8),
@@ -1086,13 +1078,39 @@ def build_lesson_plan_pdf_bytes(
             story.append(Paragraph(_safe_para(rendered_value), body_style))
         story.append(Spacer(1, 6))
 
-    # Header/logo
+    # Header/logo — branding-aware (no school layout for lesson plans)
+    from helpers.branding import get_user_branding, build_pdf_footer_handler, has_custom_branding, LOGO_MAX_HEIGHT_CM
+
+    _branding = get_user_branding()
+    _header_enabled = _branding.get("header_enabled", False)
+    _logo_url = str(_branding.get("header_logo_url") or "").strip()
+    _brand_name = str(_branding.get("brand_name") or "").strip()
+
     title = str(plan.get("title") or t("untitled_plan")).strip()
-    logo_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "static", "logo_classio_light.png"))
-    if os.path.isfile(logo_path):
-        logo = RLImage(logo_path, width=2.7 * cm, height=2.7 * cm, kind="proportional")
-        story.append(logo)
-        story.append(Spacer(1, 5))
+
+    if _header_enabled and _logo_url:
+        try:
+            import urllib.request
+            from io import BytesIO as _BytesIO
+            _req = urllib.request.Request(_logo_url, headers={"User-Agent": "Classio/1.0"})
+            with urllib.request.urlopen(_req, timeout=8) as _resp:
+                _img_data = _resp.read()
+            _img_buf = _BytesIO(_img_data)
+            story.append(RLImage(_img_buf, width=LOGO_MAX_HEIGHT_CM * cm, height=LOGO_MAX_HEIGHT_CM * cm, kind="proportional"))
+            story.append(Spacer(1, 5))
+        except Exception:
+            logo_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "static", "logo_classio_light.png"))
+            if os.path.isfile(logo_path):
+                story.append(RLImage(logo_path, width=2.7 * cm, height=2.7 * cm, kind="proportional"))
+                story.append(Spacer(1, 5))
+    else:
+        logo_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "static", "logo_classio_light.png"))
+        if os.path.isfile(logo_path):
+            story.append(RLImage(logo_path, width=2.7 * cm, height=2.7 * cm, kind="proportional"))
+            story.append(Spacer(1, 5))
+
+    if _header_enabled and _brand_name:
+        story.append(Paragraph(_safe_para(_brand_name), _PS["brand"]))
 
     story.append(Paragraph(_safe_para(title), title_style))
 
@@ -1143,9 +1161,9 @@ def build_lesson_plan_pdf_bytes(
         TableStyle(
             [
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("BOX", (0, 0), (-1, -1), 1.3, colors.HexColor("#3B82F6")),
-                ("INNERGRID", (0, 0), (-1, -1), 0.6, colors.HexColor("#CBD5E1")),
-                ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+                ("BOX", (0, 0), (-1, -1), 1.3, _C.OVERVIEW_BLUE),
+                ("INNERGRID", (0, 0), (-1, -1), 0.6, _C.BORDER),
+                ("BACKGROUND", (0, 0), (-1, -1), _C.BG_WHITE),
                 ("LEFTPADDING", (0, 0), (-1, -1), 10),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 10),
                 ("TOPPADDING", (0, 0), (-1, -1), 9),
@@ -1186,8 +1204,8 @@ def build_lesson_plan_pdf_bytes(
         block_table.setStyle(
             TableStyle(
                 [
-                    ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-                    ("BOX", (0, 0), (-1, -1), 1.0, colors.HexColor("#22C55E")),
+                    ("BACKGROUND", (0, 0), (-1, -1), _C.BG_WHITE),
+                    ("BOX", (0, 0), (-1, -1), 1.0, _C.FLOW_GREEN),
                     ("LEFTPADDING", (0, 0), (-1, -1), 10),
                     ("RIGHTPADDING", (0, 0), (-1, -1), 10),
                     ("TOPPADDING", (0, 0), (-1, -1), 8),
@@ -1225,8 +1243,8 @@ def build_lesson_plan_pdf_bytes(
             block_table.setStyle(
                 TableStyle(
                     [
-                        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-                        ("BOX", (0, 0), (-1, -1), 1.0, colors.HexColor("#F59E0B")),
+                        ("BACKGROUND", (0, 0), (-1, -1), _C.BG_WHITE),
+                        ("BOX", (0, 0), (-1, -1), 1.0, _C.NOTE_AMBER),
                         ("LEFTPADDING", (0, 0), (-1, -1), 10),
                         ("RIGHTPADDING", (0, 0), (-1, -1), 10),
                         ("TOPPADDING", (0, 0), (-1, -1), 8),
@@ -1274,8 +1292,8 @@ def build_lesson_plan_pdf_bytes(
             block_table.setStyle(
                 TableStyle(
                     [
-                        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-                        ("BOX", (0, 0), (-1, -1), 1.0, colors.HexColor("#8B5CF6")),
+                        ("BACKGROUND", (0, 0), (-1, -1), _C.BG_WHITE),
+                        ("BOX", (0, 0), (-1, -1), 1.0, _C.MATERIAL_PURPLE),
                         ("LEFTPADDING", (0, 0), (-1, -1), 10),
                         ("RIGHTPADDING", (0, 0), (-1, -1), 10),
                         ("TOPPADDING", (0, 0), (-1, -1), 8),
@@ -1286,7 +1304,8 @@ def build_lesson_plan_pdf_bytes(
             story.append(block_table)
             story.append(Spacer(1, 8))
 
-    doc.build(story, onFirstPage=_draw_footer, onLaterPages=_draw_footer)
+    _branding_footer = build_pdf_footer_handler(_branding, bold_font=body_font)
+    doc.build(story, onFirstPage=_branding_footer, onLaterPages=_branding_footer)
     buffer.seek(0)
     return buffer.getvalue()
 

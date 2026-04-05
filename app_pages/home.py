@@ -4,7 +4,7 @@ from core.i18n import t
 from core.navigation import go_to, home_go, PAGES
 from core.timezone import _get_qp
 from core.database import load_table, load_students, clear_app_caches
-from auth.auth import render_logout_button, render_profile_dialog, render_choose_username_dialog
+from auth.auth import render_logout_button, render_profile_dialog, render_choose_username_dialog, render_choose_role_dialog
 from styles.theme import load_css_home
 from styles.theme import load_css_home
 from streamlit_option_menu import option_menu
@@ -17,6 +17,7 @@ from helpers.cv_storage import load_my_cvs, load_my_cover_letters, render_cv_lib
 from helpers.worksheet_storage import load_my_worksheets, load_public_worksheets, render_worksheet_library_cards, render_worksheet_result, render_quick_worksheet_maker_expander
 from helpers.worksheet_builder import normalize_worksheet_output
 from helpers.goal_explorer import render_income_goal_calculator
+from helpers.quick_exam_storage import render_quick_exam_builder_expander, load_my_exams, load_public_exams, render_exam_library_cards, render_exam_result
 from core.database import load_community_profiles
 from helpers.goal_explorer import _rank_search
 import streamlit as st
@@ -160,9 +161,10 @@ def render_home_teaching_resources_preview():
         unsafe_allow_html=True,
     )
 
-    res_tab1, res_tab2 = st.tabs([
+    res_tab1, res_tab2, res_tab3 = st.tabs([
         f"📝 {t('community_plans')}",
         f"📋 {t('community_worksheets')}",
+        f"📄 {t('community_exams')}",
     ])
 
     # =========================
@@ -274,6 +276,61 @@ def render_home_teaching_resources_preview():
                 )
 
             if st.button(t("see_all_worksheets"), key="home_see_all_ws", use_container_width=True):
+                home_go("home", panel="files")
+                st.rerun()
+
+    # =========================
+    # EXAMS
+    # =========================
+    with res_tab3:
+        public_exam_df = load_public_exams()
+
+        if public_exam_df.empty:
+            st.info(t("community_library_empty"))
+        else:
+            exam_q = st.text_input(
+                t("explore_resource_search"),
+                key="home_public_exam_q",
+                placeholder=t("explore_resource_search_placeholder"),
+            ).strip()
+
+            if exam_q:
+                filtered_exams = _rank_search(
+                    public_exam_df,
+                    exam_q,
+                    weights={
+                        "title": 5,
+                        "topic": 4,
+                        "subject": 3,
+                        "learner_stage": 2,
+                        "level": 2,
+                        "author_name": 1,
+                    },
+                )
+            else:
+                filtered_exams = public_exam_df.copy()
+
+            if "created_at" in filtered_exams.columns:
+                filtered_exams = filtered_exams.sort_values("created_at", ascending=False)
+
+            exams_to_show = filtered_exams if exam_q else filtered_exams.head(4)
+
+            if exams_to_show.empty:
+                st.info(t("be_the_first_to_share"))
+            else:
+                if exam_q:
+                    st.caption(f"{len(exams_to_show)} {t('community_exams').lower()}")
+                else:
+                    st.caption(t("explore_latest_resources_note").format(count=4))
+
+                render_exam_library_cards(
+                    exams_to_show,
+                    prefix="home_public_exams",
+                    show_author=True,
+                    open_in_files=True,
+                )
+
+            if st.button(t("see_all_exams"), key="home_see_all_exams", use_container_width=True):
                 home_go("home", panel="files")
                 st.rerun()
 
@@ -421,6 +478,11 @@ def render_home():
     if st.session_state.get("confirm_sign_out"):
         st.warning(t("confirm_sign_out_msg"))
 
+    # ---------- CHOOSE ROLE DIALOG (new users) ----------
+    if st.session_state.get("show_choose_role_dialog"):
+        st.session_state["show_choose_role_dialog"] = False
+        render_choose_role_dialog(user_id)
+
     # ---------- CHOOSE USERNAME DIALOG ----------
     if st.session_state.get("show_choose_username_dialog"):
         st.session_state["show_choose_username_dialog"] = False
@@ -449,7 +511,7 @@ def render_home():
                 home_go("home", panel=None)
                 st.rerun()
 
-        tab1, tab2, tab3, tab4 = st.tabs([t("my_plans"), t("my_worksheets"), t("community_library"), t("professional")])
+        tab1, tab2, tab_exams, tab3, tab4 = st.tabs([t("my_plans"), t("my_worksheets"), t("my_exams"), t("community_library"), t("professional")])
 
         with tab1:
             my_df = load_my_lesson_plans()
@@ -514,10 +576,31 @@ def render_home():
                     ws_filtered = ws_filtered[ws_filtered["subject"].astype(str) == ws_subj_filter]
                 render_worksheet_library_cards(ws_filtered, prefix="my_ws", show_author=False)
 
+        with tab_exams:
+            exam_df = load_my_exams()
+            if exam_df.empty:
+                st.info(t("no_saved_exams"))
+            else:
+                exam_topic_q = st.text_input(t("search_by_topic"), key="my_exam_topic_q").strip().lower()
+                exam_subj_opts = sorted(exam_df["subject"].dropna().astype(str).unique().tolist()) if "subject" in exam_df.columns else []
+                exam_subj_filter = st.selectbox(
+                    t("subject_label"),
+                    [t("all")] + exam_subj_opts,
+                    format_func=lambda x: t(f"subject_{str(x).strip().lower().replace(' ', '_')}") if x != t("all") else t("all"),
+                    key="my_exam_subject_filter",
+                )
+                exam_filtered = exam_df.copy()
+                if exam_topic_q and "topic" in exam_filtered.columns:
+                    exam_filtered = exam_filtered[exam_filtered["topic"].fillna("").astype(str).str.lower().str.contains(exam_topic_q, na=False)]
+                if exam_subj_filter != t("all") and "subject" in exam_filtered.columns:
+                    exam_filtered = exam_filtered[exam_filtered["subject"].astype(str) == exam_subj_filter]
+                render_exam_library_cards(exam_filtered, prefix="my_exams", show_author=False)
+
         with tab3:
-            comm_tab_plans, comm_tab_ws = st.tabs([
+            comm_tab_plans, comm_tab_ws, comm_tab_exams = st.tabs([
                 f"📝 {t('community_plans')}",
                 f"📋 {t('community_worksheets')}",
+                f"📄 {t('community_exams')}",
             ])
 
             with comm_tab_plans:
@@ -677,6 +760,63 @@ def render_home():
                         st.caption(f"{len(pub_ws_filtered)} {t('community_worksheets').lower()}")
                         render_worksheet_library_cards(pub_ws_filtered, prefix="pub_ws", show_author=True)
 
+            with comm_tab_exams:
+                pub_exam_df = load_public_exams()
+
+                if pub_exam_df.empty:
+                    st.info(t("community_library_empty"))
+                else:
+                    import helpers.lesson_planner as _lp_mod3
+                    ef_col1, ef_col2 = st.columns([3, 1])
+                    with ef_col1:
+                        pub_exam_topic_q = st.text_input(
+                            t("search_by_topic"),
+                            key="pub_exam_topic_q",
+                            placeholder="e.g. grammar, fractions…",
+                        ).strip().lower()
+                    with ef_col2:
+                        pub_exam_subj_opts = sorted(pub_exam_df["subject"].dropna().astype(str).unique().tolist()) if "subject" in pub_exam_df.columns else []
+                        pub_exam_subj_filter = st.selectbox(
+                            t("subject_label"),
+                            [t("all")] + pub_exam_subj_opts,
+                            format_func=lambda x: t(f"subject_{str(x).strip().lower().replace(' ', '_')}") if x != t("all") else t("all"),
+                            key="pub_exam_subject_filter",
+                        )
+
+                    ef_col3, ef_col4 = st.columns(2)
+                    with ef_col3:
+                        _exam_stage_opts = sorted(pub_exam_df["learner_stage"].dropna().astype(str).unique().tolist()) if "learner_stage" in pub_exam_df.columns else []
+                        pub_exam_stage_filter = st.selectbox(
+                            t("learner_stage"),
+                            [t("all")] + _exam_stage_opts,
+                            format_func=lambda x: _lp_mod3._stage_label(x) if x != t("all") else t("all"),
+                            key="pub_exam_stage_filter",
+                        )
+                    with ef_col4:
+                        _exam_level_opts = sorted(pub_exam_df["level"].dropna().astype(str).unique().tolist()) if "level" in pub_exam_df.columns else []
+                        pub_exam_level_filter = st.selectbox(
+                            t("level_or_band"),
+                            [t("all")] + _exam_level_opts,
+                            format_func=lambda x: _lp_mod3._level_label(x) if x != t("all") else t("all"),
+                            key="pub_exam_level_filter",
+                        )
+
+                    pub_exam_filtered = pub_exam_df.copy()
+                    if pub_exam_topic_q and "topic" in pub_exam_filtered.columns:
+                        pub_exam_filtered = pub_exam_filtered[pub_exam_filtered["topic"].fillna("").astype(str).str.lower().str.contains(pub_exam_topic_q, na=False)]
+                    if pub_exam_subj_filter != t("all") and "subject" in pub_exam_filtered.columns:
+                        pub_exam_filtered = pub_exam_filtered[pub_exam_filtered["subject"].astype(str) == pub_exam_subj_filter]
+                    if pub_exam_stage_filter != t("all") and "learner_stage" in pub_exam_filtered.columns:
+                        pub_exam_filtered = pub_exam_filtered[pub_exam_filtered["learner_stage"].astype(str) == pub_exam_stage_filter]
+                    if pub_exam_level_filter != t("all") and "level" in pub_exam_filtered.columns:
+                        pub_exam_filtered = pub_exam_filtered[pub_exam_filtered["level"].astype(str) == pub_exam_level_filter]
+
+                    if pub_exam_filtered.empty:
+                        st.info(t("be_the_first_to_share"))
+                    else:
+                        st.caption(f"{len(pub_exam_filtered)} {t('community_exams').lower()}")
+                        render_exam_library_cards(pub_exam_filtered, prefix="pub_exams", show_author=True)
+
         with tab4:
             pro_tab_cv, pro_tab_cl = st.tabs([
                 f"📄 {t('my_cvs')}",
@@ -758,6 +898,40 @@ def render_home():
                     level_or_band=st.session_state.get("files_ws_level", ""),
                     worksheet_type=st.session_state.get("files_ws_type", ""),
                     topic=st.session_state.get("files_ws_topic", ""),
+                )
+
+        # ── Selected exam detail ──────────────────────────────────────────
+        selected_exam = st.session_state.get("files_selected_exam")
+        if selected_exam:
+            import json as _json_exam
+            if isinstance(selected_exam, str):
+                try:
+                    selected_exam = _json_exam.loads(selected_exam)
+                except Exception:
+                    selected_exam = {}
+            selected_exam_ak = st.session_state.get("files_selected_exam_answer_key") or {}
+            if isinstance(selected_exam_ak, str):
+                try:
+                    selected_exam_ak = _json_exam.loads(selected_exam_ak)
+                except Exception:
+                    selected_exam_ak = {}
+            if selected_exam:
+                st.markdown("---")
+                exam_det_l, exam_det_r = st.columns([6, 1])
+                with exam_det_l:
+                    st.markdown(f"### {t('exam_preview')}")
+                with exam_det_r:
+                    if st.button(t("close_exam"), key="close_selected_exam", use_container_width=True):
+                        for _k in ["files_selected_exam", "files_selected_exam_answer_key", "files_exam_subject", "files_exam_stage", "files_exam_level", "files_exam_topic", "files_exam_title"]:
+                            st.session_state.pop(_k, None)
+                        st.rerun()
+                render_exam_result(
+                    selected_exam,
+                    selected_exam_ak,
+                    subject=st.session_state.get("files_exam_subject", ""),
+                    learner_stage=st.session_state.get("files_exam_stage", ""),
+                    level_or_band=st.session_state.get("files_exam_level", ""),
+                    topic=st.session_state.get("files_exam_topic", ""),
                 )
 
         # ── Selected CV detail ────────────────────────────────────────────
@@ -859,204 +1033,217 @@ def render_home():
 
         _all_profiles_raw = load_community_profiles()
 
-        # All opted-in profiles + own entry for self-preview
-        _visible = [
-            p for p in _all_profiles_raw
-            if p.get("show_community_profile") or p.get("user_id") == user_id
-        ]
+        # Tabs: Teachers / Students
+        _comm_tab_teachers, _comm_tab_students = st.tabs([
+            f"👩‍🏫 {t('teacher_role')}",
+            f"🎓 {t('student_role')}",
+        ])
 
-        if not _visible:
-            st.info(t("community_empty"))
-        else:
-            # Global ranking — always sorted by active students descending
-            _visible_ranked = sorted(
-                _visible,
-                key=lambda p: int(p.get("active_student_count") or 0),
-                reverse=True,
-            )
-            _rank_map = {p.get("user_id"): i + 1 for i, p in enumerate(_visible_ranked)}
+        with _comm_tab_students:
+            from app_pages.student_find_teacher import render_community_member_cards
+            render_community_member_cards(_all_profiles_raw, role_filter="student")
 
-            # ---- build filter option lists ----
-            _all_subjects: list = []
-            _all_countries: list = []
-            _all_edu: list = []
-            for _fp in _visible_ranked:
-                for s in (_fp.get("primary_subjects") or []):
-                    if s and s not in _all_subjects:
-                        _all_subjects.append(s)
-                _fc = str(_fp.get("country") or "").strip()
-                if _fc and _fc not in _all_countries:
-                    _all_countries.append(_fc)
-                _fe = str(_fp.get("education_level") or "").strip()
-                if _fe and _fe not in _all_edu:
-                    _all_edu.append(_fe)
-            _all_subjects = sorted(_all_subjects)
-            _all_countries = sorted(_all_countries)
-            _all_edu = sorted(_all_edu)
+        with _comm_tab_teachers:
 
-            # ---- filter widgets ----
-            fc1, fc2, fc3 = st.columns(3)
-            with fc1:
-                _subj_sel = st.selectbox(
-                    t("community_filter_subject"),
-                    [t("all")] + _all_subjects,
-                    format_func=lambda x: _subj_label_fn(x) if x != t("all") else t("all"),
-                    key="community_subject_filter",
-                )
-            with fc2:
-                _country_sel = st.selectbox(
-                    t("country_label"),
-                    [t("all")] + _all_countries,
-                    key="community_country_filter",
-                )
-            with fc3:
-                _edu_sel = st.selectbox(
-                    t("education_level"),
-                    [t("all")] + _all_edu,
-                    format_func=lambda x: t(x) if x != t("all") else t("all"),
-                    key="community_edu_filter",
-                )
+            # All opted-in profiles + own entry for self-preview
+            _visible = [
+                p for p in _all_profiles_raw
+                if (p.get("show_community_profile") or p.get("user_id") == user_id)
+                and str(p.get("role") or "teacher") in ("teacher", "tutor")
+            ]
 
-            # ---- apply filters (retain ranking order) ----
-            _any_filter = (
-                _subj_sel != t("all")
-                or _country_sel != t("all")
-                or _edu_sel != t("all")
-            )
-            _filtered = _visible_ranked
-            if _subj_sel != t("all"):
-                _filtered = [p for p in _filtered if _subj_sel in (p.get("primary_subjects") or [])]
-            if _country_sel != t("all"):
-                _filtered = [p for p in _filtered if str(p.get("country") or "").strip() == _country_sel]
-            if _edu_sel != t("all"):
-                _filtered = [p for p in _filtered if str(p.get("education_level") or "").strip() == _edu_sel]
-
-            # Default (no filters): top 10; with filters: all results
-            _display = _filtered if _any_filter else _filtered[:10]
-
-            if not _display:
+            if not _visible:
                 st.info(t("community_empty"))
             else:
-                if not _any_filter:
-                    st.caption(t("community_top10_hint"))
-                else:
-                    st.caption(f"{len(_display)} teachers")
+                # Global ranking — always sorted by active students descending
+                _visible_ranked = sorted(
+                    _visible,
+                    key=lambda p: int(p.get("active_student_count") or 0),
+                    reverse=True,
+                )
+                _rank_map = {p.get("user_id"): i + 1 for i, p in enumerate(_visible_ranked)}
 
-                # ---- contact button helper & SVG paths (defined once outside loop) ----
-                def _contact_btn(href: str, svg_path: str, color: str, label: str) -> str:
-                    return (
-                        f"<a href='{href}' target='_blank' rel='noopener noreferrer' "
-                        f"title='{label}' style='display:inline-flex;align-items:center;justify-content:center;"
-                        f"width:30px;height:30px;border-radius:50%;background:{color};text-decoration:none;'>"
-                        f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white' width='15' height='15'>{svg_path}</svg>"
-                        f"</a>"
+                # ---- build filter option lists ----
+                _all_subjects: list = []
+                _all_countries: list = []
+                _all_edu: list = []
+                for _fp in _visible_ranked:
+                    for s in (_fp.get("primary_subjects") or []):
+                        if s and s not in _all_subjects:
+                            _all_subjects.append(s)
+                    _fc = str(_fp.get("country") or "").strip()
+                    if _fc and _fc not in _all_countries:
+                        _all_countries.append(_fc)
+                    _fe = str(_fp.get("education_level") or "").strip()
+                    if _fe and _fe not in _all_edu:
+                        _all_edu.append(_fe)
+                _all_subjects = sorted(_all_subjects)
+                _all_countries = sorted(_all_countries)
+                _all_edu = sorted(_all_edu)
+
+                # ---- filter widgets ----
+                fc1, fc2, fc3 = st.columns(3)
+                with fc1:
+                    _subj_sel = st.selectbox(
+                        t("community_filter_subject"),
+                        [t("all")] + _all_subjects,
+                        format_func=lambda x: _subj_label_fn(x) if x != t("all") else t("all"),
+                        key="community_subject_filter",
+                    )
+                with fc2:
+                    _country_sel = st.selectbox(
+                        t("country_label"),
+                        [t("all")] + _all_countries,
+                        key="community_country_filter",
+                    )
+                with fc3:
+                    _edu_sel = st.selectbox(
+                        t("education_level"),
+                        [t("all")] + _all_edu,
+                        format_func=lambda x: t(x) if x != t("all") else t("all"),
+                        key="community_edu_filter",
                     )
 
-                _wa_svg = "<path d='M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z'/><path d='M12 0C5.373 0 0 5.373 0 12c0 2.127.558 4.126 1.535 5.857L0 24l6.335-1.506A11.955 11.955 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.777 9.777 0 01-4.988-1.365l-.358-.214-3.761.894.952-3.653-.233-.374A9.772 9.772 0 012.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z'/>"
-                _email_svg = "<path d='M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z'/>"
+                # ---- apply filters (retain ranking order) ----
+                _any_filter = (
+                    _subj_sel != t("all")
+                    or _country_sel != t("all")
+                    or _edu_sel != t("all")
+                )
+                _filtered = _visible_ranked
+                if _subj_sel != t("all"):
+                    _filtered = [p for p in _filtered if _subj_sel in (p.get("primary_subjects") or [])]
+                if _country_sel != t("all"):
+                    _filtered = [p for p in _filtered if str(p.get("country") or "").strip() == _country_sel]
+                if _edu_sel != t("all"):
+                    _filtered = [p for p in _filtered if str(p.get("education_level") or "").strip() == _edu_sel]
 
-                for _p in _display:
-                    _is_self = _p.get("user_id") == user_id
-                    _show_full = bool(_p.get("show_community_profile")) or _is_self
-                    _show_contact = bool(_p.get("show_community_contact")) or _is_self
+                # Default (no filters): top 10; with filters: all results
+                _display = _filtered if _any_filter else _filtered[:10]
 
-                    _rank = _rank_map.get(_p.get("user_id"), "")
-                    _display_name = str(_p.get("display_name") or "").strip() or "—"
-                    _username = str(_p.get("username") or "").strip()
-                    _private_name = f"@{_username}" if _username else t("community_private_user")
-                    _active_count = int(_p.get("active_student_count") or 0)
-                    _subjects = _p.get("primary_subjects") or []
-                    _subj_labels = ", ".join([_subj_label_fn(s) for s in _subjects]) if _subjects else "—"
-                    _country = str(_p.get("country") or "").strip()
-                    _edu = str(_p.get("education_level") or "").strip()
-                    _raw_phone = str(_p.get("phone_number") or "").strip()
-                    _wa_num = _re_comm.sub(r"[^\d+]", "", _raw_phone)
-                    _email = str(_p.get("email") or "").strip()
-                    _avatar = str(_p.get("avatar_url") or "").strip()
+                if not _display:
+                    st.info(t("community_empty"))
+                else:
+                    if not _any_filter:
+                        st.caption(t("community_top10_hint"))
+                    else:
+                        st.caption(f"{len(_display)} teachers")
 
-                    _edu_display = t(_edu) if _edu else ""
-                    _badge_self = f"<span style='background:#3B82F6;color:#fff;border-radius:6px;padding:2px 8px;font-size:0.72rem;margin-left:6px;'>You</span>" if _is_self else ""
-                    _rank_html = f"<div style='font-size:0.85rem;font-weight:800;color:#f59e0b;min-width:26px;text-align:center;padding-top:16px;align-self:flex-start;'>#{_rank}</div>" if _rank else ""
-
-                    if _show_full:
-                        import html as _html
-
-                        _safe_display_name = _html.escape(_display_name)
-                        _safe_subj_labels = _html.escape(_subj_labels)
-                        _safe_country = _html.escape(_country)
-                        _safe_edu_display = _html.escape(_edu_display)
-
-                        _avatar_html = (
-                            f"<img src='{_avatar}' style='width:52px;height:52px;border-radius:50%;object-fit:cover;flex-shrink:0;' referrerpolicy='no-referrer' />"
-                            if _avatar
-                            else "<div style='width:52px;height:52px;border-radius:50%;flex-shrink:0;background:linear-gradient(135deg,#60A5FA,#A78BFA);'></div>"
+                    # ---- contact button helper & SVG paths (defined once outside loop) ----
+                    def _contact_btn(href: str, svg_path: str, color: str, label: str) -> str:
+                        return (
+                            f"<a href='{href}' target='_blank' rel='noopener noreferrer' "
+                            f"title='{label}' style='display:inline-flex;align-items:center;justify-content:center;"
+                            f"width:30px;height:30px;border-radius:50%;background:{color};text-decoration:none;'>"
+                            f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white' width='15' height='15'>{svg_path}</svg>"
+                            f"</a>"
                         )
 
-                        _contact_parts = []
+                    _wa_svg = "<path d='M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z'/><path d='M12 0C5.373 0 0 5.373 0 12c0 2.127.558 4.126 1.535 5.857L0 24l6.335-1.506A11.955 11.955 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.777 9.777 0 01-4.988-1.365l-.358-.214-3.761.894.952-3.653-.233-.374A9.772 9.772 0 012.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z'/>"
+                    _email_svg = "<path d='M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z'/>"
 
-                        if _country:
-                            _contact_parts.append(
-                                f"<span style='font-size:0.82rem;color:#64748b;'>🌍 {_safe_country}</span>"
+                    for _p in _display:
+                        _is_self = _p.get("user_id") == user_id
+                        _show_full = bool(_p.get("show_community_profile")) or _is_self
+                        _show_contact = bool(_p.get("show_community_contact")) or _is_self
+
+                        _rank = _rank_map.get(_p.get("user_id"), "")
+                        _display_name = str(_p.get("display_name") or "").strip() or "—"
+                        _username = str(_p.get("username") or "").strip()
+                        _private_name = f"@{_username}" if _username else t("community_private_user")
+                        _active_count = int(_p.get("active_student_count") or 0)
+                        _subjects = _p.get("primary_subjects") or []
+                        _subj_labels = ", ".join([_subj_label_fn(s) for s in _subjects]) if _subjects else "—"
+                        _country = str(_p.get("country") or "").strip()
+                        _edu = str(_p.get("education_level") or "").strip()
+                        _raw_phone = str(_p.get("phone_number") or "").strip()
+                        _wa_num = _re_comm.sub(r"[^\d+]", "", _raw_phone)
+                        _email = str(_p.get("email") or "").strip()
+                        _avatar = str(_p.get("avatar_url") or "").strip()
+
+                        _edu_display = t(_edu) if _edu else ""
+                        _badge_self = f"<span style='background:#3B82F6;color:#fff;border-radius:6px;padding:2px 8px;font-size:0.72rem;margin-left:6px;'>You</span>" if _is_self else ""
+                        _rank_html = f"<div style='font-size:0.85rem;font-weight:800;color:#f59e0b;min-width:26px;text-align:center;padding-top:16px;align-self:flex-start;'>#{_rank}</div>" if _rank else ""
+
+                        if _show_full:
+                            import html as _html
+
+                            _safe_display_name = _html.escape(_display_name)
+                            _safe_subj_labels = _html.escape(_subj_labels)
+                            _safe_country = _html.escape(_country)
+                            _safe_edu_display = _html.escape(_edu_display)
+
+                            _avatar_html = (
+                                f"<img src='{_avatar}' style='width:52px;height:52px;border-radius:50%;object-fit:cover;flex-shrink:0;' referrerpolicy='no-referrer' />"
+                                if _avatar
+                                else "<div style='width:52px;height:52px;border-radius:50%;flex-shrink:0;background:linear-gradient(135deg,#60A5FA,#A78BFA);'></div>"
                             )
 
-                        if _show_contact:
-                            _btns = ""
-                            if _wa_num:
-                                _btns += _contact_btn(
-                                    f"https://wa.me/{_wa_num.lstrip('+')}",
-                                    _wa_svg,
-                                    "#25D366",
-                                    "WhatsApp",
-                                )
-                            if _email:
-                                _btns += _contact_btn(
-                                    f"mailto:{_email}",
-                                    _email_svg,
-                                    "#3B82F6",
-                                    "Email",
-                                )
+                            _contact_parts = []
 
-                            if _btns:
+                            if _country:
                                 _contact_parts.append(
-                                    f"<span style='margin-left:8px;display:inline-flex;gap:6px;vertical-align:middle;'>{_btns}</span>"
+                                    f"<span style='font-size:0.82rem;color:#64748b;'>🌍 {_safe_country}</span>"
                                 )
 
-                        if _contact_parts:
-                            _contact_html = (
-                                "<div style='margin-top:5px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;'>"
-                                + "".join(_contact_parts)
-                                + "</div>"
+                            if _show_contact:
+                                _btns = ""
+                                if _wa_num:
+                                    _btns += _contact_btn(
+                                        f"https://wa.me/{_wa_num.lstrip('+')}",
+                                        _wa_svg,
+                                        "#25D366",
+                                        "WhatsApp",
+                                    )
+                                if _email:
+                                    _btns += _contact_btn(
+                                        f"mailto:{_email}",
+                                        _email_svg,
+                                        "#3B82F6",
+                                        "Email",
+                                    )
+
+                                if _btns:
+                                    _contact_parts.append(
+                                        f"<span style='margin-left:8px;display:inline-flex;gap:6px;vertical-align:middle;'>{_btns}</span>"
+                                    )
+
+                            if _contact_parts:
+                                _contact_html = (
+                                    "<div style='margin-top:5px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;'>"
+                                    + "".join(_contact_parts)
+                                    + "</div>"
+                                )
+                            else:
+                                _contact_html = (
+                                    f"<div style='margin-top:5px;font-size:0.8rem;color:#64748b;opacity:0.8;'>"
+                                    f"{t('community_profile_empty')}"
+                                    f"</div>"
+                                )
+
+                            _edu_html = (
+                                f"<div style='font-size:0.82rem;color:#a78bfa;'>🎓 {_safe_edu_display}</div>"
+                                if _edu_display
+                                else ""
                             )
-                        else:
-                            _contact_html = (
-                                f"<div style='margin-top:5px;font-size:0.8rem;color:#64748b;opacity:0.8;'>"
-                                f"{t('community_profile_empty')}"
-                                f"</div>"
+
+                            _card_html = (
+                                "<div style='display:flex;align-items:flex-start;gap:10px;background:#1e293b;border-radius:12px;padding:14px 16px;margin-bottom:10px;border:1px solid #334155;'>"
+                                f"{_rank_html}"
+                                f"{_avatar_html}"
+                                "<div style='flex:1;min-width:0;'>"
+                                f"<div style='font-weight:700;font-size:1rem;color:#f1f5f9;'>{_safe_display_name}{_badge_self}</div>"
+                                f"<div style='font-size:0.82rem;color:#94a3b8;margin-top:2px;'>{_safe_subj_labels}</div>"
+                                "<div style='display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;'>"
+                                f"<div style='font-size:0.82rem;color:#38bdf8;'>👥 {_active_count} {t('community_active_students')}</div>"
+                                f"{_edu_html}"
+                                "</div>"
+                                f"{_contact_html}"
+                                "</div>"
+                                "</div>"
                             )
 
-                        _edu_html = (
-                            f"<div style='font-size:0.82rem;color:#a78bfa;'>🎓 {_safe_edu_display}</div>"
-                            if _edu_display
-                            else ""
-                        )
-
-                        _card_html = (
-                            "<div style='display:flex;align-items:flex-start;gap:10px;background:#1e293b;border-radius:12px;padding:14px 16px;margin-bottom:10px;border:1px solid #334155;'>"
-                            f"{_rank_html}"
-                            f"{_avatar_html}"
-                            "<div style='flex:1;min-width:0;'>"
-                            f"<div style='font-weight:700;font-size:1rem;color:#f1f5f9;'>{_safe_display_name}{_badge_self}</div>"
-                            f"<div style='font-size:0.82rem;color:#94a3b8;margin-top:2px;'>{_safe_subj_labels}</div>"
-                            "<div style='display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;'>"
-                            f"<div style='font-size:0.82rem;color:#38bdf8;'>👥 {_active_count} {t('community_active_students')}</div>"
-                            f"{_edu_html}"
-                            "</div>"
-                            f"{_contact_html}"
-                            "</div>"
-                            "</div>"
-                        )
-
-                        st.markdown(_card_html, unsafe_allow_html=True)
+                            st.markdown(_card_html, unsafe_allow_html=True)
 
     # ---------- AI TOOLS PANEL ----------
     if panel == "ai_tools":
@@ -1067,6 +1254,9 @@ def render_home():
 
         # --- Worksheet Maker ---
         render_quick_worksheet_maker_expander()
+
+        # --- Quick Exam Builder ---
+        render_quick_exam_builder_expander()
 
         # --- CV Builder ---
         render_quick_cv_builder_expander()
