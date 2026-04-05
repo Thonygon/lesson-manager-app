@@ -108,6 +108,7 @@ def apply_auth_session() -> None:
             profile_name=display_name,
             profile_username=username,
             user_id=uid,
+            user_role=str(profile.get("role") or "teacher").strip(),
         )
 
         # Sync email into profiles once per session if needed
@@ -139,14 +140,19 @@ def apply_auth_session() -> None:
                 _login_count = int(_prow.get("login_count") or 0)
                 _last_page = str(_prow.get("last_page") or "").strip() or "dashboard"
                 _has_username = bool(str(_prow.get("username") or "").strip())
+                _user_role = str(profile.get("role") or "teacher").strip()
 
                 _new_count = _login_count + 1
                 sb.table("profiles").update({"login_count": _new_count}).eq("user_id", uid).execute()
 
                 if _login_count == 0:
-                    st.session_state["_post_login_action"] = "page:home"
+                    st.session_state["_post_login_action"] = "choose_role"
                 elif not _has_username:
                     st.session_state["_post_login_action"] = "choose_username"
+                elif _user_role == "student":
+                    _student_default = "student_home"
+                    _target = _last_page if _last_page.startswith("student_") else _student_default
+                    st.session_state["_post_login_action"] = f"page:{_target}"
                 else:
                     try:
                         from app_pages.render_home_welcome import get_welcome_progress
@@ -240,6 +246,10 @@ def _load_table_cached(name: str, uid: str, limit: int = 10000, page_size: int =
         "user_activity_log",
         "professional_profiles",
         "worksheets",
+        "quick_exams",
+        "practice_sessions",
+        "practice_answers",
+        "practice_progress",
     }
     try:
         sb = get_sb()
@@ -601,7 +611,7 @@ def load_community_profiles() -> list:
             sb.table("profiles")
             .select(
                 "user_id, display_name, username, avatar_url, country, primary_subjects, "
-                "teaching_stages, education_level, active_student_count, "
+                "teaching_stages, teaching_languages, education_level, active_student_count, "
                 "show_community_profile, show_community_contact, phone_number, "
                 "email, role"
             )

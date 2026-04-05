@@ -3,6 +3,7 @@ import os
 from core.i18n import t
 from core.state import (
     get_current_user_id,
+    get_current_user_role,
     _set_logged_in_user,
     _clear_logged_in_user,
     PROFILE_SUBJECT_OPTIONS,
@@ -121,6 +122,7 @@ def _restore_user_from_email() -> str:
             profile_name=str(row.get("display_name") or "").strip(),
             profile_username=str(row.get("username") or "").strip(),
             user_id=user_id,
+            user_role=str(row.get("role") or "teacher").strip(),
         )
 
         return user_id
@@ -364,6 +366,7 @@ def sign_out_user() -> None:
     st.session_state.pop("user_email", None)
     st.session_state.pop("user_name", None)
     st.session_state.pop("user_username", None)
+    st.session_state.pop("user_role", None)
 
     if uid:
         st.session_state.pop(f"home_welcome_skipped::{uid}", None)
@@ -558,58 +561,71 @@ def render_profile_dialog(user_id: str) -> None:
 
             with c2:
                 role_value = str(profile.get("role") or "teacher")
+                _role_options = ["teacher", "student"]
+                _role_idx = _role_options.index(role_value) if role_value in _role_options else 0
                 role = st.selectbox(
                     t("role_label"),
-                    ["teacher", "tutor"],
-                    index=0 if role_value == "teacher" else 1,
-                    format_func=lambda x: t("teacher_role") if x == "teacher" else t("tutor_role"),
+                    _role_options,
+                    index=_role_idx,
+                    format_func=lambda x: t(f"{x}_role"),
                     key="profile_role",
                 )
 
-                duration_value = int(profile.get("default_lesson_duration") or 45)
-                duration_index = PROFILE_DURATION_OPTIONS.index(duration_value) if duration_value in PROFILE_DURATION_OPTIONS else 1
-                default_lesson_duration = st.selectbox(
-                    t("default_lesson_duration_label"),
-                    PROFILE_DURATION_OPTIONS,
-                    index=duration_index,
-                    format_func=_profile_duration_label,
-                    key="profile_default_lesson_duration",
+                _is_teacher = role in ("teacher", "tutor")
+
+                if _is_teacher:
+                    duration_value = int(profile.get("default_lesson_duration") or 45)
+                    duration_index = PROFILE_DURATION_OPTIONS.index(duration_value) if duration_value in PROFILE_DURATION_OPTIONS else 1
+                    default_lesson_duration = st.selectbox(
+                        t("default_lesson_duration_label"),
+                        PROFILE_DURATION_OPTIONS,
+                        index=duration_index,
+                        format_func=_profile_duration_label,
+                        key="profile_default_lesson_duration",
+                    )
+                else:
+                    default_lesson_duration = int(profile.get("default_lesson_duration") or 45)
+
+            if _is_teacher:
+                primary_subjects = st.multiselect(
+                    t("primary_subjects_label"),
+                    PROFILE_SUBJECT_OPTIONS,
+                    default=[x for x in (profile.get("primary_subjects") or []) if x in PROFILE_SUBJECT_OPTIONS],
+                    format_func=_profile_subject_label,
+                    key="profile_primary_subjects",
                 )
 
-            primary_subjects = st.multiselect(
-                t("primary_subjects_label"),
-                PROFILE_SUBJECT_OPTIONS,
-                default=[x for x in (profile.get("primary_subjects") or []) if x in PROFILE_SUBJECT_OPTIONS],
-                format_func=_profile_subject_label,
-                key="profile_primary_subjects",
-            )
+                teaching_stages = st.multiselect(
+                    t("teaching_stages_label"),
+                    PROFILE_STAGE_OPTIONS,
+                    default=[x for x in (profile.get("teaching_stages") or []) if x in PROFILE_STAGE_OPTIONS],
+                    format_func=_profile_stage_label,
+                    key="profile_teaching_stages",
+                )
 
-            teaching_stages = st.multiselect(
-                t("teaching_stages_label"),
-                PROFILE_STAGE_OPTIONS,
-                default=[x for x in (profile.get("teaching_stages") or []) if x in PROFILE_STAGE_OPTIONS],
-                format_func=_profile_stage_label,
-                key="profile_teaching_stages",
-            )
+                teaching_languages = st.multiselect(
+                    t("teaching_languages_label"),
+                    PROFILE_TEACH_LANG_OPTIONS,
+                    default=[x for x in (profile.get("teaching_languages") or []) if x in PROFILE_TEACH_LANG_OPTIONS],
+                    format_func=_profile_lang_label,
+                    key="profile_teaching_languages",
+                )
 
-            teaching_languages = st.multiselect(
-                t("teaching_languages_label"),
-                PROFILE_TEACH_LANG_OPTIONS,
-                default=[x for x in (profile.get("teaching_languages") or []) if x in PROFILE_TEACH_LANG_OPTIONS],
-                format_func=_profile_lang_label,
-                key="profile_teaching_languages",
-            )
-
-            _edu_options = ["", "edu_student", "edu_bachelors", "edu_masters", "edu_doctorate"]
-            _edu_default = str(profile.get("education_level") or "")
-            _edu_idx = _edu_options.index(_edu_default) if _edu_default in _edu_options else 0
-            education_level = st.selectbox(
-                t("education_level"),
-                _edu_options,
-                index=_edu_idx,
-                format_func=lambda x: t(x) if x else "—",
-                key="profile_education_level",
-            )
+                _edu_options = ["", "edu_student", "edu_bachelors", "edu_masters", "edu_doctorate"]
+                _edu_default = str(profile.get("education_level") or "")
+                _edu_idx = _edu_options.index(_edu_default) if _edu_default in _edu_options else 0
+                education_level = st.selectbox(
+                    t("education_level"),
+                    _edu_options,
+                    index=_edu_idx,
+                    format_func=lambda x: t(x) if x else "—",
+                    key="profile_education_level",
+                )
+            else:
+                primary_subjects = profile.get("primary_subjects") or []
+                teaching_stages = profile.get("teaching_stages") or []
+                teaching_languages = profile.get("teaching_languages") or []
+                education_level = profile.get("education_level") or ""
 
             st.divider()
             st.markdown(f"**🎨 {t('appearance')}**")
@@ -649,6 +665,12 @@ def render_profile_dialog(user_id: str) -> None:
                 )
             else:
                 show_community_contact = False
+
+            # ── Branding settings (teacher only) ──
+            if _is_teacher:
+                st.divider()
+                from helpers.branding import render_branding_settings
+                render_branding_settings()
 
             save_profile = st.button(t("save_profile"), key="profile_save_btn", use_container_width=True)
 
@@ -694,6 +716,7 @@ def render_profile_dialog(user_id: str) -> None:
                     st.session_state["avatar_url"] = new_avatar_url
                     st.session_state["ui_lang"] = preferred_ui_language
                     st.session_state["preferred_currency"] = preferred_currency
+                    st.session_state["user_role"] = role
                     _set_query(lang=preferred_ui_language)
 
                     st.session_state["home_action_menu_prev"] = t("files")
@@ -780,3 +803,83 @@ def render_choose_username_dialog(user_id: str) -> None:
 
     except Exception:
         st.warning(t("choose_username_title"))
+
+
+def render_choose_role_dialog(user_id: str) -> None:
+    """Premium welcome dialog for new users to pick Teacher or Student role."""
+    try:
+        @st.dialog(t("welcome_choose_role_title"), width="large")
+        def _choose_role_dlg():
+            st.markdown(
+                f"""
+                <div style="text-align:center; padding: 8px 0 16px;">
+                    <div style="font-size:2.4rem; margin-bottom:6px;">🍎</div>
+                    <h2 style="margin:0 0 4px;">{t("welcome_choose_role_heading")}</h2>
+                    <p style="opacity:0.75; margin:0; font-size:1.05rem;">{t("welcome_choose_role_subtitle")}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            col_teacher, col_student = st.columns(2, gap="large")
+
+            with col_teacher:
+                st.markdown(
+                    f"""
+                    <div style="
+                        background: linear-gradient(135deg, rgba(59,130,246,0.12), rgba(59,130,246,0.04));
+                        border-radius: 18px; padding: 28px 20px; text-align: center;
+                        border: 1px solid var(--border); min-height: 220px;
+                    ">
+                        <div style="font-size:2.8rem; margin-bottom:10px;">👩‍🏫</div>
+                        <h3 style="margin:0 0 8px;">{t("teacher_role")}</h3>
+                        <p style="opacity:0.7; font-size:0.92rem; margin:0;">{t("welcome_teacher_desc")}</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if st.button(
+                    t("welcome_i_am_teacher"),
+                    key="btn_role_teacher",
+                    use_container_width=True,
+                    type="primary",
+                ):
+                    upsert_profile_row(user_id, {"role": "teacher"})
+                    st.session_state["user_role"] = "teacher"
+                    st.session_state["show_choose_role_dialog"] = False
+                    st.session_state["_post_login_action"] = "page:home"
+                    st.rerun()
+
+            with col_student:
+                st.markdown(
+                    f"""
+                    <div style="
+                        background: linear-gradient(135deg, rgba(16,185,129,0.12), rgba(16,185,129,0.04));
+                        border-radius: 18px; padding: 28px 20px; text-align: center;
+                        border: 1px solid var(--border); min-height: 220px;
+                    ">
+                        <div style="font-size:2.8rem; margin-bottom:10px;">🎓</div>
+                        <h3 style="margin:0 0 8px;">{t("student_role")}</h3>
+                        <p style="opacity:0.7; font-size:0.92rem; margin:0;">{t("welcome_student_desc")}</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if st.button(
+                    t("welcome_i_am_student"),
+                    key="btn_role_student",
+                    use_container_width=True,
+                    type="primary",
+                ):
+                    upsert_profile_row(user_id, {"role": "student"})
+                    st.session_state["user_role"] = "student"
+                    st.session_state["show_choose_role_dialog"] = False
+                    st.session_state["_post_login_action"] = "page:student_home"
+                    st.rerun()
+
+            st.caption(t("welcome_role_change_hint"))
+
+        _choose_role_dlg()
+
+    except Exception:
+        st.warning(t("welcome_choose_role_title"))

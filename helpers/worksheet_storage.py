@@ -17,7 +17,13 @@ from core.navigation import home_go
 import re
 import unicodedata
 from xml.sax.saxutils import escape as xml_escape
-from reportlab.lib.enums import TA_JUSTIFY
+from styles.pdf_styles import (
+    ensure_pdf_fonts_registered,
+    get_student_pdf_styles,
+    get_answer_key_pdf_styles,
+    get_pdf_layout_constants,
+    C as _C,
+)
 
 
 def _wb():
@@ -701,6 +707,8 @@ def save_worksheet_record(
     try:
         worksheet = _normalize_worksheet_unicode(worksheet)
 
+        from helpers.branding import resolve_is_public
+
         payload = with_owner({
             "subject": str(subject).strip(),
             "topic": _clean_display_text(topic),
@@ -714,7 +722,7 @@ def save_worksheet_record(
             "title": _clean_display_text(worksheet.get("title") or ""),
             "author_name": str(st.session_state.get("user_name") or "Unknown").strip(),
             "subject_display": subject,
-            "is_public": True,
+            "is_public": resolve_is_public(),
             "created_at": _dt.now(timezone.utc).isoformat(),
         })
         get_sb().table("worksheets").insert(payload).execute()
@@ -1120,8 +1128,6 @@ def build_worksheet_pdf_bytes(
     )
     from reportlab.platypus import Image as RLImage
     from reportlab.lib import colors
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
 
     ws = _normalize_worksheet_unicode(ws)
     subject = _normalize_text(subject)
@@ -1140,99 +1146,27 @@ def build_worksheet_pdf_bytes(
         except TypeError:
             return t(key, **kwargs)
 
+    # ── Centralised font + style setup ────────────────────────
+    body_font, bold_font = ensure_pdf_fonts_registered()
+    _L = get_pdf_layout_constants()
+    _S = get_student_pdf_styles(body_font, bold_font)
+    _AK = get_answer_key_pdf_styles(body_font, bold_font)
+
     buf = BytesIO()
     doc = SimpleDocTemplate(
         buf,
         pagesize=A4,
-        leftMargin=1.8 * cm,
-        rightMargin=1.8 * cm,
-        topMargin=1.5 * cm,
-        bottomMargin=1.5 * cm,
+        **_L["margins"],
     )
-    
+
     styles = getSampleStyleSheet()
 
-    font_candidates = [
-        (
-            os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "static", "fonts", "DejaVuSans.ttf")),
-            os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "static", "fonts", "DejaVuSans-Bold.ttf")),
-        ),
-        (
-            "/System/Library/Fonts/Supplemental/DejaVuSans.ttf",
-            "/System/Library/Fonts/Supplemental/DejaVuSans-Bold.ttf",
-        ),
-        (
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        ),
-        (
-            "/usr/share/fonts/DejaVuSans.ttf",
-            "/usr/share/fonts/DejaVuSans-Bold.ttf",
-        ),
-    ]
-
-    body_font = "Helvetica"
-    bold_font = "Helvetica-Bold"
-
-    for regular_path, bold_path in font_candidates:
-        if os.path.isfile(regular_path) and os.path.isfile(bold_path):
-            try:
-                pdfmetrics.registerFont(TTFont("ClassioUnicode", regular_path))
-                pdfmetrics.registerFont(TTFont("ClassioUnicode-Bold", bold_path))
-                body_font = "ClassioUnicode"
-                bold_font = "ClassioUnicode-Bold"
-                break
-            except Exception:
-                pass
-
-    title_style = ParagraphStyle(
-        "WsTitle",
-        parent=styles["Title"],
-        fontName=bold_font,
-        fontSize=18,
-        leading=22,
-        textColor=colors.HexColor("#1D4ED8"),
-        spaceAfter=10,
-    )
-
-    heading_style = ParagraphStyle(
-        "WsH",
-        parent=styles["Heading2"],
-        fontName=bold_font,
-        fontSize=12,
-        leading=15,
-        textColor=colors.HexColor("#0F172A"),
-        spaceBefore=8,
-        spaceAfter=4,
-    )
-
-    body_style = ParagraphStyle(
-        "WsBody",
-        parent=styles["BodyText"],
-        fontName=body_font,
-        fontSize=10.5,
-        leading=14,
-        textColor=colors.HexColor("#0F172A"),
-        spaceAfter=4,
-        alignment=TA_JUSTIFY,
-    )
-
-    mc_option_style = ParagraphStyle(
-        "WsMcOption",
-        parent=body_style,
-        spaceAfter=1,
-        leading=12.5,
-    )   
-
-    line_style = ParagraphStyle(
-        "WsLine",
-        parent=styles["BodyText"],
-        fontName=body_font,
-        fontSize=10.5,
-        leading=16,
-        textColor=colors.HexColor("#0F172A"),
-        spaceAfter=2,
-    )
+    title_style      = _S["title"]
+    heading_style    = _S["section"]
+    body_style       = _S["body"]
+    mc_option_style  = _S["mc_option"]
+    mc_stem_style    = _S["mc_stem"]
+    line_style       = _S["line"]
 
     story = []
 
@@ -1247,18 +1181,27 @@ def build_worksheet_pdf_bytes(
             size=12,
         )
 
-    logo_path = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), os.pardir, "static", "logo_classio_light.png")
-    )
-    if os.path.isfile(logo_path):
-        story.append(RLImage(logo_path, width=2.8 * cm, height=2.8 * cm, kind="proportional"))
-        story.append(Spacer(1, 6))
+    # ── Branding-aware header ─────────────────────────────────────
+    from helpers.branding import get_user_branding, build_worksheet_header, has_custom_branding
 
-    story.append(Paragraph(_pdf_safe_text(ws.get("title") or _t_pdf("untitled_worksheet")), title_style))
+    _branding = get_user_branding()
+
+    # Student worksheet uses school header if enabled; answer key uses standard
+    if student_only or not student_only:
+        # For the student portion, use whichever header_style is configured
+        build_worksheet_header(
+            story, ws, _branding,
+            styles=styles, doc=doc,
+            bold_font=bold_font, body_font=body_font,
+            _t_pdf=_t_pdf, _pdf_safe_text=_pdf_safe_text,
+            subject=subject, topic=topic,
+            ws_type=ws_type, learner_stage=learner_stage,
+            level_or_band=level_or_band,
+        )
 
     def _mc_item_block(item: dict, idx: int):
         block = [
-            Paragraph(_pdf_safe_text(f"{idx}. {item['stem']}"), body_style),
+            Paragraph(_pdf_safe_text(f"{idx}. {item['stem']}"), mc_stem_style),
             Spacer(1, 2),
         ]
         for opt_idx, opt in enumerate(item["options"]):
@@ -1292,43 +1235,6 @@ def build_worksheet_pdf_bytes(
         if total_count - split_at == 1 and split_at > 2:
             split_at -= 1
         return split_at
-
-    meta_line = []
-
-    if subject:
-        subject_key = "subject_" + str(subject).strip().lower().replace(" ", "_")
-        subject_label = _t_pdf(subject_key)
-        if subject_label == subject_key:
-            subject_label = str(subject).strip()
-        meta_line.append(
-            f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('subject_label'))}:</font> {_pdf_safe_text(subject_label)}"
-        )
-
-    if topic:
-        meta_line.append(
-            f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('topic_label'))}:</font> {_pdf_safe_text(topic)}"
-        )
-
-    if ws_type:
-        meta_line.append(
-            f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('worksheet_type_label'))}:</font> {_pdf_safe_text(_t_pdf(ws_type))}"
-        )
-
-    if learner_stage:
-        stage_label = _t_pdf(learner_stage)
-        meta_line.append(
-            f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('learner_stage'))}:</font> {_pdf_safe_text(stage_label)}"
-        )
-
-    if level_or_band:
-        lbl = level_or_band if level_or_band in ["A1", "A2", "B1", "B2", "C1", "C2"] else _t_pdf(level_or_band)
-        meta_line.append(
-            f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('level_or_band'))}:</font> {_pdf_safe_text(lbl)}"
-        )
-
-    if meta_line:
-        story.append(Paragraph(" | ".join(meta_line), body_style))
-        story.append(Spacer(1, 8))
 
     def _sec(title_key, value):
         if not value:
@@ -1434,7 +1340,13 @@ def build_worksheet_pdf_bytes(
 
         return story_block
 
-    _sec("ws_instructions", ws.get("instructions", ""))
+    # Skip instructions if school header already rendered them
+    _school_header_active = (
+        _branding.get("header_style") == "school"
+        and _branding.get("header_enabled", False)
+    )
+    if not _school_header_active:
+        _sec("ws_instructions", ws.get("instructions", ""))
 
     if ws.get("vocabulary_bank"):
         story.extend(_render_vocab_bank(ws.get("vocabulary_bank")))
@@ -1502,15 +1414,7 @@ def build_worksheet_pdf_bytes(
             )
             story.append(Spacer(1, 6))
 
-            box_style = ParagraphStyle(
-                "MatchBox",
-                parent=body_style,
-                fontName=bold_font,
-                fontSize=10.5,
-                leading=14,
-                alignment=1,
-                textColor=colors.HexColor("#0F172A"),
-            )
+            box_style = _S["box_label"]
 
             rows = []
             max_len = max(len(left_items), len(right_items))
@@ -1562,15 +1466,7 @@ def build_worksheet_pdf_bytes(
             story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_questions")), heading_style))
             story.append(Spacer(1, 4))
 
-            tf_label_style = ParagraphStyle(
-                "WsTFLabel",
-                parent=body_style,
-                fontName=bold_font,
-                fontSize=10.5,
-                leading=14,
-                alignment=1,
-                textColor=colors.HexColor("#0F172A"),
-            )
+            tf_label_style = _S["tf_label"]
 
             tf_rows = []
             for idx, item in enumerate(statements, 1):
@@ -1582,15 +1478,17 @@ def build_worksheet_pdf_bytes(
 
             tf_table = Table(
                 tf_rows,
-                colWidths=[12.8 * cm, 3.6 * cm],
+                colWidths=[11.8 * cm, 4.6 * cm],
                 hAlign="LEFT",
                 repeatRows=0,
             )
 
             tf_table.setStyle(TableStyle([
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("LEFTPADDING", (0, 0), (0, -1), 0),
+                ("RIGHTPADDING", (0, 0), (0, -1), 4),
+                ("LEFTPADDING", (1, 0), (1, -1), 2),
+                ("RIGHTPADDING", (1, 0), (1, -1), 2),
                 ("TOPPADDING", (0, 0), (-1, -1), 4),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
             ]))
@@ -1634,23 +1532,8 @@ def build_worksheet_pdf_bytes(
                     story.append(KeepTogether([mc_table, Spacer(1, 4)]))
 
             else:
-                split_at = len(mc_items)
-                if len(mc_items) > 5:
-                    split_at = _balanced_split(len(mc_items))
-
-                first_page = mc_items[:split_at]
-                second_page = mc_items[split_at:]
-
-                for idx, item in enumerate(first_page, 1):
-                    story.append(CondPageBreak(5 * cm))
+                for idx, item in enumerate(mc_items, 1):
                     story.append(KeepTogether(_mc_item_block(item, idx)))
-
-                if second_page:
-                    story.append(PageBreak())
-                    start_idx = len(first_page) + 1
-                    for offset, item in enumerate(second_page):
-                        story.append(CondPageBreak(5 * cm))
-                        story.append(KeepTogether(_mc_item_block(item, start_idx + offset)))
 
     elif ws.get("worksheet_type") == "short_answer" and questions:
         story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_questions")), heading_style))
@@ -1697,12 +1580,16 @@ def build_worksheet_pdf_bytes(
     if not student_only:
         story.append(PageBreak())
 
+        # Answer key page uses smaller, distinct typography
+        ak_heading = _AK["section"]
+        ak_body    = _AK["body"]
+
         if ws.get("worksheet_type") == "word_search_vocab":
             answer_grid = wordsearch_grid
             placements = wordsearch_placements
 
             if answer_grid:
-                story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), heading_style))
+                story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), ak_heading))
                 story.append(Spacer(1, 6))
 
                 hit_cells = set()
@@ -1716,12 +1603,12 @@ def build_worksheet_pdf_bytes(
 
                 grid_cell_style = ParagraphStyle(
                     "GridCellAnswer",
-                    parent=body_style,
+                    parent=ak_body,
                     fontName=bold_font,
                     fontSize=max(10, min(12, int(cell_size / 1.4))),
                     leading=max(10, int(cell_size / 1.2)),
                     alignment=1,
-                    textColor=colors.HexColor("#0F172A"),
+                    textColor=_C.TEXT,
                 )
 
                 table_data = []
@@ -1739,7 +1626,7 @@ def build_worksheet_pdf_bytes(
                 )
 
                 style_cmds = [
-                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#94A3B8")),
+                    ("GRID", (0, 0), (-1, -1), 0.5, _C.GRID),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                     ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                     ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -1749,8 +1636,8 @@ def build_worksheet_pdf_bytes(
                 ]
 
                 for r, c in hit_cells:
-                    style_cmds.append(("BACKGROUND", (c, r), (c, r), colors.HexColor("#DBEAFE")))
-                    style_cmds.append(("BOX", (c, r), (c, r), 1.2, colors.HexColor("#2563EB")))
+                    style_cmds.append(("BACKGROUND", (c, r), (c, r), _C.HIGHLIGHT_BG))
+                    style_cmds.append(("BOX", (c, r), (c, r), 1.2, _C.HIGHLIGHT_BOX))
 
                 ws_answer_table.setStyle(TableStyle(style_cmds))
                 story.append(ws_answer_table)
@@ -1759,47 +1646,49 @@ def build_worksheet_pdf_bytes(
         elif ws.get("worksheet_type") == "matching":
             _, _, answer_map = _build_matching_columns(ws)
             if answer_map:
-                story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), heading_style))
+                story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), ak_heading))
                 for num, letter in answer_map:
-                    story.append(Paragraph(_pdf_safe_text(f"{num} → {letter}"), body_style))
+                    story.append(Paragraph(_pdf_safe_text(f"{num} \u2192 {letter}"), ak_body))
                 story.append(Spacer(1, 6))
 
         elif ws.get("worksheet_type") == "true_false":
             ak = ws.get("answer_key", "")
             if ak:
-                story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), heading_style))
+                story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), ak_heading))
                 for line in _split_answer_key(ak):
-                    story.append(Paragraph(_pdf_safe_text(line), body_style))
+                    story.append(Paragraph(_pdf_safe_text(line), ak_body))
                 story.append(Spacer(1, 6))
 
         elif ws.get("worksheet_type") == "multiple_choice":
             mc_items = _get_multiple_choice_items(ws)
             if mc_items:
-                story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), heading_style))
+                story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), ak_heading))
                 for idx, item in enumerate(mc_items, 1):
                     ans = _normalize_text(item.get("answer", "")).strip()
                     if ans:
-                        story.append(Paragraph(_pdf_safe_text(f"{idx}. {ans}"), body_style))
+                        story.append(Paragraph(_pdf_safe_text(f"{idx}. {ans}"), ak_body))
                 story.append(Spacer(1, 6))
             else:
                 ak = ws.get("answer_key", "")
                 if ak:
-                    story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), heading_style))
+                    story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), ak_heading))
                     for line in _split_answer_key(ak):
-                        story.append(Paragraph(_pdf_safe_text(line), body_style))
+                        story.append(Paragraph(_pdf_safe_text(line), ak_body))
                     story.append(Spacer(1, 6))
 
         else:
             ak = ws.get("answer_key", "")
             if ak:
-                story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), heading_style))
+                story.append(Paragraph(_pdf_safe_text(_t_pdf("ws_answer_key")), ak_heading))
                 for line in _split_answer_key(ak):
-                    story.append(Paragraph(_pdf_safe_text(line), body_style))
+                    story.append(Paragraph(_pdf_safe_text(line), ak_body))
                 story.append(Spacer(1, 6))
 
         _sec("ws_teacher_notes", ws.get("teacher_notes", []))
 
-    doc.build(story)
+    from helpers.branding import build_pdf_footer_handler
+    _footer_handler = build_pdf_footer_handler(_branding, bold_font=body_font)
+    doc.build(story, onFirstPage=_footer_handler, onLaterPages=_footer_handler)
     buf.seek(0)
     return buf.getvalue()
 
