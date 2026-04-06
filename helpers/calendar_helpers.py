@@ -66,7 +66,7 @@ def best_text_color(hex_color: str) -> str:
 def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
     schedules = load_schedules()
     overrides = load_overrides()
-    color_map, zoom_map, _, _ = student_meta_maps()
+    color_map, zoom_map, _, _, address_map = student_meta_maps()
 
     events = []
 
@@ -103,6 +103,7 @@ def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
                         "Duration_Min": duration,
                         "Color": color_map.get(k, "#3B82F6"),
                         "Zoom_Link": zoom_map.get(k, ""),
+                        "Address": address_map.get(k, ""),
                         "Source": "recurring",
                         "Override_ID": None,
                         "Original_Date": dt.date(),
@@ -157,6 +158,7 @@ def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
                             "Duration_Min": duration,
                             "Color": color_map.get(k, "#3B82F6"),
                             "Zoom_Link": zoom_map.get(k, ""),
+                            "Address": address_map.get(k, ""),
                             "Source": "override",
                             "Override_ID": int(row.get("id")) if pd.notna(row.get("id")) else None,
                             "Original_Date": (
@@ -181,6 +183,8 @@ def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
     events_df["Date"] = pd.to_datetime(events_df["DateTime"], errors="coerce").dt.strftime("%Y-%m-%d")
 
     return events_df
+
+register_cache(build_calendar_events)
 
 
 def render_fullcalendar(events: pd.DataFrame, height: int = 750):
@@ -209,6 +213,7 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
     fc_events = []
     for _, r in df.iterrows():
         zoom = str(r.get("Zoom_Link", "") or "").strip()
+        address = str(r.get("Address", "") or "").strip()
         title = str(r.get("Student", "")).strip()
         color = str(r.get("Color", "#3B82F6")).strip()
         tc = best_text_color(color)
@@ -221,7 +226,10 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
                 "backgroundColor": color,
                 "borderColor": color,
                 "textColor": tc,
-                "url": zoom if zoom.startswith("http") else None,
+                "extendedProps": {
+                    "zoom": zoom if zoom.startswith("http") else "",
+                    "address": address,
+                },
             }
         )
 
@@ -242,9 +250,24 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
     all_day_text = t("calendar_all_day")
     more_template = t("calendar_more_template")
 
+    btn_open_zoom = t("open_zoom")
+    btn_open_maps = t("open_maps")
+    btn_close = t("close")
+
     html = f"""
     <div id="calendar-wrap">
       <div id="calendar"></div>
+    </div>
+
+    <!-- Event popup overlay -->
+    <div id="cal-popup-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:9998;" onclick="closeCalPopup()"></div>
+    <div id="cal-popup" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;
+      background:var(--cal-panel,#fff);border:1px solid var(--cal-border);border-radius:16px;padding:20px 24px;
+      min-width:220px;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,0.18);text-align:center;">
+      <div id="cal-popup-title" style="font-weight:700;font-size:1.05rem;margin-bottom:12px;color:var(--cal-text);"></div>
+      <div id="cal-popup-actions" style="display:flex;flex-direction:column;gap:8px;"></div>
+      <button onclick="closeCalPopup()" style="margin-top:14px;padding:6px 18px;border-radius:10px;border:1px solid var(--cal-border);
+        background:transparent;color:var(--cal-text);cursor:pointer;font-size:13px;">{btn_close}</button>
     </div>
 
     <script>
@@ -490,12 +513,51 @@ def render_fullcalendar(events: pd.DataFrame, height: int = 750):
         events: events,
 
         eventClick: function(info) {{
-          if (info.event.url) {{
-            info.jsEvent.preventDefault();
-            window.open(info.event.url, "_blank");
+          info.jsEvent.preventDefault();
+          var props = info.event.extendedProps || {{}};
+          var zoom = props.zoom || "";
+          var address = props.address || "";
+          var title = info.event.title || "";
+
+          if (!zoom && !address) return;
+
+          var popup = document.getElementById("cal-popup");
+          var overlay = document.getElementById("cal-popup-overlay");
+          var titleEl = document.getElementById("cal-popup-title");
+          var actionsEl = document.getElementById("cal-popup-actions");
+
+          titleEl.textContent = title;
+          actionsEl.innerHTML = "";
+
+          if (zoom) {{
+            var btn = document.createElement("a");
+            btn.href = zoom;
+            btn.target = "_blank";
+            btn.rel = "noopener noreferrer";
+            btn.textContent = "🎥 {btn_open_zoom}";
+            btn.style.cssText = "display:block;padding:10px 16px;border-radius:10px;background:rgba(139,92,246,0.14);border:1px solid rgba(139,92,246,0.3);color:var(--cal-text);text-decoration:none;font-size:14px;font-weight:600;";
+            actionsEl.appendChild(btn);
           }}
+
+          if (address) {{
+            var btn2 = document.createElement("a");
+            btn2.href = "https://www.google.com/maps/search/" + encodeURIComponent(address);
+            btn2.target = "_blank";
+            btn2.rel = "noopener noreferrer";
+            btn2.textContent = "📍 {btn_open_maps}";
+            btn2.style.cssText = "display:block;padding:10px 16px;border-radius:10px;background:rgba(16,185,129,0.14);border:1px solid rgba(16,185,129,0.3);color:var(--cal-text);text-decoration:none;font-size:14px;font-weight:600;";
+            actionsEl.appendChild(btn2);
+          }}
+
+          popup.style.display = "block";
+          overlay.style.display = "block";
         }}
       }});
+
+      function closeCalPopup() {{
+        document.getElementById("cal-popup").style.display = "none";
+        document.getElementById("cal-popup-overlay").style.display = "none";
+      }}
 
       calendar.render();
     </script>

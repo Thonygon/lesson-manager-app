@@ -62,6 +62,8 @@ def get_user_branding(user_id: str | None = None) -> dict:
                 "header_style": str(row.get("header_style") or "standard").strip(),
                 "header_enabled": bool(row.get("header_enabled")),
                 "footer_enabled": bool(row.get("footer_enabled")),
+                "branding_font": str(row.get("branding_font") or "dejavu").strip(),
+                "branding_font_size": str(row.get("branding_font_size") or "standard").strip(),
             }
             st.session_state[cache_key] = branding
             return branding
@@ -82,6 +84,8 @@ def _default_branding() -> dict:
         "header_style": "standard",
         "header_enabled": False,
         "footer_enabled": False,
+        "branding_font": "dejavu",
+        "branding_font_size": "standard",
     }
 
 
@@ -93,6 +97,8 @@ def save_user_branding(
     footer_enabled: bool = False,
     header_logo_url: str = "",
     footer_image_url: str = "",
+    branding_font: str = "dejavu",
+    branding_font_size: str = "standard",
 ) -> bool:
     uid = get_current_user_id()
     if not uid:
@@ -100,6 +106,12 @@ def save_user_branding(
 
     if header_style not in ("standard", "school"):
         header_style = "standard"
+
+    from helpers.font_manager import FONT_REGISTRY, SIZE_PRESETS
+    if branding_font not in FONT_REGISTRY:
+        branding_font = "dejavu"
+    if branding_font_size not in SIZE_PRESETS:
+        branding_font_size = "standard"
 
     payload = {
         "user_id": uid,
@@ -110,6 +122,8 @@ def save_user_branding(
         "footer_enabled": bool(footer_enabled),
         "header_logo_url": str(header_logo_url).strip(),
         "footer_image_url": str(footer_image_url).strip(),
+        "branding_font": branding_font,
+        "branding_font_size": branding_font_size,
         "updated_at": _dt.now(timezone.utc).isoformat(),
     }
 
@@ -397,6 +411,10 @@ def _build_school_header(
 
     story.append(Spacer(1, 4))
 
+    # --- Title (centered, before Name/Class/Date) ---
+    story.append(Paragraph(_pdf_safe_text(title), _hs["title"]))
+    story.append(Spacer(1, 4))
+
     # --- Name / Class / Date fields (single row) ---
     name_label = f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('student_name_label'))}:</font> _________________________________"
     class_label = f"<font name='{bold_font}'>{_pdf_safe_text(_t_pdf('class_label'))}:</font> __________"
@@ -416,10 +434,6 @@ def _build_school_header(
 
     story.append(fields_table)
     story.append(Spacer(1, 6))
-
-    # --- Title (centered, after Name/Class/Date) ---
-    story.append(Paragraph(_pdf_safe_text(title), _hs["title"]))
-    story.append(Spacer(1, 4))
 
     # --- Separator line ---
     from reportlab.platypus import HRFlowable
@@ -622,6 +636,39 @@ def render_branding_settings() -> None:
         key="branding_header_style_select",
     )
 
+    # Font selection
+    from helpers.font_manager import get_font_options, get_size_options
+    font_options = get_font_options()
+    font_keys = [k for k, _ in font_options]
+    font_labels = {k: lbl for k, lbl in font_options}
+    current_font = branding.get("branding_font", "dejavu")
+    if current_font not in font_keys:
+        current_font = "dejavu"
+
+    branding_font = st.selectbox(
+        t("branding_font_label"),
+        font_keys,
+        index=font_keys.index(current_font),
+        format_func=lambda x: font_labels.get(x, x),
+        key="branding_font_select",
+    )
+
+    # Font size selection
+    size_options = get_size_options()
+    size_keys = [k for k, _ in size_options]
+    size_labels = {k: t(lbl_key) for k, lbl_key in size_options}
+    current_size = branding.get("branding_font_size", "standard")
+    if current_size not in size_keys:
+        current_size = "standard"
+
+    branding_font_size = st.selectbox(
+        t("branding_font_size_label"),
+        size_keys,
+        index=size_keys.index(current_size),
+        format_func=lambda x: size_labels.get(x, x),
+        key="branding_font_size_select",
+    )
+
     # Enable toggles
     col_h, col_f = st.columns(2)
     with col_h:
@@ -736,6 +783,8 @@ def render_branding_settings() -> None:
             footer_enabled=footer_enabled,
             header_logo_url=new_logo_url,
             footer_image_url=new_footer_url,
+            branding_font=branding_font,
+            branding_font_size=branding_font_size,
         )
         if ok:
             st.success(t("branding_saved"))

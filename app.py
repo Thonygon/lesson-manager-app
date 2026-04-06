@@ -46,6 +46,10 @@ if "show_profile_dialog" not in st.session_state:
 if "home_action_menu_nonce" not in st.session_state:
     st.session_state["home_action_menu_nonce"] = 0
 
+# ── Google Calendar OAuth callback (capture before params are cleared) ──
+_gcal_code = st.query_params.get("code", "")
+_gcal_state = st.query_params.get("state", "")
+
 init_navigation_defaults()
 
 # ── PWA ──
@@ -53,6 +57,19 @@ inject_pwa_head()
 
 # ── Auth gate ──
 require_login()
+
+# ── Process Google Calendar callback after auth ──
+if _gcal_code and _gcal_state == "gcal_connect":
+    from helpers.google_calendar import exchange_code_for_tokens, save_gcal_tokens
+    _tokens = exchange_code_for_tokens(_gcal_code)
+    if _tokens and _tokens.get("refresh_token"):
+        save_gcal_tokens(_tokens)
+        st.session_state["_gcal_just_connected"] = True
+    else:
+        st.session_state["_gcal_connect_failed"] = True
+    st.session_state["page"] = "calendar"
+    _set_query(page="calendar", lang=st.session_state.get("ui_lang", "en"))
+    st.rerun()
 
 # ── Post-login redirect (runs once per session, set by apply_auth_session) ──
 _post_login_action = st.session_state.pop("_post_login_action", None)
@@ -80,6 +97,7 @@ if _post_login_action:
         if _target in PAGE_KEYS:
             st.session_state["page"] = _target
             _set_query(page=_target, lang=st.session_state.get("ui_lang", "en"))
+
 
 # ── Persist last_page so next login can restore it ──
 _current_page_for_last = st.session_state.get("page", "home")

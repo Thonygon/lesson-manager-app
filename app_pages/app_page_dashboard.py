@@ -1,5 +1,6 @@
 import streamlit as st
 import datetime
+import urllib.parse
 from datetime import datetime as _dt, timezone
 import pandas as pd
 from core.i18n import t
@@ -43,7 +44,7 @@ def _svg_whatsapp_icon() -> str:
     </svg>
     """
 
-def _render_today_lessons_cards(df: pd.DataFrame, color_map: dict, phone_map: dict) -> None:
+def _render_today_lessons_cards(df: pd.DataFrame, color_map: dict, phone_map: dict, address_map: dict) -> None:
     st.markdown(
         """
         <style>
@@ -149,6 +150,11 @@ def _render_today_lessons_cards(df: pd.DataFrame, color_map: dict, phone_map: di
             background:rgba(16,185,129,0.12);
             border-color:rgba(16,185,129,0.28);
           }
+
+          .dash-action-chip--maps{
+            background:rgba(234,88,12,0.12);
+            border-color:rgba(234,88,12,0.28);
+          }
         </style>
         """,
         unsafe_allow_html=True,
@@ -167,6 +173,12 @@ def _render_today_lessons_cards(df: pd.DataFrame, color_map: dict, phone_map: di
 
         phone_raw = str(phone_map.get(norm_student(student), "") or "").strip()
         wa_url = build_whatsapp_url("", raw_phone=phone_raw) if phone_raw else ""
+
+        address_raw = str(address_map.get(norm_student(student), "") or "").strip()
+        maps_url = (
+            f"https://www.google.com/maps/search/{urllib.parse.quote(address_raw)}"
+            if address_raw else ""
+        )
 
         info_bits = []
         if subject:
@@ -190,6 +202,12 @@ def _render_today_lessons_cards(df: pd.DataFrame, color_map: dict, phone_map: di
                 f"<a class='dash-action-chip dash-action-chip--wa' "
                 f"href='{_html.escape(wa_url, quote=True)}' target='_blank' rel='noopener noreferrer'>"
                 f"💬 {t('send_whatsapp')}</a>"
+            )
+        if maps_url and address_raw:
+            action_bits.append(
+                f"<a class='dash-action-chip dash-action-chip--maps' "
+                f"href='{_html.escape(maps_url, quote=True)}' target='_blank' rel='noopener noreferrer'>"
+                f"📍 {t('open_maps')}</a>"
             )
 
         time_html = (
@@ -320,8 +338,8 @@ def render_dashboard():
 
         today_df = df.copy()
 
-        color_map, _, _, phone_map = student_meta_maps()
-        _render_today_lessons_cards(df, color_map, phone_map)
+        color_map, _, _, phone_map, address_map = student_meta_maps()
+        _render_today_lessons_cards(df, color_map, phone_map, address_map)
 
     # ---------------------------------------
     # TAKE ACTION
@@ -335,7 +353,7 @@ def render_dashboard():
     if due_df.empty:
         st.caption(t("no_data"))
     else:
-        color_map, _, _, _ = student_meta_maps()
+        color_map, _, _, _, _ = student_meta_maps()
         for _, row in due_df.iterrows():
             student = str(row.get("Student", ""))
             lessons_left = int(row.get("Lessons_Left", 0))
@@ -417,7 +435,7 @@ def render_dashboard():
     )
 
     # Phone map
-    _, _, _, phone_map = student_meta_maps()
+    _, _, _, phone_map, _ = student_meta_maps()
 
     # Decide eligible list + pick student
     pick = ""

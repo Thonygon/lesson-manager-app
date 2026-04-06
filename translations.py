@@ -309,6 +309,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "no_contact_info": "No contact info on file",
         "no_profile_data": "No data — please complete the student profile.",
         "open_zoom": "Open Zoom",
+        "open_maps": "Open Maps",
+        "address": "Address",
         "share_report_hint": "Download the PDF first, then attach it to your WhatsApp or email message.",
         "total_lessons": "Total lessons",
         "total_paid": "Total paid",
@@ -510,9 +512,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "untitled_plan": "Untitled plan",
         "author_name": "Author",
         "source_type": "Source",
-        "download_pdf": "Download PDF",
-        "download_student_pdf": "📄 Student worksheet",
-        "download_teacher_pdf": "📋 Teacher version",
+        "download_pdf": "Download PDF (recommended)",
+        "download_student_pdf": "📄 Student PDF (recommended)",
+        "download_teacher_pdf": "📋 Teacher PDF (recommended)",
 
         # -------------------------
         # WORKSHEET MAKER
@@ -850,6 +852,24 @@ I18N: Dict[str, Dict[str, str]] = {
         "original_date": "Original date",
         "new_datetime": "New date",
 
+        # schedule type
+        "schedule_type": "Schedule type",
+        "schedule_weekly": "Weekly (recurring)",
+        "schedule_one_time": "One-time lesson",
+        "date": "Date",
+
+        # Google Calendar
+        "gcal_title": "Google Calendar",
+        "gcal_connect": "Connect Google Calendar",
+        "gcal_disconnect": "Disconnect Google Calendar",
+        "gcal_connected": "Google Calendar connected successfully!",
+        "gcal_disconnected": "Google Calendar disconnected.",
+        "gcal_connect_failed": "Could not connect to Google Calendar. Please try again.",
+        "gcal_status_connected": "✅ Google Calendar is connected.",
+        "gcal_not_connected": "Connect your Google Calendar to automatically sync your lessons.",
+        "gcal_auto_sync": "Auto-sync new lessons to Google Calendar",
+        "gcal_sync_hint": "New lessons and rescheduled classes will be added to your Google Calendar automatically.",
+
         # -------------------------
         # ANALYTICS PAGE
         # -------------------------
@@ -1161,6 +1181,23 @@ I18N: Dict[str, Dict[str, str]] = {
         "date_label": "Date",
         "student_name_label": "Name",
         "class_label": "Class",
+        # --- Font & Word Export ---
+        "branding_font_label": "📝 Document font",
+        "branding_font_size_label": "📐 Font size preset",
+        "font_label_dejavu": "Modern — DejaVu Sans (Default)",
+        "font_label_open_sans": "Clean Modern — Open Sans",
+        "font_label_yavuz": "Turkish School — Yavuz Bağıd Dik Temel",
+        "font_label_arial": "Classic — Arial",
+        "font_label_calibri": "School Standard — Calibri",
+        "font_label_times": "Academic — Times New Roman",
+        "font_label_comic_sans": "Friendly — Comic Sans",
+        "font_size_compact": "Compact",
+        "font_size_standard": "Standard",
+        "font_size_large": "Large",
+        "font_size_exam_style": "Exam Style",
+        "download_word": "📝 Download Word (editable)",
+        "download_student_word": "📝 Student Word (editable)",
+        "download_teacher_word": "📝 Teacher Word (editable)",
         # --- Quick Exam Builder ---
         "quick_exam_builder": "Quick Exam Builder",
         "quick_exam_builder_caption": "Generate a full multi-section exam in seconds",
@@ -1492,6 +1529,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "no_contact_info": "No hay información de contacto",
         "no_profile_data": "Sin datos — por favor completa el perfil del estudiante.",
         "open_zoom": "Abrir Zoom",
+        "open_maps": "Abrir Maps",
+        "address": "Dirección",
         "share_report_hint": "Descarga el PDF primero y luego adjúntalo a tu mensaje de WhatsApp o correo.",
         "total_lessons": "Total de clases",
         "total_paid": "Total pagado",
@@ -1693,9 +1732,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "untitled_plan": "Plan sin título",
         "author_name": "Autor",
         "source_type": "Fuente",
-        "download_pdf": "Descargar PDF",
-        "download_student_pdf": "📄 Hoja del estudiante",
-        "download_teacher_pdf": "📋 Versión del profesor",
+        "download_pdf": "Descargar PDF (recomendado)",
+        "download_student_pdf": "📄 PDF del estudiante (recomendado)",
+        "download_teacher_pdf": "📋 PDF del profesor (recomendado)",
 
         # -------------------------
         # WORKSHEET MAKER
@@ -2035,6 +2074,24 @@ I18N: Dict[str, Dict[str, str]] = {
         "original_date": "Fecha original",
         "new_datetime": "Fecha nueva",
 
+        # schedule type
+        "schedule_type": "Tipo de programación",
+        "schedule_weekly": "Semanal (recurrente)",
+        "schedule_one_time": "Clase única",
+        "date": "Fecha",
+
+        # Google Calendar
+        "gcal_title": "Google Calendar",
+        "gcal_connect": "Conectar Google Calendar",
+        "gcal_disconnect": "Desconectar Google Calendar",
+        "gcal_connected": "¡Google Calendar conectado con éxito!",
+        "gcal_disconnected": "Google Calendar desconectado.",
+        "gcal_connect_failed": "No se pudo conectar con Google Calendar. Inténtalo de nuevo.",
+        "gcal_status_connected": "✅ Google Calendar está conectado.",
+        "gcal_not_connected": "Conecta tu Google Calendar para sincronizar tus clases automáticamente.",
+        "gcal_auto_sync": "Sincronizar clases nuevas con Google Calendar",
+        "gcal_sync_hint": "Las clases nuevas y reprogramadas se añadirán a tu Google Calendar automáticamente.",
+
         # -------------------------
         # ANALYTICS PAGE
         # -------------------------
@@ -2346,6 +2403,23 @@ I18N: Dict[str, Dict[str, str]] = {
         "date_label": "Fecha",
         "student_name_label": "Nombre",
         "class_label": "Clase",
+        # --- Font & Word Export ---
+        "branding_font_label": "📝 Fuente del documento",
+        "branding_font_size_label": "📐 Tamaño de fuente",
+        "font_label_dejavu": "Moderna — DejaVu Sans (Predeterminada)",
+        "font_label_open_sans": "Moderna Limpia — Open Sans",
+        "font_label_yavuz": "Escuela Turca — Yavuz Bağıd Dik Temel",
+        "font_label_arial": "Clásica — Arial",
+        "font_label_calibri": "Estándar Escolar — Calibri",
+        "font_label_times": "Académica — Times New Roman",
+        "font_label_comic_sans": "Amigable — Comic Sans",
+        "font_size_compact": "Compacto",
+        "font_size_standard": "Estándar",
+        "font_size_large": "Grande",
+        "font_size_exam_style": "Estilo examen",
+        "download_word": "📝 Descargar Word (editable)",
+        "download_student_word": "📝 Word del alumno (editable)",
+        "download_teacher_word": "📝 Word del profesor (editable)",
         # --- Quick Exam Builder ---
         "quick_exam_builder": "Generador rápido de exámenes",
         "quick_exam_builder_caption": "Genera un examen completo con múltiples secciones en segundos",
@@ -2677,6 +2751,8 @@ I18N: Dict[str, Dict[str, str]] = {
         "no_contact_info": "Kayıtlı iletişim bilgisi yok",
         "no_profile_data": "Veri yok — lütfen öğrenci profilini doldurun.",
         "open_zoom": "Zoom'u aç",
+        "open_maps": "Haritayı aç",
+        "address": "Adres",
         "share_report_hint": "Önce PDF'i indirin, ardından WhatsApp veya e-posta mesajınıza ekleyin.",
         "total_lessons": "Toplam ders",
         "total_paid": "Toplam ödenen",
@@ -2877,9 +2953,9 @@ I18N: Dict[str, Dict[str, str]] = {
         "close_plan": "Planı kapat",
         "untitled_plan": "Başlıksız plan",
         "author_name": "Yazar",
-        "download_pdf": "PDF indir",
-        "download_student_pdf": "📄 Öğrenci çalışma kağıdı",
-        "download_teacher_pdf": "📋 Öğretmen versiyonu",
+        "download_pdf": "PDF indir (önerilen)",
+        "download_student_pdf": "📄 Öğrenci PDF (önerilen)",
+        "download_teacher_pdf": "📋 Öğretmen PDF (önerilen)",
 
         # -------------------------
         # WORKSHEET MAKER
@@ -3209,6 +3285,24 @@ I18N: Dict[str, Dict[str, str]] = {
         "original_date": "Orijinal tarih",
         "new_datetime": "Yeni tarih",
 
+        # schedule type
+        "schedule_type": "Program türü",
+        "schedule_weekly": "Haftalık (tekrarlayan)",
+        "schedule_one_time": "Tek seferlik ders",
+        "date": "Tarih",
+
+        # Google Calendar
+        "gcal_title": "Google Calendar",
+        "gcal_connect": "Google Calendar bağla",
+        "gcal_disconnect": "Google Calendar bağlantısını kes",
+        "gcal_connected": "Google Calendar başarıyla bağlandı!",
+        "gcal_disconnected": "Google Calendar bağlantısı kesildi.",
+        "gcal_connect_failed": "Google Calendar'a bağlanılamadı. Lütfen tekrar deneyin.",
+        "gcal_status_connected": "✅ Google Calendar bağlı.",
+        "gcal_not_connected": "Derslerinizi otomatik senkronize etmek için Google Calendar'ınızı bağlayın.",
+        "gcal_auto_sync": "Yeni dersleri Google Calendar ile otomatik senkronize et",
+        "gcal_sync_hint": "Yeni dersler ve ertelenen dersler Google Calendar'ınıza otomatik olarak eklenecek.",
+
         # -------------------------
         # ANALYTICS PAGE
         # -------------------------
@@ -3516,6 +3610,23 @@ I18N: Dict[str, Dict[str, str]] = {
         "date_label": "Tarih",
         "student_name_label": "İsim",
         "class_label": "Sınıf",
+        # --- Font & Word Export ---
+        "branding_font_label": "📝 Belge yazı tipi",
+        "branding_font_size_label": "📐 Yazı tipi boyutu",
+        "font_label_dejavu": "Modern — DejaVu Sans (Varsayılan)",
+        "font_label_open_sans": "Temiz Modern — Open Sans",
+        "font_label_yavuz": "Türk Okulu — Yavuz Bağıd Dik Temel",
+        "font_label_arial": "Klasik — Arial",
+        "font_label_calibri": "Okul Standardı — Calibri",
+        "font_label_times": "Akademik — Times New Roman",
+        "font_label_comic_sans": "Samimi — Comic Sans",
+        "font_size_compact": "Kompakt",
+        "font_size_standard": "Standart",
+        "font_size_large": "Büyük",
+        "font_size_exam_style": "Sınav Stili",
+        "download_word": "📝 Word İndir (düzenlenebilir)",
+        "download_student_word": "📝 Öğrenci Word (düzenlenebilir)",
+        "download_teacher_word": "📝 Öğretmen Word (düzenlenebilir)",
         # --- Quick Exam Builder ---
         "quick_exam_builder": "Hızlı Sınav Oluşturucu",
         "quick_exam_builder_caption": "Saniyeler içinde çok bölümlü bir sınav oluşturun",

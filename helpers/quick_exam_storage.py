@@ -303,8 +303,17 @@ def build_exam_pdf_bytes(
     from reportlab.lib import colors
 
     body_font, bold_font = ensure_pdf_fonts_registered()
+
+    # Use user's font/size preference
+    from helpers.branding import get_user_branding as _get_branding_cfg
+    _branding_cfg = _get_branding_cfg()
+    _font_key = _branding_cfg.get("branding_font", "dejavu")
+    _size_key = _branding_cfg.get("branding_font_size", "standard")
+
+    from helpers.font_manager import register_font_for_pdf
+    body_font, bold_font = register_font_for_pdf(_font_key)
     _L = get_pdf_layout_constants()
-    _S = get_student_pdf_styles(body_font, bold_font)
+    _S = get_student_pdf_styles(body_font, bold_font, size_preset=_size_key)
 
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, **_L["margins"])
@@ -548,8 +557,17 @@ def build_exam_answer_pdf_bytes(
     )
 
     body_font, bold_font = ensure_pdf_fonts_registered()
+
+    # Use user's font/size preference
+    from helpers.branding import get_user_branding as _get_branding_cfg2
+    _branding_cfg2 = _get_branding_cfg2()
+    _font_key2 = _branding_cfg2.get("branding_font", "dejavu")
+    _size_key2 = _branding_cfg2.get("branding_font_size", "standard")
+
+    from helpers.font_manager import register_font_for_pdf as _rfp2
+    body_font, bold_font = _rfp2(_font_key2)
     _L = get_pdf_layout_constants()
-    _AK = get_answer_key_pdf_styles(body_font, bold_font)
+    _AK = get_answer_key_pdf_styles(body_font, bold_font, size_preset=_size_key2)
 
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, **_L["margins"])

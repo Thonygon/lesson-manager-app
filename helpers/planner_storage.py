@@ -242,7 +242,20 @@ def _inject_planner_result_css() -> None:
     )
 
 
+def _canonical_subject_display(subject: str) -> str:
+    """Return a consistent Title Case English label for storage.
+
+    Always language-independent so the DB column stays clean.
+    Translated labels are computed at display time instead.
+    """
+    s = str(subject or "").strip()
+    if not s:
+        return ""
+    return _clean_display_text(s.replace("_", " "))
+
+
 def _translated_subject_display(subject: str) -> str:
+    """Return a UI-language-translated label (for display only, NOT for DB storage)."""
     s = str(subject or "").strip()
     if not s:
         return ""
@@ -498,7 +511,7 @@ def planner_payload_from_inputs(
             "plan_json": plan,
             "title": _clean_display_text(plan.get("title") or ""),
             "author_name": str(st.session_state.get("user_name") or t("unknown")).strip(),
-            "subject_display": _translated_subject_display(subject),
+            "subject_display": _canonical_subject_display(subject),
             "is_public": resolve_is_public(),
             "created_at": _dt.now(timezone.utc).isoformat(),
         }
@@ -885,15 +898,37 @@ def render_quick_lesson_plan_result(
     )
     safe_title = _safe_title_from_plan(plan)
 
+    # Word export
+    from helpers.docx_generator import generate_docx_lesson_plan
+    docx_bytes = generate_docx_lesson_plan(
+        plan,
+        subject=subject,
+        topic=topic,
+        learner_stage=learner_stage,
+        level_or_band=level_or_band,
+        lesson_purpose=lesson_purpose,
+    )
+
     if read_only:
-        st.download_button(
-            label=t("download_pdf"),
-            data=pdf_bytes,
-            file_name=f"{safe_title}.pdf",
-            mime="application/pdf",
-            key=f"{action_key_prefix}_download_pdf",
-            use_container_width=True,
-        )
+        dc1, dc2 = st.columns(2)
+        with dc1:
+            st.download_button(
+                label=t("download_pdf"),
+                data=pdf_bytes,
+                file_name=f"{safe_title}.pdf",
+                mime="application/pdf",
+                key=f"{action_key_prefix}_download_pdf",
+                use_container_width=True,
+            )
+        with dc2:
+            st.download_button(
+                label=t("download_word"),
+                data=docx_bytes,
+                file_name=f"{safe_title}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key=f"{action_key_prefix}_download_docx",
+                use_container_width=True,
+            )
         return
 
     if resolved_mode == "template":
@@ -930,6 +965,14 @@ def render_quick_lesson_plan_result(
             if st.button(t("close"), key="btn_close_quick_plan", use_container_width=True):
                 _lp().reset_quick_lesson_planner_state()
                 st.rerun()
+        st.download_button(
+            label=t("download_word"),
+            data=docx_bytes,
+            file_name=f"{safe_title}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key=f"{action_key_prefix}_download_docx_inline",
+            use_container_width=True,
+        )
     else:
         a1, a2 = st.columns(2)
         with a1:
@@ -942,9 +985,17 @@ def render_quick_lesson_plan_result(
                 use_container_width=True,
             )
         with a2:
-            if st.button(t("close"), key="btn_close_quick_plan", use_container_width=True):
-                _lp().reset_quick_lesson_planner_state()
-                st.rerun()
+            st.download_button(
+                label=t("download_word"),
+                data=docx_bytes,
+                file_name=f"{safe_title}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key=f"{action_key_prefix}_download_docx_inline2",
+                use_container_width=True,
+            )
+        if st.button(t("close"), key="btn_close_quick_plan", use_container_width=True):
+            _lp().reset_quick_lesson_planner_state()
+            st.rerun()
 
 
 # ============================================================
@@ -985,7 +1036,16 @@ def build_lesson_plan_pdf_bytes(
     )
 
     body_font, bold_font = ensure_pdf_fonts_registered()
-    _PS = get_plan_pdf_styles(body_font, bold_font)
+
+    # Use user's font/size preference
+    from helpers.branding import get_user_branding as _get_branding
+    _branding_cfg = _get_branding()
+    _font_key = _branding_cfg.get("branding_font", "dejavu")
+    _size_key = _branding_cfg.get("branding_font_size", "standard")
+
+    from helpers.font_manager import register_font_for_pdf
+    body_font, bold_font = register_font_for_pdf(_font_key)
+    _PS = get_plan_pdf_styles(body_font, bold_font, size_preset=_size_key)
     _L = get_pdf_layout_constants()
 
     buffer = BytesIO()

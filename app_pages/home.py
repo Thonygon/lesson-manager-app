@@ -358,6 +358,12 @@ def render_home():
         or "User"
     )
 
+    # ---------- CHOOSE ROLE DIALOG (new users — must run BEFORE welcome page) ----------
+    if st.session_state.get("show_choose_role_dialog"):
+        st.session_state["show_choose_role_dialog"] = False
+        render_choose_role_dialog(user_id)
+        return
+
     # ---------- WELCOME PAGE ----------
     from app_pages.render_home_welcome import render_home_welcome
 
@@ -477,11 +483,6 @@ def render_home():
     # ---------- SIGN OUT CONFIRMATION ----------
     if st.session_state.get("confirm_sign_out"):
         st.warning(t("confirm_sign_out_msg"))
-
-    # ---------- CHOOSE ROLE DIALOG (new users) ----------
-    if st.session_state.get("show_choose_role_dialog"):
-        st.session_state["show_choose_role_dialog"] = False
-        render_choose_role_dialog(user_id)
 
     # ---------- CHOOSE USERNAME DIALOG ----------
     if st.session_state.get("show_choose_username_dialog"):

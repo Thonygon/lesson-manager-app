@@ -332,6 +332,19 @@ def _normalize_answer(s: str) -> str:
     return re.sub(r"\s+", " ", str(s).strip().lower())
 
 
+def _answer_words(s: str) -> set[str]:
+    """Extract meaningful words from a normalized answer, dropping stop words."""
+    _STOP = {
+        "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+        "it", "its", "to", "of", "in", "on", "at", "for", "and", "or", "but",
+        "by", "as", "with", "from", "that", "this", "also", "very", "than",
+        "not", "no", "do", "does", "did", "has", "have", "had", "will",
+        "can", "could", "would", "should", "may", "might",
+    }
+    words = set(re.findall(r"[a-z0-9]+", s.lower()))
+    return words - _STOP
+
+
 def _strip_leading_number(text: str) -> str:
     """Remove leading numbering like '1. ', '2) ', '3- ', 'A. ', 'B) ' from text."""
     return re.sub(r"^[A-Za-z0-9]+[\.\)\-]\s*", "", text.strip())
@@ -619,6 +632,16 @@ def _check_answer(ex_type: str, student: str, correct) -> bool:
     # Check if student answer is contained in correct (handles extra words)
     if c in s or s in c:
         return True
+
+    # Word-overlap scoring for short_answer / reading_comprehension / open types
+    # Accept if ≥55% of the key words from the correct answer appear in the
+    # student response. This handles paraphrasing, quoting from a passage, etc.
+    c_words = _answer_words(c)
+    if c_words:
+        s_words = _answer_words(s)
+        overlap = len(c_words & s_words)
+        if overlap / len(c_words) >= 0.55:
+            return True
 
     return False
 
