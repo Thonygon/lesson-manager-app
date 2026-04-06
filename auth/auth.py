@@ -45,6 +45,7 @@ def _get_logged_in_email() -> str:
 def _ensure_profile_for_oidc_user() -> str:
     """
     Ensure a profile row exists for the currently logged-in OIDC user.
+    Also ensures a matching row in auth.users (required by FK constraints).
     Returns user_id if a profile exists or is created, else "".
     """
     email = _get_logged_in_email()
@@ -56,9 +57,28 @@ def _ensure_profile_for_oidc_user() -> str:
         return str(existing.get("user_id") or "").strip()
 
     try:
-        import uuid
+        import secrets
+        sb = get_sb()
 
-        user_id = str(uuid.uuid4())
+        # Create an auth.users entry so FK constraints on worksheets etc. are satisfied.
+        # email_confirm=True auto-confirms (no email sent) — correct for Google OAuth.
+        random_password = secrets.token_urlsafe(32)
+        user_id = ""
+        try:
+            auth_resp = sb.auth.admin.create_user({
+                "email": email,
+                "password": random_password,
+                "email_confirm": True,
+            })
+            user_id = str(auth_resp.user.id)
+        except Exception:
+            # User likely already exists in auth.users (e.g. from a previous attempt).
+            # Search through paginated list_users to find them.
+            user_id = _find_auth_user_by_email(sb, email)
+
+        if not user_id:
+            return ""
+
         display_name = str(getattr(st.user, "name", "") or "").strip()
 
         ok = upsert_profile_row(
@@ -82,6 +102,29 @@ def _ensure_profile_for_oidc_user() -> str:
         return user_id if ok else ""
     except Exception:
         return ""
+
+
+def _find_auth_user_by_email(sb, email: str) -> str:
+    """
+    Search Supabase auth.users for a user by email, handling pagination.
+    Returns the user's id as a string, or "" if not found.
+    """
+    try:
+        page = 1
+        per_page = 1000
+        while True:
+            users = sb.auth.admin.list_users(page=page, per_page=per_page)
+            if not users:
+                break
+            for u in users:
+                if getattr(u, "email", "") == email:
+                    return str(u.id)
+            if len(users) < per_page:
+                break
+            page += 1
+    except Exception:
+        pass
+    return ""
 
 
 def _restore_user_from_email() -> str:
@@ -108,18 +151,23 @@ def _restore_user_from_email() -> str:
         if not user_id:
             return ""
 
+        # Sync Google display name to profile if missing
+        google_name = str(getattr(st.user, "name", "") or "").strip()
+        profile_name = str(row.get("display_name") or "").strip()
+        if google_name and not profile_name:
+            upsert_profile_row(user_id, {"display_name": google_name})
+            profile_name = google_name
+
         oidc_user = {
             "email": email,
             "user_metadata": {
-                "display_name": str(
-                    getattr(st.user, "name", "") or row.get("display_name") or ""
-                ).strip(),
+                "display_name": google_name or profile_name,
             },
         }
 
         _set_logged_in_user(
             oidc_user,
-            profile_name=str(row.get("display_name") or "").strip(),
+            profile_name=profile_name or google_name,
             profile_username=str(row.get("username") or "").strip(),
             user_id=user_id,
             user_role=str(row.get("role") or "teacher").strip(),

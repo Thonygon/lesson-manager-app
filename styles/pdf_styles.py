@@ -75,6 +75,7 @@ def ensure_pdf_fonts_registered() -> tuple[str, str]:
         return BODY_FONT_NAME, BOLD_FONT_NAME
 
     from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.pdfmetrics import registerFontFamily
     from reportlab.pdfbase.ttfonts import TTFont
 
     for regular_path, bold_path in _FONT_CANDIDATES:
@@ -82,6 +83,13 @@ def ensure_pdf_fonts_registered() -> tuple[str, str]:
             try:
                 pdfmetrics.registerFont(TTFont(BODY_FONT_NAME, regular_path))
                 pdfmetrics.registerFont(TTFont(BOLD_FONT_NAME, bold_path))
+                registerFontFamily(
+                    BODY_FONT_NAME,
+                    normal=BODY_FONT_NAME,
+                    bold=BOLD_FONT_NAME,
+                    italic=BODY_FONT_NAME,
+                    boldItalic=BOLD_FONT_NAME,
+                )
                 _fonts_registered = True
                 return BODY_FONT_NAME, BOLD_FONT_NAME
             except Exception:
@@ -173,6 +181,7 @@ def get_pdf_layout_constants() -> dict:
 def get_student_pdf_styles(
     body_font: str = "",
     bold_font: str = "",
+    size_preset: str = "",
 ) -> dict:
     """
     Return a dict of ParagraphStyle objects for student-facing PDFs
@@ -185,13 +194,19 @@ def get_student_pdf_styles(
     bf, bld = _resolve_fonts(body_font, bold_font)
     styles = getSampleStyleSheet()
 
+    # Dynamic sizing from preset
+    from helpers.font_manager import get_font_sizes
+    sz = get_font_sizes(size_preset) if size_preset else {"title": 16, "section": 13, "body": 11, "leading_ratio": 1.35}
+    t_sz, sec_sz, b_sz = sz["title"], sz["section"], sz["body"]
+    lr = sz.get("leading_ratio", 1.35)
+
     return {
         "title": ParagraphStyle(
             "CL_WsTitle",
             parent=styles["Title"],
             fontName=bld,
-            fontSize=16,
-            leading=20,
+            fontSize=t_sz,
+            leading=round(t_sz * lr),
             textColor=C.PRIMARY,
             spaceAfter=8,
         ),
@@ -199,8 +214,8 @@ def get_student_pdf_styles(
             "CL_WsSection",
             parent=styles["Heading2"],
             fontName=bld,
-            fontSize=13,
-            leading=16,
+            fontSize=sec_sz,
+            leading=round(sec_sz * lr),
             textColor=C.TEXT,
             spaceBefore=8,
             spaceAfter=4,
@@ -209,8 +224,8 @@ def get_student_pdf_styles(
             "CL_WsInstruction",
             parent=styles["BodyText"],
             fontName=bf,
-            fontSize=11,
-            leading=15,
+            fontSize=b_sz,
+            leading=round(b_sz * lr),
             textColor=C.TEXT,
             spaceAfter=4,
             alignment=TA_JUSTIFY,
@@ -219,8 +234,8 @@ def get_student_pdf_styles(
             "CL_WsBody",
             parent=styles["BodyText"],
             fontName=bf,
-            fontSize=11,
-            leading=15,
+            fontSize=b_sz,
+            leading=round(b_sz * lr),
             textColor=C.TEXT,
             spaceAfter=3,
             alignment=TA_JUSTIFY,
@@ -229,8 +244,8 @@ def get_student_pdf_styles(
             "CL_WsBodyLeft",
             parent=styles["BodyText"],
             fontName=bf,
-            fontSize=11,
-            leading=15,
+            fontSize=b_sz,
+            leading=round(b_sz * lr),
             textColor=C.TEXT,
             spaceAfter=3,
             alignment=TA_LEFT,
@@ -239,8 +254,8 @@ def get_student_pdf_styles(
             "CL_WsSmall",
             parent=styles["BodyText"],
             fontName=bf,
-            fontSize=9,
-            leading=12,
+            fontSize=b_sz - 2,
+            leading=round((b_sz - 2) * lr),
             textColor=C.TEXT_MUTED,
             spaceAfter=2,
         ),
@@ -256,16 +271,16 @@ def get_student_pdf_styles(
             "CL_WsNameClass",
             parent=styles["BodyText"],
             fontName=bf,
-            fontSize=10.5,
-            leading=14,
+            fontSize=b_sz - 0.5,
+            leading=round((b_sz - 0.5) * lr),
             textColor=C.TEXT,
         ),
         "mc_stem": ParagraphStyle(
             "CL_WsMcStem",
             parent=styles["BodyText"],
             fontName=bld,
-            fontSize=11,
-            leading=15,
+            fontSize=b_sz,
+            leading=round(b_sz * lr),
             textColor=C.TEXT,
             spaceAfter=2,
             alignment=TA_JUSTIFY,
@@ -274,8 +289,8 @@ def get_student_pdf_styles(
             "CL_WsMcOption",
             parent=styles["BodyText"],
             fontName=bf,
-            fontSize=11,
-            leading=14,
+            fontSize=b_sz,
+            leading=round(b_sz * lr) - 1,
             textColor=C.TEXT,
             spaceAfter=1,
         ),
@@ -283,8 +298,8 @@ def get_student_pdf_styles(
             "CL_WsLine",
             parent=styles["BodyText"],
             fontName=bf,
-            fontSize=11,
-            leading=17,
+            fontSize=b_sz,
+            leading=round(b_sz * 1.55),
             textColor=C.TEXT,
             spaceAfter=2,
         ),
@@ -292,8 +307,8 @@ def get_student_pdf_styles(
             "CL_WsBoxLabel",
             parent=styles["BodyText"],
             fontName=bld,
-            fontSize=11,
-            leading=15,
+            fontSize=b_sz,
+            leading=round(b_sz * lr),
             alignment=TA_CENTER,
             textColor=C.TEXT,
         ),
@@ -301,8 +316,8 @@ def get_student_pdf_styles(
             "CL_WsTFLabel",
             parent=styles["BodyText"],
             fontName=bld,
-            fontSize=11,
-            leading=15,
+            fontSize=b_sz,
+            leading=round(b_sz * lr),
             alignment=TA_CENTER,
             textColor=C.TEXT,
         ),
@@ -314,6 +329,7 @@ def get_student_pdf_styles(
 def get_plan_pdf_styles(
     body_font: str = "",
     bold_font: str = "",
+    size_preset: str = "",
 ) -> dict:
     """
     Return ParagraphStyle objects for lesson plan PDFs.
@@ -323,13 +339,22 @@ def get_plan_pdf_styles(
     bf, bld = _resolve_fonts(body_font, bold_font)
     styles = getSampleStyleSheet()
 
+    from helpers.font_manager import get_font_sizes
+    sz = get_font_sizes(size_preset) if size_preset else {"title": 15, "section": 12.5, "body": 10.5, "leading_ratio": 1.35}
+    t_sz, sec_sz, b_sz = sz["title"], sz["section"], sz["body"]
+    lr = sz.get("leading_ratio", 1.35)
+    # Plan uses slightly smaller defaults — scale from preset
+    plan_t = t_sz - 1
+    plan_sec = sec_sz - 0.5
+    plan_b = b_sz - 0.5
+
     return {
         "title": ParagraphStyle(
             "CL_PlanTitle",
             parent=styles["Title"],
             fontName=bld,
-            fontSize=15,
-            leading=19,
+            fontSize=plan_t,
+            leading=round(plan_t * lr),
             textColor=C.PRIMARY,
             spaceAfter=6,
             alignment=TA_CENTER,
@@ -338,8 +363,8 @@ def get_plan_pdf_styles(
             "CL_PlanSection",
             parent=styles["Heading2"],
             fontName=bld,
-            fontSize=12.5,
-            leading=16,
+            fontSize=plan_sec,
+            leading=round(plan_sec * lr),
             textColor=C.TEXT,
             spaceBefore=8,
             spaceAfter=5,
@@ -348,8 +373,8 @@ def get_plan_pdf_styles(
             "CL_PlanBody",
             parent=styles["BodyText"],
             fontName=bf,
-            fontSize=10.5,
-            leading=14,
+            fontSize=plan_b,
+            leading=round(plan_b * lr),
             textColor=C.TEXT,
             spaceAfter=3,
         ),
@@ -357,8 +382,8 @@ def get_plan_pdf_styles(
             "CL_PlanSmall",
             parent=styles["BodyText"],
             fontName=bf,
-            fontSize=9,
-            leading=12,
+            fontSize=plan_b - 1.5,
+            leading=round((plan_b - 1.5) * lr),
             textColor=C.TEXT_MUTED,
             spaceAfter=2,
         ),
@@ -366,8 +391,8 @@ def get_plan_pdf_styles(
             "CL_PlanCardTitle",
             parent=styles["Heading3"],
             fontName=bld,
-            fontSize=10.5,
-            leading=13,
+            fontSize=plan_b,
+            leading=round(plan_b * lr),
             textColor=C.TEXT,
             spaceAfter=3,
         ),
@@ -375,8 +400,8 @@ def get_plan_pdf_styles(
             "CL_PlanMeta",
             parent=styles["BodyText"],
             fontName=bf,
-            fontSize=9.5,
-            leading=12,
+            fontSize=plan_b - 1,
+            leading=round((plan_b - 1) * lr),
             textColor=C.TEXT_MUTED,
             spaceAfter=5,
         ),
@@ -392,8 +417,8 @@ def get_plan_pdf_styles(
             "CL_PlanBrand",
             parent=styles["Heading2"],
             fontName=bld,
-            fontSize=13,
-            leading=16,
+            fontSize=sec_sz,
+            leading=round(sec_sz * lr),
             textColor=C.PRIMARY,
             spaceAfter=3,
             alignment=TA_CENTER,
@@ -406,6 +431,7 @@ def get_plan_pdf_styles(
 def get_answer_key_pdf_styles(
     body_font: str = "",
     bold_font: str = "",
+    size_preset: str = "",
 ) -> dict:
     """
     Return ParagraphStyle objects for answer key PDFs.
@@ -415,13 +441,22 @@ def get_answer_key_pdf_styles(
     bf, bld = _resolve_fonts(body_font, bold_font)
     styles = getSampleStyleSheet()
 
+    from helpers.font_manager import get_font_sizes
+    sz = get_font_sizes(size_preset) if size_preset else {"title": 14, "section": 12, "body": 10, "leading_ratio": 1.35}
+    t_sz, sec_sz, b_sz = sz["title"], sz["section"], sz["body"]
+    lr = sz.get("leading_ratio", 1.35)
+    # Answer key uses smaller sizing
+    ak_t = t_sz - 2
+    ak_sec = sec_sz - 1
+    ak_b = b_sz - 1
+
     return {
         "title": ParagraphStyle(
             "CL_AKTitle",
             parent=styles["Title"],
             fontName=bld,
-            fontSize=14,
-            leading=18,
+            fontSize=ak_t,
+            leading=round(ak_t * lr),
             textColor=C.PRIMARY,
             spaceAfter=6,
         ),
@@ -429,8 +464,8 @@ def get_answer_key_pdf_styles(
             "CL_AKSection",
             parent=styles["Heading2"],
             fontName=bld,
-            fontSize=12,
-            leading=15,
+            fontSize=ak_sec,
+            leading=round(ak_sec * lr),
             textColor=C.TEXT,
             spaceBefore=6,
             spaceAfter=4,
@@ -439,8 +474,8 @@ def get_answer_key_pdf_styles(
             "CL_AKBody",
             parent=styles["BodyText"],
             fontName=bf,
-            fontSize=10,
-            leading=14,
+            fontSize=ak_b,
+            leading=round(ak_b * lr),
             textColor=C.TEXT,
             spaceAfter=3,
         ),
@@ -448,8 +483,8 @@ def get_answer_key_pdf_styles(
             "CL_AKSmall",
             parent=styles["BodyText"],
             fontName=bf,
-            fontSize=9,
-            leading=12,
+            fontSize=ak_b - 1,
+            leading=round((ak_b - 1) * lr),
             textColor=C.TEXT_MUTED,
             spaceAfter=2,
         ),

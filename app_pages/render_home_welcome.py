@@ -39,22 +39,45 @@ def _welcome_done_ts_key() -> str:
 
 
 def _mark_welcome_done() -> None:
-    """Record the timestamp when all 3 welcome tasks were first completed."""
+    """Mark onboarding as completed in the DB so the welcome page never shows again."""
+    uid = get_current_user_id()
+    if uid:
+        try:
+            from core.database import get_sb
+            get_sb().table("profiles").update({"onboarding_completed": True}).eq("user_id", uid).execute()
+        except Exception:
+            pass
+    # Also set session flag so it takes effect immediately
     key = _welcome_done_ts_key()
-    if key not in st.session_state:
-        st.session_state[key] = datetime.now(timezone.utc).isoformat()
+    st.session_state[key] = "done"
+
+
+def _is_welcome_done_in_db() -> bool:
+    """Check if onboarding_completed is True in the profile."""
+    uid = get_current_user_id()
+    if not uid:
+        return False
+    try:
+        from core.database import get_sb
+        res = (
+            get_sb().table("profiles")
+            .select("onboarding_completed")
+            .eq("user_id", uid)
+            .limit(1)
+            .execute()
+        )
+        row = (getattr(res, "data", None) or [{}])[0]
+        return bool(row.get("onboarding_completed"))
+    except Exception:
+        return False
 
 
 def _welcome_done_expired() -> bool:
-    """Return True if the 24-h linger window has passed."""
-    ts_str = st.session_state.get(_welcome_done_ts_key())
-    if not ts_str:
-        return False
-    try:
-        done_at = datetime.fromisoformat(ts_str)
-        return datetime.now(timezone.utc) - done_at > timedelta(hours=_WELCOME_DONE_LINGER_HOURS)
-    except Exception:
-        return False
+    """Return True if welcome was already completed (DB-persisted)."""
+    # Check session cache first
+    if st.session_state.get(_welcome_done_ts_key()) == "done":
+        return True
+    return _is_welcome_done_in_db()
 
 def get_welcome_progress() -> dict:
     students_df = load_students()
@@ -100,11 +123,10 @@ def should_show_welcome() -> tuple[bool, bool, dict]:
     progress = get_welcome_progress()
 
     if progress["all_done"]:
-        _mark_welcome_done()
         if _welcome_done_expired():
             return False, False, progress
-        # Still within the 24-h linger window — show completed state (no skip needed)
-        return True, False, progress
+        # Show completed state with skip button so user can dismiss
+        return True, True, progress
 
     if progress["all_empty"]:
         return True, False, progress
@@ -270,6 +292,9 @@ def render_home_welcome(user_name: str) -> bool:
         if allow_skip:
             if st.button(t("skip"), key="welcome_skip_btn", use_container_width=True):
                 _set_welcome_skipped(True)
+                # If all tasks are done, persist to DB so it never shows again
+                if progress.get("all_done"):
+                    _mark_welcome_done()
                 st.session_state["home_action_menu_prev"] = t("home")
                 st.session_state["home_action_menu_nonce"] = st.session_state.get("home_action_menu_nonce", 0) + 1
 

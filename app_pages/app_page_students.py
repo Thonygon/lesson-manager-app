@@ -194,8 +194,9 @@ def render_students():
                     s_zoom  = str(row.iloc[0].get("zoom_link", "")).strip() if not row.empty else ""
                     s_color = str(row.iloc[0].get("color", "#3B82F6")).strip() if not row.empty else "#3B82F6"
                     s_notes = str(row.iloc[0].get("notes", "")).strip() if not row.empty else ""
+                    s_address = str(row.iloc[0].get("address", "")).strip() if not row.empty else ""
 
-                    has_profile = bool(s_email or s_phone or s_zoom or s_notes)
+                    has_profile = bool(s_email or s_phone or s_zoom or s_notes or s_address)
 
                     if not has_profile:
                         st.markdown(
@@ -258,6 +259,17 @@ def render_students():
                         chips.append(
                             f'<a href="{s_zoom}" target="_blank" rel="noopener noreferrer" '
                             f'style="{zoom_chip_style}">🎥 {t("open_zoom")}</a>'
+                        )
+                    if s_address:
+                        maps_chip_style = (
+                            "display:inline-flex;align-items:center;gap:4px;padding:4px 12px;"
+                            "border-radius:20px;background:rgba(234,88,12,0.12);color:var(--text);font-size:13px;"
+                            "text-decoration:none;border:1px solid rgba(234,88,12,0.28);"
+                        )
+                        maps_href = f"https://www.google.com/maps/search/{urllib.parse.quote(s_address)}"
+                        chips.append(
+                            f'<a href="{maps_href}" target="_blank" rel="noopener noreferrer" '
+                            f'style="{maps_chip_style}">📍 {t("open_maps")}</a>'
                         )
                     contact_html = " ".join(chips) if chips else f'<span style="font-size:12px;color:#94a3b8;">{t("no_contact_info")}</span>'
 
@@ -339,13 +351,14 @@ def render_students():
                 st.caption(t("examples_phone"))
             with col2:
                 color = st.color_picker(t("calendar_color"), value=student_row.get("color", "#3B82F6"), key=f"student_color_{sid}")
+                address = st.text_input(t("address"), value=student_row.get("address", ""), key=f"student_address_{sid}")
                 notes = st.text_area(t("notes"), value=student_row.get("notes", ""), key=f"student_notes_{sid}")
 
             if phone and not normalize_phone_for_whatsapp(phone) and len(_digits_only(phone)) < 11:
                 st.warning(t("examples_phone"))
 
             if st.button(t("save"), key=f"btn_save_student_profile_{sid}"):
-                update_student_profile(selected_student, email, zoom_link, notes, color, phone)
+                update_student_profile(selected_student, email, zoom_link, notes, color, phone, address)
                 st.success(t("done_ok"))
                 st.rerun()
 

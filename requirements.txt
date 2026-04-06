@@ -11,3 +11,7 @@ openai
 google-genai
 reportlab
 pypdf
+python-docx
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2

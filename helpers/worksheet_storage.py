@@ -721,7 +721,7 @@ def save_worksheet_record(
             "worksheet_json": worksheet,
             "title": _clean_display_text(worksheet.get("title") or ""),
             "author_name": str(st.session_state.get("user_name") or "Unknown").strip(),
-            "subject_display": subject,
+            "subject_display": subject.replace("_", " ").strip().title() if subject else "",
             "is_public": resolve_is_public(),
             "created_at": _dt.now(timezone.utc).isoformat(),
         })
@@ -1056,6 +1056,11 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
     teacher_pdf = build_worksheet_pdf_bytes(ws, student_only=False, **_pdf_kwargs)
     safe_title = re.sub(r"[^A-Za-z0-9._-]+", "_", str(ws.get("title") or "worksheet").strip()) or "worksheet"
 
+    # Word exports
+    from helpers.docx_generator import generate_docx_worksheet
+    student_docx = generate_docx_worksheet(ws, student_only=True)
+    teacher_docx = generate_docx_worksheet(ws, student_only=False)
+
     if read_only:
         dc1, dc2 = st.columns(2)
         with dc1:
@@ -1074,6 +1079,25 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
                 file_name=f"{safe_title}_teacher.pdf",
                 mime="application/pdf",
                 key=f"dl_ws_tch_{safe_title}",
+                use_container_width=True,
+            )
+        dw1, dw2 = st.columns(2)
+        with dw1:
+            st.download_button(
+                label=t("download_student_word"),
+                data=student_docx,
+                file_name=f"{safe_title}_student.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key=f"dl_ws_stu_docx_{safe_title}",
+                use_container_width=True,
+            )
+        with dw2:
+            st.download_button(
+                label=t("download_teacher_word"),
+                data=teacher_docx,
+                file_name=f"{safe_title}_teacher.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key=f"dl_ws_tch_docx_{safe_title}",
                 use_container_width=True,
             )
     else:
@@ -1104,6 +1128,25 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
                 file_name=f"{safe_title}_teacher.pdf",
                 mime="application/pdf",
                 key=f"dl_ws_tch_inline_{safe_title}",
+                use_container_width=True,
+            )
+        dw1, dw2 = st.columns(2)
+        with dw1:
+            st.download_button(
+                label=t("download_student_word"),
+                data=student_docx,
+                file_name=f"{safe_title}_student.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key=f"dl_ws_stu_docx_inline_{safe_title}",
+                use_container_width=True,
+            )
+        with dw2:
+            st.download_button(
+                label=t("download_teacher_word"),
+                data=teacher_docx,
+                file_name=f"{safe_title}_teacher.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key=f"dl_ws_tch_docx_inline_{safe_title}",
                 use_container_width=True,
             )
 
@@ -1147,10 +1190,16 @@ def build_worksheet_pdf_bytes(
             return t(key, **kwargs)
 
     # ── Centralised font + style setup ────────────────────────
-    body_font, bold_font = ensure_pdf_fonts_registered()
+    from helpers.branding import get_user_branding as _get_branding
+    _branding_cfg = _get_branding()
+    _font_key = _branding_cfg.get("branding_font", "dejavu")
+    _size_key = _branding_cfg.get("branding_font_size", "standard")
+
+    from helpers.font_manager import register_font_for_pdf
+    body_font, bold_font = register_font_for_pdf(_font_key)
     _L = get_pdf_layout_constants()
-    _S = get_student_pdf_styles(body_font, bold_font)
-    _AK = get_answer_key_pdf_styles(body_font, bold_font)
+    _S = get_student_pdf_styles(body_font, bold_font, size_preset=_size_key)
+    _AK = get_answer_key_pdf_styles(body_font, bold_font, size_preset=_size_key)
 
     buf = BytesIO()
     doc = SimpleDocTemplate(
