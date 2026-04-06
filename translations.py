@@ -1128,8 +1128,8 @@ I18N: Dict[str, Dict[str, str]] = {
         # ── Branding ──
         "branding_settings_title": "Branding & PDF Header",
         "branding_settings_caption": "Customize how your exported PDFs look. Add your school logo, name, and choose a header style.",
-        "branding_brand_name": "Brand / School name",
-        "branding_department": "Department (optional)",
+        "branding_brand_name": "Brand / School name / First line header",
+        "branding_department": "Department / Second line header (optional)",
         "branding_header_style": "Header style",
         "branding_style_standard": "Standard",
         "branding_style_school": "School worksheet",
@@ -2313,7 +2313,7 @@ I18N: Dict[str, Dict[str, str]] = {
         # ── Branding ──
         "branding_settings_title": "Marca y encabezado PDF",
         "branding_settings_caption": "Personaliza cómo se ven tus PDFs exportados. Agrega el logo de tu escuela, nombre y elige un estilo de encabezado.",
-        "branding_brand_name": "Nombre de marca / escuela",
+        "branding_brand_name": "Marca / Nombre de la escuela / Primera línea del encabezado",
         "branding_department": "Departamento (opcional)",
         "branding_header_style": "Estilo de encabezado",
         "branding_style_standard": "Estándar",
@@ -3483,8 +3483,8 @@ I18N: Dict[str, Dict[str, str]] = {
         # ── Branding ──
         "branding_settings_title": "Marka ve PDF Başlığı",
         "branding_settings_caption": "Dışa aktarılan PDF'lerinizin görünümünü özelleştirin. Okul logonuzu, adınızı ekleyin ve bir başlık stili seçin.",
-        "branding_brand_name": "Marka / Okul adı",
-        "branding_department": "Bölüm (isteğe bağlı)",
+        "branding_brand_name": "Marka / Okul adı / İlk satır başlığı",
+        "branding_department": "Bölüm / İkinci satır başlığı (isteğe bağlı)",
         "branding_header_style": "Başlık stili",
         "branding_style_standard": "Standart",
         "branding_style_school": "Okul çalışma kağıdı",
