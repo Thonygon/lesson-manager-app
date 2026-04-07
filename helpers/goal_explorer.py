@@ -4,6 +4,7 @@ import math
 import streamlit as st
 from core.i18n import t
 from helpers.currency import CURRENCIES, currency_symbol
+from helpers.lesson_planner import QUICK_SUBJECTS, subject_label as _subject_label
 from helpers.planner_storage import load_public_lesson_plans,render_plan_library_cards,render_quick_lesson_plan_result
 from helpers.worksheet_storage import load_public_worksheets, render_worksheet_library_cards, render_worksheet_result
 from styles.theme import load_css_home
@@ -358,20 +359,10 @@ def render_goal_explorer() -> bool:
     )
 
     # ── Subject ──
-    subject_labels = {
-        "english": t("subject_english"),
-        "spanish": t("subject_spanish"),
-        "mathematics": t("subject_mathematics"),
-        "science": t("subject_science"),
-        "music": t("subject_music"),
-        "study_skills": t("subject_study_skills"),
-        "other": t("explore_other"),
-    }
-    subject_keys = list(subject_labels.keys())
     subject = st.selectbox(
         t("explore_subject"),
-        options=subject_keys,
-        format_func=lambda k: subject_labels[k],
+        options=QUICK_SUBJECTS,
+        format_func=_subject_label,
         key="explore_subject",
     )
 
@@ -653,7 +644,7 @@ def _render_feature_showcase() -> None:
 # Explore-page CV builder (AI-powered, 1-use limit for anon)
 # ─────────────────────────────────────────────────────────────
 
-_EXPLORE_CV_SUBJECTS = ["english", "spanish", "mathematics", "science", "music", "study_skills", "other"]
+_EXPLORE_CV_SUBJECTS = QUICK_SUBJECTS
 _EXPLORE_CV_STAGES = [
     "early_primary",
     "upper_primary",
@@ -1199,19 +1190,10 @@ def render_income_goal_calculator() -> None:
             unsafe_allow_html=True,
         )
 
-        subject_labels = {
-            "english": t("subject_english"),
-            "spanish": t("subject_spanish"),
-            "mathematics": t("subject_mathematics"),
-            "science": t("subject_science"),
-            "music": t("subject_music"),
-            "study_skills": t("subject_study_skills"),
-            "other": t("explore_other"),
-        }
         subject = st.selectbox(
             t("explore_subject"),
-            options=list(subject_labels.keys()),
-            format_func=lambda k: subject_labels[k],
+            options=QUICK_SUBJECTS,
+            format_func=_subject_label,
             key="ait_goal_subject",
         )
 

@@ -612,6 +612,7 @@ def load_community_profiles() -> list:
             sb.table("profiles")
             .select(
                 "user_id, display_name, username, avatar_url, country, primary_subjects, "
+                "custom_subjects, "
                 "teaching_stages, teaching_languages, education_level, active_student_count, "
                 "show_community_profile, show_community_contact, phone_number, "
                 "email, role"

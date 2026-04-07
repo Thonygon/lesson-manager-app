@@ -10,6 +10,7 @@ from typing import Optional
 
 from core.i18n import t
 from core.state import get_current_user_id, with_owner, PROFILE_SUBJECT_OPTIONS, PROFILE_STAGE_OPTIONS, PROFILE_TEACH_LANG_OPTIONS
+from helpers.lesson_planner import subject_label as _subject_label
 from core.timezone import today_local, get_app_tz
 from core.database import get_sb, load_table, clear_app_caches
 
@@ -84,18 +85,6 @@ def _role_label(value: str) -> str:
     return mapping.get(v, str(value or ""))
 
 
-def _subject_label(value: str) -> str:
-    mapping = {
-        "english": t("subject_english"),
-        "spanish": t("subject_spanish"),
-        "mathematics": t("subject_mathematics"),
-        "science": t("subject_science"),
-        "music": t("subject_music"),
-        "study_skills": t("subject_study_skills"),
-        "other": t("other"),
-    }
-    v = str(value or "").strip().lower()
-    return mapping.get(v, str(value or ""))
 
 
 def _translate_cv_list(key: str, values) -> list[str]:

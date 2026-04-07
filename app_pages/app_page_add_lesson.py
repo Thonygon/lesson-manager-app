@@ -102,7 +102,7 @@ def render_add_lesson():
         subject_custom = None
         if subject_choice == "other":
             subject_custom = _clean_subject_custom(
-                st.text_input(t("subject_other"), key="lesson_subject_other")
+                st.text_input(t("other_subject_label"), key="lesson_subject_other")
             )
             subject_db = "Other"
         else:
@@ -217,7 +217,7 @@ def render_add_lesson():
                                 options=QUICK_SUBJECTS,
                                 format_func=translate_subject_value,
                             ),
-                            "subject_custom": st.column_config.TextColumn(t("subject_other")),
+                            "subject_custom": st.column_config.TextColumn(t("other_subject_label")),
                             "note": st.column_config.TextColumn(t("note")),
                         },
                     )

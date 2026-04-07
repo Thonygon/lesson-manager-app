@@ -4,6 +4,7 @@ import datetime
 import pandas as pd
 from core.i18n import t
 from core.state import get_current_user_id
+from helpers.lesson_planner import subject_label as _subject_label_fn
 from core.timezone import now_local
 from core.database import load_table
 from helpers.ui_components import to_dt_naive, ts_today_naive
@@ -16,18 +17,7 @@ def money_fmt(value, symbol=""):
         return f"{symbol}0"
 
 def _subject_to_t_key(subject: str) -> str:
-    s = str(subject or "").strip().lower()
-
-    mapping = {
-        "english": t("subject_english"),
-        "spanish": t("subject_spanish"),
-        "mathematics": t("subject_mathematics"),
-        "science": t("subject_science"),
-        "music": t("subject_music"),
-        "study_skills": t("subject_study_skills"),
-        "other": t("explore_other"),
-    }
-    return mapping.get(s, "")
+    return _subject_label_fn(subject)
 
 
 def _normalize_subject_combo(raw: str) -> str:

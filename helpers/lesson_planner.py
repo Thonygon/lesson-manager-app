@@ -59,11 +59,34 @@ AI_COOLDOWN_SECONDS = 10
 # ============================================================
 
 def subject_label(subject_key: str) -> str:
-    key = str(subject_key or "").strip().lower()
+    """Canonical subject display label. All subject filters should use this."""
+    key = str(subject_key or "").strip().lower().replace(" ", "_")
     if key == "other":
-        return t("explore_other")
+        return t("subject_other")
     translated = t(f"subject_{key}")
-    return translated if translated and translated != f"subject_{key}" else _clean_display_text(key)
+    return translated if translated and translated != f"subject_{key}" else _clean_display_text(subject_key or key)
+
+
+# Map common display names / translations back to canonical keys
+_SUBJECT_NORMALIZE = {
+    "english": "english", "inglés": "english", "ingilizce": "english",
+    "spanish": "spanish", "español": "spanish", "ispanyolca": "spanish",
+    "mathematics": "mathematics", "matemáticas": "mathematics", "matematik": "mathematics",
+    "math": "mathematics", "maths": "mathematics",
+    "science": "science", "ciencias": "science", "fen": "science", "fen_bilimleri": "science",
+    "music": "music", "música": "music", "müzik": "music",
+    "study_skills": "study_skills", "técnicas_de_estudio": "study_skills",
+    "çalışma_becerileri": "study_skills",
+    "turkish": "turkish", "turco": "turkish", "türkçe": "turkish",
+    "other": "other", "otro": "other", "otra_materia": "other",
+    "diğer": "other", "otra": "other",
+}
+
+
+def normalize_subject(raw: str) -> str:
+    """Normalize a subject value to its canonical key."""
+    key = str(raw or "").strip().lower().replace(" ", "_")
+    return _SUBJECT_NORMALIZE.get(key, key)
 
 
 def get_subject_engine(subject: str) -> str:
