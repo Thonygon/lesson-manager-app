@@ -13,6 +13,7 @@ from core.state import (
     PROFILE_TIMEZONE_OPTIONS,
     PROFILE_COUNTRY_OPTIONS,
 )
+from helpers.lesson_planner import subject_label as _profile_subject_label
 from core.timezone import DEFAULT_TZ_NAME
 from core.navigation import _set_query
 from core.database import (
@@ -430,17 +431,6 @@ def render_logout_button():
     st.button(t("sign_out"), key="btn_logout", on_click=sign_out_user)
 
 
-def _profile_subject_label(subject: str) -> str:
-    mapping = {
-        "english": t("subject_english"),
-        "spanish": t("subject_spanish"),
-        "mathematics": t("subject_mathematics"),
-        "science": t("subject_science"),
-        "music": t("subject_music"),
-        "study_skills": t("subject_study_skills"),
-        "other": t("other"),
-    }
-    return mapping.get(subject, subject)
 
 
 def _profile_stage_label(stage: str) -> str:
@@ -634,6 +624,7 @@ def render_profile_dialog(user_id: str) -> None:
                 else:
                     default_lesson_duration = int(profile.get("default_lesson_duration") or 45)
 
+
             if _is_teacher:
                 primary_subjects = st.multiselect(
                     t("primary_subjects_label"),
@@ -642,6 +633,15 @@ def render_profile_dialog(user_id: str) -> None:
                     format_func=_profile_subject_label,
                     key="profile_primary_subjects",
                 )
+
+                custom_subjects_text = ""
+                if "other" in primary_subjects:
+                    custom_subjects_text = st.text_input(
+                        t("other_subject_label"),
+                        value=", ".join(profile.get("custom_subjects") or []),
+                        key="profile_custom_subjects",
+                        help=t("custom_subjects_hint"),
+                    ).strip()
 
                 teaching_stages = st.multiselect(
                     t("teaching_stages_label"),
@@ -674,6 +674,7 @@ def render_profile_dialog(user_id: str) -> None:
                 teaching_stages = profile.get("teaching_stages") or []
                 teaching_languages = profile.get("teaching_languages") or []
                 education_level = profile.get("education_level") or ""
+                custom_subjects_text = ""
 
             st.divider()
             st.markdown(f"**🎨 {t('appearance')}**")
@@ -744,6 +745,11 @@ def render_profile_dialog(user_id: str) -> None:
                         "country": None if country == "Select..." else country,
                         "role": role,
                         "primary_subjects": primary_subjects,
+                        "custom_subjects": [
+                            s.strip().lower()
+                            for s in custom_subjects_text.split(",")
+                            if s.strip()
+                        ] if custom_subjects_text else [],
                         "teaching_stages": teaching_stages,
                         "teaching_languages": teaching_languages,
                         "default_lesson_duration": int(default_lesson_duration),

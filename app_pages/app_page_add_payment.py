@@ -136,7 +136,7 @@ def _render_add_payment_form():
 
         if subject_choice == "other":
             pay_subject_custom = _clean_subject_custom(
-                st.text_input(t("subject_other"), key="pay_subject_other")
+                st.text_input(t("other_subject_label"), key="pay_subject_other")
             )
             pay_subject_db = "Other"
 
@@ -302,7 +302,7 @@ def _render_add_payment_form():
                                 format_func=translate_subject_value,
                             ),
 
-                            "subject_custom": st.column_config.TextColumn(t("subject_other")),
+                            "subject_custom": st.column_config.TextColumn(t("other_subject_label")),
                             "package_start_date": st.column_config.DateColumn(t("package_start")),
                             "package_expiry_date": st.column_config.DateColumn(t("package_expiry")),
                             "lesson_adjustment_units": st.column_config.NumberColumn(t("adjust_units"), step=1),

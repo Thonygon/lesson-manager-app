@@ -11,7 +11,7 @@ from streamlit_option_menu import option_menu
 from core.database import get_profile_avatar_url
 from auth.auth import sign_out_user
 from core.database import load_profile_row
-from helpers.lesson_planner import normalize_planner_output
+from helpers.lesson_planner import normalize_planner_output, subject_label as _subject_label_fn, normalize_subject as _normalize_subject
 from helpers.planner_storage import load_my_lesson_plans, load_public_lesson_plans, render_plan_library_cards, render_quick_lesson_plan_result, render_quick_lesson_planner_expander
 from helpers.cv_storage import load_my_cvs, load_my_cover_letters, render_cv_library_cards, render_cv_result, render_quick_cv_builder_expander, build_cv_pdf_bytes, build_cover_letter_pdf_bytes
 from helpers.worksheet_storage import load_my_worksheets, load_public_worksheets, render_worksheet_library_cards, render_worksheet_result, render_quick_worksheet_maker_expander
@@ -526,7 +526,7 @@ def render_home():
                 ).strip().lower()
 
                 subject_options = (
-                    sorted(my_df["subject"].dropna().astype(str).unique().tolist())
+                    sorted(set(_normalize_subject(s) for s in my_df["subject"].dropna().astype(str) if _normalize_subject(s)))
                     if "subject" in my_df.columns
                     else []
                 )
@@ -534,7 +534,7 @@ def render_home():
                 subject_filter = st.selectbox(
                     t("subject_label"),
                     [t("all")] + subject_options,
-                    format_func=lambda x: t(f"subject_{str(x).strip().lower().replace(' ', '_')}") if x != t("all") else t("all"),
+                    format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
                     key="my_plans_subject_filter",
                 )
 
@@ -546,7 +546,7 @@ def render_home():
                     ]
 
                 if subject_filter != t("all") and "subject" in filtered.columns:
-                    filtered = filtered[filtered["subject"].astype(str) == subject_filter]
+                    filtered = filtered[filtered["subject"].astype(str).apply(_normalize_subject) == subject_filter]
 
                 if filtered.empty:
                     st.info(t("no_data"))
@@ -563,18 +563,18 @@ def render_home():
                 st.info(t("no_saved_worksheets"))
             else:
                 ws_topic_q = st.text_input(t("search_by_topic"), key="my_ws_topic_q").strip().lower()
-                ws_subj_opts = sorted(ws_df["subject"].dropna().astype(str).unique().tolist()) if "subject" in ws_df.columns else []
+                ws_subj_opts = sorted(set(_normalize_subject(s) for s in ws_df["subject"].dropna().astype(str) if _normalize_subject(s))) if "subject" in ws_df.columns else []
                 ws_subj_filter = st.selectbox(
                     t("subject_label"),
                     [t("all")] + ws_subj_opts,
-                    format_func=lambda x: t(f"subject_{str(x).strip().lower().replace(' ', '_')}") if x != t("all") else t("all"),
+                    format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
                     key="my_ws_subject_filter",
                 )
                 ws_filtered = ws_df.copy()
                 if ws_topic_q and "topic" in ws_filtered.columns:
                     ws_filtered = ws_filtered[ws_filtered["topic"].fillna("").astype(str).str.lower().str.contains(ws_topic_q, na=False)]
                 if ws_subj_filter != t("all") and "subject" in ws_filtered.columns:
-                    ws_filtered = ws_filtered[ws_filtered["subject"].astype(str) == ws_subj_filter]
+                    ws_filtered = ws_filtered[ws_filtered["subject"].astype(str).apply(_normalize_subject) == ws_subj_filter]
                 render_worksheet_library_cards(ws_filtered, prefix="my_ws", show_author=False)
 
         with tab_exams:
@@ -583,18 +583,18 @@ def render_home():
                 st.info(t("no_saved_exams"))
             else:
                 exam_topic_q = st.text_input(t("search_by_topic"), key="my_exam_topic_q").strip().lower()
-                exam_subj_opts = sorted(exam_df["subject"].dropna().astype(str).unique().tolist()) if "subject" in exam_df.columns else []
+                exam_subj_opts = sorted(set(_normalize_subject(s) for s in exam_df["subject"].dropna().astype(str) if _normalize_subject(s))) if "subject" in exam_df.columns else []
                 exam_subj_filter = st.selectbox(
                     t("subject_label"),
                     [t("all")] + exam_subj_opts,
-                    format_func=lambda x: t(f"subject_{str(x).strip().lower().replace(' ', '_')}") if x != t("all") else t("all"),
+                    format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
                     key="my_exam_subject_filter",
                 )
                 exam_filtered = exam_df.copy()
                 if exam_topic_q and "topic" in exam_filtered.columns:
                     exam_filtered = exam_filtered[exam_filtered["topic"].fillna("").astype(str).str.lower().str.contains(exam_topic_q, na=False)]
                 if exam_subj_filter != t("all") and "subject" in exam_filtered.columns:
-                    exam_filtered = exam_filtered[exam_filtered["subject"].astype(str) == exam_subj_filter]
+                    exam_filtered = exam_filtered[exam_filtered["subject"].astype(str).apply(_normalize_subject) == exam_subj_filter]
                 render_exam_library_cards(exam_filtered, prefix="my_exams", show_author=False)
 
         with tab3:
@@ -619,11 +619,11 @@ def render_home():
                             placeholder="e.g. fractions, photosynthesis…",
                         ).strip().lower()
                     with f_col2:
-                        _pub_subj_opts = sorted(public_df["subject"].dropna().astype(str).unique().tolist()) if "subject" in public_df.columns else []
+                        _pub_subj_opts = sorted(set(_normalize_subject(s) for s in public_df["subject"].dropna().astype(str) if _normalize_subject(s))) if "subject" in public_df.columns else []
                         subject_filter_public = st.selectbox(
                             t("subject_label"),
                             [t("all")] + _pub_subj_opts,
-                            format_func=lambda x: t(f"subject_{str(x).strip().lower().replace(' ', '_')}") if x != t("all") else t("all"),
+                            format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
                             key="public_plans_subject_filter",
                         )
 
@@ -666,7 +666,7 @@ def render_home():
                     if topic_q_public and "topic" in filtered_public.columns:
                         filtered_public = filtered_public[filtered_public["topic"].fillna("").astype(str).str.lower().str.contains(topic_q_public, na=False)]
                     if subject_filter_public != t("all") and "subject" in filtered_public.columns:
-                        filtered_public = filtered_public[filtered_public["subject"].astype(str) == subject_filter_public]
+                        filtered_public = filtered_public[filtered_public["subject"].astype(str).apply(_normalize_subject) == subject_filter_public]
                     if stage_filter_public != t("all") and "learner_stage" in filtered_public.columns:
                         filtered_public = filtered_public[filtered_public["learner_stage"].astype(str) == stage_filter_public]
                     if level_filter_public != t("all") and "level_or_band" in filtered_public.columns:
@@ -698,11 +698,11 @@ def render_home():
                             placeholder="e.g. fractions, vocabulary…",
                         ).strip().lower()
                     with wf_col2:
-                        pub_ws_subj_opts = sorted(pub_ws_df["subject"].dropna().astype(str).unique().tolist()) if "subject" in pub_ws_df.columns else []
+                        pub_ws_subj_opts = sorted(set(_normalize_subject(s) for s in pub_ws_df["subject"].dropna().astype(str) if _normalize_subject(s))) if "subject" in pub_ws_df.columns else []
                         pub_ws_subj_filter = st.selectbox(
                             t("subject_label"),
                             [t("all")] + pub_ws_subj_opts,
-                            format_func=lambda x: t(f"subject_{str(x).strip().lower().replace(' ', '_')}") if x != t("all") else t("all"),
+                            format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
                             key="pub_ws_subject_filter",
                         )
 
@@ -745,7 +745,7 @@ def render_home():
                     if pub_ws_topic_q and "topic" in pub_ws_filtered.columns:
                         pub_ws_filtered = pub_ws_filtered[pub_ws_filtered["topic"].fillna("").astype(str).str.lower().str.contains(pub_ws_topic_q, na=False)]
                     if pub_ws_subj_filter != t("all") and "subject" in pub_ws_filtered.columns:
-                        pub_ws_filtered = pub_ws_filtered[pub_ws_filtered["subject"].astype(str) == pub_ws_subj_filter]
+                        pub_ws_filtered = pub_ws_filtered[pub_ws_filtered["subject"].astype(str).apply(_normalize_subject) == pub_ws_subj_filter]
                     if pub_ws_stage_filter != t("all") and "learner_stage" in pub_ws_filtered.columns:
                         pub_ws_filtered = pub_ws_filtered[pub_ws_filtered["learner_stage"].astype(str) == pub_ws_stage_filter]
                     if pub_ws_level_filter != t("all") and "level_or_band" in pub_ws_filtered.columns:
@@ -776,11 +776,11 @@ def render_home():
                             placeholder="e.g. grammar, fractions…",
                         ).strip().lower()
                     with ef_col2:
-                        pub_exam_subj_opts = sorted(pub_exam_df["subject"].dropna().astype(str).unique().tolist()) if "subject" in pub_exam_df.columns else []
+                        pub_exam_subj_opts = sorted(set(_normalize_subject(s) for s in pub_exam_df["subject"].dropna().astype(str) if _normalize_subject(s))) if "subject" in pub_exam_df.columns else []
                         pub_exam_subj_filter = st.selectbox(
                             t("subject_label"),
                             [t("all")] + pub_exam_subj_opts,
-                            format_func=lambda x: t(f"subject_{str(x).strip().lower().replace(' ', '_')}") if x != t("all") else t("all"),
+                            format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
                             key="pub_exam_subject_filter",
                         )
 
@@ -806,7 +806,7 @@ def render_home():
                     if pub_exam_topic_q and "topic" in pub_exam_filtered.columns:
                         pub_exam_filtered = pub_exam_filtered[pub_exam_filtered["topic"].fillna("").astype(str).str.lower().str.contains(pub_exam_topic_q, na=False)]
                     if pub_exam_subj_filter != t("all") and "subject" in pub_exam_filtered.columns:
-                        pub_exam_filtered = pub_exam_filtered[pub_exam_filtered["subject"].astype(str) == pub_exam_subj_filter]
+                        pub_exam_filtered = pub_exam_filtered[pub_exam_filtered["subject"].astype(str).apply(_normalize_subject) == pub_exam_subj_filter]
                     if pub_exam_stage_filter != t("all") and "learner_stage" in pub_exam_filtered.columns:
                         pub_exam_filtered = pub_exam_filtered[pub_exam_filtered["learner_stage"].astype(str) == pub_exam_stage_filter]
                     if pub_exam_level_filter != t("all") and "level" in pub_exam_filtered.columns:
@@ -1017,7 +1017,7 @@ def render_home():
     # ---------- COMMUNITY PANEL ----------
     if panel == "community":
         import re as _re_comm
-        from auth.auth import _profile_subject_label as _subj_label_fn
+        from helpers.lesson_planner import subject_label as _subj_label_fn
 
         head_left, head_right = st.columns([6, 1], vertical_alignment="center")
 
@@ -1070,6 +1070,9 @@ def render_home():
                 _all_edu: list = []
                 for _fp in _visible_ranked:
                     for s in (_fp.get("primary_subjects") or []):
+                        if s and s != "other" and s not in _all_subjects:
+                            _all_subjects.append(s)
+                    for s in (_fp.get("custom_subjects") or []):
                         if s and s not in _all_subjects:
                             _all_subjects.append(s)
                     _fc = str(_fp.get("country") or "").strip()
@@ -1113,7 +1116,11 @@ def render_home():
                 )
                 _filtered = _visible_ranked
                 if _subj_sel != t("all"):
-                    _filtered = [p for p in _filtered if _subj_sel in (p.get("primary_subjects") or [])]
+                    _filtered = [
+                        p for p in _filtered
+                        if _subj_sel in (p.get("primary_subjects") or [])
+                        or _subj_sel in (p.get("custom_subjects") or [])
+                    ]
                 if _country_sel != t("all"):
                     _filtered = [p for p in _filtered if str(p.get("country") or "").strip() == _country_sel]
                 if _edu_sel != t("all"):
@@ -1154,7 +1161,9 @@ def render_home():
                         _private_name = f"@{_username}" if _username else t("community_private_user")
                         _active_count = int(_p.get("active_student_count") or 0)
                         _subjects = _p.get("primary_subjects") or []
-                        _subj_labels = ", ".join([_subj_label_fn(s) for s in _subjects]) if _subjects else "—"
+                        _custom_subjects = _p.get("custom_subjects") or []
+                        _display_subjects = [_subj_label_fn(s) for s in _subjects if s != "other"] + [s.title() for s in _custom_subjects if s]
+                        _subj_labels = ", ".join(_display_subjects) if _display_subjects else "—"
                         _country = str(_p.get("country") or "").strip()
                         _edu = str(_p.get("education_level") or "").strip()
                         _raw_phone = str(_p.get("phone_number") or "").strip()

@@ -3,6 +3,7 @@ import html as _html
 from core.i18n import t
 from core.state import get_current_user_id
 from core.database import load_community_profiles
+from helpers.lesson_planner import QUICK_SUBJECTS, subject_label as _subject_label
 
 
 def _lang_flag(code: str) -> str:
@@ -40,8 +41,10 @@ def render_community_member_cards(profiles: list, role_filter: str = "teacher"):
         _name = _html.escape(
             str(member.get("display_name") or member.get("username") or "").strip() or "—"
         )
+        _primary = [s for s in (member.get("primary_subjects") or []) if s != "other"]
+        _custom = member.get("custom_subjects") or []
         _subjects = ", ".join(
-            t(f"subject_{s}") for s in (member.get("primary_subjects") or [])
+            [_subject_label(s) for s in _primary] + [s.title() for s in _custom if s]
         )
         _languages = " ".join(
             _lang_flag(l) for l in (member.get("teaching_languages") or [])
@@ -101,26 +104,13 @@ def render_community_member_cards(profiles: list, role_filter: str = "teacher"):
         )
 
 
+_LANG_OPTIONS = ["en", "es", "tr"]
+_LANG_LABELS = {"en": "🇬🇧 English", "es": "🇪🇸 Español", "tr": "🇹🇷 Türkçe"}
+
+
 def render_student_find_teacher():
     st.markdown(f"## 🔍 {t('find_my_teacher')}")
     st.markdown(f"*{t('find_my_teacher_subtitle')}*")
-
-    # ── Filters ──
-    col_subj, col_lang = st.columns(2)
-    with col_subj:
-        subject_filter = st.selectbox(
-            t("filter_by_subject"),
-            [""] + ["english", "spanish", "mathematics", "science", "music", "study_skills"],
-            format_func=lambda x: t(f"subject_{x}") if x else t("all_subjects"),
-            key="find_teacher_subject",
-        )
-    with col_lang:
-        lang_filter = st.selectbox(
-            t("filter_by_language"),
-            ["", "en", "es", "tr"],
-            format_func=lambda x: {"en": "🇬🇧 English", "es": "🇪🇸 Español", "tr": "🇹🇷 Türkçe"}.get(x, t("all_languages")),
-            key="find_teacher_lang",
-        )
 
     # ── Load community teachers ──
     try:
@@ -129,23 +119,89 @@ def render_student_find_teacher():
         all_profiles = []
 
     # Only show opted-in teacher/tutor profiles
-    teachers = [
+    all_teachers = [
         p for p in all_profiles
         if p.get("show_community_profile")
         and str(p.get("role") or "teacher") in ("teacher", "tutor")
     ]
 
-    if subject_filter:
-        teachers = [
-            p for p in teachers
-            if subject_filter in (p.get("primary_subjects") or [])
-        ]
+    # ── Step 1: Instructional language (multiselect) ──
 
+    st.markdown(f"<span style='font-weight:600;'>{t('filter_by_language')}</span>", unsafe_allow_html=True)
+    st.caption(t("filter_by_language_helper"))
+    lang_filter = st.multiselect(
+        "",
+        _LANG_OPTIONS,
+        format_func=lambda x: _LANG_LABELS.get(x, x),
+        key="find_teacher_lang",
+    )
+
+    # Filter teachers by selected language(s)
     if lang_filter:
-        teachers = [
-            p for p in teachers
-            if lang_filter in (p.get("teaching_languages") or [])
+        teachers_by_lang = [
+            p for p in all_teachers
+            if any(l in (p.get("teaching_languages") or []) for l in lang_filter)
         ]
+    else:
+        teachers_by_lang = all_teachers
 
-    render_community_member_cards(teachers if not subject_filter and not lang_filter else teachers, role_filter="teacher")
+    # ── Step 2: Subject — built dynamically from language-filtered teachers ──
+    _available_subjects: list[str] = []
+    for p in teachers_by_lang:
+        for s in (p.get("primary_subjects") or []):
+            if s and s != "other" and s not in _available_subjects:
+                _available_subjects.append(s)
+        for s in (p.get("custom_subjects") or []):
+            if s and s not in _available_subjects:
+                _available_subjects.append(s)
+    _available_subjects.sort()
+
+    # Build options: known subjects first, then custom ones, "other" at the end for free-text search
+    _known = [s for s in _available_subjects if s in QUICK_SUBJECTS and s != "other"]
+    _custom = [s for s in _available_subjects if s not in QUICK_SUBJECTS]
+    _subject_options = _known + _custom + ["other"]
+
+    subject_filter = st.selectbox(
+        t("filter_by_subject"),
+        [""] + _subject_options,
+        format_func=lambda x: (
+            _subject_label(x) if x in QUICK_SUBJECTS
+            else x.title() if x
+            else t("all_subjects")
+        ),
+        key="find_teacher_subject",
+    )
+
+    custom_subject = ""
+    if subject_filter == "other":
+        custom_subject = st.text_input(
+            t("other_subject_label"),
+            key="find_teacher_custom_subject",
+        ).strip()
+
+    # ── Apply subject filter ──
+    teachers = teachers_by_lang
+    if subject_filter:
+        if subject_filter == "other" and custom_subject:
+            _cust_low = custom_subject.lower()
+            teachers = [
+                p for p in teachers
+                if any(_cust_low in str(s).lower() for s in (p.get("custom_subjects") or []))
+                or any(_cust_low in str(s).lower() for s in (p.get("primary_subjects") or []))
+            ]
+        elif subject_filter == "other":
+            pass  # "other" selected but nothing typed — show all
+        elif subject_filter in QUICK_SUBJECTS:
+            teachers = [
+                p for p in teachers
+                if subject_filter in (p.get("primary_subjects") or [])
+            ]
+        else:
+            # Custom subject from dropdown
+            teachers = [
+                p for p in teachers
+                if subject_filter in (p.get("custom_subjects") or [])
+            ]
+
+    render_community_member_cards(teachers, role_filter="teacher")
 

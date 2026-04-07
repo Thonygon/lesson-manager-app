@@ -1,6 +1,7 @@
 import json, os, re
 from typing import Optional
 from core.i18n import t
+from helpers.lesson_planner import subject_label as _subject_label
 # -----------------------------------------------------------------------
 # CV BUILDER — template + AI generation
 # Reuses the same AI infrastructure as helpers/lesson_planner.py
@@ -48,18 +49,6 @@ def _stage_label(stage: str) -> str:
     }
     return labels.get(str(stage), str(stage))
 
-def _subject_label(value: str) -> str:
-    mapping = {
-        "english": t("subject_english"),
-        "spanish": t("subject_spanish"),
-        "mathematics": t("subject_mathematics"),
-        "science": t("subject_science"),
-        "music": t("subject_music"),
-        "study_skills": t("subject_study_skills"),
-        "other": t("other"),
-    }
-    v = str(value or "").strip().lower()
-    return mapping.get(v, str(value or ""))
 
 
 def _lang_label(code: str) -> str:
