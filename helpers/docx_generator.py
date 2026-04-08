@@ -5,6 +5,7 @@ Generate Word (.docx) files for worksheets and lesson plans,
 applying the user's selected font and size preferences.
 """
 import os
+import ast
 import urllib.request
 from io import BytesIO
 from docx import Document
@@ -79,6 +80,55 @@ def _strip_leading_enum(text: str) -> str:
     """Remove leading '1.', 'a)', etc."""
     import re
     return re.sub(r"^\s*(\d+[\.\)]\s*|[a-z][\.\)]\s*)", "", str(text or "")).strip()
+
+
+def _sentence_case_fragment(text: str) -> str:
+    if isinstance(text, str):
+        stripped = text.strip()
+        if stripped.startswith("{") and stripped.endswith("}"):
+            try:
+                parsed = ast.literal_eval(stripped)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict) and len(parsed) == 1:
+                text = next(iter(parsed.keys()))
+    cleaned = _strip_leading_enum(text)
+    if not cleaned:
+        return ""
+    if any(ch.isupper() for ch in cleaned):
+        return cleaned
+    chars = list(cleaned)
+    for idx, ch in enumerate(chars):
+        if ch.isalpha():
+            chars[idx] = ch.upper()
+            return "".join(chars)
+    return cleaned
+
+
+def _coerce_legacy_mapping(value):
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.startswith("{") and stripped.endswith("}"):
+            try:
+                parsed = ast.literal_eval(stripped)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict):
+                return parsed
+    return value
+
+
+def _extract_mapping_side(value, *, prefer: str = "value") -> str:
+    value = _coerce_legacy_mapping(value)
+    if isinstance(value, dict):
+        if prefer in value:
+            return _sentence_case_fragment(value.get(prefer, ""))
+        if len(value) == 1:
+            only_key, only_val = next(iter(value.items()))
+            return _sentence_case_fragment(only_val if prefer == "value" else only_key)
+        fallback = value.get("text", value.get("answer", str(value)))
+        return _sentence_case_fragment(fallback)
+    return _sentence_case_fragment(value)
 
 
 def _fetch_image_bytes(url: str) -> bytes | None:
@@ -460,9 +510,9 @@ def _render_matching_docx(doc, ws: dict, font_name: str, sec_sz: float,
 
     for i in range(max_len):
         cells = table.rows[i].cells
-        left_text = f"{i+1}. {_strip_leading_enum(left_items[i])}" if i < len(left_items) else ""
+        left_text = f"{i+1}. {_extract_mapping_side(left_items[i], prefer='key')}" if i < len(left_items) else ""
         box_text = "[   ]" if i < len(left_items) else ""
-        right_text = f"{chr(97+i)}) {_strip_leading_enum(shuffled_right[i])}" if i < len(shuffled_right) else ""
+        right_text = f"{chr(97+i)}) {_extract_mapping_side(shuffled_right[i], prefer='value')}" if i < len(shuffled_right) else ""
 
         _set_cell_font(cells[0], left_text, font_name, b_sz)
         p_box = _set_cell_font(cells[1], box_text, font_name, b_sz)
@@ -698,6 +748,313 @@ def _render_answer_key_docx(doc, ws: dict, font_name: str, b_sz: float, lr: floa
                 _add_body(doc, f"{i}. {answer}", font_name, b_sz, leading_ratio=lr)
 
 
+# ── Exam DOCX generator ─────────────────────────────────────────────
+
+def _exam_title_fallback(sec_type: str) -> str:
+    label = t(sec_type)
+    if label == sec_type:
+        label = str(sec_type or "").replace("_", " ").title()
+    part_title = t("quick_exam_part_title", section=label)
+    return part_title if part_title != "quick_exam_part_title" else label
+
+
+def _format_exam_question_text(sec_type: str, q) -> str:
+    if sec_type == "multiple_choice" and isinstance(q, dict):
+        return _strip_leading_enum(q.get("stem") or q.get("text") or "")
+    if sec_type == "sentence_transformation" and isinstance(q, dict):
+        original = _strip_leading_enum(q.get("original") or "")
+        prompt = _strip_leading_enum(q.get("prompt") or "")
+        return f"{original} ({prompt})" if prompt else original
+    if sec_type == "vocabulary" and isinstance(q, dict):
+        word = _sentence_case_fragment(q.get("word") or "")
+        task = _strip_leading_enum(q.get("task") or "")
+        return f"{word}: {task}" if task else word
+    if sec_type == "matching" and isinstance(q, dict):
+        left_text = _extract_mapping_side(q.get("left", ""), prefer="key")
+        right_text = _extract_mapping_side(q.get("right", ""), prefer="value")
+        return f"{left_text} ↔ {right_text}" if right_text else left_text
+    if isinstance(q, dict):
+        return _strip_leading_enum(q.get("text") or q.get("stem") or q.get("question") or q.get("sentence") or "")
+    return _strip_leading_enum(q)
+
+
+def _format_exam_answer_text(ans) -> str:
+    if isinstance(ans, dict):
+        if "left" in ans and "right" in ans:
+            return f"{_extract_mapping_side(ans.get('left', ''), prefer='key')} -> {_extract_mapping_side(ans.get('right', ''), prefer='value')}"
+        if "word" in ans and "answer" in ans:
+            return f"{_sentence_case_fragment(ans.get('word', ''))}: {_strip_leading_enum(ans.get('answer', ''))}"
+        return _strip_leading_enum(ans.get("answer") or ans.get("text") or str(ans))
+    return _strip_leading_enum(ans)
+
+
+def _add_response_lines(doc: Document, font_name: str, b_sz: float, line_count: int, lr: float = 1.15):
+    for _ in range(max(1, line_count)):
+        _add_body(doc, "_" * 50, font_name, b_sz, leading_ratio=lr)
+
+
+def _render_exam_matching_docx(doc, questions: list, font_name: str, b_sz: float):
+    left_items = []
+    right_items = []
+    for q in questions or []:
+        if not isinstance(q, dict):
+            continue
+        left_items.append(_extract_mapping_side(q.get("left", ""), prefer="key"))
+        right_items.append(_extract_mapping_side(q.get("right", ""), prefer="value"))
+
+    if not left_items:
+        return
+
+    import random
+    rng = random.Random("|".join(left_items + right_items))
+    shuffled_right = right_items[:]
+    rng.shuffle(shuffled_right)
+
+    max_len = max(len(left_items), len(shuffled_right))
+    table = doc.add_table(rows=max_len, cols=3)
+    table.autofit = True
+
+    for i in range(max_len):
+        cells = table.rows[i].cells
+        left_text = f"{i+1}. {left_items[i]}" if i < len(left_items) else ""
+        box_text = "[   ]" if i < len(left_items) else ""
+        right_text = f"{chr(97+i)}) {shuffled_right[i]}" if i < len(shuffled_right) else ""
+
+        _set_cell_font(cells[0], left_text, font_name, b_sz)
+        p_box = _set_cell_font(cells[1], box_text, font_name, b_sz)
+        p_box.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _set_cell_font(cells[2], right_text, font_name, b_sz)
+
+        for cell in cells:
+            tc = cell._tc
+            tcPr = tc.get_or_add_tcPr()
+            borders = parse_xml(
+                f'<w:tcBorders {nsdecls("w")}>'
+                '<w:top w:val="none" w:sz="0" w:color="auto"/>'
+                '<w:bottom w:val="none" w:sz="0" w:color="auto"/>'
+                '<w:left w:val="none" w:sz="0" w:color="auto"/>'
+                '<w:right w:val="none" w:sz="0" w:color="auto"/>'
+                '</w:tcBorders>'
+            )
+            tcPr.append(borders)
+
+    doc.add_paragraph()
+
+
+def _render_exam_true_false_docx(doc, questions: list, font_name: str, b_sz: float):
+    if not questions:
+        return
+
+    table = doc.add_table(rows=len(questions), cols=2)
+    table.autofit = True
+    tf_label = f"{t('quick_exam_true_label')} ☐   {t('quick_exam_false_label')} ☐"
+
+    for idx, q in enumerate(questions, 1):
+        cells = table.rows[idx - 1].cells
+        text = _format_exam_question_text("true_false", q)
+        _set_cell_font(cells[0], f"{idx}. {text}", font_name, b_sz)
+        _set_cell_font(cells[1], tf_label, font_name, b_sz)
+        for cell in cells:
+            tc = cell._tc
+            tcPr = tc.get_or_add_tcPr()
+            borders = parse_xml(
+                f'<w:tcBorders {nsdecls("w")}>'
+                '<w:top w:val="none" w:sz="0" w:color="auto"/>'
+                '<w:bottom w:val="none" w:sz="0" w:color="auto"/>'
+                '<w:left w:val="none" w:sz="0" w:color="auto"/>'
+                '<w:right w:val="none" w:sz="0" w:color="auto"/>'
+                '</w:tcBorders>'
+            )
+            tcPr.append(borders)
+
+    doc.add_paragraph()
+
+
+def _render_exam_section_docx(
+    doc: Document,
+    sec: dict,
+    font_name: str,
+    sec_sz: float,
+    b_sz: float,
+    lr: float = 1.15,
+):
+    sec_type = str(sec.get("type") or "").strip()
+    sec_title = str(sec.get("title") or _exam_title_fallback(sec_type)).strip()
+
+    _add_heading(doc, sec_title, font_name, sec_sz, color=_TEXT, leading_ratio=lr)
+
+    instructions = str(sec.get("instructions") or "").strip()
+    if instructions:
+        _add_body(doc, instructions, font_name, b_sz, leading_ratio=lr)
+
+    source_text = str(sec.get("source_text") or "").strip()
+    if source_text:
+        _add_body(doc, _strip_leading_enum(source_text), font_name, b_sz, leading_ratio=lr)
+
+    questions = sec.get("questions") or []
+
+    if sec_type == "multiple_choice":
+        for idx, q in enumerate(questions, 1):
+            if isinstance(q, dict):
+                stem = _format_exam_question_text(sec_type, q)
+                _add_body(doc, f"{idx}. {stem}", font_name, b_sz, bold=True, leading_ratio=lr)
+                for opt_idx, opt in enumerate(q.get("options", [])):
+                    letter = chr(65 + opt_idx)
+                    _add_body(doc, f"    {letter}) {_strip_leading_enum(opt)}", font_name, b_sz, leading_ratio=lr)
+            else:
+                _add_body(doc, f"{idx}. {_format_exam_question_text(sec_type, q)}", font_name, b_sz, leading_ratio=lr)
+    elif sec_type == "matching":
+        _render_exam_matching_docx(doc, questions, font_name, b_sz)
+    elif sec_type == "true_false":
+        _render_exam_true_false_docx(doc, questions, font_name, b_sz)
+    elif sec_type == "fill_in_blank":
+        for idx, q in enumerate(questions, 1):
+            text = _format_exam_question_text(sec_type, q).replace("___", "______________")
+            _add_body(doc, f"{idx}. {text}", font_name, b_sz, leading_ratio=lr)
+    elif sec_type in (
+        "short_answer",
+        "reading_comprehension",
+        "writing_prompt",
+        "problem_solving",
+        "equation_solving",
+        "table_interpretation",
+        "word_problems",
+        "data_analysis",
+        "classification",
+        "process_explanation",
+        "hypothesis_and_conclusion",
+        "diagram_questions",
+        "theory_questions",
+        "symbol_identification",
+        "rhythm_counting",
+        "terminology",
+        "composer_period_matching",
+        "show_your_work",
+        "vocabulary",
+        "sentence_transformation",
+        "error_correction",
+    ):
+        line_count = 5 if sec_type in ("writing_prompt", "show_your_work") else 2
+        for idx, q in enumerate(questions, 1):
+            _add_body(doc, f"{idx}. {_format_exam_question_text(sec_type, q)}", font_name, b_sz, leading_ratio=lr)
+            _add_response_lines(doc, font_name, b_sz, line_count, lr)
+    else:
+        for idx, q in enumerate(questions, 1):
+            _add_body(doc, f"{idx}. {_format_exam_question_text(sec_type, q)}", font_name, b_sz, leading_ratio=lr)
+
+    doc.add_paragraph()
+
+
+def _render_exam_answer_key_docx(doc: Document, exam_data: dict, answer_key: dict, font_name: str, sec_sz: float, b_sz: float, lr: float = 1.15):
+    exam_sections = exam_data.get("sections") or []
+    ak_sections = answer_key.get("sections") or []
+
+    for idx, ak_sec in enumerate(ak_sections):
+        fallback_type = exam_sections[idx].get("type", "") if idx < len(exam_sections) else ""
+        sec_title = str(ak_sec.get("title") or _exam_title_fallback(fallback_type)).strip()
+        _add_heading(doc, sec_title, font_name, sec_sz, color=_TEXT, leading_ratio=lr)
+        for answer_idx, ans in enumerate(ak_sec.get("answers", []), 1):
+            _add_body(doc, f"{answer_idx}. {_format_exam_answer_text(ans)}", font_name, b_sz, leading_ratio=lr)
+        doc.add_paragraph()
+
+
+def generate_docx_exam(
+    exam_data: dict,
+    answer_key: dict | None = None,
+    *,
+    student_only: bool = True,
+) -> bytes:
+    """
+    Generate a Word document from an exam dict.
+    The teacher version appends an answer key section.
+    """
+    from helpers.branding import get_user_branding
+    from helpers.font_manager import get_docx_font_name, get_font_sizes
+
+    branding = get_user_branding()
+    font_key = branding.get("branding_font", "dejavu")
+    size_key = branding.get("branding_font_size", "standard")
+
+    font_name = get_docx_font_name(font_key)
+    sz = get_font_sizes(size_key)
+    t_sz, sec_sz, b_sz = sz["title"], sz["section"], sz["body"]
+    lr = sz.get("leading_ratio", 1.15)
+
+    doc = Document()
+    style = doc.styles["Normal"]
+    style.font.name = font_name
+    style.font.size = Pt(b_sz)
+
+    for section in doc.sections:
+        section.top_margin = Cm(1.5)
+        section.bottom_margin = Cm(1.5)
+        section.left_margin = Cm(1.8)
+        section.right_margin = Cm(1.8)
+
+    _add_logo_to_doc(doc, branding)
+
+    brand_name = branding.get("brand_name", "").strip()
+    department = branding.get("department", "").strip()
+    header_enabled = branding.get("header_enabled", False)
+
+    if header_enabled and brand_name:
+        _add_heading(doc, brand_name, font_name, sec_sz + 1, color=_PRIMARY,
+                     align=WD_ALIGN_PARAGRAPH.CENTER, leading_ratio=lr)
+    if header_enabled and department:
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(department)
+        _apply_font(run, font_name, b_sz, color=_TEXT_MUTED)
+        _set_line_spacing(p, lr)
+
+    title = str(exam_data.get("title") or t("quick_exam_generic_exam_title")).strip()
+    if not student_only:
+        title = f"{title} - {t('ws_answer_key')}"
+    _add_heading(doc, title, font_name, t_sz, color=_PRIMARY, leading_ratio=lr)
+
+    if branding.get("header_style") == "school" and header_enabled:
+        table = doc.add_table(rows=1, cols=3)
+        table.autofit = True
+        cells = table.rows[0].cells
+        _set_cell_font(cells[0], f"{t('student_name_label')}: _________________________________", font_name, b_sz, bold=True)
+        _set_cell_font(cells[1], f"{t('class_label')}: __________", font_name, b_sz, bold=True)
+        _set_cell_font(cells[2], f"{t('date_label')}: __________", font_name, b_sz, bold=True)
+        for cell in cells:
+            tc = cell._tc
+            tcPr = tc.get_or_add_tcPr()
+            borders = parse_xml(
+                f'<w:tcBorders {nsdecls("w")}>'
+                '<w:top w:val="none" w:sz="0" w:color="auto"/>'
+                '<w:bottom w:val="none" w:sz="0" w:color="auto"/>'
+                '<w:left w:val="none" w:sz="0" w:color="auto"/>'
+                '<w:right w:val="none" w:sz="0" w:color="auto"/>'
+                '</w:tcBorders>'
+            )
+            tcPr.append(borders)
+        _add_separator(doc)
+
+    instructions = str(exam_data.get("instructions") or "").strip()
+    if instructions:
+        _add_heading(doc, t("ws_instructions") if t("ws_instructions") != "ws_instructions" else "Instructions",
+                     font_name, sec_sz, color=_TEXT, leading_ratio=lr)
+        _add_body(doc, instructions, font_name, b_sz, leading_ratio=lr)
+
+    for sec in exam_data.get("sections", []):
+        _render_exam_section_docx(doc, sec, font_name, sec_sz, b_sz, lr)
+
+    if not student_only and answer_key:
+        _add_separator(doc)
+        _add_heading(doc, t("ws_answer_key") if t("ws_answer_key") != "ws_answer_key" else "Answer Key",
+                     font_name, t_sz, color=_PRIMARY, leading_ratio=lr)
+        _render_exam_answer_key_docx(doc, exam_data, answer_key, font_name, sec_sz, b_sz, lr)
+
+    _add_footer_with_image(doc, branding, font_name)
+
+    buf = BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
 # ── Lesson plan DOCX generator ──────────────────────────────────────
 
 def generate_docx_lesson_plan(
@@ -767,7 +1124,9 @@ def generate_docx_lesson_plan(
         meta_pairs.append((f"{lp_label}:", lesson_purpose))
     mat_lang = str(plan.get("student_material_language") or "").strip().upper()
     if mat_lang:
-        ml_label = t('student_material_language') if t('student_material_language') != 'student_material_language' else 'Material Language'
+        ml_label = t('student_material_language')
+        if ml_label == 'student_material_language':
+            ml_label = t('material_language')
         meta_pairs.append((f"{ml_label}:", mat_lang))
     if meta_pairs:
         p = doc.add_paragraph()

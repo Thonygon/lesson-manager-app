@@ -9,7 +9,7 @@ from core.navigation import page_header, go_to
 from core.database import norm_student, update_payment_row, clear_app_caches
 from helpers.dashboard import rebuild_dashboard
 from helpers.student_meta import student_meta_maps
-from helpers.goals import render_home_indicator, YEAR_GOAL_SCOPE, get_next_lesson_display
+from helpers.goals import render_home_indicator, YEAR_GOAL_SCOPE
 from helpers.kpi_bubbles import kpi_stat_cards
 from helpers.ui_components import pretty_df, translate_df_headers, translate_df, ts_today_naive, render_styled_dataframe
 from helpers.analytics import build_income_analytics
@@ -43,6 +43,100 @@ def _svg_whatsapp_icon() -> str:
       <path d="M12 4a8 8 0 0 0-6.93 12l-.82 3.02 3.1-.8A8 8 0 1 0 12 4Zm4.27 11.24c-.18.5-.9.92-1.25.97-.32.05-.72.08-1.16-.06-.27-.09-.62-.2-1.07-.39-1.88-.82-3.1-2.73-3.2-2.86-.1-.13-.76-1.01-.76-1.93 0-.92.48-1.37.65-1.56.17-.18.37-.23.5-.23h.36c.11 0 .26-.04.4.3.15.35.5 1.2.54 1.29.05.09.08.2.02.33-.06.13-.09.21-.18.32-.09.1-.19.24-.27.32-.09.09-.18.18-.08.35.1.17.45.74.96 1.2.66.59 1.22.78 1.39.87.17.08.27.07.37-.04.1-.11.42-.49.53-.66.11-.17.22-.14.37-.08.15.05.96.45 1.12.53.16.08.27.12.31.19.04.07.04.42-.14.92Z" fill="currentColor"/>
     </svg>
     """
+def _localized_short_date(dt_obj) -> str:
+    month_keys = {
+        1: "month_jan_short",
+        2: "month_feb_short",
+        3: "month_mar_short",
+        4: "month_apr_short",
+        5: "month_may_short",
+        6: "month_jun_short",
+        7: "month_jul_short",
+        8: "month_aug_short",
+        9: "month_sep_short",
+        10: "month_oct_short",
+        11: "month_nov_short",
+        12: "month_dec_short",
+    }
+    return f"{dt_obj.day:02d} {t(month_keys[dt_obj.month])} {dt_obj.year}"
+
+
+def _localized_weekday_short(dt_obj) -> str:
+    weekday_keys = {
+        0: "weekday_monday_short",
+        1: "weekday_tuesday_short",
+        2: "weekday_wednesday_short",
+        3: "weekday_thursday_short",
+        4: "weekday_friday_short",
+        5: "weekday_saturday_short",
+        6: "weekday_sunday_short",
+    }
+    return t(weekday_keys[dt_obj.weekday()])
+
+def _get_next_lesson_from_calendar() -> str:
+    now_dt = now_local()
+    start_day = today_local()
+    end_day = start_day + datetime.timedelta(days=60)
+
+    events = build_calendar_events(start_day, end_day)
+    if events is None or events.empty:
+        return "—"
+
+    df = events.copy()
+
+    # Make sure expected columns exist
+    for col in ["Student", "Time"]:
+        if col not in df.columns:
+            df[col] = ""
+
+    df["Student"] = df["Student"].fillna("").astype(str).str.strip()
+    df["Time"] = df["Time"].fillna("").astype(str).str.strip()
+
+    # Try to detect a date column from build_calendar_events output
+    date_col = None
+    for candidate in ["Date", "date", "Start_Date", "start_date", "Start", "start"]:
+        if candidate in df.columns:
+            date_col = candidate
+            break
+
+    if date_col is None:
+        return "—"
+
+    future_rows = []
+
+    for _, row in df.iterrows():
+        student = str(row.get("Student", "")).strip()
+        time_text = str(row.get("Time", "")).strip()
+        raw_date = row.get(date_col)
+
+        if not student or not time_text or pd.isna(raw_date):
+            continue
+
+        try:
+            event_date = pd.to_datetime(raw_date).date()
+        except Exception:
+            continue
+
+        try:
+            hhmm = time_text[:5]
+            hh, mm = map(int, hhmm.split(":"))
+            event_dt = datetime.datetime.combine(event_date, datetime.time(hh, mm))
+        except Exception:
+            continue
+
+        now_naive = now_dt.replace(tzinfo=None) if getattr(now_dt, "tzinfo", None) else now_dt
+
+        if event_dt >= now_naive:
+            future_rows.append((event_dt, student))
+
+    if not future_rows:
+        return "—"
+
+    future_rows.sort(key=lambda x: x[0])
+    next_dt, next_student = future_rows[0]
+
+    weekday_label = _localized_weekday_short(next_dt)
+    return f"{weekday_label} {next_dt.strftime('%H:%M')} • {next_student}"
 
 def _render_today_lessons_cards(df: pd.DataFrame, color_map: dict, phone_map: dict, address_map: dict) -> None:
     st.markdown(
@@ -270,7 +364,7 @@ def render_dashboard():
         .sum()
     )
 
-    next_lesson = get_next_lesson_display()
+    next_lesson = _get_next_lesson_from_calendar()
 
     kpis, *_ = build_income_analytics(group="monthly")
     income_this_year = float(kpis.get("income_this_year", 0.0))
@@ -290,7 +384,7 @@ def render_dashboard():
     if goal_val > 0:
         render_home_indicator(
             status=t("online"),
-            badge=now_local().strftime("%d %b %Y"),
+            badge=_localized_short_date(now_local()),
             items=[
                 (t("next"), next_lesson),
                 (t("goal"), format_currency(goal_display)),

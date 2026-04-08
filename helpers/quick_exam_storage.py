@@ -2,6 +2,7 @@
 # ============================================================
 import streamlit as st
 import json, re, math, os, html
+import ast
 from typing import Optional
 from datetime import datetime as _dt, timezone
 import pandas as pd
@@ -39,6 +40,103 @@ def _pdf_safe_text(value) -> str:
     return xml_escape(_normalize_text(value))
 
 
+def _strip_auto_numbering(value) -> str:
+    """
+    Removes AI-added leading numbering such as:
+    1. Text
+    1) Text
+    (1) Text
+    A) Text
+    a. Text
+    """
+    text = _normalize_text(value)
+    return re.sub(
+        r"^\s*(?:\(?\d+\)?[.)-]|\(?[A-Za-z]\)?[.)-])\s+",
+        "",
+        str(text or "")
+    ).strip()
+
+
+def _sentence_case_fragment(value) -> str:
+    text = _strip_auto_numbering(value)
+    if not text:
+        return ""
+    if any(ch.isupper() for ch in text):
+        return text
+    chars = list(text)
+    for idx, ch in enumerate(chars):
+        if ch.isalpha():
+            chars[idx] = ch.upper()
+            return "".join(chars)
+    return text
+
+
+def _extract_pair_side(value, *, prefer: str = "value") -> str:
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.startswith("{") and stripped.endswith("}"):
+            try:
+                parsed = ast.literal_eval(stripped)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict):
+                value = parsed
+    if isinstance(value, dict):
+        if prefer in value:
+            return _sentence_case_fragment(value.get(prefer, ""))
+        if len(value) == 1:
+            only_key, only_val = next(iter(value.items()))
+            return _sentence_case_fragment(only_val if prefer == "value" else only_key)
+        return _sentence_case_fragment(value.get("text", value.get("answer", str(value))))
+    return _sentence_case_fragment(value)
+
+
+def _subject_display_label(subject: str) -> str:
+    subject = str(subject or "").strip()
+    if not subject:
+        return ""
+    subj_key = "subject_" + subject.lower().replace(" ", "_")
+    translated = t(subj_key)
+    return translated if translated != subj_key else subject
+
+
+def _section_title_fallback(sec_type: str) -> str:
+    exercise_label = t(sec_type)
+    if exercise_label == sec_type:
+        exercise_label = sec_type.replace("_", " ").title()
+    return t("quick_exam_part_title", section=exercise_label)
+
+
+def _format_answer_text(ans) -> str:
+    if isinstance(ans, dict):
+        if "left" in ans and "right" in ans:
+            return f"{_extract_pair_side(ans.get('left', ''), prefer='key')} → {_extract_pair_side(ans.get('right', ''), prefer='value')}"
+        if "word" in ans and "answer" in ans:
+            return f"{_sentence_case_fragment(ans.get('word', ''))}: {_strip_auto_numbering(ans.get('answer', ''))}"
+        return _strip_auto_numbering(ans.get("answer", ans.get("text", str(ans))))
+    return _strip_auto_numbering(ans)
+
+
+def _format_question_text(sec_type: str, q) -> str:
+    if sec_type == "multiple_choice" and isinstance(q, dict):
+        return _strip_auto_numbering(q.get("stem", q.get("text", "")))
+    if sec_type == "sentence_transformation" and isinstance(q, dict):
+        original = _strip_auto_numbering(q.get("original", ""))
+        prompt = _strip_auto_numbering(q.get("prompt", ""))
+        return f"{original} ({prompt})" if prompt else original
+    if sec_type == "vocabulary" and isinstance(q, dict):
+        word = _sentence_case_fragment(q.get("word", ""))
+        task = _strip_auto_numbering(q.get("task", ""))
+        return f"{word}: {task}" if task else word
+    if sec_type == "matching" and isinstance(q, dict):
+        left = _extract_pair_side(q.get("left", ""), prefer="key")
+        right = _extract_pair_side(q.get("right", ""), prefer="value")
+        return f"{left} ↔ {right}" if right else left
+    if isinstance(q, dict):
+        return _strip_auto_numbering(q.get("text", str(q)))
+    return _strip_auto_numbering(q)
+
+
 # ── CRUD ──────────────────────────────────────────────────────────────
 
 def save_exam_record(
@@ -69,7 +167,7 @@ def save_exam_record(
         get_sb().table("quick_exams").insert(payload).execute()
         return True
     except Exception as e:
-        st.warning(f"Could not save exam: {e}")
+        st.warning(t("quick_exam_save_failed", error=e))
         return False
 
 
@@ -146,11 +244,7 @@ def render_exam_library_cards(
             exam_length = str(row.get("exam_length") or "").strip()
             author_name = str(row.get("author_name") or "").strip()
             created_at = _format_exam_dt(row.get("created_at"))
-
-            subject_label = ""
-            if subject:
-                subj_key = "subject_" + subject.lower().replace(" ", "_")
-                subject_label = t(subj_key)
+            subject_label = _subject_display_label(subject)
 
             level_label = ""
             if level:
@@ -294,13 +388,12 @@ def build_exam_pdf_bytes(
 ) -> bytes:
     """Build the student exam PDF (no answers)."""
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.styles import getSampleStyleSheet
     from reportlab.lib.units import cm
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer,
         Table, TableStyle, KeepTogether, CondPageBreak,
     )
-    from reportlab.lib import colors
 
     body_font, bold_font = ensure_pdf_fonts_registered()
 
@@ -320,18 +413,18 @@ def build_exam_pdf_bytes(
     styles = getSampleStyleSheet()
     story = []
 
-    plan_lang = "en"
+    plan_lang = st.session_state.get("ui_lang", "en")
+
     def _t_pdf(key, **kw):
         try:
             return t(key, lang=plan_lang, **kw)
         except TypeError:
             return t(key, **kw)
 
-    # ── Branding header ──────────────────────────────────
     from helpers.branding import get_user_branding, build_worksheet_header
     _branding = get_user_branding()
 
-    ws_stub = {"title": exam_data.get("title", "Exam")}
+    ws_stub = {"title": exam_data.get("title", t("quick_exam_generic_exam_title"))}
     build_worksheet_header(
         story, ws_stub, _branding,
         styles=styles, doc=doc,
@@ -342,12 +435,10 @@ def build_exam_pdf_bytes(
         level_or_band=level_or_band,
     )
 
-    # General instructions
     if exam_data.get("instructions"):
         story.append(Paragraph(_pdf_safe_text(exam_data["instructions"]), _S["instruction"]))
         story.append(Spacer(1, 8))
 
-    # ── Sections ─────────────────────────────────────────
     for sec in exam_data.get("sections", []):
         sec_type = sec.get("type", "")
         sec_title = sec.get("title", "")
@@ -360,7 +451,7 @@ def build_exam_pdf_bytes(
             story.append(Spacer(1, 4))
 
         if sec.get("source_text"):
-            story.append(Paragraph(_pdf_safe_text(sec["source_text"]), _S["body"]))
+            story.append(Paragraph(_pdf_safe_text(_strip_auto_numbering(sec["source_text"])), _S["body"]))
             story.append(Spacer(1, 6))
 
         questions = sec.get("questions", [])
@@ -368,7 +459,7 @@ def build_exam_pdf_bytes(
         if sec_type == "multiple_choice":
             for idx, q in enumerate(questions, 1):
                 if isinstance(q, dict):
-                    stem = q.get("stem", q.get("text", ""))
+                    stem = _strip_auto_numbering(q.get("stem", q.get("text", "")))
                     options = q.get("options", [])
                     block = [
                         Paragraph(_pdf_safe_text(f"{idx}. {stem}"), _S["mc_stem"]),
@@ -380,7 +471,7 @@ def build_exam_pdf_bytes(
                     block.append(Spacer(1, 4))
                     story.append(KeepTogether(block))
                 else:
-                    story.append(Paragraph(_pdf_safe_text(f"{idx}. {q}"), _S["body"]))
+                    story.append(Paragraph(_pdf_safe_text(f"{idx}. {_strip_auto_numbering(q)}"), _S["body"]))
                     story.append(Spacer(1, 4))
 
         elif sec_type == "matching":
@@ -388,8 +479,8 @@ def build_exam_pdf_bytes(
             right_items = []
             for q in questions:
                 if isinstance(q, dict):
-                    left_items.append(q.get("left", ""))
-                    right_items.append(q.get("right", ""))
+                    left_items.append(_extract_pair_side(q.get("left", ""), prefer="key"))
+                    right_items.append(_extract_pair_side(q.get("right", ""), prefer="value"))
 
             if left_items:
                 import random
@@ -400,8 +491,8 @@ def build_exam_pdf_bytes(
                 box_style = _S["box_label"]
                 rows = []
                 for i in range(max(len(left_items), len(shuffled))):
-                    lt = f"{i+1}. {left_items[i]}" if i < len(left_items) else ""
-                    rt = f"{chr(97+i)}) {shuffled[i]}" if i < len(shuffled) else ""
+                    lt = f"{i+1}. {_strip_auto_numbering(left_items[i])}" if i < len(left_items) else ""
+                    rt = f"{chr(97+i)}) {_strip_auto_numbering(shuffled[i])}" if i < len(shuffled) else ""
                     rows.append([
                         Paragraph(_pdf_safe_text(lt), _S["body"]),
                         Paragraph(_pdf_safe_text("[   ]"), box_style),
@@ -415,17 +506,16 @@ def build_exam_pdf_bytes(
                     ("TOPPADDING", (0,0), (-1,-1), 5),
                     ("BOTTOMPADDING", (0,0), (-1,-1), 7),
                 ]))
-                story.append(tbl)
-                story.append(Spacer(1, 6))
+                story.append(KeepTogether([tbl, Spacer(1, 6)]))
 
         elif sec_type == "true_false":
             tf_label_style = _S["tf_label"]
             tf_rows = []
             for idx, q in enumerate(questions, 1):
-                text = q if isinstance(q, str) else q.get("text", str(q))
+                text = _format_question_text(sec_type, q)
                 tf_rows.append([
                     Paragraph(_pdf_safe_text(f"{idx}. {text}"), _S["body"]),
-                    Paragraph(_pdf_safe_text("True ☐   False ☐"), tf_label_style),
+                    Paragraph(_pdf_safe_text(f"{t('quick_exam_true_label')} ☐   {t('quick_exam_false_label')} ☐"), tf_label_style),
                 ])
             if tf_rows:
                 tbl = Table(tf_rows, colWidths=[11.8*cm, 4.6*cm], hAlign="LEFT")
@@ -441,20 +531,38 @@ def build_exam_pdf_bytes(
 
         elif sec_type == "fill_in_blank":
             for idx, q in enumerate(questions, 1):
-                text = q if isinstance(q, str) else q.get("text", str(q))
-                text = re.sub(r"_+", "______________", text)
+                text = re.sub(r"_+", "______________", _format_question_text(sec_type, q))
                 story.append(Paragraph(_pdf_safe_text(f"{idx}. {text}"), _S["body"]))
                 story.append(Spacer(1, 6))
 
-        elif sec_type in ("short_answer", "reading_comprehension"):
+        elif sec_type in (
+            "short_answer",
+            "reading_comprehension",
+            "writing_prompt",
+            "problem_solving",
+            "equation_solving",
+            "table_interpretation",
+            "word_problems",
+            "data_analysis",
+            "classification",
+            "process_explanation",
+            "hypothesis_and_conclusion",
+            "diagram_questions",
+            "theory_questions",
+            "symbol_identification",
+            "rhythm_counting",
+            "terminology",
+            "composer_period_matching",
+            "show_your_work",
+        ):
+            line_count = 5 if sec_type in ("writing_prompt", "show_your_work") else 2
             for idx, q in enumerate(questions, 1):
-                text = q if isinstance(q, str) else q.get("text", str(q))
+                text = _format_question_text(sec_type, q)
                 block = [
                     Paragraph(_pdf_safe_text(f"{idx}. {text}"), _S["body"]),
                     Spacer(1, 4),
                 ]
-                # Answer lines
-                for _ in range(2):
+                for _ in range(line_count):
                     line_tbl = Table(
                         [[""]],
                         colWidths=[16.2*cm],
@@ -474,12 +582,7 @@ def build_exam_pdf_bytes(
 
         elif sec_type == "vocabulary":
             for idx, q in enumerate(questions, 1):
-                if isinstance(q, dict):
-                    word = q.get("word", "")
-                    task = q.get("task", "")
-                    text = f"{word}: {task}" if task else word
-                else:
-                    text = str(q)
+                text = _format_question_text(sec_type, q)
                 story.append(Paragraph(_pdf_safe_text(f"{idx}. {text}"), _S["body"]))
                 line_tbl = Table([[""]],
                                 colWidths=[16.2*cm], rowHeights=[0.6*cm], hAlign="LEFT")
@@ -495,12 +598,7 @@ def build_exam_pdf_bytes(
 
         elif sec_type == "sentence_transformation":
             for idx, q in enumerate(questions, 1):
-                if isinstance(q, dict):
-                    original = q.get("original", "")
-                    prompt = q.get("prompt", "")
-                    text = f"{original}\n({prompt})" if prompt else original
-                else:
-                    text = str(q)
+                text = _format_question_text(sec_type, q)
                 block = [
                     Paragraph(_pdf_safe_text(f"{idx}. {text}"), _S["body"]),
                     Spacer(1, 4),
@@ -518,16 +616,9 @@ def build_exam_pdf_bytes(
                 block.append(Spacer(1, 6))
                 story.append(KeepTogether(block))
 
-        elif sec_type == "writing_prompt":
-            for idx, q in enumerate(questions, 1):
-                text = q if isinstance(q, str) else q.get("text", str(q))
-                story.append(Paragraph(_pdf_safe_text(f"{idx}. {text}"), _S["body"]))
-                story.append(Spacer(1, 8))
-
         else:
-            # Fallback: numbered list
             for idx, q in enumerate(questions, 1):
-                text = q if isinstance(q, str) else q.get("text", str(q))
+                text = _format_question_text(sec_type, q)
                 story.append(Paragraph(_pdf_safe_text(f"{idx}. {text}"), _S["body"]))
                 story.append(Spacer(1, 4))
 
@@ -550,15 +641,12 @@ def build_exam_answer_pdf_bytes(
 ) -> bytes:
     """Build the teacher answer key PDF."""
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import cm
     from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, CondPageBreak,
-    )
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, CondPageBreak
 
     body_font, bold_font = ensure_pdf_fonts_registered()
 
-    # Use user's font/size preference
     from helpers.branding import get_user_branding as _get_branding_cfg2
     _branding_cfg2 = _get_branding_cfg2()
     _font_key2 = _branding_cfg2.get("branding_font", "dejavu")
@@ -580,11 +668,10 @@ def build_exam_answer_pdf_bytes(
         except TypeError:
             return t(key, **kw)
 
-    # Header
     from helpers.branding import get_user_branding, build_worksheet_header
     _branding = get_user_branding()
 
-    title_text = exam_data.get("title", "Exam") + " — " + _t_pdf("ws_answer_key")
+    title_text = exam_data.get("title", t("quick_exam_generic_exam_title")) + " — " + _t_pdf("ws_answer_key")
     ws_stub = {"title": title_text}
     build_worksheet_header(
         story, ws_stub, _branding,
@@ -596,12 +683,12 @@ def build_exam_answer_pdf_bytes(
         level_or_band=level_or_band,
     )
 
-    # Sections
     ak_sections = answer_key.get("sections", [])
-    exam_sections = exam_data.get("sections", [])
 
     for i, ak_sec in enumerate(ak_sections):
-        sec_title = ak_sec.get("title", f"Part {i+1}")
+        exam_sections = exam_data.get("sections", [])
+        fallback_type = exam_sections[i].get("type", "") if i < len(exam_sections) else ""
+        sec_title = ak_sec.get("title", _section_title_fallback(fallback_type))
         answers = ak_sec.get("answers", [])
 
         story.append(CondPageBreak(2 * cm))
@@ -609,10 +696,7 @@ def build_exam_answer_pdf_bytes(
         story.append(Spacer(1, 4))
 
         for idx, ans in enumerate(answers, 1):
-            if isinstance(ans, dict):
-                ans_text = ans.get("answer", ans.get("text", str(ans)))
-            else:
-                ans_text = str(ans)
+            ans_text = _format_answer_text(ans)
             story.append(Paragraph(_pdf_safe_text(f"{idx}. {ans_text}"), _AK["body"]))
 
         story.append(Spacer(1, 8))
@@ -626,14 +710,15 @@ def build_exam_answer_pdf_bytes(
 
 # ── Render UI ────────────────────────────────────────────────────────
 
-def render_exam_result(exam_data: dict, answer_key: dict, **meta) -> None:
+def render_exam_result(exam_data: dict, answer_key: dict, *, show_ready_banner: bool = True, **meta) -> None:
     if not exam_data or not exam_data.get("sections"):
         return
 
-    st.success(t("exam_ready") if t("exam_ready") != "exam_ready" else "Exam ready!")
-    warning = st.session_state.get("exam_warning")
-    if warning:
-        st.warning(warning)
+    if show_ready_banner:
+        st.success(t("exam_ready") if t("exam_ready") != "exam_ready" else "Exam ready!")
+        warning = st.session_state.get("exam_warning")
+        if warning:
+            st.warning(warning)
 
     st.markdown(f"### {exam_data.get('title', '')}")
 
@@ -643,74 +728,64 @@ def render_exam_result(exam_data: dict, answer_key: dict, **meta) -> None:
 
     for sec in exam_data.get("sections", []):
         sec_type = sec.get("type", "")
-        st.markdown(f"#### {sec.get('title', '')}")
+        sec_title = sec.get("title") or _section_title_fallback(sec_type)
+        st.markdown(f"#### {sec_title}")
 
         if sec.get("instructions"):
             st.caption(sec["instructions"])
 
         if sec.get("source_text"):
-            st.write(sec["source_text"])
+            st.info(_strip_auto_numbering(sec["source_text"]))
 
         questions = sec.get("questions", [])
 
         if sec_type == "multiple_choice":
             for idx, q in enumerate(questions, 1):
                 if isinstance(q, dict):
-                    stem = q.get("stem", q.get("text", ""))
+                    stem = _strip_auto_numbering(q.get("stem", q.get("text", "")))
                     st.write(f"**{idx}. {stem}**")
                     for oi, opt in enumerate(q.get("options", [])):
                         st.write(f"   {chr(65+oi)}) {opt}")
                 else:
-                    st.write(f"{idx}. {q}")
+                    st.write(f"{idx}. {_strip_auto_numbering(q)}")
 
         elif sec_type == "matching":
             c1, c2 = st.columns(2)
             with c1:
-                st.markdown("**Column A**")
+                st.markdown(f"**{t('quick_exam_column_a')}**")
                 for idx, q in enumerate(questions, 1):
-                    left = q.get("left", str(q)) if isinstance(q, dict) else str(q)
+                    left = _extract_pair_side(q.get("left", str(q)) if isinstance(q, dict) else str(q), prefer="key")
                     st.write(f"{idx}. {left}")
             with c2:
-                st.markdown("**Column B**")
+                st.markdown(f"**{t('quick_exam_column_b')}**")
                 for idx, q in enumerate(questions):
-                    right = q.get("right", "") if isinstance(q, dict) else ""
+                    right = _extract_pair_side(q.get("right", "") if isinstance(q, dict) else "", prefer="value")
                     st.write(f"{chr(97+idx)}) {right}")
 
         elif sec_type == "true_false":
             for idx, q in enumerate(questions, 1):
-                text = q if isinstance(q, str) else q.get("text", str(q))
+                text = _format_question_text(sec_type, q)
                 st.write(f"{idx}. {text}")
 
         elif sec_type == "sentence_transformation":
             for idx, q in enumerate(questions, 1):
-                if isinstance(q, dict):
-                    st.write(f"{idx}. {q.get('original', '')}  →  ({q.get('prompt', '')})")
-                else:
-                    st.write(f"{idx}. {q}")
+                st.write(f"{idx}. {_format_question_text(sec_type, q)}")
 
         elif sec_type == "vocabulary":
             for idx, q in enumerate(questions, 1):
-                if isinstance(q, dict):
-                    st.write(f"{idx}. **{q.get('word', '')}**: {q.get('task', '')}")
-                else:
-                    st.write(f"{idx}. {q}")
+                st.write(f"{idx}. {_format_question_text(sec_type, q)}")
 
         else:
             for idx, q in enumerate(questions, 1):
-                text = q if isinstance(q, str) else q.get("text", str(q))
+                text = _format_question_text(sec_type, q)
                 st.write(f"{idx}. {text}")
 
-    # Answer key preview
     with st.expander(t("ws_answer_key"), expanded=False):
         for sec in answer_key.get("sections", []):
             st.markdown(f"**{sec.get('title', '')}**")
             for idx, ans in enumerate(sec.get("answers", []), 1):
-                if isinstance(ans, dict):
-                    st.write(f"{idx}. {ans.get('answer', ans.get('text', str(ans)))}")
-                else:
-                    st.write(f"{idx}. {ans}")
+                st.write(f"{idx}. {_format_answer_text(ans)}")
 
-    # PDF downloads
     _pdf_kwargs = dict(
         subject=meta.get("subject", ""),
         topic=meta.get("topic", ""),
@@ -720,6 +795,9 @@ def render_exam_result(exam_data: dict, answer_key: dict, **meta) -> None:
 
     student_pdf = build_exam_pdf_bytes(exam_data, **_pdf_kwargs)
     answer_pdf = build_exam_answer_pdf_bytes(exam_data, answer_key, **_pdf_kwargs)
+    from helpers.docx_generator import generate_docx_exam
+    student_docx = generate_docx_exam(exam_data, answer_key, student_only=True)
+    teacher_docx = generate_docx_exam(exam_data, answer_key, student_only=False)
     safe_title = re.sub(r"[^A-Za-z0-9._-]+", "_", str(exam_data.get("title") or "exam").strip()) or "exam"
 
     dc1, dc2 = st.columns(2)
@@ -741,152 +819,31 @@ def render_exam_result(exam_data: dict, answer_key: dict, **meta) -> None:
             key=f"dl_exam_ak_{safe_title}",
             use_container_width=True,
         )
-
-
-# ── Expander UI ──────────────────────────────────────────────────────
-
-def render_quick_exam_builder_expander() -> None:
-    with st.expander(
-        t("quick_exam_builder") if t("quick_exam_builder") != "quick_exam_builder" else "Quick Exam Builder",
-        expanded=False,
-    ):
-        st.caption(
-            t("quick_exam_builder_caption")
-            if t("quick_exam_builder_caption") != "quick_exam_builder_caption"
-            else "Generate a full multi-section exam in seconds"
-        )
-
-        usage = get_ai_exam_usage_status()
-        st.caption(
-            t(
-                "ai_plans_left_today",
-                remaining=usage["remaining_today"],
-                limit=_eb().AI_EXAM_DAILY_LIMIT,
-            )
-        )
-
-        # ── Core fields ──
-        subject = st.selectbox(
-            t("subject_label"),
-            _lp().QUICK_SUBJECTS,
-            format_func=_lp().subject_label,
-            key="quick_exam_subject",
-        )
-
-        other_subject_name = ""
-        if subject == "other":
-            other_subject_name = st.text_input(
-                t("other_subject_label"), key="exam_other_subject"
-            ).strip()
-
-        learner_stage = st.selectbox(
-            t("learner_stage"),
-            _lp().LEARNER_STAGES,
-            format_func=_lp()._stage_label,
-            key="exam_stage",
-        )
-
-        default_level = _lp().recommend_default_level(subject, learner_stage)
-        level_options = _lp().get_level_options(subject)
-        if st.session_state.get("exam_level") not in level_options:
-            st.session_state["exam_level"] = default_level
-
-        level_or_band = st.selectbox(
-            t("level_or_band"),
-            level_options,
-            format_func=_lp()._level_label,
-            key="exam_level",
-        )
-
-        topic = st.text_input(t("topic_label"), key="quick_exam_topic")
-        exam_title = st.text_input(
-            t("exam_title") if t("exam_title") != "exam_title" else "Exam title",
-            key="quick_exam_title",
-        )
-
-        # ── Exam settings ──
-        st.markdown(f"**{t('exam_settings') if t('exam_settings') != 'exam_settings' else 'Exam Settings'}**")
-
-        c1, c2 = st.columns(2)
-        with c1:
-            exam_length = st.selectbox(
-                t("exam_length") if t("exam_length") != "exam_length" else "Exam length",
-                _eb().EXAM_LENGTHS,
-                format_func=lambda x: t(f"{x}_exam") if t(f"{x}_exam") != f"{x}_exam" else x.capitalize(),
-                key="exam_length_select",
-            )
-        with c2:
-            exercise_types = st.multiselect(
-                t("exercise_types") if t("exercise_types") != "exercise_types" else "Exercise types",
-                _eb().EXAM_EXERCISE_TYPES,
-                default=["multiple_choice", "true_false", "short_answer"],
-                format_func=lambda x: t(x) if t(x) != x else x.replace("_", " ").title(),
-                key="exam_exercise_types",
-            )
-
-        # ── Generate ──
-        if st.button(
-            t("generate_exam") if t("generate_exam") != "generate_exam" else "Generate Exam",
-            key="btn_gen_exam",
+    dw1, dw2 = st.columns(2)
+    with dw1:
+        st.download_button(
+            label=t("download_student_word"),
+            data=student_docx,
+            file_name=f"{safe_title}_student.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key=f"dl_exam_stu_docx_{safe_title}",
             use_container_width=True,
-        ):
-            if not topic.strip():
-                st.error(t("enter_topic"))
-            elif subject == "other" and not other_subject_name:
-                st.error(t("enter_subject_name"))
-            elif not exercise_types:
-                st.error(
-                    t("select_exercise_types")
-                    if t("select_exercise_types") != "select_exercise_types"
-                    else "Please select at least one exercise type."
-                )
-            else:
-                effective_subject = other_subject_name if subject == "other" else subject
-                with st.spinner(t("generating")):
-                    exam_data, answer_key, warning = _eb().generate_exam_with_limit(
-                        subject=effective_subject,
-                        learner_stage=learner_stage,
-                        level_or_band=level_or_band,
-                        topic=topic,
-                        exam_title=exam_title or f"{effective_subject} Exam",
-                        exam_length=exam_length,
-                        exercise_types=exercise_types,
-                    )
+        )
+    with dw2:
+        st.download_button(
+            label=t("download_teacher_word"),
+            data=teacher_docx,
+            file_name=f"{safe_title}_teacher.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key=f"dl_exam_tch_docx_{safe_title}",
+            use_container_width=True,
+        )
 
-                if warning and not exam_data:
-                    st.warning(warning)
-                elif not exam_data or not exam_data.get("sections"):
-                    st.error(
-                        t("exam_generation_failed")
-                        if t("exam_generation_failed") != "exam_generation_failed"
-                        else "Exam generation failed. Please try again."
-                    )
-                else:
-                    st.session_state["exam_result"] = exam_data
-                    st.session_state["exam_answer_key"] = answer_key
-                    st.session_state["exam_kept"] = False
-                    st.session_state["exam_warning"] = warning
 
-                    save_exam_record(
-                        subject=effective_subject,
-                        learner_stage=learner_stage,
-                        level_or_band=level_or_band,
-                        topic=topic,
-                        exam_length=exam_length,
-                        exercise_types=exercise_types,
-                        exam_data=exam_data,
-                        answer_key=answer_key,
-                    )
-
-        # ── Show result ──
-        result = st.session_state.get("exam_result")
-        ak = st.session_state.get("exam_answer_key")
-        if result and ak:
-            render_exam_result(
-                result,
-                ak,
-                subject=subject,
-                topic=topic,
-                learner_stage=learner_stage,
-                level_or_band=level_or_band,
-            )
+# ── Builder proxy ────────────────────────────────────────────────────
+def render_quick_exam_builder_expander() -> None:
+    """
+    Delegate to the builder module so the UI logic stays in one place.
+    This keeps storage aligned with the upgraded exam builder.
+    """
+    return _eb().render_quick_exam_builder_expander()

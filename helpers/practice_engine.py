@@ -1,15 +1,15 @@
-# CLASSIO — Smart Practice Engine  (Phase 1)
+# CLASSIO — Smart Practice Engine
 # ============================================================
 # Converts worksheets / exams into a unified exercise schema,
 # renders interactive Streamlit widgets, checks answers,
 # tracks XP / streaks / ranks, and persists to Supabase.
 #
-# Phase 1 exercise types: multiple_choice, true_false, fill_in_blank
 # ============================================================
 from __future__ import annotations
 
 import re
 import json
+import ast
 import streamlit as st
 import pandas as pd
 from datetime import datetime as _dt, timezone
@@ -64,7 +64,7 @@ def calculate_session_xp(correct: int, total: int, best_streak: int) -> int:
 
 
 # ════════════════════════════════════════════════════════════════
-#  A. UNIFIED EXERCISE SCHEMA  (Phase 1)
+#  A. UNIFIED EXERCISE SCHEMA
 # ════════════════════════════════════════════════════════════════
 #
 # {
@@ -74,7 +74,7 @@ def calculate_session_xp(correct: int, total: int, best_streak: int) -> int:
 #   "source_id": int | None,
 #   "exercises": [
 #     {
-#       "type": "multiple_choice" | "true_false" | "fill_in_blank",
+#       "type": "multiple_choice" | "true_false" | "fill_in_blank" | ...
 #       "title": str,
 #       "instructions": str,
 #       "source_text": str,          # optional reading passage
@@ -85,10 +85,20 @@ def calculate_session_xp(correct: int, total: int, best_streak: int) -> int:
 # }
 # ════════════════════════════════════════════════════════════════
 
-PHASE1_TYPES = {
+SUPPORTED_PRACTICE_TYPES = {
     "multiple_choice", "true_false", "fill_in_blank", "fill_in_the_blanks",
     "short_answer", "matching", "reading_comprehension", "error_correction",
+    "vocabulary", "sentence_transformation", "writing_prompt",
+    "problem_solving", "equation_solving", "show_your_work",
+    "table_interpretation", "word_problems",
+    "data_analysis", "classification", "process_explanation",
+    "hypothesis_and_conclusion", "diagram_questions",
+    "theory_questions", "symbol_identification", "rhythm_counting",
+    "terminology", "composer_period_matching",
 }
+
+# Backward-compatible alias used by the student practice page.
+PHASE1_TYPES = SUPPORTED_PRACTICE_TYPES
 
 
 # ── B. Converters ────────────────────────────────────────────────
@@ -265,10 +275,8 @@ def exam_to_exercises(exam_data: dict, answer_key: dict, *, row_id: int | None =
 
     for idx, sec in enumerate(sections):
         sec_type = str(sec.get("type") or "").strip()
-        # Phase 1: skip non-supported section types
-        if sec_type not in PHASE1_TYPES:
+        if sec_type not in SUPPORTED_PRACTICE_TYPES:
             continue
-        # Normalise fill_in_the_blanks → fill_in_blank
         if sec_type == "fill_in_the_blanks":
             sec_type = "fill_in_blank"
         ak = ak_sections[idx] if idx < len(ak_sections) else {}
@@ -279,6 +287,8 @@ def exam_to_exercises(exam_data: dict, answer_key: dict, *, row_id: int | None =
             "questions": sec.get("questions") or [],
             "answers": ak.get("answers") or [],
         }
+        if sec_type == "matching":
+            ex["answers"] = [_comparison_answer_text(a) for a in ex["answers"]]
         if sec.get("source_text"):
             ex["source_text"] = str(sec["source_text"]).strip()
         exercises.append(ex)
@@ -348,6 +358,247 @@ def _answer_words(s: str) -> set[str]:
 def _strip_leading_number(text: str) -> str:
     """Remove leading numbering like '1. ', '2) ', '3- ', 'A. ', 'B) ' from text."""
     return re.sub(r"^[A-Za-z0-9]+[\.\)\-]\s*", "", text.strip())
+
+
+def _parse_legacy_pair_value(value):
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.startswith("{") and stripped.endswith("}"):
+            try:
+                parsed = ast.literal_eval(stripped)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict):
+                return parsed
+    return value
+
+
+def _extract_legacy_pair_side(value, *, prefer: str = "value") -> str:
+    value = _parse_legacy_pair_value(value)
+    if isinstance(value, dict):
+        if prefer in value:
+            return _sentence_case_fragment(value.get(prefer, ""))
+        if len(value) == 1:
+            only_key, only_val = next(iter(value.items()))
+            return _sentence_case_fragment(only_val if prefer == "value" else only_key)
+        fallback = value.get("text", value.get("answer", str(value)))
+        return _sentence_case_fragment(fallback)
+    return _sentence_case_fragment(value)
+
+
+def _display_answer_text(value) -> str:
+    value = _parse_legacy_pair_value(value)
+    if isinstance(value, dict):
+        if "left" in value and "right" in value:
+            return f"{_extract_legacy_pair_side(value.get('left', ''), prefer='key')} -> {_extract_legacy_pair_side(value.get('right', ''), prefer='value')}"
+        if "word" in value and "answer" in value:
+            return f"{_sentence_case_fragment(value.get('word', ''))}: {_strip_leading_number(str(value.get('answer', '')))}"
+        if "original" in value and "answer" in value:
+            return f"{_strip_leading_number(str(value.get('original', '')))} -> {_strip_leading_number(str(value.get('answer', '')))}"
+        if len(value) == 1:
+            only_key, only_val = next(iter(value.items()))
+            return f"{_sentence_case_fragment(only_key)}: {_strip_leading_number(str(only_val))}"
+        return _strip_leading_number(str(value.get("answer", value.get("text", str(value)))))
+    return _strip_leading_number(str(value or ""))
+
+
+def _comparison_answer_text(value) -> str:
+    value = _parse_legacy_pair_value(value)
+    if isinstance(value, dict):
+        if "right" in value:
+            return _strip_leading_number(str(_extract_legacy_pair_side(value.get("right", ""), prefer="value")))
+        if "answer" in value:
+            return _strip_leading_number(str(value.get("answer", "")))
+        if "text" in value:
+            return _strip_leading_number(str(value.get("text", "")))
+        if len(value) == 1:
+            _only_key, only_val = next(iter(value.items()))
+            return _strip_leading_number(str(only_val))
+    return _strip_leading_number(str(value or ""))
+
+
+def _sentence_case_fragment(value) -> str:
+    value = _parse_legacy_pair_value(value)
+    if isinstance(value, dict) and len(value) == 1:
+        only_key, _only_val = next(iter(value.items()))
+        text = _strip_leading_number(str(only_key or ""))
+    else:
+        text = _strip_leading_number(str(value or ""))
+    if not text:
+        return ""
+    if any(ch.isupper() for ch in text):
+        return text
+    chars = list(text)
+    for idx, ch in enumerate(chars):
+        if ch.isalpha():
+            chars[idx] = ch.upper()
+            return "".join(chars)
+    return text
+
+
+def _display_choice_text(value) -> str:
+    if not value:
+        return ""
+    value = _parse_legacy_pair_value(value)
+    if isinstance(value, dict):
+        if len(value) == 1:
+            only_key, only_val = next(iter(value.items()))
+            return f"{_sentence_case_fragment(only_key)}: {_strip_leading_number(str(only_val))}"
+        return _display_answer_text(value)
+    return _sentence_case_fragment(value)
+
+
+def _question_prompt_text(ex_type: str, question) -> str:
+    question = _parse_legacy_pair_value(question)
+    if isinstance(question, dict):
+        if ex_type == "multiple_choice":
+            return str(question.get("stem", question.get("text", "")))
+        if ex_type == "matching":
+            left = question.get("left", question.get("text", ""))
+            return _extract_legacy_pair_side(left, prefer="key")
+        if ex_type == "vocabulary":
+            word = _sentence_case_fragment(question.get("word", ""))
+            task = _strip_leading_number(str(question.get("task", "")))
+            return f"{word}: {task}" if task else word
+        if ex_type == "sentence_transformation":
+            original = _strip_leading_number(str(question.get("original", "")))
+            prompt = _strip_leading_number(str(question.get("prompt", "")))
+            return f"{original} ({prompt})" if prompt else original
+        return str(question.get("text", question))
+    return str(question)
+
+
+def _is_long_response_type(ex_type: str) -> bool:
+    return ex_type in {
+        "short_answer", "reading_comprehension", "writing_prompt",
+        "problem_solving", "show_your_work", "table_interpretation",
+        "word_problems", "data_analysis", "classification",
+        "process_explanation", "hypothesis_and_conclusion",
+        "diagram_questions", "theory_questions", "symbol_identification",
+        "rhythm_counting", "terminology", "composer_period_matching",
+    }
+
+
+def _is_short_text_type(ex_type: str) -> bool:
+    return ex_type in {
+        "fill_in_blank", "fill_in_the_blanks", "error_correction",
+        "vocabulary", "sentence_transformation", "equation_solving",
+    }
+
+
+def _canonical_true_false(value: str) -> str:
+    text = _normalize_answer(value)
+    truthy = {
+        _normalize_answer(t("quick_exam_true_label")),
+        "true", "t", "yes", "dogru", "doğru", "verdadero",
+    }
+    falsy = {
+        _normalize_answer(t("quick_exam_false_label")),
+        "false", "f", "no", "yanlis", "yanlış", "falso",
+    }
+    if text in truthy:
+        return "true"
+    if text in falsy:
+        return "false"
+    return text
+
+
+def _word_count(text: str) -> int:
+    return len(re.findall(r"\b\w+\b", str(text or "")))
+
+
+def _sentence_count(text: str) -> int:
+    parts = [p.strip() for p in re.split(r"[.!?]+", str(text or "")) if p.strip()]
+    return len(parts)
+
+
+def _writing_prompt_feedback(student: str, correct) -> dict:
+    expected = _comparison_answer_text(correct)
+    expected_display = _display_answer_text(correct)
+    student_norm = _normalize_answer(student)
+    expected_norm = _normalize_answer(expected)
+
+    if not student_norm:
+        return {
+            "is_correct": False,
+            "score": 0.0,
+            "expected": expected_display,
+            "feedback_lines": [t("writing_feedback_missing_response")],
+        }
+
+    expected_words = _answer_words(expected_norm)
+    student_words = _answer_words(student_norm)
+    overlap_ratio = (len(expected_words & student_words) / len(expected_words)) if expected_words else 0.0
+    words = _word_count(student)
+    sentences = _sentence_count(student)
+
+    content_score = 0.0
+    if overlap_ratio >= 0.75:
+        content_score = 0.6
+    elif overlap_ratio >= 0.5:
+        content_score = 0.45
+    elif overlap_ratio >= 0.3:
+        content_score = 0.3
+    elif overlap_ratio > 0:
+        content_score = 0.15
+
+    development_score = 0.0
+    if words >= 45 or sentences >= 3:
+        development_score = 0.25
+    elif words >= 25 or sentences >= 2:
+        development_score = 0.15
+    elif words >= 10:
+        development_score = 0.05
+
+    structure_score = 0.0
+    if sentences >= 3:
+        structure_score = 0.15
+    elif sentences >= 2:
+        structure_score = 0.1
+    elif words >= 12:
+        structure_score = 0.05
+
+    score = round(min(1.0, content_score + development_score + structure_score), 2)
+    is_correct = score >= 0.6
+
+    if overlap_ratio >= 0.6:
+        content_msg = t("writing_feedback_content_strong")
+    elif overlap_ratio >= 0.3:
+        content_msg = t("writing_feedback_content_partial")
+    else:
+        content_msg = t("writing_feedback_content_missing")
+
+    if words >= 25:
+        length_msg = t("writing_feedback_length_good")
+    elif words >= 10:
+        length_msg = t("writing_feedback_length_ok")
+    else:
+        length_msg = t("writing_feedback_length_short")
+
+    if sentences >= 2:
+        structure_msg = t("writing_feedback_structure_good")
+    else:
+        structure_msg = t("writing_feedback_structure_needs")
+
+    return {
+        "is_correct": is_correct,
+        "score": score,
+        "expected": expected_display,
+        "feedback_lines": [content_msg, length_msg, structure_msg],
+    }
+
+
+def _evaluate_answer(ex_type: str, student: str, correct) -> dict:
+    if ex_type == "writing_prompt":
+        return _writing_prompt_feedback(student, correct)
+
+    is_correct = _check_answer(ex_type, student, correct)
+    return {
+        "is_correct": is_correct,
+        "score": 1.0 if is_correct else 0.0,
+        "expected": _display_answer_text(correct),
+        "feedback_lines": [],
+    }
 
 
 # ════════════════════════════════════════════════════════════════
@@ -429,16 +680,31 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
             student_answers[q_key] = student_ans
 
             if is_submitted and correct:
-                is_right = _check_answer(ex_type, student_ans, correct)
-                if is_right:
+                evaluation = _evaluate_answer(ex_type, student_ans, correct)
+                if evaluation["is_correct"]:
                     correct_q  += 1
                     cur_streak += 1
                     best_streak = max(best_streak, cur_streak)
-                    st.success(f"✓ {t('correct')}")
+                    if ex_type == "writing_prompt":
+                        st.success(
+                            f"✓ {t('writing_feedback_pass')} ({round(evaluation['score'] * 100)}%)"
+                        )
+                    else:
+                        st.success(f"✓ {t('correct')}")
                 else:
                     cur_streak = 0
-                    expected = correct if isinstance(correct, str) else str(correct)
-                    st.error(f"✗ {t('incorrect')} — {expected}")
+                    if ex_type == "writing_prompt":
+                        st.warning(
+                            f"{t('writing_feedback_revise')} ({round(evaluation['score'] * 100)}%)"
+                        )
+                    else:
+                        st.error(f"✗ {t('incorrect')} — {evaluation['expected']}")
+
+                if ex_type == "writing_prompt":
+                    for line in evaluation.get("feedback_lines", []):
+                        st.caption(line)
+                    with st.expander(t("writing_feedback_model_points"), expanded=False):
+                        st.write(evaluation["expected"])
 
         st.divider()
 
@@ -516,6 +782,7 @@ def _render_single_question(
     *, extra: dict | None = None,
 ) -> str:
     """Render one question and return the student's answer string."""
+    prompt_text = _strip_leading_number(_question_prompt_text(ex_type, question))
 
     if ex_type == "multiple_choice":
         stem = question.get("stem", "") if isinstance(question, dict) else str(question)
@@ -531,11 +798,11 @@ def _render_single_question(
         return str(choice) if choice else ""
 
     elif ex_type == "true_false":
-        text = question.get("text", str(question)) if isinstance(question, dict) else str(question)
-        st.markdown(f"**{q_idx + 1}. {_strip_leading_number(text)}**")
+        st.markdown(f"**{q_idx + 1}. {prompt_text}**")
         choice = st.radio(
             "select",
-            options=["True", "False"],
+            options=["true", "false"],
+            format_func=lambda x: t("quick_exam_true_label") if x == "true" else t("quick_exam_false_label"),
             key=q_key,
             label_visibility="collapsed",
             horizontal=True,
@@ -544,56 +811,50 @@ def _render_single_question(
         return str(choice) if choice else ""
 
     elif ex_type == "matching":
-        left = question.get("left", "") if isinstance(question, dict) else str(question)
         shuffled_options = (extra or {}).get("shuffled_options") or []
-        st.markdown(f"**{q_idx + 1}. {_strip_leading_number(left)}**")
+        st.markdown(f"**{q_idx + 1}. {_sentence_case_fragment(prompt_text)}**")
         choice = st.selectbox(
             "match",
             options=[""] + shuffled_options,
+            format_func=_display_choice_text,
             key=q_key,
             label_visibility="collapsed",
             disabled=is_submitted,
         )
         return str(choice) if choice else ""
 
-    elif ex_type == "short_answer":
-        text = question.get("text", str(question)) if isinstance(question, dict) else str(question)
-        st.markdown(f"**{q_idx + 1}. {_strip_leading_number(text)}**")
+    elif _is_long_response_type(ex_type):
+        st.markdown(f"**{q_idx + 1}. {prompt_text}**")
         return st.text_area(
             "answer",
             key=q_key,
-            height=80,
-            label_visibility="collapsed",
-            disabled=is_submitted,
-        )
-
-    elif ex_type == "reading_comprehension":
-        text = question.get("text", str(question)) if isinstance(question, dict) else str(question)
-        st.markdown(f"**{q_idx + 1}. {_strip_leading_number(text)}**")
-        return st.text_area(
-            "answer",
-            key=q_key,
-            height=80,
+            height=120 if ex_type in ("writing_prompt", "show_your_work", "problem_solving") else 80,
             label_visibility="collapsed",
             disabled=is_submitted,
         )
 
     elif ex_type == "error_correction":
-        text = question.get("text", str(question)) if isinstance(question, dict) else str(question)
         st.markdown(f"**{q_idx + 1}. {t('correct_the_sentence')}:**")
-        st.caption(f"✏️ *{_strip_leading_number(text)}*")
+        st.caption(f"✏️ *{prompt_text}*")
         return st.text_input(
             "corrected",
             key=q_key,
-            placeholder=_strip_leading_number(text),
+            placeholder=prompt_text,
+            label_visibility="collapsed",
+            disabled=is_submitted,
+        )
+
+    elif _is_short_text_type(ex_type):
+        st.markdown(f"**{q_idx + 1}. {prompt_text}**")
+        return st.text_input(
+            "answer",
+            key=q_key,
             label_visibility="collapsed",
             disabled=is_submitted,
         )
 
     else:
-        # fill_in_blank / fill_in_the_blanks
-        text = question.get("text", str(question)) if isinstance(question, dict) else str(question)
-        display = re.sub(r"_+", "______", _strip_leading_number(text))
+        display = re.sub(r"_+", "______", prompt_text)
         st.markdown(f"**{q_idx + 1}. {display}**")
         return st.text_input(
             "answer",
@@ -613,15 +874,15 @@ def _check_answer(ex_type: str, student: str, correct) -> bool:
     if not s:
         return False
 
-    if isinstance(correct, dict):
-        c = _normalize_answer(correct.get("answer", correct.get("text", str(correct))))
+    if ex_type == "true_false":
+        s = _canonical_true_false(student)
+        c = _canonical_true_false(_comparison_answer_text(correct))
     else:
-        c = _normalize_answer(str(correct))
+        c = _normalize_answer(_comparison_answer_text(correct))
 
     if not c:
         return False
 
-    # Exact types
     if ex_type in ("multiple_choice", "true_false", "matching"):
         return s == c
 
@@ -797,8 +1058,8 @@ def save_practice_answers(
             q_key = f"{session_key}_{ex_idx}_{q_idx}"
             student_ans = str(student_answers.get(q_key, ""))
             correct_ans = correct_answers[q_idx] if q_idx < len(correct_answers) else ""
-            correct_str = correct_ans if isinstance(correct_ans, str) else str(correct_ans)
-            is_correct = _check_answer(ex_type, student_ans, correct_ans)
+            correct_str = _display_answer_text(correct_ans)
+            is_correct = _evaluate_answer(ex_type, student_ans, correct_ans)["is_correct"]
 
             rows.append({
                 "session_id": session_id,
@@ -860,7 +1121,7 @@ def update_practice_progress(
             q_key = f"{session_key}_{ex_idx}_{q_idx}"
             student_ans = str(student_answers.get(q_key, ""))
             correct_ans = correct_answers[q_idx] if q_idx < len(correct_answers) else ""
-            is_right = _check_answer(ex_type, student_ans, correct_ans)
+            is_right = _evaluate_answer(ex_type, student_ans, correct_ans)["is_correct"]
 
             type_stats[ex_type]["attempted"] += 1
             if is_right:

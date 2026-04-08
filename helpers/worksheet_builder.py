@@ -204,7 +204,12 @@ def normalize_worksheet_output(raw: dict) -> dict:
         out["multiple_choice_items"] = []
 
         if not out["instructions"]:
-            out["instructions"] = "Match the items in Column A with the correct items in Column B."
+            fallback = t("ws_matching_default_instructions")
+            out["instructions"] = (
+                fallback
+                if fallback != "ws_matching_default_instructions"
+                else "Match the items in Column A with the correct items in Column B."
+            )
 
     elif ws_type == "true_false":
         out["reading_passage"] = ""
@@ -218,7 +223,12 @@ def normalize_worksheet_output(raw: dict) -> dict:
             out["source_text"] = out["text"]
 
         if not out["instructions"]:
-            out["instructions"] = "Read the text and decide if the statements are true or false."
+            fallback = t("read_and_decide_true_false")
+            out["instructions"] = (
+                fallback
+                if fallback != "read_and_decide_true_false"
+                else "Read the text and decide if the statements are true or false."
+            )
 
     elif ws_type == "multiple_choice":
         out["reading_passage"] = ""
@@ -230,7 +240,12 @@ def normalize_worksheet_output(raw: dict) -> dict:
         out["questions"] = []
 
         if not out["instructions"]:
-            out["instructions"] = "Read each question and choose the best answer."
+            fallback = t("ws_multiple_choice_default_instructions")
+            out["instructions"] = (
+                fallback
+                if fallback != "ws_multiple_choice_default_instructions"
+                else "Read each question and choose the best answer."
+            )
 
     else:
         out["matching_pairs"] = []
@@ -292,6 +307,7 @@ Worksheet-specific rules for matching:
 - Leave "questions" empty for matching.
 - Leave "reading_passage" and "source_text" empty.
 - The answer_key must show the correct pairs clearly.
+- Use polished, publication-ready capitalization and wording for both sides.
 - Do NOT prefix left_items or right_items with letters or numbers.
 - Do NOT return A., B., C. or 1., 2., 3. inside the item text.
 - The renderer will add numbering and lettering.
@@ -419,6 +435,7 @@ Input:
 Design principles:
 - Use clear, age-appropriate language for the target learner_stage and level.
 - Keep the worksheet pedagogically coherent and clearly aligned to the worksheet_type.
+- Use publication-ready capitalization, punctuation, grammar, and clean academic formatting.
 - Include a vocabulary_bank only when it is genuinely useful.
 - teacher_notes should include 2-3 practical tips for differentiation or extension.
 - Keep content factually accurate and pedagogically sound.
