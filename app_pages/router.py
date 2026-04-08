@@ -12,7 +12,6 @@ def render_top_nav(active_page: str):
     current_lang = st.session_state.get("ui_lang", "en")
     if current_lang not in ("en", "es", "tr"):
         current_lang = "en"
-
     items = [
         ("home",        t("home"),      "house"),
         ("dashboard",   t("dashboard"), "bar-chart"),

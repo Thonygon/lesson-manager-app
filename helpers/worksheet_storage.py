@@ -2,6 +2,7 @@
 # ============================================================
 import streamlit as st
 import json, re, math, os
+import ast
 from typing import Optional
 from datetime import datetime as _dt, timezone
 import pandas as pd
@@ -43,6 +44,29 @@ _LEADING_ENUM_RE = re.compile(r"^\s*(?:\d+|[A-Za-z])[\.\)\-:]\s*")
 
 def _strip_leading_enum(text: str) -> str:
     return _LEADING_ENUM_RE.sub("", _normalize_text(text or "").strip())
+
+
+def _sentence_case_fragment(text: str) -> str:
+    if isinstance(text, str):
+        stripped = text.strip()
+        if stripped.startswith("{") and stripped.endswith("}"):
+            try:
+                parsed = ast.literal_eval(stripped)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict) and len(parsed) == 1:
+                text = next(iter(parsed.keys()))
+    cleaned = _strip_leading_enum(text)
+    if not cleaned:
+        return ""
+    if any(ch.isupper() for ch in cleaned):
+        return cleaned
+    chars = list(cleaned)
+    for idx, ch in enumerate(chars):
+        if ch.isalpha():
+            chars[idx] = ch.upper()
+            return "".join(chars)
+    return cleaned
 
 def _strip_mc_option_prefix(text: str) -> str:
     return _MC_OPTION_PREFIX_RE.sub("", _normalize_text(text or "").strip())
@@ -458,8 +482,28 @@ def _get_matching_pairs(ws: dict) -> list[dict]:
         for item in pairs:
             if not isinstance(item, dict):
                 continue
-            left = _normalize_text(item.get("left", "")).strip()
-            right = _normalize_text(item.get("right", "")).strip()
+            left = item.get("left", "")
+            right = item.get("right", "")
+            if isinstance(left, str):
+                stripped_left = left.strip()
+                if stripped_left.startswith("{") and stripped_left.endswith("}"):
+                    try:
+                        parsed_left = ast.literal_eval(stripped_left)
+                    except Exception:
+                        parsed_left = None
+                    if isinstance(parsed_left, dict) and len(parsed_left) == 1:
+                        left = next(iter(parsed_left.keys()))
+            if isinstance(right, str):
+                stripped_right = right.strip()
+                if stripped_right.startswith("{") and stripped_right.endswith("}"):
+                    try:
+                        parsed_right = ast.literal_eval(stripped_right)
+                    except Exception:
+                        parsed_right = None
+                    if isinstance(parsed_right, dict) and len(parsed_right) == 1:
+                        right = next(iter(parsed_right.values()))
+            left = _normalize_text(left).strip()
+            right = _normalize_text(right).strip()
             if left and right:
                 out.append({"left": left, "right": right})
 
@@ -512,13 +556,13 @@ def _render_matching_exercise(ws: dict) -> None:
     with c1:
         st.markdown(f"**{t('ws_column_a') if t('ws_column_a') != 'ws_column_a' else 'Column A'}**")
         for idx, item in enumerate(left_items, 1):
-            st.write(f"{idx}. {_strip_leading_enum(item)}")
+            st.write(f"{idx}. {_sentence_case_fragment(item)}")
 
     with c2:
         st.markdown(f"**{t('ws_column_b') if t('ws_column_b') != 'ws_column_b' else 'Column B'}**")
         for idx, item in enumerate(right_items):
             letter = chr(97 + idx)
-            st.write(f"{letter}) {_strip_leading_enum(item)}")
+            st.write(f"{letter}) {_sentence_case_fragment(item)}")
 
 
 def _render_matching_answer_key(ws: dict) -> None:
@@ -569,7 +613,7 @@ def _render_true_false_exercise(ws: dict) -> None:
         return
 
     st.markdown(
-        f"**{t('ws_read_and_decide') if t('ws_read_and_decide') != 'ws_read_and_decide' else 'Read the text and decide if the statements are true or false.'}**"
+        f"**{t('read_and_decide_true_false') if t('read_and_decide_true_false') != 'read_and_decide_true_false' else 'Read the text and decide if the statements are true or false.'}**"
     )
     st.write(source_text)
 
@@ -1469,9 +1513,9 @@ def build_worksheet_pdf_bytes(
             max_len = max(len(left_items), len(right_items))
 
             for i in range(max_len):
-                left_text = f"{i+1}. {_strip_leading_enum(left_items[i])}" if i < len(left_items) else ""
+                left_text = f"{i+1}. {_sentence_case_fragment(left_items[i])}" if i < len(left_items) else ""
                 box_text = "[   ]" if i < len(left_items) else ""
-                right_text = f"{chr(97+i)}) {_strip_leading_enum(right_items[i])}" if i < len(right_items) else ""
+                right_text = f"{chr(97+i)}) {_sentence_case_fragment(right_items[i])}" if i < len(right_items) else ""
 
                 rows.append([
                     Paragraph(_pdf_safe_text(left_text), body_style),
@@ -1498,8 +1542,7 @@ def build_worksheet_pdf_bytes(
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
             ]))
 
-            story.append(match_table)
-            story.append(Spacer(1, 8))
+            story.append(KeepTogether([match_table, Spacer(1, 8)]))
 
     elif ws.get("worksheet_type") == "true_false":
         source_text = _get_true_false_source_text(ws)

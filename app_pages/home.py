@@ -929,6 +929,7 @@ def render_home():
                 render_exam_result(
                     selected_exam,
                     selected_exam_ak,
+                    show_ready_banner=False,
                     subject=st.session_state.get("files_exam_subject", ""),
                     learner_stage=st.session_state.get("files_exam_stage", ""),
                     level_or_band=st.session_state.get("files_exam_level", ""),

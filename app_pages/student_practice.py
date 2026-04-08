@@ -18,7 +18,6 @@ from helpers.practice_engine import (
     get_global_best_streak,
     get_rank,
     calculate_session_xp,
-    PHASE1_TYPES,
 )
 
 _DEMO_LINGER_HOURS = 24
@@ -74,6 +73,22 @@ def _should_show_demo() -> bool:
     if _all_demos_done():
         _mark_demos_all_done()
         return not _demo_section_expired()
+    return True
+
+
+def _open_practice_item(exercise_data: dict, meta: dict | None = None, *, demo_id: str | None = None) -> bool:
+    """Open a practice item only if it contains runnable exercises."""
+    exercises = (exercise_data or {}).get("exercises") or []
+    if not exercises:
+        st.warning(t("no_exercises_available"))
+        return False
+
+    st.session_state["practice_exercise_data"] = exercise_data
+    st.session_state["practice_meta"] = meta or {}
+    if demo_id:
+        st.session_state["_practice_demo_id"] = demo_id
+    else:
+        st.session_state.pop("_practice_demo_id", None)
     return True
 
 
@@ -169,7 +184,7 @@ def _render_browse_tab():
         _render_demo_section()
 
     # Supported worksheet types for interactive practice
-    _PHASE1_WS_TYPES = {
+    _PRACTICE_WS_TYPES = {
         "multiple_choice", "true_false", "fill_in_the_blanks",
         "short_answer", "matching", "reading_comprehension", "error_correction",
     }
@@ -245,7 +260,7 @@ def _render_browse_tab():
     pub_ex = load_public_exams()
 
     if not pub_ws.empty and "worksheet_type" in pub_ws.columns:
-        pub_ws = pub_ws[pub_ws["worksheet_type"].isin(_PHASE1_WS_TYPES)].reset_index(drop=True)
+        pub_ws = pub_ws[pub_ws["worksheet_type"].isin(_PRACTICE_WS_TYPES)].reset_index(drop=True)
 
     # Hide worksheets/exams already completed by this student
     _done = get_completed_source_ids()
@@ -288,7 +303,7 @@ def _render_browse_tab():
                 ("error_correction",         "🔍", t("error_correction"),       "20,184,166"),   # teal
             ]
 
-            active_cat = st.session_state.get("sp_filter_ws_type", "__all__")
+            active_cat = st.session_state.get("sp_filter_ws_type")
 
             import html as _html_cat
 
@@ -375,14 +390,13 @@ def _render_browse_tab():
                                         from helpers.worksheet_builder import normalize_worksheet_output
                                         ws_json = normalize_worksheet_output(ws_json)
                                         ex_data = worksheet_to_exercises(ws_json, row_id=row.get("id"))
-                                        st.session_state["practice_exercise_data"] = ex_data
-                                        st.session_state["practice_meta"] = {
+                                        if _open_practice_item(ex_data, {
                                             "subject": row.get("subject", ""),
                                             "topic": row.get("topic", ""),
                                             "learner_stage": row.get("learner_stage", ""),
                                             "level": row.get("level_or_band", ""),
-                                        }
-                                        st.rerun()
+                                        }):
+                                            st.rerun()
             else:
                 # ── Collapsed: show all category cards in 2-col grid ─
                 for row_start in range(0, len(_CATEGORY_CARDS), 2):
@@ -475,14 +489,13 @@ def _render_browse_tab():
                                         answer_key = {}
                                 if exam_data:
                                     ex_data = exam_to_exercises(exam_data, answer_key, row_id=row.get("id"))
-                                    st.session_state["practice_exercise_data"] = ex_data
-                                    st.session_state["practice_meta"] = {
+                                    if _open_practice_item(ex_data, {
                                         "subject": row.get("subject", ""),
                                         "topic": row.get("topic", ""),
                                         "learner_stage": row.get("learner_stage", ""),
                                         "level": row.get("level", ""),
-                                    }
-                                    st.rerun()
+                                    }):
+                                        st.rerun()
 
 
 # ── Demo section with medals ────────────────────────────────────
@@ -565,10 +578,12 @@ padding:10px 0 4px;flex-wrap:wrap;
                         use_container_width=True,
                         disabled=is_done,
                     ):
-                        st.session_state["practice_exercise_data"] = demo["exercise_data"]
-                        st.session_state["practice_meta"] = demo.get("meta", {})
-                        st.session_state["_practice_demo_id"] = demo["id"]
-                        st.rerun()
+                        if _open_practice_item(
+                            demo["exercise_data"],
+                            demo.get("meta", {}),
+                            demo_id=demo["id"],
+                        ):
+                            st.rerun()
 
 
 def _render_practice_card(
@@ -751,15 +766,14 @@ background:{color}15; padding:6px 14px; border-radius:10px;
                 key=f"hist_retry_{session_id}_{h_idx}",
                 use_container_width=True,
             ):
-                st.session_state["practice_exercise_data"] = exercise_data
-                st.session_state["practice_meta"] = {
+                if _open_practice_item(exercise_data, {
                     "subject": str(row.get("subject") or ""),
                     "topic": str(row.get("topic") or ""),
                     "learner_stage": str(row.get("learner_stage") or ""),
                     "level": str(row.get("level") or ""),
-                }
-                st.session_state["_practice_retry_session_id"] = session_id
-                st.rerun()
+                }):
+                    st.session_state["_practice_retry_session_id"] = session_id
+                    st.rerun()
 
 
 # ── Progress tab ────────────────────────────────────────────────
