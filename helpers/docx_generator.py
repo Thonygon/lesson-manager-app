@@ -588,14 +588,15 @@ def _render_true_false_docx(doc, ws: dict, font_name: str, sec_sz: float,
 
 
 def _render_word_search_docx(doc, ws: dict, font_name: str, sec_sz: float,
-                             b_sz: float, lr: float = 1.15):
+                             b_sz: float, lr: float = 1.15, show_heading: bool = True):
     """Render word search grid as a table."""
-    grid = ws.get("wordsearch_grid") or ws.get("grid") or []
+    grid, _ = _resolve_word_search_grid(ws)
     if not grid:
         return
 
-    _add_heading(doc, t("word_search_grid") if t("word_search_grid") != "word_search_grid" else "Word Search",
-                 font_name, sec_sz, color=_TEXT, leading_ratio=lr)
+    if show_heading:
+        _add_heading(doc, t("word_search_grid") if t("word_search_grid") != "word_search_grid" else "Word Search",
+                     font_name, sec_sz, color=_TEXT, leading_ratio=lr)
 
     grid_size = len(grid)
     table = doc.add_table(rows=grid_size, cols=grid_size)
@@ -620,6 +621,58 @@ def _render_word_search_docx(doc, ws: dict, font_name: str, sec_sz: float,
             tcPr.append(borders)
 
     doc.add_paragraph()  # spacer
+
+
+def _extract_word_search_words(payload: dict) -> list[str]:
+    raw_words = payload.get("vocabulary_bank") or payload.get("words") or []
+    if not raw_words:
+        raw_words = payload.get("questions") or []
+
+    words = []
+    for item in raw_words:
+        if isinstance(item, dict):
+            candidate = (
+                item.get("word")
+                or item.get("term")
+                or item.get("left")
+                or item.get("text")
+                or item.get("stem")
+                or ""
+            )
+        else:
+            candidate = item
+        text = str(candidate or "").strip()
+        if text:
+            words.append(text)
+    return words
+
+
+def _resolve_word_search_grid(payload: dict) -> tuple[list[list[str]], list[dict]]:
+    grid = payload.get("wordsearch_grid") or payload.get("grid") or []
+    placements = payload.get("wordsearch_placements") or payload.get("placements") or []
+    if grid:
+        return grid, placements
+
+    words = _extract_word_search_words(payload)
+    if not words:
+        return [], []
+
+    try:
+        from helpers.worksheet_storage import _generate_wordsearch_grid, _normalize_wordsearch_words
+
+        normalized_words = _normalize_wordsearch_words(words)
+        if not normalized_words:
+            return [], []
+        seed = "|".join(normalized_words)
+        size = payload.get("wordsearch_size") or payload.get("size") or 12
+        grid, _, placements = _generate_wordsearch_grid(
+            normalized_words,
+            seed=seed,
+            size=size,
+        )
+        return grid or [], placements or []
+    except Exception:
+        return [], []
 
 
 def _render_multiple_choice_docx(doc, ws: dict, font_name: str, sec_sz: float,
@@ -893,6 +946,9 @@ def _render_exam_section_docx(
 
     questions = sec.get("questions") or []
 
+    if sec_type in ("word_search_vocab", "word_search") and sec.get("vocabulary_bank"):
+        _render_vocab_bank_docx(doc, sec.get("vocabulary_bank") or [], font_name, sec_sz, b_sz, lr)
+
     if sec_type == "multiple_choice":
         for idx, q in enumerate(questions, 1):
             if isinstance(q, dict):
@@ -907,6 +963,8 @@ def _render_exam_section_docx(
         _render_exam_matching_docx(doc, questions, font_name, b_sz)
     elif sec_type == "true_false":
         _render_exam_true_false_docx(doc, questions, font_name, b_sz)
+    elif sec_type in ("word_search_vocab", "word_search"):
+        _render_word_search_docx(doc, sec, font_name, sec_sz, b_sz, lr, show_heading=False)
     elif sec_type == "fill_in_blank":
         for idx, q in enumerate(questions, 1):
             text = _format_exam_question_text(sec_type, q).replace("___", "______________")
