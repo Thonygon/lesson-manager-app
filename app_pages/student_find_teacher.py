@@ -2,12 +2,87 @@ import streamlit as st
 import html as _html
 from core.i18n import t
 from core.state import get_current_user_id
-from core.database import load_community_profiles
+from core.database import load_community_profiles, profile_can_teach, profile_can_study
 from helpers.lesson_planner import QUICK_SUBJECTS, subject_label as _subject_label
+from helpers.teacher_student_integration import create_teacher_request, load_student_teacher_links
 
 
 def _lang_flag(code: str) -> str:
     return {"en": "🇬🇧", "es": "🇪🇸", "tr": "🇹🇷"}.get(code, code)
+
+
+def _inject_find_teacher_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        .classio-teacher-card {
+            position: relative;
+            overflow: hidden;
+            background:
+              radial-gradient(circle at top right, rgba(16,185,129,.10), transparent 34%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 80%, white 20%));
+            border: 1px solid color-mix(in srgb, var(--border) 76%, rgba(16,185,129,.22) 24%);
+            border-radius: 22px;
+            padding: 18px 18px;
+            margin-bottom: 0.55rem;
+            box-shadow: 0 14px 34px rgba(15,23,42,.08);
+        }
+        .classio-teacher-card::before {
+            content: "";
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 5px;
+            background: linear-gradient(180deg, #14b8a6, #38bdf8 58%, #8b5cf6);
+        }
+        .classio-teacher-name {
+            font-weight: 800;
+            font-size: 1.08rem;
+            color: var(--text);
+            line-height: 1.2;
+        }
+        .classio-teacher-meta {
+            margin-top: 0.35rem;
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.45;
+        }
+        .classio-teacher-status {
+            display: inline-flex;
+            align-items: center;
+            margin: 0.1rem 0 1rem 0.15rem;
+            padding: 0.42rem 0.78rem;
+            border-radius: 999px;
+            background: rgba(59,130,246,.10);
+            color: #2563eb;
+            border: 1px solid rgba(59,130,246,.18);
+            font-size: 0.78rem;
+            font-weight: 800;
+        }
+        .classio-teacher-action-label {
+            font-size: 0.76rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+            margin: 0.25rem 0 0.55rem 0.1rem;
+        }
+        div[data-testid="stButton"] > button[kind="primary"] {
+            border-radius: 16px;
+            min-height: 3rem;
+            font-weight: 800;
+            box-shadow: 0 14px 28px rgba(37,99,235,.18);
+        }
+        div[data-testid="stButton"] > button[kind="secondary"] {
+            border-radius: 16px;
+            min-height: 3rem;
+            font-weight: 700;
+            border-color: rgba(148,163,184,.28);
+            box-shadow: 0 8px 18px rgba(15,23,42,.06);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_community_member_cards(profiles: list, role_filter: str = "teacher"):
@@ -20,13 +95,13 @@ def render_community_member_cards(profiles: list, role_filter: str = "teacher"):
         members = [
             p for p in profiles
             if p.get("show_community_profile")
-            and str(p.get("role") or "teacher") in ("teacher", "tutor")
+            and profile_can_teach(p)
         ]
     else:
         members = [
             p for p in profiles
             if p.get("show_community_profile")
-            and str(p.get("role") or "teacher") == "student"
+            and profile_can_study(p)
         ]
 
     if not members:
@@ -37,7 +112,13 @@ def render_community_member_cards(profiles: list, role_filter: str = "teacher"):
         f"**{len(members)}** {t('teachers_found') if role_filter == 'teacher' else t('students_found')}"
     )
 
+    current_links = {
+        str(row.get("teacher_id") or ""): row
+        for row in load_student_teacher_links()
+    }
+
     for member in members:
+        relationship = current_links.get(str(member.get("user_id") or "").strip())
         _name = _html.escape(
             str(member.get("display_name") or member.get("username") or "").strip() or "—"
         )
@@ -89,19 +170,90 @@ def render_community_member_cards(profiles: list, role_filter: str = "teacher"):
                 "font-size:1.2rem;color:#fff;'>👤</div>"
             )
 
-        st.markdown(
-            f"<div style='"
-            f"background:var(--panel-soft, rgba(127,127,127,0.06));"
-            f"border-radius:14px; padding:14px 16px; margin-bottom:10px;"
-            f"border:1px solid var(--border); display:flex; align-items:center; gap:14px;'>"
-            f"{_avatar_html}"
-            f"<div style='flex:1; min-width:0;'>"
-            f"<div style='font-weight:700; font-size:1.02rem;'>{_name}</div>"
-            f"<div style='opacity:0.75; font-size:0.88rem;'>{_info_line}</div>"
-            f"{_contact_line}"
-            f"</div></div>",
-            unsafe_allow_html=True,
-        )
+        card_col, action_col = st.columns([6, 2], gap="medium")
+        with card_col:
+            st.markdown(
+                f"<div class='classio-teacher-card' style='display:flex; align-items:center; gap:14px;'>"
+                f"{_avatar_html}"
+                f"<div style='flex:1; min-width:0;'>"
+                f"<div class='classio-teacher-name'>{_name}</div>"
+                f"<div class='classio-teacher-meta'>{_info_line}</div>"
+                f"{_contact_line}"
+                f"</div></div>",
+                unsafe_allow_html=True,
+            )
+
+            status = str((relationship or {}).get("status") or "").strip()
+            if status:
+                st.markdown(
+                    f"<div class='classio-teacher-status'>{_html.escape(t(f'teacher_relationship_{status}'))}</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown("<div style='height:1rem;'></div>", unsafe_allow_html=True)
+
+        if role_filter == "teacher":
+            available_subjects = []
+            for item in _primary:
+                available_subjects.append(item)
+            for item in _custom:
+                if item:
+                    available_subjects.append(item)
+            available_subjects = list(dict.fromkeys(available_subjects))
+
+            with action_col:
+                st.markdown(
+                    f"<div class='classio-teacher-action-label'>{_html.escape(t('my_teachers') if status == 'active' else t('add_as_my_teacher'))}</div>",
+                    unsafe_allow_html=True,
+                )
+                if status in {"pending", "active"}:
+                    if status == "active" and st.button(
+                        t("end_relationship"),
+                        key=f"teacher_rel_archive_{member.get('user_id')}",
+                        use_container_width=True,
+                        type="primary",
+                    ):
+                        from helpers.teacher_student_integration import archive_teacher_student_link
+
+                        ok, msg = archive_teacher_student_link(int(relationship.get("id")))
+                        if ok:
+                            st.success(t(msg))
+                            st.rerun()
+                        st.error(t(msg))
+                else:
+                    with st.popover(t("add_as_my_teacher"), use_container_width=True):
+                        chosen_subjects = st.multiselect(
+                            t("active_subjects"),
+                            options=available_subjects,
+                            format_func=lambda x: _subject_label(x) if x in QUICK_SUBJECTS else _clean_custom_subject_label(x),
+                            key=f"teacher_req_subjects_{member.get('user_id')}",
+                        )
+                        request_note = st.text_area(
+                            t("teacher_note"),
+                            key=f"teacher_req_note_{member.get('user_id')}",
+                            height=80,
+                            placeholder=t("teacher_request_note_placeholder"),
+                        )
+                        if st.button(
+                            t("request_teacher"),
+                            key=f"teacher_req_btn_{member.get('user_id')}",
+                            use_container_width=True,
+                            type="primary",
+                        ):
+                            ok, msg = create_teacher_request(
+                                str(member.get("user_id") or ""),
+                                chosen_subjects,
+                                note=request_note,
+                            )
+                            if ok:
+                                st.success(t(msg))
+                                st.rerun()
+                            st.error(t(msg))
+
+
+def _clean_custom_subject_label(value: str) -> str:
+    text = str(value or "").strip()
+    return text[:1].upper() + text[1:] if text else ""
 
 
 _LANG_OPTIONS = ["en", "es", "tr"]
@@ -109,8 +261,23 @@ _LANG_LABELS = {"en": "🇬🇧 English", "es": "🇪🇸 Español", "tr": "🇹
 
 
 def render_student_find_teacher():
+    _inject_find_teacher_styles()
     st.markdown(f"## 🔍 {t('find_my_teacher')}")
     st.markdown(f"*{t('find_my_teacher_subtitle')}*")
+
+    relationships = load_student_teacher_links()
+    if relationships:
+        st.markdown(f"### {t('my_teachers')}")
+        for row in relationships:
+            teacher_name = row.get("teacher_name", "—")
+            status = str(row.get("status") or "").strip()
+            subjects = ", ".join(
+                s.get("subject_label", "")
+                for s in (row.get("active_subjects") or row.get("requested_subjects") or [])
+                if s.get("subject_label")
+            )
+            st.markdown(f"**{teacher_name}**")
+            st.caption(f"{t(f'teacher_relationship_{status}')} · {subjects}" if subjects else t(f"teacher_relationship_{status}"))
 
     # ── Load community teachers ──
     try:
@@ -122,17 +289,16 @@ def render_student_find_teacher():
     all_teachers = [
         p for p in all_profiles
         if p.get("show_community_profile")
-        and str(p.get("role") or "teacher") in ("teacher", "tutor")
+        and profile_can_teach(p)
     ]
 
     # ── Step 1: Instructional language (multiselect) ──
 
-    st.markdown(f"<span style='font-weight:600;'>{t('filter_by_language')}</span>", unsafe_allow_html=True)
-    st.caption(t("filter_by_language_helper"))
     lang_filter = st.multiselect(
-        "",
+        t('filter_by_language'),
         _LANG_OPTIONS,
-        format_func=lambda x: _LANG_LABELS.get(x, x),
+        format_func=lambda x: _LANG_LABELS.get(x, x.title() if x else x),
+        placeholder=t("filter_by_language_helper"),
         key="find_teacher_lang",
     )
 
@@ -204,4 +370,3 @@ def render_student_find_teacher():
             ]
 
     render_community_member_cards(teachers, role_filter="teacher")
-

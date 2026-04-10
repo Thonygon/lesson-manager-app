@@ -1,5 +1,6 @@
 import streamlit as st
 import datetime
+import html as _html
 import re
 import urllib.parse
 import pandas as pd
@@ -24,6 +25,14 @@ from helpers.student_report import (
     build_report_email_url,
 )
 from helpers.dashboard import rebuild_dashboard
+from helpers.teacher_student_integration import (
+    archive_teacher_student_link,
+    get_teacher_request_resolution,
+    load_active_linked_students_for_teacher,
+    load_incoming_teacher_requests,
+    load_teacher_assignment_progress,
+    respond_to_teacher_request,
+)
 
 # 12.2) PAGE: STUDENTS
 # =========================
@@ -157,13 +166,153 @@ def render_students():
             st.rerun()
 
     st.markdown(f"### {t('manage_students')}")
+    st.markdown(
+        """
+        <style>
+        .classio-student-link-card {
+            position: relative;
+            overflow: hidden;
+            background:
+              radial-gradient(circle at top right, rgba(59,130,246,.08), transparent 34%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 82%, white 18%));
+            border: 1px solid color-mix(in srgb, var(--border) 78%, rgba(59,130,246,.18) 22%);
+            border-radius: 22px;
+            padding: 18px 20px;
+            box-shadow: 0 14px 32px rgba(15,23,42,.08);
+            margin-bottom: 0.5rem;
+        }
+        .classio-student-link-card::before {
+            content: "";
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 5px;
+            background: linear-gradient(180deg, #38bdf8, #6366f1 58%, #14b8a6);
+        }
+        .classio-student-link-name {
+            font-size: 1.08rem;
+            font-weight: 800;
+            color: var(--text);
+            line-height: 1.2;
+        }
+        .classio-student-link-meta {
+            margin-top: 0.65rem;
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.45;
+        }
+        .classio-student-link-note {
+            margin-top: 0.75rem;
+            padding: 0.75rem 0.9rem;
+            border-radius: 14px;
+            background: rgba(148,163,184,.08);
+            border: 1px solid rgba(148,163,184,.16);
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+        .classio-student-link-action-label {
+            font-size: 0.76rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+            margin: 0.25rem 0 0.55rem 0.1rem;
+        }
+        .classio-inline-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.45rem 0.78rem;
+            border-radius: 999px;
+            background: rgba(59,130,246,.08);
+            border: 1px solid rgba(59,130,246,.14);
+            color: #2563eb;
+            font-size: 0.78rem;
+            font-weight: 700;
+            margin: 0 0.45rem 0.45rem 0;
+        }
+        .classio-progress-card {
+            position: relative;
+            overflow: hidden;
+            background:
+              radial-gradient(circle at top right, rgba(139,92,246,.10), transparent 34%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 82%, white 18%));
+            border: 1px solid color-mix(in srgb, var(--border) 78%, rgba(139,92,246,.18) 22%);
+            border-radius: 22px;
+            padding: 18px 20px;
+            box-shadow: 0 14px 32px rgba(15,23,42,.08);
+            margin-bottom: 0.9rem;
+        }
+        .classio-progress-card::before {
+            content: "";
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 5px;
+            background: linear-gradient(180deg, #8b5cf6, #6366f1 52%, #38bdf8);
+        }
+        .classio-progress-title {
+            font-size: 1.08rem;
+            font-weight: 800;
+            color: var(--text);
+            line-height: 1.25;
+        }
+        .classio-progress-meta {
+            margin-top: 0.55rem;
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.45;
+        }
+        .classio-progress-stats {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            margin-top: 0.95rem;
+        }
+        .classio-progress-stat {
+            min-width: 110px;
+            padding: 0.78rem 0.9rem;
+            border-radius: 16px;
+            background: rgba(148,163,184,.08);
+            border: 1px solid rgba(148,163,184,.16);
+        }
+        .classio-progress-stat-label {
+            font-size: 0.74rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--muted);
+        }
+        .classio-progress-stat-value {
+            margin-top: 0.25rem;
+            font-size: 1.05rem;
+            font-weight: 800;
+            color: var(--text);
+        }
+        div[data-testid="stButton"] > button[kind="primary"] {
+            border-radius: 16px;
+            min-height: 3rem;
+            font-weight: 800;
+            box-shadow: 0 14px 28px rgba(37,99,235,.18);
+        }
+        div[data-testid="stButton"] > button[kind="secondary"] {
+            border-radius: 16px;
+            min-height: 3rem;
+            font-weight: 700;
+            border-color: rgba(148,163,184,.28);
+            box-shadow: 0 8px 18px rgba(15,23,42,.06);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     if students_df.empty:
         st.info(t("no_students"))
     else:
-        tab_list, tab_profile, tab_history, tab_delete = st.tabs([
+        tab_list, tab_profile, tab_history, tab_requests, tab_progress, tab_delete = st.tabs([
             f"👩‍🎓 {t('student_list')}",
             f"📋 {t('student_profile')}",
             f"📊 {t('student_history')}",
+            f"🤝 {t('teacher_requests_title')}",
+            f"📈 {t('student_progress_title')}",
             f"🗑️ {t('delete_student')}",
         ])
 
@@ -453,5 +602,243 @@ def render_students():
                         st.rerun()
                     except Exception as e:
                         st.error(f"{t('delete_student_failed')}\n\n{e}")
+
+        with tab_requests:
+            st.markdown(f"### {t('teacher_requests_title')}")
+            incoming = load_incoming_teacher_requests()
+            if not incoming:
+                st.info(t("no_teacher_requests"))
+            else:
+                for row in incoming:
+                    left_col, right_col = st.columns([6, 2], gap="medium")
+                    requested = row.get("requested_subjects") or []
+                    requested_labels = [s.get("subject_label", "") for s in requested if s.get("subject_label")]
+                    with left_col:
+                        chips = "".join(
+                            f"<span class='classio-inline-chip'>📚 {str(label)}</span>"
+                            for label in requested_labels
+                        )
+                        note_html = ""
+                        if row.get("request_note"):
+                            note_html = (
+                                f"<div class='classio-student-link-note'><strong>{t('teacher_note')}:</strong> "
+                                f"{row.get('request_note')}</div>"
+                            )
+                        st.markdown(
+                            f"""
+                            <div class="classio-student-link-card">
+                                <div class="classio-student-link-name">{row.get('student_name', '—')}</div>
+                                <div class="classio-student-link-meta">{t('requested_subjects')}</div>
+                                <div style="margin-top:0.5rem;">{chips or f"<span class='classio-inline-chip'>{t('no_active_subjects')}</span>"}</div>
+                                {note_html}
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                    req_options = [
+                        s.get("subject_label", "")
+                        for s in requested
+                        if s.get("subject_label")
+                    ]
+                    with right_col:
+                        st.markdown(
+                            f"<div class='classio-student-link-action-label'>{t('active_subjects')}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        resolution = get_teacher_request_resolution(int(row.get("id")))
+                        selected_record_id = None
+                        accept_disabled = not req_options
+                        chosen = []
+                        if req_options:
+                            chosen = st.multiselect(
+                                t("active_subjects"),
+                                options=req_options,
+                                default=req_options,
+                                key=f"teacher_request_subjects_{row.get('id')}",
+                                label_visibility="collapsed",
+                            )
+                        else:
+                            st.warning(t("select_active_subjects"))
+                        if resolution.get("mode") in {"linked_existing", "auto_email"} and resolution.get("selected_row"):
+                            st.info(
+                                f"{t(resolution.get('summary_key', 'teacher_request_auto_link_existing'))} "
+                                f"{_html.escape(str(resolution['selected_row'].get('student') or ''))}"
+                            )
+                        elif resolution.get("mode") == "review":
+                            st.warning(t("teacher_request_review_match"))
+                            option_values = ["__choose__", "__create_new__"] + [
+                                str(candidate.get("id")) for candidate in resolution.get("candidates", [])
+                            ]
+                            selected_option = st.selectbox(
+                                t("teacher_request_select_student_record"),
+                                options=option_values,
+                                format_func=lambda value: (
+                                    t("teacher_request_choose_resolution")
+                                    if value == "__choose__"
+                                    else t("teacher_request_create_new_record")
+                                    if value == "__create_new__"
+                                    else next(
+                                        (
+                                            f"{candidate.get('student', '—')}"
+                                            + (
+                                                f" · {candidate.get('email')}"
+                                                if str(candidate.get('email') or '').strip()
+                                                else ""
+                                            )
+                                            for candidate in resolution.get("candidates", [])
+                                            if str(candidate.get("id")) == str(value)
+                                        ),
+                                        "—",
+                                    )
+                                ),
+                                key=f"teacher_request_resolution_{row.get('id')}",
+                            )
+                            if selected_option == "__choose__":
+                                accept_disabled = True
+                            elif selected_option != "__create_new__":
+                                selected_record_id = int(selected_option)
+                        else:
+                            st.caption(t("teacher_request_new_record_will_be_created"))
+                        if st.button(
+                            t("accept"),
+                            key=f"teacher_request_accept_{row.get('id')}",
+                            use_container_width=True,
+                            disabled=accept_disabled,
+                            type="primary",
+                        ):
+                            if resolution.get("mode") in {"linked_existing", "auto_email"} and resolution.get("selected_row"):
+                                selected_record_id = int(resolution["selected_row"].get("id"))
+                            ok, msg = respond_to_teacher_request(
+                                int(row.get("id")),
+                                True,
+                                chosen,
+                                selected_record_id,
+                            )
+                            if ok:
+                                st.success(t(msg))
+                                st.rerun()
+                            st.error(t(msg))
+                        st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
+                        if st.button(t("reject"), key=f"teacher_request_reject_{row.get('id')}", use_container_width=True):
+                            ok, msg = respond_to_teacher_request(int(row.get("id")), False, [])
+                            if ok:
+                                st.success(t(msg))
+                                st.rerun()
+                            st.error(t(msg))
+                    st.markdown("<div style='height:0.75rem;'></div>", unsafe_allow_html=True)
+
+            st.markdown(f"### {t('my_linked_students')}")
+            linked = load_active_linked_students_for_teacher()
+            if not linked:
+                st.info(t("no_linked_students"))
+            else:
+                for row in linked:
+                    left_col, right_col = st.columns([6, 2], gap="medium")
+                    subjects = ", ".join(
+                        s.get("subject_label", "")
+                        for s in row.get("subjects", [])
+                        if s.get("subject_label")
+                    )
+                    with left_col:
+                        chips = "".join(
+                            f"<span class='classio-inline-chip'>📚 {label}</span>"
+                            for label in [s.strip() for s in subjects.split(",") if s.strip()]
+                        )
+                        st.markdown(
+                            f"""
+                            <div class="classio-student-link-card">
+                                <div class="classio-student-link-name">{row.get('student_name', '—')}</div>
+                                <div class="classio-student-link-meta">{t('active_subjects')}</div>
+                                <div style="margin-top:0.55rem;">{chips or f"<span class='classio-inline-chip'>{t('no_active_subjects')}</span>"}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                    with right_col:
+                        st.markdown(
+                            f"<div class='classio-student-link-action-label'>{t('end_relationship')}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        if st.button(t("end_relationship"), key=f"archive_link_{row.get('id')}", use_container_width=True, type="primary"):
+                            ok, msg = archive_teacher_student_link(int(row.get("id")))
+                            if ok:
+                                st.success(t(msg))
+                                st.rerun()
+                            st.error(t(msg))
+                    st.markdown("<div style='height:0.75rem;'></div>", unsafe_allow_html=True)
+
+        with tab_progress:
+            st.markdown(f"### {t('student_progress_title')}")
+            linked = load_active_linked_students_for_teacher()
+            if not linked:
+                st.info(t("no_linked_students"))
+            else:
+                student_options = {row.get("student_name", "—"): row for row in linked}
+                selected_student_name = st.selectbox(
+                    t("select_student"),
+                    options=list(student_options.keys()),
+                    key="assignment_progress_student",
+                )
+                selected_link = student_options[selected_student_name]
+                subject_options = ["__all__"] + [s.get("subject_key", "") for s in selected_link.get("subjects", [])]
+                selected_subject = st.selectbox(
+                    t("subject_filter"),
+                    options=subject_options,
+                    format_func=lambda x: t("all_subjects") if x == "__all__" else next(
+                        (
+                            s.get("subject_label", x)
+                            for s in selected_link.get("subjects", [])
+                            if s.get("subject_key") == x
+                        ),
+                        x,
+                    ),
+                    key="assignment_progress_subject",
+                )
+                rows = load_teacher_assignment_progress(
+                    student_id=str(selected_link.get("student_id") or ""),
+                    subject_key=None if selected_subject == "__all__" else selected_subject,
+                )
+                if not rows:
+                    st.info(t("no_assignments"))
+                else:
+                    for row in rows:
+                        latest = row.get("latest_attempt") or {}
+                        score = latest.get("score_pct", row.get("score_pct"))
+                        title = _html.escape(str(row.get("title") or "—"))
+                        subject_display = _html.escape(str(row.get("subject_display") or "—"))
+                        status_label = _html.escape(t(f"assignment_status_{row.get('status')}"))
+                        attempts_value = int(row.get("attempt_count") or 0)
+                        score_value = f"{score}%" if score not in (None, "") else "—"
+                        student_name_safe = _html.escape(str(row.get("student_name") or selected_student_name or "—"))
+
+                        st.markdown(
+                            f"""
+                            <div class="classio-progress-card">
+                                <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+                                    <div>
+                                        <div class="classio-progress-title">{title}</div>
+                                        <div class="classio-progress-meta">{student_name_safe} · {subject_display}</div>
+                                    </div>
+                                    <div><span class="classio-inline-chip">📌 {status_label}</span></div>
+                                </div>
+                                <div class="classio-progress-stats">
+                                    <div class="classio-progress-stat">
+                                        <div class="classio-progress-stat-label">{_html.escape(t('attempts_label'))}</div>
+                                        <div class="classio-progress-stat-value">{attempts_value}</div>
+                                    </div>
+                                    <div class="classio-progress-stat">
+                                        <div class="classio-progress-stat-label">{_html.escape(t('score_label'))}</div>
+                                        <div class="classio-progress-stat-value">{_html.escape(score_value)}</div>
+                                    </div>
+                                    <div class="classio-progress-stat">
+                                        <div class="classio-progress-stat-label">{_html.escape(t('created_at_label'))}</div>
+                                        <div class="classio-progress-stat-value">{_html.escape(str(row.get('created_at') or '')[:10] or '—')}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
 
 # =========================

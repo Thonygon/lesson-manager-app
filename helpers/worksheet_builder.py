@@ -111,6 +111,45 @@ def _strip_mc_option_prefix(text: str) -> str:
 def _strip_mc_stem_prefix(text: str) -> str:
     return _MC_STEM_PREFIX_RE.sub("", _clean_str(text))
 
+
+_WORKSHEET_INSTRUCTION_FALLBACKS = {
+    "fill_in_the_blanks": "Complete each sentence or prompt with the correct word, number, or phrase.",
+    "multiple_choice": "Read each question and circle the letter of the best answer.",
+    "matching": "Match each item in Column A with the correct item in Column B. Write the correct letter next to each number.",
+    "short_answer": "Answer each question in one or two complete sentences.",
+    "true_false": "Read the text and decide whether each statement is true or false.",
+    "reading_comprehension": "Read the passage carefully and answer the questions using evidence from the text.",
+    "error_correction": "Find and correct the error in each sentence.",
+    "word_search_vocab": "Find and circle the hidden words in the grid.",
+}
+
+_WORKSHEET_INSTRUCTION_MISMATCHES = {
+    "fill_in_the_blanks": ("choose the best answer", "true or false", "column a", "column b", "circle the letter"),
+    "multiple_choice": ("line provided", "given line", "write the answer", "write your answer", "type the answer", "complete each sentence"),
+    "matching": ("choose the best answer", "true or false", "complete each sentence", "circle the letter"),
+    "short_answer": ("choose the best answer", "true or false", "column a", "column b", "circle the letter"),
+    "true_false": ("choose the best answer", "column a", "column b", "write the correct letter", "fill in the blank"),
+    "reading_comprehension": ("choose the best answer", "true or false", "column a", "column b", "circle the letter"),
+    "error_correction": ("choose the best answer", "true or false", "column a", "column b"),
+    "word_search_vocab": ("choose the best answer", "true or false", "column a", "column b", "write your answer"),
+}
+
+
+def _default_instruction_for_worksheet_type(ws_type: str) -> str:
+    key = f"instruction_{ws_type}"
+    translated = t(key)
+    if translated != key:
+        return translated
+    return _WORKSHEET_INSTRUCTION_FALLBACKS.get(ws_type, "")
+
+
+def _worksheet_instruction_needs_reset(ws_type: str, text: str) -> bool:
+    text = _clean_str(text)
+    if not text:
+        return True
+    lowered = text.casefold()
+    return any(fragment in lowered for fragment in _WORKSHEET_INSTRUCTION_MISMATCHES.get(ws_type, ()))
+
 # ── Normalise AI output ──────────────────────────────────────────────
 def normalize_worksheet_output(raw: dict) -> dict:
     out = dict(raw or {})
@@ -184,8 +223,8 @@ def normalize_worksheet_output(raw: dict) -> dict:
         out["answer_key"] = ""
         out["teacher_notes"] = out.get("teacher_notes", [])
 
-        if not out.get("instructions"):
-            out["instructions"] = t("find_hidden_words_in_grid")
+        if _worksheet_instruction_needs_reset(ws_type, out.get("instructions", "")):
+            out["instructions"] = _default_instruction_for_worksheet_type(ws_type)
 
     elif ws_type == "matching":
         if not out["matching_pairs"] and out["left_items"] and out["right_items"]:
@@ -203,13 +242,8 @@ def normalize_worksheet_output(raw: dict) -> dict:
         out["true_false_statements"] = []
         out["multiple_choice_items"] = []
 
-        if not out["instructions"]:
-            fallback = t("ws_matching_default_instructions")
-            out["instructions"] = (
-                fallback
-                if fallback != "ws_matching_default_instructions"
-                else "Match the items in Column A with the correct items in Column B."
-            )
+        if _worksheet_instruction_needs_reset(ws_type, out.get("instructions", "")):
+            out["instructions"] = _default_instruction_for_worksheet_type(ws_type)
 
     elif ws_type == "true_false":
         out["reading_passage"] = ""
@@ -222,13 +256,8 @@ def normalize_worksheet_output(raw: dict) -> dict:
         if not out["source_text"] and out["text"]:
             out["source_text"] = out["text"]
 
-        if not out["instructions"]:
-            fallback = t("read_and_decide_true_false")
-            out["instructions"] = (
-                fallback
-                if fallback != "read_and_decide_true_false"
-                else "Read the text and decide if the statements are true or false."
-            )
+        if _worksheet_instruction_needs_reset(ws_type, out.get("instructions", "")):
+            out["instructions"] = _default_instruction_for_worksheet_type(ws_type)
 
     elif ws_type == "multiple_choice":
         out["reading_passage"] = ""
@@ -239,13 +268,8 @@ def normalize_worksheet_output(raw: dict) -> dict:
         out["true_false_statements"] = []
         out["questions"] = []
 
-        if not out["instructions"]:
-            fallback = t("ws_multiple_choice_default_instructions")
-            out["instructions"] = (
-                fallback
-                if fallback != "ws_multiple_choice_default_instructions"
-                else "Read each question and choose the best answer."
-            )
+        if _worksheet_instruction_needs_reset(ws_type, out.get("instructions", "")):
+            out["instructions"] = _default_instruction_for_worksheet_type(ws_type)
 
     else:
         out["matching_pairs"] = []
@@ -254,6 +278,8 @@ def normalize_worksheet_output(raw: dict) -> dict:
         out["source_text"] = ""
         out["true_false_statements"] = []
         out["multiple_choice_items"] = []
+        if _worksheet_instruction_needs_reset(ws_type, out.get("instructions", "")):
+            out["instructions"] = _default_instruction_for_worksheet_type(ws_type)
 
     return out
 
@@ -436,6 +462,13 @@ Design principles:
 - Use clear, age-appropriate language for the target learner_stage and level.
 - Keep the worksheet pedagogically coherent and clearly aligned to the worksheet_type.
 - Use publication-ready capitalization, punctuation, grammar, and clean academic formatting.
+- Make the student instructions match the actual response mode exactly.
+- Do not tell students to write on a line if the task uses options, matching letters, or a grid.
+- Examples:
+  - multiple_choice: tell students to choose or circle the correct option/letter
+  - matching: tell students to match Column A with Column B and write the correct letter
+  - true_false: tell students to decide whether each statement is true or false
+  - word_search_vocab: tell students to find and circle the hidden words in the grid
 - Include a vocabulary_bank only when it is genuinely useful.
 - teacher_notes should include 2-3 practical tips for differentiation or extension.
 - Keep content factually accurate and pedagogically sound.

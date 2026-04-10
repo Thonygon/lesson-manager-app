@@ -108,7 +108,7 @@ def apply_auth_session() -> None:
             profile_name=display_name,
             profile_username=username,
             user_id=uid,
-            user_role=str(profile.get("role") or "teacher").strip(),
+            user_role=resolve_active_mode(profile),
         )
 
         # Sync email into profiles once per session if needed
@@ -140,7 +140,7 @@ def apply_auth_session() -> None:
                 _login_count = int(_prow.get("login_count") or 0)
                 _last_page = str(_prow.get("last_page") or "").strip() or "dashboard"
                 _has_username = bool(str(_prow.get("username") or "").strip())
-                _user_role = str(profile.get("role") or "teacher").strip()
+                _user_role = resolve_active_mode(profile)
 
                 _new_count = _login_count + 1
                 sb.table("profiles").update({"login_count": _new_count}).eq("user_id", uid).execute()
@@ -431,6 +431,40 @@ def load_profile_row(user_id: str) -> dict:
     return {}
 
 
+def get_profile_primary_role(profile: dict) -> str:
+    role = str((profile or {}).get("primary_role") or (profile or {}).get("role") or "teacher").strip().lower()
+    return role if role in ("teacher", "student", "tutor") else "teacher"
+
+
+def profile_can_teach(profile: dict) -> bool:
+    if profile is None:
+        return False
+    if profile.get("can_teach") is not None:
+        return bool(profile.get("can_teach"))
+    return get_profile_primary_role(profile) in ("teacher", "tutor")
+
+
+def profile_can_study(profile: dict) -> bool:
+    if profile is None:
+        return False
+    if profile.get("can_study") is not None:
+        return bool(profile.get("can_study"))
+    return get_profile_primary_role(profile) == "student"
+
+
+def resolve_active_mode(profile: dict) -> str:
+    desired = str((profile or {}).get("last_active_mode") or "").strip().lower()
+    if desired == "student" and profile_can_study(profile):
+        return "student"
+    if desired == "teacher" and profile_can_teach(profile):
+        return "teacher"
+    if profile_can_teach(profile):
+        return "teacher"
+    if profile_can_study(profile):
+        return "student"
+    return "teacher"
+
+
 def _normalize_profile_sex(raw) -> str | None:
     v = str(raw or "").strip().lower()
     aliases = {
@@ -465,6 +499,27 @@ def upsert_profile_row(user_id: str, payload: dict) -> bool:
     except Exception as e:
         st.error(f"Could not save profile: {e}")
         return False
+
+
+def enable_profile_mode(user_id: str, target_role: str) -> bool:
+    role = str(target_role or "").strip().lower()
+    if not user_id or role not in ("teacher", "student"):
+        return False
+    profile = load_profile_row(user_id)
+    payload = {"last_active_mode": role}
+    if role == "teacher":
+        payload["can_teach"] = True
+        if not str(profile.get("role") or "").strip():
+            payload["role"] = "teacher"
+        if not str(profile.get("primary_role") or "").strip():
+            payload["primary_role"] = "teacher"
+    else:
+        payload["can_study"] = True
+        if not str(profile.get("role") or "").strip():
+            payload["role"] = "student"
+        if not str(profile.get("primary_role") or "").strip():
+            payload["primary_role"] = "student"
+    return upsert_profile_row(user_id, payload)
 
 
 # ---- CRUD ----
@@ -615,7 +670,7 @@ def load_community_profiles() -> list:
                 "custom_subjects, "
                 "teaching_stages, teaching_languages, education_level, active_student_count, "
                 "show_community_profile, show_community_contact, phone_number, "
-                "email, role"
+                "email, role, primary_role, can_teach, can_study, last_active_mode"
             )
             .execute()
         )

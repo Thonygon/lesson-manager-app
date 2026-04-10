@@ -973,6 +973,16 @@ def render_quick_lesson_plan_result(
             key=f"{action_key_prefix}_download_docx_inline",
             use_container_width=True,
         )
+        with st.expander(t("assign_to_student"), expanded=False):
+            from helpers.teacher_student_integration import render_assignment_panel_for_lesson_plan
+
+            render_assignment_panel_for_lesson_plan(
+                prefix=f"{action_key_prefix}_assign",
+                plan=plan,
+                subject=subject,
+                topic=topic,
+                lesson_purpose=lesson_purpose,
+            )
     else:
         a1, a2 = st.columns(2)
         with a1:
@@ -992,6 +1002,16 @@ def render_quick_lesson_plan_result(
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 key=f"{action_key_prefix}_download_docx_inline2",
                 use_container_width=True,
+            )
+        with st.expander(t("assign_to_student"), expanded=False):
+            from helpers.teacher_student_integration import render_assignment_panel_for_lesson_plan
+
+            render_assignment_panel_for_lesson_plan(
+                prefix=f"{action_key_prefix}_assign",
+                plan=plan,
+                subject=subject,
+                topic=topic,
+                lesson_purpose=lesson_purpose,
             )
         if st.button(t("close"), key="btn_close_quick_plan", use_container_width=True):
             _lp().reset_quick_lesson_planner_state()

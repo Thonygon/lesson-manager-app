@@ -26,6 +26,7 @@ from core.database import (
     apply_auth_session,
     get_profile_avatar_url,
     save_profile_avatar_url,
+    resolve_active_mode,
 )
 from helpers.currency import CURRENCIES, CURRENCY_CODES
 
@@ -91,6 +92,10 @@ def _ensure_profile_for_oidc_user() -> str:
                 "timezone": DEFAULT_TZ_NAME,
                 "default_lesson_duration": 45,
                 "role": "teacher",
+                "primary_role": "teacher",
+                "can_teach": True,
+                "can_study": False,
+                "last_active_mode": "teacher",
                 "primary_subjects": [],
                 "teaching_stages": [],
                 "teaching_languages": [],
@@ -171,7 +176,7 @@ def _restore_user_from_email() -> str:
             profile_name=profile_name or google_name,
             profile_username=str(row.get("username") or "").strip(),
             user_id=user_id,
-            user_role=str(row.get("role") or "teacher").strip(),
+            user_role=resolve_active_mode(row),
         )
 
         return user_id
@@ -898,7 +903,15 @@ def render_choose_role_dialog(user_id: str) -> None:
                     use_container_width=True,
                     type="primary",
                 ):
-                    upsert_profile_row(user_id, {"role": "teacher"})
+                    upsert_profile_row(
+                        user_id,
+                        {
+                            "role": "teacher",
+                            "primary_role": "teacher",
+                            "can_teach": True,
+                            "last_active_mode": "teacher",
+                        },
+                    )
                     st.session_state["user_role"] = "teacher"
                     st.session_state["show_choose_role_dialog"] = False
                     st.session_state["_post_login_action"] = "page:home"
@@ -925,7 +938,15 @@ def render_choose_role_dialog(user_id: str) -> None:
                     use_container_width=True,
                     type="primary",
                 ):
-                    upsert_profile_row(user_id, {"role": "student"})
+                    upsert_profile_row(
+                        user_id,
+                        {
+                            "role": "student",
+                            "primary_role": "student",
+                            "can_study": True,
+                            "last_active_mode": "student",
+                        },
+                    )
                     st.session_state["user_role"] = "student"
                     st.session_state["show_choose_role_dialog"] = False
                     st.session_state["_post_login_action"] = "page:student_home"

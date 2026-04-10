@@ -16,6 +16,7 @@ STUDENT_PAGES = [
     ("student_home", "student_home_title", "🏠"),
     ("student_practice", "smart_practice", "🧠"),
     ("student_study_plan", "smart_study_plan", "📚"),
+    ("student_assignments", "student_assignments_title", "🗂️"),
     ("student_find_teacher", "find_my_teacher", "🔍"),
 ]
 

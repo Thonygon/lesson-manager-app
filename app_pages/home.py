@@ -3,7 +3,7 @@ import datetime
 from core.i18n import t
 from core.navigation import go_to, home_go, PAGES
 from core.timezone import _get_qp
-from core.database import load_table, load_students, clear_app_caches
+from core.database import load_table, load_students, clear_app_caches, profile_can_teach
 from auth.auth import render_logout_button, render_profile_dialog, render_choose_username_dialog, render_choose_role_dialog
 from styles.theme import load_css_home
 from styles.theme import load_css_home
@@ -894,6 +894,7 @@ def render_home():
                 render_worksheet_result(
                     normalize_worksheet_output(selected_ws),
                     read_only=True,
+                    allow_assign=True,
                     subject=st.session_state.get("files_ws_subject", ""),
                     learner_stage=st.session_state.get("files_ws_stage", ""),
                     level_or_band=st.session_state.get("files_ws_level", ""),
@@ -930,6 +931,7 @@ def render_home():
                     selected_exam,
                     selected_exam_ak,
                     show_ready_banner=False,
+                    allow_assign=True,
                     subject=st.session_state.get("files_exam_subject", ""),
                     learner_stage=st.session_state.get("files_exam_stage", ""),
                     level_or_band=st.session_state.get("files_exam_level", ""),
@@ -1051,7 +1053,7 @@ def render_home():
             _visible = [
                 p for p in _all_profiles_raw
                 if (p.get("show_community_profile") or p.get("user_id") == user_id)
-                and str(p.get("role") or "teacher") in ("teacher", "tutor")
+                and profile_can_teach(p)
             ]
 
             if not _visible:

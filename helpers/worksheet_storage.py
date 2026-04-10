@@ -997,10 +997,13 @@ def render_worksheet_library_cards(
 
 
 # ── Render worksheet result ──────────────────────────────────────────
-def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
+def render_worksheet_result(ws: dict, read_only: bool = False, allow_assign: bool = False, **meta) -> None:
     if not ws:
         return
 
+    from helpers.worksheet_builder import normalize_worksheet_output
+
+    ws = normalize_worksheet_output(ws)
     ws = _normalize_worksheet_unicode(ws)
     ws = _clean_worksheet_data(ws)
 
@@ -1081,6 +1084,19 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
         with st.expander(t("ws_teacher_notes"), expanded=False):
             for note in ws["teacher_notes"]:
                 st.write(f"- {_normalize_text(note)}")
+
+    if read_only and allow_assign:
+        with st.expander(t("assign_to_student"), expanded=False):
+            from helpers.teacher_student_integration import render_assignment_panel_for_worksheet
+
+            render_assignment_panel_for_worksheet(
+                prefix=f"worksheet_assign_readonly_{re.sub(r'[^A-Za-z0-9._-]+', '_', str(ws.get('title') or 'worksheet').strip()) or 'worksheet'}",
+                worksheet=ws,
+                subject=meta.get("subject", ws.get("subject", "")),
+                topic=meta.get("topic", ws.get("topic", "")),
+                learner_stage=meta.get("learner_stage", ws.get("learner_stage", "")),
+                level_or_band=meta.get("level_or_band", ws.get("level_or_band", "")),
+            )
 
     subject = meta.get("subject", ws.get("subject", ""))
     topic = meta.get("topic", ws.get("topic", ""))
@@ -1192,6 +1208,17 @@ def render_worksheet_result(ws: dict, read_only: bool = False, **meta) -> None:
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 key=f"dl_ws_tch_docx_inline_{safe_title}",
                 use_container_width=True,
+            )
+        with st.expander(t("assign_to_student"), expanded=False):
+            from helpers.teacher_student_integration import render_assignment_panel_for_worksheet
+
+            render_assignment_panel_for_worksheet(
+                prefix=f"worksheet_assign_{safe_title}",
+                worksheet=ws,
+                subject=subject,
+                topic=topic,
+                learner_stage=learner_stage,
+                level_or_band=level_or_band,
             )
 
 

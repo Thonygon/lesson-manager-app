@@ -710,9 +710,23 @@ def build_exam_answer_pdf_bytes(
 
 # ── Render UI ────────────────────────────────────────────────────────
 
-def render_exam_result(exam_data: dict, answer_key: dict, *, show_ready_banner: bool = True, **meta) -> None:
+def render_exam_result(exam_data: dict, answer_key: dict, *, show_ready_banner: bool = True, allow_assign: bool = False, **meta) -> None:
     if not exam_data or not exam_data.get("sections"):
         return
+
+    from helpers.quick_exam_builder import _default_instruction_for_exam_type, _exam_instruction_needs_reset
+
+    exam_data = dict(exam_data or {})
+    normalized_sections = []
+    for sec in exam_data.get("sections", []):
+        if not isinstance(sec, dict):
+            continue
+        cleaned_sec = dict(sec)
+        sec_type = str(cleaned_sec.get("type") or "").strip()
+        if _exam_instruction_needs_reset(sec_type, str(cleaned_sec.get("instructions") or "")):
+            cleaned_sec["instructions"] = _default_instruction_for_exam_type(sec_type)
+        normalized_sections.append(cleaned_sec)
+    exam_data["sections"] = normalized_sections
 
     if show_ready_banner:
         st.success(t("exam_ready") if t("exam_ready") != "exam_ready" else "Exam ready!")
@@ -786,6 +800,21 @@ def render_exam_result(exam_data: dict, answer_key: dict, *, show_ready_banner: 
             for idx, ans in enumerate(sec.get("answers", []), 1):
                 st.write(f"{idx}. {_format_answer_text(ans)}")
 
+    if allow_assign:
+        safe_assign_title = re.sub(r"[^A-Za-z0-9._-]+", "_", str(exam_data.get("title") or "exam").strip()) or "exam"
+        with st.expander(t("assign_to_student"), expanded=False):
+            from helpers.teacher_student_integration import render_assignment_panel_for_exam
+
+            render_assignment_panel_for_exam(
+                prefix=f"exam_assign_{safe_assign_title}",
+                exam_data=exam_data,
+                answer_key=answer_key,
+                subject=meta.get("subject", ""),
+                topic=meta.get("topic", ""),
+                learner_stage=meta.get("learner_stage", ""),
+                level_or_band=meta.get("level_or_band", ""),
+            )
+
     _pdf_kwargs = dict(
         subject=meta.get("subject", ""),
         topic=meta.get("topic", ""),
@@ -838,7 +867,6 @@ def render_exam_result(exam_data: dict, answer_key: dict, *, show_ready_banner: 
             key=f"dl_exam_tch_docx_{safe_title}",
             use_container_width=True,
         )
-
 
 # ── Builder proxy ────────────────────────────────────────────────────
 def render_quick_exam_builder_expander() -> None:
