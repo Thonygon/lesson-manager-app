@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import json
 import ast
+import html
 import streamlit as st
 import pandas as pd
 from datetime import datetime as _dt, timezone
@@ -94,7 +95,7 @@ SUPPORTED_PRACTICE_TYPES = {
     "data_analysis", "classification", "process_explanation",
     "hypothesis_and_conclusion", "diagram_questions",
     "theory_questions", "symbol_identification", "rhythm_counting",
-    "terminology", "composer_period_matching",
+    "terminology", "composer_period_matching", "word_search_vocab",
 }
 
 # Backward-compatible alias used by the student practice page.
@@ -252,6 +253,31 @@ def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
                 "questions": questions,
                 "answers": answers,
             })
+
+    elif ws_type == "word_search_vocab":
+        try:
+            from helpers.worksheet_storage import _generate_wordsearch_grid, _normalize_wordsearch_words
+        except Exception:
+            _generate_wordsearch_grid = None
+            _normalize_wordsearch_words = None
+
+        words = ws.get("vocabulary_bank") or []
+        normalized_words = _normalize_wordsearch_words(words) if _normalize_wordsearch_words else [str(w).strip().upper() for w in words if str(w).strip()]
+        if normalized_words and _generate_wordsearch_grid:
+            seed = "|".join(normalized_words)
+            grid, placed_words, placements = _generate_wordsearch_grid(normalized_words, seed=seed)
+            if grid and placed_words:
+                exercises.append({
+                    "type": "word_search_vocab",
+                    "title": title,
+                    "instructions": instructions,
+                    "questions": [{
+                        "grid": grid,
+                        "words": placed_words,
+                        "placements": placements or [],
+                    }],
+                    "answers": [placed_words],
+                })
 
     else:
         # Unsupported worksheet types produce no exercises
@@ -588,9 +614,60 @@ def _writing_prompt_feedback(student: str, correct) -> dict:
     }
 
 
+def _normalize_wordsearch_words(value) -> list[str]:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                value = parsed
+        except Exception:
+            value = [part.strip() for part in value.split(",") if part.strip()]
+    if not isinstance(value, list):
+        return []
+    return [
+        re.sub(r"\s+", "", str(word or "")).upper()
+        for word in value
+        if re.sub(r"\s+", "", str(word or "")).strip()
+    ]
+
+
+def _wordsearch_feedback(student: str, correct) -> dict:
+    expected_words = _normalize_wordsearch_words(correct)
+    found_words = _normalize_wordsearch_words(student)
+    if not expected_words:
+        return {
+            "is_correct": False,
+            "score": 0.0,
+            "expected": "",
+            "feedback_lines": [],
+            "correct_count": 0,
+            "total_count": 0,
+        }
+
+    expected_set = set(expected_words)
+    found_set = set(found_words)
+    correct_count = len(expected_set & found_set)
+    total_count = len(expected_set)
+    score = round(correct_count / total_count, 2) if total_count else 0.0
+    missing = [word for word in expected_words if word not in found_set]
+
+    return {
+        "is_correct": correct_count == total_count,
+        "score": score,
+        "expected": ", ".join(expected_words),
+        "feedback_lines": [
+            t("word_search_feedback_progress", found=correct_count, total=total_count)
+        ] + ([t("word_search_feedback_missing", words=", ".join(missing[:6]))] if missing else []),
+        "correct_count": correct_count,
+        "total_count": total_count,
+    }
+
+
 def _evaluate_answer(ex_type: str, student: str, correct) -> dict:
     if ex_type == "writing_prompt":
         return _writing_prompt_feedback(student, correct)
+    if ex_type == "word_search_vocab":
+        return _wordsearch_feedback(student, correct)
 
     is_correct = _check_answer(ex_type, student, correct)
     return {
@@ -599,6 +676,13 @@ def _evaluate_answer(ex_type: str, student: str, correct) -> dict:
         "expected": _display_answer_text(correct),
         "feedback_lines": [],
     }
+
+
+def _clear_practice_widget_state(session_key: str) -> None:
+    prefix = f"{session_key}_"
+    for key in list(st.session_state.keys()):
+        if key.startswith(prefix):
+            st.session_state.pop(key, None)
 
 
 # ════════════════════════════════════════════════════════════════
@@ -667,6 +751,40 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
                 _rnd.shuffle(opts)
                 st.session_state[shuffle_key] = opts
             extra["shuffled_options"] = st.session_state[shuffle_key]
+
+        if ex_type == "word_search_vocab":
+            q_key = f"{session_key}_{ex_idx}_0"
+            correct = correct_answers[0] if correct_answers else []
+            evaluation = None
+            student_ans = _render_single_question(
+                ex_type, questions[0] if questions else {}, correct, q_key, 0, is_submitted, extra=extra,
+            )
+            student_answers[q_key] = student_ans
+
+            if is_submitted:
+                evaluation = _evaluate_answer(ex_type, student_ans, correct)
+                found_count = int(evaluation.get("correct_count", 0))
+                total_count = int(evaluation.get("total_count", len(_normalize_wordsearch_words(correct))))
+                total_q += total_count
+                correct_q += found_count
+                if found_count:
+                    cur_streak += found_count
+                    best_streak = max(best_streak, cur_streak)
+                else:
+                    cur_streak = 0
+
+                if evaluation["is_correct"]:
+                    st.success(f"✓ {t('word_search_completed')}")
+                else:
+                    st.warning(
+                        f"{t('word_search_keep_searching')} ({round(evaluation['score'] * 100)}%)"
+                    )
+
+                for line in evaluation.get("feedback_lines", []):
+                    st.caption(line)
+
+            st.divider()
+            continue
 
         for q_idx, question in enumerate(questions):
             q_key   = f"{session_key}_{ex_idx}_{q_idx}"
@@ -748,6 +866,7 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
                 key=f"{session_key}_retry",
                 use_container_width=True,
             ):
+                _clear_practice_widget_state(session_key)
                 st.session_state.pop(answers_key, None)
                 st.session_state.pop(submitted_key, None)
                 st.session_state.pop(f"_practice_saved_{session_key}", None)
@@ -758,6 +877,7 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
                 key=f"{session_key}_finish",
                 use_container_width=True,
             ):
+                _clear_practice_widget_state(session_key)
                 st.session_state.pop(answers_key, None)
                 st.session_state.pop(submitted_key, None)
                 st.session_state.pop(f"_practice_saved_{session_key}", None)
@@ -823,6 +943,9 @@ def _render_single_question(
         )
         return str(choice) if choice else ""
 
+    elif ex_type == "word_search_vocab":
+        return _render_wordsearch_question(question, q_key, is_submitted)
+
     elif _is_long_response_type(ex_type):
         st.markdown(f"**{q_idx + 1}. {prompt_text}**")
         return st.text_area(
@@ -862,6 +985,294 @@ def _render_single_question(
             label_visibility="collapsed",
             disabled=is_submitted,
         )
+
+
+def _wordsearch_line_coords(start: tuple[int, int], end: tuple[int, int]) -> list[tuple[int, int]]:
+    sr, sc = start
+    er, ec = end
+    dr = er - sr
+    dc = ec - sc
+    step_r = 0 if dr == 0 else (1 if dr > 0 else -1)
+    step_c = 0 if dc == 0 else (1 if dc > 0 else -1)
+    if dr != 0 and dc != 0 and abs(dr) != abs(dc):
+        return []
+    if dr == 0 and dc == 0:
+        return [(sr, sc)]
+    length = max(abs(dr), abs(dc)) + 1
+    return [(sr + idx * step_r, sc + idx * step_c) for idx in range(length)]
+
+
+def _wordsearch_label_for_coord(coord: tuple[int, int]) -> str:
+    row, col = coord
+    return f"{chr(65 + col)}{row + 1}"
+
+
+def _render_wordsearch_visual_grid(
+    grid: list[list[str]],
+    *,
+    found_cells: set[tuple[int, int]],
+    selected_cells: set[tuple[int, int]] | None = None,
+) -> None:
+    selected_cells = selected_cells or set()
+    if not grid:
+        st.warning(t("word_search_grid_failed"))
+        return
+
+    col_count = len(grid[0]) if grid else 0
+    header_cells = "".join(
+        f"<th>{html.escape(chr(65 + idx))}</th>"
+        for idx in range(col_count)
+    )
+
+    body_rows = []
+    for row_idx, row in enumerate(grid):
+        cells = [f"<th>{row_idx + 1}</th>"]
+        for col_idx, ch in enumerate(row):
+            coord = (row_idx, col_idx)
+            classes = []
+            if coord in found_cells:
+                classes.append("ws-found")
+            elif coord in selected_cells:
+                classes.append("ws-selected")
+            class_attr = f" class='{' '.join(classes)}'" if classes else ""
+            cells.append(f"<td{class_attr}>{html.escape(str(ch or ''))}</td>")
+        body_rows.append(f"<tr>{''.join(cells)}</tr>")
+
+    st.markdown(
+        f"""
+        <style>
+        .ws-wordsearch-board-wrap {{
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            margin: 0.75rem 0 1rem 0;
+            padding-bottom: 0.25rem;
+        }}
+        .ws-wordsearch-board {{
+            border-collapse: separate;
+            border-spacing: 6px;
+            width: max-content;
+            min-width: 100%;
+            margin: 0 auto;
+        }}
+        .ws-wordsearch-board th,
+        .ws-wordsearch-board td {{
+            width: 2.55rem;
+            min-width: 2.55rem;
+            height: 2.55rem;
+            text-align: center;
+            vertical-align: middle;
+            border-radius: 0.9rem;
+            border: 1px solid rgba(203,213,225,.9);
+            background: var(--panel, #fff);
+            box-shadow: 0 1px 4px rgba(15,23,42,.06);
+            font-weight: 800;
+            font-size: 1rem;
+            color: var(--text, #0f172a);
+            font-family: "DejaVu Sans", "Noto Sans", "Arial Unicode MS", Arial, sans-serif;
+        }}
+        .ws-wordsearch-board th {{
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            color: var(--muted, #64748b);
+            font-size: 0.78rem;
+            width: 1.7rem;
+            min-width: 1.7rem;
+            height: 1.7rem;
+        }}
+        .ws-wordsearch-board td.ws-found {{
+            background: linear-gradient(135deg, rgba(16,185,129,.20), rgba(45,212,191,.16));
+            border: 2px solid rgba(5,150,105,.85);
+            color: #065f46;
+        }}
+        .ws-wordsearch-board td.ws-selected {{
+            background: linear-gradient(135deg, rgba(59,130,246,.16), rgba(99,102,241,.14));
+            border: 2px solid rgba(37,99,235,.75);
+            color: var(--text, #0f172a);
+        }}
+        @media (max-width: 640px) {{
+            .ws-wordsearch-board {{
+                margin-left: 0;
+                margin-right: 0;
+            }}
+            .ws-wordsearch-board th,
+            .ws-wordsearch-board td {{
+                width: 2.2rem;
+                min-width: 2.2rem;
+                height: 2.2rem;
+                border-radius: 0.8rem;
+                font-size: 0.95rem;
+            }}
+            .ws-wordsearch-board th {{
+                width: 1.45rem;
+                min-width: 1.45rem;
+                height: 1.45rem;
+                font-size: 0.74rem;
+            }}
+        }}
+        </style>
+        <div class="ws-wordsearch-board-wrap">
+          <table class="ws-wordsearch-board">
+            <thead>
+              <tr><th></th>{header_cells}</tr>
+            </thead>
+            <tbody>
+              {''.join(body_rows)}
+            </tbody>
+          </table>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_wordsearch_question(question, q_key: str, is_submitted: bool) -> str:
+    question = question or {}
+    grid = question.get("grid") or []
+    words = _normalize_wordsearch_words(question.get("words") or [])
+    placements = question.get("placements") or []
+
+    st.markdown(f"**{t('word_search_task_title')}**")
+    st.caption(t("word_search_task_help"))
+
+    if not grid or not words:
+        st.warning(t("word_search_grid_failed"))
+        return ""
+
+    lookup: dict[tuple[tuple[int, int], ...], str] = {}
+    for item in placements:
+        coords = tuple(tuple(coord) for coord in item.get("coords") or [])
+        word = re.sub(r"\s+", "", str(item.get("word") or "")).upper()
+        if coords and word:
+            lookup[coords] = word
+            lookup[tuple(reversed(coords))] = word
+
+    found_key = f"{q_key}__found"
+    start_key = f"{q_key}__start"
+    end_key = f"{q_key}__end"
+    msg_key = f"{q_key}__msg"
+    reset_key = f"{q_key}__reset_selection"
+
+    if found_key not in st.session_state:
+        st.session_state[found_key] = []
+    if st.session_state.get(reset_key):
+        st.session_state[start_key] = ""
+        st.session_state[end_key] = ""
+        st.session_state[reset_key] = False
+    if start_key not in st.session_state:
+        st.session_state[start_key] = ""
+    if end_key not in st.session_state:
+        st.session_state[end_key] = ""
+
+    found_words = _normalize_wordsearch_words(st.session_state.get(found_key, []))
+    start_label = str(st.session_state.get(start_key) or "")
+    end_label = str(st.session_state.get(end_key) or "")
+
+    found_cells = set()
+    for coords, word in lookup.items():
+        if word in found_words:
+            found_cells.update(coords)
+
+    status_msg = str(st.session_state.get(msg_key) or "").strip()
+    if status_msg:
+        st.caption(status_msg)
+        st.session_state[msg_key] = ""
+
+    found_count = len(set(found_words) & set(words))
+    st.progress(found_count / len(words) if words else 0.0)
+    st.caption(t("word_search_feedback_progress", found=found_count, total=len(words)))
+
+    chips = []
+    found_set = set(found_words)
+    for word in words:
+        done = word in found_set
+        bg = "rgba(16,185,129,.18)" if done else "rgba(148,163,184,.14)"
+        fg = "#047857" if done else "var(--text)"
+        mark = "✓ " if done else ""
+        chips.append(
+            f"<span style='display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;"
+            f"background:{bg};color:{fg};font-size:0.8rem;font-weight:800;border:1px solid rgba(148,163,184,.24);"
+            f"margin:0 8px 8px 0;'>{mark}{word}</span>"
+        )
+    st.markdown("".join(chips), unsafe_allow_html=True)
+
+    label_to_coord = {
+        _wordsearch_label_for_coord((r, c)): (r, c)
+        for r in range(len(grid))
+        for c in range(len(grid[r]))
+    }
+    coord_options = [""] + list(label_to_coord.keys())
+
+    selected_cells = set()
+    if start_label in label_to_coord:
+        selected_cells.add(label_to_coord[start_label])
+    if start_label in label_to_coord and end_label in label_to_coord:
+        selected_cells.update(_wordsearch_line_coords(label_to_coord[start_label], label_to_coord[end_label]))
+
+    _render_wordsearch_visual_grid(
+        grid,
+        found_cells=found_cells,
+        selected_cells=selected_cells,
+    )
+
+    picker_col1, picker_col2 = st.columns(2)
+    with picker_col1:
+        st.selectbox(
+            t("word_search_start_cell"),
+            options=coord_options,
+            key=start_key,
+            disabled=is_submitted,
+        )
+    with picker_col2:
+        st.selectbox(
+            t("word_search_end_cell"),
+            options=coord_options,
+            key=end_key,
+            disabled=is_submitted,
+        )
+
+    action_col1, action_col2 = st.columns([3, 1])
+    with action_col1:
+        if start_label and end_label:
+            st.caption(t("word_search_selected_range", start=start_label, end=end_label))
+        elif start_label:
+            st.caption(t("word_search_selected_cell", cell=start_label))
+        else:
+            st.caption(t("word_search_select_first_cell"))
+    with action_col2:
+        if st.button(
+            t("word_search_clear_selection"),
+            key=f"{q_key}_clear_selection",
+            use_container_width=True,
+            disabled=is_submitted or (not start_label and not end_label),
+        ):
+            st.session_state[reset_key] = True
+            st.rerun()
+
+    if (
+        st.button(
+            t("word_search_check_selection"),
+            key=f"{q_key}_check_selection",
+            use_container_width=True,
+            disabled=is_submitted or not start_label or not end_label,
+        )
+        and not is_submitted
+    ):
+        start = label_to_coord.get(start_label)
+        end = label_to_coord.get(end_label)
+        coords = tuple(_wordsearch_line_coords(start, end)) if start and end else ()
+        matched_word = lookup.get(coords, "")
+        if matched_word and matched_word not in found_set:
+            st.session_state[found_key] = sorted(found_set | {matched_word})
+            st.session_state[msg_key] = t("word_search_found_word", word=matched_word)
+        elif matched_word:
+            st.session_state[msg_key] = t("word_search_word_already_found", word=matched_word)
+        else:
+            st.session_state[msg_key] = t("word_search_try_again")
+        st.session_state[reset_key] = True
+        st.rerun()
+
+    return json.dumps(found_words)
 
 
 # ════════════════════════════════════════════════════════════════

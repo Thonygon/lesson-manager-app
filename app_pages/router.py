@@ -4,7 +4,7 @@ from streamlit_option_menu import option_menu
 from core.i18n import t
 from core.navigation import go_to, PAGE_KEYS, _set_query
 from core.state import get_current_user_role, get_current_user_id
-from core.database import upsert_profile_row
+from core.database import enable_profile_mode
 from auth.auth import sign_out_user
 
 
@@ -114,6 +114,7 @@ def render_student_top_nav(active_page: str):
         ("student_home",         t("student_home_title"), "house"),
         ("student_practice",     t("smart_practice"),     "lightbulb"),
         ("student_study_plan",   t("smart_study_plan"),   "book"),
+        ("student_assignments",  t("student_assignments_title"), "journal-text"),
         ("student_find_teacher", t("find_my_teacher"),    "search"),
         ("profile",              t("profile"),            "person-circle"),
         ("switch_teacher",       t("switch_to_teacher"),  "arrow-repeat"),
@@ -185,10 +186,10 @@ def render_student_top_nav(active_page: str):
 
 
 def _switch_role(target_role: str):
-    """Switch the user's active role and navigate to the appropriate home."""
+    """Switch the user's active app mode without rewriting the saved profile role."""
     uid = get_current_user_id()
     if uid:
-        upsert_profile_row(uid, {"role": target_role})
+        enable_profile_mode(uid, target_role)
     st.session_state["user_role"] = target_role
     if target_role == "student":
         st.session_state["page"] = "student_home"
@@ -245,6 +246,7 @@ def _route_student_pages(page: str):
     from app_pages.student_home import render_student_home
     from app_pages.student_practice import render_student_practice
     from app_pages.student_study_plan import render_student_study_plan
+    from app_pages.student_assignments import render_student_assignments
     from app_pages.student_find_teacher import render_student_find_teacher
     from styles.theme import load_css_app
 
@@ -268,6 +270,8 @@ def _route_student_pages(page: str):
         render_student_practice()
     elif page == "student_study_plan":
         render_student_study_plan()
+    elif page == "student_assignments":
+        render_student_assignments()
     elif page == "student_find_teacher":
         render_student_find_teacher()
     else:

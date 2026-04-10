@@ -4,9 +4,11 @@ import streamlit as st
 
 from core.database import load_profile_row
 from core.i18n import t
+from core.navigation import go_to
 from core.state import get_current_user_id
 from core.timezone import today_local
 from helpers.lesson_planner import QUICK_SUBJECTS, normalize_subject, subject_label as _subject_label
+from helpers.teacher_student_integration import get_student_assignment_summary, has_active_teacher_relationships
 
 
 _SMART_PLAN_NS = "student_smart_plan"
@@ -645,19 +647,37 @@ def _render_smart_plan_recommendations(state: dict) -> None:
             )
 
 
-def _render_smart_plan_teacher_placeholder() -> None:
+def _render_smart_plan_teacher_summary() -> None:
+    assignments = get_student_assignment_summary(limit=3)
+    has_links = has_active_teacher_relationships()
+    if not has_links and not assignments:
+        return
+
     st.markdown(f"### {t('smart_plan_teacher_assignments_title')}")
-    st.markdown(
-        f"""
-        <div style="background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px dashed var(--border);border-radius:16px;padding:18px;">
-            <div style="font-size:0.8rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">{t('smart_plan_coming_soon')}</div>
-            <div style="font-size:1.05rem;font-weight:800;margin-top:4px;">{t('smart_plan_teacher_assignments_title')}</div>
-            <div style="margin-top:6px;color:var(--muted);">{t('smart_plan_teacher_assignments_desc')}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    # TODO: Connect this section to teacher-created assignments once student-teacher assignment flows are available.
+    if not assignments:
+        st.info(t("smart_plan_teacher_assignments_empty"))
+        return
+
+    cols = st.columns(len(assignments))
+    for col, item in zip(cols, assignments):
+        with col:
+            due_text = str(item.get("due_at") or "").strip()
+            status = str(item.get("status") or "").strip()
+            st.markdown(
+                f"""
+                <div style="height:100%;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:16px;">
+                    <div style="font-size:0.78rem;color:var(--muted);font-weight:800;">{item.get('teacher_name', '—')}</div>
+                    <div style="margin-top:6px;font-size:1rem;font-weight:800;">{item.get('title', '—')}</div>
+                    <div style="margin-top:6px;color:var(--muted);font-size:0.82rem;">{item.get('subject_display', '—')}</div>
+                    <div style="margin-top:8px;font-size:0.8rem;">{t(f'assignment_status_{status}')}</div>
+                    <div style="margin-top:4px;font-size:0.78rem;color:var(--muted);">{(t('due_date') + ': ' + due_text[:10]) if due_text else t('new_from_your_teachers')}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+    if st.button(t("view_all_assignments"), key="smart_plan_view_assignments", use_container_width=True):
+        go_to("student_assignments")
+        st.rerun()
 
 
 def render_student_study_plan():
@@ -689,5 +709,5 @@ def render_student_study_plan():
     else:
         st.info(t("smart_plan_setup_prompt"))
 
-    _render_smart_plan_teacher_placeholder()
+    _render_smart_plan_teacher_summary()
     _save_smart_plan_state(state)

@@ -187,6 +187,7 @@ def _render_browse_tab():
     _PRACTICE_WS_TYPES = {
         "multiple_choice", "true_false", "fill_in_the_blanks",
         "short_answer", "matching", "reading_comprehension", "error_correction",
+        "word_search_vocab",
     }
 
     # Use the same subject / level / stage lists as teacher pages
@@ -301,6 +302,7 @@ def _render_browse_tab():
                 ("matching",                 "🔗", t("matching"),               "6,182,212"),    # cyan
                 ("reading_comprehension",    "📖", t("reading_comprehension"),  "234,179,8"),    # gold
                 ("error_correction",         "🔍", t("error_correction"),       "20,184,166"),   # teal
+                ("word_search_vocab",        "🔠", t("word_search_vocab"),      "99,102,241"),   # indigo
             ]
 
             active_cat = st.session_state.get("sp_filter_ws_type")
@@ -647,11 +649,13 @@ def _render_active_session(exercise_data: dict):
     if st.button(f"← {t('back')}", key="practice_back"):
         # Clear all practice-related session state
         for key in list(st.session_state.keys()):
-            if key.startswith("_start_sp_") or key.startswith("_practice_"):
+            if key.startswith("_start_sp_") or key.startswith("_practice_") or key.startswith("sp_"):
                 del st.session_state[key]
         st.session_state.pop("practice_exercise_data", None)
         st.session_state.pop("practice_meta", None)
         st.session_state.pop("_practice_retry_session_id", None)
+        st.session_state.pop("_practice_assignment_id", None)
+        st.session_state.pop("_practice_assignment_type", None)
         st.rerun()
 
     result = render_practice_session(exercise_data, session_key="sp")
@@ -697,6 +701,19 @@ def _render_active_session(exercise_data: dict):
                 save_practice_answers(
                     session_id, exercise_data, result["answers"], session_key="sp",
                 )
+            assignment_id = st.session_state.get("_practice_assignment_id")
+            if assignment_id:
+                try:
+                    from helpers.teacher_student_integration import record_assignment_attempt_from_practice
+
+                    record_assignment_attempt_from_practice(
+                        int(assignment_id),
+                        session_id,
+                        result,
+                        exercise_data,
+                    )
+                except Exception:
+                    pass
             # Always save progress (even if session save failed)
             update_practice_progress(
                 exercise_data, result["answers"],

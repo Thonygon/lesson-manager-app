@@ -49,6 +49,13 @@ def render_student_home():
             "color": "rgba(16,185,129,0.12)",
         },
         {
+            "key": "student_assignments",
+            "icon": "🗂️",
+            "title": t("student_assignments_title"),
+            "desc": t("student_assignments_desc"),
+            "color": "rgba(245,158,11,0.12)",
+        },
+        {
             "key": "student_find_teacher",
             "icon": "🔍",
             "title": t("find_my_teacher"),

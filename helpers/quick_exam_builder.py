@@ -273,6 +273,79 @@ def _recommended_hint_text(subject: str) -> str:
     return fallback if fallback != "quick_exam_hint_general" else ""
 
 
+_EXAM_INSTRUCTION_FALLBACKS = {
+    "multiple_choice": "Read each question and circle the letter of the best answer.",
+    "true_false": "Read the text and decide whether each statement is true or false.",
+    "matching": "Match each item in Column A with the correct item in Column B. Write the correct letter next to each number.",
+    "fill_in_blank": "Complete each sentence or prompt with the correct word, number, or phrase.",
+    "short_answer": "Answer each question in one or two complete sentences.",
+    "reading_comprehension": "Read the passage carefully and answer the questions using evidence from the text.",
+    "vocabulary": "Complete each vocabulary task using the correct word or meaning.",
+    "sentence_transformation": "Rewrite each sentence as instructed while keeping the original meaning.",
+    "error_correction": "Find and correct the error in each sentence.",
+    "writing_prompt": "Write a clear, well-developed response to the prompt.",
+    "problem_solving": "Solve each problem and show the steps you used when needed.",
+    "equation_solving": "Solve each equation and write your final answer clearly.",
+    "show_your_work": "Solve each task and show all your work clearly.",
+    "table_interpretation": "Study the table and answer the questions that follow.",
+    "word_problems": "Read each word problem carefully and solve it step by step.",
+    "data_analysis": "Study the data carefully and answer the questions using evidence from the data.",
+    "classification": "Classify each item correctly and justify your choice when needed.",
+    "process_explanation": "Explain each process clearly using correct scientific language.",
+    "hypothesis_and_conclusion": "Use the information provided to form a hypothesis or draw a conclusion.",
+    "diagram_questions": "Study the diagram information carefully and answer the questions.",
+    "theory_questions": "Answer each theory question clearly and accurately.",
+    "symbol_identification": "Identify each symbol correctly.",
+    "rhythm_counting": "Count the rhythm carefully and write the correct value or pattern.",
+    "terminology": "Use the correct term for each item.",
+    "composer_period_matching": "Match each composer or work with the correct period.",
+}
+
+_EXAM_INSTRUCTION_MISMATCHES = {
+    "multiple_choice": ("line provided", "given line", "write the answer", "write your answer", "type the answer", "complete each sentence"),
+    "true_false": ("choose the best answer", "column a", "column b", "write the correct letter", "fill in the blank"),
+    "matching": ("choose the best answer", "true or false", "complete each sentence", "circle the letter"),
+    "fill_in_blank": ("choose the best answer", "true or false", "column a", "column b", "circle the letter"),
+    "short_answer": ("choose the best answer", "true or false", "column a", "column b", "circle the letter"),
+    "reading_comprehension": ("choose the best answer", "true or false", "column a", "column b", "circle the letter"),
+    "vocabulary": ("true or false", "column a", "column b"),
+    "sentence_transformation": ("choose the best answer", "true or false", "column a", "column b"),
+    "error_correction": ("choose the best answer", "true or false", "column a", "column b"),
+    "writing_prompt": ("choose the best answer", "true or false", "column a", "column b"),
+    "problem_solving": ("choose the best answer", "true or false", "column a", "column b"),
+    "equation_solving": ("choose the best answer", "true or false", "column a", "column b"),
+    "show_your_work": ("choose the best answer", "true or false", "column a", "column b"),
+    "table_interpretation": ("choose the best answer", "true or false", "column a", "column b"),
+    "word_problems": ("choose the best answer", "true or false", "column a", "column b"),
+    "data_analysis": ("choose the best answer", "true or false", "column a", "column b"),
+    "classification": ("choose the best answer", "true or false", "column a", "column b"),
+    "process_explanation": ("choose the best answer", "true or false", "column a", "column b"),
+    "hypothesis_and_conclusion": ("choose the best answer", "true or false", "column a", "column b"),
+    "diagram_questions": ("choose the best answer", "true or false", "column a", "column b"),
+    "theory_questions": ("choose the best answer", "true or false", "column a", "column b"),
+    "symbol_identification": ("choose the best answer", "true or false", "column a", "column b"),
+    "rhythm_counting": ("choose the best answer", "true or false", "column a", "column b"),
+    "terminology": ("choose the best answer", "true or false", "column a", "column b"),
+    "composer_period_matching": ("choose the best answer", "true or false", "complete each sentence", "circle the letter"),
+}
+
+
+def _default_instruction_for_exam_type(exercise_type: str) -> str:
+    key = f"instruction_{exercise_type}"
+    translated = t(key)
+    if translated != key:
+        return translated
+    return _EXAM_INSTRUCTION_FALLBACKS.get(exercise_type, "")
+
+
+def _exam_instruction_needs_reset(exercise_type: str, text: str) -> bool:
+    text = _clean_str(text)
+    if not text:
+        return True
+    lowered = text.casefold()
+    return any(fragment in lowered for fragment in _EXAM_INSTRUCTION_MISMATCHES.get(exercise_type, ()))
+
+
 def _build_exercise_catalog_markdown(subject: str, show_all: bool) -> str:
     group = get_subject_group(subject)
     recommended = set(get_recommended_exercise_types(subject))
@@ -350,6 +423,9 @@ def normalize_exam_output(raw: dict) -> tuple[dict, dict]:
                     ak_section["answers"].append(cleaned_answer)
             elif isinstance(a, dict):
                 ak_section["answers"].append(_clean_answer_value(a))
+
+        if _exam_instruction_needs_reset(section["type"], section["instructions"]):
+            section["instructions"] = _default_instruction_for_exam_type(section["type"])
 
         if section["questions"]:
             exam_data["sections"].append(section)
@@ -695,6 +771,13 @@ Design principles:
 - Make the exam progressively harder from section to section.
 - Sequence the paper like an expert assessor, not a random worksheet generator.
 - Ensure every selected exercise type is used in a way that fits its group and the subject's product model.
+- Make every section instruction match the actual response mode exactly.
+- Do not tell students to write on a line if the section uses options, matching letters, or another built-in response format.
+- Examples:
+  - multiple_choice: tell students to choose or circle the correct option/letter
+  - matching: tell students to match Column A with Column B and write the correct letter
+  - true_false: tell students to decide whether each statement is true or false
+  - fill_in_blank: tell students to complete each blank with the correct word, number, or phrase
 - Design for efficiency: each section should gather meaningful evidence of learning with minimal fluff.
 - Balance validity, reliability, clarity, and engagement.
 - Prefer high-quality task design over decorative variety.
@@ -1037,6 +1120,7 @@ def render_quick_exam_builder_expander() -> None:
             render_exam_result(
                 result,
                 ak,
+                allow_assign=True,
                 subject=effective_subject,
                 topic=topic,
                 learner_stage=learner_stage,
