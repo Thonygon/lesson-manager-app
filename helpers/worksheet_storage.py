@@ -600,6 +600,16 @@ def _get_true_false_source_text(ws: dict) -> str:
     return ""
 
 
+def _true_false_mark_label() -> str:
+    true_mark = t("true_false_true_mark")
+    false_mark = t("true_false_false_mark")
+    if true_mark == "true_false_true_mark":
+        true_mark = "T"
+    if false_mark == "true_false_false_mark":
+        false_mark = "F"
+    return f"{true_mark} ☐   {false_mark} ☐"
+
+
 def _render_true_false_exercise(ws: dict) -> None:
     source_text = _get_true_false_source_text(ws)
     statements = _get_true_false_statements(ws)
@@ -1591,13 +1601,13 @@ def build_worksheet_pdf_bytes(
             for idx, item in enumerate(statements, 1):
                 statement_text = f"{idx}. {_strip_leading_enum(item)}"
                 tf_rows.append([
-                    Paragraph(_pdf_safe_text(statement_text), body_style),
-                    Paragraph(_pdf_safe_text("True ☐   False ☐"), tf_label_style),
+                    Paragraph(_pdf_safe_text(statement_text), _S["body_left"]),
+                    Paragraph(_pdf_safe_text(_true_false_mark_label()), tf_label_style),
                 ])
 
             tf_table = Table(
                 tf_rows,
-                colWidths=[11.8 * cm, 4.6 * cm],
+                colWidths=[12.6 * cm, 3.8 * cm],
                 hAlign="LEFT",
                 repeatRows=0,
             )
