@@ -5,6 +5,7 @@ import streamlit as st
 from core.i18n import t
 from core.navigation import go_to
 from helpers.practice_engine import exam_to_exercises, worksheet_to_exercises
+from helpers.practice_engine import load_in_progress_practice_session
 from helpers.teacher_student_integration import (
     group_assignments_by_teacher_subject,
     has_active_teacher_relationships,
@@ -32,7 +33,8 @@ def _open_assignment_practice(row: dict) -> None:
         exercise_data = worksheet_to_exercises(worksheet, row_id=assignment_id)
     elif assignment_type == "exam":
         exam_data = snapshot.get("exam_data") or {}
-        exercise_data = exam_to_exercises(exam_data, row_id=assignment_id)
+        answer_key = snapshot.get("answer_key") or {}
+        exercise_data = exam_to_exercises(exam_data, answer_key, row_id=assignment_id)
 
     if not exercise_data.get("exercises"):
         st.warning(t("no_exercises_available"))
@@ -64,6 +66,17 @@ def _status_badge(status: str) -> str:
         f"box-shadow:0 6px 18px {color}14;'>"
         f"{t(f'assignment_status_{status}') if status else '—'}</span>"
     )
+
+
+def _safe_ui_label(key: str, fallback: str | None = None) -> str:
+    value = t(key)
+    if value != key:
+        return value
+    if fallback:
+        fallback_value = t(fallback)
+        if fallback_value != fallback:
+            return fallback_value
+    return key.replace("_", " ").strip().title()
 
 
 def _inject_assignment_page_styles() -> None:
@@ -131,6 +144,18 @@ def _inject_assignment_page_styles() -> None:
             color: var(--muted);
             margin: 0.2rem 0 0.55rem 0.1rem;
         }
+        .classio-assign-action-done {
+            border-radius: 16px;
+            min-height: 3rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            color: #0f766e;
+            background: linear-gradient(135deg, rgba(16,185,129,.16), rgba(45,212,191,.12));
+            border: 1px solid rgba(16,185,129,.26);
+            box-shadow: 0 12px 24px rgba(16,185,129,.12);
+        }
         div[data-testid="stButton"] > button[kind="primary"] {
             border-radius: 16px;
             min-height: 3rem;
@@ -162,7 +187,7 @@ def _assignment_card(row: dict, key_prefix: str) -> None:
 
     meta_bits = [teacher_name, subject_name]
     if due_at:
-        meta_bits.append(f"{_html.escape(t('due_date'))}: {_html.escape(due_at[:10])}")
+        meta_bits.append(f"{_html.escape(_safe_ui_label('due_date', 'assignment_set_due_date'))}: {_html.escape(due_at[:10])}")
     elif created_at:
         meta_bits.append(f"{_html.escape(t('created_at_label'))}: {_html.escape(created_at[:10])}")
 
@@ -191,14 +216,27 @@ def _assignment_card(row: dict, key_prefix: str) -> None:
             st.markdown("<div style='height:0.8rem;'></div>", unsafe_allow_html=True)
 
     with right_col:
-        st.markdown(
-            f"<div class='classio-assign-action-label'>{_html.escape(t('open_assignment') if assignment_type in {'worksheet', 'exam'} else t('assigned_topics'))}</div>",
-            unsafe_allow_html=True,
-        )
+        draft = load_in_progress_practice_session(assignment_type, row.get("id"))
         if assignment_type in {"worksheet", "exam"}:
-            if st.button(t("open_assignment"), key=f"{key_prefix}_open", use_container_width=True, type="primary"):
+            is_finalized = status in {"submitted", "graded", "completed", "cancelled"}
+            is_continue = bool(draft) or status == "started"
+            action_text = (
+                t("assignment_done")
+                if is_finalized
+                else (t("continue_practice") if is_continue else t("open_assignment"))
+            )
+            if is_finalized:
+                st.markdown(
+                    f"<div class='classio-assign-action-done'>{_html.escape(t('assignment_done'))}</div>",
+                    unsafe_allow_html=True,
+                )
+            elif st.button(action_text, key=f"{key_prefix}_open", use_container_width=True, type="primary"):
                 _open_assignment_practice(row)
         elif assignment_type == "lesson_plan_topic":
+            st.markdown(
+                f"<div class='classio-assign-action-label'>{_html.escape(t('assigned_topics'))}</div>",
+                unsafe_allow_html=True,
+            )
             if st.button(t("mark_in_progress"), key=f"{key_prefix}_start", use_container_width=True):
                 update_topic_assignment_status(row.get("id"), "started")
                 st.rerun()

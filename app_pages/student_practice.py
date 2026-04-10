@@ -6,13 +6,17 @@ from core.state import get_current_user_id
 from helpers.practice_engine import (
     worksheet_to_exercises,
     exam_to_exercises,
+    normalize_exercise_data_for_web,
     render_practice_session,
     save_practice_session,
+    save_practice_draft,
     save_practice_answers,
     update_practice_progress,
     update_practice_session,
     load_practice_history,
     load_practice_progress,
+    load_in_progress_practice_session,
+    load_practice_draft_answers,
     get_completed_source_ids,
     get_total_xp,
     get_global_best_streak,
@@ -78,13 +82,36 @@ def _should_show_demo() -> bool:
 
 def _open_practice_item(exercise_data: dict, meta: dict | None = None, *, demo_id: str | None = None) -> bool:
     """Open a practice item only if it contains runnable exercises."""
+    exercise_data = normalize_exercise_data_for_web(exercise_data or {})
     exercises = (exercise_data or {}).get("exercises") or []
     if not exercises:
         st.warning(t("no_exercises_available"))
         return False
 
-    st.session_state["practice_exercise_data"] = exercise_data
-    st.session_state["practice_meta"] = meta or {}
+    draft = load_in_progress_practice_session(
+        str((exercise_data or {}).get("source_type") or ""),
+        (exercise_data or {}).get("source_id"),
+    )
+    if draft:
+        draft_exercise_data = draft.get("exercise_data") or exercise_data
+        if isinstance(draft_exercise_data, str):
+            try:
+                draft_exercise_data = json.loads(draft_exercise_data)
+            except Exception:
+                draft_exercise_data = exercise_data
+        draft_exercise_data = normalize_exercise_data_for_web(draft_exercise_data or exercise_data)
+        st.session_state["practice_exercise_data"] = draft_exercise_data
+        st.session_state["practice_meta"] = meta or {}
+        st.session_state["_practice_resume_session_id"] = draft.get("id")
+        st.session_state["_practice_resume_answers"] = load_practice_draft_answers(int(draft.get("id")))
+        st.session_state["_practice_resume_notice"] = True
+    else:
+        st.session_state["practice_exercise_data"] = exercise_data
+        st.session_state["practice_meta"] = meta or {}
+        st.session_state.pop("_practice_resume_session_id", None)
+        st.session_state.pop("_practice_resume_answers", None)
+        st.session_state.pop("_practice_resume_notice", None)
+
     if demo_id:
         st.session_state["_practice_demo_id"] = demo_id
     else:
@@ -94,6 +121,7 @@ def _open_practice_item(exercise_data: dict, meta: dict | None = None, *, demo_i
 
 def render_student_practice():
     st.markdown(f"## 🧠 {t('smart_practice')}")
+    _inject_student_practice_styles()
 
     # ── Active practice session ─────────────────────────────────
     exercise_data = st.session_state.get("practice_exercise_data")
@@ -169,6 +197,81 @@ def _render_xp_dashboard():
                 <div style="font-size:0.68rem;color:var(--muted);">{t('best_streak')}</div>
             </div>
         </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _inject_student_practice_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        .classio-practice-card {
+            position: relative;
+            overflow: hidden;
+            background:
+              radial-gradient(circle at top right, rgba(99,102,241,.10), transparent 36%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 84%, white 16%));
+            border: 1px solid color-mix(in srgb, var(--border) 78%, rgba(99,102,241,.22) 22%);
+            border-radius: 22px;
+            padding: 18px 20px;
+            box-shadow: 0 14px 32px rgba(15,23,42,.08);
+            margin-bottom: 0.55rem;
+        }
+        .classio-practice-card::before {
+            content: "";
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 5px;
+            background: linear-gradient(180deg, #38bdf8, #6366f1 58%, #8b5cf6);
+        }
+        .classio-practice-title {
+            font-size: 1.06rem;
+            font-weight: 800;
+            line-height: 1.25;
+            color: var(--text);
+        }
+        .classio-practice-meta {
+            margin-top: 0.65rem;
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.45;
+        }
+        .classio-practice-statgrid {
+            display: flex;
+            gap: 0.7rem;
+            flex-wrap: wrap;
+            margin-top: 0.95rem;
+        }
+        .classio-practice-stat {
+            min-width: 96px;
+            padding: 0.72rem 0.85rem;
+            border-radius: 15px;
+            background: rgba(148,163,184,.08);
+            border: 1px solid rgba(148,163,184,.16);
+        }
+        .classio-practice-stat-label {
+            font-size: 0.72rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--muted);
+        }
+        .classio-practice-stat-value {
+            margin-top: 0.22rem;
+            font-size: 1rem;
+            font-weight: 800;
+            color: var(--text);
+        }
+        .classio-practice-action-label {
+            font-size: 0.76rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+            margin: 0.2rem 0 0.55rem 0.1rem;
+        }
+        </style>
         """,
         unsafe_allow_html=True,
     )
@@ -656,7 +759,13 @@ def _render_active_session(exercise_data: dict):
         st.session_state.pop("_practice_retry_session_id", None)
         st.session_state.pop("_practice_assignment_id", None)
         st.session_state.pop("_practice_assignment_type", None)
+        st.session_state.pop("_practice_resume_session_id", None)
+        st.session_state.pop("_practice_resume_answers", None)
+        st.session_state.pop("_practice_resume_notice", None)
         st.rerun()
+
+    if st.session_state.pop("_practice_resume_notice", False):
+        st.info(t("practice_resumed_notice"))
 
     result = render_practice_session(exercise_data, session_key="sp")
 
@@ -687,6 +796,18 @@ def _render_active_session(exercise_data: dict):
                     best_streak=strk,
                 )
                 session_id = retry_id
+            elif st.session_state.get("_practice_resume_session_id"):
+                resumed_id = int(st.session_state["_practice_resume_session_id"])
+                update_practice_session(
+                    resumed_id,
+                    exercise_data,
+                    total=result["total"],
+                    correct=result["correct"],
+                    score_pct=result["score_pct"],
+                    xp_earned=xp,
+                    best_streak=strk,
+                )
+                session_id = resumed_id
             else:
                 session_id = save_practice_session(
                     exercise_data,
@@ -700,6 +821,7 @@ def _render_active_session(exercise_data: dict):
             if session_id:
                 save_practice_answers(
                     session_id, exercise_data, result["answers"], session_key="sp",
+                    replace_existing=bool(retry_id or st.session_state.get("_practice_resume_session_id")),
                 )
             assignment_id = st.session_state.get("_practice_assignment_id")
             if assignment_id:
@@ -720,6 +842,8 @@ def _render_active_session(exercise_data: dict):
                 meta=meta, session_key="sp",
                 xp_earned=xp, best_streak=strk,
             )
+            st.session_state.pop("_practice_resume_session_id", None)
+            st.session_state.pop("_practice_resume_answers", None)
 
 
 # ── History tab ─────────────────────────────────────────────────
@@ -739,6 +863,8 @@ def _render_history_tab():
         streak  = row.get("best_streak", 0)
         created = str(row.get("created_at") or "")[:16]
         session_id = row.get("id")
+        subject = str(row.get("subject") or "").strip()
+        topic = str(row.get("topic") or "").strip()
 
         if score >= 80:
             color = "#10B981"
@@ -746,51 +872,75 @@ def _render_history_tab():
             color = "#F59E0B"
         else:
             color = "#EF4444"
+        subject_label = t(f"subject_{subject.lower().replace(' ', '_')}") if subject else ""
+        if subject_label == f"subject_{subject.lower().replace(' ', '_')}":
+            subject_label = subject
 
-        xp_badge = f'<span style="background:linear-gradient(135deg,#8B5CF6,#6D28D9);color:#fff;font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:6px;">+{xp} XP</span>' if xp else ""
-        streak_txt = f" · 🔥{streak}" if streak >= 2 else ""
-
-        st.markdown(
-            f"""<div style="
-display:flex; justify-content:space-between; align-items:center;
-padding:12px 16px; border-radius:12px;
-background:var(--panel); border:1px solid var(--border);
-border-left: 5px solid #A78BFA;
-margin-bottom:4px;
-">
-<div>
-<div style="font-weight:700;font-size:0.92rem;">{title}{xp_badge}</div>
-<div style="font-size:0.78rem;color:var(--muted);">{created} · {correct}/{total}{streak_txt}</div>
-</div>
-<div style="
-font-size:1.1rem; font-weight:800; color:{color};
-background:{color}15; padding:6px 14px; border-radius:10px;
-">{round(score)}%</div>
-</div>""",
-            unsafe_allow_html=True,
-        )
+        left_col, right_col = st.columns([6, 2], gap="medium")
+        with left_col:
+            meta_bits = [bit for bit in [subject_label, topic, created] if bit]
+            stat_blocks = [
+                (
+                    f"<div class='classio-practice-stat'>"
+                    f"<div class='classio-practice-stat-label'>{t('correct')}</div>"
+                    f"<div class='classio-practice-stat-value'>{correct}/{total}</div>"
+                    f"</div>"
+                )
+            ]
+            if streak >= 2:
+                stat_blocks.append(
+                    f"<div class='classio-practice-stat'><div class='classio-practice-stat-label'>{t('best_streak')}</div>"
+                    f"<div class='classio-practice-stat-value'>🔥 {streak}</div></div>"
+                )
+            if xp:
+                stat_blocks.append(
+                    f"<div class='classio-practice-stat'><div class='classio-practice-stat-label'>XP</div>"
+                    f"<div class='classio-practice-stat-value'>+{xp}</div></div>"
+                )
+            st.markdown(
+                f"""
+                <div class="classio-practice-card">
+                    <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+                        <div>
+                            <div class="classio-practice-title">{_escape_html(title)}</div>
+                            <div class="classio-practice-meta">{_escape_html(' · '.join(meta_bits))}</div>
+                        </div>
+                        <div style="font-size:1.05rem;font-weight:800;color:{color};background:{color}15;padding:8px 14px;border-radius:999px;border:1px solid {color}33;">
+                            {round(score)}%
+                        </div>
+                    </div>
+                    <div class="classio-practice-statgrid">
+                        {''.join(stat_blocks)}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
         # Try Again button — reload the exercise data from the saved session
         exercise_data = row.get("exercise_data")
-        if exercise_data:
-            if isinstance(exercise_data, str):
-                try:
-                    exercise_data = json.loads(exercise_data)
-                except Exception:
-                    exercise_data = None
-            if exercise_data and st.button(
-                f"🔄 {t('try_again')}",
-                key=f"hist_retry_{session_id}_{h_idx}",
-                use_container_width=True,
-            ):
-                if _open_practice_item(exercise_data, {
-                    "subject": str(row.get("subject") or ""),
-                    "topic": str(row.get("topic") or ""),
-                    "learner_stage": str(row.get("learner_stage") or ""),
-                    "level": str(row.get("level") or ""),
-                }):
-                    st.session_state["_practice_retry_session_id"] = session_id
-                    st.rerun()
+        with right_col:
+            if exercise_data:
+                if isinstance(exercise_data, str):
+                    try:
+                        exercise_data = json.loads(exercise_data)
+                    except Exception:
+                        exercise_data = None
+                if exercise_data and st.button(
+                    t("try_again"),
+                    key=f"hist_retry_{session_id}_{h_idx}",
+                    use_container_width=True,
+                    type="primary",
+                ):
+                    if _open_practice_item(exercise_data, {
+                        "subject": str(row.get("subject") or ""),
+                        "topic": str(row.get("topic") or ""),
+                        "learner_stage": str(row.get("learner_stage") or ""),
+                        "level": str(row.get("level") or ""),
+                    }):
+                        st.session_state["_practice_retry_session_id"] = session_id
+                        st.rerun()
+        st.markdown("<div style='height:0.8rem;'></div>", unsafe_allow_html=True)
 
 
 # ── Progress tab ────────────────────────────────────────────────
@@ -800,6 +950,30 @@ def _render_progress_tab():
     if progress.empty:
         st.info(t("no_practice_progress"))
         return
+
+    subject_options = ["__all__"]
+    if "subject" in progress.columns:
+        for subject in sorted({str(s).strip() for s in progress["subject"].fillna("").tolist() if str(s).strip()}):
+            subject_options.append(subject)
+
+    selected_subject = st.selectbox(
+        t("filter_by_subject"),
+        options=subject_options,
+        format_func=lambda value: (
+            t("all_subjects")
+            if value == "__all__"
+            else (
+                translated if (translated := t(f"subject_{str(value).lower().replace(' ', '_')}")) != f"subject_{str(value).lower().replace(' ', '_')}" else str(value)
+            )
+        ),
+        key="student_progress_subject_filter",
+    )
+
+    if selected_subject != "__all__" and "subject" in progress.columns:
+        progress = progress[progress["subject"].fillna("").astype(str).str.strip().str.lower() == selected_subject.lower()].reset_index(drop=True)
+        if progress.empty:
+            st.info(t("no_data"))
+            return
 
     # ── Aggregate XP + rank banner ──────────────────────────────
     total_xp = int(progress["total_xp"].sum()) if "total_xp" in progress.columns else 0
@@ -851,24 +1025,41 @@ def _render_progress_tab():
         else:
             bar_color = "#EF4444"
 
-        xp_chip = f'<span style="background:#8B5CF620;color:#8B5CF6;font-size:0.68rem;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:6px;">{row_xp} XP</span>' if row_xp else ""
-
         st.markdown(
             f"""
-            <div style="
-                padding:10px 14px; border-radius:12px;
-                background:var(--panel); border:1px solid var(--border);
-                margin-bottom:6px;
-            ">
-                <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-                    <span style="font-weight:700;font-size:0.88rem;">{label}{xp_chip}</span>
-                    <span style="font-weight:800;color:{bar_color};font-size:0.88rem;">{round(accuracy)}%</span>
+            <div class="classio-practice-card" style="margin-bottom:0.75rem;">
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+                    <div>
+                        <div class="classio-practice-title">{_escape_html(label)}</div>
+                        <div class="classio-practice-meta">{attempted} {t('questions_attempted')}</div>
+                    </div>
+                    <div style="font-size:1.05rem;font-weight:800;color:{bar_color};background:{bar_color}15;padding:8px 14px;border-radius:999px;border:1px solid {bar_color}33;">
+                        {round(accuracy)}%
+                    </div>
                 </div>
-                <div style="background:var(--border);border-radius:6px;height:8px;overflow:hidden;">
-                    <div style="width:{min(accuracy, 100)}%;height:100%;background:{bar_color};border-radius:6px;"></div>
+                <div style="background:var(--border);border-radius:999px;height:10px;overflow:hidden;margin-top:0.95rem;">
+                    <div style="width:{min(accuracy, 100)}%;height:100%;background:{bar_color};border-radius:999px;"></div>
                 </div>
-                <div style="font-size:0.72rem;color:var(--muted);margin-top:4px;">{attempted} {t('questions_attempted')}</div>
+                <div class="classio-practice-statgrid">
+                    <div class="classio-practice-stat">
+                        <div class="classio-practice-stat-label">{t('score_label')}</div>
+                        <div class="classio-practice-stat-value">{round(accuracy)}%</div>
+                    </div>
+                    <div class="classio-practice-stat">
+                        <div class="classio-practice-stat-label">{t('questions_attempted')}</div>
+                        <div class="classio-practice-stat-value">{attempted}</div>
+                    </div>
+                    <div class="classio-practice-stat">
+                        <div class="classio-practice-stat-label">XP</div>
+                        <div class="classio-practice-stat-value">{row_xp}</div>
+                    </div>
+                </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
+
+
+def _escape_html(value: str) -> str:
+    import html as _html
+    return _html.escape(str(value or ""))

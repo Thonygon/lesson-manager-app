@@ -299,24 +299,24 @@ def render_home_indicator(
 
     is_dark = _is_dark()
     container_bg = (
-        "linear-gradient(135deg, rgba(30,58,95,0.72), rgba(26,37,53,0.96))"
+        "radial-gradient(circle at top right, rgba(96,165,250,0.12), transparent 34%), linear-gradient(180deg, rgba(30,41,59,0.94), rgba(15,23,42,0.98))"
         if is_dark else
-        "linear-gradient(135deg, rgba(59,130,246,0.12), rgba(255,255,255,0.10))"
+        "radial-gradient(circle at top right, rgba(59,130,246,0.10), transparent 36%), linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.98))"
     )
-    container_border = "rgba(148,163,184,0.22)" if is_dark else "rgba(59,130,246,0.25)"
-    container_shadow = "0 10px 28px rgba(2,6,23,0.32)" if is_dark else "0 10px 28px rgba(37,99,235,0.18)"
+    container_border = "rgba(148,163,184,0.16)" if is_dark else "rgba(59,130,246,0.18)"
+    container_shadow = "0 18px 40px rgba(2,6,23,0.28)" if is_dark else "0 18px 38px rgba(37,99,235,0.10)"
     text_color = "#f1f5f9" if is_dark else "#0f172a"
-    badge_bg = "rgba(148,163,184,0.14)" if is_dark else "rgba(255,255,255,0.10)"
-    badge_border = "rgba(148,163,184,0.18)" if is_dark else "rgba(255,255,255,0.14)"
-    kpi_bg = "rgba(255,255,255,0.04)" if is_dark else "rgba(59,130,246,0.12)"
-    kpi_border = "rgba(148,163,184,0.16)" if is_dark else "rgba(255,255,255,0.14)"
+    badge_bg = "rgba(148,163,184,0.10)" if is_dark else "rgba(248,250,252,0.94)"
+    badge_border = "rgba(148,163,184,0.16)" if is_dark else "rgba(226,232,240,0.95)"
+    kpi_bg = "rgba(255,255,255,0.05)" if is_dark else "linear-gradient(180deg, rgba(241,245,249,0.98), rgba(234,241,251,0.92))"
+    kpi_border = "rgba(148,163,184,0.14)" if is_dark else "rgba(226,232,240,0.92)"
     kpi_label_color = "#cbd5e1" if is_dark else "#475569"
-    progress_bg = "rgba(255,255,255,0.08)" if is_dark else "rgba(255,255,255,0.10)"
-    progress_border = "rgba(148,163,184,0.16)" if is_dark else "rgba(59,130,246,0.12)"
+    progress_bg = "rgba(255,255,255,0.08)" if is_dark else "linear-gradient(180deg, rgba(241,245,249,0.96), rgba(226,232,240,0.72))"
+    progress_border = "rgba(148,163,184,0.16)" if is_dark else "rgba(191,219,254,0.55)"
     progress_fill = (
-        f"linear-gradient(90deg, {accent}, rgba(191,219,254,0.72))"
+        f"linear-gradient(90deg, {accent}, rgba(147,197,253,0.92), rgba(224,231,255,0.75))"
         if is_dark else
-        f"linear-gradient(90deg, {accent}, rgba(255,255,255,0.25))"
+        f"linear-gradient(90deg, {accent}, rgba(96,165,250,0.82), rgba(224,231,255,0.95))"
     )
     mini_color = "#cbd5e1" if is_dark else "#334155"
 
@@ -381,10 +381,10 @@ def render_home_indicator(
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 14px;
 
-  padding: 14px 16px;
-  border-radius: 18px;
+  padding: 16px 18px;
+  border-radius: 24px;
 
     background: {container_bg};
     border: 1px solid {container_border};
@@ -395,16 +395,16 @@ def render_home_indicator(
 .home-indicator-left {{
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   min-width: 240px;
 }}
 
 .home-indicator-dot {{
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   border-radius: 999px;
   background: {accent};
-  box-shadow: 0 0 0 6px rgba(59,130,246,0.12);
+  box-shadow: 0 0 0 10px rgba(59,130,246,0.12), 0 8px 18px rgba(59,130,246,0.16);
 }}
 
 .home-indicator-title {{
@@ -414,27 +414,30 @@ def render_home_indicator(
 }}
 
 .home-indicator-title .s {{
-  font-size: 0.82rem;
-  opacity: 0.78;
+  font-size: 0.96rem;
+  font-weight: 700;
+  opacity: 0.92;
 }}
 
 .home-indicator-badge {{
   margin-left: 6px;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 800;
-  padding: 4px 8px;
+  padding: 6px 12px;
   border-radius: 999px;
     background: {badge_bg};
     border: 1px solid {badge_border};
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.55);
 }}
 
 .home-indicator-mid {{
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  padding: 2px 4px 2px 2px;
 }}
 
 .home-indicator-mid::-webkit-scrollbar {{
@@ -446,15 +449,16 @@ def render_home_indicator(
 }}
 
 .home-indicator-kpi {{
-  padding: 6px 12px;
-  border-radius: 14px;
+  padding: 10px 14px;
+  border-radius: 18px;
     background: {kpi_bg};
     border: 1px solid {kpi_border};
     color: {text_color};
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.58), 0 8px 18px rgba(15,23,42,0.05);
 
-  flex: 0 0 130px;
-  min-width: 130px;
-  max-width: 130px;
+  flex: 0 0 150px;
+  min-width: 150px;
+  max-width: 150px;
 
   white-space: nowrap;
   overflow: hidden;
@@ -462,43 +466,48 @@ def render_home_indicator(
 }}
 
 .home-indicator-kpi .k {{
-  font-size: 0.70rem;
+  font-size: 0.72rem;
     color: {kpi_label_color};
-  margin-bottom: 2px;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 800;
 }}
 
 .home-indicator-kpi .v {{
-  font-size: 0.92rem;
+  font-size: 1rem;
   font-weight: 900;
     color: {text_color};
 }}
 
 .home-indicator-right {{
-  min-width: 210px;
+  min-width: 228px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   align-items: flex-end;
 }}
 
 .home-indicator-progress {{
   width: 100%;
-  height: 10px;
+  height: 8px;
   border-radius: 999px;
   overflow: hidden;
     background: {progress_bg};
     border: 1px solid {progress_border};
+    box-shadow: inset 0 1px 2px rgba(15,23,42,0.05);
 }}
 
 .home-indicator-progress > div {{
   height: 100%;
     background: {progress_fill};
   border-radius: 999px;
-  box-shadow: 0 0 18px rgba(59,130,246,0.22);
+  box-shadow: 0 0 20px rgba(59,130,246,0.18);
 }}
 
 .home-indicator-mini {{
-  font-size: 0.78rem;
+  font-size: 0.86rem;
+  font-weight: 800;
     color: {mini_color};
 }}
 
@@ -509,12 +518,16 @@ def render_home_indicator(
   }}
   .home-indicator-right {{
     align-items: flex-start;
+    width: 100%;
+  }}
+  .home-indicator-progress {{
+    width: 100%;
   }}
 }}
 </style>
 """
     # Height: allow more space on mobile when it stacks
-    height = 220 if bool(st.session_state.get("compact_mode", False)) else 160
+    height = 272 if bool(st.session_state.get("compact_mode", False)) else 170
     components.html(html, height=height, scrolling=False)
 
 def get_next_lesson_display() -> str:

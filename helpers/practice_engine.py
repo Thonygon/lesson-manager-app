@@ -315,6 +315,49 @@ def exam_to_exercises(exam_data: dict, answer_key: dict, *, row_id: int | None =
         }
         if sec_type == "matching":
             ex["answers"] = [_comparison_answer_text(a) for a in ex["answers"]]
+        elif sec_type == "vocabulary":
+            vocab_questions = []
+            raw_questions = sec.get("questions") or []
+            raw_answers = ak.get("answers") or []
+            answer_pool = []
+            for ans in raw_answers:
+                answer_text = _display_answer_text(ans).strip()
+                if answer_text and answer_text not in answer_pool:
+                    answer_pool.append(answer_text)
+
+            for q_idx, raw_question in enumerate(raw_questions):
+                q_data = raw_question if isinstance(raw_question, dict) else {"text": raw_question}
+                correct_raw = raw_answers[q_idx] if q_idx < len(raw_answers) else ""
+                correct_text = _display_answer_text(correct_raw).strip()
+                options = [correct_text] if correct_text else []
+
+                for candidate in answer_pool:
+                    if candidate and candidate != correct_text and candidate not in options:
+                        options.append(candidate)
+                    if len(options) >= 4:
+                        break
+
+                # Fallback distractors if the section does not have enough unique answers.
+                if len(options) < 4:
+                    prompt_seed = _strip_leading_number(_question_prompt_text("vocabulary", q_data))
+                    fallback_candidates = [
+                        _sentence_case_fragment(prompt_seed),
+                        f"{_sentence_case_fragment(prompt_seed)}?",
+                        f"{_sentence_case_fragment(prompt_seed)}.",
+                        f"{_sentence_case_fragment(prompt_seed)}!",
+                    ]
+                    for candidate in fallback_candidates:
+                        if candidate and candidate != correct_text and candidate not in options:
+                            options.append(candidate)
+                        if len(options) >= 4:
+                            break
+
+                vocab_question = dict(q_data)
+                vocab_question["options"] = options[:4]
+                vocab_questions.append(vocab_question)
+
+            ex["questions"] = vocab_questions
+            ex["answers"] = [_display_answer_text(ans).strip() for ans in raw_answers]
         if sec.get("source_text"):
             ex["source_text"] = str(sec["source_text"]).strip()
         exercises.append(ex)
@@ -326,6 +369,67 @@ def exam_to_exercises(exam_data: dict, answer_key: dict, *, row_id: int | None =
         "source_id": row_id,
         "exercises": exercises,
     }
+
+
+def normalize_exercise_data_for_web(exercise_data: dict) -> dict:
+    """Upgrade legacy exercise snapshots to the current web-friendly schema."""
+    data = dict(exercise_data or {})
+    exercises = []
+
+    for exercise in data.get("exercises") or []:
+        ex = dict(exercise or {})
+        ex_type = str(ex.get("type") or "").strip()
+
+        if ex_type == "vocabulary":
+            raw_questions = ex.get("questions") or []
+            raw_answers = ex.get("answers") or []
+            answer_pool = []
+            for ans in raw_answers:
+                answer_text = _display_answer_text(ans).strip()
+                if answer_text and answer_text not in answer_pool:
+                    answer_pool.append(answer_text)
+
+            normalized_questions = []
+            for q_idx, raw_question in enumerate(raw_questions):
+                q_data = raw_question if isinstance(raw_question, dict) else {"text": raw_question}
+                if q_data.get("options"):
+                    normalized_questions.append(q_data)
+                    continue
+
+                correct_raw = raw_answers[q_idx] if q_idx < len(raw_answers) else ""
+                correct_text = _display_answer_text(correct_raw).strip()
+                options = [correct_text] if correct_text else []
+
+                for candidate in answer_pool:
+                    if candidate and candidate != correct_text and candidate not in options:
+                        options.append(candidate)
+                    if len(options) >= 4:
+                        break
+
+                prompt_seed = _strip_leading_number(_question_prompt_text("vocabulary", q_data))
+                fallback_candidates = [
+                    _sentence_case_fragment(prompt_seed),
+                    f"{_sentence_case_fragment(prompt_seed)}?",
+                    f"{_sentence_case_fragment(prompt_seed)}.",
+                    f"{_sentence_case_fragment(prompt_seed)}!",
+                ]
+                for candidate in fallback_candidates:
+                    if candidate and candidate != correct_text and candidate not in options:
+                        options.append(candidate)
+                    if len(options) >= 4:
+                        break
+
+                normalized_question = dict(q_data)
+                normalized_question["options"] = options[:4]
+                normalized_questions.append(normalized_question)
+
+            ex["questions"] = normalized_questions
+            ex["answers"] = [_display_answer_text(ans).strip() for ans in raw_answers]
+
+        exercises.append(ex)
+
+    data["exercises"] = exercises
+    return data
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -716,6 +820,12 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
     if submitted_key not in st.session_state:
         st.session_state[submitted_key] = False
 
+    resume_answers = st.session_state.pop("_practice_resume_answers", None)
+    if isinstance(resume_answers, dict):
+        st.session_state[answers_key] = dict(resume_answers)
+        for key, value in resume_answers.items():
+            st.session_state[key] = value
+
     is_submitted    = st.session_state[submitted_key]
     student_answers = st.session_state[answers_key]
 
@@ -841,18 +951,54 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
             if not all_answered:
                 break
 
-        if st.button(
-            f"✅ {t('check_answers')}",
-            key=f"{session_key}_submit",
-            use_container_width=True,
-            type="primary",
-        ):
-            if not all_answered:
-                st.warning(t("answer_all_questions"))
-            else:
-                st.session_state[submitted_key] = True
-                st.session_state[answers_key]   = student_answers
+        total_questions_for_session = sum(len(ex.get("questions") or []) for ex in exercises)
+        can_save_later = (
+            str(exercise_data.get("source_type") or "") == "exam"
+            and total_questions_for_session >= 8
+        )
+
+        action_cols = st.columns(2 if can_save_later else 1)
+        with action_cols[0]:
+            if st.button(
+                f"✅ {t('check_answers')}",
+                key=f"{session_key}_submit",
+                use_container_width=True,
+                type="primary",
+            ):
+                if not all_answered:
+                    st.warning(t("answer_all_questions"))
+                else:
+                    st.session_state[submitted_key] = True
+                    st.session_state[answers_key]   = student_answers
+                    st.rerun()
+
+        if can_save_later:
+            with action_cols[1]:
+                if st.button(
+                    f"💾 {t('save_continue_later')}",
+                    key=f"{session_key}_save_later",
+                    use_container_width=True,
+                ):
+                    st.session_state[f"_practice_save_requested_{session_key}"] = True
+                    st.session_state[answers_key] = student_answers
+                    st.rerun()
+
+        save_requested_key = f"_practice_save_requested_{session_key}"
+        if st.session_state.pop(save_requested_key, False):
+            draft_session_id = save_practice_draft(
+                exercise_data,
+                student_answers,
+                meta=st.session_state.get("practice_meta") or {},
+                session_key=session_key,
+                session_id=st.session_state.get("_practice_resume_session_id"),
+            )
+            if draft_session_id:
+                st.session_state["_practice_resume_session_id"] = draft_session_id
+                st.session_state["practice_exercise_data"] = None
+                st.session_state["practice_meta"] = None
+                st.success(t("practice_saved_continue_later"))
                 st.rerun()
+            st.error(t("practice_save_failed"))
     else:
         pct = round(correct_q / total_q * 100) if total_q else 0
         xp  = calculate_session_xp(correct_q, total_q, best_streak)
@@ -870,6 +1016,8 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
                 st.session_state.pop(answers_key, None)
                 st.session_state.pop(submitted_key, None)
                 st.session_state.pop(f"_practice_saved_{session_key}", None)
+                st.session_state.pop("_practice_resume_session_id", None)
+                st.session_state.pop("_practice_resume_answers", None)
                 st.rerun()
         with col2:
             if st.button(
@@ -883,6 +1031,8 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
                 st.session_state.pop(f"_practice_saved_{session_key}", None)
                 st.session_state.pop("practice_exercise_data", None)
                 st.session_state.pop("practice_meta", None)
+                st.session_state.pop("_practice_resume_session_id", None)
+                st.session_state.pop("_practice_resume_answers", None)
                 st.rerun()
 
         return {
@@ -936,6 +1086,18 @@ def _render_single_question(
         choice = st.selectbox(
             "match",
             options=[""] + shuffled_options,
+            format_func=_display_choice_text,
+            key=q_key,
+            label_visibility="collapsed",
+            disabled=is_submitted,
+        )
+        return str(choice) if choice else ""
+
+    elif ex_type == "vocabulary" and isinstance(question, dict) and question.get("options"):
+        st.markdown(f"**{q_idx + 1}. {prompt_text}**")
+        choice = st.selectbox(
+            "vocabulary",
+            options=[""] + list(question.get("options") or []),
             format_func=_display_choice_text,
             key=q_key,
             label_visibility="collapsed",
@@ -1451,6 +1613,8 @@ def save_practice_answers(
     exercise_data: dict,
     student_answers: dict,
     session_key: str = "practice",
+    *,
+    replace_existing: bool = False,
 ) -> None:
     """Save individual answers for a session."""
     uid = get_current_user_id()
@@ -1486,16 +1650,93 @@ def save_practice_answers(
 
     if rows:
         try:
+            if replace_existing:
+                get_sb().table("practice_answers").delete().eq("session_id", session_id).eq("user_id", uid).execute()
             get_sb().table("practice_answers").insert(rows).execute()
         except Exception as e:
             if "owner_id" in str(e):
                 for r in rows:
                     r.pop("owner_id", None)
                 try:
+                    if replace_existing:
+                        get_sb().table("practice_answers").delete().eq("session_id", session_id).eq("user_id", uid).execute()
                     get_sb().table("practice_answers").insert(rows).execute()
                 except Exception:
                     pass
             # else silently skip
+
+
+def save_practice_draft(
+    exercise_data: dict,
+    student_answers: dict,
+    *,
+    meta: dict | None = None,
+    session_key: str = "practice",
+    session_id: int | None = None,
+) -> int | None:
+    uid = get_current_user_id()
+    if not uid:
+        return None
+
+    meta = meta or {}
+    total_questions = 0
+    for exercise in exercise_data.get("exercises") or []:
+        total_questions += len(exercise.get("questions") or [])
+
+    now = _dt.now(timezone.utc).isoformat()
+    payload = {
+        "user_id": uid,
+        "owner_id": uid,
+        "source_type": str(exercise_data.get("source_type") or "custom"),
+        "source_id": exercise_data.get("source_id"),
+        "title": str(exercise_data.get("title") or ""),
+        "subject": str(meta.get("subject") or ""),
+        "topic": str(meta.get("topic") or ""),
+        "learner_stage": str(meta.get("learner_stage") or ""),
+        "level": str(meta.get("level") or ""),
+        "exercise_data": exercise_data,
+        "total_questions": total_questions,
+        "correct_count": 0,
+        "score_pct": 0,
+        "xp_earned": 0,
+        "best_streak": 0,
+        "status": "in_progress",
+        "started_at": now,
+        "completed_at": None,
+        "created_at": now,
+    }
+
+    try:
+        if session_id:
+            update_payload = dict(payload)
+            update_payload.pop("user_id", None)
+            update_payload.pop("owner_id", None)
+            update_payload.pop("created_at", None)
+            get_sb().table("practice_sessions").update(update_payload).eq("id", session_id).eq("user_id", uid).execute()
+            saved_session_id = session_id
+        else:
+            try:
+                res = get_sb().table("practice_sessions").insert(payload).execute()
+            except Exception as e:
+                retry_payload = dict(payload)
+                if "owner_id" in str(e):
+                    retry_payload.pop("owner_id", None)
+                res = get_sb().table("practice_sessions").insert(retry_payload).execute()
+            rows = res.data or []
+            saved_session_id = rows[0]["id"] if rows else None
+
+        if saved_session_id:
+            save_practice_answers(
+                saved_session_id,
+                exercise_data,
+                student_answers,
+                session_key=session_key,
+                replace_existing=True,
+            )
+            clear_app_caches()
+        return saved_session_id
+    except Exception:
+        return None
 
 
 def update_practice_progress(
@@ -1624,12 +1865,59 @@ def load_practice_history(limit: int = 50) -> pd.DataFrame:
         if df is None or df.empty:
             return pd.DataFrame()
         df = df.copy()
+        if "status" in df.columns:
+            df = df[df["status"].fillna("completed").astype(str) == "completed"].copy()
         if "created_at" in df.columns:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
             df = df.sort_values("created_at", ascending=False)
         return df.head(limit).reset_index(drop=True)
     except Exception:
         return pd.DataFrame()
+
+
+def load_in_progress_practice_session(source_type: str, source_id: int | None) -> dict:
+    uid = get_current_user_id()
+    if not uid or source_id is None:
+        return {}
+    try:
+        res = (
+            get_sb()
+            .table("practice_sessions")
+            .select("*")
+            .eq("user_id", uid)
+            .eq("source_type", str(source_type or ""))
+            .eq("source_id", source_id)
+            .eq("status", "in_progress")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = res.data or []
+        return rows[0] if rows else {}
+    except Exception:
+        return {}
+
+
+def load_practice_draft_answers(session_id: int) -> dict[str, str]:
+    uid = get_current_user_id()
+    if not uid or not session_id:
+        return {}
+    try:
+        res = (
+            get_sb()
+            .table("practice_answers")
+            .select("exercise_idx, question_idx, student_answer")
+            .eq("session_id", session_id)
+            .eq("user_id", uid)
+            .execute()
+        )
+        rows = res.data or []
+        return {
+            f"sp_{int(row.get('exercise_idx') or 0)}_{int(row.get('question_idx') or 0)}": str(row.get("student_answer") or "")
+            for row in rows
+        }
+    except Exception:
+        return {}
 
 
 def get_completed_source_ids() -> dict[str, set]:
@@ -1667,6 +1955,7 @@ def update_practice_session(
             "score_pct": round(score_pct, 1),
             "xp_earned": xp_earned,
             "best_streak": best_streak,
+            "status": "completed",
             "completed_at": now,
         }
         get_sb().table("practice_sessions").update(payload).eq("id", session_id).eq("user_id", uid).execute()

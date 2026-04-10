@@ -19,6 +19,85 @@ def _smart_plan_user_key(suffix: str) -> str:
     return f"{_SMART_PLAN_NS}_{suffix}_{uid}"
 
 
+def _inject_smart_plan_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        .classio-smart-teacher-grid {
+            margin-top: 0.45rem;
+        }
+        .classio-smart-teacher-card {
+            height: 100%;
+            position: relative;
+            overflow: hidden;
+            background:
+              radial-gradient(circle at top right, rgba(59,130,246,.08), transparent 40%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 86%, white 14%));
+            border: 1px solid color-mix(in srgb, var(--border) 78%, rgba(59,130,246,.22) 22%);
+            border-radius: 22px;
+            padding: 18px 18px 16px;
+            box-shadow: 0 12px 30px rgba(15,23,42,.08);
+        }
+        .classio-smart-teacher-card::before {
+            content: "";
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 5px;
+            background: linear-gradient(180deg, #38bdf8, #6366f1 55%, #14b8a6);
+        }
+        .classio-smart-teacher-name {
+            font-size: 0.82rem;
+            color: var(--muted);
+            font-weight: 800;
+        }
+        .classio-smart-teacher-title {
+            margin-top: 0.5rem;
+            font-size: 1rem;
+            line-height: 1.45;
+            font-weight: 800;
+            color: var(--text);
+        }
+        .classio-smart-teacher-subject {
+            margin-top: 0.55rem;
+            color: var(--muted);
+            font-size: 0.88rem;
+            font-weight: 700;
+        }
+        .classio-smart-teacher-meta {
+            margin-top: 0.95rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        .classio-smart-status-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.38rem 0.72rem;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 800;
+            border: 1px solid rgba(148,163,184,.18);
+            background: rgba(148,163,184,.08);
+            color: var(--text);
+        }
+        .classio-smart-secondary-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.38rem 0.72rem;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--muted);
+            background: rgba(148,163,184,.08);
+            border: 1px solid rgba(148,163,184,.14);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _smart_plan_subject_options() -> list[str]:
     return QUICK_SUBJECTS
 
@@ -113,6 +192,17 @@ def _smart_plan_focus_label(goal_key: str) -> str:
 
 def _smart_plan_time_label(minutes: int) -> str:
     return t("smart_plan_minutes_option", minutes=minutes)
+
+
+def _safe_ui_label(key: str, fallback: str | None = None) -> str:
+    value = t(key)
+    if value != key:
+        return value
+    if fallback:
+        fallback_value = t(fallback)
+        if fallback_value != fallback:
+            return fallback_value
+    return key.replace("_", " ").strip().title()
 
 
 def _default_subject_from_profile() -> str:
@@ -663,14 +753,30 @@ def _render_smart_plan_teacher_summary() -> None:
         with col:
             due_text = str(item.get("due_at") or "").strip()
             status = str(item.get("status") or "").strip()
+            status_map = {
+                "assigned": ("#2563eb", "rgba(37,99,235,.12)"),
+                "started": ("#d97706", "rgba(217,119,6,.12)"),
+                "submitted": ("#7c3aed", "rgba(124,58,237,.12)"),
+                "graded": ("#059669", "rgba(5,150,105,.12)"),
+                "completed": ("#059669", "rgba(5,150,105,.12)"),
+                "overdue": ("#dc2626", "rgba(220,38,38,.12)"),
+                "cancelled": ("#64748b", "rgba(100,116,139,.12)"),
+            }
+            status_color, status_bg = status_map.get(status, ("var(--text)", "rgba(148,163,184,.08)"))
             st.markdown(
                 f"""
-                <div style="height:100%;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:16px;">
-                    <div style="font-size:0.78rem;color:var(--muted);font-weight:800;">{item.get('teacher_name', '—')}</div>
-                    <div style="margin-top:6px;font-size:1rem;font-weight:800;">{item.get('title', '—')}</div>
-                    <div style="margin-top:6px;color:var(--muted);font-size:0.82rem;">{item.get('subject_display', '—')}</div>
-                    <div style="margin-top:8px;font-size:0.8rem;">{t(f'assignment_status_{status}')}</div>
-                    <div style="margin-top:4px;font-size:0.78rem;color:var(--muted);">{(t('due_date') + ': ' + due_text[:10]) if due_text else t('new_from_your_teachers')}</div>
+                <div class="classio-smart-teacher-card">
+                    <div class="classio-smart-teacher-name">{item.get('teacher_name', '—')}</div>
+                    <div class="classio-smart-teacher-title">{item.get('title', '—')}</div>
+                    <div class="classio-smart-teacher-subject">{item.get('subject_display', '—')}</div>
+                    <div class="classio-smart-teacher-meta">
+                        <span class="classio-smart-status-pill" style="color:{status_color};background:{status_bg};border-color:{status_color}22;">
+                            {t(f'assignment_status_{status}')}
+                        </span>
+                        <span class="classio-smart-secondary-pill">
+                            {(_safe_ui_label('due_date', 'assignment_set_due_date') + ': ' + due_text[:10]) if due_text else t('new_from_your_teachers')}
+                        </span>
+                    </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -681,6 +787,7 @@ def _render_smart_plan_teacher_summary() -> None:
 
 
 def render_student_study_plan():
+    _inject_smart_plan_styles()
     state = _load_smart_plan_state()
 
     st.markdown(f"## 📚 {t('smart_study_plan')}")
