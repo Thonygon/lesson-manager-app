@@ -105,6 +105,16 @@ def _sentence_case_fragment(text: str) -> str:
     return cleaned
 
 
+def _true_false_mark_label() -> str:
+    true_mark = t("true_false_true_mark")
+    false_mark = t("true_false_false_mark")
+    if true_mark == "true_false_true_mark":
+        true_mark = "T"
+    if false_mark == "true_false_false_mark":
+        false_mark = "F"
+    return f"{true_mark} ☐   {false_mark} ☐"
+
+
 def _coerce_legacy_mapping(value):
     if isinstance(value, str):
         stripped = value.strip()
@@ -227,6 +237,12 @@ def _set_cell_borders(cell, bottom: bool = False, right: bool = False):
         + '</w:tcBorders>'
     )
     tcPr.append(borders)
+
+
+def _set_table_col_width(table, col_idx: int, width_cm: float):
+    width = Cm(width_cm)
+    for cell in table.columns[col_idx].cells:
+        cell.width = width
 
 
 # ── Worksheet DOCX generator ────────────────────────────────────────
@@ -562,13 +578,16 @@ def _render_true_false_docx(doc, ws: dict, font_name: str, sec_sz: float,
                      font_name, sec_sz, color=_TEXT, leading_ratio=lr)
 
         table = doc.add_table(rows=len(statements), cols=2)
-        table.autofit = True
+        table.autofit = False
+        _set_table_col_width(table, 0, 12.8)
+        _set_table_col_width(table, 1, 3.6)
 
         for idx, item in enumerate(statements):
             text = item if isinstance(item, str) else str(item.get("statement") or item.get("stem") or item)
             cells = table.rows[idx].cells
             _set_cell_font(cells[0], f"{idx+1}. {_strip_leading_enum(text)}", font_name, b_sz)
-            _set_cell_font(cells[1], "True ☐   False ☐", font_name, b_sz)
+            p = _set_cell_font(cells[1], _true_false_mark_label(), font_name, b_sz)
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
             # Remove borders for clean look
             for cell in cells:
@@ -899,14 +918,17 @@ def _render_exam_true_false_docx(doc, questions: list, font_name: str, b_sz: flo
         return
 
     table = doc.add_table(rows=len(questions), cols=2)
-    table.autofit = True
-    tf_label = f"{t('quick_exam_true_label')} ☐   {t('quick_exam_false_label')} ☐"
+    table.autofit = False
+    _set_table_col_width(table, 0, 12.8)
+    _set_table_col_width(table, 1, 3.6)
+    tf_label = _true_false_mark_label()
 
     for idx, q in enumerate(questions, 1):
         cells = table.rows[idx - 1].cells
         text = _format_exam_question_text("true_false", q)
         _set_cell_font(cells[0], f"{idx}. {text}", font_name, b_sz)
-        _set_cell_font(cells[1], tf_label, font_name, b_sz)
+        p = _set_cell_font(cells[1], tf_label, font_name, b_sz)
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         for cell in cells:
             tc = cell._tc
             tcPr = tc.get_or_add_tcPr()

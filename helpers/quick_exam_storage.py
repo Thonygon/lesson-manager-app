@@ -107,6 +107,16 @@ def _section_title_fallback(sec_type: str) -> str:
     return t("quick_exam_part_title", section=exercise_label)
 
 
+def _true_false_mark_label() -> str:
+    true_mark = t("true_false_true_mark")
+    false_mark = t("true_false_false_mark")
+    if true_mark == "true_false_true_mark":
+        true_mark = "T"
+    if false_mark == "true_false_false_mark":
+        false_mark = "F"
+    return f"{true_mark} ☐   {false_mark} ☐"
+
+
 def _format_answer_text(ans) -> str:
     if isinstance(ans, dict):
         if "left" in ans and "right" in ans:
@@ -514,11 +524,11 @@ def build_exam_pdf_bytes(
             for idx, q in enumerate(questions, 1):
                 text = _format_question_text(sec_type, q)
                 tf_rows.append([
-                    Paragraph(_pdf_safe_text(f"{idx}. {text}"), _S["body"]),
-                    Paragraph(_pdf_safe_text(f"{t('quick_exam_true_label')} ☐   {t('quick_exam_false_label')} ☐"), tf_label_style),
+                    Paragraph(_pdf_safe_text(f"{idx}. {text}"), _S["body_left"]),
+                    Paragraph(_pdf_safe_text(_true_false_mark_label()), tf_label_style),
                 ])
             if tf_rows:
-                tbl = Table(tf_rows, colWidths=[11.8*cm, 4.6*cm], hAlign="LEFT")
+                tbl = Table(tf_rows, colWidths=[12.6*cm, 3.8*cm], hAlign="LEFT")
                 tbl.setStyle(TableStyle([
                     ("VALIGN", (0,0), (-1,-1), "TOP"),
                     ("TOPPADDING", (0,0), (-1,-1), 4),
