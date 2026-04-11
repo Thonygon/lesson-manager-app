@@ -120,7 +120,7 @@ _WORKSHEET_INSTRUCTION_FALLBACKS = {
     "short_answer": "Answer each question in one or two complete sentences.",
     "true_false": "Read the text and decide whether each statement is true or false.",
     "reading_comprehension": "Read the passage carefully and answer the questions using evidence from the text.",
-    "error_correction": "Find and correct the error in each sentence.",
+    "error_correction": "Each sentence has one mistake. Find that one mistake and rewrite the full corrected sentence.",
     "word_search_vocab": "Find and circle the hidden words in the grid.",
 }
 
@@ -388,6 +388,10 @@ Worksheet-specific rules for short_answer:
 Worksheet-specific rules for error_correction:
 - Put the items in "questions".
 - The task should focus on correcting mistakes.
+- Every sentence must contain EXACTLY ONE mistake.
+- The mistake can be grammatical, numerical, conceptual, or subject-specific depending on the subject.
+- Students must rewrite the whole sentence correctly, not just identify the wrong part.
+- The answer key must contain the full corrected sentence.
 - Do not confuse this with true_false.
 - Do NOT prefix statements with numbers or letters.
 - Do NOT return 1., 2., 3. or A., B., C. inside the statement text.

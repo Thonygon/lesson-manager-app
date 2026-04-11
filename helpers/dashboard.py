@@ -183,8 +183,6 @@ def rebuild_dashboard(active_window_days: int = 183, expiry_days: int = 365, gra
 
     def _window_end(row) -> pd.Timestamp:
         ends = [today]
-        if pd.notna(row.get("package_expiry_date")):
-            ends.append(pd.to_datetime(row["package_expiry_date"], errors="coerce"))
         if pd.notna(row.get("next_pkg_start")):
             ends.append(pd.to_datetime(row["next_pkg_start"], errors="coerce"))
         ends = [e for e in ends if pd.notna(e)]
@@ -275,10 +273,10 @@ def rebuild_dashboard(active_window_days: int = 183, expiry_days: int = 365, gra
         # return ONLY lowercase codes
         if bool(r.get("Is_Dropout")):
             return "dropout"
-        if bool(r.get("Closed_By_Expiry")) or bool(r.get("Closed_By_Old_Payment")):
-            return "finished"
         if int(r.get("Overused_Units", 0)) > 0 and bool(r.get("Is_Active_6m")) and (not bool(r.get("package_normalized", False))):
             return "mismatch"
+        if bool(r.get("Closed_By_Expiry")) or bool(r.get("Closed_By_Old_Payment")):
+            return "finished"
         left = int(r.get("Lessons_Left_Units", 0))
         if left <= 0:
             return "finished"

@@ -1,11 +1,16 @@
 import streamlit as st
 import pandas as pd
 import os
+import re
+import html as _html
 from datetime import datetime, timezone
 from typing import List, Optional
 from supabase import create_client
 
 from core.state import get_current_user_id, with_owner, _set_logged_in_user, _clear_logged_in_user
+
+
+LESSON_NOTE_DEFAULT_TOKEN = "__NO_TOPIC_REGISTERED__"
 
 
 def get_profile_by_email(email: str) -> dict:
@@ -24,6 +29,21 @@ def get_profile_by_email(email: str) -> dict:
         return rows[0] if rows else {}
     except Exception:
         return {}
+
+
+def _normalize_lesson_note(note) -> str:
+    text = str(note or "").strip()
+    if text == LESSON_NOTE_DEFAULT_TOKEN:
+        return LESSON_NOTE_DEFAULT_TOKEN
+    if not text:
+        return LESSON_NOTE_DEFAULT_TOKEN
+    for _ in range(3):
+        text = _html.unescape(text).strip()
+    text = re.sub(r"(?i)</?\s*div\b[^>]*>", " ", text)
+    text = re.sub(r"(?i)\b/?\s*div\s*>", " ", text)
+    text = re.sub(r"(?i)^/?\s*div\s*$", " ", text)
+    text = " ".join(text.split()).strip()
+    return text or LESSON_NOTE_DEFAULT_TOKEN
 
 
 # ---- Supabase client (lazy singleton) ----
@@ -538,11 +558,13 @@ def add_class(
         "number_of_lesson": number_of_lesson,
         "lesson_date": lesson_date,
         "modality": modality,
-        "note": note,
+        "note": _normalize_lesson_note(note),
         "subject": subject,
         "subject_custom": subject_custom,
     })
     sb.table("classes").insert(payload).execute()
+    clear_app_caches()
+    recalculate_package_dates(str(student).strip())
 
 
 def add_payment(
@@ -583,16 +605,31 @@ def add_payment(
     })
     sb.table("payments").insert(payload).execute()
     clear_app_caches()
+    recalculate_package_dates(student)
 
 
 def delete_row(table_name: str, row_id: int) -> None:
     uid = get_current_user_id()
     sb = get_sb()
+    student_name = None
+    if table_name in {"payments", "classes"}:
+        try:
+            q0 = sb.table(table_name).select("student").eq("id", int(row_id))
+            if uid:
+                q0 = q0.eq("user_id", uid)
+            resp0 = q0.limit(1).execute()
+            rows0 = getattr(resp0, "data", None) or []
+            if rows0:
+                student_name = str(rows0[0].get("student") or "").strip()
+        except Exception:
+            student_name = None
     q = sb.table(table_name).delete().eq("id", int(row_id))
     if uid:
         q = q.eq("user_id", uid)
     q.execute()
     clear_app_caches()
+    if student_name:
+        recalculate_package_dates(student_name)
 
 
 def normalize_latest_package(student: str, payment_id: int, note: str = "") -> bool:
@@ -635,11 +672,24 @@ def update_payment_row(payment_id: int, updates: dict) -> bool:
     try:
         uid = get_current_user_id()
         sb = get_sb()
+        student_name = None
+        try:
+            q0 = sb.table("payments").select("student").eq("id", int(payment_id))
+            if uid:
+                q0 = q0.eq("user_id", uid)
+            resp0 = q0.limit(1).execute()
+            rows0 = getattr(resp0, "data", None) or []
+            if rows0:
+                student_name = str(rows0[0].get("student") or "").strip()
+        except Exception:
+            student_name = None
         q = sb.table("payments").update(updates).eq("id", int(payment_id))
         if uid:
             q = q.eq("user_id", uid)
         q.execute()
         clear_app_caches()
+        if student_name:
+            recalculate_package_dates(student_name)
         return True
     except Exception:
         return False
@@ -649,11 +699,27 @@ def update_class_row(class_id: int, updates: dict) -> bool:
     try:
         uid = get_current_user_id()
         sb = get_sb()
+        student_name = None
+        updates = dict(updates or {})
+        if "note" in updates:
+            updates["note"] = _normalize_lesson_note(updates.get("note"))
+        try:
+            q0 = sb.table("classes").select("student").eq("id", int(class_id))
+            if uid:
+                q0 = q0.eq("user_id", uid)
+            resp0 = q0.limit(1).execute()
+            rows0 = getattr(resp0, "data", None) or []
+            if rows0:
+                student_name = str(rows0[0].get("student") or "").strip()
+        except Exception:
+            student_name = None
         q = sb.table("classes").update(updates).eq("id", int(class_id))
         if uid:
             q = q.eq("user_id", uid)
         q.execute()
         clear_app_caches()
+        if student_name:
+            recalculate_package_dates(student_name)
         return True
     except Exception:
         return False
@@ -711,6 +777,144 @@ def update_active_student_count(user_id: str) -> None:
         ).execute()
     except Exception:
         pass
+
+
+def recalculate_package_dates(student: Optional[str] = None) -> dict:
+    """Recompute package expiry dates from lesson usage.
+
+    Rules:
+    - package_start_date stays user-controlled; if missing, fill from payment_date
+    - package_expiry_date becomes the date of the lesson that consumes the final paid unit
+    - active / unfinished packages keep a blank expiry date
+    - lessons after expiry still count for mismatch detection elsewhere, so expiry is descriptive
+    """
+    payments = load_table("payments")
+    classes = load_table("classes")
+    result = {"updated": 0, "students": 0, "mismatches": 0}
+
+    if payments is None or payments.empty:
+        return result
+
+    if classes is None or classes.empty:
+        classes = pd.DataFrame(columns=["student", "lesson_date", "number_of_lesson", "modality", "note"])
+
+    for col in [
+        "id", "student", "number_of_lesson", "payment_date", "package_start_date",
+        "package_expiry_date", "lesson_adjustment_units", "modality"
+    ]:
+        if col not in payments.columns:
+            payments[col] = None
+    for col in ["student", "lesson_date", "number_of_lesson", "modality", "note"]:
+        if col not in classes.columns:
+            classes[col] = None
+
+    payments = payments.copy()
+    classes = classes.copy()
+    payments["student"] = payments["student"].fillna("").astype(str).str.strip()
+    classes["student"] = classes["student"].fillna("").astype(str).str.strip()
+
+    if student:
+        student = str(student).strip()
+        payments = payments[payments["student"] == student].copy()
+        classes = classes[classes["student"] == student].copy()
+
+    if payments.empty:
+        return result
+
+    payments["payment_date"] = pd.to_datetime(payments["payment_date"], errors="coerce")
+    payments["package_start_date"] = pd.to_datetime(payments["package_start_date"], errors="coerce")
+    payments["package_expiry_date"] = pd.to_datetime(payments["package_expiry_date"], errors="coerce")
+    payments["number_of_lesson"] = pd.to_numeric(payments["number_of_lesson"], errors="coerce").fillna(0).astype(int)
+    payments["lesson_adjustment_units"] = pd.to_numeric(payments["lesson_adjustment_units"], errors="coerce").fillna(0).astype(int)
+    payments["pkg_start"] = payments["package_start_date"].fillna(payments["payment_date"])
+
+    classes["lesson_date"] = pd.to_datetime(classes["lesson_date"], errors="coerce")
+    classes["number_of_lesson"] = pd.to_numeric(classes["number_of_lesson"], errors="coerce").fillna(0).astype(int)
+    classes["modality"] = classes["modality"].fillna("").astype(str)
+    classes["note"] = classes["note"].fillna("").astype(str)
+
+    from helpers.package_lang_lookups import _is_free_note, _units_multiplier
+
+    classes["units_row"] = classes.apply(
+        lambda row: 0
+        if _is_free_note(row.get("note", ""))
+        else int(row.get("number_of_lesson", 0)) * int(_units_multiplier(row.get("modality", ""))),
+        axis=1,
+    )
+
+    updates_to_apply: list[tuple[int, dict]] = []
+
+    ordered = payments.sort_values(["student", "pkg_start", "payment_date", "id"]).copy()
+    for student_name, student_payments in ordered.groupby("student", sort=False):
+        if not student_name:
+            continue
+        result["students"] += 1
+        student_classes = (
+            classes[
+                (classes["student"] == student_name)
+                & classes["lesson_date"].notna()
+            ]
+            .sort_values(["lesson_date", "id"], ascending=[True, True], kind="stable")
+            .copy()
+        )
+        package_rows = student_payments.sort_values(["pkg_start", "payment_date", "id"], kind="stable").copy()
+        package_rows["next_pkg_start"] = package_rows["pkg_start"].shift(-1)
+
+        for _, pkg in package_rows.iterrows():
+            payment_id = int(pkg["id"])
+            pkg_start = pd.to_datetime(pkg.get("pkg_start"), errors="coerce")
+            next_pkg_start = pd.to_datetime(pkg.get("next_pkg_start"), errors="coerce")
+            purchased_units = int(pkg.get("number_of_lesson", 0)) * int(_units_multiplier(pkg.get("modality", "")))
+            purchased_units += int(pkg.get("lesson_adjustment_units", 0) or 0)
+
+            computed_start_iso = pkg_start.date().isoformat() if pd.notna(pkg_start) else None
+            computed_expiry_iso = None
+            mismatch_found = False
+
+            if pd.notna(pkg_start) and purchased_units > 0:
+                window = student_classes[student_classes["lesson_date"] >= pkg_start].copy()
+                if pd.notna(next_pkg_start):
+                    window = window[window["lesson_date"] < next_pkg_start].copy()
+                cumulative = 0
+                for _, lesson in window.iterrows():
+                    cumulative += int(lesson.get("units_row", 0) or 0)
+                    if computed_expiry_iso is None and cumulative >= purchased_units:
+                        lesson_dt = pd.to_datetime(lesson.get("lesson_date"), errors="coerce")
+                        if pd.notna(lesson_dt):
+                            computed_expiry_iso = lesson_dt.date().isoformat()
+                    if cumulative > purchased_units:
+                        mismatch_found = True
+                if mismatch_found:
+                    result["mismatches"] += 1
+
+            current_start_iso = pd.to_datetime(pkg.get("package_start_date"), errors="coerce")
+            current_start_iso = current_start_iso.date().isoformat() if pd.notna(current_start_iso) else None
+            current_expiry_iso = pd.to_datetime(pkg.get("package_expiry_date"), errors="coerce")
+            current_expiry_iso = current_expiry_iso.date().isoformat() if pd.notna(current_expiry_iso) else None
+
+            updates = {}
+            if current_start_iso != computed_start_iso and computed_start_iso:
+                updates["package_start_date"] = computed_start_iso
+            if current_expiry_iso != computed_expiry_iso:
+                updates["package_expiry_date"] = computed_expiry_iso
+
+            if updates:
+                updates_to_apply.append((payment_id, updates))
+
+    if not updates_to_apply:
+        return result
+
+    uid = get_current_user_id()
+    sb = get_sb()
+    for payment_id, updates in updates_to_apply:
+        q = sb.table("payments").update(updates).eq("id", int(payment_id))
+        if uid:
+            q = q.eq("user_id", uid)
+        q.execute()
+        result["updated"] += 1
+
+    clear_app_caches()
+    return result
 
 
 # ── Account deletion ────────────────────────────────────────────────────

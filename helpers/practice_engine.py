@@ -496,6 +496,23 @@ def _normalize_answer(s: str) -> str:
     return re.sub(r"\s+", " ", str(s).strip().lower())
 
 
+def _normalize_error_correction_answer(s: str) -> str:
+    """Normalize a rewritten correction while keeping the wording strict."""
+    text = str(s or "").strip().lower()
+    text = (
+        text.replace("’", "'")
+        .replace("‘", "'")
+        .replace("“", '"')
+        .replace("”", '"')
+        .replace("—", "-")
+        .replace("–", "-")
+    )
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"\s+([,;:.!?])", r"\1", text)
+    text = re.sub(r"[.!?]+$", "", text).strip()
+    return text
+
+
 def _answer_words(s: str) -> set[str]:
     """Extract meaningful words from a normalized answer, dropping stop words."""
     _STOP = {
@@ -1144,7 +1161,7 @@ def _render_single_question(
         )
 
     elif ex_type == "error_correction":
-        st.markdown(f"**{q_idx + 1}. {t('correct_the_sentence')}:**")
+        st.markdown(f"**{q_idx + 1}. {t('correct_the_sentence_one_error')}:**")
         st.caption(f"✏️ *{prompt_text}*")
         return st.text_input(
             "corrected",
@@ -1483,6 +1500,13 @@ def _check_answer(ex_type: str, student: str, correct) -> bool:
 
     if ex_type in ("multiple_choice", "true_false", "matching"):
         return s == c
+
+    if ex_type == "error_correction":
+        student_exact = _normalize_error_correction_answer(student)
+        correct_exact = _normalize_error_correction_answer(_comparison_answer_text(correct))
+        if not correct_exact:
+            return False
+        return student_exact == correct_exact
 
     # Flexible text comparison for fill-in, matching, vocabulary, etc.
     if s == c:

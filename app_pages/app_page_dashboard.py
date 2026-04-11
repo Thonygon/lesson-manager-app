@@ -25,7 +25,12 @@ from helpers.student_report import (
     build_report_whatsapp_url,
     build_report_email_url,
 )
-from helpers.notifications import get_teacher_notifications, render_notification_cloud, render_notification_panel
+from helpers.notifications import (
+    get_teacher_notifications,
+    render_notification_cloud,
+    render_notification_heading,
+    render_notification_panel,
+)
 import re as _re
 import html as _html
 
@@ -337,6 +342,8 @@ def _render_today_lessons_cards(df: pd.DataFrame, color_map: dict, phone_map: di
         st.markdown(html, unsafe_allow_html=True)
 
 def render_dashboard():
+    teacher_notifications = get_teacher_notifications()
+    render_notification_cloud(teacher_notifications, scope="teacher")
     page_header(t("dashboard"))
     st.caption(t("manage_current_students"))
 
@@ -401,9 +408,6 @@ def render_dashboard():
         if st.button(t("analytics"), key="dash_go_analytics"):
             go_to("analytics")
             st.rerun()
-
-    teacher_notifications = get_teacher_notifications()
-    render_notification_cloud(teacher_notifications, scope="teacher")
 
     # ---------------------------------------
     # TODAY'S LESSONS
@@ -726,12 +730,10 @@ def render_dashboard():
     # ---------------------------------------
     # MISMATCHES
     # ---------------------------------------
-    st.subheader(t("mismatches"))
     mismatch_df = d[d["Status"] == "mismatch"].copy()
 
-    if mismatch_df.empty:
-        st.caption(t("all_good_no_action_required"))
-    else:
+    if not mismatch_df.empty:
+        st.subheader(t("mismatches"))
         cols_mm = [
             "Student",
             "Overused_Units",
@@ -798,11 +800,11 @@ def render_dashboard():
             except Exception as e:
                 st.error(f"{t('normalize_failed')}\n\n{e}")
 
+    render_notification_heading(teacher_notifications, scope="teacher", title_text=t("notifications"))
     render_notification_panel(
         teacher_notifications,
         scope="teacher",
         toggle_key="teacher_dashboard_notifications_toggle",
-        title_text=t("notifications"),
     )
 
 # =========================

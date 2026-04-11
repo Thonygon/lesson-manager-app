@@ -4,7 +4,7 @@ from datetime import datetime as _dt, timezone
 import pandas as pd
 from core.i18n import t
 from core.navigation import go_to, page_header
-from core.database import get_sb, load_table, load_students, add_payment, clear_app_caches
+from core.database import get_sb, load_table, load_students, add_payment, clear_app_caches, recalculate_package_dates
 from helpers.language import LANG_EN, LANG_ES, LANG_BOTH, ALLOWED_LANGS, DEFAULT_PACKAGE_LANGS, pack_languages, allowed_lesson_language_from_package, translate_language_value
 from core.database import delete_row, update_payment_row, update_class_row
 from helpers.pricing import render_pricing_editor
@@ -179,6 +179,30 @@ def _render_add_payment_form():
         # ----------------------------
         with st.expander(t("payment_editor"), expanded=False):
             st.caption(t("warning_apply"))
+
+            with st.expander(t("repair_package_dates"), expanded=False):
+                st.caption(t("repair_package_dates_help"))
+                c_fix_student, c_fix_all = st.columns(2)
+                with c_fix_student:
+                    if st.button(t("repair_package_dates_student"), key="repair_pkg_dates_student"):
+                        summary = recalculate_package_dates(student_p)
+                        st.success(
+                            t("repair_package_dates_done").format(
+                                updated=int(summary.get("updated", 0)),
+                                mismatches=int(summary.get("mismatches", 0)),
+                            )
+                        )
+                        st.rerun()
+                with c_fix_all:
+                    if st.button(t("repair_package_dates_all"), key="repair_pkg_dates_all"):
+                        summary = recalculate_package_dates()
+                        st.success(
+                            t("repair_package_dates_done").format(
+                                updated=int(summary.get("updated", 0)),
+                                mismatches=int(summary.get("mismatches", 0)),
+                            )
+                        )
+                        st.rerun()
 
             # Delete by ID (inside editor)
             with st.expander(t("delete_payment"), expanded=False):

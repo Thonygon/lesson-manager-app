@@ -38,6 +38,11 @@ I18N: Dict[str, Dict[str, str]] = {
         "email_reset_link": "Email for reset link",
         "send_reset_email": "Send reset email",
         "create_account": "Create account",
+        "repair_package_dates": "Repair package dates",
+        "repair_package_dates_help": "Recalculate package end dates from lesson history. Mismatches stay available for manual review in the app.",
+        "repair_package_dates_student": "Repair this student's package dates",
+        "repair_package_dates_all": "Repair all package dates",
+        "repair_package_dates_done": "Package dates updated: {updated}. Mismatch cases detected: {mismatches}.",
 
         "logged_in_ok": "Logged in ✅",
         "login_failed": "Login failed",
@@ -806,7 +811,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "instruction_short_answer": "Answer each question in one or two complete sentences.",
         "instruction_true_false": "Read the text and decide whether each statement is true or false.",
         "instruction_reading_comprehension": "Read the passage carefully and answer the questions using evidence from the text.",
-        "instruction_error_correction": "Find and correct the error in each sentence.",
+        "instruction_error_correction": "Each sentence has one mistake. Find that one mistake and rewrite the full corrected sentence.",
         "instruction_word_search_vocab": "Find and circle the hidden words in the grid.",
         "instruction_fill_in_blank": "Complete each sentence or prompt with the correct word, number, or phrase.",
         "instruction_vocabulary": "Complete each vocabulary task using the correct word or meaning.",
@@ -1173,6 +1178,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "lesson_id": "Lesson ID",
         "lesson_date": "Lesson date",
         "note_lesson": "Note (Topic or \"Cancelled\")",        
+        "lesson_note_default": "No topic registered yet",
 
         # -------------------------
         # PAYMENTS PAGE
@@ -1194,8 +1200,10 @@ I18N: Dict[str, Dict[str, str]] = {
         "adjustment_units": "Adjusted units",
         "tab_add_payment": "Add payment",
         "tab_view_payments": "View payments",
+        "tab_view_lessons": "View lessons",
         "filter_by_year": "Year",
         "no_payments_year": "No payments recorded for {year} yet.",
+        "no_lessons_year": "No lessons recorded for {year} yet.",
 
         # -------------------------
         # CALENDAR PAGE
@@ -1634,6 +1642,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "terminology": "Terminology",
         "composer_period_matching": "Composer/period matching",
         "correct_the_sentence": "Correct the sentence",
+        "correct_the_sentence_one_error": "Correct the full sentence (there is only one mistake)",
         "vocabulary": "Vocabulary",
         "grammar": "Grammar",
         "all_levels": "All levels",
@@ -1727,6 +1736,11 @@ I18N: Dict[str, Dict[str, str]] = {
         "email_reset_link": "Correo para enlace de restablecimiento",
         "send_reset_email": "Enviar correo de restablecimiento",
         "create_account": "Crear cuenta",
+        "repair_package_dates": "Reparar fechas de paquetes",
+        "repair_package_dates_help": "Recalcula las fechas de finalización de los paquetes a partir del historial de clases. Los casos con desajustes seguirán disponibles para revisión manual en la app.",
+        "repair_package_dates_student": "Reparar las fechas de este estudiante",
+        "repair_package_dates_all": "Reparar todas las fechas de paquetes",
+        "repair_package_dates_done": "Fechas de paquetes actualizadas: {updated}. Casos con desajuste detectados: {mismatches}.",
 
         "logged_in_ok": "Sesión iniciada ✅",
         "login_failed": "Error al iniciar sesión",
@@ -2494,7 +2508,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "instruction_short_answer": "Responde cada pregunta en una o dos oraciones completas.",
         "instruction_true_false": "Lee el texto y decide si cada afirmación es verdadera o falsa.",
         "instruction_reading_comprehension": "Lee el texto con atención y responde las preguntas usando evidencia del texto.",
-        "instruction_error_correction": "Encuentra y corrige el error en cada oración.",
+        "instruction_error_correction": "Cada oración tiene un solo error. Encuentra ese error y reescribe la oración completa correctamente.",
         "instruction_word_search_vocab": "Encuentra y rodea las palabras escondidas en la cuadrícula.",
         "instruction_fill_in_blank": "Completa cada oración o consigna con la palabra, número o frase correctos.",
         "instruction_vocabulary": "Completa cada tarea de vocabulario con la palabra o el significado correctos.",
@@ -2860,6 +2874,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "lesson_id": "ID de clase",
         "lesson_date": "Fecha de clase",
         "note_lesson": "Nota (Tema o \"Cancelada\")",
+        "lesson_note_default": "Aún no se ha registrado un tema",
 
 
         # -------------------------
@@ -2882,8 +2897,10 @@ I18N: Dict[str, Dict[str, str]] = {
         "adjustment_units": "Unidades ajustadas",
         "tab_add_payment": "Añadir pago",
         "tab_view_payments": "Ver pagos",
+        "tab_view_lessons": "Ver clases",
         "filter_by_year": "Año",
         "no_payments_year": "No hay pagos registrados para {year} todavía.",
+        "no_lessons_year": "No hay clases registradas para {year} todavía.",
 
         # -------------------------
         # CALENDAR PAGE
@@ -3322,6 +3339,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "terminology": "Terminología",
         "composer_period_matching": "Relación compositor/período",
         "correct_the_sentence": "Corrige la oración",
+        "correct_the_sentence_one_error": "Corrige la oración completa (solo hay un error)",
         "vocabulary": "Vocabulario",
         "grammar": "Gramática",
         "all_levels": "Todos los niveles",
@@ -3414,6 +3432,11 @@ I18N: Dict[str, Dict[str, str]] = {
         "email_reset_link": "Sıfırlama bağlantısı için e-posta",
         "send_reset_email": "Sıfırlama e-postası gönder",
         "create_account": "Hesap oluştur",
+        "repair_package_dates": "Paket tarihlerini onar",
+        "repair_package_dates_help": "Paket bitiş tarihlerini ders geçmişinden yeniden hesaplar. Uyuşmazlıklar uygulamada manuel inceleme için görünür kalır.",
+        "repair_package_dates_student": "Bu öğrencinin paket tarihlerini onar",
+        "repair_package_dates_all": "Tüm paket tarihlerini onar",
+        "repair_package_dates_done": "Güncellenen paket tarihi: {updated}. Tespit edilen uyuşmazlık sayısı: {mismatches}.",
 
         "logged_in_ok": "Giriş yapıldı ✅",
         "login_failed": "Giriş başarısız",
@@ -4181,7 +4204,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "instruction_short_answer": "Her soruyu bir ya da iki tam cümleyle cevaplayın.",
         "instruction_true_false": "Metni okuyun ve her ifadenin doğru mu yanlış mı olduğuna karar verin.",
         "instruction_reading_comprehension": "Metni dikkatlice okuyun ve soruları metindeki kanıtlara dayanarak cevaplayın.",
-        "instruction_error_correction": "Her cümledeki hatayı bulun ve düzeltin.",
+        "instruction_error_correction": "Her cümlede tek bir hata vardır. O hatayı bulun ve cümlenin tamamını doğru şekilde yeniden yazın.",
         "instruction_word_search_vocab": "Izgaradaki gizli kelimeleri bulun ve daire içine alın.",
         "instruction_fill_in_blank": "Her cümleyi veya yönergeyi doğru kelime, sayı ya da ifadeyle tamamlayın.",
         "instruction_vocabulary": "Her kelime bilgisi görevini doğru kelime veya anlamla tamamlayın.",
@@ -4542,6 +4565,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "lesson_id": "Ders ID",
         "lesson_date": "Ders tarihi",
         "note_lesson": "Not (Konu veya \"İptal edildi\")",        
+        "lesson_note_default": "Henüz konu kaydedilmedi",
 
         # -------------------------
         # PAYMENTS PAGE
@@ -4563,8 +4587,10 @@ I18N: Dict[str, Dict[str, str]] = {
         "adjustment_units": "Düzeltilen birimler",
         "tab_add_payment": "Ödeme ekle",
         "tab_view_payments": "Ödemeleri görüntüle",
+        "tab_view_lessons": "Dersleri görüntüle",
         "filter_by_year": "Yıl",
         "no_payments_year": "{year} yılı için kayıtlı ödeme yok.",
+        "no_lessons_year": "{year} yılı için kayıtlı ders yok.",
 
         # -------------------------
         # CALENDAR PAGE
@@ -4996,6 +5022,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "terminology": "Terminoloji",
         "composer_period_matching": "Besteci/dönem eşleştirme",
         "correct_the_sentence": "Cümleyi düzeltin",
+        "correct_the_sentence_one_error": "Cümlenin tamamını düzeltin (yalnızca bir hata var)",
         "vocabulary": "Kelime bilgisi",
         "grammar": "Dilbilgisi",
         "all_levels": "Tüm seviyeler",
