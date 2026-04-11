@@ -157,6 +157,13 @@ def _restore_user_from_email() -> str:
         if not user_id:
             return ""
 
+        preferred_ui_language = str(
+            row.get("preferred_ui_language") or st.session_state.get("ui_lang", "en")
+        ).strip().lower()
+        if preferred_ui_language not in ("en", "es", "tr"):
+            preferred_ui_language = "en"
+        st.session_state["ui_lang"] = preferred_ui_language
+
         # Sync Google display name to profile if missing
         google_name = str(getattr(st.user, "name", "") or "").strip()
         profile_name = str(row.get("display_name") or "").strip()

@@ -3,7 +3,12 @@ from core.i18n import t
 from core.navigation import go_to, STUDENT_PAGES
 from core.state import get_current_user_id
 from core.database import load_profile_row
-from helpers.notifications import get_student_notifications, render_notification_cloud, render_notification_panel
+from helpers.notifications import (
+    get_student_notifications,
+    render_notification_cloud,
+    render_notification_heading,
+    render_notification_panel,
+)
 
 
 def render_student_home():
@@ -99,9 +104,9 @@ def render_student_home():
                 go_to(card["key"])
                 st.rerun()
 
+    render_notification_heading(student_notifications, scope="student", title_text=t("notifications"))
     render_notification_panel(
         student_notifications,
         scope="student",
         toggle_key="student_home_notifications_toggle",
-        title_text=t("notifications"),
     )

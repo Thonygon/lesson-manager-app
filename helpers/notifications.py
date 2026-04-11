@@ -715,11 +715,18 @@ def _inject_notification_styles() -> None:
             margin: 1.35rem 0 0.85rem;
             flex-wrap: nowrap;
         }
-        .classio-notification-panel-title {
-            font-size: clamp(1.65rem, 1.9vw, 2rem);
+        .classio-notification-panel-heading {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            margin: 1.35rem 0 0.85rem;
+            width: fit-content;
+        }
+        .classio-notification-panel-heading-text {
+            font-size: clamp(1.75rem, 2.2vw, 2.15rem);
             font-weight: 700;
             line-height: 1.2;
-            letter-spacing: -0.02em;
+            letter-spacing: -0.03em;
             color: var(--text);
             margin: 0;
         }
@@ -814,26 +821,14 @@ def render_notification_panel(
     *,
     scope: str,
     toggle_key: str,
-    title_text: str | None = None,
 ) -> None:
     _inject_notification_styles()
     if not notifications:
         return
 
-    if title_text is None:
-        title_text = t("notifications")
     seen = _load_seen(scope)
     unseen = [n for n in notifications if n.get("signature") not in seen]
     unseen_count = len(unseen)
-
-    if title_text:
-        head_html = (
-            f"<div class='classio-notification-panel-head'>"
-            f"<div class='classio-notification-panel-title'>{html.escape(title_text)}</div>"
-            + (f"<div class='classio-notification-badge'>{unseen_count}</div>" if unseen_count > 0 else "")
-            + "</div>"
-        )
-        st.markdown(head_html, unsafe_allow_html=True)
 
     toggle_col, spacer_col = st.columns([3, 9], gap="small")
     with toggle_col:
@@ -867,3 +862,29 @@ def render_notification_panel(
                 unsafe_allow_html=True,
             )
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_notification_heading(
+    notifications: list[dict],
+    *,
+    scope: str,
+    title_text: str | None = None,
+) -> None:
+    _inject_notification_styles()
+    if title_text is None:
+        title_text = t("notifications")
+    seen = _load_seen(scope)
+    unseen_count = len([n for n in notifications if n.get("signature") not in seen])
+    st.markdown(
+        (
+            "<div class='classio-notification-panel-heading'>"
+            f"<div class='classio-notification-panel-heading-text'>{html.escape(title_text)}</div>"
+            + (
+                f"<div class='classio-notification-badge'>{unseen_count}</div>"
+                if unseen_count > 0
+                else ""
+            )
+            + "</div>"
+        ),
+        unsafe_allow_html=True,
+    )

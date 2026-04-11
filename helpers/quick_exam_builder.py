@@ -283,7 +283,7 @@ _EXAM_INSTRUCTION_FALLBACKS = {
     "reading_comprehension": "Read the passage carefully and answer the questions using evidence from the text.",
     "vocabulary": "Complete each vocabulary task using the correct word or meaning.",
     "sentence_transformation": "Rewrite each sentence as instructed while keeping the original meaning.",
-    "error_correction": "Find and correct the error in each sentence.",
+    "error_correction": "Each sentence has one mistake. Find that one mistake and rewrite the full corrected sentence.",
     "writing_prompt": "Write a clear, well-developed response to the prompt.",
     "problem_solving": "Solve each problem and show the steps you used when needed.",
     "equation_solving": "Solve each equation and write your final answer clearly.",
@@ -481,9 +481,11 @@ def _section_type_rules(exercise_type: str, subject_group: str = "") -> str:
             "(instruction for how to transform). This is mainly appropriate for language subjects."
         ),
         "error_correction": (
-            "Each question is a sentence containing ONE error. "
+            "Each question is a full sentence containing EXACTLY ONE error. "
             "For non-language subjects, only use this if error correction makes genuine pedagogical sense. "
-            "Provide the corrected sentence in 'answers'."
+            "The error may be grammatical, numerical, conceptual, or subject-specific depending on the subject. "
+            "Students must rewrite the full sentence correctly. "
+            "Provide the full corrected sentence in 'answers'."
         ),
         "writing_prompt": (
             "Each question is a writing prompt string. "
