@@ -19,6 +19,7 @@ from typing import Optional
 from core.i18n import t
 from core.state import get_current_user_id, with_owner
 from core.database import get_sb, load_table, clear_app_caches
+from helpers.visual_support import enrich_worksheet_with_visuals, enrich_exam_with_visuals, render_streamlit_visual_support
 
 
 # ════════════════════════════════════════════════════════════════
@@ -106,9 +107,16 @@ PHASE1_TYPES = SUPPORTED_PRACTICE_TYPES
 
 def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
     """Convert a saved worksheet dict into the unified exercise schema."""
+    ws = enrich_worksheet_with_visuals(
+        ws,
+        subject=ws.get("subject", ""),
+        learner_stage=ws.get("learner_stage", ""),
+        topic=ws.get("topic", ""),
+    )
     ws_type = str(ws.get("worksheet_type") or "").strip()
     title = str(ws.get("title") or "").strip()
     instructions = str(ws.get("instructions") or "").strip()
+    visual_support = (ws.get("visual_supports") or [None])[0]
 
     exercises: list[dict] = []
 
@@ -129,6 +137,7 @@ def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
                 "type": "multiple_choice",
                 "title": title,
                 "instructions": instructions,
+                "visual_support": visual_support,
                 "questions": questions,
                 "answers": answers,
             })
@@ -150,6 +159,7 @@ def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
                 "title": title,
                 "instructions": instructions,
                 "source_text": source_text,
+                "visual_support": visual_support,
                 "questions": questions,
                 "answers": answers,
             })
@@ -168,6 +178,7 @@ def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
                 "type": "fill_in_blank",
                 "title": title,
                 "instructions": instructions,
+                "visual_support": visual_support,
                 "questions": questions,
                 "answers": answers,
             })
@@ -186,6 +197,7 @@ def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
                 "type": "short_answer",
                 "title": title,
                 "instructions": instructions,
+                "visual_support": visual_support,
                 "questions": questions,
                 "answers": answers,
             })
@@ -210,6 +222,7 @@ def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
                     "type": "matching",
                     "title": title,
                     "instructions": instructions,
+                    "visual_support": visual_support,
                     "questions": questions,
                     "answers": answers,
                 })
@@ -230,6 +243,7 @@ def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
                 "title": title,
                 "instructions": instructions,
                 "source_text": passage,
+                "visual_support": visual_support,
                 "questions": questions,
                 "answers": answers,
             })
@@ -250,6 +264,7 @@ def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
                 "type": "error_correction",
                 "title": title,
                 "instructions": instructions,
+                "visual_support": visual_support,
                 "questions": questions,
                 "answers": answers,
             })
@@ -271,6 +286,7 @@ def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
                     "type": "word_search_vocab",
                     "title": title,
                     "instructions": instructions,
+                    "visual_support": visual_support,
                     "questions": [{
                         "grid": grid,
                         "words": placed_words,
@@ -294,6 +310,12 @@ def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
 
 def exam_to_exercises(exam_data: dict, answer_key: dict, *, row_id: int | None = None) -> dict:
     """Convert a saved exam dict + answer_key into the unified exercise schema."""
+    exam_data = enrich_exam_with_visuals(
+        exam_data,
+        subject=exam_data.get("subject", ""),
+        learner_stage=exam_data.get("learner_stage", ""),
+        topic=exam_data.get("topic", ""),
+    )
     exercises: list[dict] = []
 
     sections = exam_data.get("sections") or []
@@ -313,6 +335,8 @@ def exam_to_exercises(exam_data: dict, answer_key: dict, *, row_id: int | None =
             "questions": sec.get("questions") or [],
             "answers": ak.get("answers") or [],
         }
+        if sec.get("visual_support"):
+            ex["visual_support"] = sec.get("visual_support")
         if sec_type == "matching":
             ex["answers"] = [_comparison_answer_text(a) for a in ex["answers"]]
         elif sec_type == "vocabulary":
@@ -847,6 +871,7 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
             st.markdown(f"#### {ex_title}")
         if ex_instr and not (len(exercises) == 1 and ex_instr == instructions):
             st.caption(ex_instr)
+        render_streamlit_visual_support(exercise.get("visual_support"))
         if source_txt:
             with st.expander("📖 " + t("reading_passage"), expanded=True):
                 st.write(source_txt)

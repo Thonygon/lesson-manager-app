@@ -1888,11 +1888,16 @@ def get_ai_provider() -> str:
     if not provider:
         provider = str(os.getenv("AI_PROVIDER", "")).strip().lower()
 
-    return provider if provider in {"gemini", "openrouter"} else "gemini"
+    return provider if provider in {"gemini", "openrouter", "openai"} else "gemini"
 
 
 def get_default_model_for_provider(provider: str) -> str:
-    return "gemini-2.5-flash" if str(provider or "").strip().lower() == "gemini" else "openrouter/free"
+    provider = str(provider or "").strip().lower()
+    if provider == "gemini":
+        return "gemini-2.5-flash"
+    if provider == "openai":
+        return "gpt-4o-mini"
+    return "openrouter/free"
 
 
 def get_ai_model_for_provider(provider: str) -> str:
@@ -1906,6 +1911,15 @@ def get_ai_model_for_provider(provider: str) -> str:
         custom_model = str(os.getenv("AI_MODEL", "")).strip()
 
     return custom_model or get_default_model_for_provider(provider)
+
+
+def get_ai_provider_order() -> list[str]:
+    provider = get_ai_provider()
+    if provider == "openrouter":
+        return ["openrouter", "gemini", "openai"]
+    if provider == "openai":
+        return ["gemini", "openrouter", "openai"]
+    return ["gemini", "openrouter", "openai"]
 
 
 def _extract_json_object_from_text(text: str) -> dict:
@@ -2068,6 +2082,34 @@ def _generate_with_gemini(system_prompt: str, user_prompt: str) -> str:
     return raw_text
 
 
+def _generate_with_openai(system_prompt: str, user_prompt: str) -> str:
+    api_key = ""
+    try:
+        api_key = str(st.secrets.get("OPENAI_API_KEY", "")).strip()
+    except Exception:
+        api_key = ""
+
+    if not api_key:
+        api_key = str(os.getenv("OPENAI_API_KEY", "")).strip()
+
+    if not api_key:
+        raise RuntimeError(t("missing_openai_api_key"))
+
+    client = OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model=get_ai_model_for_provider("openai"),
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.4,
+    )
+    raw_text = str(response.choices[0].message.content or "").strip()
+    if not raw_text:
+        raise ValueError(t("empty_ai_response"))
+    return raw_text
+
+
 def generate_ai_lesson_plan(
     subject: str,
     learner_stage: str,
@@ -2110,13 +2152,17 @@ def generate_ai_lesson_plan(
     }
 
     system_prompt, user_prompt = _build_ai_prompts(prompt_payload)
-    provider = get_ai_provider()
-    provider_order = ["gemini", "openrouter"] if provider == "gemini" else ["openrouter", "gemini"]
+    provider_order = get_ai_provider_order()
     errors = []
 
     for p in provider_order:
         try:
-            raw_text = _generate_with_gemini(system_prompt, user_prompt) if p == "gemini" else _generate_with_openrouter(system_prompt, user_prompt)
+            if p == "gemini":
+                raw_text = _generate_with_gemini(system_prompt, user_prompt)
+            elif p == "openrouter":
+                raw_text = _generate_with_openrouter(system_prompt, user_prompt)
+            else:
+                raw_text = _generate_with_openai(system_prompt, user_prompt)
             parsed = _extract_json_object_from_text(raw_text)
             return normalize_planner_output(parsed)
         except Exception as e:

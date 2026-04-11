@@ -32,7 +32,10 @@ def _open_assignment_practice(row: dict) -> None:
         worksheet = snapshot.get("worksheet") or {}
         exercise_data = worksheet_to_exercises(worksheet, row_id=assignment_id)
     elif assignment_type == "exam":
-        exam_data = snapshot.get("exam_data") or {}
+        exam_data = dict(snapshot.get("exam_data") or {})
+        exam_data.setdefault("subject", row.get("subject_key", ""))
+        exam_data.setdefault("topic", row.get("topic", ""))
+        exam_data.setdefault("learner_stage", (snapshot.get("meta") or {}).get("learner_stage", ""))
         answer_key = snapshot.get("answer_key") or {}
         exercise_data = exam_to_exercises(exam_data, answer_key, row_id=assignment_id)
 

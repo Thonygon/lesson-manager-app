@@ -6,6 +6,7 @@ from collections import OrderedDict
 
 from core.i18n import t
 from translations import I18N
+from helpers.visual_support import enrich_exam_with_visuals
 
 
 AI_EXAM_DAILY_LIMIT = 3
@@ -444,12 +445,14 @@ def _section_type_rules(exercise_type: str, subject_group: str = "") -> str:
             "Provide a short source text in the section 'source_text' field only if it genuinely improves the task. "
             "Each question is a statement string. "
             "Include 'answers' with True/False for each item. "
-            "Statements must be professionally punctuated and grammatically complete."
+            "Statements must be professionally punctuated and grammatically complete. "
+            "For lower-primary image-friendly topics, you may base the statements on one simple observable scene and leave source_text empty."
         ),
         "matching": (
             "Each question is an object with 'left' and 'right'. "
             "Shuffle the right side. Provide the correct mapping in 'answers'. "
-            "Use clean, publication-ready text fragments for both sides, with correct capitalization and no raw dictionary formatting."
+            "Use clean, publication-ready text fragments for both sides, with correct capitalization and no raw dictionary formatting. "
+            "For lower-primary learners, prefer concrete and visually observable items when pedagogically suitable."
         ),
         "fill_in_blank": (
             "Each question is a sentence or prompt with a blank indicated by '______'. "
@@ -463,13 +466,15 @@ def _section_type_rules(exercise_type: str, subject_group: str = "") -> str:
         "reading_comprehension": (
             "Include a 'source_text' field with a reading passage or source text. "
             "Each question is a text string about the passage. "
-            "Provide answers in 'answers'."
+            "Provide answers in 'answers'. "
+            "For lower-primary learners, prefer scene-based passages with concrete details that can be illustrated."
         ),
         "vocabulary": (
             "Each question tests word knowledge, terminology, definitions, synonyms, or context use. "
             "For non-language subjects, adapt this to subject terminology. "
             "Each question is an object with 'word' and 'task'. "
-            "Provide answers in 'answers'."
+            "Provide answers in 'answers'. "
+            "For lower-primary learners, prefer concrete, image-friendly vocabulary when appropriate."
         ),
         "sentence_transformation": (
             "Each question is an object with 'original' sentence and 'prompt' "
@@ -841,25 +846,28 @@ def generate_ai_exam(
     }
 
     system_prompt, user_prompt = _build_exam_prompts(payload)
-    provider = _lp().get_ai_provider()
-
-    if provider == "gemini":
-        provider_order = ["gemini", "openrouter"]
-    else:
-        provider_order = ["openrouter", "gemini"]
+    provider_order = _lp().get_ai_provider_order()
 
     errors = []
     for p in provider_order:
         try:
             if p == "gemini":
                 raw = _lp()._generate_with_gemini(system_prompt, user_prompt)
-            else:
+            elif p == "openrouter":
                 raw = _lp()._generate_with_openrouter(system_prompt, user_prompt)
+            else:
+                raw = _lp()._generate_with_openai(system_prompt, user_prompt)
 
             parsed = _lp()._extract_json_object_from_text(raw)
             exam_data, answer_key = normalize_exam_output(parsed)
             exam_data["title"] = exam_data["title"] or exam_title or "Exam"
             exam_data["instructions"] = exam_data["instructions"] or instructions
+            exam_data = enrich_exam_with_visuals(
+                exam_data,
+                subject=subject,
+                learner_stage=learner_stage,
+                topic=topic,
+            )
             return exam_data, answer_key
         except Exception as e:
             errors.append(f"{p}: {e}")
