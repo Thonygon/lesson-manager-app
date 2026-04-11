@@ -14,7 +14,7 @@ from core.state import with_owner
 from core.database import clear_app_caches
 from helpers.ui_components import to_dt_naive, ts_today_naive
 from helpers.schedule import load_schedules, load_overrides
-from styles.theme import _is_dark
+from styles.theme import get_theme_mode
 from translations import I18N
 
 # 07.11) GOALS HELPERS
@@ -297,28 +297,7 @@ def render_home_indicator(
     if progress_label is None:
         progress_label = t("completed")
 
-    is_dark = _is_dark()
-    container_bg = (
-        "radial-gradient(circle at top right, rgba(96,165,250,0.12), transparent 34%), linear-gradient(180deg, rgba(30,41,59,0.94), rgba(15,23,42,0.98))"
-        if is_dark else
-        "radial-gradient(circle at top right, rgba(59,130,246,0.10), transparent 36%), linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.98))"
-    )
-    container_border = "rgba(148,163,184,0.16)" if is_dark else "rgba(59,130,246,0.18)"
-    container_shadow = "0 18px 40px rgba(2,6,23,0.28)" if is_dark else "0 18px 38px rgba(37,99,235,0.10)"
-    text_color = "#f1f5f9" if is_dark else "#0f172a"
-    badge_bg = "rgba(148,163,184,0.10)" if is_dark else "rgba(248,250,252,0.94)"
-    badge_border = "rgba(148,163,184,0.16)" if is_dark else "rgba(226,232,240,0.95)"
-    kpi_bg = "rgba(255,255,255,0.05)" if is_dark else "linear-gradient(180deg, rgba(241,245,249,0.98), rgba(234,241,251,0.92))"
-    kpi_border = "rgba(148,163,184,0.14)" if is_dark else "rgba(226,232,240,0.92)"
-    kpi_label_color = "#cbd5e1" if is_dark else "#475569"
-    progress_bg = "rgba(255,255,255,0.08)" if is_dark else "linear-gradient(180deg, rgba(241,245,249,0.96), rgba(226,232,240,0.72))"
-    progress_border = "rgba(148,163,184,0.16)" if is_dark else "rgba(191,219,254,0.55)"
-    progress_fill = (
-        f"linear-gradient(90deg, {accent}, rgba(147,197,253,0.92), rgba(224,231,255,0.75))"
-        if is_dark else
-        f"linear-gradient(90deg, {accent}, rgba(96,165,250,0.82), rgba(224,231,255,0.95))"
-    )
-    mini_color = "#cbd5e1" if is_dark else "#334155"
+    theme_mode = get_theme_mode()
 
     # progress percent
     pct = None
@@ -372,6 +351,38 @@ def render_home_indicator(
 </div>
 
 <style>
+:root {{
+  --home-indicator-bg: radial-gradient(circle at top right, rgba(59,130,246,0.10), transparent 36%), linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.98));
+  --home-indicator-border: rgba(59,130,246,0.18);
+  --home-indicator-shadow: 0 18px 38px rgba(37,99,235,0.10);
+  --home-indicator-text: #0f172a;
+  --home-indicator-badge-bg: rgba(248,250,252,0.94);
+  --home-indicator-badge-border: rgba(226,232,240,0.95);
+  --home-indicator-kpi-bg: linear-gradient(180deg, rgba(241,245,249,0.98), rgba(234,241,251,0.92));
+  --home-indicator-kpi-border: rgba(226,232,240,0.92);
+  --home-indicator-kpi-label: #475569;
+  --home-indicator-progress-bg: linear-gradient(180deg, rgba(241,245,249,0.96), rgba(226,232,240,0.72));
+  --home-indicator-progress-border: rgba(191,219,254,0.55);
+  --home-indicator-progress-fill: linear-gradient(90deg, {accent}, rgba(96,165,250,0.82), rgba(224,231,255,0.95));
+  --home-indicator-mini: #334155;
+}}
+
+body.theme-dark {{
+  --home-indicator-bg: radial-gradient(circle at top right, rgba(96,165,250,0.12), transparent 34%), linear-gradient(180deg, rgba(30,41,59,0.94), rgba(15,23,42,0.98));
+  --home-indicator-border: rgba(148,163,184,0.16);
+  --home-indicator-shadow: 0 18px 40px rgba(2,6,23,0.28);
+  --home-indicator-text: #f1f5f9;
+  --home-indicator-badge-bg: rgba(148,163,184,0.10);
+  --home-indicator-badge-border: rgba(148,163,184,0.16);
+  --home-indicator-kpi-bg: rgba(255,255,255,0.05);
+  --home-indicator-kpi-border: rgba(148,163,184,0.14);
+  --home-indicator-kpi-label: #cbd5e1;
+  --home-indicator-progress-bg: rgba(255,255,255,0.08);
+  --home-indicator-progress-border: rgba(148,163,184,0.16);
+  --home-indicator-progress-fill: linear-gradient(90deg, {accent}, rgba(147,197,253,0.92), rgba(224,231,255,0.75));
+  --home-indicator-mini: #cbd5e1;
+}}
+
 .home-indicator-wrap {{
   width: 100%;
   margin: 0rem 0 0rem 0;
@@ -386,10 +397,10 @@ def render_home_indicator(
   padding: 16px 18px;
   border-radius: 24px;
 
-    background: {container_bg};
-    border: 1px solid {container_border};
-    box-shadow: {container_shadow};
-    color: {text_color};
+    background: var(--home-indicator-bg);
+    border: 1px solid var(--home-indicator-border);
+    box-shadow: var(--home-indicator-shadow);
+    color: var(--home-indicator-text);
 }}
 
 .home-indicator-left {{
@@ -403,7 +414,7 @@ def render_home_indicator(
   width: 16px;
   height: 16px;
   border-radius: 999px;
-  background: {accent};
+    background: {accent};
   box-shadow: 0 0 0 10px rgba(59,130,246,0.12), 0 8px 18px rgba(59,130,246,0.16);
 }}
 
@@ -425,8 +436,8 @@ def render_home_indicator(
   font-weight: 800;
   padding: 6px 12px;
   border-radius: 999px;
-    background: {badge_bg};
-    border: 1px solid {badge_border};
+    background: var(--home-indicator-badge-bg);
+    border: 1px solid var(--home-indicator-badge-border);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.55);
 }}
 
@@ -449,11 +460,11 @@ def render_home_indicator(
 }}
 
 .home-indicator-kpi {{
-  padding: 10px 14px;
+  padding: 8px 12px;
   border-radius: 18px;
-    background: {kpi_bg};
-    border: 1px solid {kpi_border};
-    color: {text_color};
+    background: var(--home-indicator-kpi-bg);
+    border: 1px solid var(--home-indicator-kpi-border);
+    color: var(--home-indicator-text);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.58), 0 8px 18px rgba(15,23,42,0.05);
 
   flex: 0 0 150px;
@@ -467,7 +478,7 @@ def render_home_indicator(
 
 .home-indicator-kpi .k {{
   font-size: 0.72rem;
-    color: {kpi_label_color};
+    color: var(--home-indicator-kpi-label);
   margin-bottom: 4px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -477,7 +488,7 @@ def render_home_indicator(
 .home-indicator-kpi .v {{
   font-size: 1rem;
   font-weight: 900;
-    color: {text_color};
+    color: var(--home-indicator-text);
 }}
 
 .home-indicator-right {{
@@ -493,14 +504,14 @@ def render_home_indicator(
   height: 8px;
   border-radius: 999px;
   overflow: hidden;
-    background: {progress_bg};
-    border: 1px solid {progress_border};
+    background: var(--home-indicator-progress-bg);
+    border: 1px solid var(--home-indicator-progress-border);
     box-shadow: inset 0 1px 2px rgba(15,23,42,0.05);
 }}
 
 .home-indicator-progress > div {{
   height: 100%;
-    background: {progress_fill};
+    background: var(--home-indicator-progress-fill);
   border-radius: 999px;
   box-shadow: 0 0 20px rgba(59,130,246,0.18);
 }}
@@ -508,7 +519,7 @@ def render_home_indicator(
 .home-indicator-mini {{
   font-size: 0.86rem;
   font-weight: 800;
-    color: {mini_color};
+    color: var(--home-indicator-mini);
 }}
 
 @media (max-width: 820px) {{
@@ -525,6 +536,22 @@ def render_home_indicator(
   }}
 }}
 </style>
+<script>
+  window.__THEME_MODE__ = "{theme_mode}";
+</script>
+<script>
+  function applyTheme() {{
+    const mode = window.__THEME_MODE__ || "auto";
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const dark = mode === "dark" || (mode === "auto" && prefersDark);
+    document.body.classList.toggle("theme-dark", dark);
+  }}
+  applyTheme();
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  if (media && media.addEventListener) {{
+    media.addEventListener("change", applyTheme);
+  }}
+</script>
 """
     # Height: allow more space on mobile when it stacks
     height = 272 if bool(st.session_state.get("compact_mode", False)) else 170
