@@ -20,19 +20,16 @@ def _lp():
 def _call_ai(system_prompt: str, user_prompt: str) -> str:
     """Route through the same provider chain used by the lesson planner."""
     lp = _lp()
-    provider = lp.get_ai_provider()
-    if provider == "gemini":
-        order = ["gemini", "openrouter"]
-    else:
-        order = ["openrouter", "gemini"]
+    order = lp.get_ai_provider_order()
 
     errors = []
     for p in order:
         try:
             if p == "gemini":
                 return lp._generate_with_gemini(system_prompt, user_prompt)
-            else:
+            if p == "openrouter":
                 return lp._generate_with_openrouter(system_prompt, user_prompt)
+            return lp._generate_with_openai(system_prompt, user_prompt)
         except Exception as e:
             errors.append(f"{p}: {e}")
 

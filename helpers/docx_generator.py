@@ -14,6 +14,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn, nsdecls
 from docx.oxml import parse_xml
+from helpers.visual_support import enrich_worksheet_with_visuals, enrich_exam_with_visuals, add_docx_visual_support
 
 from core.i18n import t
 
@@ -264,6 +265,13 @@ def generate_docx_worksheet(ws: dict, student_only: bool = True) -> bytes:
     t_sz, sec_sz, b_sz = sz["title"], sz["section"], sz["body"]
     lr = sz.get("leading_ratio", 1.15)
 
+    ws = enrich_worksheet_with_visuals(
+        ws,
+        subject=ws.get("subject", ""),
+        learner_stage=ws.get("learner_stage", ""),
+        topic=ws.get("topic", ""),
+    )
+
     doc = Document()
 
     # Set default font
@@ -329,6 +337,9 @@ def generate_docx_worksheet(ws: dict, student_only: bool = True) -> bytes:
         _add_heading(doc, t("ws_instructions") if t("ws_instructions") != "ws_instructions" else "Instructions",
                      font_name, sec_sz, color=_TEXT, leading_ratio=lr)
         _add_body(doc, instructions, font_name, b_sz, leading_ratio=lr)
+
+    for support in ws.get("visual_supports", []) or []:
+        add_docx_visual_support(doc, support, width_cm=15.2, font_name=font_name, font_size_pt=max(9, b_sz - 1))
 
     # Vocabulary bank (table layout)
     vocab = ws.get("vocabulary_bank", [])
@@ -962,6 +973,8 @@ def _render_exam_section_docx(
     if instructions:
         _add_body(doc, instructions, font_name, b_sz, leading_ratio=lr)
 
+    add_docx_visual_support(doc, sec.get("visual_support"), width_cm=15.2, font_name=font_name, font_size_pt=max(9, b_sz - 1))
+
     source_text = str(sec.get("source_text") or "").strip()
     if source_text:
         _add_body(doc, _strip_leading_enum(source_text), font_name, b_sz, leading_ratio=lr)
@@ -1059,6 +1072,13 @@ def generate_docx_exam(
     sz = get_font_sizes(size_key)
     t_sz, sec_sz, b_sz = sz["title"], sz["section"], sz["body"]
     lr = sz.get("leading_ratio", 1.15)
+
+    exam_data = enrich_exam_with_visuals(
+        exam_data,
+        subject=exam_data.get("subject", ""),
+        learner_stage=exam_data.get("learner_stage", ""),
+        topic=exam_data.get("topic", ""),
+    )
 
     doc = Document()
     style = doc.styles["Normal"]

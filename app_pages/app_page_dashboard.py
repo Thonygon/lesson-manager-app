@@ -25,6 +25,7 @@ from helpers.student_report import (
     build_report_whatsapp_url,
     build_report_email_url,
 )
+from helpers.notifications import get_teacher_notifications, render_notification_cloud, render_notification_panel
 import re as _re
 import html as _html
 
@@ -400,6 +401,9 @@ def render_dashboard():
         if st.button(t("analytics"), key="dash_go_analytics"):
             go_to("analytics")
             st.rerun()
+
+    teacher_notifications = get_teacher_notifications()
+    render_notification_cloud(teacher_notifications, scope="teacher")
 
     # ---------------------------------------
     # TODAY'S LESSONS
@@ -793,5 +797,12 @@ def render_dashboard():
                     st.error(t("normalize_failed"))
             except Exception as e:
                 st.error(f"{t('normalize_failed')}\n\n{e}")
+
+    render_notification_panel(
+        teacher_notifications,
+        scope="teacher",
+        toggle_key="teacher_dashboard_notifications_toggle",
+        title_text=t("notifications"),
+    )
 
 # =========================

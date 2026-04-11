@@ -593,6 +593,10 @@ def _render_browse_tab():
                                     except Exception:
                                         answer_key = {}
                                 if exam_data:
+                                    if isinstance(exam_data, dict):
+                                        exam_data.setdefault("subject", row.get("subject", ""))
+                                        exam_data.setdefault("topic", row.get("topic", ""))
+                                        exam_data.setdefault("learner_stage", row.get("learner_stage", ""))
                                     ex_data = exam_to_exercises(exam_data, answer_key, row_id=row.get("id"))
                                     if _open_practice_item(ex_data, {
                                         "subject": row.get("subject", ""),

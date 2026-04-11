@@ -25,6 +25,12 @@ from styles.pdf_styles import (
     get_pdf_layout_constants,
     C as _C,
 )
+from helpers.visual_support import (
+    enrich_worksheet_with_visuals,
+    render_streamlit_visual_supports,
+    build_pdf_visual_flowables,
+    render_visual_support_status_group,
+)
 
 
 def _wb():
@@ -759,6 +765,12 @@ def save_worksheet_record(
     worksheet: dict,
 ) -> bool:
     try:
+        worksheet = enrich_worksheet_with_visuals(
+            worksheet,
+            subject=subject,
+            learner_stage=learner_stage,
+            topic=topic,
+        )
         worksheet = _normalize_worksheet_unicode(worksheet)
 
         from helpers.branding import resolve_is_public
@@ -1013,7 +1025,19 @@ def render_worksheet_result(ws: dict, read_only: bool = False, allow_assign: boo
 
     from helpers.worksheet_builder import normalize_worksheet_output
 
+    subject = meta.get("subject", ws.get("subject", ""))
+    topic = meta.get("topic", ws.get("topic", ""))
+    ws_type = meta.get("worksheet_type", ws.get("worksheet_type", ""))
+    learner_stage = meta.get("learner_stage", ws.get("learner_stage", ""))
+    level_or_band = meta.get("level_or_band", ws.get("level_or_band", ""))
+
     ws = normalize_worksheet_output(ws)
+    ws = enrich_worksheet_with_visuals(
+        ws,
+        subject=subject,
+        learner_stage=learner_stage,
+        topic=topic,
+    )
     ws = _normalize_worksheet_unicode(ws)
     ws = _clean_worksheet_data(ws)
 
@@ -1032,6 +1056,8 @@ def render_worksheet_result(ws: dict, read_only: bool = False, allow_assign: boo
     if ws.get("instructions"):
         st.markdown(f"**{t('ws_instructions')}**")
         st.write(_normalize_text(ws["instructions"]))
+
+    render_streamlit_visual_supports(ws.get("visual_supports"))
 
     if ws.get("worksheet_type") == "reading_comprehension" and str(ws.get("reading_passage") or "").strip():
         st.markdown(f"**{t('ws_reading_passage')}**")
@@ -1095,6 +1121,12 @@ def render_worksheet_result(ws: dict, read_only: bool = False, allow_assign: boo
             for note in ws["teacher_notes"]:
                 st.write(f"- {_normalize_text(note)}")
 
+    if not read_only:
+        # Debug hook kept intentionally for future developer troubleshooting.
+        # Re-enable when needed:
+        # render_visual_support_status_group([ws.get("_visual_support_status")])
+        pass
+
     if read_only and allow_assign:
         with st.expander(t("assign_to_student"), expanded=False):
             from helpers.teacher_student_integration import render_assignment_panel_for_worksheet
@@ -1102,17 +1134,11 @@ def render_worksheet_result(ws: dict, read_only: bool = False, allow_assign: boo
             render_assignment_panel_for_worksheet(
                 prefix=f"worksheet_assign_readonly_{re.sub(r'[^A-Za-z0-9._-]+', '_', str(ws.get('title') or 'worksheet').strip()) or 'worksheet'}",
                 worksheet=ws,
-                subject=meta.get("subject", ws.get("subject", "")),
-                topic=meta.get("topic", ws.get("topic", "")),
-                learner_stage=meta.get("learner_stage", ws.get("learner_stage", "")),
-                level_or_band=meta.get("level_or_band", ws.get("level_or_band", "")),
+                subject=subject,
+                topic=topic,
+                learner_stage=learner_stage,
+                level_or_band=level_or_band,
             )
-
-    subject = meta.get("subject", ws.get("subject", ""))
-    topic = meta.get("topic", ws.get("topic", ""))
-    ws_type = meta.get("worksheet_type", ws.get("worksheet_type", ""))
-    learner_stage = meta.get("learner_stage", ws.get("learner_stage", ""))
-    level_or_band = meta.get("level_or_band", ws.get("level_or_band", ""))
 
     _pdf_kwargs = dict(
         subject=subject,
@@ -1328,6 +1354,9 @@ def build_worksheet_pdf_bytes(
             ws_type=ws_type, learner_stage=learner_stage,
             level_or_band=level_or_band,
         )
+
+    for support in ws.get("visual_supports", []) or []:
+        story.extend(build_pdf_visual_flowables(support, max_width_cm=16.2, paragraph_style=body_style))
 
     def _mc_item_block(item: dict, idx: int):
         block = [

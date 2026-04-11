@@ -4,6 +4,7 @@ import streamlit as st
 import json, os, re
 from core.i18n import t
 from translations import I18N
+from helpers.visual_support import enrich_worksheet_with_visuals
 
 AI_WORKSHEET_DAILY_LIMIT = 3
 AI_WORKSHEET_COOLDOWN_SECONDS = 10
@@ -281,7 +282,12 @@ def normalize_worksheet_output(raw: dict) -> dict:
         if _worksheet_instruction_needs_reset(ws_type, out.get("instructions", "")):
             out["instructions"] = _default_instruction_for_worksheet_type(ws_type)
 
-    return out
+    return enrich_worksheet_with_visuals(
+        out,
+        subject=out.get("subject", ""),
+        learner_stage=out.get("learner_stage", ""),
+        topic=out.get("topic", ""),
+    )
 
 
 # ── AI prompt ────────────────────────────────────────────────────────
@@ -337,6 +343,7 @@ Worksheet-specific rules for matching:
 - Do NOT prefix left_items or right_items with letters or numbers.
 - Do NOT return A., B., C. or 1., 2., 3. inside the item text.
 - The renderer will add numbering and lettering.
+- If learner_stage is early_primary, lower_primary, primary_lower, or pre_primary, prefer concrete and visually observable items when pedagogically suitable.
 """,
         "true_false": """
 Worksheet-specific rules for true_false:
@@ -352,12 +359,14 @@ Worksheet-specific rules for true_false:
 - Do NOT prefix statements with numbers or letters.
 - Do NOT return 1., 2., 3. or A., B., C. inside the statement text.
 - The renderer will add numbering.
+- For lower-primary image-friendly topics, you may instead base the statements on one simple observable classroom-safe scene and leave source_text empty.
 """,
         "reading_comprehension": """
 Worksheet-specific rules for reading_comprehension:
 - Create a reading passage in "reading_passage".
 - Create comprehension questions in "questions".
 - Do not use "source_text" or "true_false_statements" unless worksheet_type is true_false.
+- For lower-primary learners, prefer concrete, scene-based passages with visible actions, objects, and settings that can be illustrated.
 """,
         "word_search_vocab": """
 Worksheet-specific rules for word_search_vocab:
@@ -365,6 +374,7 @@ Worksheet-specific rules for word_search_vocab:
 - Do not create questions.
 - Do not create a reading passage or source text.
 - Do not create matching pairs.
+- For lower-primary learners, prefer concrete vocabulary that can be represented clearly with pictures.
 """,
         "short_answer": """
 Worksheet-specific rules for short_answer:
@@ -545,20 +555,17 @@ def generate_ai_worksheet(
     }
 
     system_prompt, user_prompt = _build_worksheet_prompts(payload)
-    provider = _lp().get_ai_provider()
-
-    if provider == "gemini":
-        provider_order = ["gemini", "openrouter"]
-    else:
-        provider_order = ["openrouter", "gemini"]
+    provider_order = _lp().get_ai_provider_order()
 
     errors = []
     for p in provider_order:
         try:
             if p == "gemini":
                 raw = _lp()._generate_with_gemini(system_prompt, user_prompt)
-            else:
+            elif p == "openrouter":
                 raw = _lp()._generate_with_openrouter(system_prompt, user_prompt)
+            else:
+                raw = _lp()._generate_with_openai(system_prompt, user_prompt)
 
             parsed = _lp()._extract_json_object_from_text(raw)
             return normalize_worksheet_output(parsed)

@@ -20,6 +20,12 @@ from styles.pdf_styles import (
     get_pdf_layout_constants,
     C as _C,
 )
+from helpers.visual_support import (
+    enrich_exam_with_visuals,
+    render_streamlit_visual_support,
+    build_pdf_visual_flowables,
+    render_visual_support_status_group,
+)
 
 
 def _eb():
@@ -161,6 +167,12 @@ def save_exam_record(
 ) -> bool:
     try:
         from helpers.branding import resolve_is_public
+        exam_data = enrich_exam_with_visuals(
+            exam_data,
+            subject=subject,
+            learner_stage=learner_stage,
+            topic=topic,
+        )
         payload = with_owner({
             "title": str(exam_data.get("title", "")).strip(),
             "subject": str(subject).strip(),
@@ -405,6 +417,13 @@ def build_exam_pdf_bytes(
         Table, TableStyle, KeepTogether, CondPageBreak,
     )
 
+    exam_data = enrich_exam_with_visuals(
+        exam_data,
+        subject=subject,
+        learner_stage=learner_stage,
+        topic=topic,
+    )
+
     body_font, bold_font = ensure_pdf_fonts_registered()
 
     # Use user's font/size preference
@@ -459,6 +478,8 @@ def build_exam_pdf_bytes(
         if sec.get("instructions"):
             story.append(Paragraph(_pdf_safe_text(sec["instructions"]), _S["instruction"]))
             story.append(Spacer(1, 4))
+
+        story.extend(build_pdf_visual_flowables(sec.get("visual_support"), max_width_cm=16.0, paragraph_style=_S["body"]))
 
         if sec.get("source_text"):
             story.append(Paragraph(_pdf_safe_text(_strip_auto_numbering(sec["source_text"])), _S["body"]))
@@ -726,7 +747,17 @@ def render_exam_result(exam_data: dict, answer_key: dict, *, show_ready_banner: 
 
     from helpers.quick_exam_builder import _default_instruction_for_exam_type, _exam_instruction_needs_reset
 
-    exam_data = dict(exam_data or {})
+    subject = meta.get("subject", exam_data.get("subject", ""))
+    topic = meta.get("topic", exam_data.get("topic", ""))
+    learner_stage = meta.get("learner_stage", exam_data.get("learner_stage", ""))
+    level_or_band = meta.get("level_or_band", exam_data.get("level_or_band", ""))
+
+    exam_data = enrich_exam_with_visuals(
+        dict(exam_data or {}),
+        subject=subject,
+        learner_stage=learner_stage,
+        topic=topic,
+    )
     normalized_sections = []
     for sec in exam_data.get("sections", []):
         if not isinstance(sec, dict):
@@ -757,6 +788,8 @@ def render_exam_result(exam_data: dict, answer_key: dict, *, show_ready_banner: 
 
         if sec.get("instructions"):
             st.caption(sec["instructions"])
+
+        render_streamlit_visual_support(sec.get("visual_support"))
 
         if sec.get("source_text"):
             st.info(_strip_auto_numbering(sec["source_text"]))
@@ -810,6 +843,20 @@ def render_exam_result(exam_data: dict, answer_key: dict, *, show_ready_banner: 
             for idx, ans in enumerate(sec.get("answers", []), 1):
                 st.write(f"{idx}. {_format_answer_text(ans)}")
 
+    if show_ready_banner:
+        # Debug hook kept intentionally for future developer troubleshooting.
+        # Re-enable when needed:
+        # status_items = []
+        # for idx, sec in enumerate(exam_data.get("sections", []), 1):
+        #     status = sec.get("_visual_support_status")
+        #     if not isinstance(status, dict):
+        #         continue
+        #     sec_title = str(sec.get("title") or _section_title_fallback(sec.get("type", "")) or "").strip()
+        #     label = sec_title or f"Section {idx}"
+        #     status_items.append({"label": label, "status": status})
+        # render_visual_support_status_group(status_items)
+        pass
+
     if allow_assign:
         safe_assign_title = re.sub(r"[^A-Za-z0-9._-]+", "_", str(exam_data.get("title") or "exam").strip()) or "exam"
         with st.expander(t("assign_to_student"), expanded=False):
@@ -819,17 +866,17 @@ def render_exam_result(exam_data: dict, answer_key: dict, *, show_ready_banner: 
                 prefix=f"exam_assign_{safe_assign_title}",
                 exam_data=exam_data,
                 answer_key=answer_key,
-                subject=meta.get("subject", ""),
-                topic=meta.get("topic", ""),
-                learner_stage=meta.get("learner_stage", ""),
-                level_or_band=meta.get("level_or_band", ""),
+                subject=subject,
+                topic=topic,
+                learner_stage=learner_stage,
+                level_or_band=level_or_band,
             )
 
     _pdf_kwargs = dict(
-        subject=meta.get("subject", ""),
-        topic=meta.get("topic", ""),
-        learner_stage=meta.get("learner_stage", ""),
-        level_or_band=meta.get("level_or_band", ""),
+        subject=subject,
+        topic=topic,
+        learner_stage=learner_stage,
+        level_or_band=level_or_band,
     )
 
     student_pdf = build_exam_pdf_bytes(exam_data, **_pdf_kwargs)
