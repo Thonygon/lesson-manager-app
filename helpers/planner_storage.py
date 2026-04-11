@@ -1,17 +1,25 @@
-import streamlit as st
-import json, datetime, os, re, time, math
-from typing import Optional
-from datetime import datetime as _dt, timezone
-import pandas as pd
-from core.i18n import t
-from core.state import get_current_user_id, with_owner
-from core.timezone import now_local, today_local, get_app_tz
-from core.database import get_sb, load_table, load_students, register_cache, clear_app_caches
+# CLASSIO — Planner Storage (Full Replacement)
+# ============================================================
 import html
-import textwrap
-from core.navigation import home_go
+import math
+import os
+import re
+from datetime import datetime as _dt, timezone
+from io import BytesIO
+from typing import Optional
 
-# ── Cleanup code-like key names in AI-generated plan text ────────────
+import pandas as pd
+import streamlit as st
+from core.database import clear_app_caches, get_sb, load_table
+from core.i18n import t
+from core.navigation import home_go
+from core.state import with_owner
+from core.timezone import get_app_tz, today_local
+from reportlab.lib.enums import TA_CENTER
+
+# ============================================================
+# Cleanup helpers
+# ============================================================
 _PLAN_KEY_PATTERNS = [
     "core_material.pre_task_questions",
     "core_material.gist_questions",
@@ -25,6 +33,29 @@ _PLAN_KEY_PATTERNS = [
     "core_material.real_life_application",
     "core_material.strategy_steps",
     "core_material.performance_goal",
+    "core_material.materials_needed",
+    "core_material.expected_output",
+    "core_material.timing_guide",
+    "core_material.differentiation",
+    "core_material.assessment_check",
+    "core_material.student_checklist",
+    "core_material.key_concept",
+    "core_material.guided_problem_set",
+    "core_material.independent_problem_set",
+    "core_material.challenge_problem",
+    "core_material.answer_key",
+    "core_material.phenomenon_prompt",
+    "core_material.prediction_task",
+    "core_material.observation_task",
+    "core_material.evidence_questions",
+    "core_material.misconception_alert",
+    "core_material.technical_focus",
+    "core_material.practice_pattern",
+    "core_material.teacher_model",
+    "core_material.strategy_name",
+    "core_material.model_scenario",
+    "core_material.student_action_plan",
+    "core_material.language_frames",
     "core_material",
     "reading_passage",
     "listening_script",
@@ -33,32 +64,71 @@ _PLAN_KEY_PATTERNS = [
     "pre_task_questions",
     "target_vocabulary",
     "post_task",
+    "materials_needed",
+    "expected_output",
+    "timing_guide",
+    "differentiation",
+    "assessment_check",
+    "student_checklist",
+    "key_concept",
+    "guided_problem_set",
+    "independent_problem_set",
+    "challenge_problem",
+    "answer_key",
+    "phenomenon_prompt",
+    "prediction_task",
+    "observation_task",
+    "evidence_questions",
+    "misconception_alert",
+    "technical_focus",
+    "practice_pattern",
+    "teacher_model",
+    "strategy_name",
+    "model_scenario",
+    "student_action_plan",
 ]
+
+
+def _lp():
+    """Lazy import to avoid circular dependency with lesson_planner."""
+    import helpers.lesson_planner as lp
+
+    return lp
+
+
+def _fallback_label(key: str) -> str:
+    return str(key or "").replace("_", " ").strip().capitalize()
 
 
 def _clean_plan_text(text: str) -> str:
     """Replace code-like key references with translated labels in plan content."""
     if not text:
         return text
+
     for pat in _PLAN_KEY_PATTERNS:
-        # strip "core_material." prefix to get the translation key
         tkey = pat.split(".")[-1]
         translated = t(tkey)
-        # replace various quote/bracket styles: 'key', "key", `key`, key:
+        if not translated or translated == tkey:
+            translated = _fallback_label(tkey)
+
         text = text.replace(f"'{pat}'", translated)
         text = text.replace(f'"{pat}"', translated)
         text = text.replace(f"`{pat}`", translated)
-        text = text.replace(f"{pat}:", f"{translated}:")
-        text = text.replace(f"{pat},", f"{translated},")
-        text = text.replace(f"{pat}.", f"{translated}.")
-        text = text.replace(f"{pat} ", f"{translated} ")
+
+        for variant in [pat, tkey]:
+            text = re.sub(
+                rf"(?<![A-Za-z0-9_]){re.escape(variant)}(?![A-Za-z0-9_])",
+                translated,
+                text,
+            )
+
     return text
 
 
 def _clean_plan_data(plan: dict) -> dict:
     """Deep-clean all string values in a plan dict."""
     out = {}
-    for k, v in plan.items():
+    for k, v in (plan or {}).items():
         if isinstance(v, str):
             out[k] = _clean_plan_text(v)
         elif isinstance(v, list):
@@ -69,32 +139,303 @@ def _clean_plan_data(plan: dict) -> dict:
             out[k] = v
     return out
 
+
 def _clean_display_text(text: str) -> str:
     s = str(text or "").strip()
-
-    # Collapse repeated spaces
     s = re.sub(r"\s+", " ", s)
-
-    # Remove spaces before punctuation
     s = re.sub(r"\s+([.,!?;:])", r"\1", s)
-
-    # Normalize spaces around hyphens and slashes
     s = re.sub(r"\s*-\s*", " - ", s)
     s = re.sub(r"\s*/\s*", " / ", s)
-
-    # Final trim
     s = re.sub(r"\s+", " ", s).strip()
-
-    # Capitalize first letter
     if s:
         s = s[0].upper() + s[1:]
-
     return s
 
-def _lp():
-    """Lazy import to avoid circular dependency with lesson_planner."""
-    import helpers.lesson_planner as lp
-    return lp
+
+# ============================================================
+# Display helpers
+# ============================================================
+
+
+def _inject_planner_result_css() -> None:
+    st.markdown(
+        """
+        <style>
+        .cl-plan-group-title {
+            margin: 1.15rem 0 0.35rem 0;
+            font-size: 1.08rem;
+            font-weight: 800;
+            letter-spacing: 0.01em;
+            color: var(--text, var(--text-color));
+        }
+        .cl-plan-chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 0.35rem 0 0.85rem 0;
+        }
+        .cl-plan-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 999px;
+            padding: 6px 10px;
+            border: 1px solid var(--border, rgba(120, 140, 170, 0.18));
+            background: color-mix(in srgb, var(--panel, rgba(255,255,255,0.08)) 72%, #3B82F6 28%);
+            color: var(--text, var(--text-color));
+            font-size: 0.83rem;
+            line-height: 1;
+            box-shadow: var(--shadow-sm, none);
+        }
+        .cl-plan-small-note {
+            color: var(--muted, var(--text-color));
+            opacity: 0.88;
+            font-size: 0.88rem;
+        }
+        .cl-plan-callout {
+            border-left: 4px solid var(--primary, #3B82F6);
+            background: color-mix(in srgb, var(--panel-soft, rgba(59,130,246,0.06)) 88%, var(--primary, #3B82F6) 12%);
+            color: var(--text, var(--text-color));
+            padding: 10px 12px;
+            border-radius: 10px;
+            margin: 0.35rem 0 0.55rem 0;
+        }
+        .cl-plan-inline-box {
+            background: linear-gradient(180deg, var(--panel, rgba(255,255,255,0.08)), var(--panel-2, rgba(255,255,255,0.04)));
+            border: 1px solid var(--border, rgba(120, 140, 170, 0.18));
+            border-radius: 14px;
+            padding: 0.85rem 0.95rem;
+            margin: 0.15rem 0 0.8rem 0;
+            box-shadow: var(--shadow-sm, none);
+            color: var(--text, var(--text-color));
+        }
+        .cl-plan-inline-box strong {
+            color: var(--text, var(--text-color));
+        }
+        div[data-testid="stExpander"] .cl-plan-expander-note {
+            margin-top: -0.1rem;
+        }
+        /* Theme-aware expanders for planner sections */
+        div[data-testid="stExpander"].cl-plan-expander,
+        .cl-plan-expander + div[data-testid="stExpander"] {
+            border-radius: 16px !important;
+            border: 1px solid var(--border, rgba(120, 140, 170, 0.18)) !important;
+            background: linear-gradient(180deg, var(--panel, rgba(255,255,255,0.08)), var(--panel-2, rgba(255,255,255,0.04))) !important;
+            box-shadow: var(--shadow-sm, none) !important;
+            overflow: hidden !important;
+            margin-bottom: 0.8rem !important;
+        }
+        div[data-testid="stExpander"] summary {
+            font-weight: 800 !important;
+            color: var(--text, var(--text-color)) !important;
+        }
+        div[data-testid="stExpander"] details[open] summary {
+            border-bottom: 1px solid var(--border, rgba(120, 140, 170, 0.18)) !important;
+            margin-bottom: 0.6rem !important;
+        }
+        div[data-testid="stExpander"] div[data-testid="stExpanderDetails"] {
+            color: var(--text, var(--text-color)) !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _canonical_subject_display(subject: str) -> str:
+    """Return a consistent Title Case English label for storage.
+
+    Always language-independent so the DB column stays clean.
+    Translated labels are computed at display time instead.
+    """
+    s = str(subject or "").strip()
+    if not s:
+        return ""
+    return _clean_display_text(s.replace("_", " "))
+
+
+def _translated_subject_display(subject: str) -> str:
+    """Return a UI-language-translated label (for display only, NOT for DB storage)."""
+    s = str(subject or "").strip()
+    if not s:
+        return ""
+
+    canonical = s.lower()
+    if canonical in getattr(_lp(), "QUICK_SUBJECTS", []):
+        return _lp().subject_label(canonical)
+    return _clean_display_text(s)
+
+
+def _translated_level_display(level_or_band: str) -> str:
+    s = str(level_or_band or "").strip()
+    if not s:
+        return ""
+    return s if s in getattr(_lp(), "LANGUAGE_LEVELS", []) else t(s)
+
+
+def _translated_stage_display(stage: str) -> str:
+    s = str(stage or "").strip()
+    return t(s) if s else ""
+
+
+def _translated_purpose_display(purpose: str) -> str:
+    s = str(purpose or "").strip()
+    return t(s) if s else ""
+
+
+def _safe_title_from_plan(plan: dict) -> str:
+    safe_title = re.sub(r"[^A-Za-z0-9._-]+", "_", str(plan.get("title") or "lesson_plan").strip())
+    return safe_title or "lesson_plan"
+
+
+def _has_any_value(value) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return True
+
+
+def _normalize_list_for_display(items) -> list[str]:
+    if items is None:
+        return []
+    if isinstance(items, list):
+        return [str(x).strip() for x in items if str(x).strip()]
+    if isinstance(items, str):
+        text = items.strip()
+        if not text:
+            return []
+        parts = [line.strip() for line in text.splitlines() if line.strip()]
+        return parts if len(parts) > 1 else [text]
+    return [str(items).strip()]
+
+
+def _write_list(items) -> None:
+    for item in _normalize_list_for_display(items):
+        st.write(f"- {item}")
+
+
+def _render_meta_chip_row(
+    subject: str,
+    learner_stage: str,
+    level_or_band: str,
+    lesson_purpose: str,
+    mode_label: str,
+    material_language: str = "",
+) -> None:
+    chips = []
+    if subject:
+        chips.append(f"📚 {_translated_subject_display(subject)}")
+    if learner_stage:
+        chips.append(f"👥 {_translated_stage_display(learner_stage)}")
+    if level_or_band:
+        chips.append(f"🏷️ {_translated_level_display(level_or_band)}")
+    if lesson_purpose:
+        chips.append(f"🎯 {_translated_purpose_display(lesson_purpose)}")
+    if mode_label:
+        chips.append(f"⚙️ {mode_label}")
+    if material_language:
+        chips.append(f"🌐 {str(material_language).upper()}")
+
+    if not chips:
+        return
+
+    chip_html = "".join([f'<span class="cl-plan-chip">{html.escape(chip)}</span>' for chip in chips])
+    st.markdown(f'<div class="cl-plan-chip-row">{chip_html}</div>', unsafe_allow_html=True)
+
+
+def _render_text_block(value: str) -> None:
+    if _has_any_value(value):
+        st.write(str(value))
+
+
+def _render_textarea_block(label: str, value: str, key: str, height: int = 190) -> None:
+    if _has_any_value(value):
+        st.text_area(label, value=value, height=height, key=key)
+
+
+def _render_inline_box(title: str, value) -> None:
+    if not _has_any_value(value):
+        return
+    st.markdown(
+        f'<div class="cl-plan-inline-box"><strong>{html.escape(title)}</strong></div>',
+        unsafe_allow_html=True,
+    )
+    if isinstance(value, list):
+        _write_list(value)
+    else:
+        _render_text_block(str(value))
+
+
+def _render_material_body(label: str, value, style: str, section_key: str, action_key_prefix: str) -> None:
+    if style == "list_inline":
+        st.write(", ".join([str(x) for x in value]))
+    elif style == "list":
+        _write_list(value)
+    elif style == "textarea":
+        _render_textarea_block(label, str(value), key=f"{action_key_prefix}_{section_key}_view")
+    elif style == "callout":
+        st.markdown(
+            f'<div class="cl-plan-callout">{html.escape(str(value))}</div>',
+            unsafe_allow_html=True,
+        )
+    elif style == "list_or_text":
+        if isinstance(value, list):
+            _write_list(value)
+        else:
+            _render_text_block(str(value))
+    else:
+        _render_text_block(str(value))
+
+
+def _material_groups(plan: dict) -> list[tuple[str, object, str]]:
+    cm = plan.get("core_material", {}) or {}
+    return [
+        ("target_vocabulary", cm.get("target_vocabulary"), "list_inline"),
+        ("language_frames", cm.get("language_frames"), "list"),
+        ("pre_task_questions", cm.get("pre_task_questions"), "list"),
+        ("reading_passage", plan.get("reading_passage"), "textarea"),
+        ("listening_script", plan.get("listening_script"), "textarea"),
+        ("gist_questions", cm.get("gist_questions"), "list"),
+        ("detail_questions", cm.get("detail_questions"), "list"),
+        ("worked_example", cm.get("worked_example"), "list"),
+        ("independent_practice", cm.get("independent_practice"), "list"),
+        ("common_error_alert", cm.get("common_error_alert"), "callout"),
+        ("concept_explanation", cm.get("concept_explanation"), "text"),
+        ("real_life_application", cm.get("real_life_application"), "text"),
+        ("strategy_steps", cm.get("strategy_steps"), "list"),
+        ("performance_goal", cm.get("performance_goal"), "text"),
+        ("materials_needed", cm.get("materials_needed"), "list_or_text"),
+        ("timing_guide", cm.get("timing_guide"), "list_or_text"),
+        ("expected_output", cm.get("expected_output"), "text"),
+        ("differentiation", cm.get("differentiation"), "list_or_text"),
+        ("assessment_check", cm.get("assessment_check"), "list_or_text"),
+        ("student_checklist", cm.get("student_checklist"), "list"),
+        ("key_concept", cm.get("key_concept"), "text"),
+        ("guided_problem_set", cm.get("guided_problem_set"), "list"),
+        ("independent_problem_set", cm.get("independent_problem_set"), "list"),
+        ("challenge_problem", cm.get("challenge_problem"), "list_or_text"),
+        ("answer_key", cm.get("answer_key"), "list_or_text"),
+        ("phenomenon_prompt", cm.get("phenomenon_prompt"), "text"),
+        ("prediction_task", cm.get("prediction_task"), "list_or_text"),
+        ("observation_task", cm.get("observation_task"), "list_or_text"),
+        ("evidence_questions", cm.get("evidence_questions"), "list"),
+        ("misconception_alert", cm.get("misconception_alert"), "callout"),
+        ("technical_focus", cm.get("technical_focus"), "text"),
+        ("practice_pattern", cm.get("practice_pattern"), "list_or_text"),
+        ("teacher_model", cm.get("teacher_model"), "list_or_text"),
+        ("strategy_name", cm.get("strategy_name"), "text"),
+        ("model_scenario", cm.get("model_scenario"), "text"),
+        ("student_action_plan", cm.get("student_action_plan"), "list_or_text"),
+        ("post_task", cm.get("post_task"), "text"),
+    ]
+
+
+# ============================================================
+# Community search
+# ============================================================
 
 
 def _find_community_plan_for_other(
@@ -115,23 +456,23 @@ def _find_community_plan_for_other(
             return None
 
         subject_norm = str(subject_name or "").strip().casefold()
-        mask_subject = df["subject"].str.strip().str.casefold() == subject_norm
         topic_norm = str(topic or "").strip().casefold()
-        mask_topic = df["topic"].str.strip().str.casefold() == topic_norm
+        mask_subject = df["subject"].astype(str).str.strip().str.casefold() == subject_norm
+        mask_topic = df["topic"].astype(str).str.strip().str.casefold() == topic_norm
 
         matches = df[mask_subject & mask_topic].copy()
         if matches.empty:
             return None
 
         def _score(row):
-            s = 0
+            score = 0
             if str(row.get("learner_stage", "")).strip() == str(learner_stage).strip():
-                s += 1
+                score += 1
             if str(row.get("level_or_band", "")).strip() == str(level_or_band).strip():
-                s += 1
+                score += 1
             if str(row.get("lesson_purpose", "")).strip() == str(lesson_purpose).strip():
-                s += 1
-            return s
+                score += 1
+            return score
 
         matches["_score"] = matches.apply(_score, axis=1)
         best = matches.sort_values(["_score", "created_at"], ascending=[False, False]).iloc[0]
@@ -139,8 +480,11 @@ def _find_community_plan_for_other(
     except Exception:
         return None
 
-# 07.1A.1) QUICK LESSON PLANNER STORAGE + AI LOGGING
-# =========================
+
+# ============================================================
+# Persistence / loading
+# ============================================================
+
 
 def planner_payload_from_inputs(
     subject: str,
@@ -151,23 +495,27 @@ def planner_payload_from_inputs(
     mode: str,
     plan: dict,
 ) -> dict:
-    return with_owner({
-        "subject": str(subject).strip(),
-        "topic": _clean_display_text(topic),
-        "learner_stage": str(learner_stage).strip(),
-        "level_or_band": str(level_or_band).strip(),
-        "lesson_purpose": str(lesson_purpose).strip(),
-        "plan_language": str(plan.get("plan_language") or _lp().get_plan_language()).strip(),
-        "student_material_language": str(plan.get("student_material_language") or "").strip(),
-        "source_type": "ai" if str(mode).strip().lower() == "ai" else "template",
-        "planner_mode": mode,
-        "plan_json": plan,
-        "title": _clean_display_text(plan.get("title") or ""),
-        "author_name": str(st.session_state.get("user_name") or "Unknown").strip(),
-        "subject_display": subject,
-        "is_public": True,
-        "created_at": _dt.now(timezone.utc).isoformat(),
-    })
+    from helpers.branding import resolve_is_public
+
+    return with_owner(
+        {
+            "subject": str(subject).strip(),
+            "topic": _clean_display_text(topic),
+            "learner_stage": str(learner_stage).strip(),
+            "level_or_band": str(level_or_band).strip(),
+            "lesson_purpose": str(lesson_purpose).strip(),
+            "plan_language": str(plan.get("plan_language") or _lp().get_plan_language()).strip(),
+            "student_material_language": str(plan.get("student_material_language") or "").strip(),
+            "source_type": "ai" if str(mode).strip().lower() == "ai" else "template",
+            "planner_mode": mode,
+            "plan_json": plan,
+            "title": _clean_display_text(plan.get("title") or ""),
+            "author_name": str(st.session_state.get("user_name") or t("unknown")).strip(),
+            "subject_display": _canonical_subject_display(subject),
+            "is_public": resolve_is_public(),
+            "created_at": _dt.now(timezone.utc).isoformat(),
+        }
+    )
 
 
 def save_lesson_plan_record(
@@ -192,8 +540,9 @@ def save_lesson_plan_record(
         get_sb().table("lesson_plans").insert(payload).execute()
         return True
     except Exception as e:
-        st.warning(f"Could not save lesson plan: {e}")
+        st.warning(f"{t('could_not_save_lesson_plan')}: {e}")
         return False
+
 
 def load_my_lesson_plans() -> pd.DataFrame:
     try:
@@ -202,32 +551,23 @@ def load_my_lesson_plans() -> pd.DataFrame:
             return pd.DataFrame()
 
         df = df.copy()
-
         if "created_at" in df.columns:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
 
-        sort_col = "created_at" if "created_at" in df.columns else None
-        if sort_col:
-            df = df.sort_values(sort_col, ascending=False, na_position="last")
+        if "created_at" in df.columns:
+            df = df.sort_values("created_at", ascending=False, na_position="last")
 
         return df.reset_index(drop=True)
-
     except Exception as e:
-        st.error(f"Could not load your lesson plans: {e}")
+        st.error(f"{t('could_not_load_your_lesson_plans')}: {e}")
         return pd.DataFrame()
 
 
 def load_public_lesson_plans() -> pd.DataFrame:
     try:
         res = (
-            get_sb().table("lesson_plans")
-            .select("*")
-            .eq("is_public", True)
-            .order("created_at", desc=True)
-            .limit(500)
-            .execute()
+            get_sb().table("lesson_plans").select("*").eq("is_public", True).order("created_at", desc=True).limit(500).execute()
         )
-
         df = pd.DataFrame(res.data or [])
         if df.empty:
             return pd.DataFrame()
@@ -236,10 +576,10 @@ def load_public_lesson_plans() -> pd.DataFrame:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
 
         return df.reset_index(drop=True)
-
     except Exception as e:
-        st.error(f"Could not load community lesson plans: {e}")
+        st.error(f"{t('could_not_load_community_lesson_plans')}: {e}")
         return pd.DataFrame()
+
 
 def format_plan_datetime(value) -> str:
     try:
@@ -253,9 +593,12 @@ def format_plan_datetime(value) -> str:
 
 def safe_plan_label(value: str, prefix: str = "") -> str:
     s = str(value or "").strip()
-    if not s:
-        return ""
-    return f"{prefix}{s}"
+    return f"{prefix}{s}" if s else ""
+
+
+# ============================================================
+# Library cards
+# ============================================================
 
 
 def render_plan_library_cards(
@@ -271,7 +614,7 @@ def render_plan_library_cards(
     rows = df.reset_index(drop=True).to_dict("records")
 
     for idx in range(0, len(rows), 2):
-        pair = rows[idx:idx + 2]
+        pair = rows[idx : idx + 2]
         cols = st.columns(2, gap="medium")
 
         for col_idx, row in enumerate(pair):
@@ -286,46 +629,40 @@ def render_plan_library_cards(
             author_name = str(row.get("author_name") or "").strip()
             created_at = format_plan_datetime(row.get("created_at"))
 
-            subject_label = ""
-            if subject:
-                subj_key = "subject_" + subject.strip().lower().replace(" ", "_")
-                subject_label = t(subj_key)
-
-            level_label = ""
-            if level_or_band:
-                if level_or_band in ["A1", "A2", "B1", "B2", "C1", "C2"]:
-                    level_label = level_or_band
-                else:
-                    level_label = t(level_or_band)
-
-            purpose_label = t(lesson_purpose) if lesson_purpose else ""
-            stage_label = t(learner_stage) if learner_stage else ""
+            subject_label = _translated_subject_display(subject)
+            level_label = _translated_level_display(level_or_band)
+            purpose_label = _translated_purpose_display(lesson_purpose)
+            stage_label = _translated_stage_display(learner_stage)
             source_label = t("mode_ai") if source_type == "ai" else t("mode_template")
 
             safe_title = html.escape(title)
             safe_author = html.escape(author_name)
             preview_text = html.escape((topic or t("no_description_available"))[:180])
 
-            chips = "".join([
-                f'<span class="cm-resource-chip">📚 {html.escape(subject_label)}</span>' if subject_label else "",
-                f'<span class="cm-resource-chip">🎯 {html.escape(purpose_label)}</span>' if purpose_label else "",
-                f'<span class="cm-resource-chip">👥 {html.escape(stage_label)}</span>' if stage_label else "",
-                f'<span class="cm-resource-chip">🏷️ {html.escape(level_label)}</span>' if level_label else "",
-                f'<span class="cm-resource-chip">⚙️ {html.escape(source_label)}</span>' if source_label else "",
-            ])
+            chips = "".join(
+                [
+                    f'<span class="cm-resource-chip">📚 {html.escape(subject_label)}</span>' if subject_label else "",
+                    f'<span class="cm-resource-chip">🎯 {html.escape(purpose_label)}</span>' if purpose_label else "",
+                    f'<span class="cm-resource-chip">👥 {html.escape(stage_label)}</span>' if stage_label else "",
+                    f'<span class="cm-resource-chip">🏷️ {html.escape(level_label)}</span>' if level_label else "",
+                    f'<span class="cm-resource-chip">⚙️ {html.escape(source_label)}</span>' if source_label else "",
+                ]
+            )
 
-            meta = "".join([
-                f'<div class="cm-resource-meta">👤 {safe_author}</div>' if show_author and author_name else "",
-                f'<div class="cm-resource-meta">🕒 {html.escape(created_at)}</div>' if created_at else "",
-            ])
+            meta = "".join(
+                [
+                    f'<div class="cm-resource-meta">👤 {safe_author}</div>' if show_author and author_name else "",
+                    f'<div class="cm-resource-meta">🕒 {html.escape(created_at)}</div>' if created_at else "",
+                ]
+            )
 
             card_html = (
                 f'<div class="cm-resource-card cm-resource-plan">'
                 f'<div class="cm-resource-card__title">{safe_title}</div>'
                 f'<div class="cm-resource-chip-row">{chips}</div>'
                 f'<div class="cm-resource-preview">{preview_text}</div>'
-                f'{meta}'
-                f'</div>'
+                f"{meta}"
+                f"</div>"
             )
 
             with cols[col_idx]:
@@ -356,21 +693,30 @@ def render_plan_library_cards(
 
                     st.rerun()
 
+
+# ============================================================
+# Logs / usage
+# ============================================================
+
+
 def log_user_activity(
     activity_type: str,
     feature_name: str,
     meta: Optional[dict] = None,
 ) -> None:
     try:
-        payload = with_owner({
-            "activity_type": str(activity_type or "").strip() or "unknown",
-            "feature_name": str(feature_name or "").strip() or "unknown",
-            "meta_json": meta or {},
-            "created_at": _dt.now(timezone.utc).isoformat(),
-        })
+        payload = with_owner(
+            {
+                "activity_type": str(activity_type or "").strip() or "unknown",
+                "feature_name": str(feature_name or "").strip() or "unknown",
+                "meta_json": meta or {},
+                "created_at": _dt.now(timezone.utc).isoformat(),
+            }
+        )
         get_sb().table("user_activity_log").insert(payload).execute()
     except Exception as e:
         st.warning(f"user_activity_log insert failed: {e}")
+
 
 def log_ai_usage(
     request_kind: str,
@@ -378,12 +724,14 @@ def log_ai_usage(
     meta: Optional[dict] = None,
 ) -> None:
     try:
-        payload = with_owner({
-            "feature_name": str(request_kind).strip(),
-            "status": str(status).strip(),
-            "meta_json": meta or {},
-            "created_at": _dt.now(timezone.utc).isoformat(),
-        })
+        payload = with_owner(
+            {
+                "feature_name": str(request_kind).strip(),
+                "status": str(status).strip(),
+                "meta_json": meta or {},
+                "created_at": _dt.now(timezone.utc).isoformat(),
+            }
+        )
         get_sb().table("ai_usage_logs").insert(payload).execute()
         clear_app_caches()
     except Exception as e:
@@ -399,6 +747,7 @@ def _safe_ai_logs_df() -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
 
+    df = df.copy()
     if "created_at" not in df.columns:
         df["created_at"] = None
     if "status" not in df.columns:
@@ -406,7 +755,6 @@ def _safe_ai_logs_df() -> pd.DataFrame:
     if "feature_name" not in df.columns:
         df["feature_name"] = ""
 
-    df = df.copy()
     df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce", utc=True)
     df["status"] = df["status"].fillna("").astype(str).str.strip().str.lower()
     df["feature_name"] = df["feature_name"].fillna("").astype(str).str.strip().str.lower()
@@ -416,9 +764,7 @@ def _safe_ai_logs_df() -> pd.DataFrame:
 def get_ai_planner_usage_status() -> dict:
     df = _safe_ai_logs_df()
     now_utc = _dt.now(timezone.utc)
-    today_start_utc = _dt.combine(
-        today_local(), _dt.min.time()
-    ).replace(tzinfo=get_app_tz()).astimezone(timezone.utc)
+    today_start_utc = _dt.combine(today_local(), _dt.min.time()).replace(tzinfo=get_app_tz()).astimezone(timezone.utc)
 
     if df.empty:
         return {
@@ -429,16 +775,8 @@ def get_ai_planner_usage_status() -> dict:
             "last_request_at": None,
         }
 
-    planner_df = df[
-        (df["feature_name"] == "quick_lesson_ai") &
-        (df["status"] == "success")
-    ].copy()
-
-    today_df = planner_df[
-        (planner_df["created_at"].notna()) &
-        (planner_df["created_at"] >= today_start_utc)
-    ].copy()
-
+    planner_df = df[(df["feature_name"] == "quick_lesson_ai") & (df["status"] == "success")].copy()
+    today_df = planner_df[(planner_df["created_at"].notna()) & (planner_df["created_at"] >= today_start_utc)].copy()
     used_today = int(len(today_df))
 
     cooldown_df = df[df["feature_name"] == "quick_lesson_ai"].dropna(subset=["created_at"]).sort_values("created_at")
@@ -461,6 +799,12 @@ def get_ai_planner_usage_status() -> dict:
         "last_request_at": last_request_at,
     }
 
+
+# ============================================================
+# Streamlit plan renderer
+# ============================================================
+
+
 def render_quick_lesson_plan_result(
     plan: dict,
     subject: str = "",
@@ -469,209 +813,215 @@ def render_quick_lesson_plan_result(
     lesson_purpose: str = "",
     topic: str = "",
     read_only: bool = False,
+    action_key_prefix: str = "quick_plan",
 ) -> None:
+    _inject_planner_result_css()
     plan = _clean_plan_data(plan)
+
     if not read_only:
         st.success(t("lesson_plan_ready"))
+
     resolved_mode = st.session_state.get("quick_lesson_plan_mode_used", "template")
     warning_msg = st.session_state.get("quick_lesson_plan_warning")
-
-    st.caption(t("mode_used", mode=resolved_mode.upper()))
+    mode_label = t("mode_ai") if str(resolved_mode).strip().lower() == "ai" else t("mode_template")
 
     if warning_msg:
         st.warning(warning_msg)
+
     st.markdown(f"### {t('plan_title')}: {plan.get('title', '')}")
-
-    rec_level = plan.get("recommended_level", "")
-    if rec_level:
-        show_level = rec_level if rec_level in _lp().LANGUAGE_LEVELS else t(rec_level)
-        st.caption(f"{t('recommended_level')}: {show_level}")
-
-    st.caption(
-        f"{t('plan_language')}: {_lp().get_plan_language().upper()} · "
-        f"{t('student_material_language')}: {plan.get('student_material_language', '').upper()}"
+    _render_meta_chip_row(
+        subject=subject,
+        learner_stage=learner_stage,
+        level_or_band=level_or_band,
+        lesson_purpose=lesson_purpose,
+        mode_label=mode_label,
+        material_language=str(plan.get("student_material_language") or "").upper(),
     )
 
-    st.markdown(f"**{t('lesson_objective')}**")
-    st.write(plan.get("objective", ""))
+    # Lesson Overview
+    with st.expander(f"📌 {t('lesson_overview')}", expanded=True):
+        _render_inline_box(t("lesson_objective"), plan.get("objective", ""))
+        if _has_any_value(plan.get("success_criteria")):
+            st.markdown(f"**{t('success_criteria')}**")
+            _write_list(plan.get("success_criteria", []))
 
-    st.markdown(f"**{t('success_criteria')}**")
-    for item in plan.get("success_criteria", []):
-        st.write(f"- {item}")
+    # Lesson Flow
+    with st.expander(f"🧭 {t('lesson_flow')}", expanded=True):
+        flow_sections = [
+            (f"1. {t('warm_up')}", plan.get("warm_up", [])),
+            (f"2. {t('main_activity')}", plan.get("main_activity", [])),
+            (f"3. {t('guided_practice')}", plan.get("guided_practice", [])),
+            (f"4. {t('freer_task')}", plan.get("freer_task", [])),
+            (f"5. {t('wrap_up')}", plan.get("wrap_up", [])),
+        ]
+        for section_title, section_items in flow_sections:
+            if _has_any_value(section_items):
+                st.markdown(f"**{section_title}**")
+                _write_list(section_items)
 
-    st.markdown(f"**1. {t('warm_up')}**")
-    for item in plan.get("warm_up", []):
-        st.write(f"- {item}")
+    # Teacher Notes — together with Overview + Flow
+    teacher_note_blocks = [
+        (t("core_examples"), plan.get("core_examples", []), "list"),
+        (t("practice_questions"), plan.get("practice_questions", []), "list"),
+        (t("teacher_moves"), plan.get("teacher_moves", []), "list"),
+        (t("extension_task"), plan.get("extension_task", ""), "text"),
+        (t("optional_homework"), plan.get("homework", ""), "text"),
+    ]
+    teacher_blocks_present = [b for b in teacher_note_blocks if _has_any_value(b[1])]
+    if teacher_blocks_present:
+        with st.expander(f"👩‍🏫 {t('teacher_notes')}", expanded=True):
+            for label, value, style in teacher_blocks_present:
+                st.markdown(f"**{label}**")
+                if style == "list":
+                    _write_list(value)
+                else:
+                    _render_text_block(str(value))
 
-    st.markdown(f"**2. {t('main_activity')}**")
-    for item in plan.get("main_activity", []):
-        st.write(f"- {item}")
+    # Teaching Materials — separate expander
+    materials = [(key, value, style) for key, value, style in _material_groups(plan) if _has_any_value(value)]
+    if materials:
+        with st.expander(f"📚 {t('lesson_materials')}", expanded=True):
+            for key, value, style in materials:
+                label = t(key)
+                if not label or label == key:
+                    label = _fallback_label(key)
+                st.markdown(f"**{label}**")
+                _render_material_body(label, value, style, key, action_key_prefix)
 
-    cm = plan.get("core_material", {}) or {}
+    pdf_bytes = build_lesson_plan_pdf_bytes(
+        plan=plan,
+        subject=subject,
+        learner_stage=learner_stage,
+        level_or_band=level_or_band,
+        lesson_purpose=lesson_purpose,
+        topic=topic,
+    )
+    safe_title = _safe_title_from_plan(plan)
 
-    if cm.get("target_vocabulary"):
-        st.markdown(f"**{t('target_vocabulary')}**")
-        st.write(", ".join(cm["target_vocabulary"]))
-
-    if cm.get("pre_task_questions"):
-        st.markdown(f"**{t('pre_task_questions')}**")
-        for q in cm["pre_task_questions"]:
-            st.write(f"- {q}")
-
-    if plan.get("reading_passage"):
-        st.markdown(f"**{t('reading_passage')}**")
-        st.text_area(
-            t("reading_passage"),
-            value=plan["reading_passage"],
-            height=190,
-            key="quick_plan_reading_passage_view",
-        )
-
-    if plan.get("listening_script"):
-        st.markdown(f"**{t('listening_script')}**")
-        st.text_area(
-            t("listening_script"),
-            value=plan["listening_script"],
-            height=190,
-            key="quick_plan_listening_script_view",
-        )
-
-    if cm.get("gist_questions"):
-        st.markdown(f"**{t('gist_questions')}**")
-        for q in cm["gist_questions"]:
-            st.write(f"- {q}")
-
-    if cm.get("detail_questions"):
-        st.markdown(f"**{t('detail_questions')}**")
-        for q in cm["detail_questions"]:
-            st.write(f"- {q}")
-
-    st.markdown(f"**{t('core_examples')}**")
-    for item in plan.get("core_examples", []):
-        if isinstance(item, list):
-            for sub in item:
-                st.write(f"- {sub}")
-        else:
-            st.write(f"- {item}")
-
-    # subject-specific core material
-    if cm.get("worked_example"):
-        st.markdown(f"**{t('worked_example')}**")
-        for item in cm["worked_example"]:
-            st.write(f"- {item}")
-
-    if cm.get("independent_practice"):
-        st.markdown(f"**{t('independent_practice')}**")
-        for item in cm["independent_practice"]:
-            st.write(f"- {item}")
-
-    if cm.get("common_error_alert"):
-        st.markdown(f"**{t('common_error_alert')}**")
-        st.write(cm["common_error_alert"])
-
-    if cm.get("concept_explanation"):
-        st.markdown(f"**{t('concept_explanation')}**")
-        st.write(cm["concept_explanation"])
-
-    if cm.get("real_life_application"):
-        st.markdown(f"**{t('real_life_application')}**")
-        st.write(cm["real_life_application"])
-
-    if cm.get("strategy_steps"):
-        st.markdown(f"**{t('strategy_steps')}**")
-        for item in cm["strategy_steps"]:
-            st.write(f"- {item}")
-
-    if cm.get("performance_goal"):
-        st.markdown(f"**{t('performance_goal')}**")
-        st.write(cm["performance_goal"])
-
-    st.markdown(f"**3. {t('guided_practice')}**")
-    for item in plan.get("guided_practice", []):
-        st.write(f"- {item}")
-
-    st.markdown(f"**{t('practice_questions')}**")
-    for q in plan.get("practice_questions", []):
-        st.write(f"- {q}")
-
-    if cm.get("post_task"):
-        st.markdown(f"**{t('post_task')}**")
-        st.write(cm["post_task"])
-
-    st.markdown(f"**4. {t('freer_task')}**")
-    for item in plan.get("freer_task", []):
-        st.write(f"- {item}")
-
-    st.markdown(f"**5. {t('wrap_up')}**")
-    for item in plan.get("wrap_up", []):
-        st.write(f"- {item}")
-
-    st.markdown(f"**{t('teacher_moves')}**")
-    for item in plan.get("teacher_moves", []):
-        st.write(f"- {item}")
-
-    st.markdown(f"**{t('extension_task')}**")
-    st.write(plan.get("extension_task", ""))
-
-    st.markdown(f"**{t('optional_homework')}**")
-    st.write(plan.get("homework", ""))
+    # Word export
+    from helpers.docx_generator import generate_docx_lesson_plan
+    docx_bytes = generate_docx_lesson_plan(
+        plan,
+        subject=subject,
+        topic=topic,
+        learner_stage=learner_stage,
+        level_or_band=level_or_band,
+        lesson_purpose=lesson_purpose,
+    )
 
     if read_only:
-        pdf_bytes = build_lesson_plan_pdf_bytes(
-            plan=plan,
-            subject=subject,
-            learner_stage=learner_stage,
-            level_or_band=level_or_band,
-            lesson_purpose=lesson_purpose,
-            topic=topic,
-        )
+        dc1, dc2 = st.columns(2)
+        with dc1:
+            st.download_button(
+                label=t("download_pdf"),
+                data=pdf_bytes,
+                file_name=f"{safe_title}.pdf",
+                mime="application/pdf",
+                key=f"{action_key_prefix}_download_pdf",
+                use_container_width=True,
+            )
+        with dc2:
+            st.download_button(
+                label=t("download_word"),
+                data=docx_bytes,
+                file_name=f"{safe_title}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key=f"{action_key_prefix}_download_docx",
+                use_container_width=True,
+            )
+        return
 
-        safe_title = re.sub(r"[^A-Za-z0-9._-]+", "_", str(plan.get("title") or "lesson_plan").strip())
-        if not safe_title:
-            safe_title = "lesson_plan"
-
+    if resolved_mode == "template":
+        a1, a2, a3 = st.columns(3)
+        with a1:
+            if st.button(t("save_template_plan"), key="btn_save_template_plan", use_container_width=True):
+                ok = save_lesson_plan_record(
+                    subject=subject,
+                    learner_stage=learner_stage,
+                    level_or_band=level_or_band,
+                    lesson_purpose=lesson_purpose,
+                    topic=topic,
+                    mode="template",
+                    plan=plan,
+                )
+                if ok:
+                    st.session_state["quick_lesson_plan_kept"] = True
+                    log_user_activity(
+                        activity_type="planner_save",
+                        feature_name="quick_lesson_planner",
+                        meta={"source_type": "template", "subject": subject, "topic": topic},
+                    )
+                    st.success(t("template_plan_saved"))
+        with a2:
+            st.download_button(
+                label=t("download_pdf"),
+                data=pdf_bytes,
+                file_name=f"{safe_title}.pdf",
+                mime="application/pdf",
+                key=f"{action_key_prefix}_download_pdf_inline",
+                use_container_width=True,
+            )
+        with a3:
+            if st.button(t("close"), key="btn_close_quick_plan", use_container_width=True):
+                _lp().reset_quick_lesson_planner_state()
+                st.rerun()
         st.download_button(
-            label=t("download_pdf"),
-            data=pdf_bytes,
-            file_name=f"{safe_title}.pdf",
-            mime="application/pdf",
-            key=f"download_plan_pdf_{safe_title}",
+            label=t("download_word"),
+            data=docx_bytes,
+            file_name=f"{safe_title}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key=f"{action_key_prefix}_download_docx_inline",
             use_container_width=True,
         )
+        with st.expander(t("assign_to_student"), expanded=False):
+            from helpers.teacher_student_integration import render_assignment_panel_for_lesson_plan
+
+            render_assignment_panel_for_lesson_plan(
+                prefix=f"{action_key_prefix}_assign",
+                plan=plan,
+                subject=subject,
+                topic=topic,
+                lesson_purpose=lesson_purpose,
+            )
     else:
-        c1, c2, c3 = st.columns(3)
+        a1, a2 = st.columns(2)
+        with a1:
+            st.download_button(
+                label=t("download_pdf"),
+                data=pdf_bytes,
+                file_name=f"{safe_title}.pdf",
+                mime="application/pdf",
+                key=f"{action_key_prefix}_download_pdf_inline",
+                use_container_width=True,
+            )
+        with a2:
+            st.download_button(
+                label=t("download_word"),
+                data=docx_bytes,
+                file_name=f"{safe_title}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key=f"{action_key_prefix}_download_docx_inline2",
+                use_container_width=True,
+            )
+        with st.expander(t("assign_to_student"), expanded=False):
+            from helpers.teacher_student_integration import render_assignment_panel_for_lesson_plan
 
-        with c1:
-            if resolved_mode == "template":
-                if st.button(t("save_template_plan"), key="btn_save_template_plan", use_container_width=True):
-                    ok = save_lesson_plan_record(
-                        subject=subject,
-                        learner_stage=learner_stage,
-                        level_or_band=level_or_band,
-                        lesson_purpose=lesson_purpose,
-                        topic=topic,
-                        mode="template",
-                        plan=plan,
-                    )
-                    if ok:
-                        st.session_state["quick_lesson_plan_kept"] = True
-                        log_user_activity(
-                            activity_type="planner_save",
-                            feature_name="quick_lesson_planner",
-                            meta={"source_type": "template", "subject": subject, "topic": topic},
-                        )
-                        st.success(t("template_plan_saved"))
+            render_assignment_panel_for_lesson_plan(
+                prefix=f"{action_key_prefix}_assign",
+                plan=plan,
+                subject=subject,
+                topic=topic,
+                lesson_purpose=lesson_purpose,
+            )
+        if st.button(t("close"), key="btn_close_quick_plan", use_container_width=True):
+            _lp().reset_quick_lesson_planner_state()
+            st.rerun()
 
-        with c2:
-            if st.button(t("keep_plan"), key="btn_keep_quick_plan", use_container_width=True):
-                st.session_state["quick_lesson_plan_kept"] = True
-                st.success(t("plan_kept"))
 
-        with c3:
-            if st.button(t("delete_plan"), key="btn_delete_quick_plan", use_container_width=True):
-                _lp().reset_quick_lesson_planner_state()
-                st.success(t("plan_deleted"))
-                st.rerun()     
+# ============================================================
+# PDF generation
+# ============================================================
+
 
 def build_lesson_plan_pdf_bytes(
     plan: dict,
@@ -682,126 +1032,368 @@ def build_lesson_plan_pdf_bytes(
     topic: str = "",
 ) -> bytes:
     plan = _clean_plan_data(plan)
-    import os
-    from io import BytesIO
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import cm
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem
-    from reportlab.platypus import Image as RLImage
+
     from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import cm
+    from reportlab.platypus import (
+        Image as RLImage,
+        ListFlowable,
+        ListItem,
+        PageBreak,
+        Paragraph,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
+    )
+    from styles.pdf_styles import (
+        ensure_pdf_fonts_registered,
+        get_plan_pdf_styles,
+        get_pdf_layout_constants,
+        C as _C,
+    )
+
+    body_font, bold_font = ensure_pdf_fonts_registered()
+
+    # Use user's font/size preference
+    from helpers.branding import get_user_branding as _get_branding
+    _branding_cfg = _get_branding()
+    _font_key = _branding_cfg.get("branding_font", "dejavu")
+    _size_key = _branding_cfg.get("branding_font_size", "standard")
+
+    from helpers.font_manager import register_font_for_pdf
+    body_font, bold_font = register_font_for_pdf(_font_key)
+    _PS = get_plan_pdf_styles(body_font, bold_font, size_preset=_size_key)
+    _L = get_pdf_layout_constants()
 
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        leftMargin=1.8 * cm,
-        rightMargin=1.8 * cm,
-        topMargin=1.5 * cm,
-        bottomMargin=1.5 * cm,
+        **_L["plan_margins"],
     )
 
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        "PlanTitle",
-        parent=styles["Title"],
-        fontSize=18,
-        leading=22,
-        textColor=colors.HexColor("#1D4ED8"),
-        spaceAfter=10,
-    )
-    heading_style = ParagraphStyle(
-        "PlanHeading",
-        parent=styles["Heading2"],
-        fontSize=12,
-        leading=15,
-        textColor=colors.HexColor("#0F172A"),
-        spaceBefore=8,
-        spaceAfter=4,
-    )
-    body_style = ParagraphStyle(
-        "PlanBody",
-        parent=styles["BodyText"],
-        fontSize=10.5,
-        leading=14,
-        textColor=colors.HexColor("#0F172A"),
-        spaceAfter=4,
-    )
+    title_style        = _PS["title"]
+    meta_style         = _PS["meta"]
+    section_title_style = _PS["section"]
+    card_title_style   = _PS["card_title"]
+    body_style         = _PS["body"]
 
     story = []
 
-    # ── Top-left logo, then left-aligned title ─────────────────────────
-    title = str(plan.get("title") or t("untitled_plan")).strip()
-    logo_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "static", "logo_classio_light.png"))
-    if os.path.isfile(logo_path):
-        logo = RLImage(logo_path, width=2.8 * cm, height=2.8 * cm, kind="proportional")
-        story.append(logo)
+    def _safe_para(text: str) -> str:
+        return html.escape(str(text or "")).replace("\n", "<br/>")
+
+    def _section_title(label: str):
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(label.upper(), section_title_style))
+
+    def _normalize_pdf_list(items):
+        if items is None:
+            return []
+        if isinstance(items, list):
+            return [str(x).strip() for x in items if str(x).strip()]
+        if isinstance(items, str):
+            text = items.strip()
+            if not text:
+                return []
+            parts = [line.strip() for line in text.splitlines() if line.strip()]
+            return parts if len(parts) > 1 else [text]
+        return [str(items).strip()]
+
+    def _list_flow(items):
+        normalized = _normalize_pdf_list(items)
+        return ListFlowable(
+            [ListItem(Paragraph(_safe_para(x), body_style)) for x in normalized],
+            bulletType="bullet",
+            leftIndent=12,
+        )
+
+    def _boxed_block(title: str, content):
+        parts = [Paragraph(_safe_para(title), card_title_style)]
+        if isinstance(content, list):
+            items = [ListItem(Paragraph(_safe_para(x), body_style)) for x in content if str(x).strip()]
+            if items:
+                parts.append(ListFlowable(items, bulletType="bullet", leftIndent=12))
+        else:
+            if str(content or "").strip():
+                parts.append(Paragraph(_safe_para(content), body_style))
+        table = Table([[parts]], colWidths=[doc.width])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), _C.BG_SUBTLE),
+                    ("BOX", (0, 0), (-1, -1), 0.8, _C.BORDER),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                    ("TOPPADDING", (0, 0), (-1, -1), 8),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                ]
+            )
+        )
+        story.append(table)
+        story.append(Spacer(1, 7))
+
+    def _simple_section(title_key: str, value, *, boxed: bool = False, inline_csv: bool = False):
+        if not _has_any_value(value):
+            return
+        label = t(title_key)
+        if not label or label == title_key:
+            label = _fallback_label(title_key)
+
+        rendered_value = ", ".join([str(x) for x in value]) if inline_csv and isinstance(value, list) else value
+        if boxed:
+            _boxed_block(label, rendered_value)
+            return
+
+        story.append(Paragraph(_safe_para(label), card_title_style))
+        if isinstance(rendered_value, list):
+            items = [ListItem(Paragraph(_safe_para(x), body_style)) for x in rendered_value if str(x).strip()]
+            if items:
+                story.append(ListFlowable(items, bulletType="bullet", leftIndent=12))
+        else:
+            story.append(Paragraph(_safe_para(rendered_value), body_style))
         story.append(Spacer(1, 6))
 
-    story.append(Paragraph(title, title_style))
+    # Header/logo — branding-aware (no school layout for lesson plans)
+    from helpers.branding import get_user_branding, build_pdf_footer_handler, has_custom_branding, LOGO_MAX_HEIGHT_CM
+
+    _branding = get_user_branding()
+    _header_enabled = _branding.get("header_enabled", False)
+    _logo_url = str(_branding.get("header_logo_url") or "").strip()
+    _brand_name = str(_branding.get("brand_name") or "").strip()
+
+    title = str(plan.get("title") or t("untitled_plan")).strip()
+
+    if _header_enabled and _logo_url:
+        try:
+            import urllib.request
+            from io import BytesIO as _BytesIO
+            _req = urllib.request.Request(_logo_url, headers={"User-Agent": "Classio/1.0"})
+            with urllib.request.urlopen(_req, timeout=8) as _resp:
+                _img_data = _resp.read()
+            _img_buf = _BytesIO(_img_data)
+            story.append(RLImage(_img_buf, width=LOGO_MAX_HEIGHT_CM * cm, height=LOGO_MAX_HEIGHT_CM * cm, kind="proportional"))
+            story.append(Spacer(1, 5))
+        except Exception:
+            logo_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "static", "logo_classio_light.png"))
+            if os.path.isfile(logo_path):
+                story.append(RLImage(logo_path, width=2.7 * cm, height=2.7 * cm, kind="proportional"))
+                story.append(Spacer(1, 5))
+    else:
+        logo_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "static", "logo_classio_light.png"))
+        if os.path.isfile(logo_path):
+            story.append(RLImage(logo_path, width=2.7 * cm, height=2.7 * cm, kind="proportional"))
+            story.append(Spacer(1, 5))
+
+    if _header_enabled and _brand_name:
+        story.append(Paragraph(_safe_para(_brand_name), _PS["brand"]))
+
+    story.append(Paragraph(_safe_para(title), title_style))
 
     meta_parts = []
-    if subject:
-        meta_parts.append(f"<b>{t('subject_label')}:</b> {subject}")
+    subject_text = _translated_subject_display(subject)
+    if subject_text:
+        meta_parts.append(f"<b>{html.escape(t('subject_label'))}:</b> {html.escape(subject_text)}")
     if topic:
-        meta_parts.append(f"<b>{t('topic_label')}:</b> {topic}")
+        meta_parts.append(f"<b>{html.escape(t('topic_label'))}:</b> {html.escape(_clean_display_text(topic))}")
     if learner_stage:
-        meta_parts.append(f"<b>{t('learner_stage')}:</b> {t(learner_stage)}")
+        meta_parts.append(f"<b>{html.escape(t('learner_stage'))}:</b> {html.escape(_translated_stage_display(learner_stage))}")
     if level_or_band:
-        level_label = level_or_band if level_or_band in ["A1", "A2", "B1", "B2", "C1", "C2"] else t(level_or_band)
-        meta_parts.append(f"<b>{t('level_or_band')}:</b> {level_label}")
+        meta_parts.append(f"<b>{html.escape(t('level_or_band'))}:</b> {html.escape(_translated_level_display(level_or_band))}")
     if lesson_purpose:
-        meta_parts.append(f"<b>{t('lesson_purpose')}:</b> {t(lesson_purpose)}")
+        meta_parts.append(f"<b>{html.escape(t('lesson_purpose'))}:</b> {html.escape(_translated_purpose_display(lesson_purpose))}")
+
+    material_language = str(plan.get("student_material_language") or "").upper()
+    if material_language:
+        meta_parts.append(f"<b>{html.escape(t('student_material_language'))}:</b> {html.escape(material_language)}")
 
     if meta_parts:
-        story.append(Paragraph(" | ".join(meta_parts), body_style))
+        story.append(Paragraph(" | ".join(meta_parts), meta_style))
+
+    story.append(Spacer(1, 6))
+
+    # Page 1 — Overview + Flow + Teacher Notes
+
+    # LESSON OVERVIEW: two vertical columns inside one blue box
+    overview_left = [
+        Paragraph(_safe_para(t("lesson_objective")), card_title_style),
+        Spacer(1, 4),
+        Paragraph(_safe_para(plan.get("objective", "")), body_style),
+    ]
+
+    success_items = plan.get("success_criteria", [])
+    overview_right = [
+        Paragraph(_safe_para(t("success_criteria")), card_title_style),
+        Spacer(1, 4),
+    ]
+    if success_items:
+        overview_right.append(_list_flow(success_items))
+
+    overview_table = Table(
+        [[overview_left, overview_right]],
+        colWidths=[doc.width * 0.48, doc.width * 0.48],
+    )
+    overview_table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("BOX", (0, 0), (-1, -1), 1.3, _C.OVERVIEW_BLUE),
+                ("INNERGRID", (0, 0), (-1, -1), 0.6, _C.BORDER),
+                ("BACKGROUND", (0, 0), (-1, -1), _C.BG_WHITE),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                ("TOPPADDING", (0, 0), (-1, -1), 9),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+            ]
+        )
+    )
+
+    story.append(Paragraph(_safe_para(t("lesson_overview").upper()), section_title_style))
+    story.append(overview_table)
+    story.append(Spacer(1, 12))
+
+    # LESSON FLOW: separate small green blocks
+    story.append(Paragraph(_safe_para(t("lesson_flow").upper()), section_title_style))
+    story.append(Spacer(1, 4))
+
+    flow_sections = [
+        ("warm_up", plan.get("warm_up", [])),
+        ("main_activity", plan.get("main_activity", [])),
+        ("guided_practice", plan.get("guided_practice", [])),
+        ("freer_task", plan.get("freer_task", [])),
+        ("wrap_up", plan.get("wrap_up", [])),
+    ]
+
+    for key, value in flow_sections:
+        if not _has_any_value(value):
+            continue
+
+        label = t(key) if t(key) != key else _fallback_label(key)
+        block_parts = [Paragraph(_safe_para(label), card_title_style), Spacer(1, 3)]
+
+        if isinstance(value, list):
+            block_parts.append(_list_flow(value))
+        else:
+            block_parts.append(Paragraph(_safe_para(str(value)), body_style))
+
+        block_table = Table([[block_parts]], colWidths=[doc.width])
+        block_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), _C.BG_WHITE),
+                    ("BOX", (0, 0), (-1, -1), 1.0, _C.FLOW_GREEN),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                    ("TOPPADDING", (0, 0), (-1, -1), 8),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                ]
+            )
+        )
+        story.append(block_table)
         story.append(Spacer(1, 8))
 
-    def add_section(title_key: str, value):
-        if not value:
-            return
-        story.append(Paragraph(t(title_key), heading_style))
-        if isinstance(value, list):
-            items = [ListItem(Paragraph(str(x), body_style)) for x in value if str(x).strip()]
-            if items:
-                story.append(ListFlowable(items, bulletType="bullet"))
-        else:
-            story.append(Paragraph(str(value), body_style))
+    # TEACHER NOTES: separate small orange blocks
+    teacher_note_blocks = [
+        ("core_examples", plan.get("core_examples", [])),
+        ("practice_questions", plan.get("practice_questions", [])),
+        ("teacher_moves", plan.get("teacher_moves", [])),
+        ("extension_task", plan.get("extension_task", "")),
+        ("optional_homework", plan.get("homework", "")),
+    ]
+    teacher_note_blocks = [row for row in teacher_note_blocks if _has_any_value(row[1])]
+
+    if teacher_note_blocks:
+        story.append(Paragraph(_safe_para(t("teacher_notes").upper()), section_title_style))
+        story.append(Spacer(1, 4))
+
+        for key, value in teacher_note_blocks:
+            label = t(key) if t(key) != key else _fallback_label(key)
+            block_parts = [Paragraph(_safe_para(label), card_title_style), Spacer(1, 3)]
+
+            if isinstance(value, list):
+                block_parts.append(_list_flow(value))
+            else:
+                block_parts.append(Paragraph(_safe_para(str(value)), body_style))
+
+            block_table = Table([[block_parts]], colWidths=[doc.width])
+            block_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, -1), _C.BG_WHITE),
+                        ("BOX", (0, 0), (-1, -1), 1.0, _C.NOTE_AMBER),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                        ("TOPPADDING", (0, 0), (-1, -1), 8),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                    ]
+                )
+            )
+            story.append(block_table)
+            story.append(Spacer(1, 8))
+
+    # Page 2 — Materials
+    materials = [(key, value, style) for key, value, style in _material_groups(plan) if _has_any_value(value)]
+    if materials:
+        story.append(PageBreak())
+
+        # Section heading only — do NOT wrap the whole page in one giant table
+        story.append(Paragraph(_safe_para(t("lesson_materials").upper()), section_title_style))
         story.append(Spacer(1, 6))
 
-    add_section("lesson_objective", plan.get("objective", ""))
-    add_section("success_criteria", plan.get("success_criteria", []))
-    add_section("warm_up", plan.get("warm_up", []))
-    add_section("main_activity", plan.get("main_activity", []))
-    add_section("guided_practice", plan.get("guided_practice", []))
-    add_section("freer_task", plan.get("freer_task", []))
-    add_section("wrap_up", plan.get("wrap_up", []))
+        for key, value, style in materials:
+            label = t(key)
+            if not label or label == key:
+                label = _fallback_label(key)
 
-    core_material = plan.get("core_material", {}) or {}
-    if core_material.get("target_vocabulary"):
-        add_section("target_vocabulary", [", ".join(core_material.get("target_vocabulary", []))])
-    if core_material.get("language_frames"):
-        add_section("language_frames", core_material.get("language_frames", []))
-    if plan.get("reading_passage"):
-        add_section("reading_passage", plan.get("reading_passage", ""))
-    if plan.get("listening_script"):
-        add_section("listening_script", plan.get("listening_script", ""))
-    if core_material.get("pre_task_questions"):
-        add_section("pre_task_questions", core_material.get("pre_task_questions", []))
-    if core_material.get("gist_questions"):
-        add_section("gist_questions", core_material.get("gist_questions", []))
-    if core_material.get("detail_questions"):
-        add_section("detail_questions", core_material.get("detail_questions", []))
-    if core_material.get("post_task"):
-        add_section("post_task", core_material.get("post_task", ""))
+            # Small per-block table is fine; huge whole-page table is not
+            block_parts = [Paragraph(_safe_para(label), card_title_style), Spacer(1, 3)]
 
-    add_section("teacher_moves", plan.get("teacher_moves", []))
-    add_section("extension_task", plan.get("extension_task", ""))
-    add_section("optional_homework", plan.get("homework", ""))
+            if style == "list_inline":
+                block_parts.append(Paragraph(_safe_para(", ".join([str(x) for x in value])), body_style))
+            elif style == "list":
+                block_parts.append(_list_flow(value))
+            elif style == "textarea":
+                block_parts.append(Paragraph(_safe_para(str(value)), body_style))
+            elif style == "callout":
+                block_parts.append(Paragraph(_safe_para(str(value)), body_style))
+            elif style == "list_or_text":
+                if isinstance(value, list):
+                    block_parts.append(_list_flow(value))
+                else:
+                    block_parts.append(Paragraph(_safe_para(str(value)), body_style))
+            else:
+                block_parts.append(Paragraph(_safe_para(str(value)), body_style))
 
-    doc.build(story)
+            block_table = Table([[block_parts]], colWidths=[doc.width])
+            block_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, -1), _C.BG_WHITE),
+                        ("BOX", (0, 0), (-1, -1), 1.0, _C.MATERIAL_PURPLE),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                        ("TOPPADDING", (0, 0), (-1, -1), 8),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                    ]
+                )
+            )
+            story.append(block_table)
+            story.append(Spacer(1, 8))
+
+    _branding_footer = build_pdf_footer_handler(_branding, bold_font=body_font)
+    doc.build(story, onFirstPage=_branding_footer, onLaterPages=_branding_footer)
     buffer.seek(0)
     return buffer.getvalue()
+
+
+# ============================================================
+# Planner expander
+# ============================================================
+
 
 def render_quick_lesson_planner_expander() -> None:
     with st.expander(t("quick_lesson_planner"), expanded=False):
@@ -809,7 +1401,6 @@ def render_quick_lesson_planner_expander() -> None:
         st.caption(t("plan_language_note"))
 
         usage = get_ai_planner_usage_status()
-
         mode_labels = {
             "template": t("mode_template"),
             "ai": t("mode_ai"),
@@ -824,33 +1415,28 @@ def render_quick_lesson_planner_expander() -> None:
         )
 
         if quick_plan_mode == "ai":
-            st.caption(
-                t("ai_plans_left_today", remaining=usage["remaining_today"], limit=_lp().AI_DAILY_LIMIT)
-            )        
+            st.caption(t("ai_plans_left_today", remaining=usage["remaining_today"], limit=_lp().AI_DAILY_LIMIT))
 
         subject = st.selectbox(
             t("subject_label"),
             _lp().QUICK_SUBJECTS,
+            format_func=_lp().subject_label,
             key="quick_plan_subject",
         )
 
         other_subject_name = ""
-        if subject == "Other":
-            other_subject_name = st.text_input(
-                t("other_subject_label"),
-                key="quick_plan_other_subject",
-            ).strip()
+        if subject == "other":
+            other_subject_name = st.text_input(t("other_subject_label"), key="quick_plan_other_subject").strip()
 
         learner_stage = st.selectbox(
             t("learner_stage"),
             _lp().LEARNER_STAGES,
-            format_func=_lp()._stage_label,
-            key="quick_plan_stage",
+            format_func=lambda x: t(x),
+            key="quick_plan_learner_stage",
         )
 
         default_level = _lp().recommend_default_level(subject, learner_stage)
         level_options = _lp().get_level_options(subject)
-
         if st.session_state.get("quick_plan_level") not in level_options:
             st.session_state["quick_plan_level"] = default_level
 
@@ -870,11 +1456,7 @@ def render_quick_lesson_planner_expander() -> None:
                 key="quick_plan_purpose",
             )
 
-        topic = st.text_input(
-            t("topic_label"),
-            key="quick_plan_topic",
-            
-        )
+        topic = st.text_input(t("topic_label"), key="quick_plan_topic")
 
         rec_level = _lp().recommend_default_level(subject, learner_stage)
         rec_label = rec_level if rec_level in _lp().LANGUAGE_LEVELS else t(rec_level)
@@ -883,11 +1465,16 @@ def render_quick_lesson_planner_expander() -> None:
         if st.button(t("generate_plan"), key="btn_generate_quick_plan", use_container_width=True):
             if not topic.strip():
                 st.error(t("enter_topic"))
-            elif subject == "Other" and not other_subject_name:
+            elif subject == "other" and not other_subject_name:
                 st.error(t("enter_subject_name"))
-            elif subject == "Other" and quick_plan_mode == "template":
-                # For "Other" in template mode: look up the community library first
-                community_row = _find_community_plan_for_other(other_subject_name, topic, learner_stage, level_or_band, lesson_purpose)
+            elif subject == "other" and quick_plan_mode == "template":
+                community_row = _find_community_plan_for_other(
+                    other_subject_name,
+                    topic,
+                    learner_stage,
+                    level_or_band,
+                    lesson_purpose,
+                )
                 if community_row is not None:
                     community_plan = _lp().normalize_planner_output(community_row.get("plan_json") or {})
                     st.session_state["quick_lesson_plan_result"] = community_plan
@@ -907,20 +1494,21 @@ def render_quick_lesson_planner_expander() -> None:
                         },
                     )
                 else:
-                    # No template and no community plan available
                     st.session_state["quick_lesson_plan_result"] = None
                     st.session_state["quick_lesson_no_template"] = True
             else:
                 st.session_state["quick_lesson_no_template"] = False
-                effective_subject = other_subject_name if subject == "Other" else subject
-                plan, resolved_mode, warning_msg = _lp().generate_quick_lesson_plan_with_fallback(
-                    mode=quick_plan_mode,
-                    subject=effective_subject,
-                    learner_stage=learner_stage,
-                    level_or_band=level_or_band,
-                    lesson_purpose=lesson_purpose,
-                    topic=topic,
-                )
+                effective_subject = other_subject_name if subject == "other" else subject
+
+                with st.spinner(t("generating")):
+                    plan, resolved_mode, warning_msg = _lp().generate_quick_lesson_plan_with_fallback(
+                        mode=quick_plan_mode,
+                        subject=effective_subject,
+                        learner_stage=learner_stage,
+                        level_or_band=level_or_band,
+                        lesson_purpose=lesson_purpose,
+                        topic=topic,
+                    )
 
                 st.session_state["quick_lesson_plan_result"] = plan
                 st.session_state["quick_lesson_plan_kept"] = False
@@ -950,7 +1538,7 @@ def render_quick_lesson_planner_expander() -> None:
                     },
                 )
 
-        if subject == "Other" and st.session_state.get("quick_lesson_no_template"):
+        if subject == "other" and st.session_state.get("quick_lesson_no_template"):
             st.info(t("no_template_for_subject"))
         elif st.session_state.get("quick_lesson_plan_result"):
             if st.session_state.get("quick_lesson_plan_kept"):
@@ -958,11 +1546,9 @@ def render_quick_lesson_planner_expander() -> None:
 
             render_quick_lesson_plan_result(
                 st.session_state["quick_lesson_plan_result"],
-                subject=subject,
+                subject=other_subject_name if subject == "other" else subject,
                 learner_stage=learner_stage,
                 level_or_band=level_or_band,
                 lesson_purpose=lesson_purpose,
                 topic=topic,
             )
-
-# =========================

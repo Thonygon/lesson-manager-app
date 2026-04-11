@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 from datetime import datetime, date, timezone
 from zoneinfo import ZoneInfo
 
@@ -31,18 +30,10 @@ def detect_browser_timezone():
     if st.session_state.get("_browser_tz_checked"):
         return
 
-    js = """
-    <script>
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-    const url = new URL(window.parent.location.href);
-    if (tz && url.searchParams.get("browser_tz") !== tz) {
-      url.searchParams.set("browser_tz", tz);
-      window.parent.history.replaceState({}, "", url.toString());
-      window.parent.location.reload();
-    }
-    </script>
-    """
-    components.html(js, height=0)
+    # Avoid injecting startup HTML/iframe blocks into the first page render.
+    # If the browser timezone is not already present in query params, we fall
+    # back to the default app timezone for this session.
+    st.session_state["_browser_tz_checked"] = True
 
 
 def get_app_tz_name() -> str:

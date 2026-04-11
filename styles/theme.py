@@ -268,17 +268,40 @@ def _dark_widget_css() -> str:
       }
 
       .kpi-stat-card {
-        background: #1a2535 !important;
-        border-color: transparent !important;
+        background: var(--panel) !important;
+        border: 1px solid var(--border) !important;
+        box-shadow: var(--shadow-sm) !important;
       }
-      .kpi-stat-value { color: #f1f5f9 !important; }
-      .kpi-stat-label { color: #94a3b8 !important; }
+      .kpi-stat-value {
+        color: var(--text) !important;
+        -webkit-text-fill-color: var(--text) !important;
+      }
+      .kpi-stat-label {
+        color: var(--muted) !important;
+        -webkit-text-fill-color: var(--muted) !important;
+      }
 
       .dark-card {
         background: #1a2535 !important;
         border-color: rgba(255,255,255,0.10) !important;
         color: var(--text) !important;
       }
+      .kpi-stat-card{
+        background: transparent !important;
+        border: 1px solid var(--border) !important;
+        box-shadow: none !important;
+      }
+
+      .kpi-stat-value{
+        color: var(--text) !important;
+        -webkit-text-fill-color: var(--text) !important;
+      }
+
+      .kpi-stat-label{
+        color: var(--muted) !important;
+        -webkit-text-fill-color: var(--muted) !important;
+      }
+      
 
       div[data-testid="stDataFrame"] {
         background: #1a2535 !important;
@@ -360,6 +383,10 @@ def _resource_cards_css() -> str:
         border-left-color: #A78BFA;
       }
 
+      .cm-resource-exam{
+        border-left-color: #F87171;
+      }
+
       .cm-resource-card__title{
         font-size: 1.02rem;
         font-weight: 800;
@@ -392,6 +419,11 @@ def _resource_cards_css() -> str:
       .cm-resource-worksheet .cm-resource-chip{
         background: rgba(167,139,250,0.10);
         border: 1px solid rgba(167,139,250,0.18);
+      }
+
+      .cm-resource-exam .cm-resource-chip{
+        background: rgba(248,113,113,0.10);
+        border: 1px solid rgba(248,113,113,0.18);
       }
 
       .cm-resource-preview{

@@ -95,7 +95,7 @@ def normalize_latest_package(student: str, payment_id: int, note: str = "") -> b
     except Exception:
         return False
 
-def update_student_profile(student: str, email: str, zoom_link: str, notes: str, color: str, phone: str) -> None:
+def update_student_profile(student: str, email: str, zoom_link: str, notes: str, color: str, phone: str, address: str = "") -> None:
     uid = get_current_user_id()
 
     q = get_sb().table("students").update({
@@ -103,7 +103,8 @@ def update_student_profile(student: str, email: str, zoom_link: str, notes: str,
         "zoom_link": zoom_link,
         "notes": notes,
         "color": color,
-        "phone": phone
+        "phone": phone,
+        "address": address,
     }).eq("student", student)
 
     if uid:

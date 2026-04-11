@@ -2,9 +2,6 @@
 # CLASSIO — Streamlit App Entrypoint
 # ============================================================
 import streamlit as st
-from helpers.ui_components import inject_loading_screen
-
-inject_loading_screen()
 
 st.set_page_config(
     page_title="Classio",
@@ -12,10 +9,14 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+from helpers.ui_components import inject_loading_screen
+
+inject_loading_screen()
 
 from styles.theme import remove_streamlit_top_spacing
 from helpers.ui_components import inject_pwa_head
 from core.navigation import PAGE_KEYS, _set_query, init_navigation_defaults
+from core.state import get_current_user_role
 from auth.auth import require_login
 
 st.markdown(
@@ -45,6 +46,10 @@ if "show_profile_dialog" not in st.session_state:
 if "home_action_menu_nonce" not in st.session_state:
     st.session_state["home_action_menu_nonce"] = 0
 
+# ── Google Calendar OAuth callback (capture before params are cleared) ──
+_gcal_code = st.query_params.get("code", "")
+_gcal_state = st.query_params.get("state", "")
+
 init_navigation_defaults()
 
 # ── PWA ──
@@ -53,12 +58,28 @@ inject_pwa_head()
 # ── Auth gate ──
 require_login()
 
+# ── Process Google Calendar callback after auth ──
+if _gcal_code and _gcal_state == "gcal_connect":
+    from helpers.google_calendar import exchange_code_for_tokens, save_gcal_tokens
+    _tokens = exchange_code_for_tokens(_gcal_code)
+    if _tokens and _tokens.get("refresh_token"):
+        save_gcal_tokens(_tokens)
+        st.session_state["_gcal_just_connected"] = True
+    else:
+        st.session_state["_gcal_connect_failed"] = True
+    st.session_state["page"] = "calendar"
+    _set_query(page="calendar", lang=st.session_state.get("ui_lang", "en"))
+    st.rerun()
+
 # ── Post-login redirect (runs once per session, set by apply_auth_session) ──
 _post_login_action = st.session_state.pop("_post_login_action", None)
 if _post_login_action:
     from core.database import get_current_user_id as _gcuid
     if _post_login_action == "choose_username":
         st.session_state["show_choose_username_dialog"] = True
+        st.session_state["page"] = "home"
+    elif _post_login_action == "choose_role":
+        st.session_state["show_choose_role_dialog"] = True
         st.session_state["page"] = "home"
     elif _post_login_action == "profile_dialog":
         st.session_state["show_profile_dialog"] = True
@@ -67,13 +88,16 @@ if _post_login_action:
         st.session_state["_show_restore_dialog"] = True
         st.session_state["page"] = "home"
     elif _post_login_action == "dashboard":
-        st.session_state["page"] = "dashboard"
-        _set_query(page="dashboard", lang=st.session_state.get("ui_lang", "en"))
+        _role = get_current_user_role()
+        _dash_page = "student_home" if _role == "student" else "dashboard"
+        st.session_state["page"] = _dash_page
+        _set_query(page=_dash_page, lang=st.session_state.get("ui_lang", "en"))
     elif _post_login_action.startswith("page:"):
         _target = _post_login_action[5:]
         if _target in PAGE_KEYS:
             st.session_state["page"] = _target
             _set_query(page=_target, lang=st.session_state.get("ui_lang", "en"))
+
 
 # ── Persist last_page so next login can restore it ──
 _current_page_for_last = st.session_state.get("page", "home")
