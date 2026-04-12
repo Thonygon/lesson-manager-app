@@ -335,10 +335,40 @@ def exam_to_exercises(exam_data: dict, answer_key: dict, *, row_id: int | None =
             "questions": sec.get("questions") or [],
             "answers": ak.get("answers") or [],
         }
+        ex["answers"] = _recover_exam_section_answers(sec_type, ex["questions"], ex["answers"])
+        if sec_type == "true_false":
+            recovered_answers = []
+            raw_questions = sec.get("questions") or []
+            raw_answers = list(ex.get("answers") or [])
+            for q_idx, raw_question in enumerate(raw_questions):
+                answer_value = raw_answers[q_idx] if q_idx < len(raw_answers) else ""
+                if _canonical_true_false(_comparison_answer_text(answer_value)):
+                    recovered_answers.append(answer_value)
+                    continue
+
+                if isinstance(raw_question, dict):
+                    fallback_answer = (
+                        raw_question.get("answer")
+                        or raw_question.get("correct_answer")
+                        or raw_question.get("correct")
+                        or raw_question.get("value")
+                    )
+                    if _canonical_true_false(_comparison_answer_text(fallback_answer)):
+                        recovered_answers.append(fallback_answer)
+                        continue
+
+                recovered_answers.append(answer_value)
+            ex["answers"] = recovered_answers
         if sec.get("visual_support"):
             ex["visual_support"] = sec.get("visual_support")
         if sec_type == "matching":
-            ex["answers"] = [_comparison_answer_text(a) for a in ex["answers"]]
+            ex["answers"] = [
+                _matching_answer_from_question(
+                    ex["questions"][ans_idx] if ans_idx < len(ex["questions"]) else {},
+                    answer,
+                )
+                for ans_idx, answer in enumerate(ex["answers"])
+            ]
         elif sec_type == "vocabulary":
             vocab_questions = []
             raw_questions = sec.get("questions") or []
@@ -404,6 +434,17 @@ def normalize_exercise_data_for_web(exercise_data: dict) -> dict:
         ex = dict(exercise or {})
         ex_type = str(ex.get("type") or "").strip()
 
+        if ex_type == "matching":
+            raw_questions = ex.get("questions") or []
+            raw_answers = ex.get("answers") or []
+            ex["answers"] = [
+                _matching_answer_from_question(
+                    raw_questions[ans_idx] if ans_idx < len(raw_questions) else {},
+                    answer,
+                )
+                for ans_idx, answer in enumerate(raw_answers)
+            ]
+
         if ex_type == "vocabulary":
             raw_questions = ex.get("questions") or []
             raw_answers = ex.get("answers") or []
@@ -457,6 +498,66 @@ def normalize_exercise_data_for_web(exercise_data: dict) -> dict:
 
 
 # ── helpers ──────────────────────────────────────────────────────────
+
+def _recover_exam_section_answers(sec_type: str, questions: list, raw_answers: list) -> list:
+    recovered = list(raw_answers or [])
+    for q_idx, question in enumerate(questions or []):
+        existing = recovered[q_idx] if q_idx < len(recovered) else ""
+        if _comparison_answer_text(existing).strip():
+            continue
+        fallback = ""
+        if isinstance(question, dict):
+            fallback = (
+                question.get("answer")
+                or question.get("correct_answer")
+                or question.get("correct")
+                or question.get("value")
+                or question.get("correct_option")
+                or ""
+            )
+        if q_idx < len(recovered):
+            recovered[q_idx] = fallback
+        else:
+            recovered.append(fallback)
+    return recovered
+
+
+def _matching_answer_from_question(question, fallback) -> str:
+    fallback_text = _comparison_answer_text(fallback)
+    question = _parse_legacy_pair_value(question)
+    if isinstance(question, dict):
+        right_text = _matching_choice_value(question)
+        if right_text:
+            if not fallback_text:
+                return right_text
+            if re.fullmatch(r"[A-Za-z]", str(fallback_text).strip()):
+                return right_text
+    return fallback_text
+
+
+def _matching_choices_from_questions(questions: list) -> list[str]:
+    choices: list[str] = []
+    for question in questions or []:
+        choice = _matching_choice_value(question)
+        if choice and choice not in choices:
+            choices.append(choice)
+    return choices
+
+
+def _matching_options_need_refresh(options: list) -> bool:
+    cleaned = [str(opt or "").strip() for opt in options or [] if str(opt or "").strip()]
+    if not cleaned:
+        return True
+    return all(re.fullmatch(r"[A-Za-z]", item) for item in cleaned)
+
+
+def _localized_true_false_display(value) -> str:
+    canonical = _canonical_true_false(_comparison_answer_text(value))
+    if canonical == "true":
+        return t("quick_exam_true_label")
+    if canonical == "false":
+        return t("quick_exam_false_label")
+    return _display_answer_text(value)
 
 def _parse_flat_answer_key(raw, n: int) -> list[str]:
     """Parse a worksheet answer_key (string or list) into a list of n answers."""
@@ -557,6 +658,16 @@ def _extract_legacy_pair_side(value, *, prefer: str = "value") -> str:
     return _sentence_case_fragment(value)
 
 
+def _matching_choice_value(question) -> str:
+    question = _parse_legacy_pair_value(question)
+    if isinstance(question, dict):
+        right = question.get("right", "")
+        extracted = _extract_legacy_pair_side(right, prefer="value")
+        if extracted:
+            return extracted
+    return ""
+
+
 def _display_answer_text(value) -> str:
     value = _parse_legacy_pair_value(value)
     if isinstance(value, dict):
@@ -619,6 +730,36 @@ def _display_choice_text(value) -> str:
     return _sentence_case_fragment(value)
 
 
+def _strip_vocab_answer_leak(prompt: str, correct=None, options: list | None = None) -> str:
+    text = _strip_leading_number(str(prompt or "")).strip()
+    if not text:
+        return ""
+
+    leading, sep, remainder = text.partition(":")
+    if not sep:
+        return text
+
+    lead_norm = _normalize_answer(leading)
+    candidate_pool = []
+
+    if correct is not None:
+        correct_text = _display_answer_text(correct).strip()
+        if correct_text:
+            candidate_pool.append(correct_text)
+
+    for option in options or []:
+        option_text = _display_choice_text(option).strip()
+        if option_text:
+            candidate_pool.append(option_text)
+
+    for candidate in candidate_pool:
+        if _normalize_answer(candidate) == lead_norm:
+            cleaned = remainder.strip()
+            return cleaned or text
+
+    return text
+
+
 def _question_prompt_text(ex_type: str, question) -> str:
     question = _parse_legacy_pair_value(question)
     if isinstance(question, dict):
@@ -628,9 +769,13 @@ def _question_prompt_text(ex_type: str, question) -> str:
             left = question.get("left", question.get("text", ""))
             return _extract_legacy_pair_side(left, prefer="key")
         if ex_type == "vocabulary":
-            word = _sentence_case_fragment(question.get("word", ""))
             task = _strip_leading_number(str(question.get("task", "")))
-            return f"{word}: {task}" if task else word
+            text = _strip_leading_number(str(question.get("text", "")))
+            if task:
+                return task
+            if text:
+                return text
+            return _sentence_case_fragment(question.get("word", ""))
         if ex_type == "sentence_transformation":
             original = _strip_leading_number(str(question.get("original", "")))
             prompt = _strip_leading_number(str(question.get("prompt", "")))
@@ -897,9 +1042,14 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
         extra = {}
         if ex_type == "matching":
             shuffle_key = f"_matching_shuffle_{session_key}_{ex_idx}"
-            if shuffle_key not in st.session_state:
+            if (
+                shuffle_key not in st.session_state
+                or _matching_options_need_refresh(st.session_state.get(shuffle_key) or [])
+            ):
                 import random as _rnd
-                opts = list(correct_answers)
+                opts = _matching_choices_from_questions(questions)
+                if not opts:
+                    opts = list(correct_answers)
                 _rnd.shuffle(opts)
                 st.session_state[shuffle_key] = opts
             extra["shuffled_options"] = st.session_state[shuffle_key]
@@ -949,9 +1099,12 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
             )
             student_answers[q_key] = student_ans
 
-            if is_submitted and correct:
+            if is_submitted:
                 evaluation = _evaluate_answer(ex_type, student_ans, correct)
-                if evaluation["is_correct"]:
+                if ex_type == "true_false" and not _canonical_true_false(_comparison_answer_text(correct)):
+                    cur_streak = 0
+                    st.warning(t("true_false_feedback_missing_answer_key"))
+                elif evaluation["is_correct"]:
                     correct_q  += 1
                     cur_streak += 1
                     best_streak = max(best_streak, cur_streak)
@@ -1095,6 +1248,12 @@ def _render_single_question(
 ) -> str:
     """Render one question and return the student's answer string."""
     prompt_text = _strip_leading_number(_question_prompt_text(ex_type, question))
+    if ex_type == "vocabulary":
+        prompt_text = _strip_vocab_answer_leak(
+            prompt_text,
+            correct=correct,
+            options=(question.get("options") if isinstance(question, dict) else None),
+        )
 
     if ex_type == "multiple_choice":
         stem = question.get("stem", "") if isinstance(question, dict) else str(question)
@@ -1114,6 +1273,7 @@ def _render_single_question(
         choice = st.radio(
             "select",
             options=["true", "false"],
+            index=None,
             format_func=lambda x: t("quick_exam_true_label") if x == "true" else t("quick_exam_false_label"),
             key=q_key,
             label_visibility="collapsed",

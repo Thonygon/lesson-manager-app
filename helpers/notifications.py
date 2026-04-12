@@ -8,7 +8,7 @@ import re
 import pandas as pd
 import streamlit as st
 
-from core.database import load_profile_row, load_table
+from core.database import get_sb, load_profile_row, load_table
 from core.i18n import t
 from core.state import get_current_user_id
 from core.timezone import now_local, today_local
@@ -96,6 +96,10 @@ def _notification(
     }
 
 
+def _rows(result) -> list[dict]:
+    return getattr(result, "data", None) or []
+
+
 def _load_seen(scope: str) -> set[str]:
     return set(st.session_state.get(_state_key(scope, "seen"), []))
 
@@ -134,6 +138,36 @@ def _teacher_goal_milestone(progress: float) -> int:
         if pct >= milestone:
             return milestone
     return 0
+
+
+def _review_kind_label(value: str) -> str:
+    value = _clean(value).lower()
+    if value == "exam":
+        return t("notification_review_kind_exam")
+    if value == "worksheet":
+        return t("notification_review_kind_worksheet")
+    return t("notification_review_kind_work")
+
+
+def _load_teacher_review_requests_for_notifications(*, teacher_id: str | None = None, student_id: str | None = None) -> list[dict]:
+    teacher_id = str(teacher_id or "").strip()
+    student_id = str(student_id or "").strip()
+    if not teacher_id and not student_id:
+        return []
+    try:
+        query = (
+            get_sb()
+            .table("teacher_review_requests")
+            .select("*")
+            .order("requested_at", desc=True)
+        )
+        if teacher_id:
+            query = query.eq("teacher_id", teacher_id)
+        if student_id:
+            query = query.eq("student_id", student_id)
+        return _rows(query.execute())
+    except Exception:
+        return []
 
 
 def _smart_plan_state() -> dict:
@@ -219,6 +253,7 @@ def _classes_this_week_count() -> int:
 
 
 def get_teacher_notifications() -> list[dict]:
+    uid = _uid()
     _, first_name = _load_name()
     notifications: list[dict] = []
     today = today_local()
@@ -235,6 +270,40 @@ def get_teacher_notifications() -> list[dict]:
             cloud=True,
             tone="action",
             message=t(key).format(name=first_name, student=student_name, count=len(requests)),
+        ))
+
+    review_requests = []
+    for row in _load_teacher_review_requests_for_notifications(teacher_id=uid):
+        status = _clean(row.get("status")).lower()
+        requested_at = _parse_dt(row.get("requested_at") or row.get("created_at"))
+        if status == "requested" and requested_at is not None and (pd.Timestamp(now.date()) - pd.Timestamp(requested_at.date())).days <= 14:
+            review_requests.append(row)
+    if review_requests:
+        teacher_review_student = _safe_title_case(review_requests[0].get("student_name", ""))
+        if not teacher_review_student:
+            try:
+                student_id = str(review_requests[0].get("student_id") or "").strip()
+                from helpers.teacher_student_integration import _load_profiles_map, _profile_label
+
+                prof = _load_profiles_map([student_id]).get(student_id, {})
+                teacher_review_student = _safe_title_case(_profile_label(prof))
+            except Exception:
+                teacher_review_student = ""
+        notifications.append(_notification(
+            signature="teacher_review_request_" + "_".join(str(r.get("id")) for r in review_requests[:5]),
+            category="assignments",
+            priority=9,
+            cloud=True,
+            tone="action",
+            message=t(
+                "notif_teacher_review_request_many" if len(review_requests) > 1 else "notif_teacher_review_request_one"
+            ).format(
+                name=first_name,
+                student=teacher_review_student,
+                count=len(review_requests),
+                kind=_review_kind_label(review_requests[0].get("source_type", "")),
+                title=_safe_title_case(review_requests[0].get("title", "")),
+            ),
         ))
 
     try:
@@ -486,6 +555,7 @@ def get_teacher_notifications() -> list[dict]:
 
 
 def get_student_notifications() -> list[dict]:
+    uid = _uid()
     _, first_name = _load_name()
     notifications: list[dict] = []
     today = today_local()
@@ -596,6 +666,39 @@ def get_student_notifications() -> list[dict]:
             cloud=False,
             tone="success",
             message=t(key).format(name=first_name, teacher=_safe_title_case(accepted[0].get("teacher_name", "")), count=len(accepted)),
+        ))
+
+    reviewed_requests = []
+    for row in _load_teacher_review_requests_for_notifications(student_id=uid):
+        status = _clean(row.get("status")).lower()
+        reviewed_at = _parse_dt(row.get("reviewed_at"))
+        if status == "reviewed" and reviewed_at is not None and (pd.Timestamp(now.date()) - pd.Timestamp(reviewed_at.date())).days <= 14:
+            reviewed_requests.append(row)
+    if reviewed_requests:
+        teacher_name = ""
+        try:
+            teacher_id = str(reviewed_requests[0].get("teacher_id") or "").strip()
+            from helpers.teacher_student_integration import _load_profiles_map, _profile_label
+
+            prof = _load_profiles_map([teacher_id]).get(teacher_id, {})
+            teacher_name = _safe_title_case(_profile_label(prof))
+        except Exception:
+            teacher_name = ""
+        notifications.append(_notification(
+            signature="student_review_completed_" + "_".join(str(r.get("id")) for r in reviewed_requests[:5]),
+            category="assignments",
+            priority=11,
+            cloud=True,
+            tone="success",
+            message=t(
+                "notif_student_review_completed_many" if len(reviewed_requests) > 1 else "notif_student_review_completed_one"
+            ).format(
+                name=first_name,
+                teacher=teacher_name,
+                count=len(reviewed_requests),
+                kind=_review_kind_label(reviewed_requests[0].get("source_type", "")),
+                title=_safe_title_case(reviewed_requests[0].get("title", "")),
+            ),
         ))
 
     smart_plan = _smart_plan_state()

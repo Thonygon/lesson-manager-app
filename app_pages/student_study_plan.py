@@ -7,7 +7,9 @@ from core.i18n import t
 from core.navigation import go_to
 from core.state import get_current_user_id
 from core.timezone import today_local
+from app_pages.student_assignments import _inject_assignment_page_styles, render_assigned_learning_programs_section
 from helpers.lesson_planner import QUICK_SUBJECTS, normalize_subject, subject_label as _subject_label
+from helpers.learning_programs import load_enriched_program_assignments_for_current_student
 from helpers.teacher_student_integration import get_student_assignment_summary, has_active_teacher_relationships
 
 
@@ -233,6 +235,7 @@ def _default_smart_plan_state() -> dict:
         "last_completion_date": "",
         "last_active_date": "",
         "setup_complete": False,
+        "program_anchor_signature": "",
     }
 
 
@@ -281,6 +284,87 @@ def _calculate_smart_plan_progress(tasks: list[dict]) -> dict:
     completed = sum(1 for task in (tasks or []) if task.get("done"))
     pct = round((completed / total) * 100) if total else 0
     return {"total": total, "completed": completed, "pct": pct, "all_done": total > 0 and completed == total}
+
+
+def _smart_plan_anchor_signature(anchor: dict | None) -> str:
+    if not anchor:
+        return ""
+    topic_ids = ",".join(str(item.get("topic_id") or 0) for item in (anchor.get("next_topics") or [])[:5])
+    return "|".join(
+        [
+            str(anchor.get("assignment_id") or 0),
+            str(anchor.get("program_id") or 0),
+            str(anchor.get("progress_pct") or 0),
+            topic_ids,
+        ]
+    )
+
+
+def _topic_category(topic: dict) -> str:
+    lesson_purpose = str(topic.get("lesson_purpose") or "").strip().lower()
+    if "speak" in lesson_purpose or "discussion" in lesson_purpose:
+        return "speaking"
+    if "read" in lesson_purpose:
+        return "reading"
+    if "review" in lesson_purpose or "diagnose" in lesson_purpose:
+        return "review"
+    if topic.get("suggested_exam_exercise_types"):
+        return "quiz"
+    if topic.get("suggested_worksheet_types"):
+        first = str((topic.get("suggested_worksheet_types") or [""])[0]).lower()
+        if "read" in first:
+            return "reading"
+        if "vocab" in first or "word" in first:
+            return "vocabulary"
+        if "grammar" in first or "fill" in first or "error" in first:
+            return "grammar"
+    return "practice"
+
+
+def _build_program_anchor(program_assignments: list[dict]) -> dict | None:
+    if not program_assignments:
+        return None
+    item = program_assignments[0]
+    program = item.get("program") or {}
+    units = program.get("units") or []
+    progress_map = {
+        int(topic_id): data
+        for topic_id, data in (item.get("progress_map") or {}).items()
+    }
+
+    next_topics: list[dict] = []
+    completed_topics: list[dict] = []
+    global_number = 0
+    for unit in units:
+        for topic in unit.get("topics") or []:
+            global_number += 1
+            topic_id = int(topic.get("topic_id") or 0)
+            topic_row = {
+                **topic,
+                "global_number": global_number,
+                "unit_number": int(unit.get("unit_number") or 0),
+                "unit_title": unit.get("title") or "",
+                "is_done": bool(progress_map.get(topic_id, {}).get("is_done")),
+            }
+            if topic_row["is_done"]:
+                completed_topics.append(topic_row)
+            else:
+                next_topics.append(topic_row)
+
+    return {
+        "assignment_id": int(item.get("id") or 0),
+        "program_id": int(item.get("program_id") or 0),
+        "program_title": program.get("title") or t("assigned_learning_program"),
+        "teacher_name": item.get("teacher_name") or "—",
+        "subject": program.get("subject") or "other",
+        "subject_display": item.get("subject_display") or program.get("subject_display") or "—",
+        "level_or_band": program.get("level_or_band") or "",
+        "progress_pct": int(item.get("progress_pct") or 0),
+        "completed_topics": int(item.get("completed_topics") or 0),
+        "total_topics": int(item.get("total_topics") or 0),
+        "next_topics": next_topics[:5],
+        "recent_topics": list(reversed(completed_topics[-3:])),
+    }
 
 
 def _goal_category(goal_key: str) -> str:
@@ -382,7 +466,49 @@ def _subject_task_templates(subject: str, goal: str) -> list[dict]:
     return preferred + others
 
 
-def _generate_smart_plan_tasks(subject: str, goal: str, minutes: int) -> list[dict]:
+def _program_anchor_tasks(anchor: dict, minutes: int) -> list[dict]:
+    target_count = 3 if minutes <= 15 else 4 if minutes <= 30 else 5
+    chosen_topics = (anchor.get("next_topics") or [])[:target_count]
+    if not chosen_topics:
+        chosen_topics = (anchor.get("recent_topics") or [])[:target_count]
+    if not chosen_topics:
+        return []
+
+    base_minutes = max(5, round(minutes / max(1, len(chosen_topics))))
+    tasks: list[dict] = []
+    for idx, topic in enumerate(chosen_topics, 1):
+        topic_number = int(topic.get("global_number") or idx)
+        topic_title = str(topic.get("title") or t("assigned_learning_program")).strip()
+        summary = (
+            str(topic.get("student_summary") or "").strip()
+            or str(topic.get("lesson_focus") or "").strip()
+            or str(topic.get("subtopic") or "").strip()
+            or t("smart_plan_program_anchor_default_summary")
+        )
+        tasks.append(
+            {
+                "id": f"{_today_iso()}_program_{int(topic.get('topic_id') or idx)}",
+                "title": t("smart_plan_program_task_title", number=topic_number, title=topic_title),
+                "subtitle": t(
+                    "smart_plan_program_task_subtitle",
+                    unit=topic.get("unit_number") or 1,
+                    summary=summary,
+                ),
+                "minutes": base_minutes,
+                "category": _topic_category(topic),
+                "xp": 15,
+                "done": False,
+            }
+        )
+    return tasks
+
+
+def _generate_smart_plan_tasks(subject: str, goal: str, minutes: int, program_anchor: dict | None = None) -> list[dict]:
+    if program_anchor:
+        anchor_tasks = _program_anchor_tasks(program_anchor, minutes)
+        if anchor_tasks:
+            return anchor_tasks
+
     templates = _subject_task_templates(subject, goal)
     target_count = 3 if minutes <= 15 else 4 if minutes <= 30 else 5
     selected = templates[:target_count]
@@ -405,9 +531,30 @@ def _generate_smart_plan_tasks(subject: str, goal: str, minutes: int) -> list[di
     ]
 
 
-def _generate_smart_plan_weekly_preview(subject: str, goal: str, minutes: int, tasks: list[dict]) -> list[dict]:
+def _generate_smart_plan_weekly_preview(subject: str, goal: str, minutes: int, tasks: list[dict], program_anchor: dict | None = None) -> list[dict]:
     progress = _calculate_smart_plan_progress(tasks)
     today = today_local()
+    if program_anchor and (program_anchor.get("next_topics") or program_anchor.get("recent_topics")):
+        focus_topics = (program_anchor.get("next_topics") or program_anchor.get("recent_topics") or [])[:5]
+        rows = []
+        for offset, topic in enumerate(focus_topics):
+            day = date.fromordinal(today.toordinal() + offset)
+            status = "completed" if offset == 0 and progress["all_done"] else ("in_progress" if offset == 0 else "coming_next")
+            rows.append(
+                {
+                    "day_label": _format_day_label(day),
+                    "focus_label": t(
+                        "smart_plan_program_weekly_focus",
+                        number=int(topic.get("global_number") or offset + 1),
+                        title=str(topic.get("title") or t("assigned_learning_program")),
+                    ),
+                    "status": status,
+                    "minutes": minutes,
+                    "subject": subject,
+                }
+            )
+        return rows
+
     daily_focus = [
         goal,
         "review_mistakes" if goal != "review_mistakes" else "general_practice",
@@ -437,7 +584,20 @@ def _generate_smart_plan_weekly_preview(subject: str, goal: str, minutes: int, t
     return rows
 
 
-def _generate_smart_plan_recommendations(subject: str, goal: str, progress_state: dict) -> list[str]:
+def _generate_smart_plan_recommendations(subject: str, goal: str, progress_state: dict, program_anchor: dict | None = None) -> list[dict]:
+    if program_anchor:
+        recommendation_topics = (program_anchor.get("next_topics") or program_anchor.get("recent_topics") or [])[:3]
+        if recommendation_topics:
+            return [
+                {
+                    "label": t(
+                        "smart_plan_program_recommendation",
+                        number=int(topic.get("global_number") or idx + 1),
+                        title=str(topic.get("title") or t("assigned_learning_program")),
+                    )
+                }
+                for idx, topic in enumerate(recommendation_topics)
+            ]
     subject = normalize_subject(subject)
     by_subject = {
         "english": ["review_mistakes", "improve_vocabulary", "improve_reading"],
@@ -451,35 +611,44 @@ def _generate_smart_plan_recommendations(subject: str, goal: str, progress_state
     ordered = [goal] + [item for item in by_subject.get(subject, by_subject["other"]) if item != goal]
     if progress_state.get("all_done"):
         ordered = ["exam_preparation", "review_mistakes"] + [item for item in ordered if item not in {"exam_preparation", "review_mistakes"}]
-    return ordered[:3]
+    return [{"goal_key": item} for item in ordered[:3]]
 
 
-def _generate_smart_plan(subject: str, goal: str, minutes: int) -> dict:
-    tasks = _generate_smart_plan_tasks(subject, goal, minutes)
+def _generate_smart_plan(subject: str, goal: str, minutes: int, program_anchor: dict | None = None) -> dict:
+    tasks = _generate_smart_plan_tasks(subject, goal, minutes, program_anchor)
     progress = _calculate_smart_plan_progress(tasks)
     return {
         "generated_for": _today_iso(),
         "tasks": tasks,
-        "weekly_preview": _generate_smart_plan_weekly_preview(subject, goal, minutes, tasks),
-        "recommendations": _generate_smart_plan_recommendations(subject, goal, progress),
+        "weekly_preview": _generate_smart_plan_weekly_preview(subject, goal, minutes, tasks, program_anchor),
+        "recommendations": _generate_smart_plan_recommendations(subject, goal, progress, program_anchor),
+        "program_anchor_signature": _smart_plan_anchor_signature(program_anchor),
     }
 
 
-def _ensure_today_plan(state: dict) -> dict:
-    if state.get("generated_for") == _today_iso() and state.get("tasks"):
+def _ensure_today_plan(state: dict, program_anchor: dict | None = None) -> dict:
+    current_signature = _smart_plan_anchor_signature(program_anchor)
+    if state.get("generated_for") == _today_iso() and state.get("tasks") and state.get("program_anchor_signature", "") == current_signature:
         return state
-    generated = _generate_smart_plan(state["subject"], state["goal"], int(state["minutes_per_day"]))
+    generated = _generate_smart_plan(state["subject"], state["goal"], int(state["minutes_per_day"]), program_anchor)
     state.update(generated)
     state["last_active_date"] = _today_iso()
     return state
 
 
 def _task_title(task: dict) -> str:
+    direct = str(task.get("title") or "").strip()
+    if direct:
+        return direct
     return t(task.get("title_key", ""))
 
 
 def _task_subtitle(task: dict) -> str:
-    subtitle = t(task.get("subtitle_key", ""))
+    direct = str(task.get("subtitle") or "").strip()
+    if direct:
+        subtitle = direct
+    else:
+        subtitle = t(task.get("subtitle_key", ""))
     return t("smart_plan_task_meta", subtitle=subtitle, minutes=task.get("minutes", 0))
 
 
@@ -533,26 +702,31 @@ def _sync_rewards(state: dict, old_tasks: list[dict], new_tasks: list[dict]) -> 
     return state
 
 
-def _render_smart_plan_setup(state: dict) -> tuple[dict, bool]:
+def _render_smart_plan_setup(state: dict, program_anchor: dict | None = None) -> tuple[dict, bool]:
     st.markdown(f"### {t('smart_plan_setup_title')}")
-    st.caption(t("smart_plan_setup_subtitle"))
+    st.caption(t("smart_plan_program_anchor_setup_hint") if program_anchor else t("smart_plan_setup_subtitle"))
 
     with st.container(border=True):
         col1, col2, col3 = st.columns(3)
+        anchor_subject = normalize_subject(str(program_anchor.get("subject") or "")) if program_anchor else ""
+        subject_options = _smart_plan_subject_options()
+        selected_subject = anchor_subject if anchor_subject in subject_options else state["subject"]
         with col1:
             subject = st.selectbox(
                 t("subject_label"),
-                options=_smart_plan_subject_options(),
-                index=max(0, _smart_plan_subject_options().index(state["subject"])) if state["subject"] in _smart_plan_subject_options() else 0,
+                options=subject_options,
+                index=max(0, subject_options.index(selected_subject)) if selected_subject in subject_options else 0,
                 format_func=_subject_label,
                 key="student_smart_plan_subject",
+                disabled=bool(program_anchor and anchor_subject in subject_options),
             )
             custom_subject = state.get("custom_subject", "")
             if subject == "other":
                 custom_subject = st.text_input(
                     t("other_subject_label"),
-                    value=custom_subject,
+                    value=str(program_anchor.get("subject_display") or custom_subject) if program_anchor else custom_subject,
                     key="student_smart_plan_custom_subject",
+                    disabled=bool(program_anchor),
                 ).strip()
         with col2:
             goal_options = _smart_plan_goal_options_for_subject(subject)
@@ -598,7 +772,7 @@ def _render_smart_plan_setup(state: dict) -> tuple[dict, bool]:
     if save_clicked or generate_clicked:
         updated["setup_complete"] = True
         if save_clicked or generate_clicked or updated.get("generated_for") != _today_iso():
-            updated.update(_generate_smart_plan(updated["subject"], updated["goal"], updated["minutes_per_day"]))
+            updated.update(_generate_smart_plan(updated["subject"], updated["goal"], updated["minutes_per_day"], program_anchor))
             plan_regenerated = True
         st.success(t("smart_plan_preferences_saved"))
 
@@ -726,11 +900,12 @@ def _render_smart_plan_recommendations(state: dict) -> None:
     cols = st.columns(len(recommendations))
     for col, item in zip(cols, recommendations):
         with col:
+            label = _smart_plan_focus_label(item.get("goal_key")) if item.get("goal_key") else str(item.get("label") or "—")
             st.markdown(
                 f"""
                 <div style="height:100%;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:16px;">
                     <div style="font-size:0.82rem;color:var(--muted);font-weight:700;">{t('smart_plan_recommended_label')}</div>
-                    <div style="margin-top:6px;font-size:1rem;font-weight:800;">{_smart_plan_focus_label(item)}</div>
+                    <div style="margin-top:6px;font-size:1rem;font-weight:800;">{label}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -788,33 +963,65 @@ def _render_smart_plan_teacher_summary() -> None:
 
 def render_student_study_plan():
     _inject_smart_plan_styles()
+    _inject_assignment_page_styles()
     state = _load_smart_plan_state()
+    program_assignments = load_enriched_program_assignments_for_current_student()
+    program_anchor = _build_program_anchor(program_assignments)
+
+    if program_anchor:
+        anchor_subject = normalize_subject(str(program_anchor.get("subject") or ""))
+        if anchor_subject in _smart_plan_subject_options():
+            state["subject"] = anchor_subject
+        elif program_anchor.get("subject_display"):
+            state["subject"] = "other"
+            state["custom_subject"] = str(program_anchor.get("subject_display") or "")
 
     st.markdown(f"## 📚 {t('smart_study_plan')}")
     st.caption(t("smart_plan_page_subtitle"))
 
-    state, plan_regenerated = _render_smart_plan_setup(state)
-    if state.get("setup_complete") and not plan_regenerated:
-        state = _ensure_today_plan(state)
+    tab_plan, tab_programs, tab_teacher = st.tabs(
+        [
+            f"✨ {t('smart_study_plan')}",
+            f"📚 {t('assigned_learning_program')}",
+            f"🗂️ {t('smart_plan_teacher_assignments_title')}",
+        ]
+    )
 
-    if state.get("setup_complete"):
-        _render_smart_plan_progress(state)
-        state = _render_smart_plan_today(state)
-        state["weekly_preview"] = _generate_smart_plan_weekly_preview(
-            state["subject"],
-            state["goal"],
-            int(state["minutes_per_day"]),
-            state.get("tasks", []),
-        )
-        state["recommendations"] = _generate_smart_plan_recommendations(
-            state["subject"],
-            state["goal"],
-            _calculate_smart_plan_progress(state.get("tasks", [])),
-        )
-        _render_smart_plan_weekly(state)
-        _render_smart_plan_recommendations(state)
-    else:
-        st.info(t("smart_plan_setup_prompt"))
+    with tab_plan:
+        state, plan_regenerated = _render_smart_plan_setup(state, program_anchor)
+        if state.get("setup_complete") and not plan_regenerated:
+            state = _ensure_today_plan(state, program_anchor)
 
-    _render_smart_plan_teacher_summary()
+        if state.get("setup_complete"):
+            if program_anchor:
+                st.caption(
+                    f"{program_anchor.get('program_title', t('assigned_learning_program'))} · "
+                    f"{t('smart_plan_program_anchor_progress', completed=program_anchor.get('completed_topics', 0), total=program_anchor.get('total_topics', 0), percent=program_anchor.get('progress_pct', 0))}"
+                )
+            _render_smart_plan_progress(state)
+            state = _render_smart_plan_today(state)
+            state["weekly_preview"] = _generate_smart_plan_weekly_preview(
+                state["subject"],
+                state["goal"],
+                int(state["minutes_per_day"]),
+                state.get("tasks", []),
+                program_anchor,
+            )
+            state["recommendations"] = _generate_smart_plan_recommendations(
+                state["subject"],
+                state["goal"],
+                _calculate_smart_plan_progress(state.get("tasks", [])),
+                program_anchor,
+            )
+            _render_smart_plan_weekly(state)
+            _render_smart_plan_recommendations(state)
+        else:
+            st.info(t("smart_plan_setup_prompt"))
+
+    with tab_programs:
+        render_assigned_learning_programs_section(program_assignments, [])
+
+    with tab_teacher:
+        _render_smart_plan_teacher_summary()
+
     _save_smart_plan_state(state)

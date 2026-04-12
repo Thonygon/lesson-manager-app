@@ -1,6 +1,7 @@
 import streamlit as st
 import datetime
 from core.i18n import t
+from core.state import get_current_user_id
 from core.navigation import go_to, home_go, PAGES
 from core.timezone import _get_qp
 from core.database import load_table, load_students, clear_app_caches, profile_can_teach
@@ -18,6 +19,17 @@ from helpers.worksheet_storage import load_my_worksheets, load_public_worksheets
 from helpers.worksheet_builder import normalize_worksheet_output
 from helpers.goal_explorer import render_income_goal_calculator
 from helpers.quick_exam_storage import render_quick_exam_builder_expander, load_my_exams, load_public_exams, render_exam_library_cards, render_exam_result
+from helpers.learning_programs import (
+    load_learning_program,
+    load_my_learning_programs,
+    load_public_learning_programs,
+    update_learning_program_visibility,
+    render_learning_program_assignment_panel,
+    render_learning_program_library_cards,
+    render_quick_learning_program_builder_expander,
+    render_saved_learning_program_workspace,
+    render_teacher_program_view,
+)
 from core.database import load_community_profiles
 from helpers.goal_explorer import _rank_search
 import streamlit as st
@@ -161,11 +173,62 @@ def render_home_teaching_resources_preview():
         unsafe_allow_html=True,
     )
 
-    res_tab1, res_tab2, res_tab3 = st.tabs([
+    res_tab0, res_tab1, res_tab2, res_tab3 = st.tabs([
+        "📚 Learning Programs",
         f"📝 {t('community_plans')}",
         f"📋 {t('community_worksheets')}",
         f"📄 {t('community_exams')}",
     ])
+
+    with res_tab0:
+        public_program_df = load_public_learning_programs()
+
+        if public_program_df.empty:
+            st.info(t("community_library_empty"))
+        else:
+            program_q = st.text_input(
+                t("explore_resource_search"),
+                key="home_public_learning_programs_q",
+                placeholder=t("explore_resource_search_placeholder"),
+            ).strip().lower()
+
+            filtered_programs = public_program_df.copy()
+            if program_q:
+                for col in ["title", "subject", "custom_subject_name", "learner_stage", "level_or_band", "program_overview"]:
+                    if col not in filtered_programs.columns:
+                        filtered_programs[col] = ""
+                mask = (
+                    filtered_programs["title"].fillna("").astype(str).str.lower().str.contains(program_q, na=False)
+                    | filtered_programs["subject"].fillna("").astype(str).str.lower().str.contains(program_q, na=False)
+                    | filtered_programs["custom_subject_name"].fillna("").astype(str).str.lower().str.contains(program_q, na=False)
+                    | filtered_programs["learner_stage"].fillna("").astype(str).str.lower().str.contains(program_q, na=False)
+                    | filtered_programs["level_or_band"].fillna("").astype(str).str.lower().str.contains(program_q, na=False)
+                    | filtered_programs["program_overview"].fillna("").astype(str).str.lower().str.contains(program_q, na=False)
+                )
+                filtered_programs = filtered_programs[mask]
+
+            if "updated_at" in filtered_programs.columns:
+                filtered_programs = filtered_programs.sort_values("updated_at", ascending=False)
+
+            programs_to_show = filtered_programs if program_q else filtered_programs.head(4)
+
+            if programs_to_show.empty:
+                st.info(t("be_the_first_to_share"))
+            else:
+                if program_q:
+                    st.caption(t("learning_programs_count", count=len(programs_to_show)))
+                else:
+                    st.caption(t("explore_latest_resources_note").format(count=4))
+                render_learning_program_library_cards(
+                    programs_to_show,
+                    prefix="home_public_learning_programs",
+                    show_author=True,
+                    allow_visibility_toggle=False,
+                )
+
+            if st.button(t("see_all_learning_programs"), key="home_see_all_learning_programs", use_container_width=True):
+                home_go("home", panel="files")
+                st.rerun()
 
     # =========================
     # LESSON PLANS
@@ -499,6 +562,10 @@ def render_home():
         st.session_state["_show_restore_dialog"] = False
         _render_restore_dialog(user_id)
 
+    if panel != "files" and st.session_state.get("home_public_learning_programs_selected_program_id"):
+        home_go("home", panel="files")
+        st.rerun()
+
     if panel == "files":
 
         head_left, head_right = st.columns([6, 1], vertical_alignment="center")
@@ -512,7 +579,64 @@ def render_home():
                 home_go("home", panel=None)
                 st.rerun()
 
-        tab1, tab2, tab_exams, tab3, tab4 = st.tabs([t("my_plans"), t("my_worksheets"), t("my_exams"), t("community_library"), t("professional")])
+        tab_prog, tab1, tab2, tab_exams, tab3, tab4 = st.tabs([t("my_programs"), t("my_plans"), t("my_worksheets"), t("my_exams"), t("community_library"), t("professional")])
+
+        with tab_prog:
+            prog_df = load_my_learning_programs()
+            if prog_df.empty:
+                st.info(t("no_my_learning_programs"))
+            else:
+                prog_q = st.text_input(t("search_learning_programs"), key="my_programs_q").strip().lower()
+                prog_subj_opts = (
+                    sorted(
+                        set(_normalize_subject(s) for s in prog_df["subject"].dropna().astype(str) if _normalize_subject(s))
+                    )
+                    if "subject" in prog_df.columns
+                    else []
+                )
+                prog_subj_filter = st.selectbox(
+                    t("subject_label"),
+                    [t("all")] + prog_subj_opts,
+                    format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
+                    key="my_programs_subject_filter",
+                )
+                p_col1, p_col2 = st.columns(2)
+                with p_col1:
+                    prog_stage_opts = sorted(prog_df["learner_stage"].dropna().astype(str).unique().tolist()) if "learner_stage" in prog_df.columns else []
+                    prog_stage_filter = st.selectbox(
+                        t("learner_stage"),
+                        [t("all")] + prog_stage_opts,
+                        format_func=lambda x: t(x) if x != t("all") else t("all"),
+                        key="my_programs_stage_filter",
+                    )
+                with p_col2:
+                    prog_level_opts = sorted(prog_df["level_or_band"].dropna().astype(str).unique().tolist()) if "level_or_band" in prog_df.columns else []
+                    prog_level_filter = st.selectbox(
+                        t("level_or_band"),
+                        [t("all")] + prog_level_opts,
+                        format_func=lambda x: x if x in ("A1", "A2", "B1", "B2", "C1", "C2") else t(x) if x != t("all") else t("all"),
+                        key="my_programs_level_filter",
+                    )
+                prog_filtered = prog_df.copy()
+                if prog_q:
+                    for col in ["title", "program_overview", "custom_subject_name", "subject", "learner_stage", "level_or_band"]:
+                        if col not in prog_filtered.columns:
+                            prog_filtered[col] = ""
+                    prog_filtered = prog_filtered[
+                        prog_filtered["title"].fillna("").astype(str).str.lower().str.contains(prog_q, na=False)
+                        | prog_filtered["program_overview"].fillna("").astype(str).str.lower().str.contains(prog_q, na=False)
+                        | prog_filtered["custom_subject_name"].fillna("").astype(str).str.lower().str.contains(prog_q, na=False)
+                        | prog_filtered["subject"].fillna("").astype(str).str.lower().str.contains(prog_q, na=False)
+                        | prog_filtered["learner_stage"].fillna("").astype(str).str.lower().str.contains(prog_q, na=False)
+                        | prog_filtered["level_or_band"].fillna("").astype(str).str.lower().str.contains(prog_q, na=False)
+                    ]
+                if prog_subj_filter != t("all") and "subject" in prog_filtered.columns:
+                    prog_filtered = prog_filtered[prog_filtered["subject"].astype(str).apply(_normalize_subject) == prog_subj_filter]
+                if prog_stage_filter != t("all") and "learner_stage" in prog_filtered.columns:
+                    prog_filtered = prog_filtered[prog_filtered["learner_stage"].astype(str) == prog_stage_filter]
+                if prog_level_filter != t("all") and "level_or_band" in prog_filtered.columns:
+                    prog_filtered = prog_filtered[prog_filtered["level_or_band"].astype(str) == prog_level_filter]
+                render_learning_program_library_cards(prog_filtered, prefix="my_learning_programs", show_author=False, allow_visibility_toggle=True)
 
         with tab1:
             my_df = load_my_lesson_plans()
@@ -598,11 +722,78 @@ def render_home():
                 render_exam_library_cards(exam_filtered, prefix="my_exams", show_author=False)
 
         with tab3:
-            comm_tab_plans, comm_tab_ws, comm_tab_exams = st.tabs([
+            comm_tab_programs, comm_tab_plans, comm_tab_ws, comm_tab_exams = st.tabs([
+                f"📚 {t('learning_programs')}",
                 f"📝 {t('community_plans')}",
                 f"📋 {t('community_worksheets')}",
                 f"📄 {t('community_exams')}",
             ])
+
+            with comm_tab_programs:
+                public_program_df = load_public_learning_programs()
+                if public_program_df.empty:
+                    st.info(t("community_library_empty"))
+                else:
+                    pf_col1, pf_col2 = st.columns([3, 1])
+                    with pf_col1:
+                        public_program_q = st.text_input(
+                            t("search_learning_programs"),
+                            key="public_learning_program_q",
+                            placeholder=t("learning_program_search_placeholder"),
+                        ).strip().lower()
+                    with pf_col2:
+                        public_program_subj_opts = sorted(
+                            set(_normalize_subject(s) for s in public_program_df["subject"].dropna().astype(str) if _normalize_subject(s))
+                        ) if "subject" in public_program_df.columns else []
+                        public_program_subj_filter = st.selectbox(
+                            t("subject_label"),
+                            [t("all")] + public_program_subj_opts,
+                            format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
+                            key="public_learning_program_subject_filter",
+                        )
+                    pf_col3, pf_col4 = st.columns(2)
+                    with pf_col3:
+                        public_program_stage_opts = sorted(public_program_df["learner_stage"].dropna().astype(str).unique().tolist()) if "learner_stage" in public_program_df.columns else []
+                        public_program_stage_filter = st.selectbox(
+                            t("learner_stage"),
+                            [t("all")] + public_program_stage_opts,
+                            format_func=lambda x: t(x) if x != t("all") else t("all"),
+                            key="public_learning_program_stage_filter",
+                        )
+                    with pf_col4:
+                        public_program_level_opts = sorted(public_program_df["level_or_band"].dropna().astype(str).unique().tolist()) if "level_or_band" in public_program_df.columns else []
+                        public_program_level_filter = st.selectbox(
+                            t("level_or_band"),
+                            [t("all")] + public_program_level_opts,
+                            format_func=lambda x: x if x in ("A1", "A2", "B1", "B2", "C1", "C2") else t(x) if x != t("all") else t("all"),
+                            key="public_learning_program_level_filter",
+                        )
+
+                    public_program_filtered = public_program_df.copy()
+                    if public_program_q:
+                        for col in ["title", "program_overview", "custom_subject_name", "subject", "learner_stage", "level_or_band"]:
+                            if col not in public_program_filtered.columns:
+                                public_program_filtered[col] = ""
+                        public_program_filtered = public_program_filtered[
+                            public_program_filtered["title"].fillna("").astype(str).str.lower().str.contains(public_program_q, na=False)
+                            | public_program_filtered["program_overview"].fillna("").astype(str).str.lower().str.contains(public_program_q, na=False)
+                            | public_program_filtered["custom_subject_name"].fillna("").astype(str).str.lower().str.contains(public_program_q, na=False)
+                            | public_program_filtered["subject"].fillna("").astype(str).str.lower().str.contains(public_program_q, na=False)
+                            | public_program_filtered["learner_stage"].fillna("").astype(str).str.lower().str.contains(public_program_q, na=False)
+                            | public_program_filtered["level_or_band"].fillna("").astype(str).str.lower().str.contains(public_program_q, na=False)
+                        ]
+                    if public_program_subj_filter != t("all") and "subject" in public_program_filtered.columns:
+                        public_program_filtered = public_program_filtered[public_program_filtered["subject"].astype(str).apply(_normalize_subject) == public_program_subj_filter]
+                    if public_program_stage_filter != t("all") and "learner_stage" in public_program_filtered.columns:
+                        public_program_filtered = public_program_filtered[public_program_filtered["learner_stage"].astype(str) == public_program_stage_filter]
+                    if public_program_level_filter != t("all") and "level_or_band" in public_program_filtered.columns:
+                        public_program_filtered = public_program_filtered[public_program_filtered["level_or_band"].astype(str) == public_program_level_filter]
+
+                    if public_program_filtered.empty:
+                        st.info(t("be_the_first_to_share"))
+                    else:
+                        st.caption(t("learning_programs_count", count=len(public_program_filtered)))
+                        render_learning_program_library_cards(public_program_filtered, prefix="public_learning_programs", show_author=True, allow_visibility_toggle=False)
 
             with comm_tab_plans:
                 public_df = load_public_lesson_plans()
@@ -839,6 +1030,38 @@ def render_home():
                     render_cv_library_cards(cl_df, prefix="files_cl")
 
         selected_plan = st.session_state.get("files_selected_plan")
+        selected_program_id = (
+            st.session_state.get("my_learning_programs_selected_program_id")
+            or st.session_state.get("public_learning_programs_selected_program_id")
+            or st.session_state.get("home_public_learning_programs_selected_program_id")
+        )
+
+        if selected_program_id:
+            selected_program = load_learning_program(int(selected_program_id))
+            st.markdown("---")
+            st.markdown(f"### {t('learning_program_preview')}")
+            if st.session_state.get("my_learning_programs_selected_program_id") and str(selected_program.get("user_id") or "") == str(get_current_user_id() or ""):
+                render_saved_learning_program_workspace(
+                    selected_program,
+                    int(selected_program_id),
+                    ns=f"saved_learning_program_{int(selected_program_id)}",
+                )
+            else:
+                render_teacher_program_view(selected_program)
+
+            program_complete = bool(selected_program) and all(unit.get("unit_objectives") or unit.get("delivery_notes") or any(topic.get("learning_objectives") for topic in (unit.get("topics") or [])) for unit in (selected_program.get("units") or []))
+            if program_complete and st.session_state.get(f"show_assign_learning_program_{selected_program_id}", False):
+                render_learning_program_assignment_panel(selected_program, prefix=f"learning_program_assign_{selected_program_id}")
+            close_cols = st.columns([1, 4])
+            with close_cols[0]:
+                if st.button(t("close_program"), key="close_selected_learning_program"):
+                    for _k in [
+                        "my_learning_programs_selected_program_id",
+                        "public_learning_programs_selected_program_id",
+                        "home_public_learning_programs_selected_program_id",
+                    ]:
+                        st.session_state.pop(_k, None)
+                    st.rerun()
 
         if selected_plan:
             st.markdown("---")
@@ -1261,6 +1484,9 @@ def render_home():
     # ---------- AI TOOLS PANEL ----------
     if panel == "ai_tools":
         st.markdown(f"### 🤖 {t('ai_tools')}")
+
+        # --- Learning Program Maker ---
+        render_quick_learning_program_builder_expander()
 
         # --- Lesson Planner ---
         render_quick_lesson_planner_expander()

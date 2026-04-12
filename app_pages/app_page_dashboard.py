@@ -647,6 +647,14 @@ def render_dashboard():
         ],
     )
 
+    _show_raw = st.toggle(t("show_raw_data"), value=False, key="dash_show_raw_packages")
+    if _show_raw:
+        d_display = d.copy()
+        d_display["Status"] = d_display["Status"].apply(translate_status)
+        d_display["Modality"] = d_display.get("Modality", "").apply(translate_modality_value)
+
+        render_styled_dataframe(translate_df(pretty_df(d_display)))
+
     with st.expander(t("view_student_reports"), expanded=False):
         _dash_students = sorted(d["Student"].dropna().unique().tolist())
         if not _dash_students:
@@ -718,14 +726,6 @@ def render_dashboard():
                     )
             if _s_phone or _s_email:
                 st.caption(t("share_report_hint"))
-
-    _show_raw = st.toggle(t("show_raw_data"), value=False, key="dash_show_raw_packages")
-    if _show_raw:
-        d_display = d.copy()
-        d_display["Status"] = d_display["Status"].apply(translate_status)
-        d_display["Modality"] = d_display.get("Modality", "").apply(translate_modality_value)
-
-        render_styled_dataframe(translate_df(pretty_df(d_display)))
 
     # ---------------------------------------
     # MISMATCHES

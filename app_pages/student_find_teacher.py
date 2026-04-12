@@ -4,7 +4,28 @@ from core.i18n import t
 from core.state import get_current_user_id
 from core.database import load_community_profiles, profile_can_teach, profile_can_study
 from helpers.lesson_planner import QUICK_SUBJECTS, subject_label as _subject_label
-from helpers.teacher_student_integration import create_teacher_request, load_student_teacher_links
+from helpers.teacher_student_integration import archive_teacher_student_link, create_teacher_request, load_student_teacher_links
+
+
+def _render_end_relationship_action(*, link_id: int, key_prefix: str) -> None:
+    with st.popover(t("end_relationship"), use_container_width=True):
+        st.warning(t("relationship_end_warning"))
+        confirm = st.checkbox(
+            t("relationship_end_confirm_checkbox"),
+            key=f"{key_prefix}_confirm_end_relationship",
+        )
+        if st.button(
+            t("relationship_end_confirm_button"),
+            key=f"{key_prefix}_confirm_end_relationship_btn",
+            use_container_width=True,
+            type="primary",
+            disabled=not confirm,
+        ):
+            ok, msg = archive_teacher_student_link(int(link_id))
+            if ok:
+                st.success(t(msg))
+                st.rerun()
+            st.error(t(msg))
 
 
 def _lang_flag(code: str) -> str:
@@ -203,23 +224,15 @@ def render_community_member_cards(profiles: list, role_filter: str = "teacher"):
 
             with action_col:
                 st.markdown(
-                    f"<div class='classio-teacher-action-label'>{_html.escape(t('my_teachers') if status == 'active' else t('add_as_my_teacher'))}</div>",
+                    f"<div class='classio-teacher-action-label'>{_html.escape(t('relationship_end_prompt') if status == 'active' else t('add_as_my_teacher'))}</div>",
                     unsafe_allow_html=True,
                 )
                 if status in {"pending", "active"}:
-                    if status == "active" and st.button(
-                        t("end_relationship"),
-                        key=f"teacher_rel_archive_{member.get('user_id')}",
-                        use_container_width=True,
-                        type="primary",
-                    ):
-                        from helpers.teacher_student_integration import archive_teacher_student_link
-
-                        ok, msg = archive_teacher_student_link(int(relationship.get("id")))
-                        if ok:
-                            st.success(t(msg))
-                            st.rerun()
-                        st.error(t(msg))
+                    if status == "active":
+                        _render_end_relationship_action(
+                            link_id=int(relationship.get("id") or 0),
+                            key_prefix=f"teacher_rel_archive_{member.get('user_id')}",
+                        )
                 else:
                     with st.popover(t("add_as_my_teacher"), use_container_width=True):
                         chosen_subjects = st.multiselect(
