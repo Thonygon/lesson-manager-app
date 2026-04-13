@@ -4,10 +4,17 @@ import pandas as pd
 from core.i18n import t
 from core.state import get_current_user_id
 from core.timezone import now_local
-from core.database import load_table
+from core.database import LESSON_NOTE_DEFAULT_TOKEN, load_table
 from typing import Tuple
 from helpers.ui_components import to_dt_naive
 from helpers.language import translate_modality_value, translate_language_value
+
+
+def _display_lesson_note_for_table(value) -> str:
+    text = str(value or "").strip()
+    if not text or text == LESSON_NOTE_DEFAULT_TOKEN:
+        return "—"
+    return text
 
 # 07.8) HISTORY HELPERS
 # =========================
@@ -86,6 +93,7 @@ def show_student_history(student: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     # Translate coded values (optional)
     lessons_df["modality"] = lessons_df["modality"].apply(translate_modality_value)
     lessons_df["subject"] = lessons_df["subject"].fillna("").astype(str)
+    lessons_df["note"] = lessons_df["note"].apply(_display_lesson_note_for_table)
 
     payments_df["modality"] = payments_df["modality"].apply(translate_modality_value)
     payments_df["subject"] = payments_df["subject"].fillna("").astype(str)

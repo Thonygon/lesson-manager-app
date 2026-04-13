@@ -2,6 +2,7 @@ import streamlit as st
 import json
 from datetime import datetime, timezone, timedelta
 from core.i18n import t
+from core.navigation import go_to
 from core.state import get_current_user_id
 from helpers.practice_engine import (
     worksheet_to_exercises,
@@ -22,6 +23,12 @@ from helpers.practice_engine import (
     get_global_best_streak,
     get_rank,
     calculate_session_xp,
+)
+from helpers.teacher_student_integration import (
+    _clean_teacher_feedback_text,
+    create_teacher_review_request,
+    get_reviewable_teacher_links_for_subject,
+    load_student_review_requests_for_session,
 )
 
 _DEMO_LINGER_HOURS = 24
@@ -823,6 +830,7 @@ def _render_active_session(exercise_data: dict):
                     meta=meta,
                 )
             if session_id:
+                st.session_state["_practice_last_session_id"] = session_id
                 save_practice_answers(
                     session_id, exercise_data, result["answers"], session_key="sp",
                     replace_existing=bool(retry_id or st.session_state.get("_practice_resume_session_id")),
@@ -848,6 +856,91 @@ def _render_active_session(exercise_data: dict):
             )
             st.session_state.pop("_practice_resume_session_id", None)
             st.session_state.pop("_practice_resume_answers", None)
+
+    if result and not is_demo:
+        _render_teacher_review_request_panel(exercise_data)
+
+
+def _render_teacher_review_request_panel(exercise_data: dict) -> None:
+    session_id = st.session_state.get("_practice_last_session_id")
+    if not session_id:
+        return
+
+    source_type = str(exercise_data.get("source_type") or "").strip()
+    if source_type not in {"worksheet", "exam"}:
+        return
+
+    meta = st.session_state.get("practice_meta") or {}
+    subject_key = str(meta.get("subject") or "").strip()
+    links = get_reviewable_teacher_links_for_subject(subject_key)
+    requests = load_student_review_requests_for_session(int(session_id))
+
+    st.markdown(
+        """
+        <div style="
+            margin-top:1rem;
+            padding:20px 22px;
+            border-radius:22px;
+            background:
+              radial-gradient(circle at top right, rgba(16,185,129,.10), transparent 36%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 84%, white 16%));
+            border:1px solid color-mix(in srgb, var(--border) 78%, rgba(16,185,129,.20) 22%);
+            box-shadow:0 14px 32px rgba(15,23,42,.08);
+            margin-bottom:0.85rem;
+        ">
+            <div style="font-size:1.1rem;font-weight:800;color:var(--text);">🧑‍🏫 """
+        + t("request_teacher_review")
+        + """</div>
+            <div style="margin-top:0.35rem;color:var(--muted);font-size:0.92rem;">"""
+        + t("teacher_review_note_placeholder")
+        + """</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if requests:
+        latest = requests[0]
+        teacher_name = latest.get("teacher_name") or "—"
+        status_key = f"teacher_review_status_{latest.get('status')}"
+        st.success(t("teacher_review_requested_with_name", teacher=teacher_name))
+        st.caption(f"{t('teacher_review_current_status')}: {t(status_key)}")
+        feedback = _clean_teacher_feedback_text(latest.get("teacher_feedback"))
+        if feedback:
+            st.info(f"{t('teacher_review_feedback')}: {feedback}")
+        return
+
+    if not links:
+        st.info(t("teacher_review_not_connected"))
+        if st.button(t("teacher_review_find_teacher"), key=f"find_teacher_review_{session_id}", type="primary"):
+            go_to("student_find_teacher")
+            st.rerun()
+        return
+
+    selected_teacher_idx = st.selectbox(
+        t("teacher_review_select_teacher"),
+        options=list(range(len(links))),
+        format_func=lambda idx: f"{links[idx].get('teacher_name', '—')} · {', '.join(s.get('subject_label', '') for s in links[idx].get('active_subjects', []) if s.get('subject_label'))}",
+        key=f"teacher_review_teacher_{session_id}",
+    )
+    review_note = st.text_area(
+        t("teacher_review_note"),
+        key=f"teacher_review_note_{session_id}",
+        height=90,
+        placeholder=t("teacher_review_note_placeholder"),
+    )
+    if st.button(t("request_teacher_review"), key=f"teacher_review_request_btn_{session_id}", use_container_width=True, type="primary"):
+        selected = links[selected_teacher_idx]
+        ok, msg = create_teacher_review_request(
+            practice_session_id=int(session_id),
+            teacher_id=str(selected.get("teacher_id") or ""),
+            assignment_id=st.session_state.get("_practice_assignment_id"),
+            request_note=review_note,
+        )
+        if ok:
+            st.success(t(msg))
+            st.rerun()
+        st.error(t(msg))
 
 
 # ── History tab ─────────────────────────────────────────────────

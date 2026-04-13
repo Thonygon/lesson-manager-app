@@ -1914,12 +1914,9 @@ def get_ai_model_for_provider(provider: str) -> str:
 
 
 def get_ai_provider_order() -> list[str]:
-    provider = get_ai_provider()
-    if provider == "openrouter":
-        return ["openrouter", "gemini", "openai"]
-    if provider == "openai":
-        return ["gemini", "openrouter", "openai"]
-    return ["gemini", "openrouter", "openai"]
+    # Product-wide cost-first routing:
+    # try OpenRouter first, then Gemini, then OpenAI.
+    return ["openrouter", "gemini", "openai"]
 
 
 def _extract_json_object_from_text(text: str) -> dict:

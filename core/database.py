@@ -34,16 +34,16 @@ def get_profile_by_email(email: str) -> dict:
 def _normalize_lesson_note(note) -> str:
     text = str(note or "").strip()
     if text == LESSON_NOTE_DEFAULT_TOKEN:
-        return LESSON_NOTE_DEFAULT_TOKEN
+        return None
     if not text:
-        return LESSON_NOTE_DEFAULT_TOKEN
+        return None
     for _ in range(3):
         text = _html.unescape(text).strip()
     text = re.sub(r"(?i)</?\s*div\b[^>]*>", " ", text)
     text = re.sub(r"(?i)\b/?\s*div\s*>", " ", text)
     text = re.sub(r"(?i)^/?\s*div\s*$", " ", text)
     text = " ".join(text.split()).strip()
-    return text or LESSON_NOTE_DEFAULT_TOKEN
+    return text or None
 
 
 # ---- Supabase client (lazy singleton) ----
@@ -262,6 +262,7 @@ def _load_table_cached(name: str, uid: str, limit: int = 10000, page_size: int =
         "app_settings",
         "profiles",
         "lesson_plans",
+        "learning_programs",
         "ai_usage_logs",
         "user_activity_log",
         "professional_profiles",
@@ -927,6 +928,7 @@ _DELETE_TABLES = [
     "pricing_items",
     "app_settings",
     "lesson_plans",
+    "learning_programs",
     "ai_usage_logs",
     "user_activity_log",
     "professional_profiles",

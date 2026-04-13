@@ -4,9 +4,11 @@ import streamlit as st
 
 from core.i18n import t
 from core.navigation import go_to
+from core.state import get_current_user_id
 from helpers.practice_engine import exam_to_exercises, worksheet_to_exercises
 from helpers.practice_engine import load_in_progress_practice_session
 from helpers.teacher_student_integration import (
+    _clean_teacher_feedback_text,
     group_assignments_by_teacher_subject,
     has_active_teacher_relationships,
     load_student_assignments,
@@ -14,6 +16,7 @@ from helpers.teacher_student_integration import (
     mark_assignment_started,
     update_topic_assignment_status,
 )
+from helpers.learning_programs import load_enriched_program_assignments_for_current_student, render_student_program_view
 
 
 def _open_assignment_practice(row: dict) -> None:
@@ -172,6 +175,60 @@ def _inject_assignment_page_styles() -> None:
             border-color: rgba(148,163,184,.28);
             box-shadow: 0 8px 18px rgba(15,23,42,.06);
         }
+        .classio-assigned-program-head {
+            margin-top: 1rem;
+            margin-bottom: .9rem;
+            font-size: 1.55rem;
+            font-weight: 900;
+            letter-spacing: -0.03em;
+        }
+        .classio-assigned-program-meta {
+            color: var(--muted);
+            font-size: .92rem;
+            margin-top: .4rem;
+        }
+        .classio-assigned-program-wrap {
+            position: relative;
+            overflow: hidden;
+            border-radius: 28px;
+            padding: 1.15rem 1.15rem 1rem;
+            background:
+              radial-gradient(circle at top left, rgba(59,130,246,.18), transparent 35%),
+              radial-gradient(circle at top right, rgba(251,191,36,.16), transparent 30%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 82%, white 18%));
+            border: 1px solid color-mix(in srgb, var(--border) 74%, rgba(59,130,246,.24) 26%);
+            box-shadow: 0 18px 40px rgba(15,23,42,.10);
+            margin-bottom: 1rem;
+        }
+        .classio-assigned-program-title {
+            font-size: 1.22rem;
+            line-height: 1.2;
+            font-weight: 900;
+            color: var(--text);
+        }
+        .classio-assigned-program-subtitle {
+            margin-top: .45rem;
+            color: var(--muted);
+            font-size: .93rem;
+            line-height: 1.45;
+        }
+        .classio-assigned-program-progress {
+            margin-top: .8rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: .45rem;
+        }
+        .classio-assigned-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: .42rem .78rem;
+            border-radius: 999px;
+            background: rgba(255,255,255,.56);
+            border: 1px solid rgba(148,163,184,.18);
+            font-size: .8rem;
+            font-weight: 800;
+            color: var(--text);
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -183,7 +240,7 @@ def _assignment_card(row: dict, key_prefix: str) -> None:
     status = str(row.get("status") or "").strip()
     due_at = str(row.get("due_at") or "").strip()
     created_at = str(row.get("created_at") or "").strip()
-    teacher_note = str(row.get("teacher_note") or "").strip()
+    teacher_note = _clean_teacher_feedback_text(row.get("teacher_note"))
     assignment_type = str(row.get("assignment_type") or "").strip()
     teacher_name = _html.escape(str(row.get("teacher_name") or "—"))
     subject_name = _html.escape(str(row.get("subject_display") or "—"))
@@ -290,6 +347,135 @@ def _render_assignment_group(title: str, rows: list[dict], group_prefix: str) ->
                 _assignment_card(row, f"{group_prefix}_{teacher_name}_{subject_name}_{idx}")
 
 
+def render_assigned_learning_programs_section(program_assignments: list[dict], legacy_topics: list[dict]) -> None:
+    if not program_assignments and not legacy_topics:
+        st.info(t("no_assignments"))
+        return
+
+    if program_assignments:
+        for idx, item in enumerate(program_assignments):
+            program = item.get("program") or {}
+            title = _html.escape(str(program.get("title") or "Learning program"))
+            teacher_name = _html.escape(str(item.get("teacher_name") or "Teacher"))
+            subject_display = _html.escape(str(item.get("subject_display") or "—"))
+            completed_topics = int(item.get("completed_topics") or 0)
+            total_topics = int(item.get("total_topics") or 0)
+            progress_pct = int(item.get("progress_pct") or 0)
+            start_on = str(item.get("start_on") or "").strip()
+            target_completion_on = str(item.get("target_completion_on") or "").strip()
+            teacher_note = _clean_teacher_feedback_text(item.get("teacher_note"))
+
+            st.markdown(
+                f"""
+                <div class="classio-assigned-program-wrap">
+                    <div class="classio-assigned-program-title">{title}</div>
+                    <div class="classio-assigned-program-subtitle">{teacher_name} · {subject_display}</div>
+                    <div class="classio-assigned-program-progress">
+                        <span class="classio-assigned-pill">{completed_topics}/{total_topics} topics done</span>
+                        <span class="classio-assigned-pill">{progress_pct}% complete</span>
+                        <span class="classio-assigned-pill">{'Target: ' + _html.escape(target_completion_on[:10]) if target_completion_on else 'Start from lesson 1'}</span>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if start_on or teacher_note:
+                meta_parts = []
+                if start_on:
+                    meta_parts.append(f"{t('day')}: {start_on[:10]}")
+                if teacher_note:
+                    meta_parts.append(f"{t('teacher_note')}: {teacher_note}")
+                st.caption(" · ".join(meta_parts))
+
+            render_student_program_view(program, assignment_id=int(item.get("id") or 0), interactive=True)
+            if idx < len(program_assignments) - 1:
+                st.markdown("<div style='height:.6rem;'></div>", unsafe_allow_html=True)
+
+    if legacy_topics:
+        st.markdown(f"<div class='classio-assigned-program-head'>{t('legacy_topic_tasks')}</div>", unsafe_allow_html=True)
+        _render_assignment_group(t("assigned_topics"), legacy_topics, "student_assignments_topic_legacy")
+
+
+def _student_smart_plan_state() -> dict:
+    uid = str(get_current_user_id() or "").strip() or "anon"
+    return dict(st.session_state.get(f"student_smart_plan_data_{uid}", {}) or {})
+
+
+def _render_program_assigned_topics(program_assignments: list[dict]) -> bool:
+    if not program_assignments:
+        return False
+
+    smart_state = _student_smart_plan_state()
+    tasks = list(smart_state.get("tasks") or [])
+    if tasks and smart_state.get("program_anchor_signature"):
+        st.caption(t("smart_plan_program_anchor_setup_hint"))
+        for idx, task in enumerate(tasks, 1):
+            title = _html.escape(str(task.get("title") or "—"))
+            subtitle = _html.escape(str(task.get("subtitle") or ""))
+            category = _html.escape(str(t(f"smart_plan_category_{task.get('category')}")))
+            minutes = int(task.get("minutes") or 0)
+            done = bool(task.get("done"))
+            st.markdown(
+                f"""
+                <div class="classio-assign-card">
+                    <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+                        <div>
+                            <div class="classio-assign-title">{title}</div>
+                            <div class="classio-assign-meta">{subtitle}</div>
+                        </div>
+                        <div>{_status_badge('completed' if done else 'assigned')}</div>
+                    </div>
+                    <div class="classio-assign-meta" style="margin-top:.8rem;">{category} · {minutes} min</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        return True
+
+    first_program = program_assignments[0]
+    program = first_program.get("program") or {}
+    progress_map = first_program.get("progress_map") or {}
+    next_topics: list[dict] = []
+    global_number = 0
+    for unit in program.get("units") or []:
+        for topic in unit.get("topics") or []:
+            global_number += 1
+            topic_id = int(topic.get("topic_id") or 0)
+            if bool(progress_map.get(topic_id, {}).get("is_done")):
+                continue
+            next_topics.append(
+                {
+                    "global_number": global_number,
+                    "unit_number": int(unit.get("unit_number") or 0),
+                    "title": str(topic.get("title") or "").strip(),
+                    "summary": str(topic.get("student_summary") or topic.get("lesson_focus") or topic.get("subtopic") or "").strip(),
+                }
+            )
+            if len(next_topics) >= 5:
+                break
+        if len(next_topics) >= 5:
+            break
+
+    if not next_topics:
+        st.info(t("smart_plan_program_anchor_all_done"))
+        return True
+
+    st.caption(t("smart_plan_program_anchor_setup_hint"))
+    for item in next_topics:
+        title = t("smart_plan_program_task_title", number=item["global_number"], title=item["title"] or "—")
+        subtitle = t("smart_plan_program_task_subtitle", unit=item["unit_number"] or 1, summary=item["summary"] or t("smart_plan_program_anchor_default_summary"))
+        st.markdown(
+            f"""
+            <div class="classio-assign-card">
+                <div class="classio-assign-title">{_html.escape(title)}</div>
+                <div class="classio-assign-meta" style="margin-top:.6rem;">{_html.escape(subtitle)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    return True
+
+
 def render_student_assignments() -> None:
     _inject_assignment_page_styles()
     st.markdown(f"## 🗂️ {t('student_assignments_title')}")
@@ -298,7 +484,8 @@ def render_student_assignments() -> None:
     _render_teacher_relationships()
 
     assignments = load_student_assignments()
-    if not assignments and not has_active_teacher_relationships():
+    program_assignments = load_enriched_program_assignments_for_current_student()
+    if not assignments and not program_assignments and not has_active_teacher_relationships():
         st.info(t("no_assignments_or_teachers"))
         return
 
@@ -310,7 +497,7 @@ def render_student_assignments() -> None:
         [
             f"📋 {t('worksheet_assignments')}",
             f"📝 {t('exam_assignments')}",
-            f"🧭 {t('assigned_topics')}",
+            f"🧠 {t('assigned_topics')}",
         ]
     )
 
@@ -319,4 +506,5 @@ def render_student_assignments() -> None:
     with tab_exams:
         _render_assignment_group(t("exam_assignments"), exams, "student_assignments_exam")
     with tab_topics:
-        _render_assignment_group(t("assigned_topics"), topics, "student_assignments_topic")
+        if not _render_program_assigned_topics(program_assignments):
+            _render_assignment_group(t("assigned_topics"), topics, "student_assignments_topics")

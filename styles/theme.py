@@ -387,6 +387,10 @@ def _resource_cards_css() -> str:
         border-left-color: #F87171;
       }
 
+      .cm-resource-program{
+        border-left-color: #FBBF24;
+      }
+
       .cm-resource-card__title{
         font-size: 1.02rem;
         font-weight: 800;
@@ -424,6 +428,11 @@ def _resource_cards_css() -> str:
       .cm-resource-exam .cm-resource-chip{
         background: rgba(248,113,113,0.10);
         border: 1px solid rgba(248,113,113,0.18);
+      }
+
+      .cm-resource-program .cm-resource-chip{
+        background: rgba(251,191,36,0.12);
+        border: 1px solid rgba(251,191,36,0.22);
       }
 
       .cm-resource-preview{

@@ -1,7 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 from core.i18n import t
-from core.database import load_table
+from core.database import LESSON_NOTE_DEFAULT_TOKEN, load_table
 import pandas as pd
 import re
 from core.navigation import go_to
@@ -121,6 +121,7 @@ def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
     for c in out.columns:
         if out[c].dtype == "object":
             out[c] = out[c].astype(str).str.strip()
+            out[c] = out[c].replace(LESSON_NOTE_DEFAULT_TOKEN, "—")
 
     return out
 
