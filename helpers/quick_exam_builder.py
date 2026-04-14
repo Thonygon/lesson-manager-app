@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # CLASSIO — Quick Exam Builder (AI generation)
 # ============================================================
 import json
@@ -6,6 +8,12 @@ from collections import OrderedDict
 
 from core.i18n import t
 from translations import I18N
+from helpers.answer_key_utils import clean_answer_key_item, split_answer_key_items
+from helpers.generation_guidance import (
+    build_expert_panel_prompt_blurb,
+    build_generation_profile_guidance,
+    infer_subject_family,
+)
 from helpers.visual_support import enrich_exam_with_visuals
 
 
@@ -185,7 +193,7 @@ def _clean_question_dict(q: dict) -> dict:
 
 def _clean_answer_value(value):
     if isinstance(value, str):
-        return _strip_leading_numbering(value)
+        return clean_answer_key_item(value)
     if isinstance(value, dict):
         return _clean_question_dict(value)
     return value
@@ -197,7 +205,152 @@ def _subject_key(subject: str) -> str:
 
 def get_subject_group(subject: str) -> str:
     key = _subject_key(subject)
-    return SUBJECT_GROUPS.get(key, "other")
+    mapped = SUBJECT_GROUPS.get(key)
+    if mapped:
+        return mapped
+    family = infer_subject_family(subject)
+    if family == "study_skills":
+        return "general"
+    return family or "other"
+
+
+def _normalize_sentence_for_quality(value) -> str:
+    text = _clean_str(value)
+    text = (
+        text.replace("’", "'")
+        .replace("‘", "'")
+        .replace("“", '"')
+        .replace("”", '"')
+        .replace("—", "-")
+        .replace("–", "-")
+    )
+    text = re.sub(r"\s+([,;:.!?])", r"\1", text)
+    text = re.sub(r"[.!?]+$", "", text)
+    return text.casefold().strip()
+
+
+def _sanitize_language_text(value, lang_code: str, *, subject_group: str) -> str:
+    text = _clean_str(value)
+    if not text or subject_group != "language":
+        return text
+
+    if str(lang_code or "").strip().upper() not in {"EN", "ES", "TR"}:
+        return text
+
+    text = re.sub(r"[\u3400-\u4DBF\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]+", "", text)
+    text = re.sub(r"\s+([,;:.!?])", r"\1", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+    
+
+def _sanitize_question_value(question, lang_code: str, *, subject_group: str):
+    if isinstance(question, str):
+        return _sanitize_language_text(question, lang_code, subject_group=subject_group)
+    if not isinstance(question, dict):
+        return question
+
+    cleaned = dict(question)
+    for key in ("text", "stem", "original", "prompt", "left", "right", "task", "word"):
+        if key in cleaned:
+            cleaned[key] = _sanitize_language_text(cleaned.get(key, ""), lang_code, subject_group=subject_group)
+    if isinstance(cleaned.get("options"), list):
+        cleaned["options"] = [
+            _sanitize_language_text(opt, lang_code, subject_group=subject_group)
+            for opt in cleaned.get("options", [])
+            if _sanitize_language_text(opt, lang_code, subject_group=subject_group)
+        ]
+    return cleaned
+
+
+def _sanitize_exam_section(section: dict, ak_section: dict, *, student_lang: str, plan_lang: str, subject_group: str) -> tuple[dict, dict]:
+    section = dict(section or {})
+    ak_section = dict(ak_section or {})
+
+    for key in ("title", "instructions", "source_text"):
+        section[key] = _sanitize_language_text(section.get(key, ""), student_lang, subject_group=subject_group)
+
+    section["questions"] = [
+        _sanitize_question_value(question, student_lang, subject_group=subject_group)
+        for question in section.get("questions", [])
+    ]
+    ak_section["answers"] = [
+        _sanitize_language_text(clean_answer_key_item(answer), plan_lang, subject_group=subject_group)
+        if isinstance(answer, str)
+        else _sanitize_question_value(answer, plan_lang, subject_group=subject_group)
+        for answer in ak_section.get("answers", [])
+    ]
+
+    if section.get("type") == "error_correction":
+        kept_questions = []
+        kept_answers = []
+        for question, answer in zip(section.get("questions", []), ak_section.get("answers", [])):
+            question_text = question.get("text", "") if isinstance(question, dict) else str(question or "")
+            answer_text = answer.get("text", "") if isinstance(answer, dict) else str(answer or "")
+            if not _clean_str(question_text) or not _clean_str(answer_text):
+                continue
+            if _normalize_sentence_for_quality(question_text) == _normalize_sentence_for_quality(answer_text):
+                continue
+            kept_questions.append(question)
+            kept_answers.append(answer)
+        section["questions"] = kept_questions
+        ak_section["answers"] = kept_answers
+
+    return section, ak_section
+
+
+def _exam_quality_issues(exam_data: dict, answer_key: dict) -> list[str]:
+    issues: list[str] = []
+    sections = exam_data.get("sections") or []
+    ak_sections = (answer_key or {}).get("sections") or []
+
+    for idx, section in enumerate(sections):
+        sec_type = section.get("type", "")
+        questions = section.get("questions") or []
+        ak_section = ak_sections[idx] if idx < len(ak_sections) else {}
+        answers = ak_section.get("answers") or []
+
+        if sec_type == "reading_comprehension":
+            if not _clean_str(section.get("source_text", "")):
+                issues.append(f"section {idx + 1} reading_comprehension needs source_text")
+            if questions:
+                nonempty_answers = sum(bool(_clean_str(answer)) for answer in answers)
+                if nonempty_answers < len(questions):
+                    issues.append(f"section {idx + 1} reading_comprehension needs one usable answer per question")
+
+        if sec_type == "error_correction" and len(questions) < 3:
+            issues.append(f"section {idx + 1} error_correction needs at least 3 valid items")
+
+    return issues
+
+
+def _exam_profile_guidance(payload: dict) -> str:
+    subject_group = get_subject_group(payload.get("subject", ""))
+    learner_stage = _clean_str(payload.get("learner_stage", "")).lower()
+    level_or_band = _clean_str(payload.get("level_or_band", ""))
+
+    lines = [
+        "- Student-facing text must stay in the requested student_material_language unless the task explicitly teaches translation.",
+        "- Do not mix scripts or inject stray characters from unrelated languages.",
+        "- Answers must be plain teacher text per item, not serialized Python or JSON list strings.",
+    ]
+
+    shared_guidance = build_generation_profile_guidance(
+        payload.get("subject", ""),
+        learner_stage,
+        level_or_band,
+        product="exam",
+    )
+    if shared_guidance:
+        lines.extend(shared_guidance.splitlines())
+
+    if subject_group == "language" and learner_stage == "lower_secondary":
+        lines.extend([
+            "- Prefer short, coherent contexts such as school life, routines, friends, hobbies, sports, technology, feelings, and weekend plans.",
+            "- For reading_comprehension, use a coherent passage with level-appropriate questions and short, directly checkable answers.",
+            "- For error_correction, every prompt sentence must contain exactly one real error and the corrected answer must not be identical to the prompt.",
+        ])
+
+    return "\n".join(lines)
 
 
 def get_group_label(group: str) -> str:
@@ -303,31 +456,31 @@ _EXAM_INSTRUCTION_FALLBACKS = {
 }
 
 _EXAM_INSTRUCTION_MISMATCHES = {
-    "multiple_choice": ("line provided", "given line", "write the answer", "write your answer", "type the answer", "complete each sentence"),
-    "true_false": ("choose the best answer", "column a", "column b", "write the correct letter", "fill in the blank"),
-    "matching": ("choose the best answer", "true or false", "complete each sentence", "circle the letter"),
-    "fill_in_blank": ("choose the best answer", "true or false", "column a", "column b", "circle the letter"),
-    "short_answer": ("choose the best answer", "true or false", "column a", "column b", "circle the letter"),
-    "reading_comprehension": ("choose the best answer", "true or false", "column a", "column b", "circle the letter"),
-    "vocabulary": ("true or false", "column a", "column b"),
-    "sentence_transformation": ("choose the best answer", "true or false", "column a", "column b"),
-    "error_correction": ("choose the best answer", "true or false", "column a", "column b"),
-    "writing_prompt": ("choose the best answer", "true or false", "column a", "column b"),
-    "problem_solving": ("choose the best answer", "true or false", "column a", "column b"),
-    "equation_solving": ("choose the best answer", "true or false", "column a", "column b"),
-    "show_your_work": ("choose the best answer", "true or false", "column a", "column b"),
-    "table_interpretation": ("choose the best answer", "true or false", "column a", "column b"),
-    "word_problems": ("choose the best answer", "true or false", "column a", "column b"),
-    "data_analysis": ("choose the best answer", "true or false", "column a", "column b"),
-    "classification": ("choose the best answer", "true or false", "column a", "column b"),
-    "process_explanation": ("choose the best answer", "true or false", "column a", "column b"),
-    "hypothesis_and_conclusion": ("choose the best answer", "true or false", "column a", "column b"),
-    "diagram_questions": ("choose the best answer", "true or false", "column a", "column b"),
-    "theory_questions": ("choose the best answer", "true or false", "column a", "column b"),
-    "symbol_identification": ("choose the best answer", "true or false", "column a", "column b"),
-    "rhythm_counting": ("choose the best answer", "true or false", "column a", "column b"),
-    "terminology": ("choose the best answer", "true or false", "column a", "column b"),
-    "composer_period_matching": ("choose the best answer", "true or false", "complete each sentence", "circle the letter"),
+    "multiple_choice": ("line provided", "given line", "write the answer", "write your answer", "type the answer", "complete each sentence", "escribe la respuesta", "escribe tu respuesta", "completa cada frase", "completa cada oración", "completa cada oracion", "verdadero o falso", "columna a", "columna b", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "true_false": ("choose the best answer", "column a", "column b", "write the correct letter", "fill in the blank", "choose or circle", "elige la opción", "elige la opcion", "opción correcta", "opcion correcta", "columna a", "columna b", "escribe la letra correcta", "completa cada frase", "doğru seçeneği", "dogru secenegi", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "matching": ("choose the best answer", "true or false", "complete each sentence", "circle the letter", "elige la opción", "elige la opcion", "verdadero o falso", "completa cada frase", "completa cada oración", "completa cada oracion", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis"),
+    "fill_in_blank": ("choose the best answer", "true or false", "column a", "column b", "circle the letter", "elige la opción", "elige la opcion", "opción correcta", "opcion correcta", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "short_answer": ("choose the best answer", "true or false", "column a", "column b", "circle the letter", "elige la opción", "elige la opcion", "opción correcta", "opcion correcta", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "reading_comprehension": ("choose the best answer", "true or false", "column a", "column b", "circle the letter", "elige la opción", "elige la opcion", "opción correcta", "opcion correcta", "rodea la letra", "circula la letra", "círcula la letra", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "vocabulary": ("true or false", "column a", "column b", "verdadero o falso", "columna a", "columna b", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "sentence_transformation": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "error_correction": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "opción correcta", "opcion correcta", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "writing_prompt": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "problem_solving": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "equation_solving": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "show_your_work": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "table_interpretation": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "word_problems": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "data_analysis": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "classification": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "process_explanation": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "hypothesis_and_conclusion": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "diagram_questions": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "theory_questions": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "symbol_identification": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "rhythm_counting": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "terminology": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "composer_period_matching": ("choose the best answer", "true or false", "complete each sentence", "circle the letter", "elige la opción", "elige la opcion", "verdadero o falso", "completa cada frase", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis"),
 }
 
 
@@ -381,6 +534,9 @@ def _build_exercise_catalog_markdown(subject: str, show_all: bool) -> str:
 
 def normalize_exam_output(raw: dict) -> tuple[dict, dict]:
     raw = dict(raw or {})
+    student_lang = _clean_str(raw.get("student_material_language", ""))
+    plan_lang = _clean_str(raw.get("plan_language", ""))
+    subject_group = get_subject_group(raw.get("subject", ""))
 
     exam_data = {
         "title": _clean_str(raw.get("title", "")),
@@ -425,13 +581,34 @@ def normalize_exam_output(raw: dict) -> tuple[dict, dict]:
             elif isinstance(a, dict):
                 ak_section["answers"].append(_clean_answer_value(a))
 
+        if len(ak_section["answers"]) == 1 and len(section["questions"]) > 1:
+            expanded_answers = split_answer_key_items(
+                ak_section["answers"][0],
+                expected_count=len(section["questions"]),
+            )
+            if sum(bool(_clean_str(answer)) for answer in expanded_answers) > 1:
+                ak_section["answers"] = expanded_answers
+
         if _exam_instruction_needs_reset(section["type"], section["instructions"]):
             section["instructions"] = _default_instruction_for_exam_type(section["type"])
+
+        section, ak_section = _sanitize_exam_section(
+            section,
+            ak_section,
+            student_lang=student_lang,
+            plan_lang=plan_lang,
+            subject_group=subject_group,
+        )
 
         if section["questions"]:
             exam_data["sections"].append(section)
             answer_key["sections"].append(ak_section)
 
+    exam_data["instructions"] = _sanitize_language_text(
+        exam_data.get("instructions", ""),
+        student_lang,
+        subject_group=subject_group,
+    )
     return exam_data, answer_key
 
 
@@ -713,6 +890,7 @@ def _exam_quality_guardrails() -> str:
         "- Matching terms, labels, and short prompts should look polished and academically acceptable on the printed page.\n"
         "- Avoid repeating the same task pattern with only superficial wording changes.\n"
         "- Ensure answers are complete, correct, and directly match the questions.\n"
+        "- Answers must be plain text per item, not serialized Python lists or quoted arrays.\n"
         "- Only include 'source_text' when a passage or source materially improves that section.\n"
         "- Do not force language-only exercises into non-language subjects unless pedagogically justified."
     )
@@ -731,6 +909,7 @@ def _build_exam_prompts(payload: dict) -> tuple[str, str]:
         type_details.append(f"- {et}: {rule}" if rule else f"- {et}")
 
     system_prompt = (
+        f"{build_expert_panel_prompt_blurb('exam')} "
         "You are a world-class assessment and evaluation specialist with a PhD in Education, deep expertise in instructional design, "
         "strong assessment literacy, and classroom exam-writing experience across school subjects. "
         "Your task is to create a premium, classroom-ready exam paper that a professional teacher could use immediately. "
@@ -792,6 +971,9 @@ Design principles:
 - Keep content factually accurate and pedagogically sound.
 - Each section includes both questions AND answers.
 - If the subject is custom or interdisciplinary, adapt intelligently to the topic rather than forcing a narrow template.
+
+Profile quality guidance:
+{_exam_profile_guidance(payload)}
 
 Section sequencing guidance:
 {_section_sequence_guidance(subject_group)}
@@ -864,6 +1046,9 @@ def generate_ai_exam(
             exam_data, answer_key = normalize_exam_output(parsed)
             exam_data["title"] = exam_data["title"] or exam_title or "Exam"
             exam_data["instructions"] = exam_data["instructions"] or instructions
+            quality_issues = _exam_quality_issues(exam_data, answer_key)
+            if quality_issues:
+                raise ValueError("; ".join(quality_issues))
             exam_data = enrich_exam_with_visuals(
                 exam_data,
                 subject=subject,
@@ -924,7 +1109,7 @@ def generate_exam_with_limit(
 
     except Exception as e:
         log_exam_ai_usage("failed", {"subject": subject, "topic": topic, "error": str(e)})
-        return {}, {}, str(e)
+        return {}, {}, t("ai_unavailable_fallback")
 
 
 def reset_exam_builder_state():
@@ -944,7 +1129,7 @@ def render_quick_exam_builder_expander() -> None:
     from helpers.quick_exam_storage import get_ai_exam_usage_status
 
     with st.expander(
-        t("quick_exam_builder") if t("quick_exam_builder") != "quick_exam_builder" else "Quick Exam Builder",
+        f"🧪 {t('quick_exam_builder') if t('quick_exam_builder') != 'quick_exam_builder' else 'Quick Exam Builder'}",
         expanded=False,
     ):
         st.caption(

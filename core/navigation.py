@@ -20,7 +20,7 @@ STUDENT_PAGES = [
     ("student_find_teacher", "find_my_teacher", "🔍"),
 ]
 
-PAGE_KEYS = {"home"} | {key for key, _, _ in PAGES} | {key for key, _, _ in STUDENT_PAGES}
+PAGE_KEYS = {"home", "resources"} | {key for key, _, _ in PAGES} | {key for key, _, _ in STUDENT_PAGES}
 
 
 def _set_query(page: Optional[str] = None, lang: Optional[str] = None, panel: Optional[str] = None) -> None:

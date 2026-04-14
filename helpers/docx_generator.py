@@ -17,6 +17,7 @@ from docx.oxml import parse_xml
 from helpers.visual_support import enrich_worksheet_with_visuals, enrich_exam_with_visuals, add_docx_visual_support
 
 from core.i18n import t
+from helpers.answer_key_utils import split_answer_key_items
 
 
 # ── Colour constants matching pdf_styles.py ──────────────────────────
@@ -789,7 +790,7 @@ def _render_answer_key_docx(doc, ws: dict, font_name: str, b_sz: float, lr: floa
                 if str(line).strip():
                     _add_body(doc, f"{i}. {str(line).strip()}", font_name, b_sz, leading_ratio=lr)
         elif answer_key and str(answer_key).strip():
-            for line in str(answer_key).strip().splitlines():
+            for line in split_answer_key_items(answer_key):
                 if line.strip():
                     _add_body(doc, line.strip(), font_name, b_sz, leading_ratio=lr)
         return
@@ -806,7 +807,7 @@ def _render_answer_key_docx(doc, ws: dict, font_name: str, b_sz: float, lr: floa
             # Fallback to freeform answer_key
             ak = ws.get("answer_key", "")
             if ak:
-                for line in str(ak).strip().splitlines():
+                for line in split_answer_key_items(ak):
                     if line.strip():
                         _add_body(doc, line.strip(), font_name, b_sz, leading_ratio=lr)
         return
@@ -818,7 +819,7 @@ def _render_answer_key_docx(doc, ws: dict, font_name: str, b_sz: float, lr: floa
             if str(line).strip():
                 _add_body(doc, f"{i}. {str(line).strip()}", font_name, b_sz, leading_ratio=lr)
     elif answer_key and str(answer_key).strip():
-        for line in str(answer_key).strip().splitlines():
+        for line in split_answer_key_items(answer_key):
             if line.strip():
                 _add_body(doc, line.strip(), font_name, b_sz, leading_ratio=lr)
     else:

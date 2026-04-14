@@ -10,6 +10,7 @@ import streamlit as st
 from core.database import clear_app_caches, get_sb
 from core.i18n import t
 from core.state import get_current_user_id
+from helpers.archive_utils import truthy_flag
 from helpers.lesson_planner import QUICK_SUBJECTS, normalize_subject, subject_label
 
 
@@ -763,7 +764,7 @@ def create_teacher_assignment(
     topic: str = "",
     teacher_note: str = "",
     due_date: date | None = None,
-    source_record_id: int | None = None,
+    source_record_id: int | str | None = None,
 ) -> tuple[bool, str]:
     teacher_id = str(get_current_user_id() or "").strip()
     if not teacher_id:
@@ -841,6 +842,8 @@ def load_student_assignments(statuses: list[str] | None = None) -> list[dict]:
         )
         if statuses:
             query = query.in_("status", statuses)
+        else:
+            query = query.neq("status", "archived")
         rows = _rows(query.execute())
     except Exception:
         return []
@@ -856,6 +859,7 @@ def load_student_assignments(statuses: list[str] | None = None) -> list[dict]:
             {
                 **row,
                 "teacher_note": _clean_teacher_feedback_text(row.get("teacher_note")),
+                "source_archived": truthy_flag(row.get("source_archived")),
                 "teacher_profile": teacher_profile,
                 "teacher_name": _profile_label(teacher_profile),
                 "subject_display": _clean_display_text(row.get("subject_label") or subject_label(row.get("subject_key") or "")),
@@ -879,6 +883,78 @@ def archive_teacher_assignment_for_teacher(assignment_id: int) -> tuple[bool, st
         return True, "assignment_archived"
     except Exception:
         return False, "assignment_archive_failed"
+
+
+def update_assignment_source_archive_state(
+    *,
+    assignment_type: str,
+    source_type: str,
+    source_record_id: int | str | None,
+    archived: bool,
+) -> None:
+    teacher_id = str(get_current_user_id() or "").strip()
+    raw_source_id = str(source_record_id or "").strip()
+    if not teacher_id or not raw_source_id:
+        return
+    safe_source_id = int(raw_source_id) if raw_source_id.isdigit() else raw_source_id
+    now = _now_iso()
+    payload = {
+        "source_archived": bool(archived),
+        "source_archived_at": now if archived else None,
+        "updated_at": now,
+    }
+    try:
+        (
+            get_sb()
+            .table("teacher_assignments")
+            .update(payload)
+            .eq("teacher_id", teacher_id)
+            .eq("assignment_type", str(assignment_type or "").strip())
+            .eq("source_type", str(source_type or "").strip())
+            .eq("source_record_id", safe_source_id)
+            .execute()
+        )
+        clear_app_caches()
+    except Exception:
+        # Additive migration safety: the resource can still archive cleanly even
+        # if the assignment table has not received source_archived columns yet.
+        pass
+
+
+def load_assignment_state_map(assignment_ids: list[int]) -> dict[int, dict]:
+    student_id = str(get_current_user_id() or "").strip()
+    cleaned_ids = sorted({int(item) for item in assignment_ids if int(item or 0) > 0})
+    if not student_id or not cleaned_ids:
+        return {}
+    try:
+        rows = _rows(
+            get_sb()
+            .table("teacher_assignments")
+            .select("id, status, source_archived")
+            .eq("student_id", student_id)
+            .in_("id", cleaned_ids)
+            .execute()
+        )
+    except Exception:
+        try:
+            rows = _rows(
+                get_sb()
+                .table("teacher_assignments")
+                .select("id, status")
+                .eq("student_id", student_id)
+                .in_("id", cleaned_ids)
+                .execute()
+            )
+        except Exception:
+            return {}
+    return {
+        int(row.get("id") or 0): {
+            "status": str(row.get("status") or "").strip(),
+            "source_archived": truthy_flag(row.get("source_archived")),
+        }
+        for row in rows
+        if int(row.get("id") or 0) > 0
+    }
 
 
 def get_student_assignment_summary(limit: int = 4) -> list[dict]:
@@ -1038,6 +1114,7 @@ def load_teacher_assignment_progress(student_id: str | None = None, subject_key:
             .table("teacher_assignments")
             .select("*")
             .eq("teacher_id", teacher_id)
+            .neq("status", "archived")
             .order("created_at", desc=True)
         )
         if student_id:
@@ -1710,6 +1787,7 @@ def render_assignment_panel_for_worksheet(
     topic: str,
     learner_stage: str,
     level_or_band: str,
+    source_record_id: int | str | None = None,
 ) -> None:
     st.markdown(f"### {t('assign_to_student')}")
     links = _assignment_target_options()
@@ -1732,6 +1810,7 @@ def render_assignment_panel_for_worksheet(
             subject_scope_id=subject_scope["id"],
             assignment_type="worksheet",
             source_type="worksheet_builder",
+            source_record_id=source_record_id,
             title=str(worksheet.get("title") or topic or t("untitled_worksheet")),
             subject_key=str(subject_scope.get("subject_key") or subject or ""),
             subject_label_text=str(subject_scope.get("subject_label") or subject_label(subject or "")),
@@ -1755,6 +1834,7 @@ def render_assignment_panel_for_exam(
     topic: str,
     learner_stage: str,
     level_or_band: str,
+    source_record_id: int | str | None = None,
 ) -> None:
     st.markdown(f"### {t('assign_to_student')}")
     links = _assignment_target_options()
@@ -1777,6 +1857,7 @@ def render_assignment_panel_for_exam(
             subject_scope_id=subject_scope["id"],
             assignment_type="exam",
             source_type="exam_builder",
+            source_record_id=source_record_id,
             title=str(exam_data.get("title") or topic or t("quick_exam_generic_exam_title")),
             subject_key=str(subject_scope.get("subject_key") or subject or ""),
             subject_label_text=str(subject_scope.get("subject_label") or subject_label(subject or "")),
@@ -1798,6 +1879,7 @@ def render_assignment_panel_for_lesson_plan(
     subject: str,
     topic: str,
     lesson_purpose: str,
+    source_record_id: int | None = None,
 ) -> None:
     st.markdown(f"### {t('assign_to_student')}")
     links = _assignment_target_options()
@@ -1832,6 +1914,7 @@ def render_assignment_panel_for_lesson_plan(
                 subject_scope_id=subject_scope["id"],
                 assignment_type="lesson_plan_topic",
                 source_type="lesson_plan_builder",
+                source_record_id=source_record_id,
                 title=item["topic_title"],
                 subject_key=str(subject_scope.get("subject_key") or subject or ""),
                 subject_label_text=str(subject_scope.get("subject_label") or subject_label(subject or "")),

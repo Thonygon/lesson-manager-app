@@ -9,6 +9,12 @@ import streamlit as st
 from openai import OpenAI
 
 from core.i18n import t
+from helpers.ai_retry import run_with_ai_retries
+from helpers.generation_guidance import (
+    build_expert_panel_prompt_blurb,
+    build_generation_profile_guidance,
+    infer_subject_family,
+)
 
 # ============================================================
 # Planner constants
@@ -816,7 +822,9 @@ def _language_plan(subject: str, stage: str, level: str, purpose: str, topic: st
     pre_q, gist_q, detail_q = _language_text_questions(topic, level, plan_lang, material_lang)
     vocab = _language_target_vocab(topic, level, material_lang)
 
-    use_reading = purpose in ("introduce_concept", "review_topic", "diagnose_difficulty")
+    use_reading = purpose in ("introduce_concept", "review_topic", "diagnose_difficulty") or (
+        stage == "lower_secondary" and level == "A1" and purpose != "practice_skill"
+    )
     use_listening = purpose == "practice_skill"
 
     core_material = {
@@ -1878,6 +1886,122 @@ def normalize_planner_output(plan: dict) -> dict:
     return out
 
 
+def _sanitize_target_language_text(value, lang_code: str, *, subject_family: str) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text or subject_family != "language":
+        return text
+    if str(lang_code or "").strip().lower() not in {"en", "es", "tr"}:
+        return text
+    text = re.sub(r"[\u3400-\u4DBF\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]+", "", text)
+    text = re.sub(r"\s+([,;:.!?])", r"\1", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _sanitize_generated_lesson_plan(plan: dict, subject: str) -> dict:
+    out = normalize_planner_output(plan)
+    subject_family = infer_subject_family(subject)
+    material_lang = str(out.get("student_material_language") or "").strip().lower()
+
+    for key in ("reading_passage", "listening_script"):
+        out[key] = _sanitize_target_language_text(out.get(key, ""), material_lang, subject_family=subject_family)
+
+    if subject_family == "language":
+        core_material = dict(out.get("core_material") or {})
+        list_keys = [
+            "target_vocabulary",
+            "language_frames",
+            "pre_task_questions",
+            "gist_questions",
+            "detail_questions",
+            "student_checklist",
+        ]
+        for key in list_keys:
+            if key in core_material:
+                core_material[key] = [
+                    _sanitize_target_language_text(item, material_lang, subject_family=subject_family)
+                    for item in _coerce_listlike(core_material.get(key))
+                    if _sanitize_target_language_text(item, material_lang, subject_family=subject_family)
+                ]
+        if "post_task" in core_material:
+            core_material["post_task"] = _sanitize_target_language_text(
+                core_material.get("post_task", ""),
+                material_lang,
+                subject_family=subject_family,
+            )
+        out["core_material"] = core_material
+
+    return out
+
+
+def _lesson_plan_quality_issues(
+    plan: dict,
+    *,
+    subject: str,
+    learner_stage: str,
+    level_or_band: str,
+    lesson_purpose: str,
+) -> list[str]:
+    issues: list[str] = []
+    subject_family = infer_subject_family(subject)
+    core_material = dict(plan.get("core_material") or {})
+
+    if not str(plan.get("title") or "").strip():
+        issues.append("lesson plan needs a title")
+    if not str(plan.get("objective") or "").strip():
+        issues.append("lesson plan needs an objective")
+    if len(plan.get("success_criteria") or []) < 2:
+        issues.append("lesson plan needs at least 2 success_criteria")
+    if len(plan.get("warm_up") or []) < 2:
+        issues.append("lesson plan needs at least 2 warm_up items")
+    if len(plan.get("guided_practice") or []) < 1:
+        issues.append("lesson plan needs guided_practice")
+    if len(plan.get("practice_questions") or []) < 2:
+        issues.append("lesson plan needs at least 2 practice_questions")
+
+    if subject_family == "language":
+        if len(core_material.get("target_vocabulary") or []) < 3:
+            issues.append("language lesson plan needs at least 3 target_vocabulary items")
+        if lesson_purpose in {"introduce_concept", "review_topic", "diagnose_difficulty"}:
+            if not str(plan.get("reading_passage") or "").strip():
+                issues.append("reading-focused language lesson plan needs a reading_passage")
+            if not (core_material.get("gist_questions") or []) or not (core_material.get("detail_questions") or []):
+                issues.append("reading-focused language lesson plan needs gist_questions and detail_questions")
+        if lesson_purpose == "practice_skill":
+            if not str(plan.get("listening_script") or "").strip():
+                issues.append("practice-skill language lesson plan needs a listening_script")
+        if learner_stage == "lower_secondary" and level_or_band == "A1" and not str(plan.get("reading_passage") or "").strip() and lesson_purpose != "practice_skill":
+            issues.append("lower-secondary A1 language lesson plan needs readable student text support")
+
+    elif subject_family == "math":
+        if not (core_material.get("worked_example") or []):
+            issues.append("math lesson plan needs worked_example")
+        if not (core_material.get("guided_problem_set") or []):
+            issues.append("math lesson plan needs guided_problem_set")
+    elif subject_family == "science":
+        if not str(core_material.get("concept_explanation") or "").strip():
+            issues.append("science lesson plan needs concept_explanation")
+        if not (core_material.get("evidence_questions") or []):
+            issues.append("science lesson plan needs evidence_questions")
+    elif subject_family == "music":
+        if not str(core_material.get("technical_focus") or "").strip():
+            issues.append("music lesson plan needs technical_focus")
+        if not str(core_material.get("practice_pattern") or "").strip():
+            issues.append("music lesson plan needs practice_pattern")
+        if not str(core_material.get("performance_goal") or "").strip():
+            issues.append("music lesson plan needs performance_goal")
+    elif subject_family == "study_skills":
+        if not str(core_material.get("strategy_name") or "").strip():
+            issues.append("study skills lesson plan needs strategy_name")
+        if not (core_material.get("strategy_steps") or []):
+            issues.append("study skills lesson plan needs strategy_steps")
+        if not (core_material.get("student_action_plan") or []):
+            issues.append("study skills lesson plan needs student_action_plan")
+
+    return issues
+
+
 def get_ai_provider() -> str:
     provider = ""
     try:
@@ -1990,7 +2114,14 @@ def _subject_specific_core_keys(subject: str) -> list[str]:
 
 
 def _build_ai_prompts(prompt_payload: dict) -> tuple[str, str]:
+    profile_guidance = build_generation_profile_guidance(
+        prompt_payload.get("subject", ""),
+        prompt_payload.get("learner_stage", ""),
+        prompt_payload.get("level_or_band", ""),
+        product="lesson_plan",
+    )
     system_prompt = (
+        f"{build_expert_panel_prompt_blurb('lesson_plan')} "
         "You are an expert private lesson planner. "
         "Return exactly one valid JSON object and nothing else. "
         "Do not use markdown. Do not use code fences. "
@@ -2018,9 +2149,14 @@ Rules:
 - warm_up, main_activity, core_examples, guided_practice, practice_questions, freer_task, wrap_up, teacher_moves must be lists of strings.
 - extension_task and homework must be strings.
 - core_material must be an object with subject-appropriate keys.
+- Student-facing text must stay in the requested student_material_language.
+- Do not mix scripts or inject stray characters from unrelated languages into student-facing content.
 - If the lesson is reading-focused, include a reading_passage.
 - If the lesson is listening-focused, include a listening_script.
 - The JSON must match the planner structure exactly.
+
+Profile quality guidance:
+{profile_guidance}
 """
     return system_prompt, user_prompt
 
@@ -2038,19 +2174,22 @@ def _generate_with_openrouter(system_prompt: str, user_prompt: str) -> str:
     if not api_key:
         raise RuntimeError(t("missing_openrouter_api_key"))
 
-    client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
-    response = client.chat.completions.create(
-        model=get_ai_model_for_provider("openrouter"),
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.4,
-    )
-    raw_text = str(response.choices[0].message.content or "").strip()
-    if not raw_text:
-        raise ValueError(t("empty_ai_response"))
-    return raw_text
+    def _request() -> str:
+        client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+        response = client.chat.completions.create(
+            model=get_ai_model_for_provider("openrouter"),
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.4,
+        )
+        raw_text = str(response.choices[0].message.content or "").strip()
+        if not raw_text:
+            raise ValueError(t("empty_ai_response"))
+        return raw_text
+
+    return run_with_ai_retries(_request)
 
 
 def _generate_with_gemini(system_prompt: str, user_prompt: str) -> str:
@@ -2068,15 +2207,18 @@ def _generate_with_gemini(system_prompt: str, user_prompt: str) -> str:
     if not api_key:
         raise RuntimeError(t("missing_gemini_api_key"))
 
-    client = genai.Client(api_key=api_key)
-    response = client.models.generate_content(
-        model=get_ai_model_for_provider("gemini"),
-        contents=f"{system_prompt}\n\n{user_prompt}",
-    )
-    raw_text = str(getattr(response, "text", "") or "").strip()
-    if not raw_text:
-        raise ValueError(t("empty_gemini_response"))
-    return raw_text
+    def _request() -> str:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=get_ai_model_for_provider("gemini"),
+            contents=f"{system_prompt}\n\n{user_prompt}",
+        )
+        raw_text = str(getattr(response, "text", "") or "").strip()
+        if not raw_text:
+            raise ValueError(t("empty_gemini_response"))
+        return raw_text
+
+    return run_with_ai_retries(_request)
 
 
 def _generate_with_openai(system_prompt: str, user_prompt: str) -> str:
@@ -2092,19 +2234,22 @@ def _generate_with_openai(system_prompt: str, user_prompt: str) -> str:
     if not api_key:
         raise RuntimeError(t("missing_openai_api_key"))
 
-    client = OpenAI(api_key=api_key)
-    response = client.chat.completions.create(
-        model=get_ai_model_for_provider("openai"),
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.4,
-    )
-    raw_text = str(response.choices[0].message.content or "").strip()
-    if not raw_text:
-        raise ValueError(t("empty_ai_response"))
-    return raw_text
+    def _request() -> str:
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=get_ai_model_for_provider("openai"),
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.4,
+        )
+        raw_text = str(response.choices[0].message.content or "").strip()
+        if not raw_text:
+            raise ValueError(t("empty_ai_response"))
+        return raw_text
+
+    return run_with_ai_retries(_request)
 
 
 def generate_ai_lesson_plan(
@@ -2161,7 +2306,17 @@ def generate_ai_lesson_plan(
             else:
                 raw_text = _generate_with_openai(system_prompt, user_prompt)
             parsed = _extract_json_object_from_text(raw_text)
-            return normalize_planner_output(parsed)
+            normalized = _sanitize_generated_lesson_plan(parsed, subject)
+            quality_issues = _lesson_plan_quality_issues(
+                normalized,
+                subject=subject,
+                learner_stage=learner_stage,
+                level_or_band=level_or_band,
+                lesson_purpose=lesson_purpose,
+            )
+            if quality_issues:
+                raise ValueError("; ".join(quality_issues))
+            return normalized
         except Exception as e:
             errors.append(f"{p}: {e}")
 
@@ -2229,7 +2384,7 @@ def generate_quick_lesson_plan_with_fallback(
             status="failed",
             meta={"subject": subject, "topic": topic, "lesson_purpose": lesson_purpose, "error": str(e)},
         )
-        return template_plan, "template", f"{t('ai_unavailable_fallback')} ({str(e)})"
+        return template_plan, "template", t("ai_unavailable_fallback")
 
 
 def reset_quick_lesson_planner_state() -> None:

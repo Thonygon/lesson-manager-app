@@ -11,6 +11,7 @@ import re
 import json
 import ast
 import html
+import unicodedata
 import streamlit as st
 import pandas as pd
 from datetime import datetime as _dt, timezone
@@ -19,6 +20,7 @@ from typing import Optional
 from core.i18n import t
 from core.state import get_current_user_id, with_owner
 from core.database import get_sb, load_table, clear_app_caches
+from helpers.answer_key_utils import clean_answer_key_item, split_answer_key_items
 from helpers.visual_support import enrich_worksheet_with_visuals, enrich_exam_with_visuals, render_streamlit_visual_support
 
 
@@ -561,45 +563,33 @@ def _localized_true_false_display(value) -> str:
 
 def _parse_flat_answer_key(raw, n: int) -> list[str]:
     """Parse a worksheet answer_key (string or list) into a list of n answers."""
-    if isinstance(raw, list):
-        return [str(a).strip() for a in raw][:n]
-    if not raw:
-        return [""] * n
-    text = str(raw).strip()
+    return split_answer_key_items(raw, expected_count=n)
 
-    # Strategy 1: split by newlines first
-    lines = re.split(r"\n+", text)
-    answers: list[str] = []
 
-    if len(lines) >= n:
-        # Multi-line format: "1. True\n2. False\n…"
-        for ln in lines:
-            cleaned = re.sub(r"^[A-Za-z0-9]+[\.)\-]\s*", "", ln).strip()
-            if cleaned:
-                answers.append(cleaned)
-    else:
-        # Single-line format: "1. True 2. False 3. True …"
-        # Split on number prefixes like "2." "3)" etc.
-        parts = re.split(r"(?:^|\s+)(?=\d+[\.)\-]\s)", text)
-        for p in parts:
-            cleaned = re.sub(r"^[A-Za-z0-9]+[\.)\-]\s*", "", p).strip()
-            if cleaned:
-                answers.append(cleaned)
-
-    # pad to n
-    while len(answers) < n:
-        answers.append("")
-    return answers[:n]
+def _fold_text(value) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch))
 
 
 def _normalize_answer(s: str) -> str:
-    """Normalize an answer for comparison: lowercase, strip, collapse whitespace."""
-    return re.sub(r"\s+", " ", str(s).strip().lower())
+    """Normalize an answer for comparison across multilingual open-text inputs."""
+    text = (
+        str(s or "")
+        .replace("’", "'")
+        .replace("‘", "'")
+        .replace("“", '"')
+        .replace("”", '"')
+        .replace("—", "-")
+        .replace("–", "-")
+    )
+    text = _fold_text(text).lower()
+    text = re.sub(r"[^\w\s'/-]", " ", text, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _normalize_error_correction_answer(s: str) -> str:
     """Normalize a rewritten correction while keeping the wording strict."""
-    text = str(s or "").strip().lower()
+    text = _fold_text(str(s or "").strip()).lower()
     text = (
         text.replace("’", "'")
         .replace("‘", "'")
@@ -623,7 +613,7 @@ def _answer_words(s: str) -> set[str]:
         "not", "no", "do", "does", "did", "has", "have", "had", "will",
         "can", "could", "would", "should", "may", "might",
     }
-    words = set(re.findall(r"[a-z0-9]+", s.lower()))
+    words = set(re.findall(r"[a-z0-9]+", _normalize_answer(s)))
     return words - _STOP
 
 
@@ -680,23 +670,23 @@ def _display_answer_text(value) -> str:
         if len(value) == 1:
             only_key, only_val = next(iter(value.items()))
             return f"{_sentence_case_fragment(only_key)}: {_strip_leading_number(str(only_val))}"
-        return _strip_leading_number(str(value.get("answer", value.get("text", str(value)))))
-    return _strip_leading_number(str(value or ""))
+        return clean_answer_key_item(value.get("answer", value.get("text", str(value))))
+    return clean_answer_key_item(value)
 
 
 def _comparison_answer_text(value) -> str:
     value = _parse_legacy_pair_value(value)
     if isinstance(value, dict):
         if "right" in value:
-            return _strip_leading_number(str(_extract_legacy_pair_side(value.get("right", ""), prefer="value")))
+            return clean_answer_key_item(_extract_legacy_pair_side(value.get("right", ""), prefer="value"))
         if "answer" in value:
-            return _strip_leading_number(str(value.get("answer", "")))
+            return clean_answer_key_item(value.get("answer", ""))
         if "text" in value:
-            return _strip_leading_number(str(value.get("text", "")))
+            return clean_answer_key_item(value.get("text", ""))
         if len(value) == 1:
             _only_key, only_val = next(iter(value.items()))
-            return _strip_leading_number(str(only_val))
-    return _strip_leading_number(str(value or ""))
+            return clean_answer_key_item(only_val)
+    return clean_answer_key_item(value)
 
 
 def _sentence_case_fragment(value) -> str:

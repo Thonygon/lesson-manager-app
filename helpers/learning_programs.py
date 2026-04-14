@@ -14,6 +14,8 @@ import streamlit as st
 from core.database import clear_app_caches, get_sb, load_profile_row
 from core.i18n import t
 from core.state import get_current_user_id, with_owner
+from helpers.archive_utils import ARCHIVED_STATUS, filter_archived_rows, is_archived_status
+from helpers.generation_guidance import build_expert_panel_prompt_blurb
 
 AI_PROGRAM_DAILY_LIMIT = 1
 AI_PROGRAM_COOLDOWN_SECONDS = 10
@@ -218,6 +220,14 @@ _SUBJECT_PROGRESSION_PROFILES = {
                 },
             },
             "lower_secondary": {
+                "A1": {
+                    "focus_strands": ["high-frequency adolescent vocabulary", "basic grammar in context", "short supported reading", "guided speaking", "sentence-to-short-paragraph writing"],
+                    "sequence_expectations": [
+                        "Use age-appropriate lower-secondary contexts such as school life, friendships, hobbies, routines, feelings, and technology instead of childish storylines.",
+                        "Build from sentence-level understanding toward short connected texts, short dialogues, and scaffolded personal responses.",
+                        "Recycle high-frequency language heavily so beginners at secondary age gain confidence without making the materials feel primary-level.",
+                    ],
+                },
                 "A2": {
                     "focus_strands": ["communicative grammar", "reading inference", "interactive speaking", "paragraph-to-short-text writing", "strategic vocabulary growth"],
                     "sequence_expectations": [
@@ -232,6 +242,30 @@ _SUBJECT_PROGRESSION_PROFILES = {
                         "Move students from supported communication to more independent explanation, narration, and comparison.",
                         "Balance fluency with accuracy so grammar correction serves meaning, not isolated drills.",
                         "Introduce more authentic texts and real communicative tasks without losing scaffolding.",
+                    ],
+                },
+                "B2": {
+                    "focus_strands": ["extended interpretation", "discussion and justification", "multi-paragraph writing", "listening synthesis", "accuracy and register awareness"],
+                    "sequence_expectations": [
+                        "Extend B1 communication toward more independent interpretation, comparison, and supported debate while keeping topics adolescent-relevant.",
+                        "Use longer texts and listening input, but keep scaffolding visible so advanced lower-secondary learners are stretched without being treated like adults.",
+                        "Refine precision, cohesion, and register while keeping communication purposeful and meaningful.",
+                    ],
+                },
+                "C1": {
+                    "focus_strands": ["critical reading", "argumentation", "nuanced discussion", "extended analytical writing", "register control"],
+                    "sequence_expectations": [
+                        "Keep the intellectual demand high while ensuring the themes, examples, and tasks still feel appropriate for learners aged roughly 12 to 14.",
+                        "Sequence advanced comprehension, discussion, and writing through structured modeling, text analysis, and supported independent response.",
+                        "Use synthesis, evaluation, and interpretation tasks without defaulting to adult workplace or university-style contexts.",
+                    ],
+                },
+                "C2": {
+                    "focus_strands": ["near-native comprehension", "sustained argument", "text synthesis", "stylistic control", "independent interpretation"],
+                    "sequence_expectations": [
+                        "Maintain very high linguistic demand while keeping the curriculum anchored in age-appropriate lower-secondary topics, interests, and perspectives.",
+                        "Balance sophisticated comprehension and expression with explicit guidance on structure, nuance, and evidence use.",
+                        "Use advanced speaking, reading, and writing tasks that value precision and voice without drifting into adult-only domains.",
                     ],
                 },
             },
@@ -333,6 +367,14 @@ _SUBJECT_PROGRESSION_PROFILES = {
                 },
             },
             "lower_secondary": {
+                "beginner_band": {
+                    "focus_strands": ["number fluency repair", "fractions and decimals", "ratio foundations", "introductory algebra language", "geometry basics"],
+                    "sequence_expectations": [
+                        "Repair insecure arithmetic and proportional foundations before expecting sustained abstract reasoning.",
+                        "Use concrete, visual, verbal, and symbolic representations together so lower-secondary beginners can re-enter the curriculum with confidence.",
+                        "Keep retrieval and confidence-building active while bridging toward the core secondary program.",
+                    ],
+                },
                 "intermediate_band": {
                     "focus_strands": ["ratio and proportion", "algebra foundations", "geometry", "statistics", "reasoning and proof beginnings"],
                     "sequence_expectations": [
@@ -406,12 +448,28 @@ _SUBJECT_PROGRESSION_PROFILES = {
                 },
             },
             "lower_secondary": {
+                "beginner_band": {
+                    "focus_strands": ["foundational scientific vocabulary", "observation and classification", "matter and forces basics", "cells and ecosystems foundations", "evidence talk"],
+                    "sequence_expectations": [
+                        "Start from concrete phenomena, shared observation, and clear scientific language before expecting formal explanation.",
+                        "Move learners from noticing and describing toward short causal explanations and simple evidence use.",
+                        "Revisit core lower-secondary science ideas repeatedly so vocabulary and concepts grow together.",
+                    ],
+                },
                 "intermediate_band": {
                     "focus_strands": ["cells and systems", "matter", "energy", "forces", "ecosystems", "scientific method"],
                     "sequence_expectations": [
                         "Move from broad observable ideas to more formal scientific models and explanations.",
                         "Sequence practical work with concept clarification and evidence talk.",
                         "Revisit cross-cutting concepts such as system, change, cause, and evidence.",
+                    ],
+                },
+                "advanced_band": {
+                    "focus_strands": ["scientific models", "quantitative reasoning", "data interpretation", "system thinking", "evidence-based explanation", "experimental design foundations"],
+                    "sequence_expectations": [
+                        "Extend core concepts into more abstract models, precise explanation, and stronger evidence use.",
+                        "Integrate data interpretation, justification, and scientific reasoning rather than treating them as separate add-ons.",
+                        "Use practical inquiry and analysis tasks that stretch advanced lower-secondary learners without skipping conceptual coherence.",
                     ],
                 },
             },
@@ -465,12 +523,28 @@ _SUBJECT_PROGRESSION_PROFILES = {
                 },
             },
             "lower_secondary": {
+                "beginner_band": {
+                    "focus_strands": ["pulse and rhythm security", "notation foundations", "listening recognition", "ensemble habits", "performance confidence"],
+                    "sequence_expectations": [
+                        "Consolidate basic musical literacy through hearing, doing, and short supported performances.",
+                        "Keep notation tightly connected to sound, movement, and repertoire so the work feels musical rather than abstract.",
+                        "Use short practice cycles and visible success points to build lower-secondary confidence and consistency.",
+                    ],
+                },
                 "intermediate_band": {
                     "focus_strands": ["theory and notation", "aural skills", "performance technique", "interpretation", "musical vocabulary"],
                     "sequence_expectations": [
                         "Build more formal musical understanding while keeping performance central.",
                         "Use practice cycles that connect theory, hearing, and doing.",
                         "Include peer performance and reflective listening when useful.",
+                    ],
+                },
+                "advanced_band": {
+                    "focus_strands": ["theory depth", "aural discrimination", "performance independence", "interpretation and style", "composition or improvisation"],
+                    "sequence_expectations": [
+                        "Move beyond basic literacy into more independent interpretation, stylistic awareness, and self-directed musical decision-making.",
+                        "Connect theory to repertoire, listening, and performance so advanced work stays musical and authentic.",
+                        "Use critique, reflection, and rehearsal cycles to strengthen both technique and expression.",
                     ],
                 },
             },
@@ -512,12 +586,28 @@ _SUBJECT_PROGRESSION_PROFILES = {
                 },
             },
             "lower_secondary": {
+                "beginner_band": {
+                    "focus_strands": ["organization", "task initiation", "note-taking basics", "homework routines", "teacher-guided reflection"],
+                    "sequence_expectations": [
+                        "Secure routines, organization, and visible structure before expecting independent strategy selection.",
+                        "Teach one practical study habit at a time using real lower-secondary school tasks.",
+                        "Use checklists, rehearsal, and quick reflection to build confidence and consistency.",
+                    ],
+                },
                 "intermediate_band": {
                     "focus_strands": ["planning", "memory strategies", "revision", "time management", "metacognition"],
                     "sequence_expectations": [
                         "Build from external structure toward guided independence.",
                         "Teach revision and study strategies through real school tasks, not abstract advice.",
                         "Use reflection and transfer to help students generalize the routines.",
+                    ],
+                },
+                "advanced_band": {
+                    "focus_strands": ["independent planning", "revision systems", "exam preparation", "strategy selection", "metacognitive evaluation"],
+                    "sequence_expectations": [
+                        "Move from guided routines toward self-chosen strategies that match task demands and deadlines.",
+                        "Connect revision, planning, and focus routines directly to authentic lower-secondary assessment demands.",
+                        "Use reflection on efficiency, transfer, and self-monitoring so students begin managing their own study systems.",
                     ],
                 },
             },
@@ -538,6 +628,41 @@ _SUBJECT_PROGRESSION_PROFILES = {
                         "Prioritize sustainable routines that fit adult schedules and responsibilities.",
                         "Use reflection, planning, and review cycles that learners can maintain independently.",
                         "Keep the program highly practical and transfer-focused.",
+                    ],
+                },
+            },
+        },
+    },
+    "general": {
+        "global_priorities": [
+            "Sequence from foundation to application with clear dependency logic.",
+            "Keep the curriculum age-appropriate, coherent, and realistic for the stage and level selected.",
+            "Use repeated review, retrieval, and transfer rather than isolated one-off topic coverage.",
+        ],
+        "by_stage": {
+            "lower_secondary": {
+                "beginner_band": {
+                    "focus_strands": ["foundational knowledge", "key vocabulary", "structured practice", "confidence building", "guided review"],
+                    "sequence_expectations": [
+                        "Repair and secure the essentials before adding heavier abstraction or faster pacing.",
+                        "Use clear routines, explicit modeling, and manageable lower-secondary contexts so students feel capable.",
+                        "Build toward independent application gradually through repetition, examples, and short transfer tasks.",
+                    ],
+                },
+                "intermediate_band": {
+                    "focus_strands": ["topic understanding", "application", "communication", "retrieval", "growing independence"],
+                    "sequence_expectations": [
+                        "Move from secure understanding toward connected application and explanation.",
+                        "Use age-appropriate lower-secondary examples, problems, or texts that feel purposeful rather than childish.",
+                        "Blend review with new learning so the sequence stays coherent and cumulative.",
+                    ],
+                },
+                "advanced_band": {
+                    "focus_strands": ["analysis", "synthesis", "critique", "independent application", "transfer"],
+                    "sequence_expectations": [
+                        "Stretch learners with deeper reasoning and more independence while keeping the themes and tasks adolescent-appropriate.",
+                        "Sequence complexity deliberately so advanced work still feels scaffolded and teachable.",
+                        "Use richer discussion, interpretation, or problem-solving tasks that demand justification and reflection.",
                     ],
                 },
             },
@@ -665,6 +790,184 @@ def infer_subject_family(subject: str, custom_subject_name: str = "") -> str:
     return best_family
 
 
+def get_subject_family(subject: str, custom_subject_name: str = "") -> str:
+    return infer_subject_family(subject, custom_subject_name)
+
+
+_STAGE_FALLBACK_SEQUENCE_START = {
+    "early_primary": "Keep the sequence concrete, short-cycle, and highly scaffolded through routines, visuals, repetition, and immediate success.",
+    "upper_primary": "Use clear structure, motivating school-age contexts, and guided independence so learners can explain and apply with confidence.",
+    "lower_secondary": "Keep the tone respectful and adolescent-appropriate, with visible scaffolds that support more independent thinking and response.",
+    "upper_secondary": "Use stronger academic demand, more independent application, and clearer justification while staying age-appropriate for teenagers.",
+    "adult_stage": "Use practical, respectful, real-world contexts that connect directly to adult goals, confidence, and independent use.",
+}
+
+_LANGUAGE_FOCUS_BY_LEVEL = {
+    "A1": ["high-frequency vocabulary", "listening comprehension", "guided speaking", "reading support", "sentence writing"],
+    "A2": ["everyday vocabulary expansion", "short connected texts", "interactive speaking", "paragraph writing", "grammar in context"],
+    "B1": ["extended reading", "speaking for opinion and explanation", "multi-paragraph writing", "listening for detail", "language accuracy"],
+    "B2": ["extended interpretation", "discussion and justification", "multi-paragraph writing", "listening synthesis", "register awareness"],
+    "C1": ["critical reading", "argumentation", "nuanced discussion", "analytical writing", "register control"],
+    "C2": ["near-native comprehension", "sustained argument", "text synthesis", "stylistic control", "independent interpretation"],
+}
+
+_FAMILY_FOCUS_BY_BAND = {
+    "math": {
+        "beginner_band": ["foundational numeracy", "key representations", "guided calculation", "problem interpretation", "mathematical language"],
+        "intermediate_band": ["core curriculum understanding", "method choice", "representation shifts", "problem solving", "explanation and reasoning"],
+        "advanced_band": ["abstract reasoning", "multi-step problem solving", "justification", "modeling and transfer", "independent strategy use"],
+    },
+    "science": {
+        "beginner_band": ["observation", "classification", "foundational scientific vocabulary", "simple cause and effect", "evidence talk"],
+        "intermediate_band": ["concept understanding", "process explanation", "data interpretation", "investigation routines", "evidence-based reasoning"],
+        "advanced_band": ["scientific models", "experimental design", "quantitative reasoning", "system thinking", "evaluation of evidence"],
+    },
+    "music": {
+        "beginner_band": ["pulse and rhythm security", "notation foundations", "listening recognition", "performance confidence", "ensemble habits"],
+        "intermediate_band": ["theory and notation", "aural skills", "performance technique", "interpretation", "musical vocabulary"],
+        "advanced_band": ["advanced theory", "aural discrimination", "performance independence", "stylistic awareness", "composition or improvisation"],
+    },
+    "study_skills": {
+        "beginner_band": ["organization", "task initiation", "routine building", "self-monitoring", "teacher-guided reflection"],
+        "intermediate_band": ["planning", "memory strategies", "revision routines", "time management", "guided independence"],
+        "advanced_band": ["independent planning", "revision systems", "strategy selection", "exam preparation", "metacognitive evaluation"],
+    },
+    "general": {
+        "beginner_band": ["foundational knowledge", "key vocabulary", "structured practice", "guided comprehension", "confidence building"],
+        "intermediate_band": ["topic understanding", "application", "communication", "retrieval", "growing independence"],
+        "advanced_band": ["analysis", "synthesis", "critique", "transfer", "independent application"],
+    },
+}
+
+
+def _fallback_focus_strands(subject: str, family: str, stage: str, level_or_band: str) -> list[str]:
+    if family == "language":
+        level = str(level_or_band or "").strip().upper()
+        focus = list(_LANGUAGE_FOCUS_BY_LEVEL.get(level) or _LANGUAGE_FOCUS_BY_LEVEL["A2"])
+        if stage == "early_primary" and level in {"A1", "A2"}:
+            focus[0] = "phonological awareness"
+            focus[3] = "early reading support"
+        elif stage == "adult_stage" and level in {"A1", "A2"}:
+            focus[0] = "survival and everyday vocabulary"
+            focus[2] = "practical interaction"
+        return focus
+
+    band = str(level_or_band or "").strip().lower()
+    family_focus = _FAMILY_FOCUS_BY_BAND.get(family) or _FAMILY_FOCUS_BY_BAND["general"]
+    focus = list(family_focus.get(band) or family_focus.get("intermediate_band") or [])
+
+    if family == "math" and stage == "early_primary" and band == "beginner_band":
+        focus[0] = "counting and quantity"
+    elif family == "math" and stage == "adult_stage" and band == "beginner_band":
+        focus[0] = "practical numeracy"
+    elif family == "science" and stage == "early_primary":
+        focus[0] = "curiosity and observation"
+    elif family == "study_skills" and stage == "adult_stage":
+        focus[-1] = "self-regulation"
+    elif family == "general" and stage == "adult_stage":
+        focus[0] = "practical understanding"
+
+    return focus
+
+
+def _fallback_progression_line(family: str, level_or_band: str) -> str:
+    level = str(level_or_band or "").strip()
+    band = level.lower()
+
+    if family == "language":
+        if level == "A1":
+            return "Start with highly supported comprehension and communication, then move toward short coherent texts, predictable interaction, and visible sentence building."
+        if level == "A2":
+            return "Move from secure everyday communication toward short connected texts, clearer opinion or reaction, and more independent paragraph-level output."
+        if level in {"B1", "B2"}:
+            return "Build from supported explanation toward interpretation, comparison, justification, and more sustained reading, listening, speaking, and writing."
+        return "Keep the demand intellectually strong through interpretation, synthesis, nuance, and precision while staying appropriate to the learner stage."
+
+    if family == "math":
+        if band == "beginner_band":
+            return "Repair prerequisites first, then bridge learners into the core curriculum through worked examples, structured rehearsal, and steadily increasing independence."
+        if band == "intermediate_band":
+            return "Move from secure understanding toward flexible method choice, explanation, and connected multi-step application."
+        return "Stretch learners through richer reasoning, justification, and transfer, while keeping the build-up teachable and conceptually coherent."
+
+    if family == "science":
+        if band == "beginner_band":
+            return "Begin with observable phenomena and simple explanation, then build scientific vocabulary, concept connections, and evidence-based responses."
+        if band == "intermediate_band":
+            return "Blend concept learning, investigation, evidence use, and explanation so students move from noticing to explaining and applying."
+        return "Increase demand through modeling, data interpretation, evaluation of evidence, and more precise scientific reasoning."
+
+    if family == "music":
+        if band == "beginner_band":
+            return "Build confidence through short repeated cycles that connect hearing, doing, and notation before expecting sustained independent performance."
+        if band == "intermediate_band":
+            return "Sequence theory, aural work, practice, and performance so the work feels musical, connected, and steadily more independent."
+        return "Deepen interpretation, stylistic awareness, critique, and independent performance or composition without losing musical coherence."
+
+    if family == "study_skills":
+        if band == "beginner_band":
+            return "Start with visible routines, teacher-guided strategy use, and repeated rehearsal before expecting independent study decisions."
+        if band == "intermediate_band":
+            return "Move from structured support toward guided independence in planning, revision, memory, and time management."
+        return "Expect learners to compare, choose, adapt, and evaluate strategies for different tasks, deadlines, and performance goals."
+
+    if band == "beginner_band":
+        return "Secure foundations first, then build toward manageable independent application through repetition, examples, and clear success criteria."
+    if band == "intermediate_band":
+        return "Move from understanding toward purposeful application, communication, and retrieval in a coherent sequence."
+    return "Stretch learners through deeper analysis, critique, and transfer while keeping the sequence practical and teachable."
+
+
+def _fallback_review_line(subject: str, family: str, stage: str) -> str:
+    if family == "language":
+        return "Recycle high-value vocabulary, structures, and communicative routines across the sequence so fluency and accuracy grow together."
+    if family == "math":
+        return "Keep cumulative review active so gaps do not block new learning, and make reasoning visible through explanation and discussion."
+    if family == "science":
+        return "Revisit core ideas, vocabulary, and evidence routines across the sequence so scientific understanding grows cumulatively rather than as isolated facts."
+    if family == "music":
+        return "Use regular rehearsal, feedback, and reflection points so theory, listening, and performance keep reinforcing one another."
+    if family == "study_skills":
+        return "Anchor each strategy in real tasks and revisit it often enough that it becomes usable beyond a single lesson or unit."
+
+    subject_text = _clean_text(subject).replace("_", " ")
+    if subject_text and subject_text not in {"other", "general"}:
+        return f"Keep the disciplinary habits of {subject_text} visible rather than collapsing the work into generic literacy tasks."
+    if stage == "early_primary":
+        return "Use repetition, modeling, and concrete examples so learners feel successful while building the right habits."
+    return "Blend review with new learning so the sequence stays coherent, cumulative, and purposeful."
+
+
+def _fallback_subject_specific_notes(subject: str, family: str, stage: str) -> list[str]:
+    notes: list[str] = []
+    normalized = _clean_text(subject).lower()
+    if normalized == "spanish":
+        notes.extend([
+            "Prioritize pronunciation support, oral confidence, and meaningful communicative tasks in Spanish.",
+            "Use age-appropriate cultural and communicative contexts relevant to Spanish learning.",
+        ])
+    elif family == "language" and stage in {"early_primary", "upper_primary"}:
+        notes.append("Keep challenge age-appropriate by avoiding adult-style topics and preserving child-friendly contexts and supports.")
+    elif family == "general" and normalized not in {"other", "general", ""}:
+        notes.append(f"Keep the disciplinary logic of {normalized.replace('_', ' ')} visible in the tasks, examples, and outputs.")
+    return notes
+
+
+def _fallback_progression_level(subject: str, family: str, learner_stage: str, level_or_band: str) -> dict:
+    return {
+        "focus_strands": _fallback_focus_strands(subject, family, learner_stage, level_or_band),
+        "sequence_expectations": [
+            _STAGE_FALLBACK_SEQUENCE_START.get(
+                str(learner_stage or "").strip(),
+                _STAGE_FALLBACK_SEQUENCE_START["upper_primary"],
+            ),
+            _fallback_progression_line(family, level_or_band),
+            _fallback_review_line(subject, family, learner_stage),
+        ],
+        "subject_specific_notes": _fallback_subject_specific_notes(subject, family, learner_stage),
+    }
+
+
 def _subject_progression_profile(subject: str, learner_stage: str, level_or_band: str, custom_subject_name: str = "") -> dict:
     normalized = _lp().normalize_subject(subject)
     family = infer_subject_family(subject, custom_subject_name)
@@ -675,6 +978,30 @@ def _subject_progression_profile(subject: str, learner_stage: str, level_or_band
 
     level_key = str(level_or_band or "").strip()
     matched_level = stage_profile.get(level_key) if isinstance(stage_profile, dict) else None
+
+    if normalized == "spanish" and not matched_level:
+        english_profile = _SUBJECT_PROGRESSION_PROFILES.get("english") or {}
+        english_stage_profile = (english_profile.get("by_stage") or {}).get(str(learner_stage or "").strip(), {})
+        matched_level = dict(english_stage_profile.get(level_key) or {})
+        if matched_level:
+            return {
+                "subject": normalized,
+                "subject_family": family,
+                "global_priorities": [
+                    "Treat Spanish as a full communicative curriculum with CEFR-style progression.",
+                    "Balance oral communication, comprehension, literacy, grammar, and vocabulary in context.",
+                    "Use high-frequency Spanish structures and vocabulary in spiraled, meaningful reuse.",
+                ],
+                "focus_strands": matched_level.get("focus_strands") or [],
+                "sequence_expectations": matched_level.get("sequence_expectations") or [],
+                "subject_specific_notes": [
+                    "Use age-appropriate cultural and communicative contexts relevant to Spanish learning.",
+                    "Prioritize pronunciation support, oral confidence, and meaningful communicative tasks.",
+                ],
+            }
+
+    if not matched_level:
+        matched_level = _fallback_progression_level(subject, family, learner_stage, level_key)
 
     if not matched_level and isinstance(stage_profile, dict):
         if level_key in {"A1", "A2", "B1", "B2", "C1", "C2"}:
@@ -693,14 +1020,16 @@ def _subject_progression_profile(subject: str, learner_stage: str, level_or_band
     matched_level = matched_level or {}
 
     if normalized == "spanish" and not (_SUBJECT_PROGRESSION_PROFILES.get("spanish") or {}).get("by_stage"):
-        english_profile = _subject_progression_profile("english", learner_stage, level_or_band)
         return {
-            **english_profile,
+            "subject": normalized,
+            "subject_family": family,
             "global_priorities": [
                 "Treat Spanish as a full communicative curriculum with CEFR-style progression.",
                 "Balance oral communication, comprehension, literacy, grammar, and vocabulary in context.",
                 "Use high-frequency Spanish structures and vocabulary in spiraled, meaningful reuse.",
             ],
+            "focus_strands": matched_level.get("focus_strands") or [],
+            "sequence_expectations": matched_level.get("sequence_expectations") or [],
             "subject_specific_notes": [
                 "Use age-appropriate cultural and communicative contexts relevant to Spanish learning.",
                 "Prioritize pronunciation support, oral confidence, and meaningful communicative tasks.",
@@ -715,6 +1044,10 @@ def _subject_progression_profile(subject: str, learner_stage: str, level_or_band
         "sequence_expectations": matched_level.get("sequence_expectations") or [],
         "subject_specific_notes": matched_level.get("subject_specific_notes") or [],
     }
+
+
+def get_subject_progression_profile(subject: str, learner_stage: str, level_or_band: str, custom_subject_name: str = "") -> dict:
+    return _subject_progression_profile(subject, learner_stage, level_or_band, custom_subject_name)
 
 
 def summarize_previous_program_context(previous_program: Optional[dict]) -> dict:
@@ -1250,7 +1583,7 @@ def _build_program_generation_payload(
         "subject_progression_profile": progression_profile,
         "delivery_mode_guidance": _delivery_mode_guidance(),
         "instructional_design_expectations": [
-            "Act like a PhD-level instructional designer with global pedagogical awareness.",
+            "Act like a coordinated panel of PhD-level instructional designers, subject specialists, and learner-stage experts.",
             "Balance pedagogy, feasibility, motivation, and progression.",
             "Design for online, offline, and blended teaching realities.",
             "Keep Classio resources central, but do not force them where a better teacher-led or live activity is needed.",
@@ -1315,6 +1648,7 @@ def _build_program_generation_payload(
 
 def _build_program_skeleton_prompts(prompt_payload: dict) -> tuple[str, str]:
     system_prompt = (
+        f"{build_expert_panel_prompt_blurb('learning_program')} "
         "You are Classio's senior curriculum architect. "
         "You reason like a PhD in instructional design, curriculum planning, and pedagogy. "
         "You understand online, offline, and blended teaching constraints globally. "
@@ -1394,6 +1728,7 @@ Required output shape:
 
 def _build_program_unit_enrichment_prompts(prompt_payload: dict, program_skeleton: dict, unit_skeleton: dict) -> tuple[str, str]:
     system_prompt = (
+        f"{build_expert_panel_prompt_blurb('learning_program')} "
         "You are Classio's senior curriculum architect. "
         "You reason like a PhD in instructional design, curriculum planning, and pedagogy. "
         "You understand online, offline, and blended teaching constraints globally. "
@@ -1658,8 +1993,8 @@ def generate_ai_learning_program_skeleton(
             get_ai_provider_order,
         )
         from helpers.planner_storage import log_ai_usage
-    except Exception as e:
-        return fallback, "template", f"Program AI helpers unavailable. {e}", payload
+    except Exception:
+        return fallback, "template", t("ai_unavailable_fallback"), payload
 
     skeleton_system_prompt, skeleton_user_prompt = _build_program_skeleton_prompts(payload)
     provider_order = get_ai_provider_order()
@@ -1696,12 +2031,7 @@ def generate_ai_learning_program_skeleton(
             )
         except Exception:
             pass
-        warning = None
-        if skeleton_errors:
-            warning = t(
-                "learning_program_partial_generation_warning",
-                details=_summarize_learning_program_fallback(skeleton_errors),
-            )
+        warning = t("ai_unavailable_fallback") if skeleton_errors else None
         return parsed, "ai", warning, payload
     except Exception as e:
         try:
@@ -1712,7 +2042,7 @@ def generate_ai_learning_program_skeleton(
             )
         except Exception:
             pass
-        warning = t("ai_unavailable_fallback", details=_summarize_learning_program_fallback([str(e)]))
+        warning = t("ai_unavailable_fallback")
         return fallback, "template", warning, payload
 
 
@@ -1770,15 +2100,11 @@ def generate_ai_learning_program_unit(
             get_ai_provider_order,
         )
         from helpers.planner_storage import log_ai_usage
-    except Exception as e:
+    except Exception:
         merged = _merge_program_unit(target_unit, fallback_unit)
         updated = dict(program)
         updated["units"] = [merged if idx == target_idx else unit for idx, unit in enumerate(program.get("units") or [])]
-        return updated, "template", t(
-            "learning_program_unit_fallback_warning",
-            unit=unit_number,
-            details=_summarize_learning_program_fallback([str(e)]),
-        )
+        return updated, "template", t("ai_unavailable_fallback")
 
     unit_context = dict(target_unit)
     unit_context["prior_units_context"] = _summarize_prior_units(program, int(unit_number))
@@ -1804,22 +2130,13 @@ def generate_ai_learning_program_unit(
         merged = _merge_program_unit(target_unit, enriched_unit)
         updated = dict(program)
         updated["units"] = [merged if idx == target_idx else unit for idx, unit in enumerate(program.get("units") or [])]
-        warning = None
-        if errors:
-            warning = t(
-                "learning_program_partial_generation_warning",
-                details=_summarize_learning_program_fallback(errors),
-            )
+        warning = t("ai_unavailable_fallback") if errors else None
         return updated, provider, warning
-    except Exception as e:
+    except Exception:
         merged = _merge_program_unit(target_unit, fallback_unit)
         updated = dict(program)
         updated["units"] = [merged if idx == target_idx else unit for idx, unit in enumerate(program.get("units") or [])]
-        return updated, "template", t(
-            "learning_program_unit_fallback_warning",
-            unit=unit_number,
-            details=_summarize_learning_program_fallback([str(e)]),
-        )
+        return updated, "template", t("ai_unavailable_fallback")
 
 
 def generate_ai_learning_program(
@@ -1853,8 +2170,8 @@ def generate_ai_learning_program(
             get_ai_provider_order,
         )
         from helpers.planner_storage import get_ai_planner_usage_status, log_ai_usage
-    except Exception as e:
-        return fallback, "template", f"Program AI helpers unavailable. {e}"
+    except Exception:
+        return fallback, "template", t("ai_unavailable_fallback")
 
     usage = get_ai_learning_program_usage_status()
     if AI_PROGRAM_LIMITS_ENABLED and usage["used_today"] >= AI_PROGRAM_DAILY_LIMIT:
@@ -1924,7 +2241,7 @@ def generate_ai_learning_program(
             )
         except Exception:
             pass
-        warning = t("ai_unavailable_fallback", details=_summarize_learning_program_fallback([str(e)]))
+        warning = t("ai_unavailable_fallback")
         return fallback, "template", warning
 
     provider_priority = [skeleton_provider] + [p for p in provider_order if p != skeleton_provider]
@@ -1960,12 +2277,7 @@ def generate_ai_learning_program(
             merged_units.append(fallback_units[idx] if idx < len(fallback_units) else unit)
 
     parsed["units"] = merged_units
-    warning = None
-    if partial_errors:
-        warning = t(
-            "learning_program_partial_generation_warning",
-            details=_summarize_learning_program_fallback(partial_errors),
-        )
+    warning = t("ai_unavailable_fallback") if partial_errors else None
     try:
         log_ai_usage(
             request_kind="learning_program_ai",
@@ -2356,7 +2668,12 @@ def update_learning_program(
         return False, str(e)
 
 
-def load_my_learning_programs(limit: int = 500) -> pd.DataFrame:
+def load_my_learning_programs(
+    limit: int = 500,
+    *,
+    include_archived: bool = False,
+    archived_only: bool = False,
+) -> pd.DataFrame:
     uid = get_current_user_id()
     if not uid:
         return pd.DataFrame()
@@ -2376,7 +2693,12 @@ def load_my_learning_programs(limit: int = 500) -> pd.DataFrame:
         for col in ("created_at", "updated_at"):
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors="coerce")
-        return df.reset_index(drop=True)
+        return filter_archived_rows(
+            df,
+            include_archived=include_archived,
+            archived_only=archived_only,
+            default="active",
+        )
     except Exception:
         return pd.DataFrame()
 
@@ -2585,6 +2907,35 @@ def update_learning_program_visibility(program_id: int, visibility: str) -> tupl
         return False, str(e)
 
 
+def update_learning_program_archive(program_id: int, archived: bool) -> tuple[bool, str]:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid or int(program_id or 0) <= 0:
+        return False, "missing_program"
+    program = load_learning_program(int(program_id))
+    if not program:
+        return False, "missing_program"
+    restored_status = "active" if _program_is_complete(program) else "draft"
+    payload = {
+        "status": ARCHIVED_STATUS if archived else restored_status,
+        "visibility": "private",
+        "is_public": False,
+        "updated_at": _now_iso(),
+    }
+    try:
+        (
+            get_sb()
+            .table("learning_programs")
+            .update(payload)
+            .eq("id", int(program_id))
+            .eq("user_id", uid)
+            .execute()
+        )
+        clear_app_caches()
+        return True, "updated"
+    except Exception as e:
+        return False, str(e)
+
+
 def archive_learning_program_assignment(assignment_id: int) -> tuple[bool, str]:
     teacher_id = str(get_current_user_id() or "").strip()
     if not teacher_id or not assignment_id:
@@ -2731,7 +3082,9 @@ def render_learning_program_library_cards(
     df: pd.DataFrame,
     prefix: str = "learning_programs",
     show_author: bool = False,
+    require_signup: bool = False,
     allow_visibility_toggle: bool = False,
+    allow_archive_toggle: bool = False,
 ) -> None:
     if df is None or df.empty:
         st.info(t("no_learning_programs_found"))
@@ -2763,6 +3116,7 @@ def render_learning_program_library_cards(
                 total_units = int(row.get("total_units") or 0)
                 total_topics = int(row.get("total_topics") or 0)
                 visibility = t("public_label") if bool(row.get("is_public")) else t("private_label")
+                is_archived = is_archived_status(row.get("status"))
                 sequence_order = int(row.get("sequence_order") or 0)
                 is_complete = _program_is_complete(row_program)
                 if not total_units:
@@ -2785,6 +3139,8 @@ def render_learning_program_library_cards(
                 meta += f'<div class="cm-resource-meta">📘 {html.escape(str(total_units) + " " + t("units").lower())}</div>'
                 meta += f'<div class="cm-resource-meta">🧩 {html.escape(str(total_topics) + " " + t("topics_label").lower())}</div>'
                 meta += f'<div class="cm-resource-meta">⚙️ {html.escape(visibility)}</div>'
+                if is_archived:
+                    meta += f'<div class="cm-resource-meta">🗂️ {html.escape(t("archived_label"))}</div>'
                 if show_author:
                     author_id = _clean_text(row.get("user_id"))
                     if author_id:
@@ -2809,32 +3165,57 @@ def render_learning_program_library_cards(
                 st.markdown(card_html, unsafe_allow_html=True)
 
                 is_owner = str(row.get("user_id") or "") == str(get_current_user_id() or "")
-                action_cols = st.columns([1, 1, 1])
+                show_owner_controls = allow_visibility_toggle or allow_archive_toggle
+                action_cols = st.columns([1, 1, 1, 1] if show_owner_controls else [1, 1])
                 with action_cols[0]:
                     if program_id > 0 and st.button(t("open_program"), key=f"{prefix}_open_{program_id}_{idx}_{col_idx}"):
                         st.session_state[f"{prefix}_selected_program_id"] = program_id
                 with action_cols[1]:
-                    if program_id > 0 and is_complete and st.button(t("assign_to_student"), key=f"{prefix}_assign_{program_id}_{idx}_{col_idx}"):
+                    if program_id > 0 and is_complete and not is_archived and st.button(t("assign_to_student"), key=f"{prefix}_assign_{program_id}_{idx}_{col_idx}"):
+                        if require_signup:
+                            st.session_state["_post_signup_open_panel"] = "files"
+                            st.session_state["_post_signup_open_tab"] = "community_library"
+                            st.session_state["_explore_go_signup"] = True
+                            st.rerun()
                         st.session_state[f"{prefix}_selected_program_id"] = program_id
                         st.session_state[f"show_assign_learning_program_{program_id}"] = True
-                with action_cols[2]:
-                    if allow_visibility_toggle and is_owner and program_id > 0 and is_complete:
-                        current_public = bool(row.get("is_public"))
-                        new_public = st.toggle(
-                            t("public_toggle_label"),
-                            value=current_public,
-                            key=f"{prefix}_toggle_visibility_{program_id}_{idx}_{col_idx}",
-                        )
-                        if new_public != current_public:
-                            target_visibility = "public" if new_public else "private"
-                            ok, msg = update_learning_program_visibility(program_id, target_visibility)
-                            if ok:
-                                st.success(t("learning_program_visibility_updated", visibility=t("public_label") if target_visibility == "public" else t("private_label")))
-                                st.rerun()
-                            if msg == "program_incomplete":
-                                st.error(t("learning_program_complete_before_publishing"))
-                            else:
-                                st.error(t("learning_program_visibility_update_failed", error=msg))
+                if show_owner_controls:
+                    with action_cols[2]:
+                        if allow_visibility_toggle and is_owner and program_id > 0 and is_complete and not is_archived:
+                            current_public = bool(row.get("is_public"))
+                            new_public = st.toggle(
+                                t("public_toggle_label"),
+                                value=current_public,
+                                key=f"{prefix}_toggle_visibility_{program_id}_{idx}_{col_idx}",
+                            )
+                            if new_public != current_public:
+                                target_visibility = "public" if new_public else "private"
+                                ok, msg = update_learning_program_visibility(program_id, target_visibility)
+                                if ok:
+                                    st.success(t("learning_program_visibility_updated", visibility=t("public_label") if target_visibility == "public" else t("private_label")))
+                                    st.rerun()
+                                if msg == "program_incomplete":
+                                    st.error(t("learning_program_complete_before_publishing"))
+                                else:
+                                    st.error(t("learning_program_visibility_update_failed", error=msg))
+                    with action_cols[3]:
+                        if allow_archive_toggle and is_owner and program_id > 0:
+                            new_archived = st.toggle(
+                                t("archive_toggle_label"),
+                                value=is_archived,
+                                key=f"{prefix}_toggle_archive_{program_id}_{idx}_{col_idx}",
+                            )
+                            if new_archived != is_archived:
+                                ok, msg = update_learning_program_archive(program_id, new_archived)
+                                if ok:
+                                    st.success(
+                                        t(
+                                            "resource_archive_updated",
+                                            state=t("archived_label") if new_archived else t("restored_label"),
+                                        )
+                                    )
+                                    st.rerun()
+                                st.error(t("resource_archive_update_failed", error=msg))
 
 
 def _inject_program_styles() -> None:
@@ -3761,7 +4142,7 @@ def load_enriched_program_assignments_for_current_student() -> list[dict]:
 def render_quick_learning_program_builder_expander() -> None:
     ns = "quick_learning_program"
 
-    with st.expander(t("quick_learning_program_maker"), expanded=True):
+    with st.expander(f"📚 {t('quick_learning_program_maker')}", expanded=False):
         st.caption(t("quick_learning_program_maker_caption"))
 
         usage = get_ai_learning_program_usage_status()

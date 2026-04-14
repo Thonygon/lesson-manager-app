@@ -20,7 +20,7 @@ def render_top_nav(active_page: str):
         ("add_payment", t("payment"),   "credit-card"),
         ("calendar",    t("calendar"),  "calendar3"),
         ("analytics",   t("analytics"), "graph-up"),
-        ("switch_student", t("switch_to_student"), "arrow-repeat"),
+        ("resources",   t("files"),     "folder2-open"),
         ("sign_out",    t("sign_out"),  "box-arrow-right"),
     ]
 
@@ -97,9 +97,6 @@ def render_top_nav(active_page: str):
         st.session_state["top_nav_prev"] = selected_key
         if selected_key == "sign_out":
             sign_out_user()
-        elif selected_key == "switch_student":
-            st.session_state["top_nav_prev"] = active_page
-            _switch_role("student")
         elif selected_key != active_page:
             go_to(selected_key)
             st.rerun()
@@ -220,6 +217,12 @@ def route_app_pages(page: str):
     if page == "home":
         load_css_home()
         render_home()
+        st.stop()
+
+    if page == "resources":
+        load_css_home()
+        render_top_nav("resources")
+        render_home(panel_override="files", show_home_actions=False)
         st.stop()
 
     load_css_app(compact=bool(st.session_state.get("compact_mode", False)))

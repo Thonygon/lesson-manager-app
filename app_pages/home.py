@@ -1,39 +1,56 @@
-import streamlit as st
 import datetime
-from core.i18n import t
-from core.state import get_current_user_id
-from core.navigation import go_to, home_go, PAGES
-from core.timezone import _get_qp
-from core.database import load_table, load_students, clear_app_caches, profile_can_teach
-from auth.auth import render_logout_button, render_profile_dialog, render_choose_username_dialog, render_choose_role_dialog
-from styles.theme import load_css_home
-from styles.theme import load_css_home
+
+import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_option_menu import option_menu
-from core.database import get_profile_avatar_url
-from auth.auth import sign_out_user
-from core.database import load_profile_row
-from helpers.lesson_planner import normalize_planner_output, subject_label as _subject_label_fn, normalize_subject as _normalize_subject
-from helpers.planner_storage import load_my_lesson_plans, load_public_lesson_plans, render_plan_library_cards, render_quick_lesson_plan_result, render_quick_lesson_planner_expander
-from helpers.cv_storage import load_my_cvs, load_my_cover_letters, render_cv_library_cards, render_cv_result, render_quick_cv_builder_expander, build_cv_pdf_bytes, build_cover_letter_pdf_bytes
-from helpers.worksheet_storage import load_my_worksheets, load_public_worksheets, render_worksheet_library_cards, render_worksheet_result, render_quick_worksheet_maker_expander
-from helpers.worksheet_builder import normalize_worksheet_output
-from helpers.goal_explorer import render_income_goal_calculator
-from helpers.quick_exam_storage import render_quick_exam_builder_expander, load_my_exams, load_public_exams, render_exam_library_cards, render_exam_result
+
+from auth.auth import render_choose_role_dialog, render_choose_username_dialog, render_logout_button, render_profile_dialog, sign_out_user
+from core.database import clear_app_caches, get_profile_avatar_url, load_community_profiles, load_profile_row, load_students, load_table, profile_can_teach
+from core.i18n import t
+from core.navigation import PAGES, go_to, home_go
+from core.state import get_current_user_id
+from core.timezone import _get_qp
+from helpers.archive_utils import is_archived_status
+from helpers.cv_storage import (
+    build_cover_letter_pdf_bytes,
+    build_cv_pdf_bytes,
+    load_my_cover_letters,
+    load_my_cvs,
+    render_cv_library_cards,
+    render_cv_result,
+    render_quick_cv_builder_expander,
+    update_professional_profile_archive,
+)
+from helpers.goal_explorer import _rank_search, render_income_goal_calculator
 from helpers.learning_programs import (
     load_learning_program,
     load_my_learning_programs,
     load_public_learning_programs,
-    update_learning_program_visibility,
     render_learning_program_assignment_panel,
     render_learning_program_library_cards,
     render_quick_learning_program_builder_expander,
     render_saved_learning_program_workspace,
     render_teacher_program_view,
+    update_learning_program_visibility,
 )
-from core.database import load_community_profiles
-from helpers.goal_explorer import _rank_search
-import streamlit as st
-import streamlit.components.v1 as components
+from helpers.lesson_planner import normalize_planner_output, normalize_subject as _normalize_subject, subject_label as _subject_label_fn
+from helpers.planner_storage import (
+    load_my_lesson_plans,
+    load_public_lesson_plans,
+    render_plan_library_cards,
+    render_quick_lesson_plan_result,
+    render_quick_lesson_planner_expander,
+)
+from helpers.quick_exam_storage import load_my_exams, load_public_exams, render_exam_library_cards, render_exam_result, render_quick_exam_builder_expander
+from helpers.worksheet_builder import normalize_worksheet_output
+from helpers.worksheet_storage import (
+    load_my_worksheets,
+    load_public_worksheets,
+    render_quick_worksheet_maker_expander,
+    render_worksheet_library_cards,
+    render_worksheet_result,
+)
+from styles.theme import load_css_home
 
 def inject_loading_screen():
     st.markdown(
@@ -227,7 +244,7 @@ def render_home_teaching_resources_preview():
                 )
 
             if st.button(t("see_all_learning_programs"), key="home_see_all_learning_programs", use_container_width=True):
-                home_go("home", panel="files")
+                go_to("resources")
                 st.rerun()
 
     # =========================
@@ -283,7 +300,7 @@ def render_home_teaching_resources_preview():
                 )
 
             if st.button(t("see_all_lesson_plans"), key="home_see_all_plans", use_container_width=True):
-                home_go("home", panel="files")
+                go_to("resources")
                 st.rerun()
 
     # =========================
@@ -339,7 +356,7 @@ def render_home_teaching_resources_preview():
                 )
 
             if st.button(t("see_all_worksheets"), key="home_see_all_ws", use_container_width=True):
-                home_go("home", panel="files")
+                go_to("resources")
                 st.rerun()
 
     # =========================
@@ -394,19 +411,19 @@ def render_home_teaching_resources_preview():
                 )
 
             if st.button(t("see_all_exams"), key="home_see_all_exams", use_container_width=True):
-                home_go("home", panel="files")
+                go_to("resources")
                 st.rerun()
 
 # 10) HOME SCREEN UI (DARK)
 # =========================
-def render_home():
+def render_home(*, panel_override: str | None = None, show_home_actions: bool = True):
     current_lang = st.session_state.get("ui_lang", "en")
     if current_lang not in ("en", "es", "tr"):
         current_lang = "en"
 
     user = st.session_state.get("auth_user") or {}
     user_id = st.session_state.get("user_id", "") or ""
-    panel = _get_qp("panel", "")
+    panel = panel_override if panel_override is not None else _get_qp("panel", "")
 
     if isinstance(user, dict):
         user_id = user.get("id") or user_id
@@ -430,7 +447,7 @@ def render_home():
     # ---------- WELCOME PAGE ----------
     from app_pages.render_home_welcome import render_home_welcome
 
-    if panel in ("", None):
+    if show_home_actions and panel in ("", None):
         if render_home_welcome(user_name):
             return
     
@@ -449,99 +466,102 @@ def render_home():
     st.markdown('<div class="home-shell">', unsafe_allow_html=True)
 
     # ---------- TOP ACTION BUTTONS ----------
-    left, right = st.columns([6, 4], vertical_alignment="center")
+    if show_home_actions:
+        left, right = st.columns([6, 4], vertical_alignment="center")
 
-    with right:
-        if "home_action_menu_nonce" not in st.session_state:
-            st.session_state["home_action_menu_nonce"] = 0
+        with right:
+            if "home_action_menu_nonce" not in st.session_state:
+                st.session_state["home_action_menu_nonce"] = 0
 
-        default_action_index = 2 if panel == "files" else 1
+            default_action_index = 1
 
-        if "home_action_menu_prev" not in st.session_state:
-            st.session_state["home_action_menu_prev"] = t("files") if panel == "files" else t("home")
-
-        default_label = t("files") if panel == "files" else t("home")
-
-        action = option_menu(
-            menu_title=None,
-            options=[t("profile"), t("home"), t("files"), t("sign_out")],
-            icons=["person-circle", "house", "folder2-open", "box-arrow-right"],
-            orientation="horizontal",
-            default_index=default_action_index,
-            key=f"home_action_menu_{st.session_state.get('home_action_menu_nonce', 0)}",
-            styles={
-                "container": {
-                    "padding": "0 !important",
-                    "margin": "0 !important",
-                    "background": "var(--panel)",
-                    "border": "1px solid var(--border)",
-                    "border-radius": "14px",
-                },
-                "nav-link": {
-                    "font-size": "14px",
-                    "text-align": "center",
-                    "padding": "6px 8px",
-                    "color": "var(--muted)",
-                    "--hover-color": "var(--panel-soft)",
-                },
-                "nav-link-selected": {
-                    "background": "var(--primary)",
-                    "color": "#f1f5f9",
-                },
-                "icon": {
-                    "font-size": "16px",
-                    "color": "var(--primary-light)",
-                },
-            },
-        )
-
-
-    with left:
-        st.markdown(
-            f"""
-            <div class="home-topbar home-topbar-main">
-                <div class="home-topbar-left">
-                    <div class="home-avatar home-avatar-sm" style="{avatar_style}"></div>
-                    <div class="home-topbar-usertext">
-                        <div class="home-topbar-sub">{t("welcome").strip()}</div>
-                        <div class="home-topbar-name">{user_name}</div>
-                    </div>
-                <div class="home-topbar-brand">CLASSIO</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        previous_action = st.session_state.get("home_action_menu_prev", t("sign_out"))
-
-        if action != default_label:
-            if action == t("profile"):
-                st.session_state["show_profile_dialog"] = True
-                st.session_state["home_action_menu_prev"] = t("profile")
-                st.session_state["home_action_menu_nonce"] += 1
-                st.session_state.pop("confirm_sign_out", None)
-                st.rerun()
-
-            elif action == t("files"):
-                st.session_state["home_action_menu_prev"] = t("files")
-                st.session_state.pop("confirm_sign_out", None)
-                home_go("home", panel="files")
-                st.rerun()
-
-            elif action == t("home"):
+            if "home_action_menu_prev" not in st.session_state:
                 st.session_state["home_action_menu_prev"] = t("home")
-                st.session_state.pop("confirm_sign_out", None)
-                home_go("home", panel=None)
-                st.rerun()
 
-            elif action == t("sign_out"):
-                if st.session_state.get("confirm_sign_out"):
-                    st.session_state.pop("confirm_sign_out", None)
-                    sign_out_user()
-                else:
-                    st.session_state["confirm_sign_out"] = True
+            default_label = t("home")
+
+            action = option_menu(
+                menu_title=None,
+                options=[t("profile"), t("home"), t("switch_to_student"), t("sign_out")],
+                icons=["person-circle", "house", "arrow-repeat", "box-arrow-right"],
+                orientation="horizontal",
+                default_index=default_action_index,
+                key=f"home_action_menu_{st.session_state.get('home_action_menu_nonce', 0)}",
+                styles={
+                    "container": {
+                        "padding": "0 !important",
+                        "margin": "0 !important",
+                        "background": "var(--panel)",
+                        "border": "1px solid var(--border)",
+                        "border-radius": "14px",
+                    },
+                    "nav-link": {
+                        "font-size": "14px",
+                        "text-align": "center",
+                        "padding": "6px 8px",
+                        "color": "var(--muted)",
+                        "--hover-color": "var(--panel-soft)",
+                    },
+                    "nav-link-selected": {
+                        "background": "var(--primary)",
+                        "color": "#f1f5f9",
+                    },
+                    "icon": {
+                        "font-size": "16px",
+                        "color": "var(--primary-light)",
+                    },
+                },
+            )
+
+        with left:
+            st.markdown(
+                f"""
+                <div class="home-topbar home-topbar-main">
+                    <div class="home-topbar-left">
+                        <div class="home-avatar home-avatar-sm" style="{avatar_style}"></div>
+                        <div class="home-topbar-usertext">
+                            <div class="home-topbar-sub">{t("welcome").strip()}</div>
+                            <div class="home-topbar-name">{user_name}</div>
+                        </div>
+                    <div class="home-topbar-brand">CLASSIO</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            if action != default_label:
+                if action == t("profile"):
+                    st.session_state["show_profile_dialog"] = True
+                    st.session_state["home_action_menu_prev"] = t("profile")
                     st.session_state["home_action_menu_nonce"] += 1
-                    st.rerun()     
+                    st.session_state.pop("confirm_sign_out", None)
+                    st.rerun()
+
+                elif action == t("switch_to_student"):
+                    from core.database import enable_profile_mode
+
+                    if user_id:
+                        enable_profile_mode(user_id, "student")
+                    st.session_state["user_role"] = "student"
+                    st.session_state["home_action_menu_prev"] = t("home")
+                    st.session_state.pop("confirm_sign_out", None)
+                    go_to("student_home")
+                    st.rerun()
+
+                elif action == t("home"):
+                    st.session_state["home_action_menu_prev"] = t("home")
+                    st.session_state.pop("confirm_sign_out", None)
+                    home_go("home", panel=None)
+                    st.rerun()
+
+                elif action == t("sign_out"):
+                    if st.session_state.get("confirm_sign_out"):
+                        st.session_state.pop("confirm_sign_out", None)
+                        sign_out_user()
+                    else:
+                        st.session_state["confirm_sign_out"] = True
+                        st.session_state["home_action_menu_nonce"] += 1
+                        st.rerun()
         
     # ---------- SIGN OUT CONFIRMATION ----------
     if st.session_state.get("confirm_sign_out"):
@@ -563,7 +583,11 @@ def render_home():
         _render_restore_dialog(user_id)
 
     if panel != "files" and st.session_state.get("home_public_learning_programs_selected_program_id"):
-        home_go("home", panel="files")
+        go_to("resources")
+        st.rerun()
+
+    if panel == "files" and show_home_actions:
+        go_to("resources")
         st.rerun()
 
     if panel == "files":
@@ -571,7 +595,7 @@ def render_home():
         head_left, head_right = st.columns([6, 1], vertical_alignment="center")
 
         with head_left:
-            st.markdown (f"### 📁 {t('files')}")
+            st.markdown (f"### 🗂️ {t('files')}")
         with head_right:
             if st.button(t("close"), key="close_files_panel_top", help=t("close_files"), use_container_width=True):
                 st.session_state["home_action_menu_prev"] = t("home")
@@ -579,14 +603,26 @@ def render_home():
                 home_go("home", panel=None)
                 st.rerun()
 
-        tab_prog, tab1, tab2, tab_exams, tab3, tab4 = st.tabs([t("my_programs"), t("my_plans"), t("my_worksheets"), t("my_exams"), t("community_library"), t("professional")])
+        tab_prog, tab1, tab2, tab_exams, tab3, tab4, tab_archive = st.tabs([
+            t("my_programs"),
+            t("my_plans"),
+            t("my_worksheets"),
+            t("my_exams"),
+            t("community_library"),
+            t("professional"),
+            t("archive_tab"),
+        ])
 
         with tab_prog:
             prog_df = load_my_learning_programs()
             if prog_df.empty:
                 st.info(t("no_my_learning_programs"))
             else:
-                prog_q = st.text_input(t("search_learning_programs"), key="my_programs_q").strip().lower()
+                prog_q = st.text_input(
+                    t("search_learning_programs"),
+                    key="my_programs_q",
+                    placeholder=t("learning_program_search_placeholder"),
+                ).strip().lower()
                 prog_subj_opts = (
                     sorted(
                         set(_normalize_subject(s) for s in prog_df["subject"].dropna().astype(str) if _normalize_subject(s))
@@ -636,7 +672,13 @@ def render_home():
                     prog_filtered = prog_filtered[prog_filtered["learner_stage"].astype(str) == prog_stage_filter]
                 if prog_level_filter != t("all") and "level_or_band" in prog_filtered.columns:
                     prog_filtered = prog_filtered[prog_filtered["level_or_band"].astype(str) == prog_level_filter]
-                render_learning_program_library_cards(prog_filtered, prefix="my_learning_programs", show_author=False, allow_visibility_toggle=True)
+                render_learning_program_library_cards(
+                    prog_filtered,
+                    prefix="my_learning_programs",
+                    show_author=False,
+                    allow_visibility_toggle=True,
+                    allow_archive_toggle=True,
+                )
 
         with tab1:
             my_df = load_my_lesson_plans()
@@ -644,33 +686,64 @@ def render_home():
             if my_df.empty:
                 st.info(t("no_saved_lesson_plans"))
             else:
-                topic_q = st.text_input(
-                    t("search_by_topic"),
-                    key="my_plans_topic_q"
-                ).strip().lower()
-
+                filter_col1, filter_col2 = st.columns([3, 1])
+                with filter_col1:
+                    topic_q = st.text_input(
+                        t("explore_resource_search"),
+                        key="my_plans_topic_q",
+                        placeholder=t("explore_resource_search_placeholder"),
+                    ).strip().lower()
                 subject_options = (
                     sorted(set(_normalize_subject(s) for s in my_df["subject"].dropna().astype(str) if _normalize_subject(s)))
                     if "subject" in my_df.columns
                     else []
                 )
-
-                subject_filter = st.selectbox(
-                    t("subject_label"),
-                    [t("all")] + subject_options,
-                    format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
-                    key="my_plans_subject_filter",
-                )
+                with filter_col2:
+                    subject_filter = st.selectbox(
+                        t("subject_label"),
+                        [t("all")] + subject_options,
+                        format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
+                        key="my_plans_subject_filter",
+                    )
+                filter_col3, filter_col4 = st.columns(2)
+                with filter_col3:
+                    stage_options = sorted(my_df["learner_stage"].dropna().astype(str).unique().tolist()) if "learner_stage" in my_df.columns else []
+                    stage_filter = st.selectbox(
+                        t("learner_stage"),
+                        [t("all")] + stage_options,
+                        format_func=lambda x: t(x) if x != t("all") else t("all"),
+                        key="my_plans_stage_filter",
+                    )
+                with filter_col4:
+                    level_options = sorted(my_df["level_or_band"].dropna().astype(str).unique().tolist()) if "level_or_band" in my_df.columns else []
+                    level_filter = st.selectbox(
+                        t("level_or_band"),
+                        [t("all")] + level_options,
+                        format_func=lambda x: x if x in ("A1", "A2", "B1", "B2", "C1", "C2") else t(x) if x != t("all") else t("all"),
+                        key="my_plans_level_filter",
+                    )
 
                 filtered = my_df.copy()
 
-                if topic_q and "topic" in filtered.columns:
+                if topic_q:
+                    for col in ["title", "topic", "subject", "learner_stage", "level_or_band", "lesson_purpose"]:
+                        if col not in filtered.columns:
+                            filtered[col] = ""
                     filtered = filtered[
-                        filtered["topic"].fillna("").astype(str).str.lower().str.contains(topic_q, na=False)
+                        filtered["title"].fillna("").astype(str).str.lower().str.contains(topic_q, na=False)
+                        | filtered["topic"].fillna("").astype(str).str.lower().str.contains(topic_q, na=False)
+                        | filtered["subject"].fillna("").astype(str).str.lower().str.contains(topic_q, na=False)
+                        | filtered["learner_stage"].fillna("").astype(str).str.lower().str.contains(topic_q, na=False)
+                        | filtered["level_or_band"].fillna("").astype(str).str.lower().str.contains(topic_q, na=False)
+                        | filtered["lesson_purpose"].fillna("").astype(str).str.lower().str.contains(topic_q, na=False)
                     ]
 
                 if subject_filter != t("all") and "subject" in filtered.columns:
                     filtered = filtered[filtered["subject"].astype(str).apply(_normalize_subject) == subject_filter]
+                if stage_filter != t("all") and "learner_stage" in filtered.columns:
+                    filtered = filtered[filtered["learner_stage"].astype(str) == stage_filter]
+                if level_filter != t("all") and "level_or_band" in filtered.columns:
+                    filtered = filtered[filtered["level_or_band"].astype(str) == level_filter]
 
                 if filtered.empty:
                     st.info(t("no_data"))
@@ -679,6 +752,8 @@ def render_home():
                         filtered,
                         prefix="my_plans",
                         show_author=False,
+                        allow_visibility_toggle=True,
+                        allow_archive_toggle=True,
                      )
 
         with tab2:
@@ -686,40 +761,129 @@ def render_home():
             if ws_df.empty:
                 st.info(t("no_saved_worksheets"))
             else:
-                ws_topic_q = st.text_input(t("search_by_topic"), key="my_ws_topic_q").strip().lower()
+                filter_col1, filter_col2 = st.columns([3, 1])
+                with filter_col1:
+                    ws_topic_q = st.text_input(
+                        t("explore_resource_search"),
+                        key="my_ws_topic_q",
+                        placeholder=t("explore_resource_search_placeholder"),
+                    ).strip().lower()
                 ws_subj_opts = sorted(set(_normalize_subject(s) for s in ws_df["subject"].dropna().astype(str) if _normalize_subject(s))) if "subject" in ws_df.columns else []
-                ws_subj_filter = st.selectbox(
-                    t("subject_label"),
-                    [t("all")] + ws_subj_opts,
-                    format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
-                    key="my_ws_subject_filter",
-                )
+                with filter_col2:
+                    ws_subj_filter = st.selectbox(
+                        t("subject_label"),
+                        [t("all")] + ws_subj_opts,
+                        format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
+                        key="my_ws_subject_filter",
+                    )
+                filter_col3, filter_col4 = st.columns(2)
+                with filter_col3:
+                    ws_stage_opts = sorted(ws_df["learner_stage"].dropna().astype(str).unique().tolist()) if "learner_stage" in ws_df.columns else []
+                    ws_stage_filter = st.selectbox(
+                        t("learner_stage"),
+                        [t("all")] + ws_stage_opts,
+                        format_func=lambda x: t(x) if x != t("all") else t("all"),
+                        key="my_ws_stage_filter",
+                    )
+                with filter_col4:
+                    ws_level_opts = sorted(ws_df["level_or_band"].dropna().astype(str).unique().tolist()) if "level_or_band" in ws_df.columns else []
+                    ws_level_filter = st.selectbox(
+                        t("level_or_band"),
+                        [t("all")] + ws_level_opts,
+                        format_func=lambda x: x if x in ("A1", "A2", "B1", "B2", "C1", "C2") else t(x) if x != t("all") else t("all"),
+                        key="my_ws_level_filter",
+                    )
                 ws_filtered = ws_df.copy()
-                if ws_topic_q and "topic" in ws_filtered.columns:
-                    ws_filtered = ws_filtered[ws_filtered["topic"].fillna("").astype(str).str.lower().str.contains(ws_topic_q, na=False)]
+                if ws_topic_q:
+                    for col in ["title", "topic", "subject", "learner_stage", "level_or_band", "worksheet_type", "source_type"]:
+                        if col not in ws_filtered.columns:
+                            ws_filtered[col] = ""
+                    ws_filtered = ws_filtered[
+                        ws_filtered["title"].fillna("").astype(str).str.lower().str.contains(ws_topic_q, na=False)
+                        | ws_filtered["topic"].fillna("").astype(str).str.lower().str.contains(ws_topic_q, na=False)
+                        | ws_filtered["subject"].fillna("").astype(str).str.lower().str.contains(ws_topic_q, na=False)
+                        | ws_filtered["learner_stage"].fillna("").astype(str).str.lower().str.contains(ws_topic_q, na=False)
+                        | ws_filtered["level_or_band"].fillna("").astype(str).str.lower().str.contains(ws_topic_q, na=False)
+                        | ws_filtered["worksheet_type"].fillna("").astype(str).str.lower().str.contains(ws_topic_q, na=False)
+                        | ws_filtered["source_type"].fillna("").astype(str).str.lower().str.contains(ws_topic_q, na=False)
+                    ]
                 if ws_subj_filter != t("all") and "subject" in ws_filtered.columns:
                     ws_filtered = ws_filtered[ws_filtered["subject"].astype(str).apply(_normalize_subject) == ws_subj_filter]
-                render_worksheet_library_cards(ws_filtered, prefix="my_ws", show_author=False)
+                if ws_stage_filter != t("all") and "learner_stage" in ws_filtered.columns:
+                    ws_filtered = ws_filtered[ws_filtered["learner_stage"].astype(str) == ws_stage_filter]
+                if ws_level_filter != t("all") and "level_or_band" in ws_filtered.columns:
+                    ws_filtered = ws_filtered[ws_filtered["level_or_band"].astype(str) == ws_level_filter]
+                render_worksheet_library_cards(
+                    ws_filtered,
+                    prefix="my_ws",
+                    show_author=False,
+                    allow_visibility_toggle=True,
+                    allow_archive_toggle=True,
+                )
 
         with tab_exams:
             exam_df = load_my_exams()
             if exam_df.empty:
                 st.info(t("no_saved_exams"))
             else:
-                exam_topic_q = st.text_input(t("search_by_topic"), key="my_exam_topic_q").strip().lower()
+                filter_col1, filter_col2 = st.columns([3, 1])
+                with filter_col1:
+                    exam_topic_q = st.text_input(
+                        t("explore_resource_search"),
+                        key="my_exam_topic_q",
+                        placeholder=t("explore_resource_search_placeholder"),
+                    ).strip().lower()
                 exam_subj_opts = sorted(set(_normalize_subject(s) for s in exam_df["subject"].dropna().astype(str) if _normalize_subject(s))) if "subject" in exam_df.columns else []
-                exam_subj_filter = st.selectbox(
-                    t("subject_label"),
-                    [t("all")] + exam_subj_opts,
-                    format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
-                    key="my_exam_subject_filter",
-                )
+                with filter_col2:
+                    exam_subj_filter = st.selectbox(
+                        t("subject_label"),
+                        [t("all")] + exam_subj_opts,
+                        format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
+                        key="my_exam_subject_filter",
+                    )
+                filter_col3, filter_col4 = st.columns(2)
+                with filter_col3:
+                    exam_stage_opts = sorted(exam_df["learner_stage"].dropna().astype(str).unique().tolist()) if "learner_stage" in exam_df.columns else []
+                    exam_stage_filter = st.selectbox(
+                        t("learner_stage"),
+                        [t("all")] + exam_stage_opts,
+                        format_func=lambda x: t(x) if x != t("all") else t("all"),
+                        key="my_exam_stage_filter",
+                    )
+                with filter_col4:
+                    exam_level_opts = sorted(exam_df["level"].dropna().astype(str).unique().tolist()) if "level" in exam_df.columns else []
+                    exam_level_filter = st.selectbox(
+                        t("level_or_band"),
+                        [t("all")] + exam_level_opts,
+                        format_func=lambda x: x if x in ("A1", "A2", "B1", "B2", "C1", "C2") else t(x) if x != t("all") else t("all"),
+                        key="my_exam_level_filter",
+                    )
                 exam_filtered = exam_df.copy()
-                if exam_topic_q and "topic" in exam_filtered.columns:
-                    exam_filtered = exam_filtered[exam_filtered["topic"].fillna("").astype(str).str.lower().str.contains(exam_topic_q, na=False)]
+                if exam_topic_q:
+                    for col in ["title", "topic", "subject", "learner_stage", "level", "exam_length"]:
+                        if col not in exam_filtered.columns:
+                            exam_filtered[col] = ""
+                    exam_filtered = exam_filtered[
+                        exam_filtered["title"].fillna("").astype(str).str.lower().str.contains(exam_topic_q, na=False)
+                        | exam_filtered["topic"].fillna("").astype(str).str.lower().str.contains(exam_topic_q, na=False)
+                        | exam_filtered["subject"].fillna("").astype(str).str.lower().str.contains(exam_topic_q, na=False)
+                        | exam_filtered["learner_stage"].fillna("").astype(str).str.lower().str.contains(exam_topic_q, na=False)
+                        | exam_filtered["level"].fillna("").astype(str).str.lower().str.contains(exam_topic_q, na=False)
+                        | exam_filtered["exam_length"].fillna("").astype(str).str.lower().str.contains(exam_topic_q, na=False)
+                    ]
                 if exam_subj_filter != t("all") and "subject" in exam_filtered.columns:
                     exam_filtered = exam_filtered[exam_filtered["subject"].astype(str).apply(_normalize_subject) == exam_subj_filter]
-                render_exam_library_cards(exam_filtered, prefix="my_exams", show_author=False)
+                if exam_stage_filter != t("all") and "learner_stage" in exam_filtered.columns:
+                    exam_filtered = exam_filtered[exam_filtered["learner_stage"].astype(str) == exam_stage_filter]
+                if exam_level_filter != t("all") and "level" in exam_filtered.columns:
+                    exam_filtered = exam_filtered[exam_filtered["level"].astype(str) == exam_level_filter]
+                render_exam_library_cards(
+                    exam_filtered,
+                    prefix="my_exams",
+                    show_author=False,
+                    allow_visibility_toggle=True,
+                    allow_archive_toggle=True,
+                )
 
         with tab3:
             comm_tab_programs, comm_tab_plans, comm_tab_ws, comm_tab_exams = st.tabs([
@@ -1020,27 +1184,123 @@ def render_home():
                 if cv_df.empty:
                     st.info(t("no_saved_cvs"))
                 else:
-                    render_cv_library_cards(cv_df, prefix="files_cv")
+                    render_cv_library_cards(cv_df, prefix="files_cv", allow_archive_toggle=True)
 
             with pro_tab_cl:
                 cl_df = load_my_cover_letters()
                 if cl_df.empty:
                     st.info(t("no_saved_cover_letters"))
                 else:
-                    render_cv_library_cards(cl_df, prefix="files_cl")
+                    render_cv_library_cards(cl_df, prefix="files_cl", allow_archive_toggle=True)
+
+        with tab_archive:
+            arch_prog_tab, arch_plan_tab, arch_ws_tab, arch_exam_tab, arch_prof_tab = st.tabs([
+                f"📚 {t('my_programs')}",
+                f"📝 {t('my_plans')}",
+                f"📋 {t('my_worksheets')}",
+                f"📄 {t('my_exams')}",
+                f"💼 {t('professional')}",
+            ])
+
+            with arch_prog_tab:
+                archived_prog_df = load_my_learning_programs(archived_only=True)
+                if archived_prog_df.empty:
+                    st.info(t("archive_empty"))
+                else:
+                    render_learning_program_library_cards(
+                        archived_prog_df,
+                        prefix="archived_learning_programs",
+                        show_author=False,
+                        allow_visibility_toggle=True,
+                        allow_archive_toggle=True,
+                    )
+
+            with arch_plan_tab:
+                archived_plan_df = load_my_lesson_plans(archived_only=True)
+                if archived_plan_df.empty:
+                    st.info(t("archive_empty"))
+                else:
+                    render_plan_library_cards(
+                        archived_plan_df,
+                        prefix="archived_plans",
+                        show_author=False,
+                        allow_visibility_toggle=True,
+                        allow_archive_toggle=True,
+                    )
+
+            with arch_ws_tab:
+                archived_ws_df = load_my_worksheets(archived_only=True)
+                if archived_ws_df.empty:
+                    st.info(t("archive_empty"))
+                else:
+                    render_worksheet_library_cards(
+                        archived_ws_df,
+                        prefix="archived_ws",
+                        show_author=False,
+                        allow_visibility_toggle=True,
+                        allow_archive_toggle=True,
+                    )
+
+            with arch_exam_tab:
+                archived_exam_df = load_my_exams(archived_only=True)
+                if archived_exam_df.empty:
+                    st.info(t("archive_empty"))
+                else:
+                    render_exam_library_cards(
+                        archived_exam_df,
+                        prefix="archived_exams",
+                        show_author=False,
+                        allow_visibility_toggle=True,
+                        allow_archive_toggle=True,
+                    )
+
+            with arch_prof_tab:
+                arch_cv_tab, arch_cl_tab = st.tabs([
+                    f"📄 {t('my_cvs')}",
+                    f"✉️ {t('my_cover_letters')}",
+                ])
+                with arch_cv_tab:
+                    archived_cv_df = load_my_cvs(archived_only=True)
+                    if archived_cv_df.empty:
+                        st.info(t("archive_empty"))
+                    else:
+                        render_cv_library_cards(archived_cv_df, prefix="files_cv", allow_archive_toggle=True)
+                with arch_cl_tab:
+                    archived_cl_df = load_my_cover_letters(archived_only=True)
+                    if archived_cl_df.empty:
+                        st.info(t("archive_empty"))
+                    else:
+                        render_cv_library_cards(archived_cl_df, prefix="files_cl", allow_archive_toggle=True)
 
         selected_plan = st.session_state.get("files_selected_plan")
         selected_program_id = (
             st.session_state.get("my_learning_programs_selected_program_id")
+            or st.session_state.get("archived_learning_programs_selected_program_id")
             or st.session_state.get("public_learning_programs_selected_program_id")
             or st.session_state.get("home_public_learning_programs_selected_program_id")
         )
 
         if selected_program_id:
             selected_program = load_learning_program(int(selected_program_id))
+            own_selected_program_id = (
+                st.session_state.get("my_learning_programs_selected_program_id")
+                or st.session_state.get("archived_learning_programs_selected_program_id")
+            )
             st.markdown("---")
-            st.markdown(f"### {t('learning_program_preview')}")
-            if st.session_state.get("my_learning_programs_selected_program_id") and str(selected_program.get("user_id") or "") == str(get_current_user_id() or ""):
+            header_cols = st.columns([6, 1])
+            with header_cols[0]:
+                st.markdown(f"### {t('learning_program_preview')}")
+            with header_cols[1]:
+                if st.button(t("close_program"), key="close_selected_learning_program", use_container_width=True):
+                    for _k in [
+                        "my_learning_programs_selected_program_id",
+                        "archived_learning_programs_selected_program_id",
+                        "public_learning_programs_selected_program_id",
+                        "home_public_learning_programs_selected_program_id",
+                    ]:
+                        st.session_state.pop(_k, None)
+                    st.rerun()
+            if own_selected_program_id and str(selected_program.get("user_id") or "") == str(get_current_user_id() or ""):
                 render_saved_learning_program_workspace(
                     selected_program,
                     int(selected_program_id),
@@ -1050,18 +1310,12 @@ def render_home():
                 render_teacher_program_view(selected_program)
 
             program_complete = bool(selected_program) and all(unit.get("unit_objectives") or unit.get("delivery_notes") or any(topic.get("learning_objectives") for topic in (unit.get("topics") or [])) for unit in (selected_program.get("units") or []))
-            if program_complete and st.session_state.get(f"show_assign_learning_program_{selected_program_id}", False):
+            if (
+                program_complete
+                and not is_archived_status(selected_program.get("status"))
+                and st.session_state.get(f"show_assign_learning_program_{selected_program_id}", False)
+            ):
                 render_learning_program_assignment_panel(selected_program, prefix=f"learning_program_assign_{selected_program_id}")
-            close_cols = st.columns([1, 4])
-            with close_cols[0]:
-                if st.button(t("close_program"), key="close_selected_learning_program"):
-                    for _k in [
-                        "my_learning_programs_selected_program_id",
-                        "public_learning_programs_selected_program_id",
-                        "home_public_learning_programs_selected_program_id",
-                    ]:
-                        st.session_state.pop(_k, None)
-                    st.rerun()
 
         if selected_plan:
             st.markdown("---")
@@ -1073,6 +1327,9 @@ def render_home():
             with detail_r:
                 if st.button(t("close_plan"), key="close_selected_plan", use_container_width=True):
                     st.session_state.pop("files_selected_plan", None)
+                    st.session_state.pop("files_selected_plan_id", None)
+                    st.session_state.pop("files_selected_plan_status", None)
+                    st.session_state.pop("files_selected_plan_assign_expanded", None)
                     st.session_state.pop("files_selected_subject", None)
                     st.session_state.pop("files_selected_stage", None)
                     st.session_state.pop("files_selected_level", None)
@@ -1093,6 +1350,10 @@ def render_home():
                 lesson_purpose=st.session_state.get("files_selected_purpose", ""),
                 topic=st.session_state.get("files_selected_topic", ""),
                 read_only= True,
+                allow_assign=not is_archived_status(st.session_state.get("files_selected_plan_status")),
+                assign_expanded=bool(st.session_state.get("files_selected_plan_assign_expanded", False)),
+                resource_record_id=(lambda value: None if value in (None, "", 0, "0") else value)(st.session_state.get("files_selected_plan_id")),
+                action_key_prefix="files_selected_plan",
             )
 
         # ── Selected worksheet detail ─────────────────────────────────────
@@ -1111,13 +1372,15 @@ def render_home():
                     st.markdown(f"### {t('worksheet_preview')}")
                 with ws_det_r:
                     if st.button(t("close_worksheet"), key="close_selected_ws", use_container_width=True):
-                        for _k in ["files_selected_worksheet", "files_ws_subject", "files_ws_stage", "files_ws_level", "files_ws_type", "files_ws_topic", "files_ws_title"]:
+                        for _k in ["files_selected_worksheet", "files_selected_worksheet_id", "files_selected_worksheet_status", "files_selected_worksheet_assign_expanded", "files_ws_subject", "files_ws_stage", "files_ws_level", "files_ws_type", "files_ws_topic", "files_ws_title"]:
                             st.session_state.pop(_k, None)
                         st.rerun()
                 render_worksheet_result(
                     normalize_worksheet_output(selected_ws),
                     read_only=True,
-                    allow_assign=True,
+                    allow_assign=not is_archived_status(st.session_state.get("files_selected_worksheet_status")),
+                    assign_expanded=bool(st.session_state.get("files_selected_worksheet_assign_expanded", False)),
+                    resource_record_id=(lambda value: None if value in (None, "", 0, "0") else value)(st.session_state.get("files_selected_worksheet_id")),
                     subject=st.session_state.get("files_ws_subject", ""),
                     learner_stage=st.session_state.get("files_ws_stage", ""),
                     level_or_band=st.session_state.get("files_ws_level", ""),
@@ -1147,14 +1410,16 @@ def render_home():
                     st.markdown(f"### {t('exam_preview')}")
                 with exam_det_r:
                     if st.button(t("close_exam"), key="close_selected_exam", use_container_width=True):
-                        for _k in ["files_selected_exam", "files_selected_exam_answer_key", "files_exam_subject", "files_exam_stage", "files_exam_level", "files_exam_topic", "files_exam_title"]:
+                        for _k in ["files_selected_exam", "files_selected_exam_id", "files_selected_exam_status", "files_selected_exam_answer_key", "files_selected_exam_assign_expanded", "files_exam_subject", "files_exam_stage", "files_exam_level", "files_exam_topic", "files_exam_title"]:
                             st.session_state.pop(_k, None)
                         st.rerun()
                 render_exam_result(
                     selected_exam,
                     selected_exam_ak,
                     show_ready_banner=False,
-                    allow_assign=True,
+                    allow_assign=not is_archived_status(st.session_state.get("files_selected_exam_status")),
+                    assign_expanded=bool(st.session_state.get("files_selected_exam_assign_expanded", False)),
+                    resource_record_id=(lambda value: None if value in (None, "", 0, "0") else value)(st.session_state.get("files_selected_exam_id")),
                     subject=st.session_state.get("files_exam_subject", ""),
                     learner_stage=st.session_state.get("files_exam_stage", ""),
                     level_or_band=st.session_state.get("files_exam_level", ""),
@@ -1170,20 +1435,39 @@ def render_home():
             with cv_det_l:
                 st.markdown(f"### {t('cv')}")
             with cv_det_r:
-                _cv_close, _cv_del = st.columns(2)
+                _cv_close, _cv_archive = st.columns(2)
                 with _cv_close:
                     if st.button(t("close_cv"), key="close_selected_cv", use_container_width=True):
                         st.session_state.pop("files_cv_selected", None)
                         st.rerun()
-                with _cv_del:
-                    if st.button("🗑️", key="del_selected_cv", use_container_width=True, help=t("delete_cv")):
-                        from helpers.cv_storage import delete_cv_record
-                        _cv_id = selected_cv.get("id")
-                        if _cv_id and delete_cv_record(str(_cv_id)):
-                            st.session_state.pop("files_cv_selected", None)
-                            st.rerun()
-                        else:
-                            st.error(t("delete_failed"))
+                with _cv_archive:
+                    _cv_id = str(selected_cv.get("id") or "").strip()
+                    _cv_archived = is_archived_status(selected_cv.get("status"))
+                    if _cv_id:
+                        new_archived = st.toggle(
+                            t("archive_toggle_label"),
+                            value=_cv_archived,
+                            key=f"files_cv_preview_archive_{_cv_id}",
+                        )
+                        if new_archived != _cv_archived:
+                            ok, msg = update_professional_profile_archive(_cv_id, new_archived)
+                            if ok:
+                                st.success(
+                                    t(
+                                        "resource_archive_updated",
+                                        state=t("archived_label") if new_archived else t("restored_label"),
+                                    )
+                                )
+                                if new_archived:
+                                    selected_cv["status"] = "archived"
+                                else:
+                                    selected_cv["status"] = "active"
+                                st.session_state["files_cv_selected"] = selected_cv
+                                st.rerun()
+                            else:
+                                st.error(t("resource_archive_update_failed", error=msg))
+                    else:
+                        st.markdown("&nbsp;", unsafe_allow_html=True)
             cv_data = selected_cv.get("cv_json") or {}
             if isinstance(cv_data, str):
                 try:
@@ -1206,20 +1490,39 @@ def render_home():
             with cl_det_l:
                 st.markdown(f"### {t('cover_letter')}")
             with cl_det_r:
-                _cl_close, _cl_del = st.columns(2)
+                _cl_close, _cl_archive = st.columns(2)
                 with _cl_close:
                     if st.button(t("close_cover_letter"), key="close_selected_cl", use_container_width=True):
                         st.session_state.pop("files_cl_selected", None)
                         st.rerun()
-                with _cl_del:
-                    if st.button("🗑️", key="del_selected_cl", use_container_width=True, help=t("delete_cover_letter")):
-                        from helpers.cv_storage import delete_cv_record
-                        _cl_id = selected_cl.get("id")
-                        if _cl_id and delete_cv_record(str(_cl_id)):
-                            st.session_state.pop("files_cl_selected", None)
-                            st.rerun()
-                        else:
-                            st.error(t("delete_failed"))
+                with _cl_archive:
+                    _cl_id = str(selected_cl.get("id") or "").strip()
+                    _cl_archived = is_archived_status(selected_cl.get("status"))
+                    if _cl_id:
+                        new_archived = st.toggle(
+                            t("archive_toggle_label"),
+                            value=_cl_archived,
+                            key=f"files_cl_preview_archive_{_cl_id}",
+                        )
+                        if new_archived != _cl_archived:
+                            ok, msg = update_professional_profile_archive(_cl_id, new_archived)
+                            if ok:
+                                st.success(
+                                    t(
+                                        "resource_archive_updated",
+                                        state=t("archived_label") if new_archived else t("restored_label"),
+                                    )
+                                )
+                                if new_archived:
+                                    selected_cl["status"] = "archived"
+                                else:
+                                    selected_cl["status"] = "active"
+                                st.session_state["files_cl_selected"] = selected_cl
+                                st.rerun()
+                            else:
+                                st.error(t("resource_archive_update_failed", error=msg))
+                    else:
+                        st.markdown("&nbsp;", unsafe_allow_html=True)
             cl_content = str(selected_cl.get("content") or "")
             cl_title   = str(selected_cl.get("title") or t("cover_letter"))
             st.text_area(t("cover_letter_content"), value=cl_content, height=300, disabled=True, key="files_cl_preview")
@@ -1483,7 +1786,17 @@ def render_home():
 
     # ---------- AI TOOLS PANEL ----------
     if panel == "ai_tools":
-        st.markdown(f"### 🤖 {t('ai_tools')}")
+        ai_head_left, ai_head_mid, ai_head_right = st.columns([5, 1.5, 1], vertical_alignment="center")
+        with ai_head_left:
+            st.markdown(f"### 🤖 {t('ai_tools')}")
+        with ai_head_mid:
+            if st.button(t("files"), key="open_resources_from_ai_tools", use_container_width=True):
+                go_to("resources")
+                st.rerun()
+        with ai_head_right:
+            if st.button(t("close"), key="close_ai_tools_panel_top", use_container_width=True):
+                home_go("home", panel=None)
+                st.rerun()
 
         # --- Learning Program Maker ---
         render_quick_learning_program_builder_expander()
@@ -1502,11 +1815,6 @@ def render_home():
 
         # --- Income Goal Calculator ---
         render_income_goal_calculator()
-
-        st.divider()
-        if st.button(t("close"), key="close_ai_tools_panel", use_container_width=True):
-            home_go("home", panel=None)
-            st.rerun()
 
         return
 

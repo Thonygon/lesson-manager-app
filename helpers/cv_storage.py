@@ -13,6 +13,7 @@ from core.state import get_current_user_id, with_owner, PROFILE_SUBJECT_OPTIONS,
 from helpers.lesson_planner import subject_label as _subject_label
 from core.timezone import today_local, get_app_tz
 from core.database import get_sb, load_table, clear_app_caches
+from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
 
 AI_CV_DAILY_LIMIT = 3
 AI_CV_COOLDOWN_SECONDS = 30
@@ -153,9 +154,17 @@ def save_cv_record(cv_dict: dict, source_type: str, title: str, ai_prompt: str =
             "source_type": source_type,
             "cv_json": cv_dict,
             "ai_prompt": str(ai_prompt or "").strip(),
+            "status": ACTIVE_STATUS,
             "created_at": _dt.now(timezone.utc).isoformat(),
         })
-        get_sb().table("professional_profiles").insert(payload).execute()
+        try:
+            get_sb().table("professional_profiles").insert(payload).execute()
+        except Exception as inner_exc:
+            if "status" not in str(inner_exc).lower():
+                raise
+            legacy_payload = dict(payload)
+            legacy_payload.pop("status", None)
+            get_sb().table("professional_profiles").insert(legacy_payload).execute()
         clear_app_caches()
         return True
     except Exception as e:
@@ -177,9 +186,17 @@ def save_cover_letter_record(
             "content": str(content or "").strip(),
             "ai_prompt": str(ai_prompt or "").strip(),
             "target_employer": str(target_employer or "").strip(),
+            "status": ACTIVE_STATUS,
             "created_at": _dt.now(timezone.utc).isoformat(),
         })
-        get_sb().table("professional_profiles").insert(payload).execute()
+        try:
+            get_sb().table("professional_profiles").insert(payload).execute()
+        except Exception as inner_exc:
+            if "status" not in str(inner_exc).lower():
+                raise
+            legacy_payload = dict(payload)
+            legacy_payload.pop("status", None)
+            get_sb().table("professional_profiles").insert(legacy_payload).execute()
         clear_app_caches()
         return True
     except Exception as e:
@@ -187,7 +204,7 @@ def save_cover_letter_record(
         return False
 
 
-def load_my_cvs() -> pd.DataFrame:
+def load_my_cvs(*, include_archived: bool = False, archived_only: bool = False) -> pd.DataFrame:
     try:
         df = load_table("professional_profiles")
         if df is None or df.empty:
@@ -195,13 +212,18 @@ def load_my_cvs() -> pd.DataFrame:
         df = df[df["doc_type"].astype(str).str.strip() == "cv"].copy()
         if "created_at" in df.columns:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-        return df.sort_values("created_at", ascending=False, na_position="last").reset_index(drop=True)
+        df = df.sort_values("created_at", ascending=False, na_position="last")
+        return filter_archived_rows(
+            df,
+            include_archived=include_archived,
+            archived_only=archived_only,
+        )
     except Exception as e:
         st.error(f"{t('cv_load_failed')}: {e}")
         return pd.DataFrame()
 
 
-def load_my_cover_letters() -> pd.DataFrame:
+def load_my_cover_letters(*, include_archived: bool = False, archived_only: bool = False) -> pd.DataFrame:
     try:
         df = load_table("professional_profiles")
         if df is None or df.empty:
@@ -209,7 +231,12 @@ def load_my_cover_letters() -> pd.DataFrame:
         df = df[df["doc_type"].astype(str).str.strip() == "cover_letter"].copy()
         if "created_at" in df.columns:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-        return df.sort_values("created_at", ascending=False, na_position="last").reset_index(drop=True)
+        df = df.sort_values("created_at", ascending=False, na_position="last")
+        return filter_archived_rows(
+            df,
+            include_archived=include_archived,
+            archived_only=archived_only,
+        )
     except Exception as e:
         st.error(f"{t('cover_letter_load_failed')}: {e}")
         return pd.DataFrame()
@@ -604,7 +631,33 @@ def delete_cv_record(record_id: str) -> bool:
         return False
 
 
-def render_cv_library_cards(df: pd.DataFrame, prefix: str) -> None:
+def update_professional_profile_archive(record_id: str, archived: bool) -> tuple[bool, str]:
+    uid = str(get_current_user_id() or "").strip()
+    record_id = str(record_id or "").strip()
+    if not uid:
+        return False, "auth_required"
+    if not record_id:
+        return False, "invalid_id"
+    try:
+        (
+            get_sb()
+            .table("professional_profiles")
+            .update(
+                {
+                    "status": ARCHIVED_STATUS if archived else ACTIVE_STATUS,
+                }
+            )
+            .eq("id", record_id)
+            .eq("user_id", uid)
+            .execute()
+        )
+        clear_app_caches()
+        return True, "ok"
+    except Exception as e:
+        return False, str(e)
+
+
+def render_cv_library_cards(df: pd.DataFrame, prefix: str, *, allow_archive_toggle: bool = False) -> None:
     if df is None or df.empty:
         return
 
@@ -614,6 +667,7 @@ def render_cv_library_cards(df: pd.DataFrame, prefix: str) -> None:
         source_type= str(row.get("source_type") or "").strip()
         created_at = str(row.get("created_at") or "")[:16]
         employer   = str(row.get("target_employer") or "").strip()
+        is_archived = is_archived_status(row.get("status"))
 
         with st.container(border=True):
             top_l, top_r = st.columns([5, 1])
@@ -626,6 +680,8 @@ def render_cv_library_cards(df: pd.DataFrame, prefix: str) -> None:
                     meta.append(f"{t('cv_target_employer')}: {employer}")
                 if created_at:
                     meta.append(f"{t('date')}: {created_at}")
+                if is_archived:
+                    meta.append(t("archived_label"))
                 if meta:
                     st.caption(" · ".join(meta))
             with top_r:
@@ -636,12 +692,24 @@ def render_cv_library_cards(df: pd.DataFrame, prefix: str) -> None:
                         st.toast(t("scroll_down_to_view"))
                         st.rerun()
                 with _btn_col2:
-                    if st.button("🗑️", key=f"{prefix}_del_{row_id}_{i}", use_container_width=True, help=t("delete")):
-                        if delete_cv_record(str(row_id)):
-                            st.session_state.pop(f"{prefix}_selected", None)
-                            st.rerun()
-                        else:
-                            st.error(t("delete_failed"))
+                    if allow_archive_toggle:
+                        new_archived = st.toggle(
+                            t("archive_toggle_label"),
+                            value=is_archived,
+                            key=f"{prefix}_archive_{row_id}_{i}",
+                        )
+                        if new_archived != is_archived:
+                            ok, msg = update_professional_profile_archive(str(row_id), new_archived)
+                            if ok:
+                                st.success(
+                                    t(
+                                        "resource_archive_updated",
+                                        state=t("archived_label") if new_archived else t("restored_label"),
+                                    )
+                                )
+                                st.session_state.pop(f"{prefix}_selected", None)
+                                st.rerun()
+                            st.error(t("resource_archive_update_failed", error=msg))
 
 
 # -----------------------------------------------------------------------
@@ -681,7 +749,7 @@ def render_quick_cv_builder_expander() -> None:
 
         st.session_state["_quick_cv_owner"] = _current_user_id
 
-    with st.expander(t("quick_cv_builder"), expanded=False):
+    with st.expander(f"💼 {t('quick_cv_builder')}", expanded=False):
         st.caption(t("quick_cv_caption"))
         usage = get_ai_cv_usage_status()
 
