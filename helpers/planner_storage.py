@@ -12,9 +12,10 @@ import pandas as pd
 import streamlit as st
 from core.database import clear_app_caches, get_sb, load_table
 from core.i18n import t
-from core.navigation import home_go
-from core.state import with_owner
+from core.navigation import go_to
+from core.state import get_current_user_id, with_owner
 from core.timezone import get_app_tz, today_local
+from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
 from reportlab.lib.enums import TA_CENTER
 
 # ============================================================
@@ -495,7 +496,9 @@ def planner_payload_from_inputs(
     mode: str,
     plan: dict,
 ) -> dict:
-    from helpers.branding import resolve_is_public
+    from helpers.branding import get_user_branding, resolve_is_public
+
+    branding = get_user_branding()
 
     return with_owner(
         {
@@ -512,7 +515,8 @@ def planner_payload_from_inputs(
             "title": _clean_display_text(plan.get("title") or ""),
             "author_name": str(st.session_state.get("user_name") or t("unknown")).strip(),
             "subject_display": _canonical_subject_display(subject),
-            "is_public": resolve_is_public(),
+            "is_public": resolve_is_public(branding),
+            "status": ACTIVE_STATUS,
             "created_at": _dt.now(timezone.utc).isoformat(),
         }
     )
@@ -537,14 +541,21 @@ def save_lesson_plan_record(
             mode=mode,
             plan=plan,
         )
-        get_sb().table("lesson_plans").insert(payload).execute()
+        try:
+            get_sb().table("lesson_plans").insert(payload).execute()
+        except Exception as inner_exc:
+            if "status" not in str(inner_exc).lower():
+                raise
+            legacy_payload = dict(payload)
+            legacy_payload.pop("status", None)
+            get_sb().table("lesson_plans").insert(legacy_payload).execute()
         return True
     except Exception as e:
         st.warning(f"{t('could_not_save_lesson_plan')}: {e}")
         return False
 
 
-def load_my_lesson_plans() -> pd.DataFrame:
+def load_my_lesson_plans(*, include_archived: bool = False, archived_only: bool = False) -> pd.DataFrame:
     try:
         df = load_table("lesson_plans")
         if df is None or df.empty:
@@ -557,7 +568,11 @@ def load_my_lesson_plans() -> pd.DataFrame:
         if "created_at" in df.columns:
             df = df.sort_values("created_at", ascending=False, na_position="last")
 
-        return df.reset_index(drop=True)
+        return filter_archived_rows(
+            df,
+            include_archived=include_archived,
+            archived_only=archived_only,
+        )
     except Exception as e:
         st.error(f"{t('could_not_load_your_lesson_plans')}: {e}")
         return pd.DataFrame()
@@ -575,7 +590,7 @@ def load_public_lesson_plans() -> pd.DataFrame:
         if "created_at" in df.columns:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
 
-        return df.reset_index(drop=True)
+        return filter_archived_rows(df)
     except Exception as e:
         st.error(f"{t('could_not_load_community_lesson_plans')}: {e}")
         return pd.DataFrame()
@@ -596,6 +611,123 @@ def safe_plan_label(value: str, prefix: str = "") -> str:
     return f"{prefix}{s}" if s else ""
 
 
+def _is_public_value(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on", "public"}
+
+
+def update_lesson_plan_visibility(plan_id, is_public: bool) -> tuple[bool, str]:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid:
+        return False, "auth_required"
+    safe_plan_id = plan_id
+    if isinstance(plan_id, str):
+        stripped = plan_id.strip()
+        if not stripped:
+            return False, "invalid_id"
+        safe_plan_id = int(stripped) if stripped.isdigit() else stripped
+    elif plan_id is None:
+        return False, "invalid_id"
+    try:
+        res = (
+            get_sb()
+            .table("lesson_plans")
+            .select("id, user_id")
+            .eq("id", safe_plan_id)
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(res, "data", None) or []
+        if not rows:
+            return False, "not_found"
+        if str(rows[0].get("user_id") or "").strip() != uid:
+            return False, "not_owner"
+        (
+            get_sb()
+            .table("lesson_plans")
+            .update({"is_public": bool(is_public)})
+            .eq("id", safe_plan_id)
+            .eq("user_id", uid)
+            .execute()
+        )
+        clear_app_caches()
+        return True, "ok"
+    except Exception as exc:
+        return False, str(exc)
+
+
+def update_lesson_plan_archive(plan_id, archived: bool) -> tuple[bool, str]:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid:
+        return False, "auth_required"
+    safe_plan_id = plan_id
+    if isinstance(plan_id, str):
+        stripped = plan_id.strip()
+        if not stripped:
+            return False, "invalid_id"
+        safe_plan_id = int(stripped) if stripped.isdigit() else stripped
+    elif plan_id is None:
+        return False, "invalid_id"
+    payload = {
+        "status": ARCHIVED_STATUS if archived else ACTIVE_STATUS,
+        "is_public": False,
+    }
+    try:
+        (
+            get_sb()
+            .table("lesson_plans")
+            .update(payload)
+            .eq("id", safe_plan_id)
+            .eq("user_id", uid)
+            .execute()
+        )
+        from helpers.teacher_student_integration import update_assignment_source_archive_state
+
+        update_assignment_source_archive_state(
+            assignment_type="lesson_plan_topic",
+            source_type="lesson_plan_builder",
+            source_record_id=safe_plan_id,
+            archived=archived,
+        )
+        clear_app_caches()
+        return True, "ok"
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _open_plan_library_record(
+    row: dict,
+    *,
+    open_in_files: bool = False,
+    require_signup: bool = False,
+    expand_assign: bool = False,
+) -> None:
+    if require_signup:
+        st.session_state["_post_signup_open_panel"] = "files"
+        st.session_state["_post_signup_open_tab"] = "community_library"
+        st.session_state["_explore_go_signup"] = True
+        st.rerun()
+
+    st.session_state["files_selected_plan"] = row.get("plan_json") or {}
+    st.session_state["files_selected_subject"] = str(row.get("subject") or "").strip()
+    st.session_state["files_selected_stage"] = str(row.get("learner_stage") or "").strip()
+    st.session_state["files_selected_level"] = str(row.get("level_or_band") or "").strip()
+    st.session_state["files_selected_purpose"] = str(row.get("lesson_purpose") or "").strip()
+    st.session_state["files_selected_topic"] = _clean_display_text(row.get("topic") or "")
+    st.session_state["files_selected_source_type"] = str(row.get("source_type") or "").strip()
+    st.session_state["files_selected_title"] = _clean_display_text(row.get("title") or t("untitled_plan"))
+    st.session_state["files_selected_plan_id"] = row.get("id")
+    st.session_state["files_selected_plan_status"] = str(row.get("status") or "").strip()
+    st.session_state["files_selected_plan_assign_expanded"] = bool(expand_assign)
+
+    if open_in_files:
+        go_to("resources")
+    else:
+        st.toast(t("scroll_down_to_view"))
+    st.rerun()
+
+
 # ============================================================
 # Library cards
 # ============================================================
@@ -607,6 +739,8 @@ def render_plan_library_cards(
     show_author: bool = False,
     open_in_files: bool = False,
     require_signup: bool = False,
+    allow_visibility_toggle: bool = False,
+    allow_archive_toggle: bool = False,
 ) -> None:
     if df is None or df.empty:
         return
@@ -619,6 +753,7 @@ def render_plan_library_cards(
 
         for col_idx, row in enumerate(pair):
             row_id = row.get("id", idx + col_idx)
+            plan_id = row.get("id")
             title = _clean_display_text(row.get("title") or t("untitled_plan"))
             subject = str(row.get("subject") or "").strip()
             topic = _clean_display_text(row.get("topic") or "")
@@ -628,12 +763,14 @@ def render_plan_library_cards(
             source_type = str(row.get("source_type") or "").strip()
             author_name = str(row.get("author_name") or "").strip()
             created_at = format_plan_datetime(row.get("created_at"))
+            is_archived = is_archived_status(row.get("status"))
 
             subject_label = _translated_subject_display(subject)
             level_label = _translated_level_display(level_or_band)
             purpose_label = _translated_purpose_display(lesson_purpose)
             stage_label = _translated_stage_display(learner_stage)
             source_label = t("mode_ai") if source_type == "ai" else t("mode_template")
+            visibility_label = t("public_label") if _is_public_value(row.get("is_public")) else t("private_label")
 
             safe_title = html.escape(title)
             safe_author = html.escape(author_name)
@@ -651,6 +788,8 @@ def render_plan_library_cards(
 
             meta = "".join(
                 [
+                    f'<div class="cm-resource-meta">⚙️ {html.escape(visibility_label)}</div>',
+                    f'<div class="cm-resource-meta">🗂️ {html.escape(t("archived_label"))}</div>' if is_archived else "",
                     f'<div class="cm-resource-meta">👤 {safe_author}</div>' if show_author and author_name else "",
                     f'<div class="cm-resource-meta">🕒 {html.escape(created_at)}</div>' if created_at else "",
                 ]
@@ -667,31 +806,74 @@ def render_plan_library_cards(
 
             with cols[col_idx]:
                 st.markdown(card_html, unsafe_allow_html=True)
-
-                if st.button(
-                    t("view_plan"),
-                    key=f"{prefix}_view_{row_id}_{idx}_{col_idx}",
-                    use_container_width=True,
-                ):
-                    st.session_state["files_selected_plan"] = row.get("plan_json") or {}
-                    st.session_state["files_selected_subject"] = subject
-                    st.session_state["files_selected_stage"] = learner_stage
-                    st.session_state["files_selected_level"] = level_or_band
-                    st.session_state["files_selected_purpose"] = lesson_purpose
-                    st.session_state["files_selected_topic"] = topic
-                    st.session_state["files_selected_source_type"] = source_type
-                    st.session_state["files_selected_title"] = title
-
-                    if require_signup:
-                        st.session_state["_post_signup_open_panel"] = "files"
-                        st.session_state["_post_signup_open_tab"] = "community_library"
-                        st.session_state["_explore_go_signup"] = True
-                    elif open_in_files:
-                        home_go("home", panel="files")
-                    else:
-                        st.toast(t("scroll_down_to_view"))
-
-                    st.rerun()
+                is_owner = str(row.get("user_id") or "").strip() == str(get_current_user_id() or "").strip()
+                show_owner_controls = allow_visibility_toggle or allow_archive_toggle
+                action_cols = st.columns([1, 1, 1, 1] if show_owner_controls else [1, 1])
+                with action_cols[0]:
+                    if st.button(
+                        t("view_plan"),
+                        key=f"{prefix}_view_{row_id}_{idx}_{col_idx}",
+                        use_container_width=True,
+                    ):
+                        _open_plan_library_record(
+                            row,
+                            open_in_files=open_in_files,
+                            require_signup=False,
+                            expand_assign=False,
+                        )
+                with action_cols[1]:
+                    if not show_owner_controls or not is_archived:
+                        if st.button(
+                            t("assign_to_student"),
+                            key=f"{prefix}_assign_{row_id}_{idx}_{col_idx}",
+                            use_container_width=True,
+                        ):
+                            _open_plan_library_record(
+                                row,
+                                open_in_files=open_in_files,
+                                require_signup=require_signup,
+                                expand_assign=True,
+                            )
+                if show_owner_controls:
+                    with action_cols[2]:
+                        if allow_visibility_toggle and is_owner and str(plan_id or "").strip() and not is_archived:
+                            current_public = _is_public_value(row.get("is_public"))
+                            toggle_key = re.sub(r"[^A-Za-z0-9._-]+", "_", str(plan_id or "").strip()) or f"{idx}_{col_idx}"
+                            new_public = st.toggle(
+                                t("public_toggle_label"),
+                                value=current_public,
+                                key=f"{prefix}_toggle_visibility_{toggle_key}_{idx}_{col_idx}",
+                            )
+                            if new_public != current_public:
+                                ok, msg = update_lesson_plan_visibility(plan_id, new_public)
+                                if ok:
+                                    st.success(
+                                        t(
+                                            "resource_visibility_updated",
+                                            visibility=t("public_label") if new_public else t("private_label"),
+                                        )
+                                    )
+                                    st.rerun()
+                                st.error(t("resource_visibility_update_failed", error=msg))
+                    with action_cols[3]:
+                        if allow_archive_toggle and is_owner and str(plan_id or "").strip():
+                            toggle_key = re.sub(r"[^A-Za-z0-9._-]+", "_", str(plan_id or "").strip()) or f"{idx}_{col_idx}"
+                            new_archived = st.toggle(
+                                t("archive_toggle_label"),
+                                value=is_archived,
+                                key=f"{prefix}_toggle_archive_{toggle_key}_{idx}_{col_idx}",
+                            )
+                            if new_archived != is_archived:
+                                ok, msg = update_lesson_plan_archive(plan_id, new_archived)
+                                if ok:
+                                    st.success(
+                                        t(
+                                            "resource_archive_updated",
+                                            state=t("archived_label") if new_archived else t("restored_label"),
+                                        )
+                                    )
+                                    st.rerun()
+                                st.error(t("resource_archive_update_failed", error=msg))
 
 
 # ============================================================
@@ -813,7 +995,11 @@ def render_quick_lesson_plan_result(
     lesson_purpose: str = "",
     topic: str = "",
     read_only: bool = False,
+    allow_assign: bool = False,
+    assign_expanded: bool = False,
+    resource_record_id: int | str | None = None,
     action_key_prefix: str = "quick_plan",
+    signup_required_actions: bool = False,
 ) -> None:
     _inject_planner_result_css()
     plan = _clean_plan_data(plan)
@@ -912,23 +1098,62 @@ def render_quick_lesson_plan_result(
     if read_only:
         dc1, dc2 = st.columns(2)
         with dc1:
-            st.download_button(
-                label=t("download_pdf"),
-                data=pdf_bytes,
-                file_name=f"{safe_title}.pdf",
-                mime="application/pdf",
-                key=f"{action_key_prefix}_download_pdf",
-                use_container_width=True,
-            )
+            if signup_required_actions:
+                if st.button(
+                    t("download_pdf"),
+                    key=f"{action_key_prefix}_download_pdf_signup",
+                    use_container_width=True,
+                ):
+                    st.session_state["_explore_go_signup"] = True
+                    st.rerun()
+            else:
+                st.download_button(
+                    label=t("download_pdf"),
+                    data=pdf_bytes,
+                    file_name=f"{safe_title}.pdf",
+                    mime="application/pdf",
+                    key=f"{action_key_prefix}_download_pdf",
+                    use_container_width=True,
+                )
         with dc2:
-            st.download_button(
-                label=t("download_word"),
-                data=docx_bytes,
-                file_name=f"{safe_title}.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key=f"{action_key_prefix}_download_docx",
+            if signup_required_actions:
+                if st.button(
+                    t("download_word"),
+                    key=f"{action_key_prefix}_download_docx_signup",
+                    use_container_width=True,
+                ):
+                    st.session_state["_explore_go_signup"] = True
+                    st.rerun()
+            else:
+                st.download_button(
+                    label=t("download_word"),
+                    data=docx_bytes,
+                    file_name=f"{safe_title}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key=f"{action_key_prefix}_download_docx",
+                    use_container_width=True,
+                )
+        if signup_required_actions:
+            st.caption(t("explore_resource_action_signup_note"))
+            if st.button(
+                t("assign_to_student"),
+                key=f"{action_key_prefix}_assign_signup",
                 use_container_width=True,
-            )
+            ):
+                st.session_state["_explore_go_signup"] = True
+                st.rerun()
+        elif allow_assign:
+            with st.expander(t("assign_to_student"), expanded=assign_expanded):
+                from helpers.teacher_student_integration import render_assignment_panel_for_lesson_plan
+
+                render_assignment_panel_for_lesson_plan(
+                    prefix=f"{action_key_prefix}_assign",
+                    plan=plan,
+                    subject=subject,
+                    topic=topic,
+                    lesson_purpose=lesson_purpose,
+                    source_record_id=resource_record_id,
+                )
         return
 
     if resolved_mode == "template":
@@ -973,7 +1198,7 @@ def render_quick_lesson_plan_result(
             key=f"{action_key_prefix}_download_docx_inline",
             use_container_width=True,
         )
-        with st.expander(t("assign_to_student"), expanded=False):
+        with st.expander(t("assign_to_student"), expanded=assign_expanded):
             from helpers.teacher_student_integration import render_assignment_panel_for_lesson_plan
 
             render_assignment_panel_for_lesson_plan(
@@ -982,6 +1207,7 @@ def render_quick_lesson_plan_result(
                 subject=subject,
                 topic=topic,
                 lesson_purpose=lesson_purpose,
+                source_record_id=resource_record_id,
             )
     else:
         a1, a2 = st.columns(2)
@@ -1003,7 +1229,7 @@ def render_quick_lesson_plan_result(
                 key=f"{action_key_prefix}_download_docx_inline2",
                 use_container_width=True,
             )
-        with st.expander(t("assign_to_student"), expanded=False):
+        with st.expander(t("assign_to_student"), expanded=assign_expanded):
             from helpers.teacher_student_integration import render_assignment_panel_for_lesson_plan
 
             render_assignment_panel_for_lesson_plan(
@@ -1012,6 +1238,7 @@ def render_quick_lesson_plan_result(
                 subject=subject,
                 topic=topic,
                 lesson_purpose=lesson_purpose,
+                source_record_id=resource_record_id,
             )
         if st.button(t("close"), key="btn_close_quick_plan", use_container_width=True):
             _lp().reset_quick_lesson_planner_state()
@@ -1396,7 +1623,7 @@ def build_lesson_plan_pdf_bytes(
 
 
 def render_quick_lesson_planner_expander() -> None:
-    with st.expander(t("quick_lesson_planner"), expanded=False):
+    with st.expander(f"📝 {t('quick_lesson_planner')}", expanded=False):
         st.caption(t("quick_lesson_caption"))
         st.caption(t("plan_language_note"))
 

@@ -64,6 +64,7 @@ def _status_badge(status: str) -> str:
         "completed": "#059669",
         "overdue": "#DC2626",
         "cancelled": "#64748B",
+        "archived": "#64748B",
     }
     color = colors.get(str(status or "").strip(), "#64748B")
     return (
@@ -162,6 +163,18 @@ def _inject_assignment_page_styles() -> None:
             border: 1px solid rgba(16,185,129,.26);
             box-shadow: 0 12px 24px rgba(16,185,129,.12);
         }
+        .classio-assign-action-archived {
+            border-radius: 16px;
+            min-height: 3rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            color: #475569;
+            background: linear-gradient(135deg, rgba(148,163,184,.20), rgba(148,163,184,.10));
+            border: 1px solid rgba(148,163,184,.28);
+            box-shadow: 0 12px 24px rgba(148,163,184,.10);
+        }
         div[data-testid="stButton"] > button[kind="primary"] {
             border-radius: 16px;
             min-height: 3rem;
@@ -242,6 +255,7 @@ def _assignment_card(row: dict, key_prefix: str) -> None:
     created_at = str(row.get("created_at") or "").strip()
     teacher_note = _clean_teacher_feedback_text(row.get("teacher_note"))
     assignment_type = str(row.get("assignment_type") or "").strip()
+    source_archived = bool(row.get("source_archived"))
     teacher_name = _html.escape(str(row.get("teacher_name") or "—"))
     subject_name = _html.escape(str(row.get("subject_display") or "—"))
 
@@ -280,18 +294,18 @@ def _assignment_card(row: dict, key_prefix: str) -> None:
         if assignment_type in {"worksheet", "exam"}:
             is_finalized = status in {"submitted", "graded", "completed", "cancelled"}
             is_continue = bool(draft) or status == "started"
-            action_text = (
-                t("assignment_done")
-                if is_finalized
-                else (t("continue_practice") if is_continue else t("open_assignment"))
-            )
-            if is_finalized:
+            if source_archived:
+                if st.button(t("archived_label"), key=f"{key_prefix}_archived", use_container_width=True):
+                    st.info(t("assignment_source_archived_notice"))
+            elif is_finalized:
                 st.markdown(
                     f"<div class='classio-assign-action-done'>{_html.escape(t('assignment_done'))}</div>",
                     unsafe_allow_html=True,
                 )
-            elif st.button(action_text, key=f"{key_prefix}_open", use_container_width=True, type="primary"):
-                _open_assignment_practice(row)
+            else:
+                action_text = t("continue_practice") if is_continue else t("open_assignment")
+                if st.button(action_text, key=f"{key_prefix}_open", use_container_width=True, type="primary"):
+                    _open_assignment_practice(row)
         elif assignment_type == "lesson_plan_topic":
             st.markdown(
                 f"<div class='classio-assign-action-label'>{_html.escape(t('assigned_topics'))}</div>",

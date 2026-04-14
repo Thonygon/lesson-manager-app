@@ -1,9 +1,7 @@
 import streamlit as st
 import json
-from datetime import datetime, timezone, timedelta
 from core.i18n import t
 from core.navigation import go_to
-from core.state import get_current_user_id
 from helpers.practice_engine import (
     worksheet_to_exercises,
     exam_to_exercises,
@@ -28,63 +26,9 @@ from helpers.teacher_student_integration import (
     _clean_teacher_feedback_text,
     create_teacher_review_request,
     get_reviewable_teacher_links_for_subject,
+    load_assignment_state_map,
     load_student_review_requests_for_session,
 )
-
-_DEMO_LINGER_HOURS = 24
-
-
-# ── Demo progress helpers ───────────────────────────────────────
-
-def _demo_done_key() -> str:
-    uid = str(get_current_user_id() or "").strip()
-    return f"demo_completed_ids::{uid}" if uid else "demo_completed_ids::anon"
-
-
-def _demo_done_ts_key() -> str:
-    uid = str(get_current_user_id() or "").strip()
-    return f"demo_all_done_ts::{uid}" if uid else "demo_all_done_ts::anon"
-
-
-def _get_demo_completed_ids() -> set:
-    return set(st.session_state.get(_demo_done_key(), []))
-
-
-def _mark_demo_completed(demo_id: str) -> None:
-    key = _demo_done_key()
-    done = set(st.session_state.get(key, []))
-    done.add(demo_id)
-    st.session_state[key] = list(done)
-
-
-def _all_demos_done() -> bool:
-    from helpers.practice_test_data import DEMO_IDS
-    return _get_demo_completed_ids() >= set(DEMO_IDS)
-
-
-def _mark_demos_all_done() -> None:
-    key = _demo_done_ts_key()
-    if key not in st.session_state:
-        st.session_state[key] = datetime.now(timezone.utc).isoformat()
-
-
-def _demo_section_expired() -> bool:
-    ts_str = st.session_state.get(_demo_done_ts_key())
-    if not ts_str:
-        return False
-    try:
-        done_at = datetime.fromisoformat(ts_str)
-        return datetime.now(timezone.utc) - done_at > timedelta(hours=_DEMO_LINGER_HOURS)
-    except Exception:
-        return False
-
-
-def _should_show_demo() -> bool:
-    """Show demo section until all 3 are done AND 24h have passed."""
-    if _all_demos_done():
-        _mark_demos_all_done()
-        return not _demo_section_expired()
-    return True
 
 
 def _open_practice_item(exercise_data: dict, meta: dict | None = None, *, demo_id: str | None = None) -> bool:
@@ -288,10 +232,6 @@ def _inject_student_practice_styles() -> None:
 
 def _render_browse_tab():
     st.caption(t("choose_practice_source"))
-
-    # ── Demo section with medals & progress ───────────────────────
-    if _should_show_demo():
-        _render_demo_section()
 
     # Supported worksheet types for interactive practice
     _PRACTICE_WS_TYPES = {
@@ -614,94 +554,6 @@ def _render_browse_tab():
                                         st.rerun()
 
 
-# ── Demo section with medals ────────────────────────────────────
-
-def _render_demo_section():
-    """Render demo exercises with progress bar and medals (like welcome page)."""
-    from helpers.practice_test_data import get_demo_activities, DEMO_IDS
-    import html as _html
-
-    demos = get_demo_activities()
-    completed = _get_demo_completed_ids()
-    done_count = sum(1 for d in demos if d["id"] in completed)
-    total = len(demos)
-    all_done = done_count == total
-    pct = int(done_count / total * 100) if total else 0
-
-    if pct == 0:
-        progress_text = t("demo_progress_start")
-    elif pct < 100:
-        progress_text = t("demo_progress_almost")
-    else:
-        progress_text = t("demo_progress_done")
-
-    # Build medal chips HTML
-    medal_html = ""
-    for d in demos:
-        is_done = d["id"] in completed
-        icon = "🏅" if is_done else d["emoji"]
-        label = _html.escape(d["label"])
-        medal_html += f'<span style="margin-right:12px;">{"🏅" if is_done else icon} {label}</span>'
-
-    with st.expander(f"🧪 {t('try_demo')}", expanded=not all_done):
-        # Progress bar & medals
-        st.markdown(
-            f"""<div style="
-padding:12px 16px; border-radius:14px;
-background:var(--panel); border:1px solid var(--border);
-margin-bottom:12px;
-">
-<div style="font-weight:700;margin-bottom:8px;color:var(--text);">
-🚀 {t('demo_progress')}
-</div>
-<div style="
-width:100%;background:var(--panel-2, rgba(148,163,184,0.15));
-border-radius:14px;overflow:hidden;height:14px;margin-bottom:8px;
-border:1px solid var(--border-strong, rgba(148,163,184,0.25));
-">
-<div style="
-width:{pct}%;height:14px;
-background:linear-gradient(90deg,#8B5CF6,#6D28D9);
-box-shadow:0 0 10px rgba(139,92,246,0.5);
-transition:width 0.4s ease;
-"></div>
-</div>
-<div style="font-size:0.85rem;color:var(--muted);font-weight:600;">
-{pct}% — {progress_text}
-</div>
-<div style="
-display:flex;gap:14px;font-size:0.85rem;color:var(--muted);
-padding:10px 0 4px;flex-wrap:wrap;
-">
-{medal_html}
-</div>
-</div>""",
-            unsafe_allow_html=True,
-        )
-
-        if all_done:
-            st.success(t("demo_all_complete"))
-        else:
-            # Render demo buttons
-            demo_cols = st.columns(total, gap="small")
-            for i, demo in enumerate(demos):
-                with demo_cols[i]:
-                    is_done = demo["id"] in completed
-                    btn_label = f"🏅 {demo['label']}" if is_done else f"▶ {demo['label']}"
-                    if st.button(
-                        btn_label,
-                        key=f"demo_{i}",
-                        use_container_width=True,
-                        disabled=is_done,
-                    ):
-                        if _open_practice_item(
-                            demo["exercise_data"],
-                            demo.get("meta", {}),
-                            demo_id=demo["id"],
-                        ):
-                            st.rerun()
-
-
 def _render_practice_card(
     title: str, subject: str, topic: str, level: str,
     ws_type: str, btn_key: str, color: str = "#A78BFA",
@@ -758,8 +610,6 @@ color: var(--text);
 
 def _render_active_session(exercise_data: dict):
     """Render the interactive practice and handle completion."""
-    is_demo = exercise_data.get("source_type") == "demo"
-
     if st.button(f"← {t('back')}", key="practice_back"):
         # Clear all practice-related session state
         for key in list(st.session_state.keys()):
@@ -784,12 +634,7 @@ def _render_active_session(exercise_data: dict):
     if result and not st.session_state.get("_practice_saved_sp"):
         st.session_state["_practice_saved_sp"] = True
 
-        if is_demo:
-            # Demo: mark medal earned (no DB save)
-            demo_id = st.session_state.get("_practice_demo_id")
-            if demo_id:
-                _mark_demo_completed(demo_id)
-        else:
+        if str(exercise_data.get("source_type") or "").strip() != "demo":
             # Real exercise: save to DB
             meta = st.session_state.get("practice_meta") or {}
             xp   = result.get("xp_earned", 0)
@@ -857,7 +702,7 @@ def _render_active_session(exercise_data: dict):
             st.session_state.pop("_practice_resume_session_id", None)
             st.session_state.pop("_practice_resume_answers", None)
 
-    if result and not is_demo:
+    if result and str(exercise_data.get("source_type") or "").strip() != "demo":
         _render_teacher_review_request_panel(exercise_data)
 
 
@@ -951,6 +796,14 @@ def _render_history_tab():
         st.info(t("no_practice_history"))
         return
 
+    assignment_ids = []
+    for _, row in history.iterrows():
+        source_type = str(row.get("source_type") or "").strip()
+        source_id = int(row.get("source_id") or 0)
+        if source_type in {"worksheet", "exam"} and source_id > 0:
+            assignment_ids.append(source_id)
+    assignment_state_map = load_assignment_state_map(assignment_ids)
+
     for h_idx, row in history.iterrows():
         title   = str(row.get("title") or t("smart_practice"))
         score   = row.get("score_pct", 0)
@@ -962,6 +815,9 @@ def _render_history_tab():
         session_id = row.get("id")
         subject = str(row.get("subject") or "").strip()
         topic = str(row.get("topic") or "").strip()
+        assignment_state = assignment_state_map.get(int(row.get("source_id") or 0), {})
+        assignment_removed = str(assignment_state.get("status") or "").strip() == "archived"
+        source_archived = bool(assignment_state.get("source_archived"))
 
         if score >= 80:
             color = "#10B981"
@@ -1017,7 +873,14 @@ def _render_history_tab():
         # Try Again button — reload the exercise data from the saved session
         exercise_data = row.get("exercise_data")
         with right_col:
-            if exercise_data:
+            if assignment_removed or source_archived:
+                if st.button(
+                    t("archived_label"),
+                    key=f"hist_archived_{session_id}_{h_idx}",
+                    use_container_width=True,
+                ):
+                    st.info(t("assignment_source_archived_notice"))
+            elif exercise_data:
                 if isinstance(exercise_data, str):
                     try:
                         exercise_data = json.loads(exercise_data)

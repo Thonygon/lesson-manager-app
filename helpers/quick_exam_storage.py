@@ -8,6 +8,7 @@ from datetime import datetime as _dt, timezone
 import pandas as pd
 from io import BytesIO
 from core.i18n import t
+from core.navigation import go_to
 from core.state import get_current_user_id, with_owner
 from core.timezone import now_local, today_local, get_app_tz
 from core.database import get_sb, load_table, clear_app_caches
@@ -26,6 +27,7 @@ from helpers.visual_support import (
     build_pdf_visual_flowables,
     render_visual_support_status_group,
 )
+from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
 
 
 def _eb():
@@ -166,7 +168,8 @@ def save_exam_record(
     answer_key: dict,
 ) -> bool:
     try:
-        from helpers.branding import resolve_is_public
+        from helpers.branding import get_user_branding, resolve_is_public
+        branding = get_user_branding()
         exam_data = enrich_exam_with_visuals(
             exam_data,
             subject=subject,
@@ -183,17 +186,25 @@ def save_exam_record(
             "exercise_types": exercise_types,
             "exam_data": exam_data,
             "answer_key": answer_key,
-            "is_public": resolve_is_public(),
+            "is_public": resolve_is_public(branding),
+            "status": ACTIVE_STATUS,
             "created_at": _dt.now(timezone.utc).isoformat(),
         })
-        get_sb().table("quick_exams").insert(payload).execute()
+        try:
+            get_sb().table("quick_exams").insert(payload).execute()
+        except Exception as inner_exc:
+            if "status" not in str(inner_exc).lower():
+                raise
+            legacy_payload = dict(payload)
+            legacy_payload.pop("status", None)
+            get_sb().table("quick_exams").insert(legacy_payload).execute()
         return True
     except Exception as e:
         st.warning(t("quick_exam_save_failed", error=e))
         return False
 
 
-def load_my_exams() -> pd.DataFrame:
+def load_my_exams(*, include_archived: bool = False, archived_only: bool = False) -> pd.DataFrame:
     try:
         df = load_table("quick_exams")
         if df is None or df.empty:
@@ -204,7 +215,11 @@ def load_my_exams() -> pd.DataFrame:
         sort_col = "created_at" if "created_at" in df.columns else None
         if sort_col:
             df = df.sort_values(sort_col, ascending=False, na_position="last")
-        return df.reset_index(drop=True)
+        return filter_archived_rows(
+            df,
+            include_archived=include_archived,
+            archived_only=archived_only,
+        )
     except Exception:
         return pd.DataFrame()
 
@@ -225,7 +240,7 @@ def load_public_exams() -> pd.DataFrame:
             return pd.DataFrame()
         if "created_at" in df.columns:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-        return df.reset_index(drop=True)
+        return filter_archived_rows(df)
     except Exception:
         return pd.DataFrame()
 
@@ -238,17 +253,134 @@ def _format_exam_dt(value) -> str:
         return ""
 
 
+def _is_public_value(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on", "public"}
+
+
+def update_exam_visibility(exam_id, is_public: bool) -> tuple[bool, str]:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid:
+        return False, "auth_required"
+    safe_exam_id = exam_id
+    if isinstance(exam_id, str):
+        stripped = exam_id.strip()
+        if not stripped:
+            return False, "invalid_id"
+        safe_exam_id = int(stripped) if stripped.isdigit() else stripped
+    elif exam_id is None:
+        return False, "invalid_id"
+    try:
+        res = (
+            get_sb()
+            .table("quick_exams")
+            .select("id, user_id")
+            .eq("id", safe_exam_id)
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(res, "data", None) or []
+        if not rows:
+            return False, "not_found"
+        if str(rows[0].get("user_id") or "").strip() != uid:
+            return False, "not_owner"
+        (
+            get_sb()
+            .table("quick_exams")
+            .update({"is_public": bool(is_public)})
+            .eq("id", safe_exam_id)
+            .eq("user_id", uid)
+            .execute()
+        )
+        clear_app_caches()
+        return True, "ok"
+    except Exception as exc:
+        return False, str(exc)
+
+
+def update_exam_archive(exam_id, archived: bool) -> tuple[bool, str]:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid:
+        return False, "auth_required"
+    safe_exam_id = exam_id
+    if isinstance(exam_id, str):
+        stripped = exam_id.strip()
+        if not stripped:
+            return False, "invalid_id"
+        safe_exam_id = int(stripped) if stripped.isdigit() else stripped
+    elif exam_id is None:
+        return False, "invalid_id"
+    payload = {
+        "status": ARCHIVED_STATUS if archived else ACTIVE_STATUS,
+        "is_public": False,
+    }
+    try:
+        (
+            get_sb()
+            .table("quick_exams")
+            .update(payload)
+            .eq("id", safe_exam_id)
+            .eq("user_id", uid)
+            .execute()
+        )
+        from helpers.teacher_student_integration import update_assignment_source_archive_state
+
+        update_assignment_source_archive_state(
+            assignment_type="exam",
+            source_type="exam_builder",
+            source_record_id=safe_exam_id,
+            archived=archived,
+        )
+        clear_app_caches()
+        return True, "ok"
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _open_exam_library_record(
+    row: dict,
+    *,
+    open_in_files: bool = False,
+    require_signup: bool = False,
+    expand_assign: bool = False,
+) -> None:
+    if require_signup:
+        st.session_state["_post_signup_open_panel"] = "files"
+        st.session_state["_post_signup_open_tab"] = "community_library"
+        st.session_state["_explore_go_signup"] = True
+        st.rerun()
+
+    st.session_state["files_selected_exam"] = row.get("exam_data") or {}
+    st.session_state["files_selected_exam_answer_key"] = row.get("answer_key") or {}
+    st.session_state["files_exam_subject"] = str(row.get("subject") or "").strip()
+    st.session_state["files_exam_stage"] = str(row.get("learner_stage") or "").strip()
+    st.session_state["files_exam_level"] = str(row.get("level") or "").strip()
+    st.session_state["files_exam_topic"] = str(row.get("topic") or "").strip()
+    st.session_state["files_exam_title"] = str(row.get("title") or t("untitled_plan")).strip()
+    st.session_state["files_selected_exam_id"] = row.get("id")
+    st.session_state["files_selected_exam_status"] = str(row.get("status") or "").strip()
+    st.session_state["files_selected_exam_assign_expanded"] = bool(expand_assign)
+
+    if open_in_files:
+        go_to("resources")
+    else:
+        st.toast(t("scroll_down_to_view"))
+    st.rerun()
+
+
 def render_exam_library_cards(
     df: pd.DataFrame,
     prefix: str = "exam",
     show_author: bool = False,
     open_in_files: bool = False,
+    require_signup: bool = False,
+    allow_visibility_toggle: bool = False,
+    allow_archive_toggle: bool = False,
 ) -> None:
     if df is None or df.empty:
         st.info(t("no_data"))
         return
-
-    from core.navigation import home_go
 
     rows = df.reset_index(drop=True).to_dict("records")
 
@@ -258,6 +390,7 @@ def render_exam_library_cards(
 
         for col_idx, row in enumerate(pair):
             row_id = row.get("id", idx + col_idx)
+            exam_id = row.get("id")
             title = str(row.get("title") or t("untitled_plan")).strip()
             subject = str(row.get("subject") or "").strip()
             topic = str(row.get("topic") or "").strip()
@@ -267,6 +400,8 @@ def render_exam_library_cards(
             author_name = str(row.get("author_name") or "").strip()
             created_at = _format_exam_dt(row.get("created_at"))
             subject_label = _subject_display_label(subject)
+            visibility_label = t("public_label") if _is_public_value(row.get("is_public")) else t("private_label")
+            is_archived = is_archived_status(row.get("status"))
 
             level_label = ""
             if level:
@@ -287,6 +422,8 @@ def render_exam_library_cards(
             ])
 
             meta = "".join([
+                f'<div class="cm-resource-meta">⚙️ {html.escape(visibility_label)}</div>',
+                f'<div class="cm-resource-meta">🗂️ {html.escape(t("archived_label"))}</div>' if is_archived else "",
                 f'<div class="cm-resource-meta">👤 {safe_author}</div>' if show_author and author_name else "",
                 f'<div class="cm-resource-meta">🕒 {html.escape(created_at)}</div>' if created_at else "",
             ])
@@ -302,26 +439,74 @@ def render_exam_library_cards(
 
             with cols[col_idx]:
                 st.markdown(card_html, unsafe_allow_html=True)
-
-                if st.button(
-                    t("preview"),
-                    key=f"{prefix}_preview_{row_id}_{idx}_{col_idx}",
-                    use_container_width=True,
-                ):
-                    st.session_state["files_selected_exam"] = row.get("exam_data") or {}
-                    st.session_state["files_selected_exam_answer_key"] = row.get("answer_key") or {}
-                    st.session_state["files_exam_subject"] = subject
-                    st.session_state["files_exam_stage"] = learner_stage
-                    st.session_state["files_exam_level"] = level
-                    st.session_state["files_exam_topic"] = topic
-                    st.session_state["files_exam_title"] = title
-
-                    if open_in_files:
-                        home_go("home", panel="files")
-                    else:
-                        st.toast(t("scroll_down_to_view"))
-
-                    st.rerun()
+                is_owner = str(row.get("user_id") or "").strip() == str(get_current_user_id() or "").strip()
+                show_owner_controls = allow_visibility_toggle or allow_archive_toggle
+                action_cols = st.columns([1, 1, 1, 1] if show_owner_controls else [1, 1])
+                with action_cols[0]:
+                    if st.button(
+                        t("view_exam"),
+                        key=f"{prefix}_view_{row_id}_{idx}_{col_idx}",
+                        use_container_width=True,
+                    ):
+                        _open_exam_library_record(
+                            row,
+                            open_in_files=open_in_files,
+                            require_signup=False,
+                            expand_assign=False,
+                        )
+                with action_cols[1]:
+                    if not show_owner_controls or not is_archived:
+                        if st.button(
+                            t("assign_to_student"),
+                            key=f"{prefix}_assign_{row_id}_{idx}_{col_idx}",
+                            use_container_width=True,
+                        ):
+                            _open_exam_library_record(
+                                row,
+                                open_in_files=open_in_files,
+                                require_signup=require_signup,
+                                expand_assign=True,
+                            )
+                if show_owner_controls:
+                    with action_cols[2]:
+                        if allow_visibility_toggle and is_owner and str(exam_id or "").strip() and not is_archived:
+                            current_public = _is_public_value(row.get("is_public"))
+                            toggle_key = re.sub(r"[^A-Za-z0-9._-]+", "_", str(exam_id or "").strip()) or f"{idx}_{col_idx}"
+                            new_public = st.toggle(
+                                t("public_toggle_label"),
+                                value=current_public,
+                                key=f"{prefix}_toggle_visibility_{toggle_key}_{idx}_{col_idx}",
+                            )
+                            if new_public != current_public:
+                                ok, msg = update_exam_visibility(exam_id, new_public)
+                                if ok:
+                                    st.success(
+                                        t(
+                                            "resource_visibility_updated",
+                                            visibility=t("public_label") if new_public else t("private_label"),
+                                        )
+                                    )
+                                    st.rerun()
+                                st.error(t("resource_visibility_update_failed", error=msg))
+                    with action_cols[3]:
+                        if allow_archive_toggle and is_owner and str(exam_id or "").strip():
+                            toggle_key = re.sub(r"[^A-Za-z0-9._-]+", "_", str(exam_id or "").strip()) or f"{idx}_{col_idx}"
+                            new_archived = st.toggle(
+                                t("archive_toggle_label"),
+                                value=is_archived,
+                                key=f"{prefix}_toggle_archive_{toggle_key}_{idx}_{col_idx}",
+                            )
+                            if new_archived != is_archived:
+                                ok, msg = update_exam_archive(exam_id, new_archived)
+                                if ok:
+                                    st.success(
+                                        t(
+                                            "resource_archive_updated",
+                                            state=t("archived_label") if new_archived else t("restored_label"),
+                                        )
+                                    )
+                                    st.rerun()
+                                st.error(t("resource_archive_update_failed", error=msg))
 
 
 # ── AI usage tracking ────────────────────────────────────────────────
@@ -741,7 +926,18 @@ def build_exam_answer_pdf_bytes(
 
 # ── Render UI ────────────────────────────────────────────────────────
 
-def render_exam_result(exam_data: dict, answer_key: dict, *, show_ready_banner: bool = True, allow_assign: bool = False, **meta) -> None:
+def render_exam_result(
+    exam_data: dict,
+    answer_key: dict,
+    *,
+    show_ready_banner: bool = True,
+    allow_assign: bool = False,
+    assign_expanded: bool = False,
+    resource_record_id: int | str | None = None,
+    signup_required_actions: bool = False,
+    action_key_prefix: str = "exam_result",
+    **meta,
+) -> None:
     if not exam_data or not exam_data.get("sections"):
         return
 
@@ -857,19 +1053,29 @@ def render_exam_result(exam_data: dict, answer_key: dict, *, show_ready_banner: 
         # render_visual_support_status_group(status_items)
         pass
 
-    if allow_assign:
+    if signup_required_actions:
+        st.caption(t("explore_resource_action_signup_note"))
+        if st.button(
+            t("assign_to_student"),
+            key=f"{action_key_prefix}_assign_signup",
+            use_container_width=True,
+        ):
+            st.session_state["_explore_go_signup"] = True
+            st.rerun()
+    elif allow_assign:
         safe_assign_title = re.sub(r"[^A-Za-z0-9._-]+", "_", str(exam_data.get("title") or "exam").strip()) or "exam"
-        with st.expander(t("assign_to_student"), expanded=False):
+        with st.expander(t("assign_to_student"), expanded=assign_expanded):
             from helpers.teacher_student_integration import render_assignment_panel_for_exam
 
             render_assignment_panel_for_exam(
-                prefix=f"exam_assign_{safe_assign_title}",
+                prefix=f"{action_key_prefix}_assign_{safe_assign_title}",
                 exam_data=exam_data,
                 answer_key=answer_key,
                 subject=subject,
                 topic=topic,
                 learner_stage=learner_stage,
                 level_or_band=level_or_band,
+                source_record_id=resource_record_id,
             )
 
     _pdf_kwargs = dict(
@@ -888,42 +1094,78 @@ def render_exam_result(exam_data: dict, answer_key: dict, *, show_ready_banner: 
 
     dc1, dc2 = st.columns(2)
     with dc1:
-        st.download_button(
-            label=t("download_exam") if t("download_exam") != "download_exam" else "Download Student Exam",
-            data=student_pdf,
-            file_name=f"{safe_title}_student.pdf",
-            mime="application/pdf",
-            key=f"dl_exam_stu_{safe_title}",
-            use_container_width=True,
-        )
+        if signup_required_actions:
+            if st.button(
+                t("download_exam") if t("download_exam") != "download_exam" else "Download Student Exam",
+                key=f"{action_key_prefix}_student_pdf_signup",
+                use_container_width=True,
+            ):
+                st.session_state["_explore_go_signup"] = True
+                st.rerun()
+        else:
+            st.download_button(
+                label=t("download_exam") if t("download_exam") != "download_exam" else "Download Student Exam",
+                data=student_pdf,
+                file_name=f"{safe_title}_student.pdf",
+                mime="application/pdf",
+                key=f"{action_key_prefix}_dl_exam_stu_{safe_title}",
+                use_container_width=True,
+            )
     with dc2:
-        st.download_button(
-            label=t("download_answer_key") if t("download_answer_key") != "download_answer_key" else "Download Answer Key",
-            data=answer_pdf,
-            file_name=f"{safe_title}_answers.pdf",
-            mime="application/pdf",
-            key=f"dl_exam_ak_{safe_title}",
-            use_container_width=True,
-        )
+        if signup_required_actions:
+            if st.button(
+                t("download_answer_key") if t("download_answer_key") != "download_answer_key" else "Download Answer Key",
+                key=f"{action_key_prefix}_answer_pdf_signup",
+                use_container_width=True,
+            ):
+                st.session_state["_explore_go_signup"] = True
+                st.rerun()
+        else:
+            st.download_button(
+                label=t("download_answer_key") if t("download_answer_key") != "download_answer_key" else "Download Answer Key",
+                data=answer_pdf,
+                file_name=f"{safe_title}_answers.pdf",
+                mime="application/pdf",
+                key=f"{action_key_prefix}_dl_exam_ak_{safe_title}",
+                use_container_width=True,
+            )
     dw1, dw2 = st.columns(2)
     with dw1:
-        st.download_button(
-            label=t("download_student_word"),
-            data=student_docx,
-            file_name=f"{safe_title}_student.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key=f"dl_exam_stu_docx_{safe_title}",
-            use_container_width=True,
-        )
+        if signup_required_actions:
+            if st.button(
+                t("download_student_word"),
+                key=f"{action_key_prefix}_student_word_signup",
+                use_container_width=True,
+            ):
+                st.session_state["_explore_go_signup"] = True
+                st.rerun()
+        else:
+            st.download_button(
+                label=t("download_student_word"),
+                data=student_docx,
+                file_name=f"{safe_title}_student.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key=f"{action_key_prefix}_dl_exam_stu_docx_{safe_title}",
+                use_container_width=True,
+            )
     with dw2:
-        st.download_button(
-            label=t("download_teacher_word"),
-            data=teacher_docx,
-            file_name=f"{safe_title}_teacher.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key=f"dl_exam_tch_docx_{safe_title}",
-            use_container_width=True,
-        )
+        if signup_required_actions:
+            if st.button(
+                t("download_teacher_word"),
+                key=f"{action_key_prefix}_teacher_word_signup",
+                use_container_width=True,
+            ):
+                st.session_state["_explore_go_signup"] = True
+                st.rerun()
+        else:
+            st.download_button(
+                label=t("download_teacher_word"),
+                data=teacher_docx,
+                file_name=f"{safe_title}_teacher.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key=f"{action_key_prefix}_dl_exam_tch_docx_{safe_title}",
+                use_container_width=True,
+            )
 
 # ── Builder proxy ────────────────────────────────────────────────────
 def render_quick_exam_builder_expander() -> None:

@@ -1,9 +1,17 @@
+from __future__ import annotations
+
 # CLASSIO — Worksheet Builder
 # ============================================================
 import streamlit as st
 import json, os, re
 from core.i18n import t
 from translations import I18N
+from helpers.answer_key_utils import normalize_answer_key_text, split_answer_key_items
+from helpers.generation_guidance import (
+    build_expert_panel_prompt_blurb,
+    build_generation_profile_guidance,
+    infer_subject_family,
+)
 from helpers.visual_support import enrich_worksheet_with_visuals
 
 AI_WORKSHEET_DAILY_LIMIT = 3
@@ -36,6 +44,192 @@ def get_student_material_language(subject: str) -> str:
 # ── Helpers ──────────────────────────────────────────────────────────
 def _clean_str(value) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _subject_key(subject: str) -> str:
+    return _clean_str(subject).lower().replace("&", "and")
+
+
+def _subject_group(subject: str) -> str:
+    family = infer_subject_family(subject)
+    if family == "study_skills":
+        return "general"
+    return family or "general"
+
+
+def _normalize_sentence_for_quality(value) -> str:
+    text = _clean_str(value)
+    text = (
+        text.replace("’", "'")
+        .replace("‘", "'")
+        .replace("“", '"')
+        .replace("”", '"')
+        .replace("—", "-")
+        .replace("–", "-")
+    )
+    text = re.sub(r"\s+([,;:.!?])", r"\1", text)
+    text = re.sub(r"[.!?]+$", "", text)
+    return text.casefold().strip()
+
+
+def _sanitize_language_text(value, lang_code: str, *, subject_group: str) -> str:
+    text = _clean_str(value)
+    if not text or subject_group != "language":
+        return text
+
+    if str(lang_code or "").strip().upper() not in {"EN", "ES", "TR"}:
+        return text
+
+    text = re.sub(r"[\u3400-\u4DBF\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]+", "", text)
+    text = re.sub(r"\s+([,;:.!?])", r"\1", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _worksheet_answer_key_expected_count(ws: dict) -> int | None:
+    ws_type = ws.get("worksheet_type", "")
+    if ws_type == "multiple_choice":
+        return len(ws.get("multiple_choice_items") or [])
+    if ws_type == "matching":
+        return len(ws.get("matching_pairs") or ws.get("left_items") or [])
+    if ws_type == "true_false":
+        return len(ws.get("true_false_statements") or ws.get("questions") or [])
+    if ws_type in {"fill_in_the_blanks", "short_answer", "reading_comprehension", "error_correction"}:
+        return len(ws.get("questions") or [])
+    return None
+
+
+def _sanitize_student_material_fields(ws: dict) -> dict:
+    out = dict(ws or {})
+    subject_group = _subject_group(out.get("subject", ""))
+    lang_code = out.get("student_material_language", "")
+
+    for key in ("instructions", "reading_passage", "source_text", "text", "title", "topic"):
+        out[key] = _sanitize_language_text(out.get(key, ""), lang_code, subject_group=subject_group)
+
+    out["questions"] = [
+        _sanitize_language_text(item, lang_code, subject_group=subject_group)
+        for item in out.get("questions", [])
+        if _sanitize_language_text(item, lang_code, subject_group=subject_group)
+    ]
+    out["true_false_statements"] = [
+        _sanitize_language_text(item, lang_code, subject_group=subject_group)
+        for item in out.get("true_false_statements", [])
+        if _sanitize_language_text(item, lang_code, subject_group=subject_group)
+    ]
+    out["vocabulary_bank"] = [
+        _sanitize_language_text(item, lang_code, subject_group=subject_group)
+        for item in out.get("vocabulary_bank", [])
+        if _sanitize_language_text(item, lang_code, subject_group=subject_group)
+    ]
+
+    sanitized_pairs = []
+    for pair in out.get("matching_pairs", []):
+        if not isinstance(pair, dict):
+            continue
+        left = _sanitize_language_text(pair.get("left", ""), lang_code, subject_group=subject_group)
+        right = _sanitize_language_text(pair.get("right", ""), lang_code, subject_group=subject_group)
+        if left and right:
+            sanitized_pairs.append({"left": left, "right": right})
+    out["matching_pairs"] = sanitized_pairs
+
+    sanitized_mc = []
+    for item in out.get("multiple_choice_items", []):
+        if not isinstance(item, dict):
+            continue
+        stem = _sanitize_language_text(item.get("stem", ""), lang_code, subject_group=subject_group)
+        options = [
+            _sanitize_language_text(opt, lang_code, subject_group=subject_group)
+            for opt in item.get("options", [])
+            if _sanitize_language_text(opt, lang_code, subject_group=subject_group)
+        ]
+        answer = _sanitize_language_text(item.get("answer", ""), lang_code, subject_group=subject_group)
+        if stem and len(options) >= 3:
+            sanitized_mc.append({"stem": stem, "options": options[:4], "answer": answer})
+    out["multiple_choice_items"] = sanitized_mc
+
+    return out
+
+
+def _repair_worksheet_answer_key(ws: dict) -> dict:
+    out = dict(ws or {})
+    expected_count = _worksheet_answer_key_expected_count(out)
+    out["answer_key"] = normalize_answer_key_text(out.get("answer_key"), expected_count=expected_count)
+    return out
+
+
+def _prune_error_correction_items(ws: dict) -> dict:
+    out = dict(ws or {})
+    if out.get("worksheet_type") != "error_correction":
+        return out
+
+    questions = list(out.get("questions") or [])
+    answers = split_answer_key_items(out.get("answer_key"), expected_count=len(questions))
+    kept_questions = []
+    kept_answers = []
+
+    for question, answer in zip(questions, answers):
+        if not _clean_str(question) or not _clean_str(answer):
+            continue
+        if _normalize_sentence_for_quality(question) == _normalize_sentence_for_quality(answer):
+            continue
+        kept_questions.append(question)
+        kept_answers.append(answer)
+
+    out["questions"] = kept_questions
+    out["answer_key"] = "\n".join(kept_answers)
+    return out
+
+
+def _worksheet_quality_issues(ws: dict) -> list[str]:
+    ws_type = ws.get("worksheet_type", "")
+    issues: list[str] = []
+    expected_count = _worksheet_answer_key_expected_count(ws)
+    answers = split_answer_key_items(ws.get("answer_key"), expected_count=expected_count) if expected_count else []
+
+    if ws_type == "reading_comprehension":
+        if not _clean_str(ws.get("reading_passage", "")):
+            issues.append("reading_comprehension requires a reading_passage")
+        if expected_count:
+            nonempty_answers = sum(bool(_clean_str(answer)) for answer in answers)
+            if nonempty_answers < expected_count:
+                issues.append("reading_comprehension requires one usable answer per question")
+
+    if ws_type == "error_correction":
+        if len(ws.get("questions") or []) < 3:
+            issues.append("error_correction needs at least 3 valid incorrect sentences")
+
+    return issues
+
+
+def _worksheet_profile_guidance(payload: dict) -> str:
+    subject_group = _subject_group(payload.get("subject", ""))
+    learner_stage = _clean_str(payload.get("learner_stage", "")).lower()
+    level_or_band = _clean_str(payload.get("level_or_band", ""))
+
+    lines = [
+        "- Student-facing text must stay in the requested student_material_language unless the task explicitly teaches translation.",
+        "- Do not mix scripts or inject stray characters from unrelated languages.",
+        "- The answer_key must be plain teacher text with one answer per item, never a Python list or quoted array.",
+    ]
+
+    shared_guidance = build_generation_profile_guidance(
+        payload.get("subject", ""),
+        learner_stage,
+        level_or_band,
+        product="worksheet",
+    )
+    if shared_guidance:
+        lines.extend(shared_guidance.splitlines())
+
+    if subject_group == "language" and learner_stage == "lower_secondary":
+        lines.extend([
+            "- Prefer short, coherent topics such as school life, hobbies, sports, friends, family, routines, technology, feelings, and weekend plans.",
+            "- For reading_comprehension, write one coherent passage with enough concrete detail for the selected level, and keep the answers short and directly checkable.",
+            "- For error_correction, every sentence must contain exactly one real error and the corrected answer must not be identical to the prompt sentence.",
+        ])
+
+    return "\n".join(lines)
 
 
 def _ensure_list_of_strings(value) -> list[str]:
@@ -96,12 +290,7 @@ def _ensure_multiple_choice_items(value) -> list[dict]:
 
 
 def _normalize_answer_key(value) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, list):
-        cleaned = [_clean_str(x) for x in value if _clean_str(x)]
-        return "\n".join(cleaned)
-    return _clean_str(value)
+    return normalize_answer_key_text(value)
 
 _MC_OPTION_PREFIX_RE = re.compile(r"^\s*(?:[A-Da-d]|[1-9])[\)\.\-:]\s*")
 _MC_STEM_PREFIX_RE = re.compile(r"^\s*\d+[\)\.\-:]\s*")
@@ -125,14 +314,14 @@ _WORKSHEET_INSTRUCTION_FALLBACKS = {
 }
 
 _WORKSHEET_INSTRUCTION_MISMATCHES = {
-    "fill_in_the_blanks": ("choose the best answer", "true or false", "column a", "column b", "circle the letter"),
-    "multiple_choice": ("line provided", "given line", "write the answer", "write your answer", "type the answer", "complete each sentence"),
-    "matching": ("choose the best answer", "true or false", "complete each sentence", "circle the letter"),
-    "short_answer": ("choose the best answer", "true or false", "column a", "column b", "circle the letter"),
-    "true_false": ("choose the best answer", "column a", "column b", "write the correct letter", "fill in the blank"),
-    "reading_comprehension": ("choose the best answer", "true or false", "column a", "column b", "circle the letter"),
-    "error_correction": ("choose the best answer", "true or false", "column a", "column b"),
-    "word_search_vocab": ("choose the best answer", "true or false", "column a", "column b", "write your answer"),
+    "fill_in_the_blanks": ("choose the best answer", "true or false", "column a", "column b", "circle the letter", "elige la opción", "elige la opcion", "opción correcta", "opcion correcta", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "multiple_choice": ("line provided", "given line", "write the answer", "write your answer", "type the answer", "complete each sentence", "escribe la respuesta", "escribe tu respuesta", "completa cada frase", "completa cada oración", "completa cada oracion", "verdadero o falso", "columna a", "columna b", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "matching": ("choose the best answer", "true or false", "complete each sentence", "circle the letter", "elige la opción", "elige la opcion", "verdadero o falso", "completa cada frase", "completa cada oración", "completa cada oracion", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis"),
+    "short_answer": ("choose the best answer", "true or false", "column a", "column b", "circle the letter", "elige la opción", "elige la opcion", "opción correcta", "opcion correcta", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "true_false": ("choose the best answer", "column a", "column b", "write the correct letter", "fill in the blank", "choose or circle", "elige la opción", "elige la opcion", "opción correcta", "opcion correcta", "columna a", "columna b", "escribe la letra correcta", "completa cada frase", "doğru seçeneği", "dogru secenegi", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "reading_comprehension": ("choose the best answer", "true or false", "column a", "column b", "circle the letter", "elige la opción", "elige la opcion", "opción correcta", "opcion correcta", "rodea la letra", "circula la letra", "círcula la letra", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "error_correction": ("choose the best answer", "true or false", "column a", "column b", "elige la opción", "elige la opcion", "opción correcta", "opcion correcta", "verdadero o falso", "columna a", "columna b", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
+    "word_search_vocab": ("choose the best answer", "true or false", "column a", "column b", "write your answer", "elige la opción", "elige la opcion", "verdadero o falso", "columna a", "columna b", "escribe tu respuesta", "doğru seçeneği", "dogru secenegi", "doğru yanlış", "dogru yanlis", "sütun a", "sutun a", "sütun b", "sutun b"),
 }
 
 
@@ -281,6 +470,11 @@ def normalize_worksheet_output(raw: dict) -> dict:
         out["multiple_choice_items"] = []
         if _worksheet_instruction_needs_reset(ws_type, out.get("instructions", "")):
             out["instructions"] = _default_instruction_for_worksheet_type(ws_type)
+
+    out = _sanitize_student_material_fields(out)
+    out = _repair_worksheet_answer_key(out)
+    out = _prune_error_correction_items(out)
+    out = _repair_worksheet_answer_key(out)
 
     return enrich_worksheet_with_visuals(
         out,
@@ -453,6 +647,7 @@ def _build_worksheet_prompts(payload: dict) -> tuple[str, str]:
     page_plan = _worksheet_page_plan(worksheet_type, learner_stage, level_or_band)
 
     system_prompt = (
+        f"{build_expert_panel_prompt_blurb('worksheet')} "
         "You are an expert curriculum designer holding a Doctorate in Education (Ed.D.) "
         "with specialisation in differentiated instruction, formative assessment, and "
         "evidence-based resource design. "
@@ -494,6 +689,9 @@ Design principles:
 - Avoid outputs that would leave the final page half empty.
 - Prefer fewer, better-distributed items over too many short items.
 - For short_answer and reading_comprehension, create questions that reasonably allow student writing space below each item.
+
+Profile quality guidance:
+{_worksheet_profile_guidance(payload)}
 
 {type_rules}
 
@@ -572,7 +770,11 @@ def generate_ai_worksheet(
                 raw = _lp()._generate_with_openai(system_prompt, user_prompt)
 
             parsed = _lp()._extract_json_object_from_text(raw)
-            return normalize_worksheet_output(parsed)
+            normalized = normalize_worksheet_output(parsed)
+            quality_issues = _worksheet_quality_issues(normalized)
+            if quality_issues:
+                raise ValueError("; ".join(quality_issues))
+            return normalized
         except Exception as e:
             errors.append(f"{p}: {e}")
 
@@ -629,7 +831,7 @@ def generate_worksheet_with_limit(
             status="failed",
             meta={"subject": subject, "topic": topic, "error": str(e)},
         )
-        return {}, f"{t('ai_unavailable_fallback')} ({e})"
+        return {}, t("ai_unavailable_fallback")
 
 
 def reset_worksheet_maker_state() -> None:

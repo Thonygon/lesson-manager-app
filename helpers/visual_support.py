@@ -10,6 +10,7 @@ import streamlit as st
 from PIL import Image
 
 from core.i18n import t
+from helpers.ai_retry import run_with_ai_retries
 
 
 _LOWER_PRIMARY_STAGES = {
@@ -494,12 +495,6 @@ def _status_payload(state: str, message: str, *, provider_chain: str = "", task_
     }
 
 
-def _with_debug(status: dict, debug_detail: str = "") -> dict:
-    payload = dict(status or {})
-    payload["debug_detail"] = _clean_text(debug_detail)
-    return payload
-
-
 def _extract_image_data_url(response) -> str:
     data = getattr(response, "data", None) or []
     for item in data:
@@ -542,68 +537,76 @@ def _generate_with_openrouter(prompt: str) -> str:
     api_key = _get_openrouter_api_key()
     if not api_key:
         raise RuntimeError("missing_openrouter_api_key")
-    body = {
-        "model": _get_openrouter_image_model(),
-        "messages": [{"role": "user", "content": prompt}],
-        "modalities": ["image", "text"],
-        "stream": False,
-        "image_config": {
-            "aspect_ratio": "4:3",
-            "image_size": "1K",
-        },
-    }
-    req = Request(
-        "https://openrouter.ai/api/v1/chat/completions",
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://classio.app",
-            "X-Title": "Classio",
-        },
-        method="POST",
-    )
-    with urlopen(req, timeout=90) as resp:
-        payload = json.loads(resp.read().decode("utf-8"))
-    return _extract_openrouter_image_data_url(payload)
+
+    def _request() -> str:
+        body = {
+            "model": _get_openrouter_image_model(),
+            "messages": [{"role": "user", "content": prompt}],
+            "modalities": ["image", "text"],
+            "stream": False,
+            "image_config": {
+                "aspect_ratio": "4:3",
+                "image_size": "1K",
+            },
+        }
+        req = Request(
+            "https://openrouter.ai/api/v1/chat/completions",
+            data=json.dumps(body).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://classio.app",
+                "X-Title": "Classio",
+            },
+            method="POST",
+        )
+        with urlopen(req, timeout=90) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        return _extract_openrouter_image_data_url(payload)
+
+    return run_with_ai_retries(_request)
 
 
 def _generate_with_gemini(prompt: str) -> str:
     api_key = _get_gemini_api_key()
     if not api_key:
         raise RuntimeError("missing_gemini_api_key")
-    client = _get_gemini_client(api_key)
-    response = client.models.generate_content(
-        model=_get_gemini_image_model(),
-        contents=[prompt],
-    )
 
-    candidate_parts = []
-    candidate_parts.extend(getattr(response, "parts", None) or [])
-    for candidate in getattr(response, "candidates", None) or []:
-        content = getattr(candidate, "content", None)
-        candidate_parts.extend(getattr(content, "parts", None) or [])
+    def _request() -> str:
+        client = _get_gemini_client(api_key)
+        response = client.models.generate_content(
+            model=_get_gemini_image_model(),
+            contents=[prompt],
+        )
 
-    for part in candidate_parts:
-        inline = getattr(part, "inline_data", None)
-        if inline is None and isinstance(part, dict):
-            inline = part.get("inline_data") or part.get("inlineData")
-        if inline is None:
-            continue
-        if isinstance(inline, dict):
-            mime_type = _clean_text(inline.get("mime_type") or inline.get("mimeType") or "")
-            data = inline.get("data")
-        else:
-            mime_type = _clean_text(getattr(inline, "mime_type", "") or getattr(inline, "mimeType", ""))
-            data = getattr(inline, "data", None)
-        if not data:
-            continue
-        if isinstance(data, str):
-            encoded = data
-        else:
-            encoded = base64.b64encode(data).decode("ascii")
-        return f"data:{mime_type or 'image/png'};base64,{encoded}"
-    return ""
+        candidate_parts = []
+        candidate_parts.extend(getattr(response, "parts", None) or [])
+        for candidate in getattr(response, "candidates", None) or []:
+            content = getattr(candidate, "content", None)
+            candidate_parts.extend(getattr(content, "parts", None) or [])
+
+        for part in candidate_parts:
+            inline = getattr(part, "inline_data", None)
+            if inline is None and isinstance(part, dict):
+                inline = part.get("inline_data") or part.get("inlineData")
+            if inline is None:
+                continue
+            if isinstance(inline, dict):
+                mime_type = _clean_text(inline.get("mime_type") or inline.get("mimeType") or "")
+                data = inline.get("data")
+            else:
+                mime_type = _clean_text(getattr(inline, "mime_type", "") or getattr(inline, "mimeType", ""))
+                data = getattr(inline, "data", None)
+            if not data:
+                continue
+            if isinstance(data, str):
+                encoded = data
+            else:
+                encoded = base64.b64encode(data).decode("ascii")
+            return f"data:{mime_type or 'image/png'};base64,{encoded}"
+        return ""
+
+    return run_with_ai_retries(_request)
 
 
 def _extract_openai_image_data_url(response) -> str:
@@ -627,14 +630,18 @@ def _generate_with_openai(prompt: str) -> str:
     api_key = _get_openai_api_key()
     if not api_key:
         raise RuntimeError("missing_openai_api_key")
-    client = _get_openai_client(api_key)
-    response = client.images.generate(
-        model="gpt-image-1",
-        prompt=prompt,
-        size="1024x1024",
-        quality="low",
-    )
-    return _extract_openai_image_data_url(response)
+
+    def _request() -> str:
+        client = _get_openai_client(api_key)
+        response = client.images.generate(
+            model="gpt-image-1",
+            prompt=prompt,
+            size="1024x1024",
+            quality="low",
+        )
+        return _extract_openai_image_data_url(response)
+
+    return run_with_ai_retries(_request)
 
 
 @st.cache_data(show_spinner=False, ttl=60 * 60 * 24 * 7, max_entries=128)
@@ -652,10 +659,6 @@ def _generate_ai_image_data_url(prompt: str) -> str:
                 return result
         except Exception as exc:
             last_errors.append(f"{provider}: {exc}")
-            try:
-                st.session_state["visual_support_warning"] = " | ".join(last_errors)
-            except Exception:
-                pass
             continue
     return ""
 
@@ -787,14 +790,13 @@ def enrich_worksheet_with_visuals(ws: dict, *, subject: str = "", learner_stage:
         )
     else:
         payload["visual_supports"] = []
-        warning = _clean_text(st.session_state.get("visual_support_warning", ""))
-        payload["_visual_support_status"] = _with_debug(_status_payload(
+        payload["_visual_support_status"] = _status_payload(
             "generation_failed",
             "image_support_generation_failed",
             provider_chain=_provider_chain_label(),
             task_type=payload.get("worksheet_type", ""),
             visual_role=role,
-        ), warning)
+        )
     return payload
 
 
@@ -882,14 +884,13 @@ def enrich_exam_with_visuals(exam_data: dict, *, subject: str = "", learner_stag
             )
         else:
             sec.pop("visual_support", None)
-            warning = _clean_text(st.session_state.get("visual_support_warning", ""))
-            sec["_visual_support_status"] = _with_debug(_status_payload(
+            sec["_visual_support_status"] = _status_payload(
                 "generation_failed",
                 "image_support_generation_failed",
                 provider_chain=_provider_chain_label(),
                 task_type=sec.get("type", ""),
                 visual_role=role,
-            ), warning)
+            )
         sections.append(sec)
     payload["sections"] = sections
     return payload

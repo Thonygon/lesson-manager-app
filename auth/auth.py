@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import os
 from core.i18n import t
 from core.state import (
@@ -14,7 +15,7 @@ from core.state import (
     PROFILE_COUNTRY_OPTIONS,
 )
 from helpers.lesson_planner import subject_label as _profile_subject_label
-from core.timezone import DEFAULT_TZ_NAME
+from core.timezone import DEFAULT_TZ_NAME, _get_qp
 from core.navigation import _set_query
 from core.database import (
     get_sb,
@@ -29,6 +30,65 @@ from core.database import (
     resolve_active_mode,
 )
 from helpers.currency import CURRENCIES, CURRENCY_CODES
+
+
+_SUPPORTED_UI_LANGS = ("en", "es", "tr")
+
+
+def _normalize_ui_lang(value, default: str = "") -> str:
+    lang = str(value or "").strip().lower()
+    if lang in _SUPPORTED_UI_LANGS:
+        return lang
+    if "-" in lang:
+        lang = lang.split("-", 1)[0]
+    if "_" in lang:
+        lang = lang.split("_", 1)[0]
+    return lang if lang in _SUPPORTED_UI_LANGS else default
+
+
+def _get_cookie_ui_lang() -> str:
+    try:
+        return _normalize_ui_lang(st.context.cookies.get("classio_ui_lang", ""))
+    except Exception:
+        return ""
+
+
+def _get_locale_ui_lang() -> str:
+    try:
+        return _normalize_ui_lang(getattr(st.context, "locale", ""))
+    except Exception:
+        return ""
+
+
+def _resolve_pre_auth_ui_lang() -> str:
+    for candidate in (
+        st.session_state.get("_pre_auth_ui_lang", ""),
+        _get_qp("lang", ""),
+        _get_cookie_ui_lang(),
+        st.session_state.get("ui_lang", ""),
+        _get_locale_ui_lang(),
+    ):
+        lang = _normalize_ui_lang(candidate)
+        if lang:
+            return lang
+    return "en"
+
+
+def _sync_ui_lang_cookie(lang: str) -> None:
+    lang = _normalize_ui_lang(lang, "en")
+    components.html(
+        f"""
+        <script>
+        (function () {{
+          const lang = {lang!r};
+          const cookie = `classio_ui_lang=${{lang}}; path=/; max-age=31536000; SameSite=Lax`;
+          try {{ document.cookie = cookie; }} catch (e) {{}}
+          try {{ window.parent.document.cookie = cookie; }} catch (e) {{}}
+        }})();
+        </script>
+        """,
+        height=0,
+    )
 
 
 @st.cache_data(show_spinner=False)
@@ -88,7 +148,7 @@ def _ensure_profile_for_oidc_user() -> str:
             {
                 "email": email,
                 "display_name": display_name,
-                "preferred_ui_language": st.session_state.get("ui_lang", "en"),
+                "preferred_ui_language": _resolve_pre_auth_ui_lang(),
                 "timezone": DEFAULT_TZ_NAME,
                 "default_lesson_duration": 45,
                 "role": "teacher",
@@ -157,12 +217,12 @@ def _restore_user_from_email() -> str:
         if not user_id:
             return ""
 
-        preferred_ui_language = str(
-            row.get("preferred_ui_language") or st.session_state.get("ui_lang", "en")
-        ).strip().lower()
-        if preferred_ui_language not in ("en", "es", "tr"):
-            preferred_ui_language = "en"
+        preferred_ui_language = _normalize_ui_lang(
+            row.get("preferred_ui_language") or _resolve_pre_auth_ui_lang(),
+            "en",
+        )
         st.session_state["ui_lang"] = preferred_ui_language
+        st.session_state["_pre_auth_ui_lang"] = preferred_ui_language
 
         # Sync Google display name to profile if missing
         google_name = str(getattr(st.user, "name", "") or "").strip()
@@ -262,19 +322,14 @@ def render_google_auth_card(
     if show_signup_note:
         st.caption(t("google_auth_signup_note"))
 
-    st.markdown(
-        """
-        <div class="home-section-line"> 
-          <span>🤖</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
 def require_login():
     """
     Blocks the app unless a user is logged in with Streamlit OIDC.
     """
+    resolved_ui_lang = _resolve_pre_auth_ui_lang()
+    st.session_state["ui_lang"] = resolved_ui_lang
+    st.session_state["_pre_auth_ui_lang"] = resolved_ui_lang
+
     if getattr(st.user, "is_logged_in", False):
         user_id = _restore_user_from_email()
         if user_id:
@@ -287,6 +342,8 @@ def require_login():
     _theme_mode = st.session_state.get("ui_theme_mode", "auto")
     _dark_login = _theme_mode == "dark"
     from styles.theme import _root_vars, _dark_widget_css
+
+    _sync_ui_lang_cookie(resolved_ui_lang)
 
     st.markdown(f"<style>{_root_vars()}</style>", unsafe_allow_html=True)
     _dw = _dark_widget_css()
@@ -344,10 +401,15 @@ def require_login():
         st.markdown("</div>", unsafe_allow_html=True)
 
     _from_explore = st.session_state.pop("_explore_go_signup", False)
+    _focus_login = st.session_state.pop("_auth_focus_login", False)
     _lang_tab_label = "🌐"
     _theme_tab_label = "🌙" if not _dark_login else "☀️"
 
-    if _from_explore:
+    if _focus_login:
+        tab_login, tab_signup, tab_explore, tab_lang, tab_theme = st.tabs(
+            [t("sign_in"), t("sign_up"), t("explore_tab"), _lang_tab_label, _theme_tab_label]
+        )
+    elif _from_explore:
         tab_signup, tab_login, tab_explore, tab_lang, tab_theme = st.tabs(
             [t("sign_up"), t("sign_in"), t("explore_tab"), _lang_tab_label, _theme_tab_label]
         )
@@ -388,7 +450,9 @@ def require_login():
             horizontal=True,
         )
         if _selected != _cur:
+            _sync_ui_lang_cookie(_selected)
             st.session_state["ui_lang"] = _selected
+            st.session_state["_pre_auth_ui_lang"] = _selected
             _set_query(lang=_selected)
             st.rerun()
 
@@ -407,6 +471,19 @@ def require_login():
             button_key="create_account_google",
             button_widget_key="btn_google_signup",
             show_signup_note=True,
+        )
+        st.markdown(f"#### {t('already_have_account')}")
+        st.caption(t("already_have_account_hint"))
+        if st.button(t("sign_in"), key="btn_signup_go_login", use_container_width=True):
+            st.session_state["_auth_focus_login"] = True
+            st.rerun()
+        st.markdown(
+            """
+            <div class="home-section-line"> 
+              <span>🤖</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
     with tab_explore:
@@ -781,11 +858,13 @@ def render_profile_dialog(user_id: str) -> None:
                     st.session_state["user_name"] = display_name.strip() or st.session_state.get("user_name", "User")
                     st.session_state["avatar_url"] = new_avatar_url
                     st.session_state["ui_lang"] = preferred_ui_language
+                    st.session_state["_pre_auth_ui_lang"] = preferred_ui_language
                     st.session_state["preferred_currency"] = preferred_currency
                     st.session_state["user_role"] = role
+                    _sync_ui_lang_cookie(preferred_ui_language)
                     _set_query(lang=preferred_ui_language)
 
-                    st.session_state["home_action_menu_prev"] = t("files")
+                    st.session_state["home_action_menu_prev"] = t("home")
                     st.success(t("profile_updated"))
                     st.rerun()
                 else:

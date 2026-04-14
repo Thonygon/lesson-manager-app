@@ -14,7 +14,7 @@ from core.database import get_sb, load_table, clear_app_caches
 import math
 import html
 import textwrap
-from core.navigation import home_go
+from core.navigation import go_to
 import re
 import unicodedata
 from xml.sax.saxutils import escape as xml_escape
@@ -31,6 +31,8 @@ from helpers.visual_support import (
     build_pdf_visual_flowables,
     render_visual_support_status_group,
 )
+from helpers.answer_key_utils import normalize_answer_key_text, split_answer_key_items
+from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
 
 
 def _wb():
@@ -172,26 +174,12 @@ def _pdf_safe_text(value) -> str:
 
 
 def _split_answer_key(answer_key) -> list[str]:
-    if isinstance(answer_key, list):
-        return [_normalize_text(a) for a in answer_key if str(a).strip()]
+    items = split_answer_key_items(answer_key)
+    if items:
+        return [_normalize_text(item) for item in items]
 
-    text = _normalize_text(answer_key or "")
-    parts = re.split(r"(?:^|\n)\s*(\d+[\.\)\-])", text)
-
-    if len(parts) > 2:
-        lines = []
-        i = 1
-        while i < len(parts) - 1:
-            num = parts[i].strip()
-            body = parts[i + 1].strip()
-            if body:
-                lines.append(f"{num} {body}")
-            i += 2
-        if lines:
-            return lines
-
-    lines = [l.strip() for l in text.split("\n") if l.strip()]
-    return lines if lines else [text]
+    text = _normalize_text(answer_key or "").strip()
+    return [text] if text else []
 
 # ── clean helpers ───────────────────────────────────────────────
 
@@ -202,6 +190,8 @@ def _clean_worksheet_data(ws: dict) -> dict:
             _strip_leading_enum(q) if isinstance(q, str) else q
             for q in out["questions"]
         ]
+    if out.get("answer_key"):
+        out["answer_key"] = normalize_answer_key_text(out.get("answer_key"))
     return out
 
 
@@ -773,7 +763,8 @@ def save_worksheet_record(
         )
         worksheet = _normalize_worksheet_unicode(worksheet)
 
-        from helpers.branding import resolve_is_public
+        from helpers.branding import get_user_branding, resolve_is_public
+        branding = get_user_branding()
 
         payload = with_owner({
             "subject": str(subject).strip(),
@@ -788,17 +779,25 @@ def save_worksheet_record(
             "title": _clean_display_text(worksheet.get("title") or ""),
             "author_name": str(st.session_state.get("user_name") or "Unknown").strip(),
             "subject_display": subject.replace("_", " ").strip().title() if subject else "",
-            "is_public": resolve_is_public(),
+            "is_public": resolve_is_public(branding),
+            "status": ACTIVE_STATUS,
             "created_at": _dt.now(timezone.utc).isoformat(),
         })
-        get_sb().table("worksheets").insert(payload).execute()
+        try:
+            get_sb().table("worksheets").insert(payload).execute()
+        except Exception as inner_exc:
+            if "status" not in str(inner_exc).lower():
+                raise
+            legacy_payload = dict(payload)
+            legacy_payload.pop("status", None)
+            get_sb().table("worksheets").insert(legacy_payload).execute()
         return True
     except Exception as e:
         st.warning(f"Could not save worksheet: {e}")
         return False
 
 
-def load_my_worksheets() -> pd.DataFrame:
+def load_my_worksheets(*, include_archived: bool = False, archived_only: bool = False) -> pd.DataFrame:
     try:
         df = load_table("worksheets")
         if df is None or df.empty:
@@ -809,7 +808,11 @@ def load_my_worksheets() -> pd.DataFrame:
         sort_col = "created_at" if "created_at" in df.columns else None
         if sort_col:
             df = df.sort_values(sort_col, ascending=False, na_position="last")
-        return df.reset_index(drop=True)
+        return filter_archived_rows(
+            df,
+            include_archived=include_archived,
+            archived_only=archived_only,
+        )
     except Exception:
         return pd.DataFrame()
 
@@ -829,12 +832,122 @@ def load_public_worksheets() -> pd.DataFrame:
             return pd.DataFrame()
         if "created_at" in df.columns:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-        return df.reset_index(drop=True)
+        return filter_archived_rows(df)
     except Exception:
         return pd.DataFrame()
 
 
 # ── AI usage tracking ────────────────────────────────────────────────
+def update_worksheet_visibility(worksheet_id, is_public: bool) -> tuple[bool, str]:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid:
+        return False, "auth_required"
+    safe_worksheet_id = worksheet_id
+    if isinstance(worksheet_id, str):
+        stripped = worksheet_id.strip()
+        if not stripped:
+            return False, "invalid_id"
+        safe_worksheet_id = int(stripped) if stripped.isdigit() else stripped
+    elif worksheet_id is None:
+        return False, "invalid_id"
+    try:
+        res = (
+            get_sb()
+            .table("worksheets")
+            .select("id, user_id")
+            .eq("id", safe_worksheet_id)
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(res, "data", None) or []
+        if not rows:
+            return False, "not_found"
+        if str(rows[0].get("user_id") or "").strip() != uid:
+            return False, "not_owner"
+        (
+            get_sb()
+            .table("worksheets")
+            .update({"is_public": bool(is_public)})
+            .eq("id", safe_worksheet_id)
+            .eq("user_id", uid)
+            .execute()
+        )
+        clear_app_caches()
+        return True, "ok"
+    except Exception as exc:
+        return False, str(exc)
+
+
+def update_worksheet_archive(worksheet_id, archived: bool) -> tuple[bool, str]:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid:
+        return False, "auth_required"
+    safe_worksheet_id = worksheet_id
+    if isinstance(worksheet_id, str):
+        stripped = worksheet_id.strip()
+        if not stripped:
+            return False, "invalid_id"
+        safe_worksheet_id = int(stripped) if stripped.isdigit() else stripped
+    elif worksheet_id is None:
+        return False, "invalid_id"
+    payload = {
+        "status": ARCHIVED_STATUS if archived else ACTIVE_STATUS,
+        "is_public": False,
+    }
+    try:
+        (
+            get_sb()
+            .table("worksheets")
+            .update(payload)
+            .eq("id", safe_worksheet_id)
+            .eq("user_id", uid)
+            .execute()
+        )
+        from helpers.teacher_student_integration import update_assignment_source_archive_state
+
+        update_assignment_source_archive_state(
+            assignment_type="worksheet",
+            source_type="worksheet_builder",
+            source_record_id=safe_worksheet_id,
+            archived=archived,
+        )
+        clear_app_caches()
+        return True, "ok"
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _open_worksheet_library_record(
+    row: dict,
+    *,
+    open_in_files: bool = False,
+    require_signup: bool = False,
+    expand_assign: bool = False,
+) -> None:
+    if require_signup:
+        st.session_state["_post_signup_open_panel"] = "files"
+        st.session_state["_post_signup_open_tab"] = "community_library"
+        st.session_state["_explore_go_signup"] = True
+        st.rerun()
+
+    st.session_state["files_selected_worksheet"] = row.get("worksheet_json") or {}
+    st.session_state["files_ws_subject"] = str(row.get("subject") or "").strip()
+    st.session_state["files_ws_stage"] = str(row.get("learner_stage") or "").strip()
+    st.session_state["files_ws_level"] = str(row.get("level_or_band") or "").strip()
+    st.session_state["files_ws_type"] = str(row.get("worksheet_type") or "").strip()
+    st.session_state["files_ws_topic"] = str(row.get("topic") or "").strip()
+    st.session_state["files_ws_title"] = str(row.get("title") or t("untitled_worksheet")).strip()
+    st.session_state["files_selected_worksheet_id"] = row.get("id")
+    st.session_state["files_selected_worksheet_status"] = str(row.get("status") or "").strip()
+    st.session_state["files_selected_worksheet_assign_expanded"] = bool(expand_assign)
+
+    if open_in_files:
+        go_to("resources")
+    else:
+        st.toast(t("scroll_down_to_view"))
+    st.rerun()
+
+
 def log_ai_usage(request_kind: str, status: str, meta: Optional[dict] = None) -> None:
     try:
         payload = with_owner({
@@ -918,12 +1031,20 @@ def _format_dt(value) -> str:
         return ""
 
 
+def _is_public_value(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on", "public"}
+
+
 def render_worksheet_library_cards(
     df: pd.DataFrame,
     prefix: str = "ws",
     show_author: bool = False,
     open_in_files: bool = False,
     require_signup: bool = False,
+    allow_visibility_toggle: bool = False,
+    allow_archive_toggle: bool = False,
 ) -> None:
     if df is None or df.empty:
         st.info(t("no_data"))
@@ -937,6 +1058,7 @@ def render_worksheet_library_cards(
 
         for col_idx, row in enumerate(pair):
             row_id = row.get("id", idx + col_idx)
+            worksheet_id = row.get("id")
             title = str(row.get("title") or t("untitled_worksheet")).strip()
             subject = str(row.get("subject") or "").strip()
             topic = str(row.get("topic") or "").strip()
@@ -947,6 +1069,7 @@ def render_worksheet_library_cards(
             source_type = str(row.get("source_type") or "").strip()
             author_name = str(row.get("author_name") or "").strip()
             created_at = _format_dt(row.get("created_at"))
+            is_archived = is_archived_status(row.get("status"))
 
             subject_label = ""
             if subject:
@@ -963,6 +1086,7 @@ def render_worksheet_library_cards(
             stage_label = t(learner_stage) if learner_stage else ""
             ws_type_label = t(worksheet_type) if worksheet_type else ""
             source_label = t("mode_ai") if source_type == "ai" else t("mode_template")
+            visibility_label = t("public_label") if _is_public_value(row.get("is_public")) else t("private_label")
 
             safe_title = html.escape(title)
             safe_author = html.escape(author_name)
@@ -977,6 +1101,8 @@ def render_worksheet_library_cards(
             ])
 
             meta = "".join([
+                f'<div class="cm-resource-meta">⚙️ {html.escape(visibility_label)}</div>',
+                f'<div class="cm-resource-meta">🗂️ {html.escape(t("archived_label"))}</div>' if is_archived else "",
                 f'<div class="cm-resource-meta">👤 {safe_author}</div>' if show_author and author_name else "",
                 f'<div class="cm-resource-meta">🕒 {html.escape(created_at)}</div>' if created_at else "",
             ])
@@ -992,34 +1118,87 @@ def render_worksheet_library_cards(
 
             with cols[col_idx]:
                 st.markdown(card_html, unsafe_allow_html=True)
-
-                if st.button(
-                    t("preview"),
-                    key=f"{prefix}_preview_{row_id}_{idx}_{col_idx}",
-                    use_container_width=True,
-                ):
-                    st.session_state["files_selected_worksheet"] = row.get("worksheet_json") or {}
-                    st.session_state["files_ws_subject"] = subject
-                    st.session_state["files_ws_stage"] = learner_stage
-                    st.session_state["files_ws_level"] = level_or_band
-                    st.session_state["files_ws_type"] = worksheet_type
-                    st.session_state["files_ws_topic"] = topic
-                    st.session_state["files_ws_title"] = title
-
-                    if require_signup:
-                        st.session_state["_post_signup_open_panel"] = "files"
-                        st.session_state["_post_signup_open_tab"] = "community_library"
-                        st.session_state["_explore_go_signup"] = True
-                    elif open_in_files:
-                        home_go("home", panel="files")
-                    else:
-                        st.toast(t("scroll_down_to_view"))
-
-                    st.rerun()
+                is_owner = str(row.get("user_id") or "").strip() == str(get_current_user_id() or "").strip()
+                show_owner_controls = allow_visibility_toggle or allow_archive_toggle
+                action_cols = st.columns([1, 1, 1, 1] if show_owner_controls else [1, 1])
+                with action_cols[0]:
+                    if st.button(
+                        t("view_worksheet"),
+                        key=f"{prefix}_view_{row_id}_{idx}_{col_idx}",
+                        use_container_width=True,
+                    ):
+                        _open_worksheet_library_record(
+                            row,
+                            open_in_files=open_in_files,
+                            require_signup=False,
+                            expand_assign=False,
+                        )
+                with action_cols[1]:
+                    if not show_owner_controls or not is_archived:
+                        if st.button(
+                            t("assign_to_student"),
+                            key=f"{prefix}_assign_{row_id}_{idx}_{col_idx}",
+                            use_container_width=True,
+                        ):
+                            _open_worksheet_library_record(
+                                row,
+                                open_in_files=open_in_files,
+                                require_signup=require_signup,
+                                expand_assign=True,
+                            )
+                if show_owner_controls:
+                    with action_cols[2]:
+                        if allow_visibility_toggle and is_owner and str(worksheet_id or "").strip() and not is_archived:
+                            current_public = _is_public_value(row.get("is_public"))
+                            toggle_key = re.sub(r"[^A-Za-z0-9._-]+", "_", str(worksheet_id or "").strip()) or f"{idx}_{col_idx}"
+                            new_public = st.toggle(
+                                t("public_toggle_label"),
+                                value=current_public,
+                                key=f"{prefix}_toggle_visibility_{toggle_key}_{idx}_{col_idx}",
+                            )
+                            if new_public != current_public:
+                                ok, msg = update_worksheet_visibility(worksheet_id, new_public)
+                                if ok:
+                                    st.success(
+                                        t(
+                                            "resource_visibility_updated",
+                                            visibility=t("public_label") if new_public else t("private_label"),
+                                        )
+                                    )
+                                    st.rerun()
+                                st.error(t("resource_visibility_update_failed", error=msg))
+                    with action_cols[3]:
+                        if allow_archive_toggle and is_owner and str(worksheet_id or "").strip():
+                            toggle_key = re.sub(r"[^A-Za-z0-9._-]+", "_", str(worksheet_id or "").strip()) or f"{idx}_{col_idx}"
+                            new_archived = st.toggle(
+                                t("archive_toggle_label"),
+                                value=is_archived,
+                                key=f"{prefix}_toggle_archive_{toggle_key}_{idx}_{col_idx}",
+                            )
+                            if new_archived != is_archived:
+                                ok, msg = update_worksheet_archive(worksheet_id, new_archived)
+                                if ok:
+                                    st.success(
+                                        t(
+                                            "resource_archive_updated",
+                                            state=t("archived_label") if new_archived else t("restored_label"),
+                                        )
+                                    )
+                                    st.rerun()
+                                st.error(t("resource_archive_update_failed", error=msg))
 
 
 # ── Render worksheet result ──────────────────────────────────────────
-def render_worksheet_result(ws: dict, read_only: bool = False, allow_assign: bool = False, **meta) -> None:
+def render_worksheet_result(
+    ws: dict,
+    read_only: bool = False,
+    allow_assign: bool = False,
+    assign_expanded: bool = False,
+    resource_record_id: int | str | None = None,
+    signup_required_actions: bool = False,
+    action_key_prefix: str = "worksheet_result",
+    **meta,
+) -> None:
     if not ws:
         return
 
@@ -1127,17 +1306,27 @@ def render_worksheet_result(ws: dict, read_only: bool = False, allow_assign: boo
         # render_visual_support_status_group([ws.get("_visual_support_status")])
         pass
 
-    if read_only and allow_assign:
-        with st.expander(t("assign_to_student"), expanded=False):
+    if read_only and signup_required_actions:
+        st.caption(t("explore_resource_action_signup_note"))
+        if st.button(
+            t("assign_to_student"),
+            key=f"{action_key_prefix}_assign_signup",
+            use_container_width=True,
+        ):
+            st.session_state["_explore_go_signup"] = True
+            st.rerun()
+    elif read_only and allow_assign:
+        with st.expander(t("assign_to_student"), expanded=assign_expanded):
             from helpers.teacher_student_integration import render_assignment_panel_for_worksheet
 
             render_assignment_panel_for_worksheet(
-                prefix=f"worksheet_assign_readonly_{re.sub(r'[^A-Za-z0-9._-]+', '_', str(ws.get('title') or 'worksheet').strip()) or 'worksheet'}",
+                prefix=f"{action_key_prefix}_assign_readonly_{re.sub(r'[^A-Za-z0-9._-]+', '_', str(ws.get('title') or 'worksheet').strip()) or 'worksheet'}",
                 worksheet=ws,
                 subject=subject,
                 topic=topic,
                 learner_stage=learner_stage,
                 level_or_band=level_or_band,
+                source_record_id=resource_record_id,
             )
 
     _pdf_kwargs = dict(
@@ -1160,42 +1349,78 @@ def render_worksheet_result(ws: dict, read_only: bool = False, allow_assign: boo
     if read_only:
         dc1, dc2 = st.columns(2)
         with dc1:
-            st.download_button(
-                label=t("download_student_pdf"),
-                data=student_pdf,
-                file_name=f"{safe_title}_student.pdf",
-                mime="application/pdf",
-                key=f"dl_ws_stu_{safe_title}",
-                use_container_width=True,
-            )
+            if signup_required_actions:
+                if st.button(
+                    t("download_student_pdf"),
+                    key=f"{action_key_prefix}_student_pdf_signup",
+                    use_container_width=True,
+                ):
+                    st.session_state["_explore_go_signup"] = True
+                    st.rerun()
+            else:
+                st.download_button(
+                    label=t("download_student_pdf"),
+                    data=student_pdf,
+                    file_name=f"{safe_title}_student.pdf",
+                    mime="application/pdf",
+                    key=f"{action_key_prefix}_dl_ws_stu_{safe_title}",
+                    use_container_width=True,
+                )
         with dc2:
-            st.download_button(
-                label=t("download_teacher_pdf"),
-                data=teacher_pdf,
-                file_name=f"{safe_title}_teacher.pdf",
-                mime="application/pdf",
-                key=f"dl_ws_tch_{safe_title}",
-                use_container_width=True,
-            )
+            if signup_required_actions:
+                if st.button(
+                    t("download_teacher_pdf"),
+                    key=f"{action_key_prefix}_teacher_pdf_signup",
+                    use_container_width=True,
+                ):
+                    st.session_state["_explore_go_signup"] = True
+                    st.rerun()
+            else:
+                st.download_button(
+                    label=t("download_teacher_pdf"),
+                    data=teacher_pdf,
+                    file_name=f"{safe_title}_teacher.pdf",
+                    mime="application/pdf",
+                    key=f"{action_key_prefix}_dl_ws_tch_{safe_title}",
+                    use_container_width=True,
+                )
         dw1, dw2 = st.columns(2)
         with dw1:
-            st.download_button(
-                label=t("download_student_word"),
-                data=student_docx,
-                file_name=f"{safe_title}_student.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key=f"dl_ws_stu_docx_{safe_title}",
-                use_container_width=True,
-            )
+            if signup_required_actions:
+                if st.button(
+                    t("download_student_word"),
+                    key=f"{action_key_prefix}_student_word_signup",
+                    use_container_width=True,
+                ):
+                    st.session_state["_explore_go_signup"] = True
+                    st.rerun()
+            else:
+                st.download_button(
+                    label=t("download_student_word"),
+                    data=student_docx,
+                    file_name=f"{safe_title}_student.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key=f"{action_key_prefix}_dl_ws_stu_docx_{safe_title}",
+                    use_container_width=True,
+                )
         with dw2:
-            st.download_button(
-                label=t("download_teacher_word"),
-                data=teacher_docx,
-                file_name=f"{safe_title}_teacher.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key=f"dl_ws_tch_docx_{safe_title}",
-                use_container_width=True,
-            )
+            if signup_required_actions:
+                if st.button(
+                    t("download_teacher_word"),
+                    key=f"{action_key_prefix}_teacher_word_signup",
+                    use_container_width=True,
+                ):
+                    st.session_state["_explore_go_signup"] = True
+                    st.rerun()
+            else:
+                st.download_button(
+                    label=t("download_teacher_word"),
+                    data=teacher_docx,
+                    file_name=f"{safe_title}_teacher.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key=f"{action_key_prefix}_dl_ws_tch_docx_{safe_title}",
+                    use_container_width=True,
+                )
     else:
         c1, c2 = st.columns(2)
         with c1:
@@ -1255,6 +1480,7 @@ def render_worksheet_result(ws: dict, read_only: bool = False, allow_assign: boo
                 topic=topic,
                 learner_stage=learner_stage,
                 level_or_band=level_or_band,
+                source_record_id=resource_record_id,
             )
 
 
@@ -1853,7 +2079,7 @@ def build_worksheet_pdf_bytes(
 
 # ── Expander UI ──────────────────────────────────────────────────────
 def render_quick_worksheet_maker_expander() -> None:
-    with st.expander(t("worksheet_maker"), expanded=False):
+    with st.expander(f"📋 {t('worksheet_maker')}", expanded=False):
         st.caption(t("worksheet_maker_caption"))
 
         usage = get_ai_worksheet_usage_status()
