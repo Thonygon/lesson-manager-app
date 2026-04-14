@@ -1,10 +1,43 @@
 import streamlit as st
 import html as _html
+import math
 from core.i18n import t
 from core.state import get_current_user_id
 from core.database import load_community_profiles, profile_can_teach, profile_can_study
 from helpers.lesson_planner import QUICK_SUBJECTS, subject_label as _subject_label
 from helpers.teacher_student_integration import archive_teacher_student_link, create_teacher_request, load_student_teacher_links
+
+_FIND_TEACHER_PAGE_SIZE = 6
+
+
+def _slice_finder_page(rows: list, state_key: str, *, page_size: int = _FIND_TEACHER_PAGE_SIZE):
+    total_items = len(rows or [])
+    total_pages = max(1, math.ceil(total_items / page_size)) if total_items else 1
+    current_page = int(st.session_state.get(state_key, 1) or 1)
+    current_page = max(1, min(current_page, total_pages))
+    st.session_state[state_key] = current_page
+    start_idx = (current_page - 1) * page_size
+    end_idx = min(start_idx + page_size, total_items)
+    return list((rows or [])[start_idx:end_idx]), current_page, total_pages, start_idx, end_idx, total_items
+
+
+def _render_finder_pagination(rows: list, state_key: str, *, page_size: int = _FIND_TEACHER_PAGE_SIZE) -> None:
+    _, current_page, total_pages, start_idx, end_idx, total_items = _slice_finder_page(
+        rows, state_key, page_size=page_size,
+    )
+    if total_items <= page_size:
+        return
+    prev_col, info_col, next_col = st.columns([1, 3, 1])
+    with prev_col:
+        if st.button("←", key=f"{state_key}_prev", use_container_width=True, disabled=current_page <= 1):
+            st.session_state[state_key] = max(1, current_page - 1)
+            st.rerun()
+    with info_col:
+        st.caption(f"{start_idx + 1}-{end_idx} / {total_items} · {current_page}/{total_pages}")
+    with next_col:
+        if st.button("→", key=f"{state_key}_next", use_container_width=True, disabled=current_page >= total_pages):
+            st.session_state[state_key] = min(total_pages, current_page + 1)
+            st.rerun()
 
 
 def _render_end_relationship_action(*, link_id: int, key_prefix: str) -> None:
@@ -138,7 +171,8 @@ def render_community_member_cards(profiles: list, role_filter: str = "teacher"):
         for row in load_student_teacher_links()
     }
 
-    for member in members:
+    members_page, *_ = _slice_finder_page(members, f"community_{role_filter}_page")
+    for member in members_page:
         relationship = current_links.get(str(member.get("user_id") or "").strip())
         _name = _html.escape(
             str(member.get("display_name") or member.get("username") or "").strip() or "—"
@@ -262,6 +296,7 @@ def render_community_member_cards(profiles: list, role_filter: str = "teacher"):
                                 st.success(t(msg))
                                 st.rerun()
                             st.error(t(msg))
+    _render_finder_pagination(members, f"community_{role_filter}_page")
 
 
 def _clean_custom_subject_label(value: str) -> str:

@@ -1,5 +1,6 @@
 import streamlit as st
 import datetime
+import math
 from datetime import datetime as _dt, timezone
 import pandas as pd
 from core.i18n import t
@@ -461,8 +462,19 @@ def _render_view_payments():
 
     st.caption(f"**{len(year_df)}** {t('payments')} · {selected_year}")
 
-    for _, row in year_df.iterrows():
-        date_str = row["payment_date"].strftime("%d %b %Y")
+    _PAYMENTS_PAGE_SIZE = 8
+    payment_rows = year_df.reset_index(drop=True).to_dict("records")
+    total_items = len(payment_rows)
+    total_pages = max(1, math.ceil(total_items / _PAYMENTS_PAGE_SIZE))
+    current_page = int(st.session_state.get("view_payments_page", 1) or 1)
+    current_page = max(1, min(current_page, total_pages))
+    st.session_state["view_payments_page"] = current_page
+    start_idx = (current_page - 1) * _PAYMENTS_PAGE_SIZE
+    end_idx = min(start_idx + _PAYMENTS_PAGE_SIZE, total_items)
+    page_rows = payment_rows[start_idx:end_idx]
+
+    for row in page_rows:
+        date_str = pd.to_datetime(row["payment_date"]).strftime("%d %b %Y")
         student_name = row["student"] or "—"
         lessons = int(row["number_of_lesson"])
         amount = float(row["paid_amount"])
@@ -512,6 +524,19 @@ def _render_view_payments():
             """,
             unsafe_allow_html=True,
         )
+
+    if total_items > _PAYMENTS_PAGE_SIZE:
+        prev_col, info_col, next_col = st.columns([1, 3, 1])
+        with prev_col:
+            if st.button("←", key="view_payments_page_prev", use_container_width=True, disabled=current_page <= 1):
+                st.session_state["view_payments_page"] = max(1, current_page - 1)
+                st.rerun()
+        with info_col:
+            st.caption(f"{start_idx + 1}-{end_idx} / {total_items} · {current_page}/{total_pages}")
+        with next_col:
+            if st.button("→", key="view_payments_page_next", use_container_width=True, disabled=current_page >= total_pages):
+                st.session_state["view_payments_page"] = min(total_pages, current_page + 1)
+                st.rerun()
 
 
 # =========================

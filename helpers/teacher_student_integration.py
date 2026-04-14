@@ -1007,6 +1007,22 @@ def mark_assignment_started(assignment_id: int) -> None:
         pass
 
 
+def persist_assignment_content_snapshot(assignment_id: int, snapshot: dict) -> None:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid or not assignment_id or not isinstance(snapshot, dict):
+        return
+    try:
+        get_sb().table("teacher_assignments").update(
+            {
+                "content_snapshot": snapshot,
+                "updated_at": _now_iso(),
+            }
+        ).eq("id", int(assignment_id)).eq("student_id", uid).execute()
+        clear_app_caches()
+    except Exception:
+        pass
+
+
 def update_topic_assignment_status(assignment_id: int, status: str) -> None:
     uid = str(get_current_user_id() or "").strip()
     if not uid or not assignment_id:

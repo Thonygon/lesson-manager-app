@@ -24,6 +24,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "already_have_account": "Already have an account?",
         "already_have_account_hint": "Sign in to keep exploring, save resources, and unlock downloads and assignments.",
         "explore_resource_action_signup_note": "Create a free account to download this resource or assign it to students.",
+        "search_results": "Search results",
         # -------------------------
         # AUTH
         # -------------------------
@@ -1983,6 +1984,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "already_have_account": "¿Ya tienes una cuenta?",
         "already_have_account_hint": "Inicia sesión para seguir explorando, guardar recursos y desbloquear descargas y asignaciones.",
         "explore_resource_action_signup_note": "Crea una cuenta gratuita para descargar este recurso o asignarlo a estudiantes.",
+        "search_results": "Resultados de la búsqueda",
         # -------------------------
         # AUTH
         # -------------------------
@@ -3940,6 +3942,7 @@ I18N: Dict[str, Dict[str, str]] = {
         "already_have_account": "Zaten bir hesabınız var mı?",
         "already_have_account_hint": "Keşfetmeye devam etmek, kaynakları kaydetmek ve indirme ile atama özelliklerini açmak için giriş yapın.",
         "explore_resource_action_signup_note": "Bu kaynağı indirmek veya öğrencilere atamak için ücretsiz bir hesap oluşturun.",
+        "search_results": "Arama sonuçları",
         # -------------------------
         # AUTH
         # -------------------------

@@ -1,12 +1,15 @@
 import html as _html
+import math
 
 import streamlit as st
 
+from core.database import get_sb
 from core.i18n import t
 from core.navigation import go_to
 from core.state import get_current_user_id
 from helpers.practice_engine import exam_to_exercises, worksheet_to_exercises
 from helpers.practice_engine import load_in_progress_practice_session
+from helpers.visual_support import enrich_exam_with_visuals, enrich_worksheet_with_visuals, exam_has_ready_visuals, worksheet_has_ready_visuals
 from helpers.teacher_student_integration import (
     _clean_teacher_feedback_text,
     group_assignments_by_teacher_subject,
@@ -14,15 +17,73 @@ from helpers.teacher_student_integration import (
     load_student_assignments,
     load_student_teacher_links,
     mark_assignment_started,
+    persist_assignment_content_snapshot,
     update_topic_assignment_status,
 )
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student, render_student_program_view
+
+_STUDENT_PAGE_SIZE = 4
+
+
+def _normalize_source_record_id(source_record_id):
+    text = str(source_record_id or "").strip()
+    if not text:
+        return None
+    if text.isdigit():
+        try:
+            return int(text)
+        except Exception:
+            return text
+    return text
+
+
+def _load_source_worksheet(source_record_id):
+    safe_source_id = _normalize_source_record_id(source_record_id)
+    if safe_source_id in (None, "", 0, "0"):
+        return {}
+    try:
+        res = (
+            get_sb()
+            .table("worksheets")
+            .select("worksheet_json")
+            .eq("id", safe_source_id)
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(res, "data", None) or []
+        if not rows:
+            return {}
+        return dict(rows[0].get("worksheet_json") or {})
+    except Exception:
+        return {}
+
+
+def _load_source_exam(source_record_id):
+    safe_source_id = _normalize_source_record_id(source_record_id)
+    if safe_source_id in (None, "", 0, "0"):
+        return {}
+    try:
+        res = (
+            get_sb()
+            .table("quick_exams")
+            .select("exam_data")
+            .eq("id", safe_source_id)
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(res, "data", None) or []
+        if not rows:
+            return {}
+        return dict(rows[0].get("exam_data") or {})
+    except Exception:
+        return {}
 
 
 def _open_assignment_practice(row: dict) -> None:
     assignment_id = row.get("id")
     snapshot = row.get("content_snapshot") or {}
     assignment_type = str(row.get("assignment_type") or "").strip()
+    source_record_id = row.get("source_record_id")
     meta = {
         "subject": row.get("subject_key", ""),
         "topic": row.get("topic", ""),
@@ -32,14 +93,46 @@ def _open_assignment_practice(row: dict) -> None:
 
     exercise_data = {}
     if assignment_type == "worksheet":
-        worksheet = snapshot.get("worksheet") or {}
+        worksheet = dict(snapshot.get("worksheet") or {})
+        if not worksheet_has_ready_visuals(worksheet):
+            source_worksheet = _load_source_worksheet(source_record_id)
+            if worksheet_has_ready_visuals(source_worksheet):
+                worksheet = source_worksheet
+                snapshot["worksheet"] = worksheet
+                persist_assignment_content_snapshot(int(assignment_id), snapshot)
+        had_ready_visuals = worksheet_has_ready_visuals(worksheet)
+        worksheet = enrich_worksheet_with_visuals(
+            worksheet,
+            subject=row.get("subject_key", ""),
+            learner_stage=(snapshot.get("meta") or {}).get("learner_stage", ""),
+            topic=row.get("topic", ""),
+        )
+        if not had_ready_visuals and worksheet_has_ready_visuals(worksheet):
+            snapshot["worksheet"] = worksheet
+            persist_assignment_content_snapshot(int(assignment_id), snapshot)
         exercise_data = worksheet_to_exercises(worksheet, row_id=assignment_id)
     elif assignment_type == "exam":
         exam_data = dict(snapshot.get("exam_data") or {})
+        if not exam_has_ready_visuals(exam_data):
+            source_exam = _load_source_exam(source_record_id)
+            if exam_has_ready_visuals(source_exam):
+                exam_data = source_exam
+                snapshot["exam_data"] = exam_data
+                persist_assignment_content_snapshot(int(assignment_id), snapshot)
+        had_ready_visuals = exam_has_ready_visuals(exam_data)
         exam_data.setdefault("subject", row.get("subject_key", ""))
         exam_data.setdefault("topic", row.get("topic", ""))
         exam_data.setdefault("learner_stage", (snapshot.get("meta") or {}).get("learner_stage", ""))
+        exam_data = enrich_exam_with_visuals(
+            exam_data,
+            subject=row.get("subject_key", ""),
+            learner_stage=(snapshot.get("meta") or {}).get("learner_stage", ""),
+            topic=row.get("topic", ""),
+        )
         answer_key = snapshot.get("answer_key") or {}
+        if not had_ready_visuals and exam_has_ready_visuals(exam_data):
+            snapshot["exam_data"] = exam_data
+            persist_assignment_content_snapshot(int(assignment_id), snapshot)
         exercise_data = exam_to_exercises(exam_data, answer_key, row_id=assignment_id)
 
     if not exercise_data.get("exercises"):
@@ -86,6 +179,38 @@ def _safe_ui_label(key: str, fallback: str | None = None) -> str:
     return key.replace("_", " ").strip().title()
 
 
+def _slice_student_page(rows: list[dict], state_key: str, *, page_size: int = _STUDENT_PAGE_SIZE):
+    total_items = len(rows or [])
+    total_pages = max(1, math.ceil(total_items / page_size)) if total_items else 1
+    current_page = int(st.session_state.get(state_key, 1) or 1)
+    current_page = max(1, min(current_page, total_pages))
+    st.session_state[state_key] = current_page
+    start_idx = (current_page - 1) * page_size
+    end_idx = min(start_idx + page_size, total_items)
+    return list((rows or [])[start_idx:end_idx]), current_page, total_pages, start_idx, end_idx, total_items
+
+
+def _render_student_pagination(rows: list[dict], state_key: str, *, page_size: int = _STUDENT_PAGE_SIZE) -> None:
+    _, current_page, total_pages, start_idx, end_idx, total_items = _slice_student_page(
+        rows,
+        state_key,
+        page_size=page_size,
+    )
+    if total_items <= page_size:
+        return
+    prev_col, info_col, next_col = st.columns([1, 3, 1])
+    with prev_col:
+        if st.button("←", key=f"{state_key}_prev", use_container_width=True, disabled=current_page <= 1):
+            st.session_state[state_key] = max(1, current_page - 1)
+            st.rerun()
+    with info_col:
+        st.caption(f"{start_idx + 1}-{end_idx} / {total_items} · {current_page}/{total_pages}")
+    with next_col:
+        if st.button("→", key=f"{state_key}_next", use_container_width=True, disabled=current_page >= total_pages):
+            st.session_state[state_key] = min(total_pages, current_page + 1)
+            st.rerun()
+
+
 def _inject_assignment_page_styles() -> None:
     st.markdown(
         """
@@ -121,6 +246,33 @@ def _inject_assignment_page_styles() -> None:
             inset: 0 auto 0 0;
             width: 5px;
             background: linear-gradient(180deg, #38bdf8, #6366f1 55%, #14b8a6);
+        }
+        .classio-assign-card--worksheet {
+            background:
+              radial-gradient(circle at top right, rgba(167,139,250,.12), transparent 38%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 84%, white 16%));
+            border-color: color-mix(in srgb, var(--border) 76%, rgba(167,139,250,.28) 24%);
+        }
+        .classio-assign-card--worksheet::before {
+            background: linear-gradient(180deg, #a78bfa, #8b5cf6 58%, #6366f1);
+        }
+        .classio-assign-card--exam {
+            background:
+              radial-gradient(circle at top right, rgba(248,113,113,.12), transparent 38%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 84%, white 16%));
+            border-color: color-mix(in srgb, var(--border) 76%, rgba(248,113,113,.26) 24%);
+        }
+        .classio-assign-card--exam::before {
+            background: linear-gradient(180deg, #f87171, #ef4444 58%, #f59e0b);
+        }
+        .classio-assign-card--topic {
+            background:
+              radial-gradient(circle at top right, rgba(96,165,250,.12), transparent 38%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 84%, white 16%));
+            border-color: color-mix(in srgb, var(--border) 76%, rgba(96,165,250,.24) 24%);
+        }
+        .classio-assign-card--topic::before {
+            background: linear-gradient(180deg, #60a5fa, #3b82f6 58%, #38bdf8);
         }
         .classio-assign-title {
             font-size: 1.18rem;
@@ -258,6 +410,11 @@ def _assignment_card(row: dict, key_prefix: str) -> None:
     source_archived = bool(row.get("source_archived"))
     teacher_name = _html.escape(str(row.get("teacher_name") or "—"))
     subject_name = _html.escape(str(row.get("subject_display") or "—"))
+    type_class = {
+        "worksheet": "classio-assign-card--worksheet",
+        "exam": "classio-assign-card--exam",
+        "lesson_plan_topic": "classio-assign-card--topic",
+    }.get(assignment_type, "")
 
     meta_bits = [teacher_name, subject_name]
     if due_at:
@@ -269,7 +426,7 @@ def _assignment_card(row: dict, key_prefix: str) -> None:
     with left_col:
         st.markdown(
             f"""
-            <div class="classio-assign-card">
+            <div class="classio-assign-card {type_class}">
                 <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
                     <div>
                         <div class="classio-assign-title">{title}</div>
@@ -352,13 +509,15 @@ def _render_assignment_group(title: str, rows: list[dict], group_prefix: str) ->
         st.info(t("no_assignments"))
         return
 
-    grouped = group_assignments_by_teacher_subject(rows)
+    page_rows, *_ = _slice_student_page(rows, f"{group_prefix}_page")
+    grouped = group_assignments_by_teacher_subject(page_rows)
     for teacher_name, subject_groups in grouped:
         st.markdown(f"<div class='classio-assign-teacher'>{_html.escape(teacher_name)}</div>", unsafe_allow_html=True)
         for subject_name, items in subject_groups:
             st.markdown(f"<div class='classio-assign-subject'>{_html.escape(subject_name)}</div>", unsafe_allow_html=True)
             for idx, row in enumerate(items):
                 _assignment_card(row, f"{group_prefix}_{teacher_name}_{subject_name}_{idx}")
+    _render_student_pagination(rows, f"{group_prefix}_page")
 
 
 def render_assigned_learning_programs_section(program_assignments: list[dict], legacy_topics: list[dict]) -> None:

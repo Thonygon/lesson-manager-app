@@ -1,5 +1,6 @@
 import streamlit as st
 import datetime
+import math
 import pandas as pd
 import html
 import re
@@ -353,8 +354,19 @@ def _render_view_lessons() -> None:
 
     st.caption(f"**{len(year_df)}** {t('lessons')} · {selected_year}")
 
-    for _, row in year_df.iterrows():
-        date_str = row["lesson_date"].strftime("%d %b %Y")
+    _LESSONS_PAGE_SIZE = 8
+    lesson_rows = year_df.reset_index(drop=True).to_dict("records")
+    total_items = len(lesson_rows)
+    total_pages = max(1, math.ceil(total_items / _LESSONS_PAGE_SIZE))
+    current_page = int(st.session_state.get("view_lessons_page", 1) or 1)
+    current_page = max(1, min(current_page, total_pages))
+    st.session_state["view_lessons_page"] = current_page
+    start_idx = (current_page - 1) * _LESSONS_PAGE_SIZE
+    end_idx = min(start_idx + _LESSONS_PAGE_SIZE, total_items)
+    page_rows = lesson_rows[start_idx:end_idx]
+
+    for row in page_rows:
+        date_str = pd.to_datetime(row["lesson_date"]).strftime("%d %b %Y")
         student_name = row["student"] or "—"
         units = int(row["number_of_lesson"])
         modality = row["modality"]
@@ -400,6 +412,19 @@ def _render_view_lessons() -> None:
             """,
             unsafe_allow_html=True,
         )
+
+    if total_items > _LESSONS_PAGE_SIZE:
+        prev_col, info_col, next_col = st.columns([1, 3, 1])
+        with prev_col:
+            if st.button("←", key="view_lessons_page_prev", use_container_width=True, disabled=current_page <= 1):
+                st.session_state["view_lessons_page"] = max(1, current_page - 1)
+                st.rerun()
+        with info_col:
+            st.caption(f"{start_idx + 1}-{end_idx} / {total_items} · {current_page}/{total_pages}")
+        with next_col:
+            if st.button("→", key="view_lessons_page_next", use_container_width=True, disabled=current_page >= total_pages):
+                st.session_state["view_lessons_page"] = min(total_pages, current_page + 1)
+                st.rerun()
 
 
 def render_add_lesson():

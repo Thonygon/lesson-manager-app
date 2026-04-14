@@ -27,6 +27,7 @@ from styles.pdf_styles import (
 )
 from helpers.visual_support import (
     enrich_worksheet_with_visuals,
+    worksheet_has_ready_visuals,
     render_streamlit_visual_supports,
     build_pdf_visual_flowables,
     render_visual_support_status_group,
@@ -1209,6 +1210,7 @@ def render_worksheet_result(
     ws_type = meta.get("worksheet_type", ws.get("worksheet_type", ""))
     learner_stage = meta.get("learner_stage", ws.get("learner_stage", ""))
     level_or_band = meta.get("level_or_band", ws.get("level_or_band", ""))
+    had_ready_visuals = worksheet_has_ready_visuals(ws)
 
     ws = normalize_worksheet_output(ws)
     ws = enrich_worksheet_with_visuals(
@@ -1219,6 +1221,14 @@ def render_worksheet_result(
     )
     ws = _normalize_worksheet_unicode(ws)
     ws = _clean_worksheet_data(ws)
+
+    if (
+        read_only
+        and resource_record_id not in (None, "", 0, "0")
+        and not had_ready_visuals
+        and worksheet_has_ready_visuals(ws)
+    ):
+        _persist_saved_worksheet_visuals(resource_record_id, ws)
 
     if not read_only:
         st.success(t("worksheet_ready"))
@@ -1482,6 +1492,28 @@ def render_worksheet_result(
                 level_or_band=level_or_band,
                 source_record_id=resource_record_id,
             )
+
+
+def _persist_saved_worksheet_visuals(worksheet_id: int | str, worksheet: dict) -> None:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid or worksheet_id in (None, "", 0, "0"):
+        return
+    safe_id = worksheet_id
+    if isinstance(worksheet_id, str):
+        stripped = worksheet_id.strip()
+        if not stripped:
+            return
+        safe_id = int(stripped) if stripped.isdigit() else stripped
+    try:
+        get_sb().table("worksheets").update(
+            {
+                "worksheet_json": worksheet,
+                "updated_at": _dt.now(timezone.utc).isoformat(),
+            }
+        ).eq("id", safe_id).eq("user_id", uid).execute()
+        clear_app_caches()
+    except Exception:
+        pass
 
 
 # ── PDF generation ───────────────────────────────────────────────────
@@ -2152,6 +2184,12 @@ def render_quick_worksheet_maker_expander() -> None:
                     st.warning(warning)
                 else:
                     ws = _normalize_worksheet_unicode(ws)
+                    ws = enrich_worksheet_with_visuals(
+                        ws,
+                        subject=effective_subject,
+                        learner_stage=learner_stage,
+                        topic=topic,
+                    )
                     st.session_state["worksheet_result"] = ws
                     st.session_state["worksheet_kept"] = False
                     st.session_state["worksheet_warning"] = warning

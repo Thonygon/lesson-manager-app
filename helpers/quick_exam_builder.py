@@ -1291,6 +1291,12 @@ def render_quick_exam_builder_expander() -> None:
                         else "Exam generation failed. Please try again."
                     )
                 else:
+                    exam_data = enrich_exam_with_visuals(
+                        exam_data,
+                        subject=effective_subject,
+                        learner_stage=learner_stage,
+                        topic=topic,
+                    )
                     st.session_state["exam_result"] = exam_data
                     st.session_state["exam_answer_key"] = answer_key
                     st.session_state["exam_kept"] = False
