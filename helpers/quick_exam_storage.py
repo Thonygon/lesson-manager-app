@@ -23,6 +23,7 @@ from styles.pdf_styles import (
 )
 from helpers.visual_support import (
     enrich_exam_with_visuals,
+    exam_has_ready_visuals,
     render_streamlit_visual_support,
     build_pdf_visual_flowables,
     render_visual_support_status_group,
@@ -947,6 +948,7 @@ def render_exam_result(
     topic = meta.get("topic", exam_data.get("topic", ""))
     learner_stage = meta.get("learner_stage", exam_data.get("learner_stage", ""))
     level_or_band = meta.get("level_or_band", exam_data.get("level_or_band", ""))
+    had_ready_visuals = exam_has_ready_visuals(exam_data)
 
     exam_data = enrich_exam_with_visuals(
         dict(exam_data or {}),
@@ -954,6 +956,12 @@ def render_exam_result(
         learner_stage=learner_stage,
         topic=topic,
     )
+    if (
+        resource_record_id not in (None, "", 0, "0")
+        and not had_ready_visuals
+        and exam_has_ready_visuals(exam_data)
+    ):
+        _persist_saved_exam_visuals(resource_record_id, exam_data)
     normalized_sections = []
     for sec in exam_data.get("sections", []):
         if not isinstance(sec, dict):
@@ -1174,3 +1182,25 @@ def render_quick_exam_builder_expander() -> None:
     This keeps storage aligned with the upgraded exam builder.
     """
     return _eb().render_quick_exam_builder_expander()
+
+
+def _persist_saved_exam_visuals(exam_id: int | str, exam_data: dict) -> None:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid or exam_id in (None, "", 0, "0"):
+        return
+    safe_id = exam_id
+    if isinstance(exam_id, str):
+        stripped = exam_id.strip()
+        if not stripped:
+            return
+        safe_id = int(stripped) if stripped.isdigit() else stripped
+    try:
+        get_sb().table("quick_exams").update(
+            {
+                "exam_data": exam_data,
+                "updated_at": _dt.now(timezone.utc).isoformat(),
+            }
+        ).eq("id", safe_id).eq("user_id", uid).execute()
+        clear_app_caches()
+    except Exception:
+        pass

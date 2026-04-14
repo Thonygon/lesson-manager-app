@@ -710,6 +710,24 @@ def _should_render_support(support: dict | None) -> bool:
     return data_url.startswith("data:image/")
 
 
+def worksheet_has_ready_visuals(ws: dict | None) -> bool:
+    payload = dict(ws or {})
+    for item in payload.get("visual_supports", []) or []:
+        if _should_render_support(_normalize_existing_support(item)):
+            return True
+    return False
+
+
+def exam_has_ready_visuals(exam_data: dict | None) -> bool:
+    payload = dict(exam_data or {})
+    for section in payload.get("sections", []) or []:
+        if not isinstance(section, dict):
+            continue
+        if _should_render_support(_normalize_existing_support(section.get("visual_support"))):
+            return True
+    return False
+
+
 def enrich_worksheet_with_visuals(ws: dict, *, subject: str = "", learner_stage: str = "", topic: str = "") -> dict:
     payload = dict(ws or {})
     stage = learner_stage or payload.get("learner_stage", "")

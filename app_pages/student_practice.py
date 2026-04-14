@@ -1,5 +1,6 @@
 import streamlit as st
 import json
+import math
 from core.i18n import t
 from core.navigation import go_to
 from helpers.practice_engine import (
@@ -29,6 +30,40 @@ from helpers.teacher_student_integration import (
     load_assignment_state_map,
     load_student_review_requests_for_session,
 )
+
+_STUDENT_PRACTICE_PAGE_SIZE = 4
+
+
+def _slice_practice_page(rows: list[dict], state_key: str, *, page_size: int = _STUDENT_PRACTICE_PAGE_SIZE):
+    total_items = len(rows or [])
+    total_pages = max(1, math.ceil(total_items / page_size)) if total_items else 1
+    current_page = int(st.session_state.get(state_key, 1) or 1)
+    current_page = max(1, min(current_page, total_pages))
+    st.session_state[state_key] = current_page
+    start_idx = (current_page - 1) * page_size
+    end_idx = min(start_idx + page_size, total_items)
+    return list((rows or [])[start_idx:end_idx]), current_page, total_pages, start_idx, end_idx, total_items
+
+
+def _render_practice_pagination(rows: list[dict], state_key: str, *, page_size: int = _STUDENT_PRACTICE_PAGE_SIZE) -> None:
+    _, current_page, total_pages, start_idx, end_idx, total_items = _slice_practice_page(
+        rows,
+        state_key,
+        page_size=page_size,
+    )
+    if total_items <= page_size:
+        return
+    prev_col, info_col, next_col = st.columns([1, 3, 1])
+    with prev_col:
+        if st.button("←", key=f"{state_key}_prev", use_container_width=True, disabled=current_page <= 1):
+            st.session_state[state_key] = max(1, current_page - 1)
+            st.rerun()
+    with info_col:
+        st.caption(f"{start_idx + 1}-{end_idx} / {total_items} · {current_page}/{total_pages}")
+    with next_col:
+        if st.button("→", key=f"{state_key}_next", use_container_width=True, disabled=current_page >= total_pages):
+            st.session_state[state_key] = min(total_pages, current_page + 1)
+            st.rerun()
 
 
 def _open_practice_item(exercise_data: dict, meta: dict | None = None, *, demo_id: str | None = None) -> bool:
@@ -175,6 +210,33 @@ def _inject_student_practice_styles() -> None:
             inset: 0 auto 0 0;
             width: 5px;
             background: linear-gradient(180deg, #38bdf8, #6366f1 58%, #8b5cf6);
+        }
+        .classio-practice-card--worksheet {
+            background:
+              radial-gradient(circle at top right, rgba(167,139,250,.12), transparent 36%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 84%, white 16%));
+            border-color: color-mix(in srgb, var(--border) 78%, rgba(167,139,250,.22) 22%);
+        }
+        .classio-practice-card--worksheet::before {
+            background: linear-gradient(180deg, #a78bfa, #8b5cf6 58%, #6366f1);
+        }
+        .classio-practice-card--exam {
+            background:
+              radial-gradient(circle at top right, rgba(248,113,113,.12), transparent 36%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 84%, white 16%));
+            border-color: color-mix(in srgb, var(--border) 78%, rgba(248,113,113,.22) 22%);
+        }
+        .classio-practice-card--exam::before {
+            background: linear-gradient(180deg, #f87171, #ef4444 58%, #f59e0b);
+        }
+        .classio-practice-card--topic {
+            background:
+              radial-gradient(circle at top right, rgba(96,165,250,.12), transparent 36%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 84%, white 16%));
+            border-color: color-mix(in srgb, var(--border) 78%, rgba(96,165,250,.22) 22%);
+        }
+        .classio-practice-card--topic::before {
+            background: linear-gradient(180deg, #60a5fa, #3b82f6 58%, #38bdf8);
         }
         .classio-practice-title {
             font-size: 1.06rem;
@@ -369,7 +431,49 @@ def _render_browse_tab():
                     "level_or_band": 2, "author_name": 1,
                 })
             else:
-                _ws_base = _ws_base.head(12)
+                _ws_base = _ws_base.head(24)
+
+            if ws_q:
+                st.caption(t("search_results"))
+                ws_search_rows = _ws_base.reset_index(drop=True).to_dict("records")
+                ws_search_page_rows, *_ = _slice_practice_page(ws_search_rows, "student_practice_ws_search_page")
+                if not ws_search_page_rows:
+                    st.info(t("no_data"))
+                else:
+                    for idx in range(0, len(ws_search_page_rows), 2):
+                        pair = ws_search_page_rows[idx:idx + 2]
+                        _ws_cols = st.columns(2, gap="medium")
+                        for col_i, row in enumerate(pair):
+                            with _ws_cols[col_i]:
+                                _render_practice_card(
+                                    title=str(row.get("title") or t("untitled_worksheet")),
+                                    subject=str(row.get("subject") or ""),
+                                    topic=str(row.get("topic") or ""),
+                                    level=str(row.get("level_or_band") or ""),
+                                    ws_type=str(row.get("worksheet_type") or ""),
+                                    btn_key=f"sp_ws_search_{row.get('id', idx)}_{idx}_{col_i}",
+                                    color="#A78BFA",
+                                )
+                                if st.session_state.pop(f"_start_sp_ws_search_{row.get('id', idx)}_{idx}_{col_i}", False):
+                                    ws_json = row.get("worksheet_json") or {}
+                                    if isinstance(ws_json, str):
+                                        try:
+                                            ws_json = json.loads(ws_json)
+                                        except Exception:
+                                            ws_json = {}
+                                    if ws_json:
+                                        from helpers.worksheet_builder import normalize_worksheet_output
+                                        ws_json = normalize_worksheet_output(ws_json)
+                                        ex_data = worksheet_to_exercises(ws_json, row_id=row.get("id"))
+                                        if _open_practice_item(ex_data, {
+                                            "subject": row.get("subject", ""),
+                                            "topic": row.get("topic", ""),
+                                            "learner_stage": row.get("learner_stage", ""),
+                                            "level": row.get("level_or_band", ""),
+                                        }):
+                                            st.rerun()
+                    _render_practice_pagination(ws_search_rows, "student_practice_ws_search_page")
+                return
 
             # Expander-like behaviour:
             # - No category open → show all category cards in a 2-col grid
@@ -416,9 +520,10 @@ def _render_browse_tab():
                 if _ws_cat.empty:
                     st.info(t("no_data"))
                 else:
-                    _ws_rows = _ws_cat.head(8).reset_index(drop=True).to_dict("records")
-                    for idx in range(0, len(_ws_rows), 2):
-                        pair = _ws_rows[idx:idx + 2]
+                    _ws_rows = _ws_cat.reset_index(drop=True).to_dict("records")
+                    _ws_page_rows, *_ = _slice_practice_page(_ws_rows, f"student_practice_ws_cat_{active_cat}")
+                    for idx in range(0, len(_ws_page_rows), 2):
+                        pair = _ws_page_rows[idx:idx + 2]
                         _ws_cols = st.columns(2, gap="medium")
                         for col_i, row in enumerate(pair):
                             with _ws_cols[col_i]:
@@ -449,6 +554,7 @@ def _render_browse_tab():
                                             "level": row.get("level_or_band", ""),
                                         }):
                                             st.rerun()
+                    _render_practice_pagination(_ws_rows, f"student_practice_ws_cat_{active_cat}")
             else:
                 # ── Collapsed: show all category cards in 2-col grid ─
                 for row_start in range(0, len(_CATEGORY_CARDS), 2):
@@ -506,14 +612,15 @@ def _render_browse_tab():
                     "learner_stage": 2, "level": 2, "author_name": 1,
                 })
             else:
-                filtered = filtered.head(8)
+                filtered = filtered.head(24)
 
             if filtered.empty:
                 st.info(t("no_data"))
             else:
                 rows = filtered.reset_index(drop=True).to_dict("records")
-                for idx in range(0, len(rows), 2):
-                    pair = rows[idx:idx + 2]
+                page_rows, *_ = _slice_practice_page(rows, "student_practice_exams_page")
+                for idx in range(0, len(page_rows), 2):
+                    pair = page_rows[idx:idx + 2]
                     cols = st.columns(2, gap="medium")
                     for col_i, row in enumerate(pair):
                         with cols[col_i]:
@@ -524,7 +631,7 @@ def _render_browse_tab():
                                 level=str(row.get("level") or ""),
                                 ws_type=str(row.get("exam_length") or ""),
                                 btn_key=f"sp_ex_{row.get('id', idx)}_{idx}_{col_i}",
-                                color="#A78BFA",
+                                color="#F87171",
                             )
                             if st.session_state.pop(f"_start_sp_ex_{row.get('id', idx)}_{idx}_{col_i}", False):
                                 exam_data = row.get("exam_data") or {}
@@ -552,20 +659,30 @@ def _render_browse_tab():
                                         "level": row.get("level", ""),
                                     }):
                                         st.rerun()
+                _render_practice_pagination(rows, "student_practice_exams_page")
 
 
 def _render_practice_card(
     title: str, subject: str, topic: str, level: str,
     ws_type: str, btn_key: str, color: str = "#A78BFA",
 ):
-    """Render a compact practice card matching teacher-page styling."""
+    """Render a compact practice card matching assignment-page styling."""
     import html as _html
+
+    # Derive color family from the accent color
+    _COLOR_FAMILIES = {
+        "#A78BFA": {"rgb": "167,139,250", "chip_bg": "rgba(167,139,250,0.10)", "chip_border": "rgba(167,139,250,0.18)"},
+        "#F87171": {"rgb": "248,113,113", "chip_bg": "rgba(248,113,113,0.10)", "chip_border": "rgba(248,113,113,0.18)"},
+        "#60A5FA": {"rgb": "96,165,250",  "chip_bg": "rgba(96,165,250,0.10)",  "chip_border": "rgba(96,165,250,0.18)"},
+    }
+    family = _COLOR_FAMILIES.get(color, _COLOR_FAMILIES["#A78BFA"])
+    rgb = family["rgb"]
 
     subject_label = t(f"subject_{subject.lower().replace(' ', '_')}") if subject else ""
     level_label = level if level in ("A1", "A2", "B1", "B2", "C1", "C2") else (t(level) if level else "")
 
     chip_style = (
-        f"background:rgba(167,139,250,0.10);border:1px solid rgba(167,139,250,0.18);"
+        f"background:{family['chip_bg']};border:1px solid {family['chip_border']};"
         f"border-radius:999px;padding:3px 8px;font-size:0.72rem;font-weight:700;"
     )
     chips = ""
@@ -580,12 +697,16 @@ def _render_practice_card(
 
     st.markdown(
         f"""<div style="
-border-radius: 20px;
-padding: 16px;
-background: linear-gradient(180deg, var(--panel, rgba(255,255,255,0.96)), var(--panel-2, rgba(248,250,255,0.92)));
-border: 1px solid var(--border-strong, rgba(17,24,39,0.08));
+position: relative;
+overflow: hidden;
+border-radius: 22px;
+padding: 18px 20px;
+background:
+  radial-gradient(circle at top right, rgba({rgb},.12), transparent 38%),
+  linear-gradient(180deg, var(--panel, rgba(255,255,255,0.96)), color-mix(in srgb, var(--panel, rgba(255,255,255,0.96)) 84%, white 16%));
+border: 1px solid color-mix(in srgb, var(--border, rgba(17,24,39,0.08)) 76%, rgba({rgb},.28) 24%);
 border-left: 5px solid {color};
-box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
+box-shadow: 0 12px 34px rgba(15,23,42,.08);
 margin-bottom: 6px;
 min-height: 140px;
 color: var(--text);
@@ -796,15 +917,18 @@ def _render_history_tab():
         st.info(t("no_practice_history"))
         return
 
+    history_rows = history.reset_index(drop=True).to_dict("records")
+    history_page_rows, *_ = _slice_practice_page(history_rows, "student_practice_history_page")
+
     assignment_ids = []
-    for _, row in history.iterrows():
+    for row in history_page_rows:
         source_type = str(row.get("source_type") or "").strip()
         source_id = int(row.get("source_id") or 0)
         if source_type in {"worksheet", "exam"} and source_id > 0:
             assignment_ids.append(source_id)
     assignment_state_map = load_assignment_state_map(assignment_ids)
 
-    for h_idx, row in history.iterrows():
+    for h_idx, row in enumerate(history_page_rows):
         title   = str(row.get("title") or t("smart_practice"))
         score   = row.get("score_pct", 0)
         total   = row.get("total_questions", 0)
@@ -818,6 +942,14 @@ def _render_history_tab():
         assignment_state = assignment_state_map.get(int(row.get("source_id") or 0), {})
         assignment_removed = str(assignment_state.get("status") or "").strip() == "archived"
         source_archived = bool(assignment_state.get("source_archived"))
+
+        source_type = str(row.get("source_type") or "").strip()
+        if source_type == "exam":
+            card_accent = "#F87171"
+        elif source_type == "worksheet":
+            card_accent = "#A78BFA"
+        else:
+            card_accent = "#60A5FA"
 
         if score >= 80:
             color = "#10B981"
@@ -852,7 +984,7 @@ def _render_history_tab():
                 )
             st.markdown(
                 f"""
-                <div class="classio-practice-card">
+                <div class="classio-practice-card" style="border-left:5px solid {card_accent};">
                     <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
                         <div>
                             <div class="classio-practice-title">{_escape_html(title)}</div>
@@ -901,6 +1033,7 @@ def _render_history_tab():
                         st.session_state["_practice_retry_session_id"] = session_id
                         st.rerun()
         st.markdown("<div style='height:0.8rem;'></div>", unsafe_allow_html=True)
+    _render_practice_pagination(history_rows, "student_practice_history_page")
 
 
 # ── Progress tab ────────────────────────────────────────────────
@@ -964,7 +1097,10 @@ def _render_progress_tab():
     )
 
     # ── Per-topic breakdown ─────────────────────────────────────
-    for _, row in progress.iterrows():
+    progress_rows = progress.reset_index(drop=True).to_dict("records")
+    progress_page_rows, *_ = _slice_practice_page(progress_rows, "student_practice_progress_page")
+
+    for row in progress_page_rows:
         subject  = str(row.get("subject") or "").strip()
         topic    = str(row.get("topic") or "").strip()
         ex_type  = str(row.get("exercise_type") or "").strip()
@@ -987,7 +1123,7 @@ def _render_progress_tab():
 
         st.markdown(
             f"""
-            <div class="classio-practice-card" style="margin-bottom:0.75rem;">
+            <div class="classio-practice-card" style="margin-bottom:0.75rem;border-left:5px solid {bar_color};">
                 <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
                     <div>
                         <div class="classio-practice-title">{_escape_html(label)}</div>
@@ -1018,6 +1154,7 @@ def _render_progress_tab():
             """,
             unsafe_allow_html=True,
         )
+    _render_practice_pagination(progress_rows, "student_practice_progress_page")
 
 
 def _escape_html(value: str) -> str:

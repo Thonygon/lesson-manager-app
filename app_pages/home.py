@@ -1,4 +1,5 @@
 import datetime
+import math
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -51,6 +52,45 @@ from helpers.worksheet_storage import (
     render_worksheet_result,
 )
 from styles.theme import load_css_home
+
+
+_RESOURCE_PAGE_SIZE = 4
+
+
+def _slice_resource_page(df, state_key: str, *, page_size: int = _RESOURCE_PAGE_SIZE):
+    if df is None:
+        return df, 1, 1, 0, 0, 0
+    total_items = len(df)
+    total_pages = max(1, math.ceil(total_items / page_size)) if total_items else 1
+    current_page = int(st.session_state.get(state_key, 1) or 1)
+    current_page = max(1, min(current_page, total_pages))
+    st.session_state[state_key] = current_page
+    start_idx = (current_page - 1) * page_size
+    end_idx = min(start_idx + page_size, total_items)
+    page_df = df.iloc[start_idx:end_idx].copy() if total_items else df
+    return page_df, current_page, total_pages, start_idx, end_idx, total_items
+
+
+def _render_resource_pagination_controls(df, state_key: str, *, page_size: int = _RESOURCE_PAGE_SIZE):
+    _, current_page, total_pages, start_idx, end_idx, total_items = _slice_resource_page(
+        df,
+        state_key,
+        page_size=page_size,
+    )
+    if total_items <= page_size:
+        return
+
+    prev_col, info_col, next_col = st.columns([1, 3, 1])
+    with prev_col:
+        if st.button("←", key=f"{state_key}_prev", use_container_width=True, disabled=current_page <= 1):
+            st.session_state[state_key] = max(1, current_page - 1)
+            st.rerun()
+    with info_col:
+        st.caption(f"{start_idx + 1}-{end_idx} / {total_items} · {current_page}/{total_pages}")
+    with next_col:
+        if st.button("→", key=f"{state_key}_next", use_container_width=True, disabled=current_page >= total_pages):
+            st.session_state[state_key] = min(total_pages, current_page + 1)
+            st.rerun()
 
 def inject_loading_screen():
     st.markdown(
@@ -672,13 +712,15 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     prog_filtered = prog_filtered[prog_filtered["learner_stage"].astype(str) == prog_stage_filter]
                 if prog_level_filter != t("all") and "level_or_band" in prog_filtered.columns:
                     prog_filtered = prog_filtered[prog_filtered["level_or_band"].astype(str) == prog_level_filter]
+                prog_filtered_page_df, *_ = _slice_resource_page(prog_filtered, "my_programs_page")
                 render_learning_program_library_cards(
-                    prog_filtered,
+                    prog_filtered_page_df,
                     prefix="my_learning_programs",
                     show_author=False,
                     allow_visibility_toggle=True,
                     allow_archive_toggle=True,
                 )
+                _render_resource_pagination_controls(prog_filtered, "my_programs_page")
 
         with tab1:
             my_df = load_my_lesson_plans()
@@ -748,13 +790,15 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 if filtered.empty:
                     st.info(t("no_data"))
                 else:
+                    filtered_page_df, *_ = _slice_resource_page(filtered, "my_plans_page")
                     render_plan_library_cards(
-                        filtered,
+                        filtered_page_df,
                         prefix="my_plans",
                         show_author=False,
                         allow_visibility_toggle=True,
                         allow_archive_toggle=True,
                      )
+                    _render_resource_pagination_controls(filtered, "my_plans_page")
 
         with tab2:
             ws_df = load_my_worksheets()
@@ -813,13 +857,15 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     ws_filtered = ws_filtered[ws_filtered["learner_stage"].astype(str) == ws_stage_filter]
                 if ws_level_filter != t("all") and "level_or_band" in ws_filtered.columns:
                     ws_filtered = ws_filtered[ws_filtered["level_or_band"].astype(str) == ws_level_filter]
+                ws_filtered_page_df, *_ = _slice_resource_page(ws_filtered, "my_ws_page")
                 render_worksheet_library_cards(
-                    ws_filtered,
+                    ws_filtered_page_df,
                     prefix="my_ws",
                     show_author=False,
                     allow_visibility_toggle=True,
                     allow_archive_toggle=True,
                 )
+                _render_resource_pagination_controls(ws_filtered, "my_ws_page")
 
         with tab_exams:
             exam_df = load_my_exams()
@@ -877,13 +923,15 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     exam_filtered = exam_filtered[exam_filtered["learner_stage"].astype(str) == exam_stage_filter]
                 if exam_level_filter != t("all") and "level" in exam_filtered.columns:
                     exam_filtered = exam_filtered[exam_filtered["level"].astype(str) == exam_level_filter]
+                exam_filtered_page_df, *_ = _slice_resource_page(exam_filtered, "my_exams_page")
                 render_exam_library_cards(
-                    exam_filtered,
+                    exam_filtered_page_df,
                     prefix="my_exams",
                     show_author=False,
                     allow_visibility_toggle=True,
                     allow_archive_toggle=True,
                 )
+                _render_resource_pagination_controls(exam_filtered, "my_exams_page")
 
         with tab3:
             comm_tab_programs, comm_tab_plans, comm_tab_ws, comm_tab_exams = st.tabs([
@@ -957,7 +1005,9 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         st.info(t("be_the_first_to_share"))
                     else:
                         st.caption(t("learning_programs_count", count=len(public_program_filtered)))
-                        render_learning_program_library_cards(public_program_filtered, prefix="public_learning_programs", show_author=True, allow_visibility_toggle=False)
+                        public_program_page_df, *_ = _slice_resource_page(public_program_filtered, "community_programs_page")
+                        render_learning_program_library_cards(public_program_page_df, prefix="public_learning_programs", show_author=True, allow_visibility_toggle=False)
+                        _render_resource_pagination_controls(public_program_filtered, "community_programs_page")
 
             with comm_tab_plans:
                 public_df = load_public_lesson_plans()
@@ -1035,7 +1085,9 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         st.info(t("be_the_first_to_share"))
                     else:
                         st.caption(f"{len(filtered_public)} {t('community_plans').lower()}")
-                        render_plan_library_cards(filtered_public, prefix="community_plans", show_author=True)
+                        filtered_public_page_df, *_ = _slice_resource_page(filtered_public, "community_plans_page")
+                        render_plan_library_cards(filtered_public_page_df, prefix="community_plans", show_author=True)
+                        _render_resource_pagination_controls(filtered_public, "community_plans_page")
 
             with comm_tab_ws:
                 pub_ws_df = load_public_worksheets()
@@ -1114,7 +1166,9 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         st.info(t("be_the_first_to_share"))
                     else:
                         st.caption(f"{len(pub_ws_filtered)} {t('community_worksheets').lower()}")
-                        render_worksheet_library_cards(pub_ws_filtered, prefix="pub_ws", show_author=True)
+                        pub_ws_filtered_page_df, *_ = _slice_resource_page(pub_ws_filtered, "community_ws_page")
+                        render_worksheet_library_cards(pub_ws_filtered_page_df, prefix="pub_ws", show_author=True)
+                        _render_resource_pagination_controls(pub_ws_filtered, "community_ws_page")
 
             with comm_tab_exams:
                 pub_exam_df = load_public_exams()
@@ -1171,7 +1225,9 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         st.info(t("be_the_first_to_share"))
                     else:
                         st.caption(f"{len(pub_exam_filtered)} {t('community_exams').lower()}")
-                        render_exam_library_cards(pub_exam_filtered, prefix="pub_exams", show_author=True)
+                        pub_exam_filtered_page_df, *_ = _slice_resource_page(pub_exam_filtered, "community_exams_page")
+                        render_exam_library_cards(pub_exam_filtered_page_df, prefix="pub_exams", show_author=True)
+                        _render_resource_pagination_controls(pub_exam_filtered, "community_exams_page")
 
         with tab4:
             pro_tab_cv, pro_tab_cl = st.tabs([
@@ -1207,52 +1263,60 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 if archived_prog_df.empty:
                     st.info(t("archive_empty"))
                 else:
+                    archived_prog_page_df, *_ = _slice_resource_page(archived_prog_df, "archived_programs_page")
                     render_learning_program_library_cards(
-                        archived_prog_df,
+                        archived_prog_page_df,
                         prefix="archived_learning_programs",
                         show_author=False,
                         allow_visibility_toggle=True,
                         allow_archive_toggle=True,
                     )
+                    _render_resource_pagination_controls(archived_prog_df, "archived_programs_page")
 
             with arch_plan_tab:
                 archived_plan_df = load_my_lesson_plans(archived_only=True)
                 if archived_plan_df.empty:
                     st.info(t("archive_empty"))
                 else:
+                    archived_plan_page_df, *_ = _slice_resource_page(archived_plan_df, "archived_plans_page")
                     render_plan_library_cards(
-                        archived_plan_df,
+                        archived_plan_page_df,
                         prefix="archived_plans",
                         show_author=False,
                         allow_visibility_toggle=True,
                         allow_archive_toggle=True,
                     )
+                    _render_resource_pagination_controls(archived_plan_df, "archived_plans_page")
 
             with arch_ws_tab:
                 archived_ws_df = load_my_worksheets(archived_only=True)
                 if archived_ws_df.empty:
                     st.info(t("archive_empty"))
                 else:
+                    archived_ws_page_df, *_ = _slice_resource_page(archived_ws_df, "archived_ws_page")
                     render_worksheet_library_cards(
-                        archived_ws_df,
+                        archived_ws_page_df,
                         prefix="archived_ws",
                         show_author=False,
                         allow_visibility_toggle=True,
                         allow_archive_toggle=True,
                     )
+                    _render_resource_pagination_controls(archived_ws_df, "archived_ws_page")
 
             with arch_exam_tab:
                 archived_exam_df = load_my_exams(archived_only=True)
                 if archived_exam_df.empty:
                     st.info(t("archive_empty"))
                 else:
+                    archived_exam_page_df, *_ = _slice_resource_page(archived_exam_df, "archived_exams_page")
                     render_exam_library_cards(
-                        archived_exam_df,
+                        archived_exam_page_df,
                         prefix="archived_exams",
                         show_author=False,
                         allow_visibility_toggle=True,
                         allow_archive_toggle=True,
                     )
+                    _render_resource_pagination_controls(archived_exam_df, "archived_exams_page")
 
             with arch_prof_tab:
                 arch_cv_tab, arch_cl_tab = st.tabs([

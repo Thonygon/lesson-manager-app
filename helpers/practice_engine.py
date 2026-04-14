@@ -759,13 +759,16 @@ def _question_prompt_text(ex_type: str, question) -> str:
             left = question.get("left", question.get("text", ""))
             return _extract_legacy_pair_side(left, prefer="key")
         if ex_type == "vocabulary":
+            word = _sentence_case_fragment(question.get("word", ""))
             task = _strip_leading_number(str(question.get("task", "")))
             text = _strip_leading_number(str(question.get("text", "")))
+            if word and task:
+                return f"{word}: {task}"
             if task:
                 return task
             if text:
                 return text
-            return _sentence_case_fragment(question.get("word", ""))
+            return word
         if ex_type == "sentence_transformation":
             original = _strip_leading_number(str(question.get("original", "")))
             prompt = _strip_leading_number(str(question.get("prompt", "")))

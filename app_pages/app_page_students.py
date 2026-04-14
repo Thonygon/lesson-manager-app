@@ -1,6 +1,7 @@
 import streamlit as st
 import datetime
 import html as _html
+import math
 import re
 import urllib.parse
 import pandas as pd
@@ -50,6 +51,40 @@ from helpers.learning_programs import (
 
 # 12.2) PAGE: STUDENTS
 # =========================
+
+_TEACHER_PAGE_SIZE = 6
+
+
+def _slice_teacher_page(rows: list, state_key: str, *, page_size: int = _TEACHER_PAGE_SIZE):
+    total_items = len(rows or [])
+    total_pages = max(1, math.ceil(total_items / page_size)) if total_items else 1
+    current_page = int(st.session_state.get(state_key, 1) or 1)
+    current_page = max(1, min(current_page, total_pages))
+    st.session_state[state_key] = current_page
+    start_idx = (current_page - 1) * page_size
+    end_idx = min(start_idx + page_size, total_items)
+    return list((rows or [])[start_idx:end_idx]), current_page, total_pages, start_idx, end_idx, total_items
+
+
+def _render_teacher_pagination(rows: list, state_key: str, *, page_size: int = _TEACHER_PAGE_SIZE) -> None:
+    _, current_page, total_pages, start_idx, end_idx, total_items = _slice_teacher_page(
+        rows, state_key, page_size=page_size,
+    )
+    if total_items <= page_size:
+        return
+    prev_col, info_col, next_col = st.columns([1, 3, 1])
+    with prev_col:
+        if st.button("←", key=f"{state_key}_prev", use_container_width=True, disabled=current_page <= 1):
+            st.session_state[state_key] = max(1, current_page - 1)
+            st.rerun()
+    with info_col:
+        st.caption(f"{start_idx + 1}-{end_idx} / {total_items} · {current_page}/{total_pages}")
+    with next_col:
+        if st.button("→", key=f"{state_key}_next", use_container_width=True, disabled=current_page >= total_pages):
+            st.session_state[state_key] = min(total_pages, current_page + 1)
+            st.rerun()
+
+
 def _render_end_relationship_action(*, link_id: int, key_prefix: str) -> None:
     with st.popover(t("end_relationship"), use_container_width=True):
         st.warning(t("relationship_end_warning"))
@@ -102,7 +137,9 @@ def _render_teacher_review_requests(
 
     if render_title:
         st.markdown(f"### {t('teacher_review_requests')}")
-    for row in review_rows:
+
+    page_rows, *_ = _slice_teacher_page(review_rows, f"teacher_reviews_{student_id}_{subject_key}_{status_filter}")
+    for row in page_rows:
         title = _html.escape(str(row.get("title") or "—"))
         student_name = _html.escape(str(row.get("student_name") or "—"))
         status_key = f"teacher_review_status_{row.get('status')}"
@@ -211,6 +248,7 @@ def _render_teacher_review_requests(
                         st.success(t(msg))
                         st.rerun()
                     st.error(t(msg))
+    _render_teacher_pagination(review_rows, f"teacher_reviews_{student_id}_{subject_key}_{status_filter}")
 
 
 def render_students():
@@ -513,7 +551,8 @@ def render_students():
             if not shown:
                 st.info(t("no_students"))
             else:
-                for name in shown:
+                shown_page, *_ = _slice_teacher_page(shown, "teacher_student_list_page")
+                for name in shown_page:
                     row = students_df.loc[students_df["student"] == name]
                     s_email = str(row.iloc[0].get("email", "")).strip() if not row.empty else ""
                     s_phone = str(row.iloc[0].get("phone", "")).strip() if not row.empty else ""
@@ -636,6 +675,7 @@ def render_students():
                         """,
                         unsafe_allow_html=True,
                     )
+                _render_teacher_pagination(shown, "teacher_student_list_page")
 
         # ── TAB: Student Profile ──
         with tab_profile:
@@ -786,7 +826,8 @@ def render_students():
             if not incoming:
                 st.info(t("no_teacher_requests"))
             else:
-                for row in incoming:
+                incoming_page, *_ = _slice_teacher_page(incoming, "teacher_incoming_requests_page")
+                for row in incoming_page:
                     left_col, right_col = st.columns([6, 2], gap="medium")
                     requested = row.get("requested_subjects") or []
                     requested_labels = [s.get("subject_label", "") for s in requested if s.get("subject_label")]
@@ -904,13 +945,15 @@ def render_students():
                                 st.rerun()
                             st.error(t(msg))
                     st.markdown("<div style='height:0.75rem;'></div>", unsafe_allow_html=True)
+                _render_teacher_pagination(incoming, "teacher_incoming_requests_page")
 
             st.markdown(f"### {t('my_linked_students')}")
             linked = load_active_linked_students_for_teacher()
             if not linked:
                 st.info(t("no_linked_students"))
             else:
-                for row in linked:
+                linked_page, *_ = _slice_teacher_page(linked, "teacher_linked_students_page")
+                for row in linked_page:
                     left_col, right_col = st.columns([6, 2], gap="medium")
                     subjects = ", ".join(
                         s.get("subject_label", "")
@@ -942,6 +985,7 @@ def render_students():
                             key_prefix=f"archive_link_{row.get('id')}",
                         )
                     st.markdown("<div style='height:0.75rem;'></div>", unsafe_allow_html=True)
+                _render_teacher_pagination(linked, "teacher_linked_students_page")
 
         with tab_progress:
             st.markdown(f"### {t('student_progress_title')}")
@@ -1008,7 +1052,8 @@ def render_students():
                     if not filtered_progress_rows:
                         st.info(t("no_assignments"))
                     else:
-                        for row in filtered_progress_rows:
+                        fpr_page, *_ = _slice_teacher_page(filtered_progress_rows, "teacher_assignment_progress_page")
+                        for row in fpr_page:
                             latest = row.get("latest_attempt") or {}
                             score = latest.get("score_pct", row.get("score_pct"))
                             title = _html.escape(str(row.get("title") or "—"))
@@ -1079,6 +1124,7 @@ def render_students():
                                         st.success(t(msg))
                                         st.rerun()
                                     st.error(t(msg) if msg in {"assignment_archived", "assignment_archive_failed"} else msg)
+                        _render_teacher_pagination(filtered_progress_rows, "teacher_assignment_progress_page")
 
                 with programs_tab:
                     program_assignments_df = load_program_assignments_for_teacher()
@@ -1096,7 +1142,8 @@ def render_students():
                     if not program_rows:
                         st.info(t("no_assignments"))
                     else:
-                        for row in program_rows:
+                        prog_page, *_ = _slice_teacher_page(program_rows, "teacher_programs_progress_page")
+                        for row in prog_page:
                             title = _html.escape(str(row.get("student_name") or selected_student_name or "—"))
                             program_snapshot = load_learning_program(int(row.get("program_id") or 0)) if int(row.get("program_id") or 0) else {}
                             program_title = _html.escape(str(program_snapshot.get("title") or t("learning_program_singular")))
@@ -1171,6 +1218,7 @@ def render_students():
                                             )
                                             if topic_summary:
                                                 st.caption(topic_summary)
+                        _render_teacher_pagination(program_rows, "teacher_programs_progress_page")
 
                 with reviews_tab:
                     review_status_options = ["__all__"] + list(
