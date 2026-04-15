@@ -1126,7 +1126,6 @@ def render_worksheet_library_cards(
                     if st.button(
                         t("view_worksheet"),
                         key=f"{prefix}_view_{row_id}_{idx}_{col_idx}",
-                        use_container_width=True,
                     ):
                         _open_worksheet_library_record(
                             row,
@@ -1139,7 +1138,6 @@ def render_worksheet_library_cards(
                         if st.button(
                             t("assign_to_student"),
                             key=f"{prefix}_assign_{row_id}_{idx}_{col_idx}",
-                            use_container_width=True,
                         ):
                             _open_worksheet_library_record(
                                 row,
@@ -1321,7 +1319,6 @@ def render_worksheet_result(
         if st.button(
             t("assign_to_student"),
             key=f"{action_key_prefix}_assign_signup",
-            use_container_width=True,
         ):
             st.session_state["_explore_go_signup"] = True
             st.rerun()
