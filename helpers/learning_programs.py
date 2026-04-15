@@ -4359,6 +4359,25 @@ def render_quick_learning_program_builder_expander() -> None:
                 },
             }
             st.session_state.pop(skeleton_request_key, None)
+
+            # ── Auto-save immediately after generation ──
+            try:
+                _auto_meta = st.session_state.get(f"{ns}_meta", {})
+                _auto_ok, _auto_pid, _ = _save_generated_learning_program_from_builder(
+                    result=program,
+                    meta=_auto_meta,
+                    subject=skeleton_request.get("subject", subject),
+                    learner_stage=skeleton_request.get("learner_stage", learner_stage),
+                    level_or_band=skeleton_request.get("level_or_band", level_or_band),
+                    custom_subject_name=skeleton_request.get("custom_subject_name", custom_subject_name),
+                    visibility=skeleton_request.get("visibility", visibility),
+                    mode_used=mode_used,
+                )
+                if _auto_ok and _auto_pid:
+                    st.session_state[f"{ns}_saved_program_id"] = _auto_pid
+            except Exception:
+                pass  # non-blocking: user can still save manually
+
             st.rerun()
 
         result = st.session_state.get(f"{ns}_result")
@@ -4420,7 +4439,10 @@ def render_quick_learning_program_builder_expander() -> None:
 
             save_col, clear_col = st.columns(2)
             with save_col:
-                if st.button(t("save_learning_program"), key=f"{ns}_save", use_container_width=True):
+                _already_saved = st.session_state.get(f"{ns}_saved_program_id")
+                if _already_saved:
+                    st.success(t("learning_program_saved_success", program_id=_already_saved))
+                elif st.button(t("save_learning_program"), key=f"{ns}_save", use_container_width=True):
                     ok, program_id, msg = _save_generated_learning_program_from_builder(
                         result=result,
                         meta=meta,

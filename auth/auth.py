@@ -955,6 +955,28 @@ def render_choose_role_dialog(user_id: str) -> None:
     try:
         @st.dialog(t("welcome_choose_role_title"), width="large")
         def _choose_role_dlg():
+            # ── Language selector (persists choice to profile + cookie) ──
+            _lang_options = {"en": "🇬🇧 English", "es": "🇪🇸 Español", "tr": "🇹🇷 Türkçe"}
+            _cur_lang = st.session_state.get("ui_lang", "en")
+            _pick = st.radio(
+                t("language_ui"),
+                list(_lang_options.keys()),
+                index=list(_lang_options.keys()).index(_cur_lang) if _cur_lang in _lang_options else 0,
+                format_func=lambda x: _lang_options[x],
+                key="role_dlg_lang_radio",
+                horizontal=True,
+            )
+            if _pick != _cur_lang:
+                st.session_state["ui_lang"] = _pick
+                st.session_state["_pre_auth_ui_lang"] = _pick
+                _sync_ui_lang_cookie(_pick)
+                # Persist to profile so subsequent pages read the correct language
+                try:
+                    upsert_profile_row(user_id, {"preferred_ui_language": _pick})
+                except Exception:
+                    pass
+                st.rerun()
+
             st.markdown(
                 f"""
                 <div style="text-align:center; padding: 8px 0 16px;">
@@ -989,6 +1011,7 @@ def render_choose_role_dialog(user_id: str) -> None:
                     use_container_width=True,
                     type="primary",
                 ):
+                    _chosen_lang = st.session_state.get("ui_lang", "en")
                     upsert_profile_row(
                         user_id,
                         {
@@ -996,8 +1019,10 @@ def render_choose_role_dialog(user_id: str) -> None:
                             "primary_role": "teacher",
                             "can_teach": True,
                             "last_active_mode": "teacher",
+                            "preferred_ui_language": _chosen_lang,
                         },
                     )
+                    _sync_ui_lang_cookie(_chosen_lang)
                     st.session_state["user_role"] = "teacher"
                     st.session_state["show_choose_role_dialog"] = False
                     st.session_state["_post_login_action"] = "page:home"
@@ -1024,6 +1049,7 @@ def render_choose_role_dialog(user_id: str) -> None:
                     use_container_width=True,
                     type="primary",
                 ):
+                    _chosen_lang = st.session_state.get("ui_lang", "en")
                     upsert_profile_row(
                         user_id,
                         {
@@ -1031,8 +1057,10 @@ def render_choose_role_dialog(user_id: str) -> None:
                             "primary_role": "student",
                             "can_study": True,
                             "last_active_mode": "student",
+                            "preferred_ui_language": _chosen_lang,
                         },
                     )
+                    _sync_ui_lang_cookie(_chosen_lang)
                     st.session_state["user_role"] = "student"
                     st.session_state["show_choose_role_dialog"] = False
                     st.session_state["_post_login_action"] = "page:student_home"

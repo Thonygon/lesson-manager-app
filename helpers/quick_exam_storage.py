@@ -936,6 +936,7 @@ def render_exam_result(
     assign_expanded: bool = False,
     resource_record_id: int | str | None = None,
     signup_required_actions: bool = False,
+    allow_free_pdf: bool = True,
     action_key_prefix: str = "exam_result",
     **meta,
 ) -> None:
@@ -1102,7 +1103,7 @@ def render_exam_result(
 
     dc1, dc2 = st.columns(2)
     with dc1:
-        if signup_required_actions:
+        if signup_required_actions and not allow_free_pdf:
             if st.button(
                 t("download_exam") if t("download_exam") != "download_exam" else "Download Student Exam",
                 key=f"{action_key_prefix}_student_pdf_signup",
@@ -1120,7 +1121,7 @@ def render_exam_result(
                 use_container_width=True,
             )
     with dc2:
-        if signup_required_actions:
+        if signup_required_actions and not allow_free_pdf:
             if st.button(
                 t("download_answer_key") if t("download_answer_key") != "download_answer_key" else "Download Answer Key",
                 key=f"{action_key_prefix}_answer_pdf_signup",

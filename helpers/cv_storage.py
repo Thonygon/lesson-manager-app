@@ -596,9 +596,12 @@ def render_cv_result(
     )
 
     if not read_only:
+        _cv_auto_saved = st.session_state.get("_quick_cv_auto_saved")
+        if _cv_auto_saved:
+            st.success(t("cv_saved"))
         c1, c2 = st.columns(2)
         with c1:
-            if st.button(t("save_cv"), key="btn_save_cv", use_container_width=True):
+            if not _cv_auto_saved and st.button(t("save_cv"), key="btn_save_cv", use_container_width=True):
                 ok = save_cv_record(
                     cv_dict=cv,
                     source_type=source_type,
@@ -607,12 +610,12 @@ def render_cv_result(
                 )
                 if ok:
                     st.success(t("cv_saved"))
-                    for k in ("quick_cv_result", "quick_cv_title", "quick_cv_source_type", "quick_cv_ai_prompt"):
+                    for k in ("quick_cv_result", "quick_cv_title", "quick_cv_source_type", "quick_cv_ai_prompt", "_quick_cv_auto_saved"):
                         st.session_state.pop(k, None)
                     st.rerun()
         with c2:
             if st.button(t("discard_cv"), key="btn_discard_cv", use_container_width=True):
-                for k in ("quick_cv_result", "quick_cv_title", "quick_cv_source_type", "quick_cv_ai_prompt"):
+                for k in ("quick_cv_result", "quick_cv_title", "quick_cv_source_type", "quick_cv_ai_prompt", "_quick_cv_auto_saved"):
                     st.session_state.pop(k, None)
                 st.rerun()
 
@@ -1187,6 +1190,19 @@ def render_quick_cv_builder_expander() -> None:
                         st.session_state["quick_cv_ai_prompt"] = cv_ai_prompt
                         st.session_state["_quick_cv_owner"] = str(user_id or "")
 
+                        # ── Auto-save immediately after generation ──
+                        try:
+                            _auto_ok = save_cv_record(
+                                cv_dict=generated_cv,
+                                source_type=cv_mode,
+                                title=cv_doc_title.strip() or str(generated_cv.get("title") or generated_cv.get("full_name") or t("my_cv")),
+                                ai_prompt=cv_ai_prompt,
+                            )
+                            if _auto_ok:
+                                st.session_state["_quick_cv_auto_saved"] = True
+                        except Exception:
+                            pass  # non-blocking: user can still save manually
+
                     except Exception as e:
                         st.error(f"{t('cv_generation_failed')}: {e}")
 
@@ -1200,12 +1216,25 @@ def render_quick_cv_builder_expander() -> None:
                             )
                             _log_ai_cv("success", {"doc": "cover_letter"})
                             st.session_state["quick_cl_result"] = cl_text
-                            st.session_state["quick_cl_title"] = (
+                            _cl_title = (
                                 f"{t('cover_letter')} – {cv_full_name.strip()}"
                                 if cv_full_name.strip()
                                 else t("my_cover_letter")
                             )
+                            st.session_state["quick_cl_title"] = _cl_title
                             st.session_state["quick_cl_ai_prompt"] = cv_cl_prompt
+
+                            # ── Auto-save immediately after generation ──
+                            try:
+                                save_cover_letter_record(
+                                    content=cl_text,
+                                    title=_cl_title,
+                                    ai_prompt=cv_cl_prompt,
+                                )
+                                st.session_state["_quick_cl_auto_saved"] = True
+                            except Exception:
+                                pass  # non-blocking: user can still save manually
+
                         except Exception as e:
                             st.error(f"{t('cv_generation_failed')}: {e}")
         # ── Display CV result ────────────────────────────────────────────
@@ -1245,19 +1274,22 @@ def render_quick_cv_builder_expander() -> None:
             )
             c1, c2 = st.columns(2)
             with c1:
-                if st.button(t("save_cover_letter"), key="btn_save_cl", use_container_width=True):
-                    ok = save_cover_letter_record(
-                        content=cl_result,
-                        title=cl_title,
-                        ai_prompt=st.session_state.get("quick_cl_ai_prompt", ""),
-                    )
-                    if ok:
-                        st.success(t("cover_letter_saved"))
-                        for k in ("quick_cl_result", "quick_cl_title", "quick_cl_ai_prompt"):
-                            st.session_state.pop(k, None)
-                        st.rerun()
+                if st.session_state.get("_quick_cl_auto_saved"):
+                    st.success(t("cover_letter_saved"))
+                else:
+                    if st.button(t("save_cover_letter"), key="btn_save_cl", use_container_width=True):
+                        ok = save_cover_letter_record(
+                            content=cl_result,
+                            title=cl_title,
+                            ai_prompt=st.session_state.get("quick_cl_ai_prompt", ""),
+                        )
+                        if ok:
+                            st.success(t("cover_letter_saved"))
+                            for k in ("quick_cl_result", "quick_cl_title", "quick_cl_ai_prompt", "_quick_cl_auto_saved"):
+                                st.session_state.pop(k, None)
+                            st.rerun()
             with c2:
                 if st.button(t("discard_cover_letter"), key="btn_discard_cl", use_container_width=True):
-                    for k in ("quick_cl_result", "quick_cl_title", "quick_cl_ai_prompt"):
+                    for k in ("quick_cl_result", "quick_cl_title", "quick_cl_ai_prompt", "_quick_cl_auto_saved"):
                         st.session_state.pop(k, None)
                     st.rerun()

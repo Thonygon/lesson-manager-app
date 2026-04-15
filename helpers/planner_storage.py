@@ -1098,23 +1098,14 @@ def render_quick_lesson_plan_result(
     if read_only:
         dc1, dc2 = st.columns(2)
         with dc1:
-            if signup_required_actions:
-                if st.button(
-                    t("download_pdf"),
-                    key=f"{action_key_prefix}_download_pdf_signup",
-                    use_container_width=True,
-                ):
-                    st.session_state["_explore_go_signup"] = True
-                    st.rerun()
-            else:
-                st.download_button(
-                    label=t("download_pdf"),
-                    data=pdf_bytes,
-                    file_name=f"{safe_title}.pdf",
-                    mime="application/pdf",
-                    key=f"{action_key_prefix}_download_pdf",
-                    use_container_width=True,
-                )
+            st.download_button(
+                label=t("download_pdf"),
+                data=pdf_bytes,
+                file_name=f"{safe_title}.pdf",
+                mime="application/pdf",
+                key=f"{action_key_prefix}_download_pdf",
+                use_container_width=True,
+            )
         with dc2:
             if signup_required_actions:
                 if st.button(
