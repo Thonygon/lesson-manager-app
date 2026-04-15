@@ -20,6 +20,53 @@ _LOWER_PRIMARY_STAGES = {
     "primary_lower",
 }
 
+_STAGE_TIER_MAP = {
+    "pre_primary": "lower_primary",
+    "early_primary": "lower_primary",
+    "lower_primary": "lower_primary",
+    "primary_lower": "lower_primary",
+    "upper_primary": "upper_primary",
+    "primary_upper": "upper_primary",
+    "lower_secondary": "secondary",
+    "secondary_lower": "secondary",
+    "upper_secondary": "secondary",
+    "secondary_upper": "secondary",
+    "adult": "adult",
+    "professional": "adult",
+}
+
+
+def _stage_tier(stage: str) -> str:
+    return _STAGE_TIER_MAP.get(_stage_key(stage), "secondary")
+
+
+def _stage_label(stage: str) -> str:
+    return {
+        "lower_primary": "lower-primary",
+        "upper_primary": "upper-primary",
+        "secondary": "secondary-level",
+        "adult": "adult-level",
+    }.get(_stage_tier(stage), "educational")
+
+
+def _visual_style(stage: str) -> str:
+    return {
+        "lower_primary": "simple educational illustration, warm and easy to recognize",
+        "upper_primary": "clear educational illustration, age-appropriate and engaging",
+        "secondary": "clean, realistic educational illustration",
+        "adult": "professional, clear educational illustration",
+    }.get(_stage_tier(stage), "clean educational illustration")
+
+
+def _visual_mood(stage: str) -> str:
+    return {
+        "lower_primary": "bright, friendly, classroom-safe",
+        "upper_primary": "clear, engaging, classroom-safe",
+        "secondary": "clear, informative, print-friendly",
+        "adult": "clear, professional, print-friendly",
+    }.get(_stage_tier(stage), "clear, informative")
+
+
 _ABSTRACT_VISUAL_TERMS = {
     "adjective",
     "adjectives",
@@ -279,21 +326,30 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
     ws_type = _clean_text(ws.get("worksheet_type"))
     subject_label = _clean_text(subject or ws.get("subject", "")).replace("_", " ")
     topic_label = _clean_text(topic or ws.get("topic", "") or ws.get("title", ""))
+    tier = _stage_tier(learner_stage)
+    stage_lbl = _stage_label(learner_stage)
+    style = _visual_style(learner_stage)
+    mood = _visual_mood(learner_stage)
 
     if ws_type == "matching":
+        # Picture matching boards help lower/upper primary identify concrete items;
+        # secondary only benefits when there are enough highly-concrete terms; adults skip.
+        if tier == "adult":
+            return None
+        min_terms = 4 if tier == "secondary" else 3
         terms = _extract_matching_terms(ws.get("matching_pairs", []))
-        if len(terms) < 3:
+        if len(terms) < min_terms:
             return None
         prompt = (
             "Use case: illustration-story\n"
             "Asset type: worksheet support image\n"
-            f"Primary request: Create a child-friendly picture board for a lower-primary {subject_label} matching activity.\n"
+            f"Primary request: Create a picture board for a {stage_lbl} {subject_label} matching activity.\n"
             f"Subject: {subject_label or 'general studies'}\n"
             f"Scene/backdrop: clean white worksheet background with separate picture tiles\n"
             f"Subject details: show one clear illustration for each of these items: {', '.join(terms)}.\n"
-            "Style/medium: simple educational illustration, warm and easy to recognize\n"
+            f"Style/medium: {style}\n"
             "Composition/framing: 2x2 or 3x2 grid of separate picture cards\n"
-            "Lighting/mood: bright, friendly, classroom-safe\n"
+            f"Lighting/mood: {mood}\n"
             "Text (verbatim): none\n"
             "Constraints: no words, no letters, no labels, no decorative filler, each picture must be distinct and usable for matching\n"
             "Avoid: abstract icons, posters, banners, title cards, watermark"
@@ -301,25 +357,32 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
         return ("image_based_matching", f"{topic_label or 'Matching'} picture support", prompt)
 
     if ws_type in {"word_search_vocab"}:
+        # Picture vocabulary boards are most useful for primary stages only.
+        if tier not in ("lower_primary", "upper_primary"):
+            return None
+        min_terms = 4 if tier == "lower_primary" else 5
         terms = _extract_vocab_terms(ws)
-        if len(terms) < 4:
+        if len(terms) < min_terms:
             return None
         prompt = (
             "Use case: illustration-story\n"
             "Asset type: worksheet vocabulary support image\n"
-            f"Primary request: Create a lower-primary picture vocabulary board for these words: {', '.join(terms)}.\n"
+            f"Primary request: Create a {stage_lbl} picture vocabulary board for these words: {', '.join(terms)}.\n"
             f"Subject: {subject_label or 'general studies'}\n"
             "Scene/backdrop: clean worksheet background with evenly spaced picture cards\n"
-            "Style/medium: simple educational illustration\n"
+            f"Style/medium: {style}\n"
             "Composition/framing: one separate picture tile for each word\n"
-            "Lighting/mood: clear, cheerful, print-friendly\n"
+            f"Lighting/mood: {mood}\n"
             "Text (verbatim): none\n"
-            "Constraints: no text, no labels, no decorative filler, every item must be easy for children to identify\n"
+            "Constraints: no text, no labels, no decorative filler, every item must be easy to identify\n"
             "Avoid: collage chaos, title banners, watermark"
         )
         return ("picture_vocabulary", f"{topic_label or 'Vocabulary'} picture support", prompt)
 
     if ws_type == "true_false":
+        # Observation-scene support helps primary students; older students can reason without it.
+        if tier not in ("lower_primary", "upper_primary"):
+            return None
         if _clean_text(ws.get("source_text")):
             return None
         statements = _observable_statements(ws.get("true_false_statements", []))
@@ -328,12 +391,12 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
         prompt = (
             "Use case: illustration-story\n"
             "Asset type: worksheet true/false support image\n"
-            f"Primary request: Create one classroom-safe lower-primary scene that supports observation-based true/false statements.\n"
+            f"Primary request: Create one classroom-safe {stage_lbl} scene that supports observation-based true/false statements.\n"
             f"Subject: {subject_label or 'general studies'}\n"
             f"Scene/backdrop: The picture should plausibly support statements like: {' | '.join(statements)}\n"
-            "Style/medium: simple educational illustration\n"
+            f"Style/medium: {style}\n"
             "Composition/framing: one coherent scene with visible details students can observe\n"
-            "Lighting/mood: bright, clear, child-friendly\n"
+            f"Lighting/mood: {mood}\n"
             "Text (verbatim): none\n"
             "Constraints: no text, no labels, no unnecessary extra objects, the visible details must be easy to verify\n"
             "Avoid: decorative posters, abstract symbols, watermark"
@@ -341,18 +404,21 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
         return ("scene_truth_support", f"{topic_label or 'True or False'} picture support", prompt)
 
     if ws_type == "reading_comprehension":
+        # Scene illustrations aid comprehension at all stages; require richer passages for older learners.
+        min_passage = {"lower_primary": 80, "upper_primary": 120, "secondary": 200, "adult": 300}.get(tier, 200)
         passage = _clean_text(ws.get("reading_passage"))
-        if len(passage) < 80:
+        if len(passage) < min_passage:
             return None
+        reading_style = "warm educational story illustration" if tier in ("lower_primary", "upper_primary") else "clear educational illustration suited to the passage content"
         prompt = (
             "Use case: illustration-story\n"
             "Asset type: worksheet reading support image\n"
-            f"Primary request: Create a lower-primary reading support illustration for this passage.\n"
+            f"Primary request: Create a {stage_lbl} reading support illustration for this passage.\n"
             f"Subject: {subject_label or 'language learning'}\n"
             f"Scene/backdrop: {_passage_excerpt(passage)}\n"
-            "Style/medium: warm educational story illustration\n"
+            f"Style/medium: {reading_style}\n"
             "Composition/framing: one coherent scene that reflects the passage without giving away answers\n"
-            "Lighting/mood: inviting, child-friendly, classroom-safe\n"
+            f"Lighting/mood: {mood}\n"
             "Text (verbatim): none\n"
             "Constraints: match the passage details, no text, no labels, no answer spoilers beyond the scene itself\n"
             "Avoid: decorative filler, watermark"
@@ -360,17 +426,21 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
         return ("reading_scene_support", f"{topic_label or 'Reading'} scene support", prompt)
 
     if ws_type == "vocabulary":
+        # Picture vocabulary boards are most useful for primary stages only.
+        if tier not in ("lower_primary", "upper_primary"):
+            return None
+        min_terms = 4 if tier == "lower_primary" else 5
         terms = _extract_vocab_terms(ws)
-        if len(terms) < 4:
+        if len(terms) < min_terms:
             return None
         prompt = (
             "Use case: illustration-story\n"
             "Asset type: worksheet picture vocabulary image\n"
-            f"Primary request: Create a lower-primary picture vocabulary board for these items: {', '.join(terms)}.\n"
+            f"Primary request: Create a {stage_lbl} picture vocabulary board for these items: {', '.join(terms)}.\n"
             f"Subject: {subject_label or 'general studies'}\n"
-            "Style/medium: simple educational illustration\n"
+            f"Style/medium: {style}\n"
             "Composition/framing: one separate picture tile per item on a clean white background\n"
-            "Lighting/mood: bright and clear\n"
+            f"Lighting/mood: {mood}\n"
             "Text (verbatim): none\n"
             "Constraints: no labels, no decorative filler, every item must be easy to identify visually\n"
             "Avoid: abstract icons, posters, watermark"
@@ -384,20 +454,27 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
     sec_type = _clean_text(section.get("type"))
     subject_label = _clean_text(subject or exam_data.get("subject", "")).replace("_", " ")
     topic_label = _clean_text(topic or section.get("title", "") or exam_data.get("title", ""))
+    tier = _stage_tier(learner_stage)
+    stage_lbl = _stage_label(learner_stage)
+    style = _visual_style(learner_stage)
+    mood = _visual_mood(learner_stage)
 
     if sec_type == "matching":
+        if tier == "adult":
+            return None
+        min_terms = 4 if tier == "secondary" else 3
         terms = _extract_matching_terms(section.get("questions", []))
-        if len(terms) < 3:
+        if len(terms) < min_terms:
             return None
         prompt = (
             "Use case: illustration-story\n"
             "Asset type: exam support image\n"
-            f"Primary request: Create a lower-primary picture board for a matching section using these items: {', '.join(terms)}.\n"
+            f"Primary request: Create a picture board for a {stage_lbl} matching section using these items: {', '.join(terms)}.\n"
             f"Subject: {subject_label or 'general studies'}\n"
             "Scene/backdrop: clean worksheet-style background with separate picture cards\n"
-            "Style/medium: simple educational illustration\n"
+            f"Style/medium: {style}\n"
             "Composition/framing: grid of separate pictures, no text\n"
-            "Lighting/mood: clear, child-friendly, print-safe\n"
+            f"Lighting/mood: {mood}\n"
             "Text (verbatim): none\n"
             "Constraints: no labels, no decorative filler, each item must be visually distinct and usable for matching\n"
             "Avoid: posters, title cards, watermark"
@@ -405,17 +482,20 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
         return ("image_based_matching", f"{topic_label or 'Matching'} picture support", prompt)
 
     if sec_type == "vocabulary":
+        if tier not in ("lower_primary", "upper_primary"):
+            return None
+        min_terms = 4 if tier == "lower_primary" else 5
         terms = _extract_vocab_terms({"questions": section.get("questions", [])})
-        if len(terms) < 4:
+        if len(terms) < min_terms:
             return None
         prompt = (
             "Use case: illustration-story\n"
             "Asset type: exam picture vocabulary image\n"
-            f"Primary request: Create a lower-primary picture vocabulary board for these items: {', '.join(terms)}.\n"
+            f"Primary request: Create a {stage_lbl} picture vocabulary board for these items: {', '.join(terms)}.\n"
             f"Subject: {subject_label or 'general studies'}\n"
-            "Style/medium: simple educational illustration\n"
+            f"Style/medium: {style}\n"
             "Composition/framing: one separate picture tile per item\n"
-            "Lighting/mood: bright, clear, classroom-safe\n"
+            f"Lighting/mood: {mood}\n"
             "Text (verbatim): none\n"
             "Constraints: no labels, no decorative filler, every item must be easy to recognize\n"
             "Avoid: abstract icons, posters, watermark"
@@ -423,18 +503,20 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
         return ("picture_vocabulary", f"{topic_label or 'Vocabulary'} picture support", prompt)
 
     if sec_type == "reading_comprehension":
+        min_passage = {"lower_primary": 80, "upper_primary": 120, "secondary": 200, "adult": 300}.get(tier, 200)
         passage = _clean_text(section.get("source_text"))
-        if len(passage) < 80:
+        if len(passage) < min_passage:
             return None
+        reading_style = "warm educational story illustration" if tier in ("lower_primary", "upper_primary") else "clear educational illustration suited to the passage content"
         prompt = (
             "Use case: illustration-story\n"
             "Asset type: exam reading support image\n"
-            f"Primary request: Create a lower-primary reading support illustration for this passage.\n"
+            f"Primary request: Create a {stage_lbl} reading support illustration for this passage.\n"
             f"Subject: {subject_label or 'language learning'}\n"
             f"Scene/backdrop: {_passage_excerpt(passage)}\n"
-            "Style/medium: warm educational story illustration\n"
+            f"Style/medium: {reading_style}\n"
             "Composition/framing: one coherent scene aligned to the passage\n"
-            "Lighting/mood: inviting, child-friendly\n"
+            f"Lighting/mood: {mood}\n"
             "Text (verbatim): none\n"
             "Constraints: no labels, no decorative filler, do not introduce contradictory details\n"
             "Avoid: watermark"
@@ -442,6 +524,8 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
         return ("reading_scene_support", f"{topic_label or 'Reading'} scene support", prompt)
 
     if sec_type == "true_false":
+        if tier not in ("lower_primary", "upper_primary"):
+            return None
         if _clean_text(section.get("source_text")):
             return None
         statements = _observable_statements(section.get("questions", []))
@@ -450,12 +534,12 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
         prompt = (
             "Use case: illustration-story\n"
             "Asset type: exam true/false support image\n"
-            f"Primary request: Create one lower-primary scene that supports observation-based true/false statements.\n"
+            f"Primary request: Create one {stage_lbl} scene that supports observation-based true/false statements.\n"
             f"Subject: {subject_label or 'general studies'}\n"
             f"Scene/backdrop: The image should plausibly support statements like: {' | '.join(statements)}\n"
-            "Style/medium: simple educational illustration\n"
+            f"Style/medium: {style}\n"
             "Composition/framing: one coherent scene with visible details students can check\n"
-            "Lighting/mood: bright and clear\n"
+            f"Lighting/mood: {mood}\n"
             "Text (verbatim): none\n"
             "Constraints: no labels, no decorative filler, no irrelevant objects\n"
             "Avoid: watermark"
@@ -463,18 +547,19 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
         return ("scene_truth_support", f"{topic_label or 'True or False'} picture support", prompt)
 
     if sec_type in {"diagram_questions", "classification", "symbol_identification", "theory_questions", "terminology"}:
+        # Diagrams and instructional visuals are pedagogically valuable at all stages.
         cue_text = _passage_excerpt(" ".join(_clean_text(q if isinstance(q, str) else q.get("text", q.get("stem", q.get("word", "")))) for q in (section.get("questions", [])[:4])))
         if not cue_text:
             cue_text = topic_label
         prompt = (
             "Use case: infographic-diagram\n"
             "Asset type: instructional support image\n"
-            f"Primary request: Create a lower-primary instructional visual for {subject_label or 'general studies'}.\n"
+            f"Primary request: Create a {stage_lbl} instructional visual for {subject_label or 'general studies'}.\n"
             f"Subject: {subject_label or 'general studies'}\n"
             f"Scene/backdrop: {cue_text}\n"
-            "Style/medium: clean educational diagram or reference illustration\n"
+            f"Style/medium: {'clean educational diagram or reference illustration' if tier in ('lower_primary', 'upper_primary') else 'precise, informative educational diagram'}\n"
             "Composition/framing: one centered, easy-to-read instructional visual\n"
-            "Lighting/mood: bright, simple, print-friendly\n"
+            f"Lighting/mood: {mood}\n"
             "Text (verbatim): none\n"
             "Constraints: no decorative filler, use only the fewest elements needed to support the task\n"
             "Avoid: posters, banners, watermark"
@@ -731,18 +816,6 @@ def exam_has_ready_visuals(exam_data: dict | None) -> bool:
 def enrich_worksheet_with_visuals(ws: dict, *, subject: str = "", learner_stage: str = "", topic: str = "") -> dict:
     payload = dict(ws or {})
     stage = learner_stage or payload.get("learner_stage", "")
-    if not _is_lower_primary(stage):
-        payload["_visual_support_status"] = _status_payload(
-            "skipped",
-            "image_support_stage_only",
-            provider_chain=_provider_chain_label(),
-            task_type=payload.get("worksheet_type", ""),
-        )
-        payload["visual_supports"] = [
-            item for item in (_normalize_existing_support(s) for s in payload.get("visual_supports", []))
-            if item and _should_render_support(item)
-        ]
-        return payload
 
     existing_supports = [
         item for item in (_normalize_existing_support(s) for s in payload.get("visual_supports", []))
@@ -825,20 +898,6 @@ def enrich_exam_with_visuals(exam_data: dict, *, subject: str = "", learner_stag
     for section in payload.get("sections", []) or []:
         sec = dict(section or {})
         existing = _normalize_existing_support(sec.get("visual_support"))
-
-        if not _is_lower_primary(stage):
-            sec["_visual_support_status"] = _status_payload(
-                "skipped",
-                "image_support_stage_only",
-                provider_chain=_provider_chain_label(),
-                task_type=sec.get("type", ""),
-            )
-            if _should_render_support(existing):
-                sec["visual_support"] = existing
-            else:
-                sec.pop("visual_support", None)
-            sections.append(sec)
-            continue
 
         if _should_render_support(existing):
             sec["visual_support"] = existing
@@ -929,13 +988,17 @@ def render_streamlit_visual_support(support: dict | None) -> None:
     if not _should_render_support(support):
         return
     data_url = _clean_text(support.get("image_data_url"))
-    image_bytes = data_uri_to_bytes(data_url)
-    if not image_bytes:
+    if not data_url.startswith("data:image/"):
         return
     caption = _clean_text(support.get("caption"))
-    st.image(image_bytes, use_container_width=True)
-    if caption:
-        st.caption(caption)
+    caption_html = f'<p style="text-align:center;color:var(--muted);font-size:0.85rem;margin:6px 0 0;">{caption}</p>' if caption else ""
+    st.markdown(
+        f'<div style="text-align:center;margin:12px auto 16px;max-width:520px;">'
+        f'<img src="{data_url}" style="max-width:100%;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.10);" />'
+        f'{caption_html}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def render_streamlit_visual_supports(items) -> None:

@@ -1359,41 +1359,23 @@ def render_worksheet_result(
     if read_only:
         dc1, dc2 = st.columns(2)
         with dc1:
-            if signup_required_actions:
-                if st.button(
-                    t("download_student_pdf"),
-                    key=f"{action_key_prefix}_student_pdf_signup",
-                    use_container_width=True,
-                ):
-                    st.session_state["_explore_go_signup"] = True
-                    st.rerun()
-            else:
-                st.download_button(
-                    label=t("download_student_pdf"),
-                    data=student_pdf,
-                    file_name=f"{safe_title}_student.pdf",
-                    mime="application/pdf",
-                    key=f"{action_key_prefix}_dl_ws_stu_{safe_title}",
-                    use_container_width=True,
-                )
+            st.download_button(
+                label=t("download_student_pdf"),
+                data=student_pdf,
+                file_name=f"{safe_title}_student.pdf",
+                mime="application/pdf",
+                key=f"{action_key_prefix}_dl_ws_stu_{safe_title}",
+                use_container_width=True,
+            )
         with dc2:
-            if signup_required_actions:
-                if st.button(
-                    t("download_teacher_pdf"),
-                    key=f"{action_key_prefix}_teacher_pdf_signup",
-                    use_container_width=True,
-                ):
-                    st.session_state["_explore_go_signup"] = True
-                    st.rerun()
-            else:
-                st.download_button(
-                    label=t("download_teacher_pdf"),
-                    data=teacher_pdf,
-                    file_name=f"{safe_title}_teacher.pdf",
-                    mime="application/pdf",
-                    key=f"{action_key_prefix}_dl_ws_tch_{safe_title}",
-                    use_container_width=True,
-                )
+            st.download_button(
+                label=t("download_teacher_pdf"),
+                data=teacher_pdf,
+                file_name=f"{safe_title}_teacher.pdf",
+                mime="application/pdf",
+                key=f"{action_key_prefix}_dl_ws_tch_{safe_title}",
+                use_container_width=True,
+            )
         dw1, dw2 = st.columns(2)
         with dw1:
             if signup_required_actions:

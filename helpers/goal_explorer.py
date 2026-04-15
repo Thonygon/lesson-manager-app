@@ -79,7 +79,7 @@ _CURRENCY_RATE_FROM_USD: dict[str, float] = {
 # Planning constants
 _TEACHING_WEEKS_PER_YEAR = 44        # ~8 weeks of holidays / breaks
 _LESSONS_PER_STUDENT_PER_WEEK = 1.5  # avg mix of weekly and biweekly
-_EXPLORE_DEMO_DONE_KEY = "explore_demo_completed_ids"
+_EXPLORE_DEMO_DONE_KEY = "_completed_demo_ids"
 
 
 def _session_resource_id(key: str):
@@ -141,12 +141,16 @@ def _render_explore_demo_section() -> None:
             _clear_explore_demo_state()
             st.rerun()
 
-        result = render_practice_session(st.session_state.get("practice_exercise_data") or {}, session_key="explore_demo")
-        if result and not st.session_state.get("_practice_saved_explore_demo"):
-            st.session_state["_practice_saved_explore_demo"] = True
+        # Mark completion as soon as submission happens (submitted flag is set)
+        _submitted_key = "_practice_submitted_explore_demo"
+        _saved_key = "_practice_saved_explore_demo"
+        if st.session_state.get(_submitted_key) and not st.session_state.get(_saved_key):
+            st.session_state[_saved_key] = True
             demo_id = st.session_state.get("_explore_demo_id")
             if demo_id:
                 _mark_explore_demo_completed(demo_id)
+
+        render_practice_session(st.session_state.get("practice_exercise_data") or {}, session_key="explore_demo")
         return
 
     if pct == 0:
@@ -162,7 +166,7 @@ def _render_explore_demo_section() -> None:
         icon = "🏅" if is_done else demo["emoji"]
         medal_html += f'<span style="margin-right:12px;">{icon} {_html.escape(demo["label"])}</span>'
 
-    with st.expander(f"🧪 {t('try_demo')}", expanded=False):
+    with st.expander(f"🧪 {t('try_demo')}", expanded=True):
         st.markdown(
             f"""<div style="
 padding:12px 16px; border-radius:14px;
@@ -1229,8 +1233,6 @@ def _render_explore_ai_tools() -> None:
 
     selected = st.session_state.get("explore_ai_tool_selected", "")
 
-    cols = st.columns(2, gap="medium")
-
     cards = [
         {
             "key": "planner",
@@ -1246,54 +1248,76 @@ def _render_explore_ai_tools() -> None:
             "glow": "rgba(16,185,129,0.55)",
             "desc": t("worksheet_maker_caption_one"),
         },
+        {
+            "key": "exam",
+            "icon": "🧪",
+            "title": t("quick_exam_builder"),
+            "glow": "rgba(239,68,68,0.55)",
+            "desc": t("quick_exam_builder_caption"),
+        },
+        {
+            "key": "program",
+            "icon": "📚",
+            "title": t("quick_learning_program_maker"),
+            "glow": "rgba(168,85,247,0.55)",
+            "desc": t("quick_learning_program_maker_caption"),
+        },
     ]
 
-    for col, card in zip(cols, cards):
-        with col:
-            is_active = selected == card["key"]
-            border_style = (
-                "2px solid var(--primary)"
-                if is_active
-                else "1px solid var(--border-strong, rgba(17,24,39,0.08))"
-            )
+    # Render cards in 2 rows × 2 columns
+    for row_start in range(0, len(cards), 2):
+        row_cards = cards[row_start:row_start + 2]
+        cols = st.columns(2, gap="medium")
+        for col, card in zip(cols, row_cards):
+            with col:
+                is_active = selected == card["key"]
+                border_style = (
+                    "2px solid var(--primary)"
+                    if is_active
+                    else "1px solid var(--border-strong, rgba(17,24,39,0.08))"
+                )
 
-            st.markdown(
-                f"""
-                <div style="
-                    background: linear-gradient(180deg, var(--panel, rgba(255,255,255,0.92)), var(--panel-2, rgba(248,250,255,0.85)));
-                    border: {border_style};
-                    border-radius: 16px;
-                    padding: 18px 14px 12px 14px;
-                    text-align: center;
-                    box-shadow: 0 4px 18px {card["glow"]};
-                    min-height: 120px;
-                ">
-                    <div style="font-size:1.8rem; margin-bottom:6px;">{card["icon"]}</div>
-                    <div style="font-weight:700; font-size:1rem; color:var(--text, #0f172a);">
-                        {card["title"]}
+                st.markdown(
+                    f"""
+                    <div style="
+                        background: linear-gradient(180deg, var(--panel, rgba(255,255,255,0.92)), var(--panel-2, rgba(248,250,255,0.85)));
+                        border: {border_style};
+                        border-radius: 16px;
+                        padding: 18px 14px 12px 14px;
+                        text-align: center;
+                        box-shadow: 0 4px 18px {card["glow"]};
+                        min-height: 120px;
+                    ">
+                        <div style="font-size:1.8rem; margin-bottom:6px;">{card["icon"]}</div>
+                        <div style="font-weight:700; font-size:1rem; color:var(--text, #0f172a);">
+                            {card["title"]}
+                        </div>
+                        <div style="font-size:0.82rem; color:var(--muted, #64748b); margin-top:6px; line-height:1.35;">
+                            {card["desc"]}
+                        </div>
                     </div>
-                    <div style="font-size:0.82rem; color:var(--muted, #64748b); margin-top:6px; line-height:1.35;">
-                        {card["desc"]}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+                    """,
+                    unsafe_allow_html=True,
+                )
 
-            button_label = t("close") if is_active else t("try_now")
-            if st.button(button_label, key=f"explore_ai_card_{card['key']}", use_container_width=True):
+                button_label = t("close") if is_active else t("try_now")
+                if st.button(button_label, key=f"explore_ai_card_{card['key']}", use_container_width=True):
+                    if is_active:
+                        st.session_state["explore_ai_tool_selected"] = ""
+                    else:
+                        st.session_state["explore_ai_tool_selected"] = card["key"]
+                    st.rerun()
+
                 if is_active:
-                    st.session_state["explore_ai_tool_selected"] = ""
-                else:
-                    st.session_state["explore_ai_tool_selected"] = card["key"]
-                st.rerun()
-
-            if is_active:
-                st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
-                if card["key"] == "planner":
-                    _render_explore_lesson_planner()
-                elif card["key"] == "worksheet":
-                    _render_explore_worksheet_maker()
+                    st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+                    if card["key"] == "planner":
+                        _render_explore_lesson_planner()
+                    elif card["key"] == "worksheet":
+                        _render_explore_worksheet_maker()
+                    elif card["key"] == "exam":
+                        _render_explore_exam_builder()
+                    elif card["key"] == "program":
+                        _render_explore_program_maker()
 
 # ─────────────────────────────────────────────────────────────
 # Explore-page worksheet maker (AI-powered, 1-use limit for anon)
@@ -1423,6 +1447,243 @@ def _render_explore_worksheet_maker() -> None:
             }
             st.session_state["_explore_go_signup"] = True
             st.rerun()
+
+# ─────────────────────────────────────────────────────────────
+# Explore-page exam builder (AI-powered, 1-use limit for anon)
+# ─────────────────────────────────────────────────────────────
+
+
+def _render_explore_exam_builder() -> None:
+    """Exam builder for anonymous users. Generate is free; downloads require signup."""
+    import helpers.lesson_planner as lp
+    from helpers.quick_exam_builder import (
+        EXAM_LENGTHS,
+        generate_ai_exam,
+        normalize_exam_output,
+        get_plan_language,
+        get_student_material_language,
+        get_recommended_exercise_types,
+        get_default_selected_exercise_types,
+    )
+    from helpers.quick_exam_storage import render_exam_result
+
+    st.markdown(f"### 🧪 {t('quick_exam_builder')}")
+    st.caption(t("quick_exam_builder_caption"))
+
+    ai_used = st.session_state.get("_explore_exam_ai_used", 0)
+    ai_remaining = max(0, _EXPLORE_AI_LIMIT - ai_used)
+
+    if ai_remaining > 0:
+        st.caption(t("explore_ai_remaining", remaining=ai_remaining))
+    else:
+        st.warning(t("explore_ai_limit_reached"))
+
+    subject = st.selectbox(
+        t("subject_label"),
+        lp.QUICK_SUBJECTS,
+        format_func=lp.subject_label,
+        key="explore_exam_subject",
+    )
+
+    other_subject_name = ""
+    if subject == "other":
+        other_subject_name = st.text_input(
+            t("other_subject_label"),
+            key="explore_exam_other_subject",
+        ).strip()
+
+    learner_stage = st.selectbox(
+        t("learner_stage"),
+        lp.LEARNER_STAGES,
+        format_func=lp._stage_label,
+        key="explore_exam_stage",
+    )
+
+    default_level = lp.recommend_default_level(subject, learner_stage)
+    level_options = lp.get_level_options(subject)
+    if st.session_state.get("explore_exam_level") not in level_options:
+        st.session_state["explore_exam_level"] = default_level
+
+    c1, c2 = st.columns(2)
+    with c1:
+        level_or_band = st.selectbox(
+            t("level_or_band"),
+            level_options,
+            format_func=lp._level_label,
+            key="explore_exam_level",
+        )
+    with c2:
+        exam_length = st.selectbox(
+            t("exam_length"),
+            EXAM_LENGTHS,
+            format_func=lambda x: t(f"{x}_exam"),
+            key="explore_exam_length",
+        )
+
+    topic = st.text_input(t("topic_label"), key="explore_exam_topic")
+
+    effective_subject = other_subject_name if subject == "other" else subject
+    recommended = get_recommended_exercise_types(effective_subject)
+    defaults = get_default_selected_exercise_types(effective_subject)
+
+    exercise_types = st.multiselect(
+        t("exercise_types"),
+        options=recommended,
+        default=defaults,
+        format_func=lambda x: t(x) if t(x) != x else x.replace("_", " ").title(),
+        key="explore_exam_types",
+    )
+
+    if st.button(t("generate_exam"), key="btn_explore_gen_exam", use_container_width=True):
+        if not topic.strip():
+            st.error(t("enter_topic"))
+        elif subject == "other" and not other_subject_name:
+            st.error(t("enter_subject_name"))
+        elif not exercise_types:
+            st.error(t("exercise_types"))
+        elif ai_remaining <= 0:
+            st.warning(t("explore_ai_limit_reached"))
+        else:
+            with st.spinner(t("generating")):
+                try:
+                    exam_data, answer_key = generate_ai_exam(
+                        subject=effective_subject,
+                        learner_stage=learner_stage,
+                        level_or_band=level_or_band,
+                        topic=topic.strip(),
+                        exam_title=topic.strip(),
+                        exam_length=exam_length,
+                        exercise_types=exercise_types,
+                        instructions="",
+                        plan_language=get_plan_language(),
+                        student_material_language=get_student_material_language(effective_subject),
+                    )
+                    exam_data, answer_key = normalize_exam_output(exam_data)
+                    st.session_state["explore_generated_exam"] = exam_data
+                    st.session_state["explore_generated_exam_ak"] = answer_key
+                    st.session_state["explore_generated_exam_meta"] = {
+                        "subject": effective_subject,
+                        "learner_stage": learner_stage,
+                        "level_or_band": level_or_band,
+                        "topic": topic.strip(),
+                    }
+                    st.session_state["_explore_exam_ai_used"] = ai_used + 1
+                except Exception:
+                    st.error(t("ai_unavailable_fallback"))
+
+    exam_data = st.session_state.get("explore_generated_exam")
+    answer_key = st.session_state.get("explore_generated_exam_ak")
+    exam_meta = st.session_state.get("explore_generated_exam_meta", {})
+    if exam_data and answer_key:
+        render_exam_result(
+            exam_data,
+            answer_key,
+            signup_required_actions=True,
+            allow_free_pdf=False,
+            action_key_prefix="explore_exam",
+            subject=exam_meta.get("subject", ""),
+            learner_stage=exam_meta.get("learner_stage", ""),
+            level_or_band=exam_meta.get("level_or_band", ""),
+            topic=exam_meta.get("topic", ""),
+        )
+
+
+# ─────────────────────────────────────────────────────────────
+# Explore-page learning program maker (generation requires signup)
+# ─────────────────────────────────────────────────────────────
+
+
+def _render_explore_program_maker() -> None:
+    """Learning program preview for anonymous users. Generation requires signup."""
+    import helpers.lesson_planner as lp
+    from helpers.learning_programs import clamp_program_structure
+
+    st.markdown(f"### 📚 {t('quick_learning_program_maker')}")
+    st.caption(t("quick_learning_program_maker_caption"))
+
+    subject = st.selectbox(
+        t("subject_label"),
+        lp.QUICK_SUBJECTS,
+        format_func=lp.subject_label,
+        key="explore_prog_subject",
+    )
+
+    other_subject_name = ""
+    if subject == "other":
+        other_subject_name = st.text_input(
+            t("other_subject_label"),
+            key="explore_prog_other_subject",
+        ).strip()
+
+    learner_stage = st.selectbox(
+        t("learner_stage"),
+        lp.LEARNER_STAGES,
+        format_func=lp._stage_label,
+        key="explore_prog_stage",
+    )
+
+    default_level = lp.recommend_default_level(subject, learner_stage)
+    level_options = lp.get_level_options(subject)
+    if st.session_state.get("explore_prog_level") not in level_options:
+        st.session_state["explore_prog_level"] = default_level
+
+    level_or_band = st.selectbox(
+        t("level_or_band"),
+        level_options,
+        format_func=lp._level_label,
+        key="explore_prog_level",
+    )
+
+    effective_subject = other_subject_name if subject == "other" else subject
+    structure = clamp_program_structure(effective_subject, learner_stage, None, None)
+    st.caption(
+        t(
+            "learning_program_recommended_structure",
+            units=structure["units"],
+            lessons=structure["lessons_per_unit"],
+            total_topics=structure["total_topics"],
+        )
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        units = st.number_input(
+            t("learning_program_number_of_units"),
+            min_value=structure["recommendation"]["units_min"],
+            max_value=structure["recommendation"]["units_max"],
+            value=structure["units"],
+            key="explore_prog_units",
+        )
+    with c2:
+        lessons_per_unit = st.number_input(
+            t("learning_program_lessons_per_unit"),
+            min_value=structure["recommendation"]["lessons_per_unit_min"],
+            max_value=structure["recommendation"]["lessons_per_unit_max"],
+            value=structure["lessons_per_unit"],
+            key="explore_prog_lessons",
+        )
+
+    additional_notes = st.text_area(
+        t("learning_program_optional_notes"),
+        placeholder=t("learning_program_notes_placeholder"),
+        key="explore_prog_notes",
+        height=80,
+    )
+
+    st.info(t("explore_resource_action_signup_note"))
+    if st.button(t("generate_learning_program"), key="btn_explore_gen_prog", use_container_width=True):
+        st.session_state["_pending_program_after_signup"] = {
+            "subject": effective_subject,
+            "learner_stage": learner_stage,
+            "level_or_band": level_or_band,
+            "units": int(units),
+            "lessons_per_unit": int(lessons_per_unit),
+            "additional_notes": additional_notes.strip(),
+            "custom_subject_name": other_subject_name,
+        }
+        st.session_state["_explore_go_signup"] = True
+        st.rerun()
+
 # ─────────────────────────────────────────────────────────────
 # Explore-page lesson planner (AI-powered, 1-use limit for anon)
 # ─────────────────────────────────────────────────────────────

@@ -1255,6 +1255,7 @@ def _render_single_question(
         choice = st.radio(
             "select",
             options=options,
+            index=None,
             key=q_key,
             label_visibility="collapsed",
             disabled=is_submitted,
