@@ -156,7 +156,9 @@ def _fetch_image_bytes(url: str) -> bytes | None:
 
 
 def _add_logo_to_doc(doc: Document, branding: dict):
-    """Add branding logo or default Classio logo to the document."""
+    """Add branding logo to the document header.
+    The default Classio logo is rendered in the footer instead to save header space.
+    """
     header_enabled = branding.get("header_enabled", False)
     logo_url = str(branding.get("header_logo_url") or "").strip()
 
@@ -171,19 +173,17 @@ def _add_logo_to_doc(doc: Document, branding: dict):
         run = p.add_run()
         run.add_picture(buf, height=Cm(3.0))
         p.paragraph_format.space_after = Pt(4)
-    elif os.path.isfile(_DEFAULT_LOGO_PATH):
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER if (header_enabled and branding.get("header_style") == "school") else WD_ALIGN_PARAGRAPH.LEFT
-        run = p.add_run()
-        run.add_picture(_DEFAULT_LOGO_PATH, height=Cm(2.2))
-        p.paragraph_format.space_after = Pt(4)
 
 
 def _add_footer_with_image(doc: Document, branding: dict, font_name: str):
-    """Add footer with optional image and brand text."""
+    """Add footer with optional image and brand text.
+    When no custom branding, renders the small Classio logo and page number.
+    """
     brand_name = str(branding.get("brand_name") or "").strip()
     footer_enabled = branding.get("footer_enabled", False)
     footer_url = str(branding.get("footer_image_url") or "").strip()
+    header_enabled = branding.get("header_enabled", False)
+    has_custom_logo = header_enabled and bool(str(branding.get("header_logo_url") or "").strip())
 
     section = doc.sections[-1]
     footer = section.footer
@@ -204,12 +204,45 @@ def _add_footer_with_image(doc: Document, branding: dict, font_name: str):
             _apply_font(run2, font_name, 9, color=_TEXT_MUTED)
             return
 
-    # Text-only footer
+    # Default footer: Classio logo on LEFT, page number on RIGHT
+    # Use a single paragraph with a right-aligned tab stop
+    from docx.oxml import OxmlElement
+
     fp = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
-    fp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    footer_label = brand_name if (footer_enabled and brand_name) else "Classio"
-    run = fp.add_run(footer_label)
-    _apply_font(run, font_name, 9, color=_TEXT_MUTED)
+
+    # Logo on the left
+    if not has_custom_logo and os.path.isfile(_DEFAULT_LOGO_PATH):
+        logo_run = fp.add_run()
+        logo_run.add_picture(_DEFAULT_LOGO_PATH, height=Cm(0.7))
+
+    # Add a right-aligned tab stop at the right margin
+    pPr = fp._element.get_or_add_pPr()
+    tabs_elem = OxmlElement('w:tabs')
+    tab_elem = OxmlElement('w:tab')
+    page_w = section.page_width - section.left_margin - section.right_margin
+    tab_elem.set(qn('w:val'), 'right')
+    tab_elem.set(qn('w:pos'), str(int(page_w.emu / 635)))
+    tab_elem.set(qn('w:leader'), 'none')
+    tabs_elem.append(tab_elem)
+    pPr.append(tabs_elem)
+
+    fp.add_run('\t')
+
+    # Page number on the right
+    footer_label = brand_name if (footer_enabled and brand_name) else ""
+    if footer_label:
+        label_run = fp.add_run(f"{footer_label} | ")
+        _apply_font(label_run, font_name, 9, color=_TEXT_MUTED)
+
+    # Insert Word PAGE field
+    page_run = fp.add_run()
+    _apply_font(page_run, font_name, 9, color=_TEXT_MUTED)
+    fld_char_begin = parse_xml(f'<w:fldChar {nsdecls("w")} w:fldCharType="begin"/>')
+    page_run._r.append(fld_char_begin)
+    instr_text = parse_xml(f'<w:instrText {nsdecls("w")} xml:space="preserve"> PAGE </w:instrText>')
+    page_run._r.append(instr_text)
+    fld_char_end = parse_xml(f'<w:fldChar {nsdecls("w")} w:fldCharType="end"/>')
+    page_run._r.append(fld_char_end)
 
 
 def _set_cell_font(cell, text: str, font_name: str, size: float,
@@ -339,8 +372,11 @@ def generate_docx_worksheet(ws: dict, student_only: bool = True) -> bytes:
                      font_name, sec_sz, color=_TEXT, leading_ratio=lr)
         _add_body(doc, instructions, font_name, b_sz, leading_ratio=lr)
 
+    # Cap image height for word search worksheets so grid + vocab fit on one page
+    _docx_visual_max_h = 8.0 if ws.get("worksheet_type") == "word_search_vocab" else 0
     for support in ws.get("visual_supports", []) or []:
-        add_docx_visual_support(doc, support, width_cm=15.2, font_name=font_name, font_size_pt=max(9, b_sz - 1))
+        add_docx_visual_support(doc, support, width_cm=15.2, font_name=font_name,
+                                font_size_pt=max(9, b_sz - 1), max_height_cm=_docx_visual_max_h)
 
     # Vocabulary bank (table layout)
     vocab = ws.get("vocabulary_bank", [])
@@ -362,7 +398,7 @@ def generate_docx_worksheet(ws: dict, student_only: bool = True) -> bytes:
     elif ws_type == "true_false":
         _render_true_false_docx(doc, ws, font_name, sec_sz, b_sz, student_only, lr)
     elif ws_type == "word_search_vocab":
-        _render_word_search_docx(doc, ws, font_name, sec_sz, b_sz, lr)
+        _render_word_search_docx(doc, ws, font_name, sec_sz, b_sz, lr, show_heading=False)
     elif ws_type == "multiple_choice":
         _render_multiple_choice_docx(doc, ws, font_name, sec_sz, b_sz, student_only, lr)
     elif ws_type == "short_answer" and questions:

@@ -1605,8 +1605,13 @@ def build_worksheet_pdf_bytes(
             level_or_band=level_or_band,
         )
 
+    # Cap image height for word search so grid + vocab fit on one page
+    _visual_max_height = 8.0 if ws.get("worksheet_type") == "word_search_vocab" else 0
     for support in ws.get("visual_supports", []) or []:
-        story.extend(build_pdf_visual_flowables(support, max_width_cm=16.2, paragraph_style=body_style))
+        story.extend(build_pdf_visual_flowables(
+            support, max_width_cm=16.2, paragraph_style=body_style,
+            max_height_cm=_visual_max_height,
+        ))
 
     def _mc_item_block(item: dict, idx: int):
         block = [
@@ -1757,52 +1762,136 @@ def build_worksheet_pdf_bytes(
     if not _school_header_active:
         _sec("ws_instructions", ws.get("instructions", ""))
 
-    if ws.get("vocabulary_bank"):
-        story.extend(_render_vocab_bank(ws.get("vocabulary_bank")))
+    _is_wordsearch = ws.get("worksheet_type") == "word_search_vocab"
 
-    if ws.get("worksheet_type") == "word_search_vocab":
+    if _is_wordsearch and ws.get("vocabulary_bank") and wordsearch_grid:
+        # ── Side-by-side layout: vocabulary list (left) + grid (right) ──
+        page_width = A4[0] - doc.leftMargin - doc.rightMargin
         grid = wordsearch_grid
-        if grid:
-            story.append(Paragraph(_pdf_safe_text(_t_pdf("word_search_grid")), heading_style))
-            story.append(Spacer(1, 12))
+        grid_size = len(grid)
 
-            page_width = A4[0] - doc.leftMargin - doc.rightMargin
-            grid_size = len(grid)
-            cell_size = (page_width / grid_size) * 0.75
+        # Grid occupies ~60% of page width; vocab list gets ~37% + gap
+        grid_col_width = page_width * 0.60
+        vocab_col_width = page_width * 0.37
+        gap_width = page_width * 0.03
+        cell_size = grid_col_width / grid_size
 
-            grid_cell_style = ParagraphStyle(
-                "GridCell",
-                parent=body_style,
-                fontName=bold_font,
-                fontSize=max(10, min(12, int(cell_size / 1.4))),
-                leading=max(10, int(cell_size / 1.2)),
-                alignment=1,
-            )
+        # Build vocab list flowables (single column, stacked vertically)
+        vocab_flowables = [
+            Paragraph(_pdf_safe_text(_t_pdf("ws_vocabulary_bank")), heading_style),
+            Spacer(1, 4),
+        ]
+        cleaned_vocab = [_normalize_text(x).strip() for x in ws["vocabulary_bank"] if str(x).strip()]
+        for raw_word in cleaned_vocab:
+            if " - " in raw_word:
+                parts = raw_word.split(" - ", 1)
+                head = _pdf_safe_text(parts[0].strip().capitalize())
+                tail = _pdf_safe_text(parts[1].strip().capitalize())
+                formatted = f"<b>{head}</b> — {tail}"
+            elif ":" in raw_word:
+                parts = raw_word.split(":", 1)
+                head = _pdf_safe_text(parts[0].strip().capitalize())
+                tail = _pdf_safe_text(parts[1].strip().capitalize())
+                formatted = f"<b>{head}</b> — {tail}"
+            else:
+                formatted = f"• <b>{_pdf_safe_text(raw_word.capitalize())}</b>"
+            vocab_flowables.append(Paragraph(formatted, body_style))
 
-            table_data = [
-                [Paragraph(_pdf_safe_text(ch), grid_cell_style) for ch in row]
-                for row in grid
-            ]
+        # Build grid flowables
+        grid_cell_style = ParagraphStyle(
+            "GridCell",
+            parent=body_style,
+            fontName=bold_font,
+            fontSize=max(9, min(11, int(cell_size / 1.4))),
+            leading=max(9, int(cell_size / 1.2)),
+            alignment=1,
+        )
 
-            ws_table = Table(
-                table_data,
-                colWidths=[cell_size] * grid_size,
-                rowHeights=[cell_size] * grid_size,
-                hAlign="CENTER",
-            )
+        grid_flowables = []
 
-            ws_table.setStyle(TableStyle([
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#94A3B8")),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-            ]))
+        grid_table_data = [
+            [Paragraph(_pdf_safe_text(ch), grid_cell_style) for ch in row]
+            for row in grid
+        ]
 
-            story.append(ws_table)
-            story.append(Spacer(1, 12))
+        ws_grid_table = Table(
+            grid_table_data,
+            colWidths=[cell_size] * grid_size,
+            rowHeights=[cell_size] * grid_size,
+            hAlign="LEFT",
+        )
+        ws_grid_table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#94A3B8")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        grid_flowables.append(ws_grid_table)
+
+        # Combine into a two-column wrapper table
+        layout_table = Table(
+            [[vocab_flowables, "", grid_flowables]],
+            colWidths=[vocab_col_width, gap_width, grid_col_width],
+            hAlign="LEFT",
+        )
+        layout_table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        story.append(layout_table)
+        story.append(Spacer(1, 12))
+
+    else:
+        # Non-wordsearch: render vocabulary bank full-width as before
+        if ws.get("vocabulary_bank"):
+            story.extend(_render_vocab_bank(ws.get("vocabulary_bank")))
+
+        if _is_wordsearch:
+            grid = wordsearch_grid
+            if grid:
+                page_width = A4[0] - doc.leftMargin - doc.rightMargin
+                grid_size = len(grid)
+                cell_size = (page_width / grid_size) * 0.75
+
+                grid_cell_style = ParagraphStyle(
+                    "GridCell",
+                    parent=body_style,
+                    fontName=bold_font,
+                    fontSize=max(10, min(12, int(cell_size / 1.4))),
+                    leading=max(10, int(cell_size / 1.2)),
+                    alignment=1,
+                )
+
+                table_data = [
+                    [Paragraph(_pdf_safe_text(ch), grid_cell_style) for ch in row]
+                    for row in grid
+                ]
+
+                ws_table = Table(
+                    table_data,
+                    colWidths=[cell_size] * grid_size,
+                    rowHeights=[cell_size] * grid_size,
+                    hAlign="CENTER",
+                )
+
+                ws_table.setStyle(TableStyle([
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#94A3B8")),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]))
+
+                story.append(ws_table)
+                story.append(Spacer(1, 12))
 
     if ws.get("worksheet_type") == "reading_comprehension" and str(ws.get("reading_passage") or "").strip():
         _sec("ws_reading_passage", ws["reading_passage"])

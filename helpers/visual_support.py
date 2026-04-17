@@ -354,7 +354,7 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
             "Constraints: no words, no letters, no labels, no decorative filler, each picture must be distinct and usable for matching\n"
             "Avoid: abstract icons, posters, banners, title cards, watermark"
         )
-        return ("image_based_matching", f"{topic_label or 'Matching'} picture support", prompt)
+        return ("image_based_matching", topic_label or "Matching", prompt)
 
     if ws_type in {"word_search_vocab"}:
         # Picture vocabulary boards are most useful for primary stages only.
@@ -371,13 +371,13 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
             f"Subject: {subject_label or 'general studies'}\n"
             "Scene/backdrop: clean worksheet background with evenly spaced picture cards\n"
             f"Style/medium: {style}\n"
-            "Composition/framing: one separate picture tile for each word\n"
+            "Composition/framing: arrange all picture tiles in a single horizontal row if 6 or fewer items, otherwise use a 2-row grid with equal columns\n"
             f"Lighting/mood: {mood}\n"
             "Text (verbatim): none\n"
             "Constraints: no text, no labels, no decorative filler, every item must be easy to identify\n"
             "Avoid: collage chaos, title banners, watermark"
         )
-        return ("picture_vocabulary", f"{topic_label or 'Vocabulary'} picture support", prompt)
+        return ("picture_vocabulary", topic_label or "Vocabulary", prompt)
 
     if ws_type == "true_false":
         # Observation-scene support helps primary students; older students can reason without it.
@@ -401,7 +401,7 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
             "Constraints: no text, no labels, no unnecessary extra objects, the visible details must be easy to verify\n"
             "Avoid: decorative posters, abstract symbols, watermark"
         )
-        return ("scene_truth_support", f"{topic_label or 'True or False'} picture support", prompt)
+        return ("scene_truth_support", topic_label or "True or False", prompt)
 
     if ws_type == "reading_comprehension":
         # Scene illustrations aid comprehension at all stages; require richer passages for older learners.
@@ -423,7 +423,7 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
             "Constraints: match the passage details, no text, no labels, no answer spoilers beyond the scene itself\n"
             "Avoid: decorative filler, watermark"
         )
-        return ("reading_scene_support", f"{topic_label or 'Reading'} scene support", prompt)
+        return ("reading_scene_support", topic_label or "Reading", prompt)
 
     if ws_type == "vocabulary":
         # Picture vocabulary boards are most useful for primary stages only.
@@ -445,7 +445,7 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
             "Constraints: no labels, no decorative filler, every item must be easy to identify visually\n"
             "Avoid: abstract icons, posters, watermark"
         )
-        return ("picture_vocabulary", f"{topic_label or 'Vocabulary'} picture support", prompt)
+        return ("picture_vocabulary", topic_label or "Vocabulary", prompt)
 
     return None
 
@@ -479,7 +479,7 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
             "Constraints: no labels, no decorative filler, each item must be visually distinct and usable for matching\n"
             "Avoid: posters, title cards, watermark"
         )
-        return ("image_based_matching", f"{topic_label or 'Matching'} picture support", prompt)
+        return ("image_based_matching", topic_label or "Matching", prompt)
 
     if sec_type == "vocabulary":
         if tier not in ("lower_primary", "upper_primary"):
@@ -500,7 +500,7 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
             "Constraints: no labels, no decorative filler, every item must be easy to recognize\n"
             "Avoid: abstract icons, posters, watermark"
         )
-        return ("picture_vocabulary", f"{topic_label or 'Vocabulary'} picture support", prompt)
+        return ("picture_vocabulary", topic_label or "Vocabulary", prompt)
 
     if sec_type == "reading_comprehension":
         min_passage = {"lower_primary": 80, "upper_primary": 120, "secondary": 200, "adult": 300}.get(tier, 200)
@@ -521,7 +521,7 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
             "Constraints: no labels, no decorative filler, do not introduce contradictory details\n"
             "Avoid: watermark"
         )
-        return ("reading_scene_support", f"{topic_label or 'Reading'} scene support", prompt)
+        return ("reading_scene_support", topic_label or "Reading", prompt)
 
     if sec_type == "true_false":
         if tier not in ("lower_primary", "upper_primary"):
@@ -544,7 +544,7 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
             "Constraints: no labels, no decorative filler, no irrelevant objects\n"
             "Avoid: watermark"
         )
-        return ("scene_truth_support", f"{topic_label or 'True or False'} picture support", prompt)
+        return ("scene_truth_support", topic_label or "True or False", prompt)
 
     if sec_type in {"diagram_questions", "classification", "symbol_identification", "theory_questions", "terminology"}:
         # Diagrams and instructional visuals are pedagogically valuable at all stages.
@@ -1093,7 +1093,7 @@ def render_visual_support_status_group(items, *, title: str | None = None) -> No
                 st.caption(f"{t('image_support_debug_details')}: {debug_detail}")
 
 
-def build_pdf_visual_flowables(support: dict | None, *, max_width_cm: float, paragraph_style):
+def build_pdf_visual_flowables(support: dict | None, *, max_width_cm: float, paragraph_style, max_height_cm: float = 0):
     if not _should_render_support(support):
         return []
     from reportlab.lib.units import cm
@@ -1107,6 +1107,10 @@ def build_pdf_visual_flowables(support: dict | None, *, max_width_cm: float, par
     target_width = max_width_cm * cm
     ratio = height_px / max(width_px, 1)
     target_height = target_width * ratio
+    # Cap height if requested (e.g. word search needs compact images)
+    if max_height_cm > 0 and target_height > max_height_cm * cm:
+        target_height = max_height_cm * cm
+        target_width = target_height / max(ratio, 0.01)
     flowables = [RLImage(BytesIO(image_bytes), width=target_width, height=target_height), Spacer(1, 6)]
     caption = _clean_text(support.get("caption"))
     if caption:
@@ -1114,7 +1118,7 @@ def build_pdf_visual_flowables(support: dict | None, *, max_width_cm: float, par
     return flowables
 
 
-def add_docx_visual_support(doc, support: dict | None, *, width_cm: float, font_name: str, font_size_pt: float):
+def add_docx_visual_support(doc, support: dict | None, *, width_cm: float, font_name: str, font_size_pt: float, max_height_cm: float = 0):
     if not _should_render_support(support):
         return
     from docx.shared import Cm, Pt
@@ -1124,7 +1128,18 @@ def add_docx_visual_support(doc, support: dict | None, *, width_cm: float, font_
         return
     para = doc.add_paragraph()
     run = para.add_run()
-    run.add_picture(BytesIO(image_bytes), width=Cm(width_cm))
+    # Cap height if requested to keep content on one page
+    if max_height_cm > 0:
+        img = Image.open(BytesIO(image_bytes))
+        w_px, h_px = img.size
+        ratio = h_px / max(w_px, 1)
+        effective_height = width_cm * ratio
+        if effective_height > max_height_cm:
+            run.add_picture(BytesIO(image_bytes), height=Cm(max_height_cm))
+        else:
+            run.add_picture(BytesIO(image_bytes), width=Cm(width_cm))
+    else:
+        run.add_picture(BytesIO(image_bytes), width=Cm(width_cm))
     caption = _clean_text(support.get("caption"))
     if caption:
         cap = doc.add_paragraph()

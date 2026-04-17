@@ -549,6 +549,7 @@ def _build_standard_header(
     logo_url = str(branding.get("header_logo_url") or "").strip()
     header_enabled = bool(branding.get("header_enabled"))
 
+    # Custom logo in header; default Classio logo is rendered in the footer instead.
     if header_enabled and logo_url:
         try:
             req = urllib.request.Request(logo_url, headers={"User-Agent": "Classio/1.0"})
@@ -565,27 +566,7 @@ def _build_standard_header(
             )
             story.append(Spacer(1, 6))
         except Exception:
-            if os.path.isfile(_DEFAULT_LOGO_PATH):
-                story.append(
-                    RLImage(
-                        _DEFAULT_LOGO_PATH,
-                        width=2.8 * cm,
-                        height=2.8 * cm,
-                        kind="proportional",
-                    )
-                )
-                story.append(Spacer(1, 6))
-    else:
-        if os.path.isfile(_DEFAULT_LOGO_PATH):
-            story.append(
-                RLImage(
-                    _DEFAULT_LOGO_PATH,
-                    width=2.8 * cm,
-                    height=2.8 * cm,
-                    kind="proportional",
-                )
-            )
-            story.append(Spacer(1, 6))
+            pass
 
     if header_enabled and branding.get("brand_name"):
         story.append(Paragraph(_pdf_safe_text(branding["brand_name"]), _hs["brand"]))
@@ -644,13 +625,16 @@ def build_pdf_footer_handler(branding: dict, bold_font: str = "Helvetica"):
     """
     Return a ReportLab onPage callback that draws the footer.
     If branding footer is enabled and an image URL exists, draw it.
-    Otherwise draw the default 'Classio | page#' footer.
+    Otherwise draw the default Classio logo (small) on the right
+    and the page number on the left.
     """
     import urllib.request
 
     footer_enabled = bool(branding.get("footer_enabled"))
     footer_url = str(branding.get("footer_image_url") or "").strip()
     brand_name = str(branding.get("brand_name") or "").strip()
+    header_enabled = bool(branding.get("header_enabled"))
+    has_custom_logo = header_enabled and bool(str(branding.get("header_logo_url") or "").strip())
 
     footer_image_bytes = None
     if footer_enabled and footer_url:
@@ -689,8 +673,29 @@ def build_pdf_footer_handler(branding: dict, bold_font: str = "Helvetica"):
             except Exception:
                 pass
 
-        footer_label = brand_name if (footer_enabled and brand_name) else "Classio"
-        footer_text = f"{footer_label} | {canvas.getPageNumber()}"
+        # Draw the default Classio logo on the LEFT side of the footer
+        # when no custom logo is in the header.
+        if not has_custom_logo and not footer_image_bytes and os.path.isfile(_DEFAULT_LOGO_PATH):
+            try:
+                img_reader = ImageReader(_DEFAULT_LOGO_PATH)
+                logo_h = 0.7 * cm
+                logo_w = 0.7 * cm
+                x = doc.leftMargin
+                y = 0.55 * cm
+                canvas.drawImage(
+                    img_reader, x, y,
+                    width=logo_w, height=logo_h,
+                    preserveAspectRatio=True,
+                    anchor="sw",
+                    mask="auto",
+                )
+            except Exception:
+                pass
+
+        # Right side: page number (without extra brand label when logo is shown)
+        footer_label = brand_name if (footer_enabled and brand_name) else ""
+        page_num = str(canvas.getPageNumber())
+        footer_text = f"{footer_label} | {page_num}" if footer_label else page_num
         canvas.setFont(bold_font, 9)
         canvas.setFillColor(colors.HexColor("#64748B"))
         canvas.drawRightString(
