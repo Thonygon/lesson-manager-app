@@ -28,9 +28,11 @@ from styles.pdf_styles import (
 from helpers.visual_support import (
     enrich_worksheet_with_visuals,
     worksheet_has_ready_visuals,
+    worksheet_eligible_for_visuals,
     render_streamlit_visual_supports,
     build_pdf_visual_flowables,
     render_visual_support_status_group,
+    get_visual_watermark_bytes,
 )
 from helpers.answer_key_utils import normalize_answer_key_text, split_answer_key_items
 from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
@@ -769,12 +771,6 @@ def save_worksheet_record(
     worksheet: dict,
 ) -> bool:
     try:
-        worksheet = enrich_worksheet_with_visuals(
-            worksheet,
-            subject=subject,
-            learner_stage=learner_stage,
-            topic=topic,
-        )
         worksheet = _normalize_worksheet_unicode(worksheet)
 
         from helpers.branding import get_user_branding, resolve_is_public
@@ -944,7 +940,12 @@ def _open_worksheet_library_record(
         st.session_state["_explore_go_signup"] = True
         st.rerun()
 
-    st.session_state["files_selected_worksheet"] = row.get("worksheet_json") or {}
+    # If the same resource is already selected (e.g. switching from View to
+    # Assign), keep the enriched session-state data instead of overwriting
+    # with the stale DataFrame row that may lack auto-enriched visuals.
+    same_resource = st.session_state.get("files_selected_worksheet_id") == row.get("id")
+    if not same_resource:
+        st.session_state["files_selected_worksheet"] = row.get("worksheet_json") or {}
     st.session_state["files_ws_subject"] = str(row.get("subject") or "").strip()
     st.session_state["files_ws_stage"] = str(row.get("learner_stage") or "").strip()
     st.session_state["files_ws_level"] = str(row.get("level_or_band") or "").strip()
@@ -1221,25 +1222,27 @@ def render_worksheet_result(
     ws_type = meta.get("worksheet_type", ws.get("worksheet_type", ""))
     learner_stage = meta.get("learner_stage", ws.get("learner_stage", ""))
     level_or_band = meta.get("level_or_band", ws.get("level_or_band", ""))
-    had_ready_visuals = worksheet_has_ready_visuals(ws)
 
     ws = normalize_worksheet_output(ws)
-    ws = enrich_worksheet_with_visuals(
-        ws,
-        subject=subject,
-        learner_stage=learner_stage,
-        topic=topic,
-    )
     ws = _normalize_worksheet_unicode(ws)
     ws = _clean_worksheet_data(ws)
 
-    if (
-        read_only
-        and resource_record_id not in (None, "", 0, "0")
-        and not had_ready_visuals
-        and worksheet_has_ready_visuals(ws)
-    ):
-        _persist_saved_worksheet_visuals(resource_record_id, ws)
+    # ── Auto-enrich: generate visuals on first view if missing ──────────
+    if not signup_required_actions and worksheet_eligible_for_visuals(ws, subject=subject, learner_stage=learner_stage, topic=topic):
+        if not worksheet_has_ready_visuals(ws):
+            _auto_key = f"_ws_vis_tried_{resource_record_id or action_key_prefix}"
+            if not st.session_state.get(_auto_key):
+                st.session_state[_auto_key] = True
+                with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating images…"):
+                    ws = enrich_worksheet_with_visuals(
+                        ws, subject=subject, learner_stage=learner_stage, topic=topic,
+                    )
+                if worksheet_has_ready_visuals(ws):
+                    if resource_record_id not in (None, "", 0, "0"):
+                        _persist_saved_worksheet_visuals(resource_record_id, ws)
+                    st.session_state["worksheet_result"] = ws
+                    if st.session_state.get("files_selected_worksheet") is not None:
+                        st.session_state["files_selected_worksheet"] = ws
 
     if not read_only:
         st.success(t("worksheet_ready"))
@@ -1258,6 +1261,37 @@ def render_worksheet_result(
         st.write(_normalize_text(ws["instructions"]))
 
     render_streamlit_visual_supports(ws.get("visual_supports"))
+
+    # Generate / Regenerate image button
+    if not signup_required_actions and worksheet_eligible_for_visuals(ws, subject=subject, learner_stage=learner_stage, topic=topic):
+        _has_visuals = worksheet_has_ready_visuals(ws)
+        regen_key = f"{action_key_prefix}_regen_img"
+        if _has_visuals:
+            btn_label = "🔄 " + (t("regenerate_image") if t("regenerate_image") != "regenerate_image" else "Regenerate image")
+        else:
+            btn_label = "🖼️ " + (t("generate_image") if t("generate_image") != "generate_image" else "Generate image")
+        if st.button(btn_label, key=regen_key, type="secondary"):
+            if _has_visuals:
+                from helpers.visual_support import regenerate_worksheet_visuals
+                with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating new image…"):
+                    ws_updated = regenerate_worksheet_visuals(
+                        ws, subject=subject, learner_stage=learner_stage, topic=topic,
+                    )
+            else:
+                from helpers.visual_support import enrich_worksheet_with_visuals
+                with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating image…"):
+                    ws_updated = enrich_worksheet_with_visuals(
+                        ws, subject=subject, learner_stage=learner_stage, topic=topic,
+                    )
+            if worksheet_has_ready_visuals(ws_updated):
+                if resource_record_id not in (None, "", 0, "0"):
+                    _persist_saved_worksheet_visuals(resource_record_id, ws_updated)
+                st.session_state["worksheet_result"] = ws_updated
+                if st.session_state.get("files_selected_worksheet") is not None:
+                    st.session_state["files_selected_worksheet"] = ws_updated
+                st.rerun()
+            else:
+                st.warning(t("image_generation_failed") if t("image_generation_failed") != "image_generation_failed" else "Image generation failed. Please try again.")
 
     if ws.get("worksheet_type") == "reading_comprehension" and str(ws.get("reading_passage") or "").strip():
         st.markdown(f"**{t('ws_reading_passage')}**")
@@ -1424,15 +1458,13 @@ def render_worksheet_result(
                     use_container_width=True,
                 )
     else:
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button(t("keep_worksheet"), key="btn_keep_ws", use_container_width=True):
-                st.session_state["worksheet_kept"] = True
-                st.success(t("worksheet_kept_msg"))
-        with c2:
-            if st.button(t("delete_worksheet"), key="btn_del_ws", use_container_width=True):
-                _wb().reset_worksheet_maker_state()
-                st.rerun()
+        if st.button(
+            "🗑️ " + (t("clear_result") if t("clear_result") != "clear_result" else "Clear result"),
+            key="btn_clear_ws",
+            use_container_width=True,
+        ):
+            _wb().reset_worksheet_maker_state()
+            st.rerun()
 
         dc1, dc2 = st.columns(2)
         with dc1:
@@ -1524,10 +1556,11 @@ def build_worksheet_pdf_bytes(
     from reportlab.lib.units import cm
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem,
-        Table, TableStyle, PageBreak, KeepTogether, CondPageBreak
+        Table, TableStyle, PageBreak, KeepTogether, CondPageBreak, Flowable,
     )
     from reportlab.platypus import Image as RLImage
     from reportlab.lib import colors
+    from reportlab.lib.utils import ImageReader
 
     ws = _normalize_worksheet_unicode(ws)
     subject = _normalize_text(subject)
@@ -1604,14 +1637,6 @@ def build_worksheet_pdf_bytes(
             ws_type=ws_type, learner_stage=learner_stage,
             level_or_band=level_or_band,
         )
-
-    # Cap image height for word search so grid + vocab fit on one page
-    _visual_max_height = 8.0 if ws.get("worksheet_type") == "word_search_vocab" else 0
-    for support in ws.get("visual_supports", []) or []:
-        story.extend(build_pdf_visual_flowables(
-            support, max_width_cm=16.2, paragraph_style=body_style,
-            max_height_cm=_visual_max_height,
-        ))
 
     def _mc_item_block(item: dict, idx: int):
         block = [
@@ -1762,65 +1787,77 @@ def build_worksheet_pdf_bytes(
     if not _school_header_active:
         _sec("ws_instructions", ws.get("instructions", ""))
 
+    # Visual support images (placed after instructions, before content)
+    _is_wordsearch = ws.get("worksheet_type") == "word_search_vocab"
+    _watermark_bytes: bytes | None = None
+    if _is_wordsearch:
+        # Word search: render image as a faded watermark behind the grid
+        _watermark_bytes = get_visual_watermark_bytes(ws, opacity=0.10)
+    else:
+        for support in ws.get("visual_supports", []) or []:
+            story.extend(build_pdf_visual_flowables(
+                support, max_width_cm=16.2, paragraph_style=body_style,
+                max_height_cm=0,
+            ))
+
+    # Helper: wrap a child flowable with a watermark background
+    class _WatermarkFlowable(Flowable):
+        """Draws a faded image behind *child*."""
+        def __init__(self, child, wm_bytes):
+            Flowable.__init__(self)
+            self._child = child
+            self._wm = wm_bytes
+            self.hAlign = getattr(child, 'hAlign', 'CENTER')
+
+        def wrap(self, aw, ah):
+            w, h = self._child.wrap(aw, ah)
+            self._cw, self._ch = w, h
+            return w, h
+
+        def draw(self):
+            self.canv.drawImage(
+                ImageReader(BytesIO(self._wm)),
+                0, 0, self._cw, self._ch,
+                preserveAspectRatio=True, anchor='c', mask='auto',
+            )
+            self._child.drawOn(self.canv, 0, 0)
+
     _is_wordsearch = ws.get("worksheet_type") == "word_search_vocab"
 
     if _is_wordsearch and ws.get("vocabulary_bank") and wordsearch_grid:
-        # ── Side-by-side layout: vocabulary list (left) + grid (right) ──
-        page_width = A4[0] - doc.leftMargin - doc.rightMargin
+        # Vocabulary bank (full-width table on top)
+        story.extend(_render_vocab_bank(ws.get("vocabulary_bank")))
+
+        # Grid heading + full-width centered grid with optional watermark
         grid = wordsearch_grid
         grid_size = len(grid)
+        story.append(Paragraph(_pdf_safe_text(_t_pdf("word_search_grid")), heading_style))
+        story.append(Spacer(1, 4))
+        page_width = A4[0] - doc.leftMargin - doc.rightMargin
+        cell_size = (page_width / grid_size) * 0.75
 
-        # Grid occupies ~60% of page width; vocab list gets ~37% + gap
-        grid_col_width = page_width * 0.60
-        vocab_col_width = page_width * 0.37
-        gap_width = page_width * 0.03
-        cell_size = grid_col_width / grid_size
-
-        # Build vocab list flowables (single column, stacked vertically)
-        vocab_flowables = [
-            Paragraph(_pdf_safe_text(_t_pdf("ws_vocabulary_bank")), heading_style),
-            Spacer(1, 4),
-        ]
-        cleaned_vocab = [_normalize_text(x).strip() for x in ws["vocabulary_bank"] if str(x).strip()]
-        for raw_word in cleaned_vocab:
-            if " - " in raw_word:
-                parts = raw_word.split(" - ", 1)
-                head = _pdf_safe_text(parts[0].strip().capitalize())
-                tail = _pdf_safe_text(parts[1].strip().capitalize())
-                formatted = f"<b>{head}</b> — {tail}"
-            elif ":" in raw_word:
-                parts = raw_word.split(":", 1)
-                head = _pdf_safe_text(parts[0].strip().capitalize())
-                tail = _pdf_safe_text(parts[1].strip().capitalize())
-                formatted = f"<b>{head}</b> — {tail}"
-            else:
-                formatted = f"• <b>{_pdf_safe_text(raw_word.capitalize())}</b>"
-            vocab_flowables.append(Paragraph(formatted, body_style))
-
-        # Build grid flowables
         grid_cell_style = ParagraphStyle(
             "GridCell",
             parent=body_style,
             fontName=bold_font,
-            fontSize=max(9, min(11, int(cell_size / 1.4))),
-            leading=max(9, int(cell_size / 1.2)),
+            fontSize=max(10, min(12, int(cell_size / 1.4))),
+            leading=max(10, int(cell_size / 1.2)),
             alignment=1,
         )
 
-        grid_flowables = []
-
-        grid_table_data = [
+        table_data = [
             [Paragraph(_pdf_safe_text(ch), grid_cell_style) for ch in row]
             for row in grid
         ]
 
-        ws_grid_table = Table(
-            grid_table_data,
+        ws_table = Table(
+            table_data,
             colWidths=[cell_size] * grid_size,
             rowHeights=[cell_size] * grid_size,
-            hAlign="LEFT",
+            hAlign="CENTER",
         )
-        ws_grid_table.setStyle(TableStyle([
+
+        ws_table.setStyle(TableStyle([
             ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#94A3B8")),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("ALIGN", (0, 0), (-1, -1), "CENTER"),
@@ -1829,69 +1866,14 @@ def build_worksheet_pdf_bytes(
             ("TOPPADDING", (0, 0), (-1, -1), 0),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
         ]))
-        grid_flowables.append(ws_grid_table)
 
-        # Combine into a two-column wrapper table
-        layout_table = Table(
-            [[vocab_flowables, "", grid_flowables]],
-            colWidths=[vocab_col_width, gap_width, grid_col_width],
-            hAlign="LEFT",
-        )
-        layout_table.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("TOPPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-        ]))
-        story.append(layout_table)
+        story.append(_WatermarkFlowable(ws_table, _watermark_bytes) if _watermark_bytes else ws_table)
         story.append(Spacer(1, 12))
 
     else:
-        # Non-wordsearch: render vocabulary bank full-width as before
+        # Non-wordsearch: render vocabulary bank full-width
         if ws.get("vocabulary_bank"):
             story.extend(_render_vocab_bank(ws.get("vocabulary_bank")))
-
-        if _is_wordsearch:
-            grid = wordsearch_grid
-            if grid:
-                page_width = A4[0] - doc.leftMargin - doc.rightMargin
-                grid_size = len(grid)
-                cell_size = (page_width / grid_size) * 0.75
-
-                grid_cell_style = ParagraphStyle(
-                    "GridCell",
-                    parent=body_style,
-                    fontName=bold_font,
-                    fontSize=max(10, min(12, int(cell_size / 1.4))),
-                    leading=max(10, int(cell_size / 1.2)),
-                    alignment=1,
-                )
-
-                table_data = [
-                    [Paragraph(_pdf_safe_text(ch), grid_cell_style) for ch in row]
-                    for row in grid
-                ]
-
-                ws_table = Table(
-                    table_data,
-                    colWidths=[cell_size] * grid_size,
-                    rowHeights=[cell_size] * grid_size,
-                    hAlign="CENTER",
-                )
-
-                ws_table.setStyle(TableStyle([
-                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#94A3B8")),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                    ("TOPPADDING", (0, 0), (-1, -1), 0),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                ]))
-
-                story.append(ws_table)
-                story.append(Spacer(1, 12))
 
     if ws.get("worksheet_type") == "reading_comprehension" and str(ws.get("reading_passage") or "").strip():
         _sec("ws_reading_passage", ws["reading_passage"])

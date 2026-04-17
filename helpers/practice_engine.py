@@ -109,12 +109,6 @@ PHASE1_TYPES = SUPPORTED_PRACTICE_TYPES
 
 def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
     """Convert a saved worksheet dict into the unified exercise schema."""
-    ws = enrich_worksheet_with_visuals(
-        ws,
-        subject=ws.get("subject", ""),
-        learner_stage=ws.get("learner_stage", ""),
-        topic=ws.get("topic", ""),
-    )
     ws_type = str(ws.get("worksheet_type") or "").strip()
     title = str(ws.get("title") or "").strip()
     instructions = str(ws.get("instructions") or "").strip()
@@ -312,12 +306,6 @@ def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
 
 def exam_to_exercises(exam_data: dict, answer_key: dict, *, row_id: int | None = None) -> dict:
     """Convert a saved exam dict + answer_key into the unified exercise schema."""
-    exam_data = enrich_exam_with_visuals(
-        exam_data,
-        subject=exam_data.get("subject", ""),
-        learner_stage=exam_data.get("learner_stage", ""),
-        topic=exam_data.get("topic", ""),
-    )
     exercises: list[dict] = []
 
     sections = exam_data.get("sections") or []

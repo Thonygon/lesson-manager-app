@@ -673,36 +673,63 @@ def build_pdf_footer_handler(branding: dict, bold_font: str = "Helvetica"):
             except Exception:
                 pass
 
-        # Draw the default Classio logo on the LEFT side of the footer
-        # when no custom logo is in the header.
+        # Draw the default Classio logo + "Visit classio.streamlit.app" on
+        # the RIGHT side of the footer when no custom branding is active.
         if not has_custom_logo and not footer_image_bytes and os.path.isfile(_DEFAULT_LOGO_PATH):
             try:
                 img_reader = ImageReader(_DEFAULT_LOGO_PATH)
-                logo_h = 0.7 * cm
-                logo_w = 0.7 * cm
-                x = doc.leftMargin
-                y = 0.55 * cm
+                logo_h = 1.2 * cm
+                logo_w = 1.2 * cm
+                right_edge = doc.pagesize[0] - doc.rightMargin
+                footer_y = 0.4 * cm
+
+                # Solid separator line above the footer
+                line_y = footer_y + logo_h + 0.15 * cm
+                canvas.setStrokeColor(colors.HexColor("#1D4ED8"))
+                canvas.setLineWidth(1.2)
+                canvas.line(doc.leftMargin, line_y, right_edge, line_y)
+
+                # Logo at the far right
                 canvas.drawImage(
-                    img_reader, x, y,
+                    img_reader,
+                    right_edge - logo_w,
+                    footer_y,
                     width=logo_w, height=logo_h,
                     preserveAspectRatio=True,
                     anchor="sw",
                     mask="auto",
                 )
+
+                # "Visit classio.streamlit.app" just left of the logo
+                canvas.setFont(bold_font, 9)
+                canvas.setFillColor(colors.HexColor("#64748B"))
+                text_y = footer_y + logo_h / 2 - 4  # vertically centre with logo
+                canvas.drawRightString(
+                    right_edge - logo_w - 0.25 * cm,
+                    text_y,
+                    "Visit classio.streamlit.app",
+                )
             except Exception:
                 pass
 
-        # Right side: page number (without extra brand label when logo is shown)
-        footer_label = brand_name if (footer_enabled and brand_name) else ""
+        # Page number on the LEFT for default Classio footer,
+        # on the RIGHT for custom branding
+        _show_default_classio = (not has_custom_logo and not footer_image_bytes
+                                 and os.path.isfile(_DEFAULT_LOGO_PATH))
         page_num = str(canvas.getPageNumber())
-        footer_text = f"{footer_label} | {page_num}" if footer_label else page_num
         canvas.setFont(bold_font, 9)
         canvas.setFillColor(colors.HexColor("#64748B"))
-        canvas.drawRightString(
-            doc.pagesize[0] - doc.rightMargin,
-            0.9 * cm,
-            footer_text,
-        )
+        if _show_default_classio:
+            text_y = 0.4 * cm + 1.2 * cm / 2 - 4  # match logo vertical centre
+            canvas.drawString(doc.leftMargin, text_y, page_num)
+        else:
+            footer_label = brand_name if (footer_enabled and brand_name) else ""
+            footer_text = f"{footer_label} | {page_num}" if footer_label else page_num
+            canvas.drawRightString(
+                doc.pagesize[0] - doc.rightMargin,
+                0.9 * cm,
+                footer_text,
+            )
 
         canvas.restoreState()
 

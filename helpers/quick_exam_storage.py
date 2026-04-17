@@ -24,6 +24,7 @@ from styles.pdf_styles import (
 from helpers.visual_support import (
     enrich_exam_with_visuals,
     exam_has_ready_visuals,
+    exam_eligible_for_visuals,
     render_streamlit_visual_support,
     build_pdf_visual_flowables,
     render_visual_support_status_group,
@@ -167,16 +168,11 @@ def save_exam_record(
     exercise_types: list[str],
     exam_data: dict,
     answer_key: dict,
-) -> bool:
+) -> int | None:
+    """Save an exam record to DB. Returns the new record's ID, or *None* on failure."""
     try:
         from helpers.branding import get_user_branding, resolve_is_public
         branding = get_user_branding()
-        exam_data = enrich_exam_with_visuals(
-            exam_data,
-            subject=subject,
-            learner_stage=learner_stage,
-            topic=topic,
-        )
         payload = with_owner({
             "title": str(exam_data.get("title", "")).strip(),
             "subject": str(subject).strip(),
@@ -192,17 +188,20 @@ def save_exam_record(
             "created_at": _dt.now(timezone.utc).isoformat(),
         })
         try:
-            get_sb().table("quick_exams").insert(payload).execute()
+            resp = get_sb().table("quick_exams").insert(payload).execute()
         except Exception as inner_exc:
             if "status" not in str(inner_exc).lower():
                 raise
             legacy_payload = dict(payload)
             legacy_payload.pop("status", None)
-            get_sb().table("quick_exams").insert(legacy_payload).execute()
-        return True
+            resp = get_sb().table("quick_exams").insert(legacy_payload).execute()
+        rows = getattr(resp, "data", None) or []
+        if rows and isinstance(rows, list) and rows[0].get("id"):
+            return rows[0]["id"]
+        return None
     except Exception as e:
         st.warning(t("quick_exam_save_failed", error=e))
-        return False
+        return None
 
 
 def load_my_exams(*, include_archived: bool = False, archived_only: bool = False) -> pd.DataFrame:
@@ -352,8 +351,13 @@ def _open_exam_library_record(
         st.session_state["_explore_go_signup"] = True
         st.rerun()
 
-    st.session_state["files_selected_exam"] = row.get("exam_data") or {}
-    st.session_state["files_selected_exam_answer_key"] = row.get("answer_key") or {}
+    # If the same resource is already selected (e.g. switching from View to
+    # Assign), keep the enriched session-state data instead of overwriting
+    # with the stale DataFrame row that may lack auto-enriched visuals.
+    same_resource = st.session_state.get("files_selected_exam_id") == row.get("id")
+    if not same_resource:
+        st.session_state["files_selected_exam"] = row.get("exam_data") or {}
+        st.session_state["files_selected_exam_answer_key"] = row.get("answer_key") or {}
     st.session_state["files_exam_subject"] = str(row.get("subject") or "").strip()
     st.session_state["files_exam_stage"] = str(row.get("learner_stage") or "").strip()
     st.session_state["files_exam_level"] = str(row.get("level") or "").strip()
@@ -599,13 +603,6 @@ def build_exam_pdf_bytes(
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer,
         Table, TableStyle, KeepTogether, CondPageBreak,
-    )
-
-    exam_data = enrich_exam_with_visuals(
-        exam_data,
-        subject=subject,
-        learner_stage=learner_stage,
-        topic=topic,
     )
 
     body_font, bold_font = ensure_pdf_fonts_registered()
@@ -947,20 +944,8 @@ def render_exam_result(
     topic = meta.get("topic", exam_data.get("topic", ""))
     learner_stage = meta.get("learner_stage", exam_data.get("learner_stage", ""))
     level_or_band = meta.get("level_or_band", exam_data.get("level_or_band", ""))
-    had_ready_visuals = exam_has_ready_visuals(exam_data)
 
-    exam_data = enrich_exam_with_visuals(
-        dict(exam_data or {}),
-        subject=subject,
-        learner_stage=learner_stage,
-        topic=topic,
-    )
-    if (
-        resource_record_id not in (None, "", 0, "0")
-        and not had_ready_visuals
-        and exam_has_ready_visuals(exam_data)
-    ):
-        _persist_saved_exam_visuals(resource_record_id, exam_data)
+    exam_data = dict(exam_data or {})
     normalized_sections = []
     for sec in exam_data.get("sections", []):
         if not isinstance(sec, dict):
@@ -971,6 +956,28 @@ def render_exam_result(
             cleaned_sec["instructions"] = _default_instruction_for_exam_type(sec_type)
         normalized_sections.append(cleaned_sec)
     exam_data["sections"] = normalized_sections
+
+    # ── Auto-enrich: generate visuals on first view if missing ──────────
+    # Only runs once per exam per session (guarded by session-state flag).
+    # Avoids expensive repeated calls on every rerun.
+    if not signup_required_actions and exam_eligible_for_visuals(exam_data, subject=subject, learner_stage=learner_stage, topic=topic):
+        if not exam_has_ready_visuals(exam_data):
+            _auto_key = f"_exam_vis_tried_{resource_record_id or action_key_prefix}"
+            if not st.session_state.get(_auto_key):
+                st.session_state[_auto_key] = True
+                from helpers.visual_support import enrich_exam_with_visuals
+                with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating images…"):
+                    exam_data = enrich_exam_with_visuals(
+                        exam_data, subject=subject, learner_stage=learner_stage, topic=topic,
+                    )
+                if exam_has_ready_visuals(exam_data):
+                    # Persist to DB
+                    if resource_record_id not in (None, "", 0, "0"):
+                        _persist_saved_exam_visuals(resource_record_id, exam_data)
+                    # Update every session-state reference so reruns keep the visuals
+                    st.session_state["exam_result"] = exam_data
+                    if st.session_state.get("files_selected_exam") is not None:
+                        st.session_state["files_selected_exam"] = exam_data
 
     if show_ready_banner:
         st.success(t("exam_ready") if t("exam_ready") != "exam_ready" else "Exam ready!")
@@ -1059,6 +1066,41 @@ def render_exam_result(
         #     status_items.append({"label": label, "status": status})
         # render_visual_support_status_group(status_items)
         pass
+
+    # Generate / Regenerate images button
+    if not signup_required_actions and exam_eligible_for_visuals(exam_data, subject=subject, learner_stage=learner_stage, topic=topic):
+        _has_visuals = exam_has_ready_visuals(exam_data)
+        regen_key = f"{action_key_prefix}_regen_img"
+        if _has_visuals:
+            btn_label = "🔄 " + (t("regenerate_image") if t("regenerate_image") != "regenerate_image" else "Regenerate image")
+        else:
+            btn_label = "🖼️ " + (t("generate_image") if t("generate_image") != "generate_image" else "Generate image")
+        if st.button(btn_label, key=regen_key, type="secondary"):
+            if _has_visuals:
+                # Regenerate — deep-copies internally so original data is safe
+                from helpers.visual_support import regenerate_exam_visuals
+                with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating new image…"):
+                    exam_updated = regenerate_exam_visuals(
+                        exam_data, subject=subject, learner_stage=learner_stage, topic=topic,
+                    )
+            else:
+                # First generation for an exam that previously failed
+                from helpers.visual_support import enrich_exam_with_visuals
+                with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating image…"):
+                    exam_updated = enrich_exam_with_visuals(
+                        exam_data, subject=subject, learner_stage=learner_stage, topic=topic,
+                    )
+            if exam_has_ready_visuals(exam_updated):
+                # Persist to DB so students also see the images
+                if resource_record_id not in (None, "", 0, "0"):
+                    _persist_saved_exam_visuals(resource_record_id, exam_updated)
+                # Update every session-state reference
+                st.session_state["exam_result"] = exam_updated
+                if st.session_state.get("files_selected_exam") is not None:
+                    st.session_state["files_selected_exam"] = exam_updated
+                st.rerun()
+            else:
+                st.warning(t("image_generation_failed") if t("image_generation_failed") != "image_generation_failed" else "Image generation failed. Please try again.")
 
     if signup_required_actions:
         st.caption(t("explore_resource_action_signup_note"))

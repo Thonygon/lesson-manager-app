@@ -100,16 +100,7 @@ def _open_assignment_practice(row: dict) -> None:
                 worksheet = source_worksheet
                 snapshot["worksheet"] = worksheet
                 persist_assignment_content_snapshot(int(assignment_id), snapshot)
-        had_ready_visuals = worksheet_has_ready_visuals(worksheet)
-        worksheet = enrich_worksheet_with_visuals(
-            worksheet,
-            subject=row.get("subject_key", ""),
-            learner_stage=(snapshot.get("meta") or {}).get("learner_stage", ""),
-            topic=row.get("topic", ""),
-        )
-        if not had_ready_visuals and worksheet_has_ready_visuals(worksheet):
-            snapshot["worksheet"] = worksheet
-            persist_assignment_content_snapshot(int(assignment_id), snapshot)
+        # Visuals are generated once at creation time; no re-enrichment here
         exercise_data = worksheet_to_exercises(worksheet, row_id=assignment_id)
     elif assignment_type == "exam":
         exam_data = dict(snapshot.get("exam_data") or {})
@@ -119,20 +110,8 @@ def _open_assignment_practice(row: dict) -> None:
                 exam_data = source_exam
                 snapshot["exam_data"] = exam_data
                 persist_assignment_content_snapshot(int(assignment_id), snapshot)
-        had_ready_visuals = exam_has_ready_visuals(exam_data)
-        exam_data.setdefault("subject", row.get("subject_key", ""))
-        exam_data.setdefault("topic", row.get("topic", ""))
-        exam_data.setdefault("learner_stage", (snapshot.get("meta") or {}).get("learner_stage", ""))
-        exam_data = enrich_exam_with_visuals(
-            exam_data,
-            subject=row.get("subject_key", ""),
-            learner_stage=(snapshot.get("meta") or {}).get("learner_stage", ""),
-            topic=row.get("topic", ""),
-        )
+        # Visuals are generated once at creation time; no re-enrichment here
         answer_key = snapshot.get("answer_key") or {}
-        if not had_ready_visuals and exam_has_ready_visuals(exam_data):
-            snapshot["exam_data"] = exam_data
-            persist_assignment_content_snapshot(int(assignment_id), snapshot)
         exercise_data = exam_to_exercises(exam_data, answer_key, row_id=assignment_id)
 
     if not exercise_data.get("exercises"):
