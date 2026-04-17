@@ -352,7 +352,6 @@ def normalize_worksheet_output(raw: dict) -> dict:
         "level_or_band",
         "worksheet_type",
         "instructions",
-        "answer_key",
         "plan_language",
         "student_material_language",
         "reading_passage",
@@ -361,6 +360,16 @@ def normalize_worksheet_output(raw: dict) -> dict:
     ]
     for k in str_keys:
         out[k] = _clean_str(out.get(k, ""))
+
+    # Normalize answer_key per-line instead of collapsing all whitespace;
+    # _clean_str would destroy newlines that separate individual answers.
+    raw_ak = out.get("answer_key", "")
+    if isinstance(raw_ak, list):
+        raw_ak = "\n".join(str(x) for x in raw_ak if str(x).strip())
+    raw_ak = str(raw_ak or "")
+    out["answer_key"] = "\n".join(
+        _clean_str(line) for line in raw_ak.split("\n") if _clean_str(line)
+    )
 
     out["questions"] = _ensure_list_of_strings(out.get("questions"))
     out["vocabulary_bank"] = _ensure_list_of_strings(out.get("vocabulary_bank"))
@@ -561,6 +570,8 @@ Worksheet-specific rules for reading_comprehension:
 - Create comprehension questions in "questions".
 - Do not use "source_text" or "true_false_statements" unless worksheet_type is true_false.
 - For lower-primary learners, prefer concrete, scene-based passages with visible actions, objects, and settings that can be illustrated.
+- The answer_key MUST list one answer per question, numbered to match the questions (e.g. "1. Answer one\n2. Answer two\n3. Answer three").
+- Do NOT concatenate all answers into a single sentence or paragraph.
 """,
         "word_search_vocab": """
 Worksheet-specific rules for word_search_vocab:

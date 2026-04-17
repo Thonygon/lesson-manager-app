@@ -192,7 +192,20 @@ def _clean_worksheet_data(ws: dict) -> dict:
             for q in out["questions"]
         ]
     if out.get("answer_key"):
-        out["answer_key"] = normalize_answer_key_text(out.get("answer_key"))
+        # Compute expected answer count from questions so the splitter can
+        # fall back to sentence-boundary splitting for single-line keys.
+        ws_type = out.get("worksheet_type", "")
+        if ws_type in {"fill_in_the_blanks", "short_answer", "reading_comprehension", "error_correction"}:
+            expected = len(out.get("questions") or []) or None
+        elif ws_type == "multiple_choice":
+            expected = len(out.get("multiple_choice_items") or []) or None
+        elif ws_type == "matching":
+            expected = len(out.get("matching_pairs") or out.get("left_items") or []) or None
+        elif ws_type == "true_false":
+            expected = len(out.get("true_false_statements") or out.get("questions") or []) or None
+        else:
+            expected = None
+        out["answer_key"] = normalize_answer_key_text(out.get("answer_key"), expected_count=expected)
     return out
 
 
