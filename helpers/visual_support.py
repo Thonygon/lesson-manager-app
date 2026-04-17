@@ -13,6 +13,17 @@ from core.i18n import t
 from helpers.ai_retry import run_with_ai_retries
 
 
+# ── Hard rule appended to every image-generation prompt ──────────────
+_NO_TEXT_RULE = (
+    "\n\nCRITICAL — absolutely no text in the image: "
+    "Do NOT render any letters, words, numbers, labels, captions, titles, "
+    "headings, speech bubbles, or typographic elements of any kind. "
+    "The image must contain ONLY illustrations/drawings. "
+    "Any form of written language inside the image is strictly forbidden. "
+    "Exception: text is allowed ONLY when the prompt explicitly requests "
+    "a graph, chart, diagram axis labels, or mathematical notation."
+)
+
 _LOWER_PRIMARY_STAGES = {
     "pre_primary",
     "early_primary",
@@ -264,6 +275,19 @@ def _unique_terms(values) -> list[str]:
     return out
 
 
+def _grid_layout_hint(n: int) -> str:
+    """Return a composition/framing instruction that matches the actual item count."""
+    if n <= 3:
+        return f"{n} pictures in a single horizontal row"
+    if n == 4:
+        return "2x2 grid of separate picture cards"
+    if n <= 6:
+        return f"2-row grid: {(n + 1) // 2} pictures on top, {n // 2} on the bottom row"
+    if n <= 9:
+        return f"3-row grid with {(n + 2) // 3} columns, {n} pictures total"
+    return f"grid layout with {n} separate picture cards arranged in rows of 4"
+
+
 def _extract_matching_terms(pairs) -> list[str]:
     left_terms = _unique_terms([item.get("left", "") for item in pairs or [] if isinstance(item, dict)])
     right_terms = _unique_terms([item.get("right", "") for item in pairs or [] if isinstance(item, dict)])
@@ -275,20 +299,20 @@ def _extract_matching_terms(pairs) -> list[str]:
     right_sentence_side = any(_looks_sentence_like(term) for term in right_terms)
 
     if len(left_visual) >= 3 and right_sentence_side:
-        return left_visual[:6]
+        return left_visual[:12]
     if len(right_visual) >= 3 and left_sentence_side:
-        return right_visual[:6]
+        return right_visual[:12]
     if len(left_visual) >= 3 and len(left_visual) == len(left_terms):
-        return left_visual[:6]
+        return left_visual[:12]
     if len(right_visual) >= 3 and len(right_visual) == len(right_terms):
-        return right_visual[:6]
+        return right_visual[:12]
     return []
 
 
 def _extract_vocab_terms(payload: dict) -> list[str]:
     bank = _unique_terms(payload.get("vocabulary_bank", []))
     if bank:
-        return [term for term in bank if _is_concrete_term(term)][:6]
+        return [term for term in bank if _is_concrete_term(term)][:12]
 
     questions = payload.get("questions", []) or []
     terms = []
@@ -299,7 +323,7 @@ def _extract_vocab_terms(payload: dict) -> list[str]:
                     terms.append(item.get(key, ""))
         elif _is_concrete_term(item):
             terms.append(item)
-    return _unique_terms(terms)[:6]
+    return _unique_terms(terms)[:12]
 
 
 def _observable_statements(statements) -> list[str]:
@@ -340,21 +364,22 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
         terms = _extract_matching_terms(ws.get("matching_pairs", []))
         if len(terms) < min_terms:
             return None
+        grid_layout = _grid_layout_hint(len(terms))
         prompt = (
             "Use case: illustration-story\n"
             "Asset type: worksheet support image\n"
-            f"Primary request: Create a picture board for a {stage_lbl} {subject_label} matching activity.\n"
+            f"Primary request: Create a picture board with exactly {len(terms)} pictures for a {stage_lbl} {subject_label} matching activity.\n"
             f"Subject: {subject_label or 'general studies'}\n"
             f"Scene/backdrop: clean white worksheet background with separate picture tiles\n"
             f"Subject details: show one clear illustration for each of these items: {', '.join(terms)}.\n"
             f"Style/medium: {style}\n"
-            "Composition/framing: 2x2 or 3x2 grid of separate picture cards\n"
+            f"Composition/framing: {grid_layout}\n"
             f"Lighting/mood: {mood}\n"
             "Text (verbatim): none\n"
-            "Constraints: no words, no letters, no labels, no decorative filler, each picture must be distinct and usable for matching\n"
+            f"Constraints: exactly {len(terms)} pictures, no words, no letters, no labels, no decorative filler, each picture must be distinct and usable for matching\n"
             "Avoid: abstract icons, posters, banners, title cards, watermark"
         )
-        return ("image_based_matching", f"{topic_label or 'Matching'} picture support", prompt)
+        return ("image_based_matching", topic_label or "Matching", prompt)
 
     if ws_type in {"word_search_vocab"}:
         # Picture vocabulary boards are most useful for primary stages only.
@@ -364,20 +389,21 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
         terms = _extract_vocab_terms(ws)
         if len(terms) < min_terms:
             return None
+        grid_layout = _grid_layout_hint(len(terms))
         prompt = (
             "Use case: illustration-story\n"
             "Asset type: worksheet vocabulary support image\n"
-            f"Primary request: Create a {stage_lbl} picture vocabulary board for these words: {', '.join(terms)}.\n"
+            f"Primary request: Create a {stage_lbl} picture vocabulary board with exactly {len(terms)} pictures for these words: {', '.join(terms)}.\n"
             f"Subject: {subject_label or 'general studies'}\n"
             "Scene/backdrop: clean worksheet background with evenly spaced picture cards\n"
             f"Style/medium: {style}\n"
-            "Composition/framing: one separate picture tile for each word\n"
+            f"Composition/framing: {grid_layout}\n"
             f"Lighting/mood: {mood}\n"
             "Text (verbatim): none\n"
-            "Constraints: no text, no labels, no decorative filler, every item must be easy to identify\n"
+            f"Constraints: exactly {len(terms)} pictures, no text, no labels, no decorative filler, every item must be easy to identify\n"
             "Avoid: collage chaos, title banners, watermark"
         )
-        return ("picture_vocabulary", f"{topic_label or 'Vocabulary'} picture support", prompt)
+        return ("picture_vocabulary", topic_label or "Vocabulary", prompt)
 
     if ws_type == "true_false":
         # Observation-scene support helps primary students; older students can reason without it.
@@ -401,7 +427,7 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
             "Constraints: no text, no labels, no unnecessary extra objects, the visible details must be easy to verify\n"
             "Avoid: decorative posters, abstract symbols, watermark"
         )
-        return ("scene_truth_support", f"{topic_label or 'True or False'} picture support", prompt)
+        return ("scene_truth_support", topic_label or "True or False", prompt)
 
     if ws_type == "reading_comprehension":
         # Scene illustrations aid comprehension at all stages; require richer passages for older learners.
@@ -423,7 +449,7 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
             "Constraints: match the passage details, no text, no labels, no answer spoilers beyond the scene itself\n"
             "Avoid: decorative filler, watermark"
         )
-        return ("reading_scene_support", f"{topic_label or 'Reading'} scene support", prompt)
+        return ("reading_scene_support", topic_label or "Reading", prompt)
 
     if ws_type == "vocabulary":
         # Picture vocabulary boards are most useful for primary stages only.
@@ -433,19 +459,20 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
         terms = _extract_vocab_terms(ws)
         if len(terms) < min_terms:
             return None
+        grid_layout = _grid_layout_hint(len(terms))
         prompt = (
             "Use case: illustration-story\n"
             "Asset type: worksheet picture vocabulary image\n"
-            f"Primary request: Create a {stage_lbl} picture vocabulary board for these items: {', '.join(terms)}.\n"
+            f"Primary request: Create a {stage_lbl} picture vocabulary board with exactly {len(terms)} pictures for these items: {', '.join(terms)}.\n"
             f"Subject: {subject_label or 'general studies'}\n"
             f"Style/medium: {style}\n"
-            "Composition/framing: one separate picture tile per item on a clean white background\n"
+            f"Composition/framing: {grid_layout}\n"
             f"Lighting/mood: {mood}\n"
             "Text (verbatim): none\n"
-            "Constraints: no labels, no decorative filler, every item must be easy to identify visually\n"
+            f"Constraints: exactly {len(terms)} pictures, no labels, no decorative filler, every item must be easy to identify visually\n"
             "Avoid: abstract icons, posters, watermark"
         )
-        return ("picture_vocabulary", f"{topic_label or 'Vocabulary'} picture support", prompt)
+        return ("picture_vocabulary", topic_label or "Vocabulary", prompt)
 
     return None
 
@@ -466,20 +493,21 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
         terms = _extract_matching_terms(section.get("questions", []))
         if len(terms) < min_terms:
             return None
+        grid_layout = _grid_layout_hint(len(terms))
         prompt = (
             "Use case: illustration-story\n"
             "Asset type: exam support image\n"
-            f"Primary request: Create a picture board for a {stage_lbl} matching section using these items: {', '.join(terms)}.\n"
+            f"Primary request: Create a picture board with exactly {len(terms)} pictures for a {stage_lbl} matching section using these items: {', '.join(terms)}.\n"
             f"Subject: {subject_label or 'general studies'}\n"
             "Scene/backdrop: clean worksheet-style background with separate picture cards\n"
             f"Style/medium: {style}\n"
-            "Composition/framing: grid of separate pictures, no text\n"
+            f"Composition/framing: {grid_layout}\n"
             f"Lighting/mood: {mood}\n"
             "Text (verbatim): none\n"
-            "Constraints: no labels, no decorative filler, each item must be visually distinct and usable for matching\n"
+            f"Constraints: exactly {len(terms)} pictures, no labels, no decorative filler, each item must be visually distinct and usable for matching\n"
             "Avoid: posters, title cards, watermark"
         )
-        return ("image_based_matching", f"{topic_label or 'Matching'} picture support", prompt)
+        return ("image_based_matching", topic_label or "Matching", prompt)
 
     if sec_type == "vocabulary":
         if tier not in ("lower_primary", "upper_primary"):
@@ -488,19 +516,20 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
         terms = _extract_vocab_terms({"questions": section.get("questions", [])})
         if len(terms) < min_terms:
             return None
+        grid_layout = _grid_layout_hint(len(terms))
         prompt = (
             "Use case: illustration-story\n"
             "Asset type: exam picture vocabulary image\n"
-            f"Primary request: Create a {stage_lbl} picture vocabulary board for these items: {', '.join(terms)}.\n"
+            f"Primary request: Create a {stage_lbl} picture vocabulary board with exactly {len(terms)} pictures for these items: {', '.join(terms)}.\n"
             f"Subject: {subject_label or 'general studies'}\n"
             f"Style/medium: {style}\n"
-            "Composition/framing: one separate picture tile per item\n"
+            f"Composition/framing: {grid_layout}\n"
             f"Lighting/mood: {mood}\n"
             "Text (verbatim): none\n"
-            "Constraints: no labels, no decorative filler, every item must be easy to recognize\n"
+            f"Constraints: exactly {len(terms)} pictures, no labels, no decorative filler, every item must be easy to recognize\n"
             "Avoid: abstract icons, posters, watermark"
         )
-        return ("picture_vocabulary", f"{topic_label or 'Vocabulary'} picture support", prompt)
+        return ("picture_vocabulary", topic_label or "Vocabulary", prompt)
 
     if sec_type == "reading_comprehension":
         min_passage = {"lower_primary": 80, "upper_primary": 120, "secondary": 200, "adult": 300}.get(tier, 200)
@@ -521,7 +550,7 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
             "Constraints: no labels, no decorative filler, do not introduce contradictory details\n"
             "Avoid: watermark"
         )
-        return ("reading_scene_support", f"{topic_label or 'Reading'} scene support", prompt)
+        return ("reading_scene_support", topic_label or "Reading", prompt)
 
     if sec_type == "true_false":
         if tier not in ("lower_primary", "upper_primary"):
@@ -544,7 +573,7 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
             "Constraints: no labels, no decorative filler, no irrelevant objects\n"
             "Avoid: watermark"
         )
-        return ("scene_truth_support", f"{topic_label or 'True or False'} picture support", prompt)
+        return ("scene_truth_support", topic_label or "True or False", prompt)
 
     if sec_type in {"diagram_questions", "classification", "symbol_identification", "theory_questions", "terminology"}:
         # Diagrams and instructional visuals are pedagogically valuable at all stages.
@@ -757,6 +786,7 @@ def _normalize_existing_support(support: dict | None) -> dict | None:
 
 
 def _build_ready_support(role: str, caption: str, prompt: str, subject: str, learner_stage: str, placement: str) -> dict | None:
+    prompt = prompt + _NO_TEXT_RULE
     data_url = _generate_ai_image_data_url(prompt)
     if not data_url:
         return {
@@ -889,6 +919,51 @@ def enrich_worksheet_with_visuals(ws: dict, *, subject: str = "", learner_stage:
             visual_role=role,
         )
     return payload
+
+
+def regenerate_worksheet_visuals(ws: dict, *, subject: str = "", learner_stage: str = "", topic: str = "") -> dict:
+    """Force-regenerate visual supports for an existing worksheet by clearing them first.
+
+    Uses deep copies so the caller's original data is never mutated.
+    """
+    import copy
+    _generate_ai_image_data_url.clear()          # bust cache so the API is called fresh
+    payload = copy.deepcopy(ws or {})
+    payload["visual_supports"] = []
+    return enrich_worksheet_with_visuals(payload, subject=subject, learner_stage=learner_stage, topic=topic)
+
+
+def regenerate_exam_visuals(exam_data: dict, *, subject: str = "", learner_stage: str = "", topic: str = "") -> dict:
+    """Force-regenerate visual supports for an existing exam by clearing them first.
+
+    Uses deep copies so the caller's original data is never mutated.
+    """
+    import copy
+    _generate_ai_image_data_url.clear()          # bust cache so the API is called fresh
+    payload = copy.deepcopy(exam_data or {})
+    for sec in payload.get("sections", []) or []:
+        if isinstance(sec, dict):
+            sec.pop("visual_support", None)
+    return enrich_exam_with_visuals(payload, subject=subject, learner_stage=learner_stage, topic=topic)
+
+
+def worksheet_eligible_for_visuals(ws: dict, *, subject: str = "", learner_stage: str = "", topic: str = "") -> bool:
+    """Return True if the worksheet type/stage qualifies for image generation."""
+    if worksheet_has_ready_visuals(ws):
+        return True
+    stage = learner_stage or ws.get("learner_stage", "")
+    return _worksheet_prompt(ws, subject or ws.get("subject", ""), stage, topic or ws.get("topic", "")) is not None
+
+
+def exam_eligible_for_visuals(exam_data: dict, *, subject: str = "", learner_stage: str = "", topic: str = "") -> bool:
+    """Return True if any exam section qualifies for image generation."""
+    if exam_has_ready_visuals(exam_data):
+        return True
+    stage = learner_stage or exam_data.get("learner_stage", "")
+    for sec in exam_data.get("sections", []) or []:
+        if isinstance(sec, dict) and _exam_prompt(exam_data, sec, subject or exam_data.get("subject", ""), stage, topic or exam_data.get("topic", "")) is not None:
+            return True
+    return False
 
 
 def enrich_exam_with_visuals(exam_data: dict, *, subject: str = "", learner_stage: str = "", topic: str = "") -> dict:
@@ -1093,7 +1168,7 @@ def render_visual_support_status_group(items, *, title: str | None = None) -> No
                 st.caption(f"{t('image_support_debug_details')}: {debug_detail}")
 
 
-def build_pdf_visual_flowables(support: dict | None, *, max_width_cm: float, paragraph_style):
+def build_pdf_visual_flowables(support: dict | None, *, max_width_cm: float, paragraph_style, max_height_cm: float = 0):
     if not _should_render_support(support):
         return []
     from reportlab.lib.units import cm
@@ -1107,14 +1182,15 @@ def build_pdf_visual_flowables(support: dict | None, *, max_width_cm: float, par
     target_width = max_width_cm * cm
     ratio = height_px / max(width_px, 1)
     target_height = target_width * ratio
+    # Cap height if requested (e.g. word search needs compact images)
+    if max_height_cm > 0 and target_height > max_height_cm * cm:
+        target_height = max_height_cm * cm
+        target_width = target_height / max(ratio, 0.01)
     flowables = [RLImage(BytesIO(image_bytes), width=target_width, height=target_height), Spacer(1, 6)]
-    caption = _clean_text(support.get("caption"))
-    if caption:
-        flowables.extend([Paragraph(html.escape(caption), paragraph_style), Spacer(1, 8)])
     return flowables
 
 
-def add_docx_visual_support(doc, support: dict | None, *, width_cm: float, font_name: str, font_size_pt: float):
+def add_docx_visual_support(doc, support: dict | None, *, width_cm: float, font_name: str, font_size_pt: float, max_height_cm: float = 0):
     if not _should_render_support(support):
         return
     from docx.shared import Cm, Pt
@@ -1124,14 +1200,47 @@ def add_docx_visual_support(doc, support: dict | None, *, width_cm: float, font_
         return
     para = doc.add_paragraph()
     run = para.add_run()
-    run.add_picture(BytesIO(image_bytes), width=Cm(width_cm))
-    caption = _clean_text(support.get("caption"))
-    if caption:
+    # Cap height if requested to keep content on one page
+    if max_height_cm > 0:
+        img = Image.open(BytesIO(image_bytes))
+        w_px, h_px = img.size
+        ratio = h_px / max(w_px, 1)
+        effective_height = width_cm * ratio
+        if effective_height > max_height_cm:
+            run.add_picture(BytesIO(image_bytes), height=Cm(max_height_cm))
+        else:
+            run.add_picture(BytesIO(image_bytes), width=Cm(width_cm))
+    else:
+        run.add_picture(BytesIO(image_bytes), width=Cm(width_cm))
+    # Caption removed – image stands alone
+    if False:  # caption block disabled
         cap = doc.add_paragraph()
         cap.alignment = 1
-        cap_run = cap.add_run(caption)
+        cap_run = cap.add_run("")
         try:
             cap_run.font.name = font_name
             cap_run.font.size = Pt(font_size_pt)
         except Exception:
             pass
+
+
+# ── Watermark helpers ────────────────────────────────────────────────
+
+def _make_watermark_image(image_bytes: bytes, opacity: float = 0.10) -> bytes:
+    """Blend *image_bytes* with white to produce a faded watermark PNG."""
+    img = Image.open(BytesIO(image_bytes)).convert("RGBA")
+    white = Image.new("RGBA", img.size, (255, 255, 255, 255))
+    blended = Image.blend(white, img, opacity)
+    buf = BytesIO()
+    blended.convert("RGB").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def get_visual_watermark_bytes(resource_dict: dict, *, opacity: float = 0.10) -> bytes | None:
+    """Return watermark PNG bytes from the first ready visual support, or *None*."""
+    for support in resource_dict.get("visual_supports", []) or []:
+        if _should_render_support(support):
+            raw = data_uri_to_bytes(support.get("image_data_url", ""))
+            if raw:
+                return _make_watermark_image(raw, opacity=opacity)
+    return None

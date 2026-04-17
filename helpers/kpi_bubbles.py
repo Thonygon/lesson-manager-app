@@ -1,9 +1,11 @@
 import streamlit as st
+import datetime
 import pandas as pd
 from core.i18n import t
+from core.state import get_current_user_id
+from core.timezone import now_local, today_local
 from core.database import load_table
 import streamlit.components.v1 as components
-from styles.theme import get_theme_mode
 
 # 07.16) KPI BUBBLES (ROBUST: NO AUTO-RESIZE DEPENDENCY)
 # =========================
@@ -13,57 +15,12 @@ def kpi_stat_cards(values, accent_colors):
     Scrollable horizontally so all KPIs stay in one row.
     """
     compact = bool(st.session_state.get("compact_mode", False))
-    theme_mode = get_theme_mode()
 
     gap = 10 if compact else 12
     card_width = 110 if compact else 120
 
     style = f"""
     <style>
-      html, body {{
-        margin: 0;
-        padding: 0;
-        background: transparent;
-        color-scheme: light dark;
-      }}
-
-      :root {{
-        --kpi-card-bg: transparent;
-        --kpi-card-border: transparent;
-        --kpi-value: #0f172a;
-        --kpi-label: #475569;
-        --kpi-scrollbar-thumb: rgba(0,0,0,0.15);
-        --kpi-card-shadow: none;
-      }}
-
-      @media (prefers-color-scheme: dark) {{
-        :root {{
-          --kpi-card-bg: transparent;
-          --kpi-card-border: transparent;
-          --kpi-value: #f1f5f9;
-          --kpi-label: #cbd5e1;
-          --kpi-scrollbar-thumb: rgba(148,163,184,0.28);
-          --kpi-card-shadow: none;
-        }}
-      }}
-
-      .theme-dark {{
-        --kpi-card-bg: transparent;
-        --kpi-card-border: transparent;
-        --kpi-value: #f1f5f9;
-        --kpi-label: #cbd5e1;
-        --kpi-scrollbar-thumb: rgba(148,163,184,0.28);
-        --kpi-card-shadow: none;
-      }}
-
-      .theme-light {{
-        --kpi-card-bg: transparent;
-        --kpi-card-border: transparent;
-        --kpi-value: #0f172a;
-        --kpi-label: #475569;
-        --kpi-scrollbar-thumb: rgba(0,0,0,0.15);
-        --kpi-card-shadow: none;
-      }}
 
       .kpi-stat-wrap {{
         display: flex;
@@ -84,18 +41,18 @@ def kpi_stat_cards(values, accent_colors):
       }}
 
       .kpi-stat-wrap::-webkit-scrollbar-thumb {{
-        background: var(--kpi-scrollbar-thumb);
+        background: rgba(0,0,0,0.15);
         border-radius: 6px;
       }}
 
       .kpi-stat-card {{
         flex: 0 0 {card_width}px;
         position: relative;
-        background: var(--kpi-card-bg);
-        border: 1px solid var(--kpi-card-border);
-        border-radius: 18px;
-        box-shadow: var(--kpi-card-shadow);
-        padding: 10px 10px 12px 10px;
+        background: #f8fafc;
+        border: #f8fafc;
+        border-radius: 14px;
+        box-shadow: 0 0 0 0;
+        padding: 8px 8px 10px 8px;
         box-sizing: border-box;
         overflow: hidden;
         cursor: default;
@@ -113,40 +70,24 @@ def kpi_stat_cards(values, accent_colors):
       }}
 
       .kpi-stat-value {{
-        font-size: 1.02rem;
+        font-size: 1rem;
         line-height: 1.0;
-        font-weight: 900;
-        color: var(--kpi-value);
-        margin-top: 8px;
-        margin-bottom: 8px;
+        font-weight: 800;
+        color: #0f172a;
+        margin-top: 6px;
+        margin-bottom: 6px;
         text-align: center;
       }}
 
       .kpi-stat-label {{
         font-size: 0.62rem;
         line-height: 1.15;
-        font-weight: 700;
-        color: var(--kpi-label);
+        font-weight: 600;
+        color: #475569;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.03em;
         text-align: center;
         word-break: keep-all;
-      }}
-
-      .theme-dark .kpi-stat-value {{
-        color: #f1f5f9 !important;
-      }}
-
-      .theme-dark .kpi-stat-label {{
-        color: #cbd5e1 !important;
-      }}
-
-      .theme-light .kpi-stat-value {{
-        color: #0f172a !important;
-      }}
-
-      .theme-light .kpi-stat-label {{
-        color: #475569 !important;
       }}
 
       /* Mobile adjustments */
@@ -167,25 +108,6 @@ def kpi_stat_cards(values, accent_colors):
       }}
 
     </style>
-    <script>
-      window.__THEME_MODE__ = "{theme_mode}";
-    </script>
-    <script>
-      function applyTheme() {{
-        const mode = window.__THEME_MODE__ || "auto";
-        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-        const dark = mode === "dark" || (mode === "auto" && prefersDark);
-        document.documentElement.classList.toggle("theme-dark", dark);
-        document.documentElement.classList.toggle("theme-light", !dark);
-        document.body.classList.toggle("theme-dark", dark);
-        document.body.classList.toggle("theme-light", !dark);
-      }}
-      applyTheme();
-      const media = window.matchMedia("(prefers-color-scheme: dark)");
-      if (media && media.addEventListener) {{
-        media.addEventListener("change", applyTheme);
-      }}
-    </script>
     """
 
     cards_html = '<div class="kpi-stat-wrap">'

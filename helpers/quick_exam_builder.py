@@ -1303,7 +1303,7 @@ def render_quick_exam_builder_expander() -> None:
                     st.session_state["exam_warning"] = warning
 
                     from helpers.quick_exam_storage import save_exam_record
-                    save_exam_record(
+                    _saved_id = save_exam_record(
                         subject=effective_subject,
                         learner_stage=learner_stage,
                         level_or_band=level_or_band,
@@ -1313,6 +1313,8 @@ def render_quick_exam_builder_expander() -> None:
                         exam_data=exam_data,
                         answer_key=answer_key,
                     )
+                    if _saved_id:
+                        st.session_state["exam_record_id"] = _saved_id
 
         result = st.session_state.get("exam_result")
         ak = st.session_state.get("exam_answer_key")
@@ -1322,6 +1324,7 @@ def render_quick_exam_builder_expander() -> None:
                 result,
                 ak,
                 allow_assign=True,
+                resource_record_id=st.session_state.get("exam_record_id"),
                 subject=effective_subject,
                 topic=topic,
                 learner_stage=learner_stage,

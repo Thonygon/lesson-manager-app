@@ -14,7 +14,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn, nsdecls
 from docx.oxml import parse_xml
-from helpers.visual_support import enrich_worksheet_with_visuals, enrich_exam_with_visuals, add_docx_visual_support
+from helpers.visual_support import enrich_worksheet_with_visuals, enrich_exam_with_visuals, add_docx_visual_support, get_visual_watermark_bytes
 
 from core.i18n import t
 from helpers.answer_key_utils import split_answer_key_items
@@ -156,7 +156,9 @@ def _fetch_image_bytes(url: str) -> bytes | None:
 
 
 def _add_logo_to_doc(doc: Document, branding: dict):
-    """Add branding logo or default Classio logo to the document."""
+    """Add branding logo to the document header.
+    The default Classio logo is rendered in the footer instead to save header space.
+    """
     header_enabled = branding.get("header_enabled", False)
     logo_url = str(branding.get("header_logo_url") or "").strip()
 
@@ -171,19 +173,17 @@ def _add_logo_to_doc(doc: Document, branding: dict):
         run = p.add_run()
         run.add_picture(buf, height=Cm(3.0))
         p.paragraph_format.space_after = Pt(4)
-    elif os.path.isfile(_DEFAULT_LOGO_PATH):
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER if (header_enabled and branding.get("header_style") == "school") else WD_ALIGN_PARAGRAPH.LEFT
-        run = p.add_run()
-        run.add_picture(_DEFAULT_LOGO_PATH, height=Cm(2.2))
-        p.paragraph_format.space_after = Pt(4)
 
 
 def _add_footer_with_image(doc: Document, branding: dict, font_name: str):
-    """Add footer with optional image and brand text."""
+    """Add footer with optional image and brand text.
+    When no custom branding, renders the small Classio logo and page number.
+    """
     brand_name = str(branding.get("brand_name") or "").strip()
     footer_enabled = branding.get("footer_enabled", False)
     footer_url = str(branding.get("footer_image_url") or "").strip()
+    header_enabled = branding.get("header_enabled", False)
+    has_custom_logo = header_enabled and bool(str(branding.get("header_logo_url") or "").strip())
 
     section = doc.sections[-1]
     footer = section.footer
@@ -204,12 +204,20 @@ def _add_footer_with_image(doc: Document, branding: dict, font_name: str):
             _apply_font(run2, font_name, 9, color=_TEXT_MUTED)
             return
 
-    # Text-only footer
+    # Default footer: "Visit classio.streamlit.app" + Classio logo, right-aligned
+    from docx.oxml import OxmlElement
+
     fp = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
     fp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    footer_label = brand_name if (footer_enabled and brand_name) else "Classio"
-    run = fp.add_run(footer_label)
-    _apply_font(run, font_name, 9, color=_TEXT_MUTED)
+
+    # "Visit classio.streamlit.app" text
+    visit_run = fp.add_run("Visit classio.streamlit.app  ")
+    _apply_font(visit_run, font_name, 9, color=_TEXT_MUTED)
+
+    # Classio logo
+    if not has_custom_logo and os.path.isfile(_DEFAULT_LOGO_PATH):
+        logo_run = fp.add_run()
+        logo_run.add_picture(_DEFAULT_LOGO_PATH, height=Cm(0.7))
 
 
 def _set_cell_font(cell, text: str, font_name: str, size: float,
@@ -266,13 +274,6 @@ def generate_docx_worksheet(ws: dict, student_only: bool = True) -> bytes:
     t_sz, sec_sz, b_sz = sz["title"], sz["section"], sz["body"]
     lr = sz.get("leading_ratio", 1.15)
 
-    ws = enrich_worksheet_with_visuals(
-        ws,
-        subject=ws.get("subject", ""),
-        learner_stage=ws.get("learner_stage", ""),
-        topic=ws.get("topic", ""),
-    )
-
     doc = Document()
 
     # Set default font
@@ -307,7 +308,8 @@ def generate_docx_worksheet(ws: dict, student_only: bool = True) -> bytes:
 
     # Title
     title = str(ws.get("title") or t("untitled_worksheet")).strip()
-    _add_heading(doc, title, font_name, t_sz, color=_PRIMARY, leading_ratio=lr)
+    _add_heading(doc, title, font_name, t_sz, color=_PRIMARY,
+                 align=WD_ALIGN_PARAGRAPH.CENTER, leading_ratio=lr)
 
     # School header fields (Name / Class / Date in a table)
     if branding.get("header_style") == "school" and header_enabled:
@@ -339,8 +341,15 @@ def generate_docx_worksheet(ws: dict, student_only: bool = True) -> bytes:
                      font_name, sec_sz, color=_TEXT, leading_ratio=lr)
         _add_body(doc, instructions, font_name, b_sz, leading_ratio=lr)
 
-    for support in ws.get("visual_supports", []) or []:
-        add_docx_visual_support(doc, support, width_cm=15.2, font_name=font_name, font_size_pt=max(9, b_sz - 1))
+    # Visual support images — word search uses watermark behind grid instead
+    _ws_type = ws.get("worksheet_type", "")
+    _docx_wm_bytes: bytes | None = None
+    if _ws_type == "word_search_vocab":
+        _docx_wm_bytes = get_visual_watermark_bytes(ws, opacity=0.10)
+    else:
+        for support in ws.get("visual_supports", []) or []:
+            add_docx_visual_support(doc, support, width_cm=15.2, font_name=font_name,
+                                    font_size_pt=max(9, b_sz - 1), max_height_cm=0)
 
     # Vocabulary bank (table layout)
     vocab = ws.get("vocabulary_bank", [])
@@ -362,7 +371,8 @@ def generate_docx_worksheet(ws: dict, student_only: bool = True) -> bytes:
     elif ws_type == "true_false":
         _render_true_false_docx(doc, ws, font_name, sec_sz, b_sz, student_only, lr)
     elif ws_type == "word_search_vocab":
-        _render_word_search_docx(doc, ws, font_name, sec_sz, b_sz, lr)
+        _render_word_search_docx(doc, ws, font_name, sec_sz, b_sz, lr, show_heading=True,
+                                 watermark_bytes=_docx_wm_bytes)
     elif ws_type == "multiple_choice":
         _render_multiple_choice_docx(doc, ws, font_name, sec_sz, b_sz, student_only, lr)
     elif ws_type == "short_answer" and questions:
@@ -618,9 +628,78 @@ def _render_true_false_docx(doc, ws: dict, font_name: str, sec_sz: float,
         doc.add_paragraph()  # spacer
 
 
+def _insert_behind_text_image(doc, image_bytes: bytes, *, grid_size: int = 12):
+    """Insert a behind-text floating watermark image sized to cover the grid.
+
+    The image is added to a zero-height paragraph immediately before the grid
+    table and positioned as a ``wp:anchor`` with ``behindDoc="1"`` so that it
+    renders behind the grid letters.
+    """
+    from lxml import etree
+
+    # Estimate grid dimensions  (page_w ≈ 17.4 cm; row_h ≈ 0.55 cm)
+    est_width_cm = 17.4
+    est_height_cm = grid_size * 0.55
+
+    # Add an empty anchor paragraph with zero spacing
+    para = doc.add_paragraph()
+    pPr = para._p.get_or_add_pPr()
+    pPr.append(parse_xml(
+        f'<w:spacing {nsdecls("w")} w:before="0" w:after="0" w:line="0" w:lineRule="exact"/>'
+    ))
+
+    run = para.add_run()
+    run.add_picture(BytesIO(image_bytes), width=Cm(est_width_cm))
+
+    # Convert the inline picture to a behind-text anchor
+    drawing = run._r.find(qn('w:drawing'))
+    if drawing is None:
+        return
+    inline = drawing.find(qn('wp:inline'))
+    if inline is None:
+        return
+
+    anchor = etree.SubElement(drawing, qn('wp:anchor'))
+    for k, v in {'behindDoc': '1', 'locked': '0', 'layoutInCell': '1',
+                 'allowOverlap': '1', 'simplePos': '0', 'relativeHeight': '0',
+                 'distT': '0', 'distB': '0', 'distL': '0', 'distR': '0'}.items():
+        anchor.set(k, v)
+
+    # Positioning elements (must precede the children moved from <wp:inline>)
+    sp = etree.SubElement(anchor, qn('wp:simplePos'))
+    sp.set('x', '0'); sp.set('y', '0')
+
+    ph = etree.SubElement(anchor, qn('wp:positionH'))
+    ph.set('relativeFrom', 'column')
+    etree.SubElement(ph, qn('wp:align')).text = 'center'
+
+    pv = etree.SubElement(anchor, qn('wp:positionV'))
+    pv.set('relativeFrom', 'paragraph')
+    etree.SubElement(pv, qn('wp:posOffset')).text = str(int(Emu(Cm(0.3))))  # small offset below heading
+
+    # Move children from inline → anchor (extent, effectExtent, docPr, graphic …)
+    for child in list(inline):
+        anchor.append(child)
+
+    # Override extent to match estimated grid dimensions
+    ext_el = anchor.find(qn('wp:extent'))
+    if ext_el is not None:
+        ext_el.set('cx', str(int(Emu(Cm(est_width_cm)))))
+        ext_el.set('cy', str(int(Emu(Cm(est_height_cm)))))
+
+    # Insert wrapNone after effectExtent (or extent)
+    ee = anchor.find(qn('wp:effectExtent'))
+    insert_after = ee if ee is not None else anchor.find(qn('wp:extent'))
+    if insert_after is not None:
+        insert_after.addnext(etree.Element(qn('wp:wrapNone')))
+
+    drawing.remove(inline)
+
+
 def _render_word_search_docx(doc, ws: dict, font_name: str, sec_sz: float,
-                             b_sz: float, lr: float = 1.15, show_heading: bool = True):
-    """Render word search grid as a table."""
+                             b_sz: float, lr: float = 1.15, show_heading: bool = True,
+                             watermark_bytes: bytes | None = None):
+    """Render word search grid as a table, optionally with a watermark behind it."""
     grid, _ = _resolve_word_search_grid(ws)
     if not grid:
         return
@@ -628,6 +707,10 @@ def _render_word_search_docx(doc, ws: dict, font_name: str, sec_sz: float,
     if show_heading:
         _add_heading(doc, t("word_search_grid") if t("word_search_grid") != "word_search_grid" else "Word Search",
                      font_name, sec_sz, color=_TEXT, leading_ratio=lr)
+
+    # If a watermark image is available, insert it as a behind-text floating picture
+    if watermark_bytes:
+        _insert_behind_text_image(doc, watermark_bytes, grid_size=len(grid))
 
     grid_size = len(grid)
     table = doc.add_table(rows=grid_size, cols=grid_size)
@@ -974,7 +1057,17 @@ def _render_exam_section_docx(
     if instructions:
         _add_body(doc, instructions, font_name, b_sz, leading_ratio=lr)
 
-    add_docx_visual_support(doc, sec.get("visual_support"), width_cm=15.2, font_name=font_name, font_size_pt=max(9, b_sz - 1))
+    _sec_is_ws = sec_type in ("word_search_vocab", "word_search")
+    if _sec_is_ws:
+        _sec_vs = sec.get("visual_support")
+        if isinstance(_sec_vs, dict):
+            # Wrap the single section support into the resource_dict format expected by the helper
+            _sec_wm = get_visual_watermark_bytes({"visual_supports": [_sec_vs]}, opacity=0.10)
+        else:
+            _sec_wm = None
+    else:
+        _sec_wm = None
+        add_docx_visual_support(doc, sec.get("visual_support"), width_cm=15.2, font_name=font_name, font_size_pt=max(9, b_sz - 1))
 
     source_text = str(sec.get("source_text") or "").strip()
     if source_text:
@@ -1000,7 +1093,8 @@ def _render_exam_section_docx(
     elif sec_type == "true_false":
         _render_exam_true_false_docx(doc, questions, font_name, b_sz)
     elif sec_type in ("word_search_vocab", "word_search"):
-        _render_word_search_docx(doc, sec, font_name, sec_sz, b_sz, lr, show_heading=False)
+        _render_word_search_docx(doc, sec, font_name, sec_sz, b_sz, lr, show_heading=False,
+                                 watermark_bytes=_sec_wm if _sec_is_ws else None)
     elif sec_type == "fill_in_blank":
         for idx, q in enumerate(questions, 1):
             text = _format_exam_question_text(sec_type, q).replace("___", "______________")
@@ -1073,13 +1167,6 @@ def generate_docx_exam(
     sz = get_font_sizes(size_key)
     t_sz, sec_sz, b_sz = sz["title"], sz["section"], sz["body"]
     lr = sz.get("leading_ratio", 1.15)
-
-    exam_data = enrich_exam_with_visuals(
-        exam_data,
-        subject=exam_data.get("subject", ""),
-        learner_stage=exam_data.get("learner_stage", ""),
-        topic=exam_data.get("topic", ""),
-    )
 
     doc = Document()
     style = doc.styles["Normal"]

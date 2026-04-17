@@ -115,6 +115,12 @@ def split_answer_key_items(raw, expected_count: int | None = None) -> list[str]:
                     if len(semicolon_parts) > 1:
                         parts = semicolon_parts
 
+                if len(parts) == 1 and expected_count and expected_count > 1:
+                    sentence_parts = re.split(r'(?<=[.!?])\s+', parts[0].strip())
+                    sentence_parts = [s for s in sentence_parts if s.strip()]
+                    if len(sentence_parts) > 1:
+                        parts = sentence_parts
+
                 items = [clean_answer_key_item(part) for part in parts]
                 items = [item for item in items if item]
 
