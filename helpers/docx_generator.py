@@ -221,7 +221,7 @@ def _add_footer_with_image(doc: Document, branding: dict, font_name: str):
     tab_elem = OxmlElement('w:tab')
     page_w = section.page_width - section.left_margin - section.right_margin
     tab_elem.set(qn('w:val'), 'right')
-    tab_elem.set(qn('w:pos'), str(int(page_w.emu / 635)))
+    tab_elem.set(qn('w:pos'), str(int(page_w / 635)))
     tab_elem.set(qn('w:leader'), 'none')
     tabs_elem.append(tab_elem)
     pPr.append(tabs_elem)
