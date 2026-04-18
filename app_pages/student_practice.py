@@ -4,6 +4,7 @@ import math
 from core.i18n import t
 from core.navigation import go_to
 from helpers.practice_engine import (
+    autosave_practice_draft_if_needed,
     worksheet_to_exercises,
     exam_to_exercises,
     normalize_exercise_data_for_web,
@@ -732,6 +733,12 @@ color: var(--text);
 def _render_active_session(exercise_data: dict):
     """Render the interactive practice and handle completion."""
     if st.button(f"← {t('back')}", key="practice_back"):
+        autosave_practice_draft_if_needed(
+            exercise_data,
+            session_key="sp",
+            meta=st.session_state.get("practice_meta") or {},
+            force=True,
+        )
         # Clear all practice-related session state
         for key in list(st.session_state.keys()):
             if key.startswith("_start_sp_") or key.startswith("_practice_") or key.startswith("sp_"):
@@ -744,6 +751,9 @@ def _render_active_session(exercise_data: dict):
         st.session_state.pop("_practice_resume_session_id", None)
         st.session_state.pop("_practice_resume_answers", None)
         st.session_state.pop("_practice_resume_notice", None)
+        st.session_state.pop("_practice_last_autosave_payload_sp", None)
+        st.session_state.pop("_practice_last_autosave_at_sp", None)
+        st.session_state.pop("_practice_last_autosave_failed_sp", None)
         st.rerun()
 
     if st.session_state.pop("_practice_resume_notice", False):
