@@ -956,6 +956,135 @@ def _clear_practice_widget_state(session_key: str) -> None:
             st.session_state.pop(key, None)
 
 
+def _practice_answer_has_content(value) -> bool:
+    if isinstance(value, list):
+        return bool(_normalize_wordsearch_words(value))
+
+    text = str(value or "").strip()
+    if not text:
+        return False
+
+    parsed = None
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        parsed = None
+
+    if isinstance(parsed, list):
+        return bool(_normalize_wordsearch_words(parsed))
+    return True
+
+
+def _build_practice_answer_snapshot(exercise_data: dict, session_key: str) -> dict[str, str]:
+    snapshot: dict[str, str] = {}
+    for ex_idx, exercise in enumerate(exercise_data.get("exercises") or []):
+        questions = exercise.get("questions") or []
+        ex_type = str(exercise.get("type") or "").strip()
+
+        if ex_type == "word_search_vocab":
+            q_key = f"{session_key}_{ex_idx}_0"
+            found_key = f"{q_key}__found"
+            found_words = _normalize_wordsearch_words(st.session_state.get(found_key, []))
+            snapshot[q_key] = json.dumps(found_words)
+            continue
+
+        for q_idx in range(len(questions)):
+            q_key = f"{session_key}_{ex_idx}_{q_idx}"
+            value = st.session_state.get(q_key, "")
+            snapshot[q_key] = "" if value is None else str(value)
+    return snapshot
+
+
+def _practice_answers_fingerprint(student_answers: dict[str, str]) -> str:
+    normalized = {
+        str(key): "" if value is None else str(value)
+        for key, value in (student_answers or {}).items()
+    }
+    return json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+
+
+def _restore_practice_widget_state_from_answers(
+    exercise_data: dict,
+    student_answers: dict[str, str],
+    session_key: str,
+) -> None:
+    if not isinstance(student_answers, dict):
+        return
+
+    for ex_idx, exercise in enumerate(exercise_data.get("exercises") or []):
+        questions = exercise.get("questions") or []
+        ex_type = str(exercise.get("type") or "").strip()
+
+        if ex_type == "word_search_vocab":
+            q_key = f"{session_key}_{ex_idx}_0"
+            found_key = f"{q_key}__found"
+            saved_value = student_answers.get(q_key, "")
+            found_words = _normalize_wordsearch_words(saved_value)
+            st.session_state[q_key] = saved_value
+            st.session_state[found_key] = found_words
+            continue
+
+        for q_idx in range(len(questions)):
+            q_key = f"{session_key}_{ex_idx}_{q_idx}"
+            if q_key in student_answers:
+                st.session_state[q_key] = student_answers[q_key]
+
+
+def autosave_practice_draft_if_needed(
+    exercise_data: dict,
+    *,
+    session_key: str = "practice",
+    meta: dict | None = None,
+    force: bool = False,
+) -> int | None:
+    if str(exercise_data.get("source_type") or "").strip() == "demo":
+        return None
+
+    submitted_key = f"_practice_submitted_{session_key}"
+    if st.session_state.get(submitted_key):
+        return None
+
+    student_answers = _build_practice_answer_snapshot(exercise_data, session_key)
+    answers_key = f"_practice_answers_{session_key}"
+    st.session_state[answers_key] = student_answers
+
+    if not any(_practice_answer_has_content(value) for value in student_answers.values()):
+        return None
+
+    fingerprint_key = f"_practice_last_autosave_payload_{session_key}"
+    fingerprint = _practice_answers_fingerprint(student_answers)
+    if not force and fingerprint == st.session_state.get(fingerprint_key):
+        return st.session_state.get("_practice_resume_session_id")
+
+    draft_session_id = save_practice_draft(
+        exercise_data,
+        student_answers,
+        meta=meta or {},
+        session_key=session_key,
+        session_id=st.session_state.get("_practice_resume_session_id"),
+    )
+    if draft_session_id:
+        st.session_state["_practice_resume_session_id"] = draft_session_id
+        st.session_state[fingerprint_key] = fingerprint
+        st.session_state[f"_practice_last_autosave_failed_{session_key}"] = False
+        st.session_state[f"_practice_last_autosave_at_{session_key}"] = _dt.now().strftime("%H:%M")
+    else:
+        st.session_state[f"_practice_last_autosave_failed_{session_key}"] = True
+    return draft_session_id
+
+
+def _autosave_practice_widget_change(session_key: str) -> None:
+    ctx = st.session_state.get(f"_practice_autosave_ctx_{session_key}") or {}
+    exercise_data = ctx.get("exercise_data") or {}
+    if not exercise_data:
+        return
+    autosave_practice_draft_if_needed(
+        exercise_data,
+        session_key=session_key,
+        meta=ctx.get("meta") or {},
+    )
+
+
 # ════════════════════════════════════════════════════════════════
 #  C. INTERACTIVE STREAMLIT RENDERER
 # ════════════════════════════════════════════════════════════════
@@ -975,6 +1104,11 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
     instructions = exercise_data.get("instructions") or ""
     st.markdown(f"### {title}")
 
+    st.session_state[f"_practice_autosave_ctx_{session_key}"] = {
+        "exercise_data": exercise_data,
+        "meta": st.session_state.get("practice_meta") or {},
+    }
+
     if instructions:
         st.caption(instructions)
 
@@ -990,8 +1124,8 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
     resume_answers = st.session_state.pop("_practice_resume_answers", None)
     if isinstance(resume_answers, dict):
         st.session_state[answers_key] = dict(resume_answers)
-        for key, value in resume_answers.items():
-            st.session_state[key] = value
+        _restore_practice_widget_state_from_answers(exercise_data, resume_answers, session_key)
+        st.session_state[f"_practice_last_autosave_payload_{session_key}"] = _practice_answers_fingerprint(resume_answers)
 
     is_submitted    = st.session_state[submitted_key]
     student_answers = st.session_state[answers_key]
@@ -1112,8 +1246,17 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
 
         st.divider()
 
+    student_answers = _build_practice_answer_snapshot(exercise_data, session_key)
+    st.session_state[answers_key] = student_answers
+
     # ── Submit / Results ─────────────────────────────────────────
     if not is_submitted:
+        autosave_practice_draft_if_needed(
+            exercise_data,
+            session_key=session_key,
+            meta=st.session_state.get("practice_meta") or {},
+        )
+
         # Check if all questions are answered
         all_answered = True
         for ex_idx, exercise in enumerate(exercises):
@@ -1132,6 +1275,13 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
             str(exercise_data.get("source_type") or "") == "exam"
             and total_questions_for_session >= 8
         )
+
+        autosave_failed = st.session_state.get(f"_practice_last_autosave_failed_{session_key}", False)
+        autosave_at = str(st.session_state.get(f"_practice_last_autosave_at_{session_key}") or "").strip()
+        if autosave_failed:
+            st.caption(t("practice_autosave_failed"))
+        elif autosave_at:
+            st.caption(t("practice_autosave_status", time=autosave_at))
 
         action_cols = st.columns(2 if can_save_later else 1)
         with action_cols[0]:
@@ -1161,12 +1311,11 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
 
         save_requested_key = f"_practice_save_requested_{session_key}"
         if st.session_state.pop(save_requested_key, False):
-            draft_session_id = save_practice_draft(
+            draft_session_id = autosave_practice_draft_if_needed(
                 exercise_data,
-                student_answers,
-                meta=st.session_state.get("practice_meta") or {},
                 session_key=session_key,
-                session_id=st.session_state.get("_practice_resume_session_id"),
+                meta=st.session_state.get("practice_meta") or {},
+                force=True,
             )
             if draft_session_id:
                 st.session_state["_practice_resume_session_id"] = draft_session_id
@@ -1194,6 +1343,9 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
                 st.session_state.pop(f"_practice_saved_{session_key}", None)
                 st.session_state.pop("_practice_resume_session_id", None)
                 st.session_state.pop("_practice_resume_answers", None)
+                st.session_state.pop(f"_practice_last_autosave_payload_{session_key}", None)
+                st.session_state.pop(f"_practice_last_autosave_at_{session_key}", None)
+                st.session_state.pop(f"_practice_last_autosave_failed_{session_key}", None)
                 st.rerun()
         with col2:
             if st.button(
@@ -1209,6 +1361,9 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
                 st.session_state.pop("practice_meta", None)
                 st.session_state.pop("_practice_resume_session_id", None)
                 st.session_state.pop("_practice_resume_answers", None)
+                st.session_state.pop(f"_practice_last_autosave_payload_{session_key}", None)
+                st.session_state.pop(f"_practice_last_autosave_at_{session_key}", None)
+                st.session_state.pop(f"_practice_last_autosave_failed_{session_key}", None)
                 st.rerun()
 
         return {
@@ -1247,6 +1402,8 @@ def _render_single_question(
             key=q_key,
             label_visibility="collapsed",
             disabled=is_submitted,
+            on_change=_autosave_practice_widget_change,
+            args=(q_key.split("_", 1)[0],),
         )
         return str(choice) if choice else ""
 
@@ -1261,6 +1418,8 @@ def _render_single_question(
             label_visibility="collapsed",
             horizontal=True,
             disabled=is_submitted,
+            on_change=_autosave_practice_widget_change,
+            args=(q_key.split("_", 1)[0],),
         )
         return str(choice) if choice else ""
 
@@ -1274,6 +1433,8 @@ def _render_single_question(
             key=q_key,
             label_visibility="collapsed",
             disabled=is_submitted,
+            on_change=_autosave_practice_widget_change,
+            args=(q_key.split("_", 1)[0],),
         )
         return str(choice) if choice else ""
 
@@ -1286,6 +1447,8 @@ def _render_single_question(
             key=q_key,
             label_visibility="collapsed",
             disabled=is_submitted,
+            on_change=_autosave_practice_widget_change,
+            args=(q_key.split("_", 1)[0],),
         )
         return str(choice) if choice else ""
 
@@ -1300,6 +1463,8 @@ def _render_single_question(
             height=120 if ex_type in ("writing_prompt", "show_your_work", "problem_solving") else 80,
             label_visibility="collapsed",
             disabled=is_submitted,
+            on_change=_autosave_practice_widget_change,
+            args=(q_key.split("_", 1)[0],),
         )
 
     elif ex_type == "error_correction":
@@ -1311,6 +1476,8 @@ def _render_single_question(
             placeholder=prompt_text,
             label_visibility="collapsed",
             disabled=is_submitted,
+            on_change=_autosave_practice_widget_change,
+            args=(q_key.split("_", 1)[0],),
         )
 
     elif _is_short_text_type(ex_type):
@@ -1320,6 +1487,8 @@ def _render_single_question(
             key=q_key,
             label_visibility="collapsed",
             disabled=is_submitted,
+            on_change=_autosave_practice_widget_change,
+            args=(q_key.split("_", 1)[0],),
         )
 
     else:
@@ -1330,6 +1499,8 @@ def _render_single_question(
             key=q_key,
             label_visibility="collapsed",
             disabled=is_submitted,
+            on_change=_autosave_practice_widget_change,
+            args=(q_key.split("_", 1)[0],),
         )
 
 

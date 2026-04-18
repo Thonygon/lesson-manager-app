@@ -1,4 +1,5 @@
 import html as _html
+import json
 import math
 
 import streamlit as st
@@ -8,7 +9,7 @@ from core.i18n import t
 from core.navigation import go_to
 from core.state import get_current_user_id
 from helpers.practice_engine import exam_to_exercises, worksheet_to_exercises
-from helpers.practice_engine import load_in_progress_practice_session
+from helpers.practice_engine import load_in_progress_practice_session, load_practice_draft_answers, normalize_exercise_data_for_web
 from helpers.visual_support import enrich_exam_with_visuals, enrich_worksheet_with_visuals, exam_has_ready_visuals, worksheet_has_ready_visuals
 from helpers.teacher_student_integration import (
     _clean_teacher_feedback_text,
@@ -118,7 +119,23 @@ def _open_assignment_practice(row: dict) -> None:
         st.warning(t("no_exercises_available"))
         return
 
-    st.session_state["practice_exercise_data"] = exercise_data
+    draft = load_in_progress_practice_session(assignment_type, assignment_id)
+    if draft:
+        draft_exercise_data = draft.get("exercise_data") or exercise_data
+        if isinstance(draft_exercise_data, str):
+            try:
+                draft_exercise_data = json.loads(draft_exercise_data)
+            except Exception:
+                draft_exercise_data = exercise_data
+        st.session_state["practice_exercise_data"] = normalize_exercise_data_for_web(draft_exercise_data or exercise_data)
+        st.session_state["_practice_resume_session_id"] = draft.get("id")
+        st.session_state["_practice_resume_answers"] = load_practice_draft_answers(int(draft.get("id")))
+        st.session_state["_practice_resume_notice"] = True
+    else:
+        st.session_state["practice_exercise_data"] = exercise_data
+        st.session_state.pop("_practice_resume_session_id", None)
+        st.session_state.pop("_practice_resume_answers", None)
+        st.session_state.pop("_practice_resume_notice", None)
     st.session_state["practice_meta"] = meta
     st.session_state["_practice_assignment_id"] = assignment_id
     st.session_state["_practice_assignment_type"] = assignment_type
