@@ -384,11 +384,12 @@ def _inject_assignment_page_styles() -> None:
             align-items: center;
             padding: .42rem .78rem;
             border-radius: 999px;
-            background: rgba(255,255,255,.56);
-            border: 1px solid rgba(148,163,184,.18);
+            background: color-mix(in srgb, var(--panel-soft) 82%, var(--panel) 18%);
+            border: 1px solid color-mix(in srgb, var(--border-strong) 70%, var(--text) 12%);
             font-size: .8rem;
             font-weight: 800;
             color: var(--text);
+            box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 10%, transparent);
         }
         </style>
         """,

@@ -3326,8 +3326,9 @@ def _inject_program_styles() -> None:
         .classio-student-program-stat {
             border-radius: 18px;
             padding: .85rem .9rem;
-            background: rgba(255,255,255,.62);
-            border: 1px solid rgba(148,163,184,.14);
+            background: color-mix(in srgb, var(--panel-soft) 82%, var(--panel) 18%);
+            border: 1px solid color-mix(in srgb, var(--border-strong) 70%, var(--text) 12%);
+            box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 10%, transparent);
         }
         .classio-student-program-stat-label {
             font-size: .72rem;
