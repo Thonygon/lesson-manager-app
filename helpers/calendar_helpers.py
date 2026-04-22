@@ -2,9 +2,10 @@ import streamlit as st
 import datetime
 from datetime import datetime as _dt, date, timedelta
 import pandas as pd
+from zoneinfo import ZoneInfo
 from core.i18n import t
 from core.state import get_current_user_id
-from core.timezone import now_local, today_local, get_app_tz, get_app_tz_name
+from core.timezone import now_local, today_local, get_app_tz, get_app_tz_name, DEFAULT_TZ_NAME
 from core.database import load_table, load_students, register_cache
 import re
 import json
@@ -46,6 +47,13 @@ def validate_hhmm(value: str) -> str:
     raise ValueError(t("invalid_time_format"))
 
 
+def _safe_zoneinfo(name: str, fallback: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(str(name or "").strip())
+    except Exception:
+        return ZoneInfo(fallback)
+
+
 def best_text_color(hex_color: str) -> str:
     try:
         c = str(hex_color or "").lstrip("#")
@@ -63,10 +71,12 @@ def best_text_color(hex_color: str) -> str:
 
 
 @st.cache_data(ttl=45, show_spinner=False)
-def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
+def build_calendar_events(start_day: date, end_day: date, tz_name: str | None = None) -> pd.DataFrame:
     schedules = load_schedules()
     overrides = load_overrides()
     color_map, zoom_map, _, _, address_map = student_meta_maps()
+    current_tz_name = str(tz_name or get_app_tz_name() or DEFAULT_TZ_NAME).strip()
+    current_tz = _safe_zoneinfo(current_tz_name, DEFAULT_TZ_NAME)
 
     events = []
 
@@ -79,15 +89,27 @@ def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
                 schedules[c] = None
 
         schedules_active = schedules[schedules["active"] == True].copy()
+        current_range_start = _dt.combine(start_day, _dt.min.time()).replace(tzinfo=current_tz)
+        current_range_end = _dt.combine(end_day + timedelta(days=1), _dt.min.time()).replace(tzinfo=current_tz)
 
-        cur = start_day
-        while cur <= end_day:
-            wd = cur.weekday()  # 0=Mon .. 6=Sun
-            day_slots = schedules_active[schedules_active["weekday"] == wd]
+        for _, row in schedules_active.iterrows():
+            source_tz = _safe_zoneinfo(row.get("timezone", DEFAULT_TZ_NAME), DEFAULT_TZ_NAME)
+            source_start_day = current_range_start.astimezone(source_tz).date() - timedelta(days=1)
+            source_end_day = current_range_end.astimezone(source_tz).date() + timedelta(days=1)
 
-            for _, row in day_slots.iterrows():
+            cur = source_start_day
+            while cur <= source_end_day:
+                if cur.weekday() != int(row.get("weekday", -1)):
+                    cur += timedelta(days=1)
+                    continue
+
                 h, m = _parse_time_value(row.get("time"))
-                dt = _dt(cur.year, cur.month, cur.day, h, m)
+                source_dt = _dt(cur.year, cur.month, cur.day, h, m, tzinfo=source_tz)
+                dt = source_dt.astimezone(current_tz).replace(tzinfo=None)
+
+                if not (start_day <= dt.date() <= end_day):
+                    cur += timedelta(days=1)
+                    continue
 
                 student = str(row.get("student", "")).strip()
                 k = norm_student(student)
@@ -106,11 +128,11 @@ def build_calendar_events(start_day: date, end_day: date) -> pd.DataFrame:
                         "Address": address_map.get(k, ""),
                         "Source": "recurring",
                         "Override_ID": None,
-                        "Original_Date": dt.date(),
+                        "Original_Date": source_dt.date(),
                     }
                 )
 
-            cur += timedelta(days=1)
+                cur += timedelta(days=1)
 
     events_df = pd.DataFrame(events)
 

@@ -4,14 +4,15 @@ import re as _re
 from core.i18n import t
 from core.state import get_current_user_id
 from core.timezone import now_local, get_app_tz
-from core.database import get_sb, load_table, register_cache
+from core.database import get_sb, load_table, register_cache, load_profile_row
 from typing import Optional
 import pandas as pd
 from datetime import date
-from core.timezone import UTC_TZ
+from core.timezone import UTC_TZ, DEFAULT_TZ_NAME
 from core.state import with_owner
 from core.database import ensure_student, clear_app_caches
 from helpers.ui_components import to_dt_naive
+from zoneinfo import ZoneInfo
 
 
 def _validate_hhmm(value: str) -> str:
@@ -24,14 +25,33 @@ def _validate_hhmm(value: str) -> str:
 # =========================
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
+
+def _schedule_creation_tz_name() -> str:
+    uid = get_current_user_id()
+    profile = load_profile_row(uid) if uid else {}
+    tz_name = str((profile or {}).get("timezone") or "").strip()
+    if not tz_name:
+        tz_name = getattr(get_app_tz(), "key", "") or DEFAULT_TZ_NAME
+    try:
+        ZoneInfo(tz_name)
+        return tz_name
+    except Exception:
+        return DEFAULT_TZ_NAME
+
+
+def _legacy_schedule_fallback_tz_name() -> str:
+    # Legacy recurring schedules were originally interpreted in the app's
+    # default timezone. Do not rebind them to a mutable profile timezone.
+    return DEFAULT_TZ_NAME
+
 @st.cache_data(ttl=45, show_spinner=False)
 def _load_schedules_cached(uid: str) -> pd.DataFrame:
     df = load_table("schedules")
     if df.empty:
-        return pd.DataFrame(columns=["id", "student", "weekday", "time", "duration_minutes", "active"])
+        return pd.DataFrame(columns=["id", "student", "weekday", "time", "duration_minutes", "active", "timezone"])
 
     for c, default in {
-        "id": None, "student": "", "weekday": 0, "time": "", "duration_minutes": 60, "active": True
+        "id": None, "student": "", "weekday": 0, "time": "", "duration_minutes": 60, "active": True, "timezone": _legacy_schedule_fallback_tz_name()
     }.items():
         if c not in df.columns:
             df[c] = default
@@ -41,7 +61,17 @@ def _load_schedules_cached(uid: str) -> pd.DataFrame:
     df["duration_minutes"] = pd.to_numeric(df["duration_minutes"], errors="coerce").fillna(60).astype(int)
     df["active"] = df["active"].fillna(True).astype(bool)
     df["time"] = df["time"].astype(str).str.strip()
+    df["timezone"] = df["timezone"].fillna(_legacy_schedule_fallback_tz_name()).astype(str).str.strip()
+    df["timezone"] = df["timezone"].apply(lambda value: value if value and _is_valid_timezone_name(value) else _legacy_schedule_fallback_tz_name())
     return df
+
+
+def _is_valid_timezone_name(value: str) -> bool:
+    try:
+        ZoneInfo(str(value or "").strip())
+        return True
+    except Exception:
+        return False
 
 def load_schedules() -> pd.DataFrame:
     uid = get_current_user_id()
@@ -59,9 +89,17 @@ def add_schedule(student: str, weekday: int, time_str: str, duration_minutes: in
         "time": _validate_hhmm(time_str),
         "duration_minutes": int(duration_minutes),
         "active": bool(active),
+        "timezone": _schedule_creation_tz_name(),
     })
 
-    get_sb().table("schedules").insert(payload).execute()
+    try:
+        get_sb().table("schedules").insert(payload).execute()
+    except Exception as exc:
+        if "timezone" not in str(exc).lower():
+            raise
+        legacy_payload = dict(payload)
+        legacy_payload.pop("timezone", None)
+        get_sb().table("schedules").insert(legacy_payload).execute()
     clear_app_caches()
 
 
@@ -74,7 +112,7 @@ def delete_schedule(schedule_id: int) -> None:
     clear_app_caches()
 
 @st.cache_data(ttl=45, show_spinner=False)
-def _load_overrides_cached(uid: str) -> pd.DataFrame:
+def _load_overrides_cached(uid: str, tz_name: str) -> pd.DataFrame:
     df = load_table("calendar_overrides")
     if df.empty:
         return pd.DataFrame(columns=["id", "student", "original_date", "new_datetime", "duration_minutes", "status", "note", "gcal_event_id"])
@@ -89,7 +127,7 @@ def _load_overrides_cached(uid: str) -> pd.DataFrame:
     df["student"] = df["student"].astype(str).str.strip()
     df["original_date"] = to_dt_naive(df["original_date"], utc=True)
     df["new_datetime"] = pd.to_datetime(df["new_datetime"], errors="coerce", utc=True)
-    df["new_datetime"] = df["new_datetime"].dt.tz_convert(get_app_tz()).dt.tz_localize(None)
+    df["new_datetime"] = df["new_datetime"].dt.tz_convert(ZoneInfo(tz_name)).dt.tz_localize(None)
     df["duration_minutes"] = pd.to_numeric(df["duration_minutes"], errors="coerce").fillna(60).astype(int)
     df["status"] = df["status"].astype(str).str.strip().str.lower()
     df["note"] = df["note"].astype(str).fillna("")
@@ -97,7 +135,8 @@ def _load_overrides_cached(uid: str) -> pd.DataFrame:
 
 def load_overrides() -> pd.DataFrame:
     uid = get_current_user_id()
-    return _load_overrides_cached(uid)
+    tz_name = getattr(get_app_tz(), "key", "") or DEFAULT_TZ_NAME
+    return _load_overrides_cached(uid, tz_name)
 
 register_cache(_load_overrides_cached)
 
