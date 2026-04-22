@@ -1,9 +1,11 @@
 import streamlit as st
+import datetime
 import pandas as pd
 from core.i18n import t
+from core.state import get_current_user_id
+from core.timezone import now_local, today_local
 from core.database import load_table
 import streamlit.components.v1 as components
-from styles.theme import _is_dark
 
 # 07.16) KPI BUBBLES (ROBUST: NO AUTO-RESIZE DEPENDENCY)
 # =========================
@@ -13,15 +15,9 @@ def kpi_stat_cards(values, accent_colors):
     Scrollable horizontally so all KPIs stay in one row.
     """
     compact = bool(st.session_state.get("compact_mode", False))
-    is_dark = _is_dark()
 
     gap = 10 if compact else 12
     card_width = 110 if compact else 120
-    card_bg = "#0f172a" if is_dark else "#f5f7fb"
-    card_border = card_bg if is_dark else "#f5f7fb"
-    value_color = "#f1f5f9" if is_dark else "#0f172a"
-    label_color = "#cbd5e1" if is_dark else "#475569"
-    scrollbar_thumb = "rgba(148,163,184,0.28)" if is_dark else "rgba(0,0,0,0.15)"
 
     style = f"""
     <style>
@@ -45,15 +41,15 @@ def kpi_stat_cards(values, accent_colors):
       }}
 
       .kpi-stat-wrap::-webkit-scrollbar-thumb {{
-        background: {scrollbar_thumb};
+        background: rgba(0,0,0,0.15);
         border-radius: 6px;
       }}
 
       .kpi-stat-card {{
         flex: 0 0 {card_width}px;
         position: relative;
-        background: {card_bg};
-        border: 1px solid {card_border};
+        background: #f8fafc;
+        border: #f8fafc;
         border-radius: 14px;
         box-shadow: 0 0 0 0;
         padding: 8px 8px 10px 8px;
@@ -77,7 +73,7 @@ def kpi_stat_cards(values, accent_colors):
         font-size: 1rem;
         line-height: 1.0;
         font-weight: 800;
-        color: {value_color};
+        color: #0f172a;
         margin-top: 6px;
         margin-bottom: 6px;
         text-align: center;
@@ -87,7 +83,7 @@ def kpi_stat_cards(values, accent_colors):
         font-size: 0.62rem;
         line-height: 1.15;
         font-weight: 600;
-        color: {label_color};
+        color: #475569;
         text-transform: uppercase;
         letter-spacing: 0.03em;
         text-align: center;

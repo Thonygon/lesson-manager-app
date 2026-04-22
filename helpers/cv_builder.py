@@ -1,6 +1,7 @@
 import json, os, re
 from typing import Optional
-
+from core.i18n import t
+from helpers.lesson_planner import subject_label as _subject_label
 # -----------------------------------------------------------------------
 # CV BUILDER — template + AI generation
 # Reuses the same AI infrastructure as helpers/lesson_planner.py
@@ -19,19 +20,16 @@ def _lp():
 def _call_ai(system_prompt: str, user_prompt: str) -> str:
     """Route through the same provider chain used by the lesson planner."""
     lp = _lp()
-    provider = lp.get_ai_provider()
-    if provider == "gemini":
-        order = ["gemini", "openrouter"]
-    else:
-        order = ["openrouter", "gemini"]
+    order = lp.get_ai_provider_order()
 
     errors = []
     for p in order:
         try:
             if p == "gemini":
                 return lp._generate_with_gemini(system_prompt, user_prompt)
-            else:
+            if p == "openrouter":
                 return lp._generate_with_openrouter(system_prompt, user_prompt)
+            return lp._generate_with_openai(system_prompt, user_prompt)
         except Exception as e:
             errors.append(f"{p}: {e}")
 
@@ -40,17 +38,23 @@ def _call_ai(system_prompt: str, user_prompt: str) -> str:
 
 def _stage_label(stage: str) -> str:
     labels = {
-        "early_primary": "Early Primary (6–8)",
-        "upper_primary": "Upper Primary (9–11)",
-        "lower_secondary": "Lower Secondary (12–14)",
-        "upper_secondary": "Upper Secondary (15–18)",
-        "adult_stage": "Adult",
+        "early_primary": t("stage_early_primary"),
+        "upper_primary": t("stage_upper_primary"),
+        "lower_secondary": t("stage_lower_secondary"),
+        "upper_secondary": t("stage_upper_secondary"),
+        "adult_stage": t("stage_adult"),        
     }
     return labels.get(str(stage), str(stage))
 
 
+
 def _lang_label(code: str) -> str:
-    return {"en": "English", "es": "Spanish"}.get(str(code).strip().lower(), str(code))
+    labels = {
+        "en": t("english"),
+        "es": t("spanish"),
+        "tr": t("turkish"),
+    }
+    return labels.get(str(code).strip().lower(), str(code))
 
 
 def _parse_lines(text: str) -> list:
@@ -82,31 +86,33 @@ def build_template_cv(
     skills_text: str,
     availability: str,
     rate: str,
-    role: str = "Teacher",
+    role: str = "teacher",
     avatar_url: str = "",
 ) -> dict:
     stage_labels = [_stage_label(s) for s in (teaching_stages or [])]
     lang_labels  = [_lang_label(l) for l in (teaching_languages or [])]
 
     if not str(professional_summary or "").strip():
-        subject_str = ", ".join(subjects) if subjects else "various subjects"
-        professional_summary = (
-            f"Dedicated {str(role).lower()} with experience teaching {subject_str}. "
-            f"Specialises in working with {', '.join(stage_labels) if stage_labels else 'various age groups'}. "
-            f"Delivers engaging, effective lessons tailored to each student's needs."
+        subject_str = ", ".join(_subject_label(s) for s in subjects) if subjects else t("cv_default_subjects")
+        role_label = t("teacher_role") if str(role).strip().lower() == "teacher" else t("tutor_role")
+        professional_summary = t(
+            "cv_default_summary",
+            role=role_label.lower(),
+            subjects=subject_str,
+            stages=", ".join(stage_labels) if stage_labels else t("cv_default_age_groups"),
         )
 
     return {
-        "title": f"CV \u2013 {full_name}" if full_name else "My CV",
+        "title": f"{t('cv')} \u2013 {full_name}" if full_name else t("my_cv"),
         "full_name": str(full_name or "").strip(),
         "email": str(email or "").strip(),
         "phone": str(phone or "").strip(),
         "location": str(location or "").strip(),
         "date_of_birth": str(date_of_birth or "").strip(),
         "sex": str(sex or "").strip(),
-        "role": str(role or "Teacher").strip().title(),
+        "role": str(role or "teacher").strip().lower(),
+        "subjects": [str(s).strip() for s in (subjects or []) if str(s).strip()],
         "professional_summary": str(professional_summary or "").strip(),
-        "subjects": list(subjects or []),
         "teaching_stages": stage_labels,
         "teaching_languages": lang_labels,
         "education": _parse_lines(education_text),
@@ -186,7 +192,7 @@ def build_ai_cv(
 - Date of birth: {date_of_birth}
 - Sex: {sex}
 - Role: {role}
-- Subjects: {', '.join(subjects) or 'various'}
+- Subjects: {', '.join(_subject_label(s) for s in subjects) or t('cv_default_subjects')}
 - Teaching stages: {', '.join(stage_labels) or 'various'}
 - Teaching languages: {', '.join(lang_labels) or 'various'}
 - Current summary: {professional_summary or 'N/A'}
@@ -198,7 +204,7 @@ def build_ai_cv(
 - Rate: {rate or 'N/A'}
 
 User customisation / instructions:
-{user_prompt or 'Create a professional, polished teacher/tutor CV.'}"""
+{user_prompt or t("cv_ai_default_prompt")}"""
 
     raw = _call_ai(_CV_SYSTEM_PROMPT, user_msg)
 
@@ -233,7 +239,8 @@ _CL_SYSTEM_PROMPT = (
 def build_ai_cover_letter(cv: dict, user_prompt: str) -> str:
     full_name    = str(cv.get("full_name") or "").strip()
     email        = str(cv.get("email") or "").strip()
-    role         = str(cv.get("role") or "Teacher").strip()
+    role         = str(cv.get("role") or "teacher").strip().lower()
+    role_display = t("teacher_role") if role == "teacher" else t("tutor_role")
     subjects     = cv.get("subjects") or []
     stages       = cv.get("teaching_stages") or []
     summary      = str(cv.get("professional_summary") or "").strip()
@@ -243,7 +250,7 @@ def build_ai_cover_letter(cv: dict, user_prompt: str) -> str:
     user_msg = f"""Candidate:
 - Name: {full_name}
 - Email: {email}
-- Role: {role}
+- Role: {role_display}
 - Subjects: {', '.join(subjects) if subjects else 'various'}
 - Teaching stages: {', '.join(stages) if stages else 'various'}
 - Summary: {summary}
@@ -251,7 +258,7 @@ def build_ai_cover_letter(cv: dict, user_prompt: str) -> str:
 - Certifications: {', '.join(certs) if certs else 'N/A'}
 
 Cover letter instructions:
-{user_prompt or 'Write a strong general cover letter for private tutoring opportunities.'}
+{user_prompt or t("cv_cl_default_prompt")}
 
 Write the complete cover letter text only."""
 
@@ -272,12 +279,12 @@ _IMPORT_SYSTEM_PROMPT = (
     '  "phone": "string",\n'
     '  "location": "string",\n'
     '  "date_of_birth": "YYYY-MM-DD or empty string",\n'
-    '  "sex": "Male|Female|Other|Prefer not to say|empty string",\n'
+    '  "sex": "male|female|other|prefer_not_to_say|empty string",\n'
     '  "role": "teacher|tutor",\n'
     '  "professional_summary": "string",\n'
     '  "subjects": ["string"],\n'
     '  "teaching_stages": ["early_primary|upper_primary|lower_secondary|upper_secondary|adult_stage"],\n'
-    '  "teaching_languages": ["en|es"],\n'
+    '  "teaching_languages": ["en|es|tr"],\n'
     '  "education": ["one entry per item"],\n'
     '  "certifications": ["string"],\n'
     '  "experience": ["one entry per item"],\n'

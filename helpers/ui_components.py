@@ -1,14 +1,12 @@
 import streamlit as st
 import streamlit.components.v1 as components
 from core.i18n import t
-from core.database import load_table
+from core.database import LESSON_NOTE_DEFAULT_TOKEN, load_table
 import pandas as pd
 import re
 from core.navigation import go_to
 from core.timezone import now_local
 from helpers.language import translate_status, translate_modality_value, translate_language_value
-import streamlit as st
-import streamlit.components.v1 as components
 
 
 def inject_loading_screen():
@@ -29,7 +27,7 @@ def inject_loading_screen():
                 radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 30%),
                 linear-gradient(180deg, #0f172a 0%, #111827 100%);
             color: #f8fafc;
-            transition: opacity 0.35s ease;
+            animation: classio-preloader-fade 0.35s ease 0.9s forwards;
         }
 
         #app-preloader.hide {
@@ -50,6 +48,14 @@ def inject_loading_screen():
             to { transform: rotate(360deg); }
         }
 
+        @keyframes classio-preloader-fade {
+            to {
+                opacity: 0;
+                visibility: hidden;
+                pointer-events: none;
+            }
+        }
+
         .preloader-title {
             font-weight: 700;
             font-size: 18px;
@@ -68,20 +74,6 @@ def inject_loading_screen():
         </div>
         """,
         unsafe_allow_html=True,
-    )
-
-    components.html(
-        """
-        <script>
-        setTimeout(function() {
-            const loader = window.parent.document.getElementById("app-preloader");
-            if(loader){
-                loader.classList.add("hide");
-            }
-        }, 900);
-        </script>
-        """,
-        height=0,
     )
 
 # 08) UI COMPONENTS
@@ -129,6 +121,7 @@ def pretty_df(df: pd.DataFrame) -> pd.DataFrame:
     for c in out.columns:
         if out[c].dtype == "object":
             out[c] = out[c].astype(str).str.strip()
+            out[c] = out[c].replace(LESSON_NOTE_DEFAULT_TOKEN, "—")
 
     return out
 

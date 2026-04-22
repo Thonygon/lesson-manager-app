@@ -36,7 +36,7 @@ def render_analytics():
     cpi_data = fetch_cpi_data(INFLATION_COUNTRIES.get(inflation_country, "TUR")) if inflation_on else {}
     _sym = CURRENCIES.get(display_cur, {}).get("symbol", "")
 
-    # Display-settings expander (currency + inflation)
+        # Display-settings expander (currency + inflation)
     with st.expander(f"⚙️ {t('display_settings')}"):
         ds1, ds2 = st.columns(2)
         _cur_options = list(CURRENCIES.keys())
@@ -103,214 +103,6 @@ def render_analytics():
         sold_by_subject = _apply_fx(sold_by_subject)
         sold_by_modality = _apply_fx(sold_by_modality)
 
-    # --- Income section ---
-    st.markdown(f"### {t('income')}")
-
-    tab_all, tab_year, tab_month, tab_week = st.tabs(
-        [
-            f"{t('all_time_income')} · {cfmt(kpis.get('income_all_time', 0.0))}",
-            f"{t('yearly_income')} · {cfmt(kpis.get('income_this_year', 0.0))}",
-            f"{t('monthly_income')} · {cfmt(kpis.get('income_this_month', 0.0))}",
-            f"{t('weekly_income')} · {cfmt(kpis.get('income_this_week', 0.0))}",
-        ]
-    )
-
-    # ---------------------------------------
-    # Chart helpers
-    # ---------------------------------------
-    def _monthly_line_chart_plotly(df: pd.DataFrame, title: str):
-
-        if df is None or df.empty or "Key" not in df.columns:
-            st.info(t("no_data"))
-            return
-
-        tmp = df.copy()
-        ycol = "income" if "income" in tmp.columns else ("Income" if "Income" in tmp.columns else None)
-        if ycol is None:
-            st.info(t("no_data"))
-            return
-
-        tmp["date"] = pd.to_datetime(tmp["Key"].astype(str).str[:7] + "-01", errors="coerce")
-        tmp = tmp.dropna(subset=["date"])
-        if tmp.empty:
-            st.info(t("no_data"))
-            return
-
-        tmp["income_val"] = pd.to_numeric(tmp[ycol], errors="coerce").fillna(0.0).astype(float)
-        tmp = tmp.sort_values("date")
-
-        fig = px.line(
-            tmp,
-            x="date",
-            y="income_val",
-            title=title,
-            markers=True,
-            labels={"date": t("month"), "income_val": t("income")},
-        )
-
-        fig.update_layout(
-            margin=dict(l=10, r=10, t=48, b=10),
-            height=360 if st.session_state.get("compact_mode", False) else 440,
-            xaxis=dict(
-                rangeslider=dict(visible=True),
-                type="date",
-                tickformat="%b %Y",
-            ),
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-    def _bar_chart_with_highlight(labels, values, highlight_label, base_color, highlight_color, title, xlabel, ylabel):
-
-        colors = [highlight_color if l == highlight_label else base_color for l in labels]
-        fig, ax = plt.subplots()
-        ax.bar(labels, values, color=colors)
-        ax.set_title(title)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
-
-        if len(labels) > 12:
-            step = max(1, len(labels) // 8)
-            keep = set(range(0, len(labels), step))
-            ax.set_xticks([i for i in range(len(labels)) if i in keep])
-            ax.set_xticklabels([labels[i] for i in range(len(labels)) if i in keep], rotation=45, ha="right")
-        else:
-            ax.tick_params(axis="x", labelrotation=45)
-
-        ax.margins(x=0.01)
-        st.pyplot(fig, clear_figure=True)
-
-    BLUE = "#2563EB"
-    GREEN = "#10B981"
-    YELLOW = "#F59E0B"
-    PURPLE = "#8B5CF6"
-
-    with tab_all:
-        st.subheader(t("all_time_monthly_income"))
-        _monthly_line_chart_plotly(income_table, t("all_time_monthly_income"))
-
-    with tab_year:
-        st.subheader(t("yearly_income"))
-        _, yearly_table, *_ = build_income_analytics(group="yearly")
-        yearly_table = _apply_fx(yearly_table)
-
-        if yearly_table is None or yearly_table.empty:
-            st.info(t("no_data"))
-        else:
-            yt = yearly_table.copy()
-            yt["Year"] = yt["Key"].astype(str).str[:4]
-
-            if "income" in yt.columns:
-                yt["Income"] = pd.to_numeric(yt["income"], errors="coerce").fillna(0.0).astype(float)
-            else:
-                yt["Income"] = pd.to_numeric(yt.get("Income"), errors="coerce").fillna(0.0).astype(float)
-
-            yt = yt.sort_values("Year")
-
-            current_year = str(today.year)
-            years = yt["Year"].tolist()
-            incomes = yt["Income"].tolist()
-
-            _bar_chart_with_highlight(
-                labels=years,
-                values=incomes,
-                highlight_label=current_year,
-                base_color=BLUE,
-                highlight_color=GREEN,
-                title=t("yearly_totals"),
-                xlabel=t("year"),
-                ylabel=t("income"),
-            )
-
-    with tab_month:
-        st.subheader(t("monthly_income"))
-
-        if income_table is None or income_table.empty:
-            st.info(t("no_data"))
-        else:
-            year_options = sorted(
-                income_table["Key"].astype(str).str[:4].dropna().unique().tolist(),
-                reverse=True,
-            )
-            current_year = str(today.year)
-            default_idx = year_options.index(current_year) if current_year in year_options else 0
-
-            selected_year = st.selectbox(
-                t("select_year"),
-                year_options,
-                index=default_idx,
-                key="analytics_year_pick",
-            )
-
-            monthly = income_table[income_table["Key"].astype(str).str.startswith(selected_year)].copy()
-
-            if monthly.empty:
-                st.info(t("no_data"))
-            else:
-                monthly["MonthKey"] = monthly["Key"].astype(str).str[:7]
-
-                if "income" in monthly.columns:
-                    monthly["Income"] = pd.to_numeric(monthly["income"], errors="coerce").fillna(0.0).astype(float)
-                else:
-                    monthly["Income"] = pd.to_numeric(monthly.get("Income"), errors="coerce").fillna(0.0).astype(float)
-
-                monthly = monthly.sort_values("MonthKey")
-
-                labels = monthly["MonthKey"].tolist()
-                values = monthly["Income"].tolist()
-
-                highlight_month = today.strftime("%Y-%m") if selected_year == str(today.year) else "__none__"
-
-                _bar_chart_with_highlight(
-                    labels=labels,
-                    values=values,
-                    highlight_label=highlight_month,
-                    base_color=BLUE,
-                    highlight_color=YELLOW,
-                    title=f"{t('monthly_income')} ({selected_year})",
-                    xlabel=t("month"),
-                    ylabel=t("income"),
-                )
-
-    with tab_week:
-        st.subheader(t("weekly_income"))
-
-        payments_week = load_table("payments")
-        if payments_week is None or payments_week.empty:
-            st.info(t("no_data"))
-        else:
-            pw = payments_week.copy()
-
-            if "payment_date" not in pw.columns:
-                pw["payment_date"] = None
-            if "paid_amount" not in pw.columns:
-                pw["paid_amount"] = 0.0
-
-            pw["payment_date"] = to_dt_naive(pw["payment_date"], utc=True)
-            pw["paid_amount"] = pd.to_numeric(pw["paid_amount"], errors="coerce").fillna(0.0).astype(float) * fx_rate
-            pw = pw.dropna(subset=["payment_date"])
-
-            week_start = today - pd.Timedelta(days=int(today.weekday()))
-            week_end = week_start + pd.Timedelta(days=6)
-
-            pw = pw[(pw["payment_date"] >= week_start) & (pw["payment_date"] <= week_end)].copy()
-
-            if pw.empty:
-                st.info(t("no_data"))
-            else:
-                pw["Day"] = pw["payment_date"].dt.strftime("%a %d")
-                weekly = pw.groupby("Day", as_index=False)["paid_amount"].sum().rename(columns={"paid_amount": "Income"})
-
-                _bar_chart_with_highlight(
-                    labels=weekly["Day"].tolist(),
-                    values=weekly["Income"].tolist(),
-                    highlight_label=today.strftime("%a %d"),
-                    base_color=BLUE,
-                    highlight_color=PURPLE,
-                    title=t("last_7_days"),
-                    xlabel=t("day"),
-                    ylabel=t("income"),
-                )
     # ============================================
     # INSIGHTS-FIRST SECTION
     # ============================================
@@ -618,6 +410,280 @@ def render_analytics():
     ytd_cash = float(proj.get("ytd", 0.0) or 0.0) * fx_rate
     expected_future = float(proj.get("expected_future", 0.0) or 0.0) * fx_rate
 
+    # -------------------------
+    # Yearly goal (persistent across devices)
+    # -------------------------
+    _current_year = int(today.year)
+    _is_all_time = True
+    _sel_year = _current_year
+    if _is_all_time or _sel_year == _current_year:
+        st.markdown(f"### {t('goal')}")
+        scope = YEAR_GOAL_SCOPE
+        current_year = _current_year
+
+        goal_state_key = f"year_goal_{current_year}_{scope}"
+        goal_loaded_key = f"{current_year}_{scope}"
+
+        if "year_goal_loaded" not in st.session_state:
+            st.session_state.year_goal_loaded = {}
+
+        if goal_loaded_key not in st.session_state.year_goal_loaded:
+            st.session_state[goal_state_key] = get_year_goal(current_year, scope=scope, default=0.0)
+            st.session_state.year_goal_loaded[goal_loaded_key] = True
+
+        gcol1, gcol2 = st.columns([2, 1])
+        with gcol1:
+            new_goal = st.number_input(
+                f"{t('yearly_income_goal')} ({current_year})",
+                min_value=0.0,
+                value=float(st.session_state.get(goal_state_key, 0.0) or 0.0),
+                step=1000.0,
+                key=f"year_goal_input_{current_year}_{scope}",
+                )
+        with gcol2:
+            if st.button(t("save"), key=f"save_goal_{current_year}_{scope}", use_container_width=True):
+                ok = set_year_goal(current_year, float(new_goal), scope=scope)
+                if ok:
+                    st.session_state[goal_state_key] = float(new_goal)
+                    try:
+                        st.cache_data.clear()
+                    except Exception:
+                        pass
+
+                    st.toast(t("saved"), icon="✅")
+                    st.rerun()
+                else:
+                    st.toast(t("could_not_save_goal"), icon="⚠️")
+
+        goal_val = float(st.session_state.get(goal_state_key, 0.0) or 0.0)
+        if goal_val > 0:
+            prog = max(0.0, min(1.0, ytd_cash / goal_val))
+            st.progress(prog)
+            st.write(f"**{prog*100.0:.1f}%** — {t('goal_progress')}")
+
+            remaining = max(0.0, goal_val - ytd_cash)
+            months_left = max(0, 12 - int(today.month))
+            avg_needed = (remaining / months_left) if months_left > 0 else remaining
+
+            g1, g2, g3 = st.columns(3)
+            with g1:
+                st.metric(t("ytd_income"), cfmt(ytd_cash))
+            with g2:
+                st.metric(t("remaining_to_goal"), cfmt(remaining))
+            with g3:
+                st.metric(t("avg_needed_month"), cfmt(avg_needed))
+        else:
+            st.info(t("set_year_goal_to_see_progress"))  
+
+    # --- Income section ---
+    st.markdown(f"### {t('income')}")
+
+    tab_all, tab_year, tab_month, tab_week = st.tabs(
+        [
+            f"{t('all_time_income')} · {cfmt(kpis.get('income_all_time', 0.0))}",
+            f"{t('yearly_income')} · {cfmt(kpis.get('income_this_year', 0.0))}",
+            f"{t('monthly_income')} · {cfmt(kpis.get('income_this_month', 0.0))}",
+            f"{t('weekly_income')} · {cfmt(kpis.get('income_this_week', 0.0))}",
+        ]
+    )
+
+    # ---------------------------------------
+    # Chart helpers
+    # ---------------------------------------
+    def _monthly_line_chart_plotly(df: pd.DataFrame, title: str):
+
+        if df is None or df.empty or "Key" not in df.columns:
+            st.info(t("no_data"))
+            return
+
+        tmp = df.copy()
+        ycol = "income" if "income" in tmp.columns else ("Income" if "Income" in tmp.columns else None)
+        if ycol is None:
+            st.info(t("no_data"))
+            return
+
+        tmp["date"] = pd.to_datetime(tmp["Key"].astype(str).str[:7] + "-01", errors="coerce")
+        tmp = tmp.dropna(subset=["date"])
+        if tmp.empty:
+            st.info(t("no_data"))
+            return
+
+        tmp["income_val"] = pd.to_numeric(tmp[ycol], errors="coerce").fillna(0.0).astype(float)
+        tmp = tmp.sort_values("date")
+
+        fig = px.line(
+            tmp,
+            x="date",
+            y="income_val",
+            title=title,
+            markers=True,
+            labels={"date": t("month"), "income_val": t("income")},
+        )
+
+        fig.update_layout(
+            margin=dict(l=10, r=10, t=48, b=10),
+            height=360 if st.session_state.get("compact_mode", False) else 440,
+            xaxis=dict(
+                rangeslider=dict(visible=True),
+                type="date",
+                tickformat="%b %Y",
+            ),
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+    def _bar_chart_with_highlight(labels, values, highlight_label, base_color, highlight_color, title, xlabel, ylabel):
+
+        colors = [highlight_color if l == highlight_label else base_color for l in labels]
+        fig, ax = plt.subplots()
+        ax.bar(labels, values, color=colors)
+        ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+
+        if len(labels) > 12:
+            step = max(1, len(labels) // 8)
+            keep = set(range(0, len(labels), step))
+            ax.set_xticks([i for i in range(len(labels)) if i in keep])
+            ax.set_xticklabels([labels[i] for i in range(len(labels)) if i in keep], rotation=45, ha="right")
+        else:
+            ax.tick_params(axis="x", labelrotation=45)
+
+        ax.margins(x=0.01)
+        st.pyplot(fig, clear_figure=True)
+
+    BLUE = "#2563EB"
+    GREEN = "#10B981"
+    YELLOW = "#F59E0B"
+    PURPLE = "#8B5CF6"
+
+    with tab_all:
+        st.subheader(t("all_time_monthly_income"))
+        _monthly_line_chart_plotly(income_table, t("all_time_monthly_income"))
+
+    with tab_year:
+        st.subheader(t("yearly_income"))
+        _, yearly_table, *_ = build_income_analytics(group="yearly")
+        yearly_table = _apply_fx(yearly_table)
+
+        if yearly_table is None or yearly_table.empty:
+            st.info(t("no_data"))
+        else:
+            yt = yearly_table.copy()
+            yt["Year"] = yt["Key"].astype(str).str[:4]
+
+            if "income" in yt.columns:
+                yt["Income"] = pd.to_numeric(yt["income"], errors="coerce").fillna(0.0).astype(float)
+            else:
+                yt["Income"] = pd.to_numeric(yt.get("Income"), errors="coerce").fillna(0.0).astype(float)
+
+            yt = yt.sort_values("Year")
+
+            current_year = str(today.year)
+            years = yt["Year"].tolist()
+            incomes = yt["Income"].tolist()
+
+            _bar_chart_with_highlight(
+                labels=years,
+                values=incomes,
+                highlight_label=current_year,
+                base_color=BLUE,
+                highlight_color=GREEN,
+                title=t("yearly_totals"),
+                xlabel=t("year"),
+                ylabel=t("income"),
+            )
+
+    with tab_month:
+        st.subheader(t("monthly_income"))
+
+        if income_table is None or income_table.empty:
+            st.info(t("no_data"))
+        else:
+            year_options = sorted(
+                income_table["Key"].astype(str).str[:4].dropna().unique().tolist(),
+                reverse=True,
+            )
+            current_year = str(today.year)
+            default_idx = year_options.index(current_year) if current_year in year_options else 0
+
+            selected_year = st.selectbox(
+                t("select_year"),
+                year_options,
+                index=default_idx,
+                key="analytics_year_pick",
+            )
+
+            monthly = income_table[income_table["Key"].astype(str).str.startswith(selected_year)].copy()
+
+            if monthly.empty:
+                st.info(t("no_data"))
+            else:
+                monthly["MonthKey"] = monthly["Key"].astype(str).str[:7]
+
+                if "income" in monthly.columns:
+                    monthly["Income"] = pd.to_numeric(monthly["income"], errors="coerce").fillna(0.0).astype(float)
+                else:
+                    monthly["Income"] = pd.to_numeric(monthly.get("Income"), errors="coerce").fillna(0.0).astype(float)
+
+                monthly = monthly.sort_values("MonthKey")
+
+                labels = monthly["MonthKey"].tolist()
+                values = monthly["Income"].tolist()
+
+                highlight_month = today.strftime("%Y-%m") if selected_year == str(today.year) else "__none__"
+
+                _bar_chart_with_highlight(
+                    labels=labels,
+                    values=values,
+                    highlight_label=highlight_month,
+                    base_color=BLUE,
+                    highlight_color=YELLOW,
+                    title=f"{t('monthly_income')} ({selected_year})",
+                    xlabel=t("month"),
+                    ylabel=t("income"),
+                )
+
+    with tab_week:
+        st.subheader(t("weekly_income"))
+
+        payments_week = load_table("payments")
+        if payments_week is None or payments_week.empty:
+            st.info(t("no_data"))
+        else:
+            pw = payments_week.copy()
+
+            if "payment_date" not in pw.columns:
+                pw["payment_date"] = None
+            if "paid_amount" not in pw.columns:
+                pw["paid_amount"] = 0.0
+
+            pw["payment_date"] = to_dt_naive(pw["payment_date"], utc=True)
+            pw["paid_amount"] = pd.to_numeric(pw["paid_amount"], errors="coerce").fillna(0.0).astype(float) * fx_rate
+            pw = pw.dropna(subset=["payment_date"])
+
+            week_start = today - pd.Timedelta(days=int(today.weekday()))
+            week_end = week_start + pd.Timedelta(days=6)
+
+            pw = pw[(pw["payment_date"] >= week_start) & (pw["payment_date"] <= week_end)].copy()
+
+            if pw.empty:
+                st.info(t("no_data_week"))
+            else:
+                pw["Day"] = pw["payment_date"].dt.strftime("%a %d")
+                weekly = pw.groupby("Day", as_index=False)["paid_amount"].sum().rename(columns={"paid_amount": "Income"})
+
+                _bar_chart_with_highlight(
+                    labels=weekly["Day"].tolist(),
+                    values=weekly["Income"].tolist(),
+                    highlight_label=today.strftime("%a %d"),
+                    base_color=BLUE,
+                    highlight_color=PURPLE,
+                    title=t("last_7_days"),
+                    xlabel=t("day"),
+                    ylabel=t("income"),
+                )
+
     # ── Insights & Actions ──────────────────────────────────────
     st.markdown(f"### {t('insights_and_actions')}")
 
@@ -732,67 +798,6 @@ def render_analytics():
                 st.caption(f"📊 {t('values_adjusted_to')} {_current_year}")
 
         # -------------------------
-        # Yearly goal (persistent across devices)
-        # -------------------------
-        if _is_all_time or _sel_year == _current_year:
-            st.markdown(f"#### {t('goal')}")
-            scope = YEAR_GOAL_SCOPE
-            current_year = _current_year
-
-            goal_state_key = f"year_goal_{current_year}_{scope}"
-            goal_loaded_key = f"{current_year}_{scope}"
-
-            if "year_goal_loaded" not in st.session_state:
-                st.session_state.year_goal_loaded = {}
-
-            if goal_loaded_key not in st.session_state.year_goal_loaded:
-                st.session_state[goal_state_key] = get_year_goal(current_year, scope=scope, default=0.0)
-                st.session_state.year_goal_loaded[goal_loaded_key] = True
-
-            gcol1, gcol2 = st.columns([2, 1])
-            with gcol1:
-                new_goal = st.number_input(
-                    f"{t('yearly_income_goal')} ({current_year})",
-                    min_value=0.0,
-                    value=float(st.session_state.get(goal_state_key, 0.0) or 0.0),
-                    step=1000.0,
-                    key=f"year_goal_input_{current_year}_{scope}",
-                )
-            with gcol2:
-                if st.button("Save", key=f"save_goal_{current_year}_{scope}", use_container_width=True):
-                    ok = set_year_goal(current_year, float(new_goal), scope=scope)
-                    if ok:
-                        st.session_state[goal_state_key] = float(new_goal)
-                        try:
-                            st.cache_data.clear()
-                        except Exception:
-                            pass
-
-                        st.toast("Saved", icon="✅")
-                        st.rerun()
-                    else:
-                        st.toast("Could not save goal", icon="⚠️")
-
-            goal_val = float(st.session_state.get(goal_state_key, 0.0) or 0.0)
-            if goal_val > 0:
-                prog = max(0.0, min(1.0, ytd_cash / goal_val))
-                st.progress(prog)
-                st.write(f"**{prog*100.0:.1f}%** — {t('goal_progress')}")
-
-                remaining = max(0.0, goal_val - ytd_cash)
-                months_left = max(0, 12 - int(today.month))
-                avg_needed = (remaining / months_left) if months_left > 0 else remaining
-
-                g1, g2, g3 = st.columns(3)
-                with g1:
-                    st.metric(t("ytd_income"), cfmt(ytd_cash))
-                with g2:
-                    st.metric(t("remaining_to_goal"), cfmt(remaining))
-                with g3:
-                    st.metric(t("avg_needed_month"), cfmt(avg_needed))
-            else:
-                st.info("Set a yearly goal to see your progress bar.")
-        # -------------------------
         # Summary callout + actions (unchanged)
         # -------------------------
         if top1_name:
@@ -803,7 +808,7 @@ def render_analytics():
         else:
             _callout(
                 t("what_this_means"),
-                "This section explains your teaching business in simple numbers: income, stability, and what to do next.",
+                t("analytics_simple_explanation"),
             )
 
         st.markdown(f"#### {t('next_steps')}")

@@ -1,3 +1,6 @@
+# CV_STORAGE.PY
+#===============================
+
 import streamlit as st
 import re, math
 import pandas as pd
@@ -7,13 +10,21 @@ from typing import Optional
 
 from core.i18n import t
 from core.state import get_current_user_id, with_owner, PROFILE_SUBJECT_OPTIONS, PROFILE_STAGE_OPTIONS, PROFILE_TEACH_LANG_OPTIONS
+from helpers.lesson_planner import subject_label as _subject_label
 from core.timezone import today_local, get_app_tz
 from core.database import get_sb, load_table, clear_app_caches
+from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
 
 AI_CV_DAILY_LIMIT = 3
 AI_CV_COOLDOWN_SECONDS = 30
 
-SEX_OPTIONS_RAW = ["", "Male", "Female", "Other", "Prefer not to say"]
+SEX_OPTIONS_RAW = [
+    "male",
+    "female",
+    "other",
+    "prefer_not_to_say",
+    "",
+]
 
 
 def _parse_dob(raw) -> "date | None":
@@ -33,15 +44,66 @@ def _parse_dob(raw) -> "date | None":
 
 
 def _sanitize_phone(val: str) -> str:
-    """Keep only digits and leading +."""
+    """Keep only digits, +, ( and ) for CV phone input."""
     import re as _re
-    return _re.sub(r"[^\d+]", "", str(val or "")).strip()
+    return _re.sub(r"[^\d+()]", "", str(val or "")).strip()
+
+
+def _is_valid_cv_phone(val: str) -> bool:
+    s = str(val or "").strip()
+    if not s:
+        return True
+    if not re.fullmatch(r"[\d+()]+", s):
+        return False
+    digits = re.sub(r"\D", "", s)
+    return len(digits) >= 6
 
 
 def _cv():
     """Lazy import – avoids circular dependency with lesson_planner chain."""
     import helpers.cv_builder as cb
     return cb
+
+def _sex_label(value: str) -> str:
+    key_map = {
+        "male": "sex_male",
+        "female": "sex_female",
+        "other": "sex_other",
+        "prefer_not_to_say": "sex_prefer_not_to_say",
+        "": "select_option",
+    }
+
+    key = key_map.get(str(value or "").strip(), "")
+    return t(key) if key else str(value or "")
+
+
+def _role_label(value: str) -> str:
+    v = str(value or "").strip().lower()
+    mapping = {
+        "teacher": t("teacher_role"),
+        "tutor": t("tutor_role"),
+    }
+    return mapping.get(v, str(value or ""))
+
+
+
+
+def _translate_cv_list(key: str, values) -> list[str]:
+    items = values if isinstance(values, list) else [values]
+    out = []
+    for item in items:
+        s = str(item or "").strip()
+        if not s:
+            continue
+        if key == "subjects":
+            out.append(_subject_label(s))
+        elif key == "teaching_stages":
+            out.append(_stage_label(s))
+        elif key == "teaching_languages":
+            out.append(_lang_label(s))
+        else:
+            out.append(s)
+    return out
 
 
 def _stage_label(stage: str) -> str:
@@ -56,7 +118,28 @@ def _stage_label(stage: str) -> str:
 
 
 def _lang_label(code: str) -> str:
-    return t("english") if code == "en" else t("spanish")
+    labels = {
+        "en": t("english"),
+        "es": t("spanish"),
+        "tr": t("turkish"),
+    }
+    return labels.get(str(code), str(code))
+
+def _country_options() -> list[str]:
+    try:
+        import pycountry
+        names = sorted({c.name for c in pycountry.countries if getattr(c, "name", None)})
+        return [""] + names
+    except Exception:
+        return [""]
+
+
+def _normalize_country_value(raw: str) -> str:
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    opts = set(_country_options())
+    return s if s in opts else ""
 
 
 # -----------------------------------------------------------------------
@@ -67,17 +150,25 @@ def save_cv_record(cv_dict: dict, source_type: str, title: str, ai_prompt: str =
     try:
         payload = with_owner({
             "doc_type": "cv",
-            "title": str(title or "").strip() or "My CV",
+            "title": str(title or "").strip() or t("my_cv"),
             "source_type": source_type,
             "cv_json": cv_dict,
             "ai_prompt": str(ai_prompt or "").strip(),
+            "status": ACTIVE_STATUS,
             "created_at": _dt.now(timezone.utc).isoformat(),
         })
-        get_sb().table("professional_profiles").insert(payload).execute()
+        try:
+            get_sb().table("professional_profiles").insert(payload).execute()
+        except Exception as inner_exc:
+            if "status" not in str(inner_exc).lower():
+                raise
+            legacy_payload = dict(payload)
+            legacy_payload.pop("status", None)
+            get_sb().table("professional_profiles").insert(legacy_payload).execute()
         clear_app_caches()
         return True
     except Exception as e:
-        st.warning(f"Could not save CV: {e}")
+        st.warning(f"{t('cv_save_failed')}: {e}")
         return False
 
 
@@ -90,22 +181,30 @@ def save_cover_letter_record(
     try:
         payload = with_owner({
             "doc_type": "cover_letter",
-            "title": str(title or "").strip() or "My Cover Letter",
+            "title": str(title or "").strip() or t("my_cover_letter"),
             "source_type": "ai",
             "content": str(content or "").strip(),
             "ai_prompt": str(ai_prompt or "").strip(),
             "target_employer": str(target_employer or "").strip(),
+            "status": ACTIVE_STATUS,
             "created_at": _dt.now(timezone.utc).isoformat(),
         })
-        get_sb().table("professional_profiles").insert(payload).execute()
+        try:
+            get_sb().table("professional_profiles").insert(payload).execute()
+        except Exception as inner_exc:
+            if "status" not in str(inner_exc).lower():
+                raise
+            legacy_payload = dict(payload)
+            legacy_payload.pop("status", None)
+            get_sb().table("professional_profiles").insert(legacy_payload).execute()
         clear_app_caches()
         return True
     except Exception as e:
-        st.warning(f"Could not save cover letter: {e}")
+        st.warning(f"{t('cover_letter_save_failed')}: {e}")
         return False
 
 
-def load_my_cvs() -> pd.DataFrame:
+def load_my_cvs(*, include_archived: bool = False, archived_only: bool = False) -> pd.DataFrame:
     try:
         df = load_table("professional_profiles")
         if df is None or df.empty:
@@ -113,13 +212,18 @@ def load_my_cvs() -> pd.DataFrame:
         df = df[df["doc_type"].astype(str).str.strip() == "cv"].copy()
         if "created_at" in df.columns:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-        return df.sort_values("created_at", ascending=False, na_position="last").reset_index(drop=True)
+        df = df.sort_values("created_at", ascending=False, na_position="last")
+        return filter_archived_rows(
+            df,
+            include_archived=include_archived,
+            archived_only=archived_only,
+        )
     except Exception as e:
-        st.error(f"Could not load CVs: {e}")
+        st.error(f"{t('cv_load_failed')}: {e}")
         return pd.DataFrame()
 
 
-def load_my_cover_letters() -> pd.DataFrame:
+def load_my_cover_letters(*, include_archived: bool = False, archived_only: bool = False) -> pd.DataFrame:
     try:
         df = load_table("professional_profiles")
         if df is None or df.empty:
@@ -127,9 +231,14 @@ def load_my_cover_letters() -> pd.DataFrame:
         df = df[df["doc_type"].astype(str).str.strip() == "cover_letter"].copy()
         if "created_at" in df.columns:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-        return df.sort_values("created_at", ascending=False, na_position="last").reset_index(drop=True)
+        df = df.sort_values("created_at", ascending=False, na_position="last")
+        return filter_archived_rows(
+            df,
+            include_archived=include_archived,
+            archived_only=archived_only,
+        )
     except Exception as e:
-        st.error(f"Could not load cover letters: {e}")
+        st.error(f"{t('cover_letter_load_failed')}: {e}")
         return pd.DataFrame()
 
 
@@ -197,7 +306,7 @@ def _log_ai_cv(status: str, meta: dict = None) -> None:
         get_sb().table("ai_usage_logs").insert(payload).execute()
         clear_app_caches()
     except Exception as e:
-        st.warning(f"ai_usage_logs insert failed: {e}")
+        st.warning(f"{t('ai_usage_log_insert_failed')}: {e}")
 
 
 # -----------------------------------------------------------------------
@@ -234,10 +343,17 @@ def build_cv_pdf_bytes(cv: dict) -> bytes:
 
     story = []
 
-    full_name = str(cv.get("full_name") or cv.get("title") or "CV").strip()
-    role = str(cv.get("role") or "").strip()
+    full_name = str(cv.get("full_name") or cv.get("title") or t("cv")).strip()
+    role = _role_label(cv.get("role"))
 
-    contact_parts = [str(cv.get(f) or "").strip() for f in ("email", "phone", "location", "date_of_birth", "sex") if str(cv.get(f) or "").strip()]
+    contact_parts = []
+    for field in ("email", "phone", "location", "date_of_birth", "sex"):
+        raw = str(cv.get(field) or "").strip()
+        if not raw:
+            continue
+        if field == "sex":
+            raw = _sex_label(raw)
+        contact_parts.append(raw)
 
     # ── Centered name / role / contact, optional photo beside name ───
     avatar_url = str(cv.get("avatar_url") or "").strip()
@@ -313,7 +429,8 @@ def build_cv_pdf_bytes(cv: dict) -> bytes:
             continue
         _sec(label)
         if is_list:
-            _bullets(val if isinstance(val, list) else [str(val)])
+            translated_vals = _translate_cv_list(key, val)
+            _bullets(translated_vals)
         else:
             _body(str(val))
         story.append(Spacer(1, 4))
@@ -388,8 +505,18 @@ def render_cv_result(
 
     avatar_url = str(cv.get("avatar_url") or "").strip()
     full_name_display = cv.get("full_name") or cv.get("title") or t("cv")
-    role_val = str(cv.get("role") or "").strip()
-    contact = " · ".join(filter(None, [cv.get(f) for f in ("email", "phone", "location", "date_of_birth", "sex")]))
+    role_val = _role_label(cv.get("role"))
+
+    contact_parts = []
+    for field in ("email", "phone", "location", "date_of_birth", "sex"):
+        raw = str(cv.get(field) or "").strip()
+        if not raw:
+            continue
+        if field == "sex":
+            raw = _sex_label(raw)
+        contact_parts.append(raw)
+
+    contact = " · ".join(contact_parts)
 
     if avatar_url:
         hdr_col, photo_col = st.columns([5, 1])
@@ -433,7 +560,7 @@ def render_cv_result(
         val = cv.get(key)
         if val:
             _sec(label)
-            st.write(", ".join(val) if isinstance(val, list) else str(val))
+            st.write(", ".join(_translate_cv_list(key, val)))
 
     for key, label in [
         ("education",     t("cv_education")),
@@ -469,23 +596,26 @@ def render_cv_result(
     )
 
     if not read_only:
+        _cv_auto_saved = st.session_state.get("_quick_cv_auto_saved")
+        if _cv_auto_saved:
+            st.success(t("cv_saved"))
         c1, c2 = st.columns(2)
         with c1:
-            if st.button(t("save_cv"), key="btn_save_cv", use_container_width=True):
+            if not _cv_auto_saved and st.button(t("save_cv"), key="btn_save_cv", use_container_width=True):
                 ok = save_cv_record(
                     cv_dict=cv,
                     source_type=source_type,
-                    title=title or str(cv.get("title") or cv.get("full_name") or "My CV"),
+                    title=title or str(cv.get("title") or cv.get("full_name") or t("my_cv")),
                     ai_prompt=ai_prompt,
                 )
                 if ok:
                     st.success(t("cv_saved"))
-                    for k in ("quick_cv_result", "quick_cv_title", "quick_cv_source_type", "quick_cv_ai_prompt"):
+                    for k in ("quick_cv_result", "quick_cv_title", "quick_cv_source_type", "quick_cv_ai_prompt", "_quick_cv_auto_saved"):
                         st.session_state.pop(k, None)
                     st.rerun()
         with c2:
             if st.button(t("discard_cv"), key="btn_discard_cv", use_container_width=True):
-                for k in ("quick_cv_result", "quick_cv_title", "quick_cv_source_type", "quick_cv_ai_prompt"):
+                for k in ("quick_cv_result", "quick_cv_title", "quick_cv_source_type", "quick_cv_ai_prompt", "_quick_cv_auto_saved"):
                     st.session_state.pop(k, None)
                 st.rerun()
 
@@ -500,11 +630,37 @@ def delete_cv_record(record_id: str) -> bool:
         clear_app_caches()
         return True
     except Exception as e:
-        st.warning(f"Could not delete record: {e}")
+        st.warning(f"{t('record_delete_failed')}: {e}")
         return False
 
 
-def render_cv_library_cards(df: pd.DataFrame, prefix: str) -> None:
+def update_professional_profile_archive(record_id: str, archived: bool) -> tuple[bool, str]:
+    uid = str(get_current_user_id() or "").strip()
+    record_id = str(record_id or "").strip()
+    if not uid:
+        return False, "auth_required"
+    if not record_id:
+        return False, "invalid_id"
+    try:
+        (
+            get_sb()
+            .table("professional_profiles")
+            .update(
+                {
+                    "status": ARCHIVED_STATUS if archived else ACTIVE_STATUS,
+                }
+            )
+            .eq("id", record_id)
+            .eq("user_id", uid)
+            .execute()
+        )
+        clear_app_caches()
+        return True, "ok"
+    except Exception as e:
+        return False, str(e)
+
+
+def render_cv_library_cards(df: pd.DataFrame, prefix: str, *, allow_archive_toggle: bool = False) -> None:
     if df is None or df.empty:
         return
 
@@ -514,6 +670,7 @@ def render_cv_library_cards(df: pd.DataFrame, prefix: str) -> None:
         source_type= str(row.get("source_type") or "").strip()
         created_at = str(row.get("created_at") or "")[:16]
         employer   = str(row.get("target_employer") or "").strip()
+        is_archived = is_archived_status(row.get("status"))
 
         with st.container(border=True):
             top_l, top_r = st.columns([5, 1])
@@ -526,6 +683,8 @@ def render_cv_library_cards(df: pd.DataFrame, prefix: str) -> None:
                     meta.append(f"{t('cv_target_employer')}: {employer}")
                 if created_at:
                     meta.append(f"{t('date')}: {created_at}")
+                if is_archived:
+                    meta.append(t("archived_label"))
                 if meta:
                     st.caption(" · ".join(meta))
             with top_r:
@@ -536,17 +695,38 @@ def render_cv_library_cards(df: pd.DataFrame, prefix: str) -> None:
                         st.toast(t("scroll_down_to_view"))
                         st.rerun()
                 with _btn_col2:
-                    if st.button("🗑️", key=f"{prefix}_del_{row_id}_{i}", use_container_width=True, help=t("delete")):
-                        if delete_cv_record(str(row_id)):
-                            st.session_state.pop(f"{prefix}_selected", None)
-                            st.rerun()
-                        else:
-                            st.error(t("delete_failed"))
+                    if allow_archive_toggle:
+                        new_archived = st.toggle(
+                            t("archive_toggle_label"),
+                            value=is_archived,
+                            key=f"{prefix}_archive_{row_id}_{i}",
+                        )
+                        if new_archived != is_archived:
+                            ok, msg = update_professional_profile_archive(str(row_id), new_archived)
+                            if ok:
+                                st.success(
+                                    t(
+                                        "resource_archive_updated",
+                                        state=t("archived_label") if new_archived else t("restored_label"),
+                                    )
+                                )
+                                st.session_state.pop(f"{prefix}_selected", None)
+                                st.rerun()
+                            st.error(t("resource_archive_update_failed", error=msg))
 
 
 # -----------------------------------------------------------------------
 # UI: MAIN CV BUILDER EXPANDER
 # -----------------------------------------------------------------------
+def _sex_label(value: str) -> str:
+    mapping = {
+        "male": t("sex_male"),
+        "female": t("sex_female"),
+        "other": t("sex_other"),
+        "prefer_not_to_say": t("sex_prefer_not_to_say"),
+        "": t("select_option"),
+    }
+    return mapping.get(str(value or "").strip(), str(value or ""))
 
 def render_quick_cv_builder_expander() -> None:
     from core.database import load_profile_row, upsert_profile_row
@@ -554,9 +734,26 @@ def render_quick_cv_builder_expander() -> None:
     user_id = get_current_user_id()
     profile = load_profile_row(user_id) if user_id else {}
 
-    with st.expander(t("quick_cv_builder"), expanded=False):
-        st.caption(t("quick_cv_caption"))
+    _current_cv_owner = str(st.session_state.get("_quick_cv_owner") or "")
+    _current_user_id = str(user_id or "")
 
+    if _current_cv_owner != _current_user_id:
+        for k in (
+            "quick_cv_result",
+            "quick_cv_title",
+            "quick_cv_source_type",
+            "quick_cv_ai_prompt",
+            "quick_cl_result",
+            "quick_cl_title",
+            "quick_cl_ai_prompt",
+            "cv_import_applied",
+        ):
+            st.session_state.pop(k, None)
+
+        st.session_state["_quick_cv_owner"] = _current_user_id
+
+    with st.expander(f"💼 {t('quick_cv_builder')}", expanded=False):
+        st.caption(t("quick_cv_caption"))
         usage = get_ai_cv_usage_status()
 
         # ── Import from existing PDF ──────────────────────────────────────
@@ -684,32 +881,46 @@ def render_quick_cv_builder_expander() -> None:
         if "cv_phone" not in st.session_state:
             st.session_state["cv_phone"] = _sanitize_phone(profile.get("phone_number") or "")
         if "cv_location" not in st.session_state:
-            st.session_state["cv_location"] = str(profile.get("country") or "")
+            st.session_state["cv_location"] = _normalize_country_value(profile.get("country") or "")
 
         pi1, pi2, pi3 = st.columns(3)
+        
         with pi1:
             cv_full_name = st.text_input(
                 t("cv_full_name_label"),
                 key="cv_full_name",
             )
+
         with pi2:
             cv_email = st.text_input(
                 t("email"),
                 key="cv_email",
             )
+
         with pi3:
-            cv_phone = st.text_input(
+            cv_phone_raw = st.text_input(
                 t("phone"),
                 placeholder="+1234567890",
                 key="cv_phone",
                 help=t("phone_format_hint"),
             )
-            cv_phone = _sanitize_phone(cv_phone)
-
+            cv_phone = _sanitize_phone(cv_phone_raw)
+  
         pi4, pi5, pi6 = st.columns(3)
         with pi4:
-            cv_location = st.text_input(
+            _country_opts = _country_options()
+
+            if "cv_location" not in st.session_state:
+                st.session_state["cv_location"] = _normalize_country_value(profile.get("country") or "")
+
+            _current_country = _normalize_country_value(st.session_state.get("cv_location"))
+            if _current_country not in _country_opts:
+                st.session_state["cv_location"] = ""
+
+            cv_location = st.selectbox(
                 t("country_label"),
+                options=_country_opts,
+                format_func=lambda x: x if x else t("select_option"),
                 key="cv_location",
             )
         with pi5:
@@ -723,41 +934,76 @@ def render_quick_cv_builder_expander() -> None:
                 format="YYYY-MM-DD",
                 key="cv_dob",
             )
+
         with pi6:
-            _sex_val = str(profile.get("sex") or "")
-            _sex_idx = SEX_OPTIONS_RAW.index(_sex_val) if _sex_val in SEX_OPTIONS_RAW else 0
+            def _normalize_sex_value(raw) -> str:
+                v = str(raw or "").strip().lower()
+                aliases = {
+                    "male": "male",
+                    "female": "female",
+                    "other": "other",
+                    "prefer_not_to_say": "prefer_not_to_say",
+                    "prefer not to say": "prefer_not_to_say",
+                    "prefer-not-to-say": "prefer_not_to_say",
+                    "not specified": "",
+                    "unknown": "",
+                    "none": "",
+                    "null": "",
+                    "nan": "",
+                    "": "",
+                }
+                return aliases.get(v, "")
+
+            _saved_profile_sex = _normalize_sex_value(profile.get("sex"))
+            _session_sex = _normalize_sex_value(st.session_state.get("cv_sex"))
+
+            if not _session_sex and _saved_profile_sex:
+                st.session_state["cv_sex"] = _saved_profile_sex
+            elif "cv_sex" not in st.session_state:
+                st.session_state["cv_sex"] = ""
+
             cv_sex = st.selectbox(
                 t("sex"),
-                SEX_OPTIONS_RAW,
-                index=_sex_idx,
-                format_func=lambda x: t(f"sex_{x.lower().replace(' ', '_')}") if x else t("prefer_not_to_say"),
+                options=SEX_OPTIONS_RAW,
+                format_func=_sex_label,
                 key="cv_sex",
             )
 
         # ── Teaching profile ─────────────────────────────────────────────
-        st.markdown(f"**{t('cv_teaching_info')}**")
         cv_subjects = st.multiselect(
             t("primary_subjects_label"),
-            PROFILE_SUBJECT_OPTIONS,
-            default=[x for x in (profile.get("primary_subjects") or []) if x in PROFILE_SUBJECT_OPTIONS],
+            options=PROFILE_SUBJECT_OPTIONS,
+            default=st.session_state.get("cv_subjects", []),
+            format_func=_subject_label,
             key="cv_subjects",
+            placeholder=t("select_option"),
         )
+
+        cv_other_subject = ""
+        if "other" in cv_subjects:
+            cv_other_subject = st.text_input(
+                t("other_subject_label"),
+                key="cv_other_subject",
+            ).strip()
+
         cv_col1, cv_col2 = st.columns(2)
         with cv_col1:
             cv_stages = st.multiselect(
                 t("teaching_stages_label"),
-                PROFILE_STAGE_OPTIONS,
-                default=[x for x in (profile.get("teaching_stages") or []) if x in PROFILE_STAGE_OPTIONS],
+                options=PROFILE_STAGE_OPTIONS,
+                default=st.session_state.get("cv_stages", []),
                 format_func=_stage_label,
                 key="cv_stages",
+                placeholder=t("select_option"),
             )
         with cv_col2:
             cv_langs = st.multiselect(
                 t("teaching_languages_label"),
-                PROFILE_TEACH_LANG_OPTIONS,
-                default=[x for x in (profile.get("teaching_languages") or []) if x in PROFILE_TEACH_LANG_OPTIONS],
+                options=PROFILE_TEACH_LANG_OPTIONS,
+                default=st.session_state.get("cv_langs", []),
                 format_func=_lang_label,
                 key="cv_langs",
+                placeholder=t("select_option"),
             )
 
         role_val = str(profile.get("role") or "teacher")
@@ -841,26 +1087,74 @@ def render_quick_cv_builder_expander() -> None:
 
         cv_doc_title = st.text_input(
             t("cv_document_title"),
-            value=f"CV \u2013 {cv_full_name.strip()}" if cv_full_name.strip() else "My CV",
+            value=f"{t('cv')} – {cv_full_name.strip()}" if cv_full_name.strip() else t("my_cv"),
             key="cv_doc_title",
         )
 
         if st.button(t("generate_cv"), key="btn_generate_cv", use_container_width=True):
+            validation_errors = []
+
             if not cv_full_name.strip():
-                st.error(t("cv_name_required"))
-            elif cv_mode == "ai" and usage["used_today"] >= AI_CV_DAILY_LIMIT:
-                st.error(t("ai_limit_reached"))
-            elif cv_mode == "ai" and not usage["cooldown_ok"]:
-                st.warning(t("ai_cooldown_active", seconds=usage["seconds_left"]))
+                validation_errors.append(t("cv_name_required"))
+
+            if cv_phone_raw.strip() and not _is_valid_cv_phone(cv_phone_raw):
+                validation_errors.append(t("cv_phone_invalid"))
+
+            if not cv_location.strip():
+                validation_errors.append(t("cv_country_required"))
+            elif not _normalize_country_value(cv_location):
+                validation_errors.append(t("cv_country_invalid"))
+
+            if not cv_subjects:
+                validation_errors.append(t("cv_subject_required"))
+
+            if "other" in cv_subjects and not cv_other_subject:
+                validation_errors.append(t("enter_subject_name"))    
+
+            if not cv_stages:
+                validation_errors.append(t("cv_stage_required"))
+
+            if not cv_langs:
+                validation_errors.append(t("cv_language_required"))
+
+            if cv_mode == "ai" and usage["used_today"] >= AI_CV_DAILY_LIMIT:
+                validation_errors.append(t("ai_limit_reached"))
+
+            if cv_mode == "ai" and not usage["cooldown_ok"]:
+                validation_errors.append(
+                    t("ai_cooldown_active", seconds=usage["seconds_left"])
+                )
+
+            if validation_errors:
+                for msg in validation_errors:
+                    st.error(msg)
             else:
+                if user_id:
+                    _profile_patch = {
+                        "country": cv_location.strip(),
+                        "date_of_birth": str(cv_dob) if cv_dob else None,
+                        "sex": _normalize_sex_value(cv_sex) if cv_sex else None,
+                        "primary_subjects": effective_cv_subjects,
+                        "teaching_stages": cv_stages,
+                        "teaching_languages": cv_langs,
+                        "role": cv_role,
+                    }
+
+                    _profile_ok = upsert_profile_row(user_id, _profile_patch)
+                    if not _profile_ok:
+                        st.error(t("cv_profile_save_failed"))
+                        st.stop()
+
+                    clear_app_caches()
+
                 _kwargs = dict(
                     full_name=cv_full_name.strip(),
                     email=cv_email.strip(),
                     phone=cv_phone.strip(),
                     location=cv_location.strip(),
                     date_of_birth=str(cv_dob) if cv_dob else "",
-                    sex=cv_sex or "",
-                    subjects=cv_subjects,
+                    sex=_normalize_sex_value(cv_sex) if cv_sex else "",
+                    subjects=effective_cv_subjects,
                     teaching_stages=cv_stages,
                     teaching_languages=cv_langs,
                     professional_summary=cv_summary.strip(),
@@ -876,29 +1170,38 @@ def render_quick_cv_builder_expander() -> None:
 
                 with st.spinner(t("generating_cv")):
                     try:
+                        effective_cv_subjects = [s for s in cv_subjects if s != "other"]
+                        if "other" in cv_subjects and cv_other_subject:
+                            effective_cv_subjects.append(cv_other_subject) 
+
                         if cv_mode == "ai":
                             _log_ai_cv("requested", {"doc": "cv"})
-                            generated_cv = _cv().build_ai_cv(**_kwargs, user_prompt=cv_ai_prompt)
+                            generated_cv = _cv().build_ai_cv(
+                                **_kwargs,
+                                user_prompt=cv_ai_prompt,
+                            )
                             _log_ai_cv("success", {"doc": "cv"})
                         else:
                             generated_cv = _cv().build_template_cv(**_kwargs)
 
-                        # Persist new profile fields if provided
-                        if user_id:
-                            _profile_patch = {}
-                            if cv_dob:
-                                _profile_patch["date_of_birth"] = str(cv_dob)
-                            if cv_sex and cv_sex != "Prefer not to say":
-                                _profile_patch["sex"] = cv_sex
-                            if cv_phone.strip():
-                                _profile_patch["phone_number"] = cv_phone.strip()
-                            if _profile_patch:
-                                upsert_profile_row(user_id, _profile_patch)
-
-                        st.session_state["quick_cv_result"]      = generated_cv
-                        st.session_state["quick_cv_title"]       = cv_doc_title.strip()
+                        st.session_state["quick_cv_result"] = generated_cv
+                        st.session_state["quick_cv_title"] = cv_doc_title.strip()
                         st.session_state["quick_cv_source_type"] = cv_mode
-                        st.session_state["quick_cv_ai_prompt"]   = cv_ai_prompt
+                        st.session_state["quick_cv_ai_prompt"] = cv_ai_prompt
+                        st.session_state["_quick_cv_owner"] = str(user_id or "")
+
+                        # ── Auto-save immediately after generation ──
+                        try:
+                            _auto_ok = save_cv_record(
+                                cv_dict=generated_cv,
+                                source_type=cv_mode,
+                                title=cv_doc_title.strip() or str(generated_cv.get("title") or generated_cv.get("full_name") or t("my_cv")),
+                                ai_prompt=cv_ai_prompt,
+                            )
+                            if _auto_ok:
+                                st.session_state["_quick_cv_auto_saved"] = True
+                        except Exception:
+                            pass  # non-blocking: user can still save manually
 
                     except Exception as e:
                         st.error(f"{t('cv_generation_failed')}: {e}")
@@ -912,12 +1215,28 @@ def render_quick_cv_builder_expander() -> None:
                                 user_prompt=cv_cl_prompt,
                             )
                             _log_ai_cv("success", {"doc": "cover_letter"})
-                            st.session_state["quick_cl_result"]    = cl_text
-                            st.session_state["quick_cl_title"]     = f"Cover Letter \u2013 {cv_full_name.strip()}"
+                            st.session_state["quick_cl_result"] = cl_text
+                            _cl_title = (
+                                f"{t('cover_letter')} – {cv_full_name.strip()}"
+                                if cv_full_name.strip()
+                                else t("my_cover_letter")
+                            )
+                            st.session_state["quick_cl_title"] = _cl_title
                             st.session_state["quick_cl_ai_prompt"] = cv_cl_prompt
+
+                            # ── Auto-save immediately after generation ──
+                            try:
+                                save_cover_letter_record(
+                                    content=cl_text,
+                                    title=_cl_title,
+                                    ai_prompt=cv_cl_prompt,
+                                )
+                                st.session_state["_quick_cl_auto_saved"] = True
+                            except Exception:
+                                pass  # non-blocking: user can still save manually
+
                         except Exception as e:
                             st.error(f"{t('cv_generation_failed')}: {e}")
-
         # ── Display CV result ────────────────────────────────────────────
         cv_result = st.session_state.get("quick_cv_result")
         if cv_result:
@@ -942,7 +1261,7 @@ def render_quick_cv_builder_expander() -> None:
                 height=300,
                 key="cv_cl_display",
             )
-            cl_title = st.session_state.get("quick_cl_title", "My Cover Letter")
+            cl_title = st.session_state.get("quick_cl_title", t("my_cover_letter"))
             cl_pdf   = build_cover_letter_pdf_bytes(cl_result, cl_title)
             safe_cl  = re.sub(r"[^A-Za-z0-9._-]+", "_", cl_title) or "cover_letter"
             st.download_button(
@@ -955,19 +1274,22 @@ def render_quick_cv_builder_expander() -> None:
             )
             c1, c2 = st.columns(2)
             with c1:
-                if st.button(t("save_cover_letter"), key="btn_save_cl", use_container_width=True):
-                    ok = save_cover_letter_record(
-                        content=cl_result,
-                        title=cl_title,
-                        ai_prompt=st.session_state.get("quick_cl_ai_prompt", ""),
-                    )
-                    if ok:
-                        st.success(t("cover_letter_saved"))
-                        for k in ("quick_cl_result", "quick_cl_title", "quick_cl_ai_prompt"):
-                            st.session_state.pop(k, None)
-                        st.rerun()
+                if st.session_state.get("_quick_cl_auto_saved"):
+                    st.success(t("cover_letter_saved"))
+                else:
+                    if st.button(t("save_cover_letter"), key="btn_save_cl", use_container_width=True):
+                        ok = save_cover_letter_record(
+                            content=cl_result,
+                            title=cl_title,
+                            ai_prompt=st.session_state.get("quick_cl_ai_prompt", ""),
+                        )
+                        if ok:
+                            st.success(t("cover_letter_saved"))
+                            for k in ("quick_cl_result", "quick_cl_title", "quick_cl_ai_prompt", "_quick_cl_auto_saved"):
+                                st.session_state.pop(k, None)
+                            st.rerun()
             with c2:
                 if st.button(t("discard_cover_letter"), key="btn_discard_cl", use_container_width=True):
-                    for k in ("quick_cl_result", "quick_cl_title", "quick_cl_ai_prompt"):
+                    for k in ("quick_cl_result", "quick_cl_title", "quick_cl_ai_prompt", "_quick_cl_auto_saved"):
                         st.session_state.pop(k, None)
                     st.rerun()

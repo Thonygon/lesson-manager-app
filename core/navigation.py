@@ -12,13 +12,24 @@ PAGES = [
     ("analytics", "analytics", "📈"),
 ]
 
-PAGE_KEYS = {"home"} | {key for key, _, _ in PAGES}
+STUDENT_PAGES = [
+    ("student_home", "student_home_title", "🏠"),
+    ("student_practice", "smart_practice", "🧠"),
+    ("student_study_plan", "smart_study_plan", "📚"),
+    ("student_assignments", "student_assignments_title", "🗂️"),
+    ("student_find_teacher", "find_my_teacher", "🔍"),
+]
+
+PAGE_KEYS = {"home", "resources"} | {key for key, _, _ in PAGES} | {key for key, _, _ in STUDENT_PAGES}
 
 
 def _set_query(page: Optional[str] = None, lang: Optional[str] = None, panel: Optional[str] = None) -> None:
     new_page = page if page is not None else st.session_state.get("page", "home")
     new_lang = lang if lang is not None else st.session_state.get("ui_lang", "en")
     params = {"page": new_page, "lang": new_lang}
+    current_browser_tz = str(st.session_state.get("browser_tz") or _get_qp("browser_tz", "") or "").strip()
+    if current_browser_tz:
+        params["browser_tz"] = current_browser_tz
     if panel is not None:
         params["panel"] = panel
     try:

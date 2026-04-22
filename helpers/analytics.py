@@ -1,34 +1,73 @@
+import re
 import streamlit as st
 import datetime
 import pandas as pd
 from core.i18n import t
 from core.state import get_current_user_id
+from helpers.lesson_planner import subject_label as _subject_label_fn
 from core.timezone import now_local
 from core.database import load_table
 from helpers.ui_components import to_dt_naive, ts_today_naive
 
-# 07.14) ANALYTICS (INCOME + CHARTS) ✅ missing-columns safe (Section 24 compatible)
-# =========================
-def money_fmt(x: float, symbol: str = "") -> str:
-    """Compact currency format for KPI bubbles.
-
-    *symbol* is an optional currency symbol prepended to the result
-    (e.g. ``"$"``, ``"€"``).
-    """
+def money_fmt(value, symbol=""):
     try:
-        x = float(x)
-        prefix = f"{symbol} " if symbol else ""
-        if abs(x) >= 1_000_000:
-            val = x / 1_000_000
-            return prefix + f"{val:.1f}".replace(".", ",").rstrip("0").rstrip(",") + "M"
-        elif abs(x) >= 1_000:
-            val = x / 1_000
-            formatted = f"{val:.1f}".replace(".", ",").rstrip("0").rstrip(",")
-            return prefix + formatted + "K"
-        else:
-            return prefix + str(int(round(x)))
+        v = float(value)
+        return f"{symbol}{v:,.0f}"
     except Exception:
-        return str(x)
+        return f"{symbol}0"
+
+def _subject_to_t_key(subject: str) -> str:
+    return _subject_label_fn(subject)
+
+
+def _normalize_subject_combo(raw: str) -> str:
+    """
+    Convert subject text into a stable internal key.
+    Examples:
+    - 'English' -> 'english'
+    - 'Spanish' -> 'spanish'
+    - 'English,Spanish' -> 'english|spanish'
+    - 'Spanish & English' -> 'english|spanish'
+    """
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+
+    parts = re.split(r"\s*(?:,|&|/|\+| and | y | ve )\s*", s, flags=re.IGNORECASE)
+    parts = [p.strip() for p in parts if p.strip()]
+
+    normalized = []
+    seen = set()
+
+    for part in parts:
+        key = _subject_to_t_key(part)
+        stable = key if key else part.lower()
+        if stable not in seen:
+            seen.add(stable)
+            normalized.append(stable)
+
+    normalized.sort()
+    return "|".join(normalized)
+
+
+def _display_subject_combo(subject_key: str) -> str:
+    """
+    Convert stable internal key into translated UI text.
+    """
+    if not subject_key:
+        return ""
+
+    parts = [p.strip() for p in str(subject_key).split("|") if p.strip()]
+    translated = []
+
+    for part in parts:
+        translated.append(t(part) if part in {"english", "spanish"} else part.title())
+
+    if len(translated) == 2 and set(parts) == {"english", "spanish"}:
+        return t("english_spanish")
+
+    return " + ".join(translated)
+
 
 @st.cache_data(ttl=45, show_spinner=False)
 def build_income_analytics(group: str = "monthly"):
@@ -37,7 +76,6 @@ def build_income_analytics(group: str = "monthly"):
     if payments is None or payments.empty:
         payments = pd.DataFrame(columns=["student", "payment_date", "paid_amount", "number_of_lesson", "modality", "subject"])
 
-    # ✅ Ensure needed columns exist
     for c, default in {
         "student": "",
         "payment_date": None,
@@ -60,9 +98,8 @@ def build_income_analytics(group: str = "monthly"):
 
     today = ts_today_naive()
 
-    # ✅ Calendar week Mon–Sun (matches your preference)
-    week_start = today - pd.Timedelta(days=int(today.weekday()))  # Monday
-    week_end = week_start + pd.Timedelta(days=6)                  # Sunday
+    week_start = today - pd.Timedelta(days=int(today.weekday()))
+    week_end = week_start + pd.Timedelta(days=6)
 
     income_all_time = float(payments["paid_amount"].sum()) if not payments.empty else 0.0
     income_this_year = float(
@@ -87,17 +124,15 @@ def build_income_analytics(group: str = "monthly"):
         "week_end": week_end.strftime("%Y-%m-%d"),
     }
 
-    # Group Key
     if group == "yearly":
         payments["Key"] = payments["payment_date"].dt.to_period("Y").astype(str)
     else:
         payments["Key"] = payments["payment_date"].dt.to_period("M").astype(str)
 
-    # ✅ IMPORTANT: return columns that Section 24 expects
     income_table = (
         payments.groupby("Key", as_index=False)["paid_amount"]
         .sum()
-        .rename(columns={"paid_amount": "income"})   # <-- was Income
+        .rename(columns={"paid_amount": "income"})
         .sort_values("Key")
         .reset_index(drop=True)
     )
@@ -113,14 +148,16 @@ def build_income_analytics(group: str = "monthly"):
         .reset_index(drop=True)
     )
 
-    # Keep original language normalization (but return expected col names)
+    payments["subject_key"] = payments["subject"].apply(_normalize_subject_combo)
+
     sold_by_subject = (
-        payments.assign(subject=payments["subject"].replace({"English,Spanish": "English & Spanish"}))
-        .groupby("subject", as_index=False)["paid_amount"].sum()
-        .rename(columns={"paid_amount": "income"})
+        payments.groupby("subject_key", as_index=False)["paid_amount"].sum()
+        .rename(columns={"subject_key": "subject", "paid_amount": "income"})
         .sort_values("income", ascending=False)
         .reset_index(drop=True)
     )
+
+    sold_by_subject["subject"] = sold_by_subject["subject"].apply(_display_subject_combo)
 
     sold_by_modality = (
         payments.groupby("modality", as_index=False)["paid_amount"].sum()

@@ -1,14 +1,15 @@
 import streamlit as st
 import datetime
+import urllib.parse
 from datetime import datetime as _dt, timezone
 import pandas as pd
 from core.i18n import t
-from core.timezone import today_local, now_local
+from core.timezone import today_local, now_local, get_app_tz_name
 from core.navigation import page_header, go_to
 from core.database import norm_student, update_payment_row, clear_app_caches
 from helpers.dashboard import rebuild_dashboard
 from helpers.student_meta import student_meta_maps
-from helpers.goals import load_app_settings_map, save_app_setting, render_home_indicator, YEAR_GOAL_SCOPE, get_next_lesson_display
+from helpers.goals import render_home_indicator, YEAR_GOAL_SCOPE
 from helpers.kpi_bubbles import kpi_stat_cards
 from helpers.ui_components import pretty_df, translate_df_headers, translate_df, ts_today_naive, render_styled_dataframe
 from helpers.analytics import build_income_analytics
@@ -24,18 +25,331 @@ from helpers.student_report import (
     build_report_whatsapp_url,
     build_report_email_url,
 )
+from helpers.notifications import (
+    get_teacher_notifications,
+    render_notification_cloud,
+    render_notification_heading,
+    render_notification_panel,
+)
 import re as _re
+import html as _html
 
 # 12.1) PAGE: DASHBOARD
 # =========================
+def _svg_zoom_icon() -> str:
+    return """
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+      <path d="M15 8.5V6.8c0-.86 0-1.29-.17-1.62a1.5 1.5 0 0 0-.66-.66C13.84 4.35 13.41 4.35 12.55 4.35H6.45c-.86 0-1.29 0-1.62.17a1.5 1.5 0 0 0-.66.66C4 5.51 4 5.94 4 6.8v6.4c0 .86 0 1.29.17 1.62.15.29.37.51.66.66.33.17.76.17 1.62.17h6.1c.86 0 1.29 0 1.62-.17.29-.15.51-.37.66-.66.17-.33.17-.76.17-1.62V11.5l3.2 2.4c.45.34.68.51.87.52a.75.75 0 0 0 .55-.19c.16-.14.16-.43.16-1V7.77c0-.57 0-.86-.16-1a.75.75 0 0 0-.55-.19c-.19.01-.42.18-.87.52L15 8.5Z" fill="currentColor"/>
+    </svg>
+    """
+
+def _svg_whatsapp_icon() -> str:
+    return """
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+      <path d="M12 4a8 8 0 0 0-6.93 12l-.82 3.02 3.1-.8A8 8 0 1 0 12 4Zm4.27 11.24c-.18.5-.9.92-1.25.97-.32.05-.72.08-1.16-.06-.27-.09-.62-.2-1.07-.39-1.88-.82-3.1-2.73-3.2-2.86-.1-.13-.76-1.01-.76-1.93 0-.92.48-1.37.65-1.56.17-.18.37-.23.5-.23h.36c.11 0 .26-.04.4.3.15.35.5 1.2.54 1.29.05.09.08.2.02.33-.06.13-.09.21-.18.32-.09.1-.19.24-.27.32-.09.09-.18.18-.08.35.1.17.45.74.96 1.2.66.59 1.22.78 1.39.87.17.08.27.07.37-.04.1-.11.42-.49.53-.66.11-.17.22-.14.37-.08.15.05.96.45 1.12.53.16.08.27.12.31.19.04.07.04.42-.14.92Z" fill="currentColor"/>
+    </svg>
+    """
+def _localized_short_date(dt_obj) -> str:
+    month_keys = {
+        1: "month_jan_short",
+        2: "month_feb_short",
+        3: "month_mar_short",
+        4: "month_apr_short",
+        5: "month_may_short",
+        6: "month_jun_short",
+        7: "month_jul_short",
+        8: "month_aug_short",
+        9: "month_sep_short",
+        10: "month_oct_short",
+        11: "month_nov_short",
+        12: "month_dec_short",
+    }
+    return f"{dt_obj.day:02d} {t(month_keys[dt_obj.month])} {dt_obj.year}"
+
+
+def _localized_weekday_short(dt_obj) -> str:
+    weekday_keys = {
+        0: "weekday_monday_short",
+        1: "weekday_tuesday_short",
+        2: "weekday_wednesday_short",
+        3: "weekday_thursday_short",
+        4: "weekday_friday_short",
+        5: "weekday_saturday_short",
+        6: "weekday_sunday_short",
+    }
+    return t(weekday_keys[dt_obj.weekday()])
+
+def _get_next_lesson_from_calendar() -> str:
+    now_dt = now_local()
+    start_day = today_local()
+    end_day = start_day + datetime.timedelta(days=60)
+
+    events = build_calendar_events(start_day, end_day, get_app_tz_name())
+    if events is None or events.empty:
+        return "—"
+
+    df = events.copy()
+
+    # Make sure expected columns exist
+    for col in ["Student", "Time"]:
+        if col not in df.columns:
+            df[col] = ""
+
+    df["Student"] = df["Student"].fillna("").astype(str).str.strip()
+    df["Time"] = df["Time"].fillna("").astype(str).str.strip()
+
+    # Try to detect a date column from build_calendar_events output
+    date_col = None
+    for candidate in ["Date", "date", "Start_Date", "start_date", "Start", "start"]:
+        if candidate in df.columns:
+            date_col = candidate
+            break
+
+    if date_col is None:
+        return "—"
+
+    future_rows = []
+
+    for _, row in df.iterrows():
+        student = str(row.get("Student", "")).strip()
+        time_text = str(row.get("Time", "")).strip()
+        raw_date = row.get(date_col)
+
+        if not student or not time_text or pd.isna(raw_date):
+            continue
+
+        try:
+            event_date = pd.to_datetime(raw_date).date()
+        except Exception:
+            continue
+
+        try:
+            hhmm = time_text[:5]
+            hh, mm = map(int, hhmm.split(":"))
+            event_dt = datetime.datetime.combine(event_date, datetime.time(hh, mm))
+        except Exception:
+            continue
+
+        now_naive = now_dt.replace(tzinfo=None) if getattr(now_dt, "tzinfo", None) else now_dt
+
+        if event_dt >= now_naive:
+            future_rows.append((event_dt, student))
+
+    if not future_rows:
+        return "—"
+
+    future_rows.sort(key=lambda x: x[0])
+    next_dt, next_student = future_rows[0]
+
+    weekday_label = _localized_weekday_short(next_dt)
+    return f"{weekday_label} {next_dt.strftime('%H:%M')} • {next_student}"
+
+def _render_today_lessons_cards(df: pd.DataFrame, color_map: dict, phone_map: dict, address_map: dict) -> None:
+    st.markdown(
+        """
+        <style>
+          .dash-today-list{
+            display:flex;
+            flex-direction:column;
+            gap:10px;
+            margin-top:8px;
+          }
+
+          .dash-student-card{
+            background:var(--panel, #fff);
+            border:1px solid var(--border-strong, rgba(17,24,39,0.08));
+            border-radius:12px;
+            padding:14px 16px;
+            margin-bottom:0;
+            box-shadow:0 1px 4px rgba(0,0,0,0.06);
+          }
+
+          .dash-student-card-top{
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:12px;
+            flex-wrap:wrap;
+            margin-bottom:8px;
+          }
+
+          .dash-student-card-name{
+            font-weight:700;
+            font-size:1rem;
+            color:var(--text, #0f172a);
+            line-height:1.2;
+          }
+
+          .dash-student-card-time{
+            display:inline-flex;
+            align-items:center;
+            gap:6px;
+            padding:4px 12px;
+            border-radius:20px;
+            background:rgba(59,130,246,0.12);
+            color:var(--text);
+            font-size:13px;
+            text-decoration:none;
+            border:1px solid rgba(59,130,246,0.28);
+            white-space:nowrap;
+            font-weight:700;
+          }
+
+          .dash-student-card-info{
+            display:flex;
+            flex-wrap:wrap;
+            gap:8px;
+            margin-bottom:8px;
+          }
+
+          .dash-student-chip{
+            display:inline-flex;
+            align-items:center;
+            gap:4px;
+            padding:4px 12px;
+            border-radius:20px;
+            color:var(--text);
+            font-size:13px;
+            text-decoration:none;
+            border:1px solid var(--border, rgba(148,163,184,0.22));
+            background:rgba(148,163,184,0.08);
+            white-space:nowrap;
+          }
+
+          .dash-action-row{
+            display:flex;
+            flex-wrap:wrap;
+            gap:6px;
+          }
+
+          .dash-action-chip{
+            display:inline-flex;
+            align-items:center;
+            gap:4px;
+            padding:4px 12px;
+            border-radius:20px;
+            color:var(--text);
+            font-size:13px;
+            text-decoration:none !important;
+            border:1px solid transparent;
+            white-space:nowrap;
+            transition:transform 0.15s ease, opacity 0.15s ease;
+          }
+
+          .dash-action-chip:hover{
+            transform:translateY(-1px);
+            opacity:0.96;
+          }
+
+          .dash-action-chip--zoom{
+            background:rgba(139,92,246,0.12);
+            border-color:rgba(139,92,246,0.28);
+          }
+
+          .dash-action-chip--wa{
+            background:rgba(16,185,129,0.12);
+            border-color:rgba(16,185,129,0.28);
+          }
+
+          .dash-action-chip--maps{
+            background:rgba(234,88,12,0.12);
+            border-color:rgba(234,88,12,0.28);
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    cards = []
+
+    for _, r in df.iterrows():
+        student = str(r.get("Student", "") or "").strip()
+        when = str(r.get("Time", "") or "").strip()
+        zoom_link = str(r.get("Zoom_Link", "") or "").strip()
+        subject = str(r.get("Subject", "") or "").strip()
+        modality_raw = str(r.get("Modality", "") or "").strip()
+
+        s_color = str(color_map.get(norm_student(student), "#3B82F6") or "#3B82F6").strip()
+
+        phone_raw = str(phone_map.get(norm_student(student), "") or "").strip()
+        wa_url = build_whatsapp_url("", raw_phone=phone_raw) if phone_raw else ""
+
+        address_raw = str(address_map.get(norm_student(student), "") or "").strip()
+        maps_url = (
+            f"https://www.google.com/maps/search/{urllib.parse.quote(address_raw)}"
+            if address_raw else ""
+        )
+
+        info_bits = []
+        if subject:
+            info_bits.append(
+                f"<span class='dash-student-chip'>📚 {_html.escape(subject)}</span>"
+            )
+        if modality_raw:
+            info_bits.append(
+                f"<span class='dash-student-chip'>📍 {_html.escape(translate_modality_value(modality_raw))}</span>"
+            )
+
+        action_bits = []
+        if zoom_link.startswith("http"):
+            action_bits.append(
+                f"<a class='dash-action-chip dash-action-chip--zoom' "
+                f"href='{_html.escape(zoom_link, quote=True)}' target='_blank' rel='noopener noreferrer'>"
+                f"🎥 {t('open_zoom')}</a>"
+            )
+        if wa_url and phone_raw:
+            action_bits.append(
+                f"<a class='dash-action-chip dash-action-chip--wa' "
+                f"href='{_html.escape(wa_url, quote=True)}' target='_blank' rel='noopener noreferrer'>"
+                f"💬 {t('send_whatsapp')}</a>"
+            )
+        if maps_url and address_raw:
+            action_bits.append(
+                f"<a class='dash-action-chip dash-action-chip--maps' "
+                f"href='{_html.escape(maps_url, quote=True)}' target='_blank' rel='noopener noreferrer'>"
+                f"📍 {t('open_maps')}</a>"
+            )
+
+        time_html = (
+            f"<span class='dash-student-card-time'>🕒 {_html.escape(when)}</span>"
+            if when else ""
+        )
+
+        info_html = (
+            f"<div class='dash-student-card-info'>{''.join(info_bits)}</div>"
+            if info_bits else ""
+        )
+
+        actions_html = (
+            f"<div class='dash-action-row'>{''.join(action_bits)}</div>"
+            if action_bits else ""
+        )
+
+        card_html = (
+            f'<div class="dash-student-card" style="border-left:4px solid {s_color};">'
+            f'  <div class="dash-student-card-top">'
+            f'    <div class="dash-student-card-name">{_html.escape(student or "—")}</div>'
+            f'    {time_html}'
+            f'  </div>'
+            f'  {info_html}'
+            f'  {actions_html}'
+            f'</div>'
+        )
+        cards.append(card_html)
+
+    if cards:
+        html = "<div class='dash-today-list'>" + "".join(cards) + "</div>"
+        st.markdown(html, unsafe_allow_html=True)
 
 def render_dashboard():
+    teacher_notifications = get_teacher_notifications()
+    render_notification_cloud(teacher_notifications, scope="teacher")
     page_header(t("dashboard"))
     st.caption(t("manage_current_students"))
 
     dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
     if dash is None or dash.empty:
-        st.info(t("no_data"))
+        st.info(t("no_dashboard_data"))
         st.stop()
 
     d = dash.copy()
@@ -58,7 +372,7 @@ def render_dashboard():
         .sum()
     )
 
-    next_lesson = get_next_lesson_display()
+    next_lesson = _get_next_lesson_from_calendar()
 
     kpis, *_ = build_income_analytics(group="monthly")
     income_this_year = float(kpis.get("income_this_year", 0.0))
@@ -78,12 +392,13 @@ def render_dashboard():
     if goal_val > 0:
         render_home_indicator(
             status=t("online"),
-            badge=now_local().strftime("%d %b %Y"),
+            badge=_localized_short_date(now_local()),
             items=[
+                (t("next"), next_lesson),
                 (t("goal"), format_currency(goal_display)),
                 (t("ytd_income"), format_currency(income_display)),
                 (t("students"), str(active_students)),
-                (t("next"), next_lesson),
+                
             ],
             progress=goal_progress,
             accent="#3B82F6",
@@ -95,22 +410,12 @@ def render_dashboard():
             st.rerun()
 
     # ---------------------------------------
-    # TODAY'S LESSONS (row: done | student+time | link)
+    # TODAY'S LESSONS
     # ---------------------------------------
     st.subheader("📅 " + t("todays_lessons"))
 
-    st.markdown(
-        """
-        <style>
-          .tl-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
-          .tl-left{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
     today = today_local()
-    today_events = build_calendar_events(today, today)
+    today_events = build_calendar_events(today, today, get_app_tz_name())
 
     # Keep a DF for WhatsApp templates (confirm/cancel)
     today_df = pd.DataFrame()
@@ -119,96 +424,24 @@ def render_dashboard():
         st.caption(t("no_events_today"))
     else:
         df = today_events.copy()
-        df["Student"] = df["Student"].astype(str).str.strip()
-        df["Time"] = df["Time"].astype(str).str.strip()
-        df["Zoom_Link"] = df.get("Zoom_Link", "").fillna("").astype(str).str.strip()
-        df["Source"] = df.get("Source", "").fillna("").astype(str).str.strip().str.lower()
+
+        for col in ["Student", "Time", "Zoom_Link", "Source", "Subject", "Modality"]:
+            if col not in df.columns:
+                df[col] = ""
+
+        df["Student"] = df["Student"].fillna("").astype(str).str.strip()
+        df["Time"] = df["Time"].fillna("").astype(str).str.strip()
+        df["Zoom_Link"] = df["Zoom_Link"].fillna("").astype(str).str.strip()
+        df["Source"] = df["Source"].fillna("").astype(str).str.strip().str.lower()
+        df["Subject"] = df["Subject"].fillna("").astype(str).str.strip()
+        df["Modality"] = df["Modality"].fillna("").astype(str).str.strip()
+
         df = df.sort_values("Time").reset_index(drop=True)
 
-        # Save for WhatsApp Templates
         today_df = df.copy()
-        settings_map = load_app_settings_map()
 
-        for _, r in df.iterrows():
-            student = str(r.get("Student", "")).strip()
-            when = str(r.get("Time", "")).strip()
-            link = str(r.get("Zoom_Link", "")).strip()
-
-            # Stable unique lesson key per event
-            lesson_id = f"{today.isoformat()}_{student}_{when}"
-            key_done = f"today_done_{lesson_id}"
-
-            # Load persisted value once per run
-            saved_done_raw = settings_map.get(key_done, "0")
-            saved_done = str(saved_done_raw).strip().lower() in ("1", "true", "yes", "y", "on")
-
-            if key_done not in st.session_state:
-                st.session_state[key_done] = saved_done
-
-            # ✅ Row layout: Done | Info | Link
-            c_done, c_info, c_link = st.columns([0.55, 2.2, 1.3], vertical_alignment="center")
-
-            with c_done:
-                old_done = saved_done
-                done_now = st.toggle(
-                    t("mark_done"),
-                    value=bool(st.session_state.get(key_done, saved_done)),
-                    key=f"{key_done}_widget",
-                )
-
-                if done_now != old_done:
-                    ok = save_app_setting(key_done, "1" if done_now else "0")
-                    if ok:
-                        st.session_state[key_done] = done_now
-                    else:
-                       st.session_state[key_done] = old_done
-                       st.error("Could not save lesson completion status.")
-
-            # Styling AFTER the toggle value is known
-            done_effective = bool(st.session_state.get(key_done, saved_done))
-
-            name_style = "font-weight:900;"
-            time_style = "font-weight:900;"
-            if done_effective:
-                name_style += "text-decoration:line-through; opacity:0.55;"
-                time_style += "text-decoration:line-through; opacity:0.55;"
-
-            with c_info:
-                st.markdown(
-                    f"""
-                    <div class='tl-row'>
-                      <div class='tl-left'>
-                        <span style="{name_style}">{student}</span>
-                        <span style="{time_style}">{when}</span>
-                      </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-            with c_link:
-                # Link disappears when done (keeps dashboard clean)
-                if (not done_effective) and link.startswith("http"):
-                    try:
-                        st.link_button(
-                            t("open_link"),
-                            link,
-                            use_container_width=True,
-                            key=f"today_link_{lesson_id}",
-                        )
-                    except Exception:
-                        st.markdown(
-                            f"<a href='{link}' target='_blank' style='text-decoration:none;'>"
-                            f"<button style='width:100%;padding:0.62rem 1.0rem;border-radius:14px;"
-                            f"border:1px solid var(--border2, rgba(17,24,39,0.10));"
-                            f"background:linear-gradient(180deg, var(--panel), var(--panel-2));"
-                            f"color:var(--text);font-weight:700;cursor:pointer;'>"
-                            f"{t('open_link')}</button></a>",
-                            unsafe_allow_html=True,
-                        
-                        )
-                else:
-                    st.markdown("<div style='height:38px;'></div>", unsafe_allow_html=True)
+        color_map, _, _, phone_map, address_map = student_meta_maps()
+        _render_today_lessons_cards(df, color_map, phone_map, address_map)
 
     # ---------------------------------------
     # TAKE ACTION
@@ -222,7 +455,7 @@ def render_dashboard():
     if due_df.empty:
         st.caption(t("no_data"))
     else:
-        color_map, _, _, _ = student_meta_maps()
+        color_map, _, _, _, _ = student_meta_maps()
         for _, row in due_df.iterrows():
             student = str(row.get("Student", ""))
             lessons_left = int(row.get("Lessons_Left", 0))
@@ -304,7 +537,7 @@ def render_dashboard():
     )
 
     # Phone map
-    _, _, _, phone_map = student_meta_maps()
+    _, _, _, phone_map, _ = student_meta_maps()
 
     # Decide eligible list + pick student
     pick = ""
@@ -414,6 +647,14 @@ def render_dashboard():
         ],
     )
 
+    _show_raw = st.toggle(t("show_raw_data"), value=False, key="dash_show_raw_packages")
+    if _show_raw:
+        d_display = d.copy()
+        d_display["Status"] = d_display["Status"].apply(translate_status)
+        d_display["Modality"] = d_display.get("Modality", "").apply(translate_modality_value)
+
+        render_styled_dataframe(translate_df(pretty_df(d_display)))
+
     with st.expander(t("view_student_reports"), expanded=False):
         _dash_students = sorted(d["Student"].dropna().unique().tolist())
         if not _dash_students:
@@ -486,23 +727,13 @@ def render_dashboard():
             if _s_phone or _s_email:
                 st.caption(t("share_report_hint"))
 
-    _show_raw = st.toggle(t("show_raw_data"), value=False, key="dash_show_raw_packages")
-    if _show_raw:
-        d_display = d.copy()
-        d_display["Status"] = d_display["Status"].apply(translate_status)
-        d_display["Modality"] = d_display.get("Modality", "").apply(translate_modality_value)
-
-        render_styled_dataframe(translate_df(pretty_df(d_display)))
-
     # ---------------------------------------
     # MISMATCHES
     # ---------------------------------------
-    st.subheader(t("mismatches"))
     mismatch_df = d[d["Status"] == "mismatch"].copy()
 
-    if mismatch_df.empty:
-        st.caption(t("all_good_no_action_required"))
-    else:
+    if not mismatch_df.empty:
+        st.subheader(t("mismatches"))
         cols_mm = [
             "Student",
             "Overused_Units",
@@ -568,5 +799,12 @@ def render_dashboard():
                     st.error(t("normalize_failed"))
             except Exception as e:
                 st.error(f"{t('normalize_failed')}\n\n{e}")
+
+    render_notification_heading(teacher_notifications, scope="teacher", title_text=t("notifications"))
+    render_notification_panel(
+        teacher_notifications,
+        scope="teacher",
+        toggle_key="teacher_dashboard_notifications_toggle",
+    )
 
 # =========================

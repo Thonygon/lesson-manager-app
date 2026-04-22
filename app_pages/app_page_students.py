@@ -1,5 +1,7 @@
 import streamlit as st
 import datetime
+import html as _html
+import math
 import re
 import urllib.parse
 import pandas as pd
@@ -24,9 +26,231 @@ from helpers.student_report import (
     build_report_email_url,
 )
 from helpers.dashboard import rebuild_dashboard
+from helpers.teacher_student_integration import (
+    archive_teacher_assignment_for_teacher,
+    archive_teacher_student_link,
+    ensure_teacher_review_request_for_attempt,
+    get_teacher_request_resolution,
+    load_active_linked_students_for_teacher,
+    load_incoming_teacher_requests,
+    load_teacher_assignment_progress,
+    load_teacher_review_request_detail,
+    load_teacher_review_requests,
+    respond_to_teacher_request,
+    submit_teacher_review,
+    _clean_teacher_feedback_text,
+    _strip_html_fragments,
+)
+from helpers.learning_programs import (
+    load_program_assignments_for_teacher,
+    archive_learning_program_assignment,
+    load_learning_program,
+    load_assignment_progress_map,
+    set_assignment_topic_progress,
+)
 
 # 12.2) PAGE: STUDENTS
 # =========================
+
+_TEACHER_PAGE_SIZE = 6
+
+
+def _slice_teacher_page(rows: list, state_key: str, *, page_size: int = _TEACHER_PAGE_SIZE):
+    total_items = len(rows or [])
+    total_pages = max(1, math.ceil(total_items / page_size)) if total_items else 1
+    current_page = int(st.session_state.get(state_key, 1) or 1)
+    current_page = max(1, min(current_page, total_pages))
+    st.session_state[state_key] = current_page
+    start_idx = (current_page - 1) * page_size
+    end_idx = min(start_idx + page_size, total_items)
+    return list((rows or [])[start_idx:end_idx]), current_page, total_pages, start_idx, end_idx, total_items
+
+
+def _render_teacher_pagination(rows: list, state_key: str, *, page_size: int = _TEACHER_PAGE_SIZE) -> None:
+    _, current_page, total_pages, start_idx, end_idx, total_items = _slice_teacher_page(
+        rows, state_key, page_size=page_size,
+    )
+    if total_items <= page_size:
+        return
+    prev_col, info_col, next_col = st.columns([1, 3, 1])
+    with prev_col:
+        if st.button("←", key=f"{state_key}_prev", use_container_width=True, disabled=current_page <= 1):
+            st.session_state[state_key] = max(1, current_page - 1)
+            st.rerun()
+    with info_col:
+        st.caption(f"{start_idx + 1}-{end_idx} / {total_items} · {current_page}/{total_pages}")
+    with next_col:
+        if st.button("→", key=f"{state_key}_next", use_container_width=True, disabled=current_page >= total_pages):
+            st.session_state[state_key] = min(total_pages, current_page + 1)
+            st.rerun()
+
+
+def _render_end_relationship_action(*, link_id: int, key_prefix: str) -> None:
+    with st.popover(t("end_relationship"), use_container_width=True):
+        st.warning(t("relationship_end_warning"))
+        confirm = st.checkbox(
+            t("relationship_end_confirm_checkbox"),
+            key=f"{key_prefix}_confirm_end_relationship",
+        )
+        if st.button(
+            t("relationship_end_confirm_button"),
+            key=f"{key_prefix}_confirm_end_relationship_btn",
+            use_container_width=True,
+            type="primary",
+            disabled=not confirm,
+        ):
+            ok, msg = archive_teacher_student_link(int(link_id))
+            if ok:
+                st.success(t(msg))
+                st.rerun()
+            st.error(t(msg))
+
+
+def _review_note_block(label_key: str, raw_value, *, feedback: bool = False) -> str:
+    text = _clean_teacher_feedback_text(raw_value) if feedback else _strip_html_fragments(raw_value)
+    # Final display-side cleanup so serialized HTML cannot leak into the UI.
+    text = _strip_html_fragments(text)
+    if feedback:
+        text = _clean_teacher_feedback_text(text)
+    if not text:
+        return ""
+    return (
+        f"<div class='classio-student-link-note'><strong>{_html.escape(t(label_key))}:</strong> "
+        f"{_html.escape(text)}</div>"
+    )
+
+
+def _render_teacher_review_requests(
+    student_id: str,
+    subject_key: str | None = None,
+    *,
+    status_filter: str | None = None,
+    render_title: bool = True,
+) -> None:
+    review_rows = load_teacher_review_requests(student_id=student_id, subject_key=subject_key)
+    if status_filter and status_filter != "__all__":
+        review_rows = [row for row in review_rows if str(row.get("status") or "").strip() == status_filter]
+
+    if not review_rows:
+        st.info(t("no_review_requests"))
+        return
+
+    if render_title:
+        st.markdown(f"### {t('teacher_review_requests')}")
+
+    page_rows, *_ = _slice_teacher_page(review_rows, f"teacher_reviews_{student_id}_{subject_key}_{status_filter}")
+    for row in page_rows:
+        title = _html.escape(str(row.get("title") or "—"))
+        student_name = _html.escape(str(row.get("student_name") or "—"))
+        status_key = f"teacher_review_status_{row.get('status')}"
+        subject_display = _html.escape(str(row.get("subject_label") or row.get("subject_key") or "—"))
+        request_note_html = _review_note_block("teacher_review_note", row.get("request_note"))
+        feedback_html = _review_note_block("teacher_review_feedback", row.get("teacher_feedback"), feedback=True)
+        card_col, action_col = st.columns([6, 2], gap="medium")
+        with card_col:
+            st.markdown(
+                f"""
+                <div class="classio-progress-card">
+                    <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+                        <div>
+                            <div class="classio-progress-title">{title}</div>
+                            <div class="classio-progress-meta">{student_name} · {subject_display}</div>
+                        </div>
+                        <div><span class="classio-inline-chip">🧑‍🏫 {_html.escape(t(status_key))}</span></div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if request_note_html:
+                st.markdown(request_note_html, unsafe_allow_html=True)
+            if feedback_html:
+                st.markdown(feedback_html, unsafe_allow_html=True)
+        with action_col:
+            toggle_key = f"teacher_review_panel_open_{row.get('id')}"
+            if toggle_key not in st.session_state:
+                st.session_state[toggle_key] = str(row.get("status")) == "requested"
+            if st.button(
+                t("teacher_review_open"),
+                key=f"teacher_review_open_btn_{row.get('id')}",
+                use_container_width=True,
+            ):
+                st.session_state[toggle_key] = not st.session_state.get(toggle_key, False)
+
+        if st.session_state.get(toggle_key):
+            detail = load_teacher_review_request_detail(int(row.get("id") or 0))
+            items = detail.get("items") or []
+            if not items:
+                st.info(t("no_data"))
+                continue
+
+            with st.container():
+                overrides: dict[str, str] = {}
+                preview_total = 0
+                preview_correct = 0
+                current_section = None
+                for item in items:
+                    if item.get("section_title") != current_section:
+                        current_section = item.get("section_title")
+                        st.markdown(f"#### {_html.escape(str(current_section or '—'))}")
+                        source_text = str(item.get("source_text") or "").strip()
+                        if source_text:
+                            with st.expander(t("reading_passage"), expanded=False):
+                                st.write(source_text)
+                    prompt = str(item.get("prompt") or "—")
+                    student_answer = str(item.get("student_answer") or "").strip() or "—"
+                    correct_answer = str(item.get("correct_answer") or "").strip() or "—"
+                    auto_result = t("correct") if item.get("auto_correct") else t("incorrect")
+                    st.markdown(
+                        f"""
+                        <div style="padding:14px 16px;border-radius:16px;border:1px solid var(--border);background:rgba(148,163,184,.06);margin:0.45rem 0 0.8rem 0;">
+                            <div style="font-weight:800;color:var(--text);">{_html.escape(prompt)}</div>
+                            <div style="margin-top:0.45rem;color:var(--muted);"><strong>{_html.escape(t('teacher_review_student_answer'))}:</strong> {_html.escape(student_answer)}</div>
+                            <div style="margin-top:0.25rem;color:var(--muted);"><strong>{_html.escape(t('teacher_review_expected_answer'))}:</strong> {_html.escape(correct_answer)}</div>
+                            <div style="margin-top:0.25rem;color:var(--muted);"><strong>{_html.escape(t('teacher_review_auto_result'))}:</strong> {_html.escape(auto_result)}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    overrides[item["question_key"]] = st.radio(
+                        t("teacher_review_decision"),
+                        options=["keep", "correct", "incorrect"],
+                        format_func=lambda choice: t(
+                            "teacher_review_keep_ai" if choice == "keep" else
+                            "teacher_review_mark_correct" if choice == "correct" else
+                            "teacher_review_mark_incorrect"
+                        ),
+                        horizontal=True,
+                        key=f"review_override_{row.get('id')}_{item['question_key']}",
+                    )
+                    preview_total += 1
+                    choice = overrides[item["question_key"]]
+                    if choice == "correct":
+                        preview_correct += 1
+                    elif choice == "incorrect":
+                        preview_correct += 0
+                    elif item.get("auto_correct"):
+                        preview_correct += 1
+
+                teacher_feedback = st.text_area(
+                    t("teacher_review_feedback"),
+                    key=f"teacher_review_feedback_{row.get('id')}",
+                    height=100,
+                    placeholder=t("teacher_review_feedback_placeholder"),
+                )
+                preview_score = round((preview_correct / preview_total) * 100, 1) if preview_total else 0.0
+                st.caption(
+                    f"{t('teacher_review_preview_score')}: {preview_correct}/{preview_total} · {preview_score}%"
+                )
+                if st.button(t("teacher_review_save"), key=f"teacher_review_save_{row.get('id')}", type="primary"):
+                    ok, msg = submit_teacher_review(int(row.get("id") or 0), overrides, teacher_feedback)
+                    if ok:
+                        st.success(t(msg))
+                        st.rerun()
+                    st.error(t(msg))
+    _render_teacher_pagination(review_rows, f"teacher_reviews_{student_id}_{subject_key}_{status_filter}")
+
+
 def render_students():
     page_header(t("students"))
     st.caption(t("add_and_manage_students"))
@@ -157,13 +381,153 @@ def render_students():
             st.rerun()
 
     st.markdown(f"### {t('manage_students')}")
+    st.markdown(
+        """
+        <style>
+        .classio-student-link-card {
+            position: relative;
+            overflow: hidden;
+            background:
+              radial-gradient(circle at top right, rgba(59,130,246,.08), transparent 34%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 82%, white 18%));
+            border: 1px solid color-mix(in srgb, var(--border) 78%, rgba(59,130,246,.18) 22%);
+            border-radius: 22px;
+            padding: 18px 20px;
+            box-shadow: 0 14px 32px rgba(15,23,42,.08);
+            margin-bottom: 0.5rem;
+        }
+        .classio-student-link-card::before {
+            content: "";
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 5px;
+            background: linear-gradient(180deg, #38bdf8, #6366f1 58%, #14b8a6);
+        }
+        .classio-student-link-name {
+            font-size: 1.08rem;
+            font-weight: 800;
+            color: var(--text);
+            line-height: 1.2;
+        }
+        .classio-student-link-meta {
+            margin-top: 0.65rem;
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.45;
+        }
+        .classio-student-link-note {
+            margin-top: 0.75rem;
+            padding: 0.75rem 0.9rem;
+            border-radius: 14px;
+            background: rgba(148,163,184,.08);
+            border: 1px solid rgba(148,163,184,.16);
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+        .classio-student-link-action-label {
+            font-size: 0.76rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+            margin: 0.25rem 0 0.55rem 0.1rem;
+        }
+        .classio-inline-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.45rem 0.78rem;
+            border-radius: 999px;
+            background: rgba(59,130,246,.08);
+            border: 1px solid rgba(59,130,246,.14);
+            color: #2563eb;
+            font-size: 0.78rem;
+            font-weight: 700;
+            margin: 0 0.45rem 0.45rem 0;
+        }
+        .classio-progress-card {
+            position: relative;
+            overflow: hidden;
+            background:
+              radial-gradient(circle at top right, rgba(139,92,246,.10), transparent 34%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 82%, white 18%));
+            border: 1px solid color-mix(in srgb, var(--border) 78%, rgba(139,92,246,.18) 22%);
+            border-radius: 22px;
+            padding: 18px 20px;
+            box-shadow: 0 14px 32px rgba(15,23,42,.08);
+            margin-bottom: 0.9rem;
+        }
+        .classio-progress-card::before {
+            content: "";
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 5px;
+            background: linear-gradient(180deg, #8b5cf6, #6366f1 52%, #38bdf8);
+        }
+        .classio-progress-title {
+            font-size: 1.08rem;
+            font-weight: 800;
+            color: var(--text);
+            line-height: 1.25;
+        }
+        .classio-progress-meta {
+            margin-top: 0.55rem;
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.45;
+        }
+        .classio-progress-stats {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            margin-top: 0.95rem;
+        }
+        .classio-progress-stat {
+            min-width: 110px;
+            padding: 0.78rem 0.9rem;
+            border-radius: 16px;
+            background: rgba(148,163,184,.08);
+            border: 1px solid rgba(148,163,184,.16);
+        }
+        .classio-progress-stat-label {
+            font-size: 0.74rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--muted);
+        }
+        .classio-progress-stat-value {
+            margin-top: 0.25rem;
+            font-size: 1.05rem;
+            font-weight: 800;
+            color: var(--text);
+        }
+        div[data-testid="stButton"] > button[kind="primary"] {
+            border-radius: 16px;
+            min-height: 3rem;
+            font-weight: 800;
+            box-shadow: 0 14px 28px rgba(37,99,235,.18);
+        }
+        div[data-testid="stButton"] > button[kind="secondary"] {
+            border-radius: 16px;
+            min-height: 3rem;
+            font-weight: 700;
+            border-color: rgba(148,163,184,.28);
+            box-shadow: 0 8px 18px rgba(15,23,42,.06);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     if students_df.empty:
         st.info(t("no_students"))
     else:
-        tab_list, tab_profile, tab_history, tab_delete = st.tabs([
+        tab_list, tab_profile, tab_history, tab_requests, tab_progress, tab_delete = st.tabs([
             f"👩‍🎓 {t('student_list')}",
             f"📋 {t('student_profile')}",
             f"📊 {t('student_history')}",
+            f"🤝 {t('teacher_requests_title')}",
+            f"📈 {t('student_progress_title')}",
             f"🗑️ {t('delete_student')}",
         ])
 
@@ -187,15 +551,17 @@ def render_students():
             if not shown:
                 st.info(t("no_students"))
             else:
-                for name in shown:
+                shown_page, *_ = _slice_teacher_page(shown, "teacher_student_list_page")
+                for name in shown_page:
                     row = students_df.loc[students_df["student"] == name]
                     s_email = str(row.iloc[0].get("email", "")).strip() if not row.empty else ""
                     s_phone = str(row.iloc[0].get("phone", "")).strip() if not row.empty else ""
                     s_zoom  = str(row.iloc[0].get("zoom_link", "")).strip() if not row.empty else ""
                     s_color = str(row.iloc[0].get("color", "#3B82F6")).strip() if not row.empty else "#3B82F6"
                     s_notes = str(row.iloc[0].get("notes", "")).strip() if not row.empty else ""
+                    s_address = str(row.iloc[0].get("address", "")).strip() if not row.empty else ""
 
-                    has_profile = bool(s_email or s_phone or s_zoom or s_notes)
+                    has_profile = bool(s_email or s_phone or s_zoom or s_notes or s_address)
 
                     if not has_profile:
                         st.markdown(
@@ -259,6 +625,17 @@ def render_students():
                             f'<a href="{s_zoom}" target="_blank" rel="noopener noreferrer" '
                             f'style="{zoom_chip_style}">🎥 {t("open_zoom")}</a>'
                         )
+                    if s_address:
+                        maps_chip_style = (
+                            "display:inline-flex;align-items:center;gap:4px;padding:4px 12px;"
+                            "border-radius:20px;background:rgba(234,88,12,0.12);color:var(--text);font-size:13px;"
+                            "text-decoration:none;border:1px solid rgba(234,88,12,0.28);"
+                        )
+                        maps_href = f"https://www.google.com/maps/search/{urllib.parse.quote(s_address)}"
+                        chips.append(
+                            f'<a href="{maps_href}" target="_blank" rel="noopener noreferrer" '
+                            f'style="{maps_chip_style}">📍 {t("open_maps")}</a>'
+                        )
                     contact_html = " ".join(chips) if chips else f'<span style="font-size:12px;color:#94a3b8;">{t("no_contact_info")}</span>'
 
                     info_parts = []
@@ -298,6 +675,7 @@ def render_students():
                         """,
                         unsafe_allow_html=True,
                     )
+                _render_teacher_pagination(shown, "teacher_student_list_page")
 
         # ── TAB: Student Profile ──
         with tab_profile:
@@ -339,13 +717,14 @@ def render_students():
                 st.caption(t("examples_phone"))
             with col2:
                 color = st.color_picker(t("calendar_color"), value=student_row.get("color", "#3B82F6"), key=f"student_color_{sid}")
+                address = st.text_input(t("address"), value=student_row.get("address", ""), key=f"student_address_{sid}")
                 notes = st.text_area(t("notes"), value=student_row.get("notes", ""), key=f"student_notes_{sid}")
 
             if phone and not normalize_phone_for_whatsapp(phone) and len(_digits_only(phone)) < 11:
                 st.warning(t("examples_phone"))
 
             if st.button(t("save"), key=f"btn_save_student_profile_{sid}"):
-                update_student_profile(selected_student, email, zoom_link, notes, color, phone)
+                update_student_profile(selected_student, email, zoom_link, notes, color, phone, address)
                 st.success(t("done_ok"))
                 st.rerun()
 
@@ -440,5 +819,426 @@ def render_students():
                         st.rerun()
                     except Exception as e:
                         st.error(f"{t('delete_student_failed')}\n\n{e}")
+
+        with tab_requests:
+            st.markdown(f"### {t('teacher_requests_title')}")
+            incoming = load_incoming_teacher_requests()
+            if not incoming:
+                st.info(t("no_teacher_requests"))
+            else:
+                incoming_page, *_ = _slice_teacher_page(incoming, "teacher_incoming_requests_page")
+                for row in incoming_page:
+                    left_col, right_col = st.columns([6, 2], gap="medium")
+                    requested = row.get("requested_subjects") or []
+                    requested_labels = [s.get("subject_label", "") for s in requested if s.get("subject_label")]
+                    with left_col:
+                        chips = "".join(
+                            f"<span class='classio-inline-chip'>📚 {str(label)}</span>"
+                            for label in requested_labels
+                        )
+                        note_html = ""
+                        if row.get("request_note"):
+                            note_html = (
+                                f"<div class='classio-student-link-note'><strong>{t('teacher_note')}:</strong> "
+                                f"{row.get('request_note')}</div>"
+                            )
+                        st.markdown(
+                            f"""
+                            <div class="classio-student-link-card">
+                                <div class="classio-student-link-name">{row.get('student_name', '—')}</div>
+                                <div class="classio-student-link-meta">{t('requested_subjects')}</div>
+                                <div style="margin-top:0.5rem;">{chips or f"<span class='classio-inline-chip'>{t('no_active_subjects')}</span>"}</div>
+                                {note_html}
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                    req_options = [
+                        s.get("subject_label", "")
+                        for s in requested
+                        if s.get("subject_label")
+                    ]
+                    with right_col:
+                        st.markdown(
+                            f"<div class='classio-student-link-action-label'>{t('active_subjects')}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        resolution = get_teacher_request_resolution(int(row.get("id")))
+                        selected_record_id = None
+                        accept_disabled = not req_options
+                        chosen = []
+                        if req_options:
+                            chosen = st.multiselect(
+                                t("active_subjects"),
+                                options=req_options,
+                                default=req_options,
+                                key=f"teacher_request_subjects_{row.get('id')}",
+                                label_visibility="collapsed",
+                            )
+                        else:
+                            st.warning(t("select_active_subjects"))
+                        if resolution.get("mode") in {"linked_existing", "auto_email"} and resolution.get("selected_row"):
+                            st.info(
+                                f"{t(resolution.get('summary_key', 'teacher_request_auto_link_existing'))} "
+                                f"{_html.escape(str(resolution['selected_row'].get('student') or ''))}"
+                            )
+                        elif resolution.get("mode") == "review":
+                            st.warning(t("teacher_request_review_match"))
+                            option_values = ["__choose__", "__create_new__"] + [
+                                str(candidate.get("id")) for candidate in resolution.get("candidates", [])
+                            ]
+                            selected_option = st.selectbox(
+                                t("teacher_request_select_student_record"),
+                                options=option_values,
+                                format_func=lambda value: (
+                                    t("teacher_request_choose_resolution")
+                                    if value == "__choose__"
+                                    else t("teacher_request_create_new_record")
+                                    if value == "__create_new__"
+                                    else next(
+                                        (
+                                            f"{candidate.get('student', '—')}"
+                                            + (
+                                                f" · {candidate.get('email')}"
+                                                if str(candidate.get('email') or '').strip()
+                                                else ""
+                                            )
+                                            for candidate in resolution.get("candidates", [])
+                                            if str(candidate.get("id")) == str(value)
+                                        ),
+                                        "—",
+                                    )
+                                ),
+                                key=f"teacher_request_resolution_{row.get('id')}",
+                            )
+                            if selected_option == "__choose__":
+                                accept_disabled = True
+                            elif selected_option != "__create_new__":
+                                selected_record_id = int(selected_option)
+                        else:
+                            st.caption(t("teacher_request_new_record_will_be_created"))
+                        if st.button(
+                            t("accept"),
+                            key=f"teacher_request_accept_{row.get('id')}",
+                            use_container_width=True,
+                            disabled=accept_disabled,
+                            type="primary",
+                        ):
+                            if resolution.get("mode") in {"linked_existing", "auto_email"} and resolution.get("selected_row"):
+                                selected_record_id = int(resolution["selected_row"].get("id"))
+                            ok, msg = respond_to_teacher_request(
+                                int(row.get("id")),
+                                True,
+                                chosen,
+                                selected_record_id,
+                            )
+                            if ok:
+                                st.success(t(msg))
+                                st.rerun()
+                            st.error(t(msg))
+                        st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
+                        if st.button(t("reject"), key=f"teacher_request_reject_{row.get('id')}", use_container_width=True):
+                            ok, msg = respond_to_teacher_request(int(row.get("id")), False, [])
+                            if ok:
+                                st.success(t(msg))
+                                st.rerun()
+                            st.error(t(msg))
+                    st.markdown("<div style='height:0.75rem;'></div>", unsafe_allow_html=True)
+                _render_teacher_pagination(incoming, "teacher_incoming_requests_page")
+
+            st.markdown(f"### {t('my_linked_students')}")
+            linked = load_active_linked_students_for_teacher()
+            if not linked:
+                st.info(t("no_linked_students"))
+            else:
+                linked_page, *_ = _slice_teacher_page(linked, "teacher_linked_students_page")
+                for row in linked_page:
+                    left_col, right_col = st.columns([6, 2], gap="medium")
+                    subjects = ", ".join(
+                        s.get("subject_label", "")
+                        for s in row.get("subjects", [])
+                        if s.get("subject_label")
+                    )
+                    with left_col:
+                        chips = "".join(
+                            f"<span class='classio-inline-chip'>📚 {label}</span>"
+                            for label in [s.strip() for s in subjects.split(",") if s.strip()]
+                        )
+                        st.markdown(
+                            f"""
+                            <div class="classio-student-link-card">
+                                <div class="classio-student-link-name">{row.get('student_name', '—')}</div>
+                                <div class="classio-student-link-meta">{t('active_subjects')}</div>
+                                <div style="margin-top:0.55rem;">{chips or f"<span class='classio-inline-chip'>{t('no_active_subjects')}</span>"}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                    with right_col:
+                        st.markdown(
+                            f"<div class='classio-student-link-action-label'>{t('relationship_end_prompt')}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        _render_end_relationship_action(
+                            link_id=int(row.get("id") or 0),
+                            key_prefix=f"archive_link_{row.get('id')}",
+                        )
+                    st.markdown("<div style='height:0.75rem;'></div>", unsafe_allow_html=True)
+                _render_teacher_pagination(linked, "teacher_linked_students_page")
+
+        with tab_progress:
+            st.markdown(f"### {t('student_progress_title')}")
+            linked = load_active_linked_students_for_teacher()
+            if not linked:
+                st.info(t("no_linked_students"))
+            else:
+                student_options = {row.get("student_name", "—"): row for row in linked}
+                selected_student_name = st.selectbox(
+                    t("select_student"),
+                    options=list(student_options.keys()),
+                    key="assignment_progress_student",
+                )
+                selected_link = student_options[selected_student_name]
+                subject_options = ["__all__"] + [s.get("subject_key", "") for s in selected_link.get("subjects", [])]
+                selected_subject = st.selectbox(
+                    t("subject_filter"),
+                    options=subject_options,
+                    format_func=lambda x: t("all_subjects") if x == "__all__" else next(
+                        (
+                            s.get("subject_label", x)
+                            for s in selected_link.get("subjects", [])
+                            if s.get("subject_key") == x
+                        ),
+                        x,
+                    ),
+                    key="assignment_progress_subject",
+                )
+                progress_rows = load_teacher_assignment_progress(
+                    student_id=str(selected_link.get("student_id") or ""),
+                    subject_key=None if selected_subject == "__all__" else selected_subject,
+                )
+                review_rows = load_teacher_review_requests(
+                    student_id=str(selected_link.get("student_id") or ""),
+                    subject_key=None if selected_subject == "__all__" else selected_subject,
+                )
+
+                assignments_tab, reviews_tab, programs_tab = st.tabs(
+                    [
+                        f"📝 {t('student_progress_assignments_tab')}",
+                        f"🧑‍🏫 {t('student_progress_reviews_tab')}",
+                        f"📚 {t('assigned_learning_programs_title')}",
+                    ]
+                )
+
+                with assignments_tab:
+                    assignment_status_options = ["__all__"] + list(
+                        dict.fromkeys(
+                            str(row.get("status") or "").strip()
+                            for row in progress_rows
+                            if str(row.get("status") or "").strip()
+                        )
+                    )
+                    assignment_status = st.selectbox(
+                        t("status"),
+                        options=assignment_status_options,
+                        format_func=lambda value: t("all") if value == "__all__" else t(f"assignment_status_{value}"),
+                        key="assignment_progress_status",
+                    )
+                    filtered_progress_rows = [
+                        row for row in progress_rows
+                        if assignment_status == "__all__" or str(row.get("status") or "").strip() == assignment_status
+                    ]
+                    if not filtered_progress_rows:
+                        st.info(t("no_assignments"))
+                    else:
+                        fpr_page, *_ = _slice_teacher_page(filtered_progress_rows, "teacher_assignment_progress_page")
+                        for row in fpr_page:
+                            latest = row.get("latest_attempt") or {}
+                            score = latest.get("score_pct", row.get("score_pct"))
+                            title = _html.escape(str(row.get("title") or "—"))
+                            subject_display = _html.escape(str(row.get("subject_display") or "—"))
+                            status_label = _html.escape(t(f"assignment_status_{row.get('status')}"))
+                            attempts_value = int(row.get("attempt_count") or 0)
+                            score_value = f"{score}%" if score not in (None, "") else "—"
+                            student_name_safe = _html.escape(str(row.get("student_name") or selected_student_name or "—"))
+                            card_col, action_col = st.columns([6, 2], gap="medium")
+                            with card_col:
+                                st.markdown(
+                                    f"""
+                                    <div class="classio-progress-card">
+                                        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+                                            <div>
+                                                <div class="classio-progress-title">{title}</div>
+                                                <div class="classio-progress-meta">{student_name_safe} · {subject_display}</div>
+                                            </div>
+                                            <div><span class="classio-inline-chip">📌 {status_label}</span></div>
+                                        </div>
+                                        <div class="classio-progress-stats">
+                                            <div class="classio-progress-stat">
+                                                <div class="classio-progress-stat-label">{_html.escape(t('attempts_label'))}</div>
+                                                <div class="classio-progress-stat-value">{attempts_value}</div>
+                                            </div>
+                                            <div class="classio-progress-stat">
+                                                <div class="classio-progress-stat-label">{_html.escape(t('score_label'))}</div>
+                                                <div class="classio-progress-stat-value">{_html.escape(score_value)}</div>
+                                            </div>
+                                            <div class="classio-progress-stat">
+                                                <div class="classio-progress-stat-label">{_html.escape(t('created_at_label'))}</div>
+                                                <div class="classio-progress-stat-value">{_html.escape(str(row.get('created_at') or '')[:10] or '—')}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    """,
+                                    unsafe_allow_html=True,
+                                )
+                            with action_col:
+                                if latest.get("practice_session_id") and str(row.get("assignment_type") or "").strip() in {"worksheet", "exam"}:
+                                    if st.button(
+                                        t("teacher_review_start"),
+                                        key=f"teacher_review_start_{row.get('id')}",
+                                        use_container_width=True,
+                                        help=t("teacher_review_start_help"),
+                                    ):
+                                        ok, msg, _review_id = ensure_teacher_review_request_for_attempt(
+                                            student_id=str(row.get("student_id") or ""),
+                                            practice_session_id=int(latest.get("practice_session_id") or 0),
+                                            assignment_id=int(row.get("id") or 0),
+                                            subject_key=str(row.get("subject_key") or ""),
+                                            subject_label_text=str(row.get("subject_display") or ""),
+                                            title=str(row.get("title") or ""),
+                                            source_type=str(row.get("assignment_type") or ""),
+                                            source_id=row.get("source_id"),
+                                        )
+                                        if ok:
+                                            st.success(t(msg))
+                                            st.rerun()
+                                        st.error(t(msg))
+                                if st.button(
+                                    t("delete_assignment"),
+                                    key=f"archive_assignment_{row.get('id')}",
+                                    use_container_width=True,
+                                ):
+                                    ok, msg = archive_teacher_assignment_for_teacher(int(row.get("id") or 0))
+                                    if ok:
+                                        st.success(t(msg))
+                                        st.rerun()
+                                    st.error(t(msg) if msg in {"assignment_archived", "assignment_archive_failed"} else msg)
+                        _render_teacher_pagination(filtered_progress_rows, "teacher_assignment_progress_page")
+
+                with programs_tab:
+                    program_assignments_df = load_program_assignments_for_teacher()
+                    selected_student_id = str(selected_link.get("student_id") or "").strip()
+                    selected_student_label = str(selected_student_name or "").strip().casefold()
+                    program_rows = []
+                    if program_assignments_df is not None and not program_assignments_df.empty:
+                        for _, row in program_assignments_df.iterrows():
+                            row_dict = row.to_dict()
+                            row_student_id = str(row_dict.get("student_user_id") or "").strip()
+                            row_student_name = str(row_dict.get("student_name") or "").strip().casefold()
+                            if (selected_student_id and row_student_id == selected_student_id) or (selected_student_label and row_student_name == selected_student_label):
+                                program_rows.append(row_dict)
+
+                    if not program_rows:
+                        st.info(t("no_assignments"))
+                    else:
+                        prog_page, *_ = _slice_teacher_page(program_rows, "teacher_programs_progress_page")
+                        for row in prog_page:
+                            title = _html.escape(str(row.get("student_name") or selected_student_name or "—"))
+                            program_snapshot = load_learning_program(int(row.get("program_id") or 0)) if int(row.get("program_id") or 0) else {}
+                            program_title = _html.escape(str(program_snapshot.get("title") or t("learning_program_singular")))
+                            status_label = _html.escape(t(f"assignment_status_{row.get('status')}")) if str(row.get("status") or "").strip() else "—"
+                            card_col, action_col = st.columns([6, 2], gap="medium")
+                            with card_col:
+                                st.markdown(
+                                    f"""
+                                    <div class="classio-progress-card">
+                                        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+                                            <div>
+                                                <div class="classio-progress-title">{program_title}</div>
+                                                <div class="classio-progress-meta">{title} · {t('assigned_learning_program')}</div>
+                                            </div>
+                                            <div><span class="classio-inline-chip">📌 {status_label}</span></div>
+                                        </div>
+                                        <div class="classio-progress-stats">
+                                            <div class="classio-progress-stat">
+                                                <div class="classio-progress-stat-label">{_html.escape(t('created_at_label'))}</div>
+                                                <div class="classio-progress-stat-value">{_html.escape(str(row.get('created_at') or '')[:10] or '—')}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    """,
+                                    unsafe_allow_html=True,
+                                )
+                            with action_col:
+                                if st.button(
+                                    t("delete_assignment"),
+                                    key=f"archive_learning_program_assignment_{row.get('id')}",
+                                    use_container_width=True,
+                                ):
+                                    ok, msg = archive_learning_program_assignment(int(row.get("id") or 0))
+                                    if ok:
+                                        st.success(t(msg))
+                                        st.rerun()
+                                    st.error(msg)
+                            assignment_id = int(row.get("id") or 0)
+                            progress_map = load_assignment_progress_map(assignment_id) if assignment_id else {}
+                            for unit in program_snapshot.get("units") or []:
+                                with st.expander(
+                                    f"{t('unit_title_format', number=unit.get('unit_number'), title=unit.get('title'))}",
+                                    expanded=int(unit.get("unit_number") or 0) == 1,
+                                ):
+                                    for topic in unit.get("topics") or []:
+                                        topic_id = int(topic.get("topic_id") or 0)
+                                        done = bool(progress_map.get(topic_id, {}).get("is_done"))
+                                        topic_cols = st.columns([0.14, 0.86], gap="small")
+                                        with topic_cols[0]:
+                                            new_done = st.checkbox(
+                                                t("done_label"),
+                                                value=done,
+                                                key=f"teacher_learning_program_done_{assignment_id}_{topic_id}",
+                                                label_visibility="collapsed",
+                                            )
+                                            if new_done != done and topic_id > 0:
+                                                set_assignment_topic_progress(
+                                                    assignment_id=assignment_id,
+                                                    topic_id=topic_id,
+                                                    done_by_teacher=new_done,
+                                                )
+                                                st.rerun()
+                                        with topic_cols[1]:
+                                            st.markdown(
+                                                f"**{t('topic_title_format', number=topic.get('topic_number'), title=topic.get('title'))}**"
+                                            )
+                                            topic_summary = (
+                                                topic.get("student_summary")
+                                                or topic.get("lesson_focus")
+                                                or topic.get("subtopic")
+                                                or ""
+                                            )
+                                            if topic_summary:
+                                                st.caption(topic_summary)
+                        _render_teacher_pagination(program_rows, "teacher_programs_progress_page")
+
+                with reviews_tab:
+                    review_status_options = ["__all__"] + list(
+                        dict.fromkeys(
+                            str(row.get("status") or "").strip()
+                            for row in review_rows
+                            if str(row.get("status") or "").strip()
+                        )
+                    )
+                    review_status = st.selectbox(
+                        t("status"),
+                        options=review_status_options,
+                        format_func=lambda value: t("all") if value == "__all__" else t(f"teacher_review_status_{value}"),
+                        key="teacher_review_status_filter",
+                    )
+                    _render_teacher_review_requests(
+                        student_id=str(selected_link.get("student_id") or ""),
+                        subject_key=None if selected_subject == "__all__" else selected_subject,
+                        status_filter=review_status,
+                        render_title=False,
+                    )
 
 # =========================
