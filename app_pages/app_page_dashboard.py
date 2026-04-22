@@ -4,7 +4,7 @@ import urllib.parse
 from datetime import datetime as _dt, timezone
 import pandas as pd
 from core.i18n import t
-from core.timezone import today_local, now_local
+from core.timezone import today_local, now_local, get_app_tz_name
 from core.navigation import page_header, go_to
 from core.database import norm_student, update_payment_row, clear_app_caches
 from helpers.dashboard import rebuild_dashboard
@@ -84,7 +84,7 @@ def _get_next_lesson_from_calendar() -> str:
     start_day = today_local()
     end_day = start_day + datetime.timedelta(days=60)
 
-    events = build_calendar_events(start_day, end_day)
+    events = build_calendar_events(start_day, end_day, get_app_tz_name())
     if events is None or events.empty:
         return "—"
 
@@ -415,7 +415,7 @@ def render_dashboard():
     st.subheader("📅 " + t("todays_lessons"))
 
     today = today_local()
-    today_events = build_calendar_events(today, today)
+    today_events = build_calendar_events(today, today, get_app_tz_name())
 
     # Keep a DF for WhatsApp templates (confirm/cancel)
     today_df = pd.DataFrame()

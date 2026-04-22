@@ -11,7 +11,7 @@ import streamlit as st
 from core.database import get_sb, load_profile_row, load_table
 from core.i18n import t
 from core.state import get_current_user_id
-from core.timezone import now_local, today_local
+from core.timezone import now_local, today_local, get_app_tz_name
 from helpers.calendar_helpers import build_calendar_events
 from helpers.dashboard import rebuild_dashboard
 from helpers.goals import get_year_goal_progress_snapshot
@@ -179,7 +179,7 @@ def _smart_plan_state() -> dict:
 
 def _today_events_df():
     today = today_local()
-    events = build_calendar_events(today, today)
+    events = build_calendar_events(today, today, get_app_tz_name())
     if events is None or events.empty:
         return pd.DataFrame()
     df = events.copy()
@@ -194,7 +194,7 @@ def _today_events_df():
 def _future_events_students(days: int = 14) -> set[str]:
     today = today_local()
     end = today + timedelta(days=days)
-    events = build_calendar_events(today, end)
+    events = build_calendar_events(today, end, get_app_tz_name())
     if events is None or events.empty:
         return set()
     df = events.copy()

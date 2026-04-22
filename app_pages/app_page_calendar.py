@@ -3,7 +3,7 @@ import datetime
 from datetime import datetime as _dt, date, time, timedelta
 import pandas as pd
 from core.i18n import t
-from core.timezone import today_local, get_app_tz
+from core.timezone import today_local, get_app_tz, get_app_tz_name
 from core.navigation import page_header
 from core.database import load_students, get_sb, clear_app_caches
 from helpers.calendar_helpers import build_calendar_events, render_fullcalendar, _parse_time_value, validate_hhmm
@@ -183,7 +183,7 @@ def render_calendar():
     start_day = today_d - timedelta(days=365)
     end_day = today_d + timedelta(days=365)
 
-    events = build_calendar_events(start_day, end_day)
+    events = build_calendar_events(start_day, end_day, get_app_tz_name())
 
     # ---------------------------------------
     # CALENDAR RENDER
