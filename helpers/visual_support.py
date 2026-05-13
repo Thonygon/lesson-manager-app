@@ -1,6 +1,7 @@
 import base64
 import html
 import json
+import logging
 import os
 import re
 from io import BytesIO
@@ -11,6 +12,9 @@ from PIL import Image
 
 from core.i18n import t
 from helpers.ai_retry import run_with_ai_retries
+
+
+logger = logging.getLogger(__name__)
 
 
 # ── Hard rule appended to every image-generation prompt ──────────────
@@ -609,6 +613,18 @@ def _status_payload(state: str, message: str, *, provider_chain: str = "", task_
     }
 
 
+def _failed_status_payload(*, task_type: str = "", visual_role: str = "", debug_detail: str = "") -> dict:
+    status = _status_payload(
+        "generation_failed",
+        "image_support_generation_failed",
+        provider_chain=_provider_chain_label(),
+        task_type=task_type,
+        visual_role=visual_role,
+    )
+    status["debug_detail"] = _clean_text(debug_detail)
+    return status
+
+
 def _extract_image_data_url(response) -> str:
     data = getattr(response, "data", None) or []
     for item in data:
@@ -845,80 +861,89 @@ def exam_has_ready_visuals(exam_data: dict | None) -> bool:
 
 def enrich_worksheet_with_visuals(ws: dict, *, subject: str = "", learner_stage: str = "", topic: str = "") -> dict:
     payload = dict(ws or {})
-    stage = learner_stage or payload.get("learner_stage", "")
+    try:
+        stage = learner_stage or payload.get("learner_stage", "")
 
-    existing_supports = [
-        item for item in (_normalize_existing_support(s) for s in payload.get("visual_supports", []))
-        if item
-    ]
-    ready_supports = [item for item in existing_supports if _should_render_support(item)]
-    if ready_supports:
-        payload["visual_supports"] = ready_supports
-        payload["_visual_support_status"] = _status_payload(
-            "ready",
-            "image_support_ready",
-            provider_chain=_provider_chain_label(),
+        existing_supports = [
+            item for item in (_normalize_existing_support(s) for s in payload.get("visual_supports", []))
+            if item
+        ]
+        ready_supports = [item for item in existing_supports if _should_render_support(item)]
+        if ready_supports:
+            payload["visual_supports"] = ready_supports
+            payload["_visual_support_status"] = _status_payload(
+                "ready",
+                "image_support_ready",
+                provider_chain=_provider_chain_label(),
+                task_type=payload.get("worksheet_type", ""),
+                visual_role=ready_supports[0].get("visual_role", ""),
+            )
+            return payload
+
+        prompt_spec = _worksheet_prompt(
+            payload,
+            subject or payload.get("subject", ""),
+            stage,
+            topic or payload.get("topic", ""),
+        )
+        if not prompt_spec:
+            payload["_visual_support_status"] = _status_payload(
+                "skipped",
+                "image_support_not_needed",
+                provider_chain=_provider_chain_label(),
+                task_type=payload.get("worksheet_type", ""),
+            )
+            payload["visual_supports"] = []
+            return payload
+
+        role, caption, prompt = prompt_spec
+
+        if not _image_generation_enabled():
+            payload["_visual_support_status"] = _status_payload(
+                "provider_unavailable",
+                "image_support_provider_unavailable",
+                provider_chain=_provider_chain_label(),
+                task_type=payload.get("worksheet_type", ""),
+                visual_role=role,
+            )
+            payload["visual_supports"] = []
+            return payload
+
+        support = _build_ready_support(
+            role,
+            caption,
+            prompt,
+            subject or payload.get("subject", ""),
+            stage,
+            "worksheet_intro",
+        )
+        if _should_render_support(support):
+            payload["visual_supports"] = [support]
+            payload["_visual_support_status"] = _status_payload(
+                "ready",
+                "image_support_generated",
+                provider_chain=_provider_chain_label(),
+                task_type=payload.get("worksheet_type", ""),
+                visual_role=role,
+            )
+        else:
+            payload["visual_supports"] = []
+            payload["_visual_support_status"] = _status_payload(
+                "generation_failed",
+                "image_support_generation_failed",
+                provider_chain=_provider_chain_label(),
+                task_type=payload.get("worksheet_type", ""),
+                visual_role=role,
+            )
+        return payload
+    except Exception as exc:
+        logger.exception("Worksheet visual generation failed")
+        payload["visual_supports"] = []
+        payload["_visual_support_status"] = _failed_status_payload(
             task_type=payload.get("worksheet_type", ""),
-            visual_role=ready_supports[0].get("visual_role", ""),
+            debug_detail=str(exc),
         )
         return payload
-
-    prompt_spec = _worksheet_prompt(
-        payload,
-        subject or payload.get("subject", ""),
-        stage,
-        topic or payload.get("topic", ""),
-    )
-    if not prompt_spec:
-        payload["_visual_support_status"] = _status_payload(
-            "skipped",
-            "image_support_not_needed",
-            provider_chain=_provider_chain_label(),
-            task_type=payload.get("worksheet_type", ""),
-        )
-        payload["visual_supports"] = []
-        return payload
-
-    role, caption, prompt = prompt_spec
-
-    if not _image_generation_enabled():
-        payload["_visual_support_status"] = _status_payload(
-            "provider_unavailable",
-            "image_support_provider_unavailable",
-            provider_chain=_provider_chain_label(),
-            task_type=payload.get("worksheet_type", ""),
-            visual_role=role,
-        )
-        payload["visual_supports"] = []
-        return payload
-
-    support = _build_ready_support(
-        role,
-        caption,
-        prompt,
-        subject or payload.get("subject", ""),
-        stage,
-        "worksheet_intro",
-    )
-    if _should_render_support(support):
-        payload["visual_supports"] = [support]
-        payload["_visual_support_status"] = _status_payload(
-            "ready",
-            "image_support_generated",
-            provider_chain=_provider_chain_label(),
-            task_type=payload.get("worksheet_type", ""),
-            visual_role=role,
-        )
-    else:
-        payload["visual_supports"] = []
-        payload["_visual_support_status"] = _status_payload(
-            "generation_failed",
-            "image_support_generation_failed",
-            provider_chain=_provider_chain_label(),
-            task_type=payload.get("worksheet_type", ""),
-            visual_role=role,
-        )
-    return payload
 
 
 def regenerate_worksheet_visuals(ws: dict, *, subject: str = "", learner_stage: str = "", topic: str = "") -> dict:
@@ -949,103 +974,126 @@ def regenerate_exam_visuals(exam_data: dict, *, subject: str = "", learner_stage
 
 def worksheet_eligible_for_visuals(ws: dict, *, subject: str = "", learner_stage: str = "", topic: str = "") -> bool:
     """Return True if the worksheet type/stage qualifies for image generation."""
-    if worksheet_has_ready_visuals(ws):
-        return True
-    stage = learner_stage or ws.get("learner_stage", "")
-    return _worksheet_prompt(ws, subject or ws.get("subject", ""), stage, topic or ws.get("topic", "")) is not None
+    try:
+        if worksheet_has_ready_visuals(ws):
+            return True
+        stage = learner_stage or ws.get("learner_stage", "")
+        return _worksheet_prompt(ws, subject or ws.get("subject", ""), stage, topic or ws.get("topic", "")) is not None
+    except Exception:
+        logger.exception("Worksheet visual eligibility check failed")
+        return False
 
 
 def exam_eligible_for_visuals(exam_data: dict, *, subject: str = "", learner_stage: str = "", topic: str = "") -> bool:
     """Return True if any exam section qualifies for image generation."""
-    if exam_has_ready_visuals(exam_data):
-        return True
-    stage = learner_stage or exam_data.get("learner_stage", "")
-    for sec in exam_data.get("sections", []) or []:
-        if isinstance(sec, dict) and _exam_prompt(exam_data, sec, subject or exam_data.get("subject", ""), stage, topic or exam_data.get("topic", "")) is not None:
+    try:
+        if exam_has_ready_visuals(exam_data):
             return True
-    return False
+        stage = learner_stage or exam_data.get("learner_stage", "")
+        for sec in exam_data.get("sections", []) or []:
+            if isinstance(sec, dict) and _exam_prompt(exam_data, sec, subject or exam_data.get("subject", ""), stage, topic or exam_data.get("topic", "")) is not None:
+                return True
+        return False
+    except Exception:
+        logger.exception("Exam visual eligibility check failed")
+        return False
 
 
 def enrich_exam_with_visuals(exam_data: dict, *, subject: str = "", learner_stage: str = "", topic: str = "") -> dict:
     payload = dict(exam_data or {})
-    stage = learner_stage or payload.get("learner_stage", "")
-    sections = []
-    for section in payload.get("sections", []) or []:
-        sec = dict(section or {})
-        existing = _normalize_existing_support(sec.get("visual_support"))
+    try:
+        stage = learner_stage or payload.get("learner_stage", "")
+        sections = []
+        for section in payload.get("sections", []) or []:
+            sec = dict(section or {})
+            existing = _normalize_existing_support(sec.get("visual_support"))
 
-        if _should_render_support(existing):
-            sec["visual_support"] = existing
-            sec["_visual_support_status"] = _status_payload(
-                "ready",
-                "image_support_ready",
-                provider_chain=_provider_chain_label(),
-                task_type=sec.get("type", ""),
-                visual_role=existing.get("visual_role", ""),
+            if _should_render_support(existing):
+                sec["visual_support"] = existing
+                sec["_visual_support_status"] = _status_payload(
+                    "ready",
+                    "image_support_ready",
+                    provider_chain=_provider_chain_label(),
+                    task_type=sec.get("type", ""),
+                    visual_role=existing.get("visual_role", ""),
+                )
+                sections.append(sec)
+                continue
+
+            prompt_spec = _exam_prompt(
+                payload,
+                sec,
+                subject or payload.get("subject", ""),
+                stage,
+                topic or payload.get("topic", ""),
             )
+            if not prompt_spec:
+                sec["_visual_support_status"] = _status_payload(
+                    "skipped",
+                    "image_support_not_needed",
+                    provider_chain=_provider_chain_label(),
+                    task_type=sec.get("type", ""),
+                )
+                sec.pop("visual_support", None)
+                sections.append(sec)
+                continue
+
+            if not _image_generation_enabled():
+                sec["_visual_support_status"] = _status_payload(
+                    "provider_unavailable",
+                    "image_support_provider_unavailable",
+                    provider_chain=_provider_chain_label(),
+                    task_type=sec.get("type", ""),
+                    visual_role=prompt_spec[0],
+                )
+                sec.pop("visual_support", None)
+                sections.append(sec)
+                continue
+
+            role, caption, prompt = prompt_spec
+            support = _build_ready_support(
+                role,
+                caption,
+                prompt,
+                subject or payload.get("subject", ""),
+                stage,
+                "section_intro",
+            )
+            if _should_render_support(support):
+                sec["visual_support"] = support
+                sec["_visual_support_status"] = _status_payload(
+                    "ready",
+                    "image_support_generated",
+                    provider_chain=_provider_chain_label(),
+                    task_type=sec.get("type", ""),
+                    visual_role=role,
+                )
+            else:
+                sec.pop("visual_support", None)
+                sec["_visual_support_status"] = _status_payload(
+                    "generation_failed",
+                    "image_support_generation_failed",
+                    provider_chain=_provider_chain_label(),
+                    task_type=sec.get("type", ""),
+                    visual_role=role,
+                )
             sections.append(sec)
-            continue
-
-        prompt_spec = _exam_prompt(
-            payload,
-            sec,
-            subject or payload.get("subject", ""),
-            stage,
-            topic or payload.get("topic", ""),
-        )
-        if not prompt_spec:
-            sec["_visual_support_status"] = _status_payload(
-                "skipped",
-                "image_support_not_needed",
-                provider_chain=_provider_chain_label(),
-                task_type=sec.get("type", ""),
-            )
+        payload["sections"] = sections
+        return payload
+    except Exception as exc:
+        logger.exception("Exam visual generation failed")
+        failed_sections = []
+        for section in payload.get("sections", []) or []:
+            sec = dict(section or {})
             sec.pop("visual_support", None)
-            sections.append(sec)
-            continue
-
-        if not _image_generation_enabled():
-            sec["_visual_support_status"] = _status_payload(
-                "provider_unavailable",
-                "image_support_provider_unavailable",
-                provider_chain=_provider_chain_label(),
+            sec["_visual_support_status"] = _failed_status_payload(
                 task_type=sec.get("type", ""),
-                visual_role=prompt_spec[0],
+                debug_detail=str(exc),
             )
-            sec.pop("visual_support", None)
-            sections.append(sec)
-            continue
-
-        role, caption, prompt = prompt_spec
-        support = _build_ready_support(
-            role,
-            caption,
-            prompt,
-            subject or payload.get("subject", ""),
-            stage,
-            "section_intro",
-        )
-        if _should_render_support(support):
-            sec["visual_support"] = support
-            sec["_visual_support_status"] = _status_payload(
-                "ready",
-                "image_support_generated",
-                provider_chain=_provider_chain_label(),
-                task_type=sec.get("type", ""),
-                visual_role=role,
-            )
-        else:
-            sec.pop("visual_support", None)
-            sec["_visual_support_status"] = _status_payload(
-                "generation_failed",
-                "image_support_generation_failed",
-                provider_chain=_provider_chain_label(),
-                task_type=sec.get("type", ""),
-                visual_role=role,
-            )
-        sections.append(sec)
-    payload["sections"] = sections
-    return payload
+            failed_sections.append(sec)
+        payload["sections"] = failed_sections
+        payload["_visual_support_status"] = _failed_status_payload(debug_detail=str(exc))
+        return payload
 
 
 def data_uri_to_bytes(value: str) -> bytes | None:

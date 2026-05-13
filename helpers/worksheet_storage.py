@@ -27,9 +27,11 @@ from styles.pdf_styles import (
 )
 from helpers.visual_support import (
     enrich_worksheet_with_visuals,
+    regenerate_worksheet_visuals,
     worksheet_has_ready_visuals,
     worksheet_eligible_for_visuals,
     render_streamlit_visual_supports,
+    render_visual_support_status,
     build_pdf_visual_flowables,
     render_visual_support_status_group,
     get_visual_watermark_bytes,
@@ -1250,6 +1252,11 @@ def render_worksheet_result(
         if warning:
             st.warning(warning)
 
+    visual_status = ws.get("_visual_support_status")
+    visual_state = str((visual_status or {}).get("state") or "").strip()
+    if not worksheet_has_ready_visuals(ws) and visual_state in {"generation_failed", "provider_unavailable"}:
+        render_visual_support_status(visual_status, compact=True)
+
     st.markdown(f"### {_normalize_text(ws.get('title', ''))}")
     st.caption(
         f"{t('plan_language')}: {_normalize_text(ws.get('plan_language', '')).upper()} · "
@@ -1272,13 +1279,11 @@ def render_worksheet_result(
             btn_label = "🖼️ " + (t("generate_image") if t("generate_image") != "generate_image" else "Generate image")
         if st.button(btn_label, key=regen_key, type="secondary"):
             if _has_visuals:
-                from helpers.visual_support import regenerate_worksheet_visuals
                 with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating new image…"):
                     ws_updated = regenerate_worksheet_visuals(
                         ws, subject=subject, learner_stage=learner_stage, topic=topic,
                     )
             else:
-                from helpers.visual_support import enrich_worksheet_with_visuals
                 with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating image…"):
                     ws_updated = enrich_worksheet_with_visuals(
                         ws, subject=subject, learner_stage=learner_stage, topic=topic,

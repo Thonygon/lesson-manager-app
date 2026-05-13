@@ -23,6 +23,7 @@ from styles.pdf_styles import (
 )
 from helpers.visual_support import (
     enrich_exam_with_visuals,
+    regenerate_exam_visuals,
     exam_has_ready_visuals,
     exam_eligible_for_visuals,
     render_streamlit_visual_support,
@@ -965,7 +966,6 @@ def render_exam_result(
             _auto_key = f"_exam_vis_tried_{resource_record_id or action_key_prefix}"
             if not st.session_state.get(_auto_key):
                 st.session_state[_auto_key] = True
-                from helpers.visual_support import enrich_exam_with_visuals
                 with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating images…"):
                     exam_data = enrich_exam_with_visuals(
                         exam_data, subject=subject, learner_stage=learner_stage, topic=topic,
@@ -984,6 +984,14 @@ def render_exam_result(
         warning = st.session_state.get("exam_warning")
         if warning:
             st.warning(warning)
+
+    has_visual_failure = any(
+        str((sec.get("_visual_support_status") or {}).get("state") or "").strip() in {"generation_failed", "provider_unavailable"}
+        for sec in exam_data.get("sections", [])
+        if isinstance(sec, dict)
+    )
+    if not exam_has_ready_visuals(exam_data) and has_visual_failure:
+        st.warning(t("image_support_generation_failed"))
 
     st.markdown(f"### {exam_data.get('title', '')}")
 
@@ -1078,14 +1086,12 @@ def render_exam_result(
         if st.button(btn_label, key=regen_key, type="secondary"):
             if _has_visuals:
                 # Regenerate — deep-copies internally so original data is safe
-                from helpers.visual_support import regenerate_exam_visuals
                 with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating new image…"):
                     exam_updated = regenerate_exam_visuals(
                         exam_data, subject=subject, learner_stage=learner_stage, topic=topic,
                     )
             else:
                 # First generation for an exam that previously failed
-                from helpers.visual_support import enrich_exam_with_visuals
                 with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating image…"):
                     exam_updated = enrich_exam_with_visuals(
                         exam_data, subject=subject, learner_stage=learner_stage, topic=topic,
