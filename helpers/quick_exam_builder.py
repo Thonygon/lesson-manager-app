@@ -199,6 +199,58 @@ def _clean_answer_value(value):
     return value
 
 
+def _recover_section_answers(section: dict, existing_answers: list) -> list:
+    sec_type = _clean_str(section.get("type", ""))
+    recovered = []
+
+    for ans in _ensure_list(existing_answers):
+        if isinstance(ans, str) and ans.strip():
+            cleaned_answer = _strip_leading_numbering(ans)
+            if cleaned_answer:
+                recovered.append(cleaned_answer)
+        elif isinstance(ans, dict):
+            recovered.append(_clean_answer_value(ans))
+
+    if sec_type != "multiple_choice":
+        return recovered
+
+    questions = _ensure_list(section.get("questions"))
+    if len(recovered) >= len(questions):
+        return recovered
+
+    for q_idx, raw_q in enumerate(questions):
+        if q_idx < len(recovered) and recovered[q_idx]:
+            continue
+        if not isinstance(raw_q, dict):
+            continue
+        candidate = raw_q.get("answer") or raw_q.get("correct_answer") or raw_q.get("correct")
+        if isinstance(candidate, str) and candidate.strip():
+            recovered.append(_strip_leading_numbering(candidate))
+
+    return recovered
+
+
+def repair_exam_answer_key(exam_data: dict, answer_key: dict | None) -> tuple[dict, dict]:
+    """Backfill missing answer-key entries from question objects when possible."""
+    exam_copy = dict(exam_data or {})
+    answer_copy = dict(answer_key or {})
+    sections = _ensure_list(exam_copy.get("sections"))
+    ak_sections = _ensure_list(answer_copy.get("sections"))
+    repaired_sections = []
+
+    for idx, sec in enumerate(sections):
+        if not isinstance(sec, dict):
+            continue
+        existing = ak_sections[idx] if idx < len(ak_sections) and isinstance(ak_sections[idx], dict) else {}
+        repaired_sections.append({
+            "title": _clean_str(existing.get("title") or sec.get("title") or ""),
+            "answers": _recover_section_answers(sec, existing.get("answers") or []),
+        })
+
+    answer_copy["sections"] = repaired_sections
+    return exam_copy, answer_copy
+
+
 def _subject_key(subject: str) -> str:
     return _clean_str(subject).lower().replace("&", "and")
 
@@ -558,10 +610,7 @@ def normalize_exam_output(raw: dict) -> tuple[dict, dict]:
             "questions": [],
         }
 
-        ak_section = {
-            "title": section["title"],
-            "answers": [],
-        }
+        ak_section = {"title": section["title"], "answers": []}
 
         for q in _ensure_list(sec.get("questions")):
             if isinstance(q, dict):
@@ -573,13 +622,7 @@ def normalize_exam_output(raw: dict) -> tuple[dict, dict]:
                 if cleaned_text:
                     section["questions"].append({"text": cleaned_text})
 
-        for a in _ensure_list(sec.get("answers")):
-            if isinstance(a, str) and a.strip():
-                cleaned_answer = _strip_leading_numbering(a)
-                if cleaned_answer:
-                    ak_section["answers"].append(cleaned_answer)
-            elif isinstance(a, dict):
-                ak_section["answers"].append(_clean_answer_value(a))
+        ak_section["answers"] = _recover_section_answers(sec, sec.get("answers") or [])
 
         if len(ak_section["answers"]) == 1 and len(section["questions"]) > 1:
             expanded_answers = split_answer_key_items(
@@ -609,7 +652,7 @@ def normalize_exam_output(raw: dict) -> tuple[dict, dict]:
         student_lang,
         subject_group=subject_group,
     )
-    return exam_data, answer_key
+    return repair_exam_answer_key(exam_data, answer_key)
 
 
 def _section_type_rules(exercise_type: str, subject_group: str = "") -> str:
