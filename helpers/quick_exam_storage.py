@@ -61,11 +61,13 @@ def _strip_auto_numbering(value) -> str:
     a. Text
     """
     text = _normalize_text(value)
-    return re.sub(
-        r"^\s*(?:\(?\d+\)?[.)-]|\(?[A-Za-z]\)?[.)-])\s+",
-        "",
-        str(text or "")
-    ).strip()
+    cleaned = str(text or "").strip()
+    pattern = re.compile(r"^\s*(?:\(?\d+\)?[.)\-:]|\(?[A-Za-z]\)?[.)\-:])\s*")
+    while True:
+        updated = pattern.sub("", cleaned, count=1).strip()
+        if updated == cleaned:
+            return updated
+        cleaned = updated
 
 
 def _sentence_case_fragment(value) -> str:
@@ -687,7 +689,7 @@ def build_exam_pdf_bytes(
                     ]
                     for oi, opt in enumerate(options):
                         letter = chr(65 + oi)
-                        block.append(Paragraph(_pdf_safe_text(f"{letter}) {opt}"), _S["mc_option"]))
+                        block.append(Paragraph(_pdf_safe_text(f"{letter}) {_strip_auto_numbering(opt)}"), _S["mc_option"]))
                     block.append(Spacer(1, 4))
                     story.append(KeepTogether(block))
                 else:
@@ -1028,7 +1030,7 @@ def render_exam_result(
                     stem = _strip_auto_numbering(q.get("stem", q.get("text", "")))
                     st.write(f"**{idx}. {stem}**")
                     for oi, opt in enumerate(q.get("options", [])):
-                        st.write(f"   {chr(65+oi)}) {opt}")
+                        st.write(f"   {chr(65+oi)}) {_strip_auto_numbering(opt)}")
                 else:
                     st.write(f"{idx}. {_strip_auto_numbering(q)}")
 
