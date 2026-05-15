@@ -149,11 +149,12 @@ def _dedupe_keep_order(values: list[str]) -> list[str]:
 
 def _strip_leading_numbering(value) -> str:
     text = _clean_str(value)
-    return re.sub(
-        r"^\s*(?:\(?\d+\)?[.)-]|\(?[A-Za-z]\)?[.)-])\s+",
-        "",
-        text,
-    ).strip()
+    pattern = re.compile(r"^\s*(?:\(?\d+\)?[.)\-:]|\(?[A-Za-z]\)?[.)\-:])\s*")
+    while True:
+        updated = pattern.sub("", text, count=1).strip()
+        if updated == text:
+            return updated
+        text = updated
 
 
 def _sentence_case_fragment(value) -> str:
@@ -307,10 +308,17 @@ def _sanitize_question_value(question, lang_code: str, *, subject_group: str):
             cleaned[key] = _sanitize_language_text(cleaned.get(key, ""), lang_code, subject_group=subject_group)
     if isinstance(cleaned.get("options"), list):
         cleaned["options"] = [
-            _sanitize_language_text(opt, lang_code, subject_group=subject_group)
+            _strip_leading_numbering(
+                _sanitize_language_text(opt, lang_code, subject_group=subject_group)
+            )
             for opt in cleaned.get("options", [])
-            if _sanitize_language_text(opt, lang_code, subject_group=subject_group)
+            if _strip_leading_numbering(
+                _sanitize_language_text(opt, lang_code, subject_group=subject_group)
+            )
         ]
+    for key in ("answer", "correct_answer", "correct"):
+        if key in cleaned and isinstance(cleaned.get(key), str):
+            cleaned[key] = _strip_leading_numbering(cleaned[key])
     return cleaned
 
 

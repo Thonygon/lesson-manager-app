@@ -79,9 +79,15 @@ def _add_separator(doc: Document):
 
 
 def _strip_leading_enum(text: str) -> str:
-    """Remove leading '1.', 'a)', etc."""
+    """Remove repeated leading markers like '1.', 'a)', or 'A)' from text."""
     import re
-    return re.sub(r"^\s*(\d+[\.\)]\s*|[a-z][\.\)]\s*)", "", str(text or "")).strip()
+    cleaned = str(text or "").strip()
+    pattern = re.compile(r"^\s*(?:\(?\d+\)?[\.)\-:]|\(?[A-Za-z]\)?[\.)\-:])\s*")
+    while True:
+        updated = pattern.sub("", cleaned, count=1).strip()
+        if updated == cleaned:
+            return updated
+        cleaned = updated
 
 
 def _sentence_case_fragment(text: str) -> str:
@@ -820,11 +826,15 @@ def _render_multiple_choice_docx(doc, ws: dict, font_name: str, sec_sz: float,
                 flags=re.IGNORECASE,
             )
             if m:
-                stem = m.group(1).strip()
-                opts = [m.group(2).strip(), m.group(3).strip(), m.group(4).strip()]
+                stem = _strip_leading_enum(m.group(1))
+                opts = [
+                    _strip_leading_enum(m.group(2)),
+                    _strip_leading_enum(m.group(3)),
+                    _strip_leading_enum(m.group(4)),
+                ]
                 if m.group(5):
-                    opts.append(m.group(5).strip())
-                mc_items.append({"stem": stem, "options": opts, "answer": ""})
+                    opts.append(_strip_leading_enum(m.group(5)))
+                mc_items.append({"stem": stem, "options": [opt for opt in opts if opt], "answer": ""})
 
     if not mc_items:
         return
