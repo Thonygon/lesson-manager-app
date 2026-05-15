@@ -306,6 +306,15 @@ def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
 
 def exam_to_exercises(exam_data: dict, answer_key: dict, *, row_id: int | None = None) -> dict:
     """Convert a saved exam dict + answer_key into the unified exercise schema."""
+    from helpers.quick_exam_builder import repair_exam_answer_key
+
+    exam_data, answer_key = repair_exam_answer_key(exam_data, answer_key)
+    exam_data = enrich_exam_with_visuals(
+        exam_data,
+        subject=exam_data.get("subject", ""),
+        learner_stage=exam_data.get("learner_stage", ""),
+        topic=exam_data.get("topic", ""),
+    )
     exercises: list[dict] = []
 
     sections = exam_data.get("sections") or []

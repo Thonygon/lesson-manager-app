@@ -174,6 +174,13 @@ def save_exam_record(
     try:
         from helpers.branding import get_user_branding, resolve_is_public
         branding = get_user_branding()
+        exam_data, answer_key = _eb().repair_exam_answer_key(exam_data, answer_key)
+        exam_data = enrich_exam_with_visuals(
+            exam_data,
+            subject=subject,
+            learner_stage=learner_stage,
+            topic=topic,
+        )
         payload = with_owner({
             "title": str(exam_data.get("title", "")).strip(),
             "subject": str(subject).strip(),
@@ -940,6 +947,7 @@ def render_exam_result(
         return
 
     from helpers.quick_exam_builder import _default_instruction_for_exam_type, _exam_instruction_needs_reset
+    exam_data, answer_key = _eb().repair_exam_answer_key(exam_data, answer_key)
 
     subject = meta.get("subject", exam_data.get("subject", ""))
     topic = meta.get("topic", exam_data.get("topic", ""))

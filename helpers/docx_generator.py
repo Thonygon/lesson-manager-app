@@ -1156,8 +1156,11 @@ def generate_docx_exam(
     Generate a Word document from an exam dict.
     The teacher version appends an answer key section.
     """
+    from helpers.quick_exam_builder import repair_exam_answer_key
     from helpers.branding import get_user_branding
     from helpers.font_manager import get_docx_font_name, get_font_sizes
+
+    exam_data, answer_key = repair_exam_answer_key(exam_data, answer_key)
 
     branding = get_user_branding()
     font_key = branding.get("branding_font", "dejavu")
