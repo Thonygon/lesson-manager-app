@@ -5,28 +5,47 @@ from core.i18n import t
 from core.navigation import go_to, PAGE_KEYS, _set_query
 from core.state import get_current_user_role, get_current_user_id
 from core.database import enable_profile_mode
-from auth.auth import sign_out_user
+from auth.auth import render_profile_dialog, sign_out_user
+from services.auth_service import current_user_is_admin
+
+
+def _render_profile_dialog_if_requested() -> None:
+    if not st.session_state.get("show_profile_dialog"):
+        return
+    st.session_state["show_profile_dialog"] = False
+    uid = get_current_user_id()
+    if uid:
+        render_profile_dialog(uid)
 
 
 def render_top_nav(active_page: str):
     current_lang = st.session_state.get("ui_lang", "en")
     if current_lang not in ("en", "es", "tr"):
         current_lang = "en"
-    items = [
-        ("home",        t("home"),      "house"),
+    primary_items = [
         ("dashboard",   t("dashboard"), "bar-chart"),
         ("students",    t("students"),  "people"),
-        ("add_lesson",  t("lesson"),    "calendar-event"),
+        ("add_lesson",  t("lessons"),   "calendar-event"),
         ("add_payment", t("payment"),   "credit-card"),
         ("calendar",    t("calendar"),  "calendar3"),
-        ("analytics",   t("analytics"), "graph-up"),
+        ("smart_tools", t("ai_tools"),  "robot"),
         ("resources",   t("files"),     "folder2-open"),
-        ("sign_out",    t("sign_out"),  "box-arrow-right"),
     ]
+    # Pricing and account entries are intentionally hidden from the UI until ready.
+    # The underlying pages and routes remain available (e.g. for Stripe redirects).
+    more_items = [
+        ("home",      t("home"),      "house"),
+        ("community", t("community"), "globe"),
+        ("profile",   t("profile"),   "person-circle"),
+        ("analytics", t("analytics"), "graph-up"),
+    ]
+    if current_user_is_admin():
+        more_items.append(("admin", t("admin"), "shield-lock"))
+    more_items.append(("sign_out", t("sign_out"), "box-arrow-right"))
 
-    keys   = [k for k, _, _ in items]
-    labels = [label for _, label, _ in items]
-    icons  = [icon for _, _, icon in items]
+    keys   = [k for k, _, _ in primary_items]
+    labels = [label for _, label, _ in primary_items]
+    icons  = [icon for _, _, icon in primary_items]
 
     try:
         default_index = keys.index(active_page)
@@ -50,43 +69,62 @@ def render_top_nav(active_page: str):
         unsafe_allow_html=True,
     )
 
-    selected_label = option_menu(
-        menu_title=None,
-        options=labels,
-        icons=icons,
-        orientation="horizontal",
-        default_index=default_index,
-        key="top_nav_option_menu",
-        styles={
-            "container": {
-                "padding": "0 !important",
-                "margin": "0 0 1rem 0 !important",
-                "background": "var(--panel)",
-                "border": "1px solid var(--border)",
-                "border-radius": "14px",
-                "overflow-x": "auto",
-                "white-space": "nowrap",
+    nav_col, more_col = st.columns([12, 1.75], vertical_alignment="center")
+    with nav_col:
+        selected_label = option_menu(
+            menu_title=None,
+            options=labels,
+            icons=icons,
+            orientation="horizontal",
+            default_index=default_index,
+            key="top_nav_option_menu",
+            styles={
+                "container": {
+                    "padding": "0 !important",
+                    "margin": "0 0 1rem 0 !important",
+                    "background": "var(--panel)",
+                    "border": "1px solid var(--border)",
+                    "border-radius": "14px",
+                    "overflow-x": "auto",
+                    "white-space": "nowrap",
+                },
+                "nav-link": {
+                    "font-size": "14px",
+                    "text-align": "center",
+                    "padding": "6px 8px",
+                    "color": "var(--muted)",
+                    "--hover-color": "var(--panel-soft)",
+                },
+                "nav-link-selected": {
+                    "background": "var(--primary)",
+                    "color": "#f1f5f9",
+                },
+                "icon": {
+                    "font-size": "16px",
+                    "color": "var(--primary-light)",
+                },
             },
-            "nav-link": {
-                "font-size": "14px",
-                "text-align": "center",
-                "padding": "6px 8px",
-                "color": "var(--muted)",
-                "--hover-color": "var(--panel-soft)",
-            },
-            "nav-link-selected": {
-                "background": "var(--primary)",
-                "color": "#f1f5f9",
-            },
-            "icon": {
-                "font-size": "16px",
-                "color": "var(--primary-light)",
-            },
-        },
-    )
+        )
+    with more_col:
+        more_label = t("more") if t("more") != "more" else "More"
+        more_active = active_page in {key for key, _, _ in more_items}
+        popover_label = f"⋯ {more_label}" + (" •" if more_active else "")
+        with st.popover(popover_label, use_container_width=True):
+            for idx, (key, label, _icon) in enumerate(more_items):
+                if st.button(label, key=f"more_nav_{key}", use_container_width=True):
+                    if key == "sign_out":
+                        sign_out_user()
+                    elif key == "profile":
+                        st.session_state["show_profile_dialog"] = True
+                        st.rerun()
+                    else:
+                        go_to(key)
+                        st.rerun()
+                if idx == len(more_items) - 2:
+                    st.markdown("---")
 
     selected_key = active_page
-    for key, label, _ in items:
+    for key, label, _ in primary_items:
         if label == selected_label:
             selected_key = key
             break
@@ -95,9 +133,7 @@ def render_top_nav(active_page: str):
 
     if selected_key != previous_key:
         st.session_state["top_nav_prev"] = selected_key
-        if selected_key == "sign_out":
-            sign_out_user()
-        elif selected_key != active_page:
+        if selected_key != active_page:
             go_to(selected_key)
             st.rerun()
 
@@ -212,6 +248,9 @@ def route_app_pages(page: str):
     from app_pages.app_page_add_payment import render_add_payment
     from app_pages.app_page_calendar import render_calendar
     from app_pages.app_page_analytics import render_analytics
+    from app_pages.pricing import render_pricing
+    from app_pages.account import render_account
+    from app_pages.admin import render_admin
     from styles.theme import load_css_home, load_css_app
 
     if page == "home":
@@ -222,11 +261,27 @@ def route_app_pages(page: str):
     if page == "resources":
         load_css_home()
         render_top_nav("resources")
+        _render_profile_dialog_if_requested()
         render_home(panel_override="files", show_home_actions=False)
+        st.stop()
+
+    if page == "smart_tools":
+        load_css_home()
+        render_top_nav("smart_tools")
+        _render_profile_dialog_if_requested()
+        render_home(panel_override="ai_tools", show_home_actions=False)
+        st.stop()
+
+    if page == "community":
+        load_css_home()
+        render_top_nav("community")
+        _render_profile_dialog_if_requested()
+        render_home(panel_override="community", show_home_actions=False)
         st.stop()
 
     load_css_app(compact=bool(st.session_state.get("compact_mode", False)))
     render_top_nav(page)
+    _render_profile_dialog_if_requested()
 
     if page == "dashboard":
         render_dashboard()
@@ -238,8 +293,17 @@ def route_app_pages(page: str):
         render_add_payment()
     elif page == "calendar":
         render_calendar()
+    elif page == "smart_tools":
+        load_css_home()
+        render_home(panel_override="ai_tools", show_home_actions=False)
     elif page == "analytics":
         render_analytics()
+    elif page == "pricing":
+        render_pricing()
+    elif page == "account":
+        render_account()
+    elif page == "admin":
+        render_admin()
     else:
         go_to("home")
         st.rerun()
@@ -259,13 +323,7 @@ def _route_student_pages(page: str):
     load_css_app(compact=bool(st.session_state.get("compact_mode", False)))
     render_student_top_nav(page)
 
-    # Profile dialog for student pages
-    if st.session_state.get("show_profile_dialog"):
-        st.session_state["show_profile_dialog"] = False
-        from auth.auth import render_profile_dialog
-        uid = get_current_user_id()
-        if uid:
-            render_profile_dialog(uid)
+    _render_profile_dialog_if_requested()
 
     if page == "student_home":
         render_student_home()

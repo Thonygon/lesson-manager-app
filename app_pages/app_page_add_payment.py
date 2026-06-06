@@ -12,6 +12,7 @@ from helpers.pricing import render_pricing_editor
 from helpers.package_lang_lookups import latest_payment_languages_for_student
 from helpers.currency import CURRENCIES, CURRENCY_CODES, get_preferred_currency, currency_symbol, guess_currency_from_timezone
 from helpers.lesson_planner import QUICK_SUBJECTS
+from helpers.empty_states import render_empty_state
 
 # 12.4) PAGE: ADD PAYMENT
 # =========================
@@ -73,7 +74,19 @@ def _render_add_payment_form():
 
     students = load_students()
     if not students:
-        st.info(t("no_students"))
+        render_empty_state(
+            title_key="payments_empty_no_students_title",
+            body_key="payments_empty_no_students_body",
+            steps=[
+                "payments_empty_step_student",
+                "payments_empty_step_package",
+                "payments_empty_step_dashboard",
+            ],
+            icon="💳",
+        )
+        if st.button(t("payments_empty_add_student"), key="payment_empty_add_student", use_container_width=True, type="primary"):
+            go_to("students")
+            st.rerun()
     else:
         student_p = st.selectbox(t("select_student"), students, key="pay_student")
 
@@ -421,7 +434,16 @@ def _render_view_payments():
     payments = load_table("payments")
 
     if payments.empty:
-        st.info(t("no_data"))
+        render_empty_state(
+            title_key="payments_empty_history_title",
+            body_key="payments_empty_history_body",
+            steps=[
+                "payments_empty_history_step_record",
+                "payments_empty_history_step_packages",
+                "payments_empty_history_step_analytics",
+            ],
+            icon="📋",
+        )
         return
 
     # Normalise columns
@@ -440,7 +462,16 @@ def _render_view_payments():
 
     valid = payments.dropna(subset=["payment_date"]).copy()
     if valid.empty:
-        st.info(t("no_data"))
+        render_empty_state(
+            title_key="payments_empty_history_title",
+            body_key="payments_empty_history_body",
+            steps=[
+                "payments_empty_history_step_record",
+                "payments_empty_history_step_packages",
+                "payments_empty_history_step_analytics",
+            ],
+            icon="📋",
+        )
         return
 
     valid["year"] = valid["payment_date"].dt.year.astype(int)

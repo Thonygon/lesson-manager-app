@@ -31,8 +31,15 @@ from helpers.teacher_student_integration import (
     load_assignment_state_map,
     load_student_review_requests_for_session,
 )
+from helpers.student_recommendations import build_recommended_materials
+from helpers.empty_states import render_empty_state
 
 _STUDENT_PRACTICE_PAGE_SIZE = 4
+
+
+def _ui_text(key: str, fallback: str) -> str:
+    value = t(key)
+    return value if value != key else fallback
 
 
 def _slice_practice_page(rows: list[dict], state_key: str, *, page_size: int = _STUDENT_PRACTICE_PAGE_SIZE):
@@ -383,6 +390,8 @@ def _render_browse_tab():
     if not pub_ex.empty and _done["exam"] and "id" in pub_ex.columns:
         pub_ex = pub_ex[~pub_ex["id"].isin(_done["exam"])].reset_index(drop=True)
 
+    _render_recommended_materials(pub_ws, pub_ex)
+
     src_tab_ws, src_tab_exam = st.tabs([
         f"📋 {t('community_worksheets')}",
         f"📄 {t('community_exams')}",
@@ -397,7 +406,16 @@ def _render_browse_tab():
         if not pub_ws.empty and sp_stage != "__all__" and "learner_stage" in pub_ws.columns:
             pub_ws = pub_ws[pub_ws["learner_stage"] == sp_stage].reset_index(drop=True)
         if pub_ws.empty:
-            st.info(t("community_library_empty"))
+            render_empty_state(
+                title_key="student_practice_empty_worksheets_title",
+                body_key="student_practice_empty_worksheets_body",
+                steps=[
+                    "student_practice_empty_step_filters",
+                    "student_practice_empty_step_assignments",
+                    "student_practice_empty_step_return",
+                ],
+                icon="📋",
+            )
         else:
             ws_q = st.text_input(
                 t("explore_resource_search"),
@@ -598,7 +616,16 @@ def _render_browse_tab():
         if not pub_ex.empty and sp_stage != "__all__" and "learner_stage" in pub_ex.columns:
             pub_ex = pub_ex[pub_ex["learner_stage"] == sp_stage].reset_index(drop=True)
         if pub_ex.empty:
-            st.info(t("community_library_empty"))
+            render_empty_state(
+                title_key="student_practice_empty_exams_title",
+                body_key="student_practice_empty_exams_body",
+                steps=[
+                    "student_practice_empty_step_filters",
+                    "student_practice_empty_step_assignments",
+                    "student_practice_empty_step_return",
+                ],
+                icon="📄",
+            )
         else:
             ex_q = st.text_input(
                 t("explore_resource_search"),
@@ -924,7 +951,16 @@ def _render_teacher_review_request_panel(exercise_data: dict) -> None:
 def _render_history_tab():
     history = load_practice_history()
     if history.empty:
-        st.info(t("no_practice_history"))
+        render_empty_state(
+            title_key="student_practice_history_empty_title",
+            body_key="student_practice_history_empty_body",
+            steps=[
+                "student_practice_history_empty_step_start",
+                "student_practice_history_empty_step_save",
+                "student_practice_history_empty_step_review",
+            ],
+            icon="📊",
+        )
         return
 
     history_rows = history.reset_index(drop=True).to_dict("records")
@@ -1051,7 +1087,16 @@ def _render_history_tab():
 def _render_progress_tab():
     progress = load_practice_progress()
     if progress.empty:
-        st.info(t("no_practice_progress"))
+        render_empty_state(
+            title_key="student_practice_progress_empty_title",
+            body_key="student_practice_progress_empty_body",
+            steps=[
+                "student_practice_progress_empty_step_complete",
+                "student_practice_progress_empty_step_patterns",
+                "student_practice_progress_empty_step_recommend",
+            ],
+            icon="📈",
+        )
         return
 
     subject_options = ["__all__"]
@@ -1165,6 +1210,108 @@ def _render_progress_tab():
             unsafe_allow_html=True,
         )
     _render_practice_pagination(progress_rows, "student_practice_progress_page")
+
+
+def _render_recommended_materials(pub_ws, pub_ex) -> None:
+    recommendations = build_recommended_materials(pub_ws, pub_ex, limit=4)
+    if not recommendations:
+        if pub_ws.empty and pub_ex.empty:
+            return
+        render_empty_state(
+            title_key="student_practice_recommendations_empty_title",
+            body_key="student_practice_recommendations_empty_body",
+            steps=[
+                "student_practice_recommendations_empty_step_practice",
+                "student_practice_recommendations_empty_step_history",
+                "student_practice_recommendations_empty_step_return",
+            ],
+            icon="✨",
+        )
+        return
+
+    st.markdown(
+        f"### {_ui_text('recommended_materials', 'Recommended for you')}"
+    )
+    st.caption(
+        _ui_text(
+            "recommended_materials_caption",
+            "Start with these materials to strengthen weak areas, revisit past topics, and keep moving toward the next level.",
+        )
+    )
+
+    for idx in range(0, len(recommendations), 2):
+        pair = recommendations[idx:idx + 2]
+        cols = st.columns(2, gap="medium")
+        for col_idx, item in enumerate(pair):
+            row = item.get("row") or {}
+            resource_type = str(item.get("resource_type") or "")
+            with cols[col_idx]:
+                _render_practice_card(
+                    title=str(item.get("title") or t("untitled_worksheet")),
+                    subject=str(item.get("subject") or ""),
+                    topic=str(item.get("topic") or ""),
+                    level=str(item.get("level") or ""),
+                    ws_type=str(item.get("exercise_type") or resource_type),
+                    btn_key=f"sp_reco_{resource_type}_{row.get('id', idx)}_{idx}_{col_idx}",
+                    color="#22C55E" if resource_type == "worksheet" else "#F59E0B",
+                )
+                for reason in item.get("reasons") or []:
+                    st.caption(f"- {reason}")
+
+                trigger_key = f"_start_sp_reco_{resource_type}_{row.get('id', idx)}_{idx}_{col_idx}"
+                if st.session_state.pop(trigger_key, False):
+                    if resource_type == "worksheet":
+                        ws_json = row.get("worksheet_json") or {}
+                        if isinstance(ws_json, str):
+                            try:
+                                ws_json = json.loads(ws_json)
+                            except Exception:
+                                ws_json = {}
+                        if ws_json:
+                            from helpers.worksheet_builder import normalize_worksheet_output
+
+                            ws_json = normalize_worksheet_output(ws_json)
+                            ex_data = worksheet_to_exercises(ws_json, row_id=row.get("id"))
+                            if _open_practice_item(
+                                ex_data,
+                                {
+                                    "subject": row.get("subject", ""),
+                                    "topic": row.get("topic", ""),
+                                    "learner_stage": row.get("learner_stage", ""),
+                                    "level": row.get("level_or_band", ""),
+                                },
+                            ):
+                                st.rerun()
+                    elif resource_type == "exam":
+                        exam_data = row.get("exam_data") or {}
+                        answer_key = row.get("answer_key") or {}
+                        if isinstance(exam_data, str):
+                            try:
+                                exam_data = json.loads(exam_data)
+                            except Exception:
+                                exam_data = {}
+                        if isinstance(answer_key, str):
+                            try:
+                                answer_key = json.loads(answer_key)
+                            except Exception:
+                                answer_key = {}
+                        if exam_data:
+                            if isinstance(exam_data, dict):
+                                exam_data.setdefault("subject", row.get("subject", ""))
+                                exam_data.setdefault("topic", row.get("topic", ""))
+                                exam_data.setdefault("learner_stage", row.get("learner_stage", ""))
+                            ex_data = exam_to_exercises(exam_data, answer_key, row_id=row.get("id"))
+                            if _open_practice_item(
+                                ex_data,
+                                {
+                                    "subject": row.get("subject", ""),
+                                    "topic": row.get("topic", ""),
+                                    "learner_stage": row.get("learner_stage", ""),
+                                    "level": row.get("level", ""),
+                                },
+                            ):
+                                st.rerun()
+    st.markdown("<div style='height:0.5rem;'></div>", unsafe_allow_html=True)
 
 
 def _escape_html(value: str) -> str:

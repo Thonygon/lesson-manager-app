@@ -16,6 +16,7 @@ from core.state import (
     PROFILE_COUNTRY_OPTIONS,
 )
 from helpers.lesson_planner import subject_label as _profile_subject_label
+from helpers.native_language import native_language_label, normalize_native_language
 from core.timezone import DEFAULT_TZ_NAME, _get_qp
 from core.navigation import _set_query
 from core.database import (
@@ -634,12 +635,16 @@ def _profile_stage_label(stage: str) -> str:
 
 
 def _profile_lang_label(lang_code: str) -> str:
-    mapping = {
-        "en": t("english"),
-        "es": t("spanish"),
-        "tr": t("turkish"),
-    }
-    return mapping.get(lang_code, lang_code)
+    return native_language_label(lang_code)
+
+
+def _normalized_profile_languages(values) -> list[str]:
+    normalized: list[str] = []
+    for value in values or []:
+        lang_code = normalize_native_language(value)
+        if lang_code and lang_code in PROFILE_TEACH_LANG_OPTIONS and lang_code not in normalized:
+            normalized.append(lang_code)
+    return normalized
 
 
 def _profile_duration_label(minutes: int) -> str:
@@ -738,7 +743,35 @@ def render_profile_dialog(user_id: str) -> None:
                 )
                 phone_number_val = _re.sub(r"[^\d+]", "", _raw_phone)
 
+            role_value = str(profile.get("role") or "teacher")
+            _role_options = ["teacher", "student"]
+            _role_idx = _role_options.index(role_value) if role_value in _role_options else 0
+
             c1, c2 = st.columns(2)
+
+            with c2:
+                role = st.selectbox(
+                    t("role_label"),
+                    _role_options,
+                    index=_role_idx,
+                    format_func=lambda x: t(f"{x}_role"),
+                    key="profile_role",
+                )
+
+                _is_teacher = role in ("teacher", "tutor")
+
+                if _is_teacher:
+                    duration_value = int(profile.get("default_lesson_duration") or 45)
+                    duration_index = PROFILE_DURATION_OPTIONS.index(duration_value) if duration_value in PROFILE_DURATION_OPTIONS else 1
+                    default_lesson_duration = st.selectbox(
+                        t("default_lesson_duration_label"),
+                        PROFILE_DURATION_OPTIONS,
+                        index=duration_index,
+                        format_func=_profile_duration_label,
+                        key="profile_default_lesson_duration",
+                    )
+                else:
+                    default_lesson_duration = int(profile.get("default_lesson_duration") or 45)
 
             with c1:
                 _lang_options = ["en", "es", "tr"]
@@ -776,42 +809,16 @@ def render_profile_dialog(user_id: str) -> None:
                     key="profile_country",
                 )
 
-                _cur_value = str(profile.get("preferred_currency") or st.session_state.get("preferred_currency", "TRY"))
-                _cur_idx = CURRENCY_CODES.index(_cur_value) if _cur_value in CURRENCY_CODES else 0
-                preferred_currency = st.selectbox(
-                    t("preferred_currency"),
-                    CURRENCY_CODES,
-                    index=_cur_idx,
-                    format_func=lambda c: f"{CURRENCIES[c]['symbol']}  {c} — {CURRENCIES[c]['name']}",
-                    key="profile_preferred_currency",
-                )
-
-            with c2:
-                role_value = str(profile.get("role") or "teacher")
-                _role_options = ["teacher", "student"]
-                _role_idx = _role_options.index(role_value) if role_value in _role_options else 0
-                role = st.selectbox(
-                    t("role_label"),
-                    _role_options,
-                    index=_role_idx,
-                    format_func=lambda x: t(f"{x}_role"),
-                    key="profile_role",
-                )
-
-                _is_teacher = role in ("teacher", "tutor")
-
                 if _is_teacher:
-                    duration_value = int(profile.get("default_lesson_duration") or 45)
-                    duration_index = PROFILE_DURATION_OPTIONS.index(duration_value) if duration_value in PROFILE_DURATION_OPTIONS else 1
-                    default_lesson_duration = st.selectbox(
-                        t("default_lesson_duration_label"),
-                        PROFILE_DURATION_OPTIONS,
-                        index=duration_index,
-                        format_func=_profile_duration_label,
-                        key="profile_default_lesson_duration",
+                    _cur_value = str(profile.get("preferred_currency") or st.session_state.get("preferred_currency", "TRY"))
+                    _cur_idx = CURRENCY_CODES.index(_cur_value) if _cur_value in CURRENCY_CODES else 0
+                    preferred_currency = st.selectbox(
+                        t("preferred_currency"),
+                        CURRENCY_CODES,
+                        index=_cur_idx,
+                        format_func=lambda c: f"{CURRENCIES[c]['symbol']}  {c} — {CURRENCIES[c]['name']}",
+                        key="profile_preferred_currency",
                     )
-                else:
-                    default_lesson_duration = int(profile.get("default_lesson_duration") or 45)
 
 
             if _is_teacher:
@@ -843,9 +850,10 @@ def render_profile_dialog(user_id: str) -> None:
                 teaching_languages = st.multiselect(
                     t("teaching_languages_label"),
                     PROFILE_TEACH_LANG_OPTIONS,
-                    default=[x for x in (profile.get("teaching_languages") or []) if x in PROFILE_TEACH_LANG_OPTIONS],
+                    default=_normalized_profile_languages(profile.get("teaching_languages") or []),
                     format_func=_profile_lang_label,
                     key="profile_teaching_languages",
+                    help=t("teaching_languages_help"),
                 )
 
                 _edu_options = ["", "edu_student", "edu_bachelors", "edu_masters", "edu_doctorate"]
@@ -923,34 +931,34 @@ def render_profile_dialog(user_id: str) -> None:
                         st.error(f"{t('upload_failed')}: {e}")
                         return
 
-                ok = upsert_profile_row(
-                    user_id,
-                    {
-                        "display_name": display_name.strip(),
-                        "avatar_url": new_avatar_url,
-                        "preferred_ui_language": preferred_ui_language,
-                        "preferred_currency": preferred_currency,
-                        "timezone": timezone_name,
-                        "country": None if country == "Select..." else country,
-                        "role": role,
-                        "primary_subjects": primary_subjects,
-                        "custom_subjects": [
-                            s.strip().lower()
-                            for s in custom_subjects_text.split(",")
-                            if s.strip()
-                        ] if custom_subjects_text else [],
-                        "teaching_stages": teaching_stages,
-                        "teaching_languages": teaching_languages,
-                        "default_lesson_duration": int(default_lesson_duration),
-                        "onboarding_completed": True,
-                        "date_of_birth": str(date_of_birth_val) if date_of_birth_val else None,
-                        "sex": sex_val if sex_val else None,
-                        "phone_number": phone_number_val.strip() or None,
-                        "education_level": education_level if education_level else None,
-                        "show_community_profile": show_community_profile,
-                        "show_community_contact": show_community_contact,
-                    },
-                )
+                profile_payload = {
+                    "display_name": display_name.strip(),
+                    "avatar_url": new_avatar_url,
+                    "preferred_ui_language": preferred_ui_language,
+                    "timezone": timezone_name,
+                    "country": None if country == "Select..." else country,
+                    "role": role,
+                    "primary_subjects": primary_subjects,
+                    "custom_subjects": [
+                        s.strip().lower()
+                        for s in custom_subjects_text.split(",")
+                        if s.strip()
+                    ] if custom_subjects_text else [],
+                    "teaching_stages": teaching_stages,
+                    "teaching_languages": teaching_languages,
+                    "default_lesson_duration": int(default_lesson_duration),
+                    "onboarding_completed": True,
+                    "date_of_birth": str(date_of_birth_val) if date_of_birth_val else None,
+                    "sex": sex_val if sex_val else None,
+                    "phone_number": phone_number_val.strip() or None,
+                    "education_level": education_level if education_level else None,
+                    "show_community_profile": show_community_profile,
+                    "show_community_contact": show_community_contact,
+                }
+                if _is_teacher:
+                    profile_payload["preferred_currency"] = preferred_currency
+
+                ok = upsert_profile_row(user_id, profile_payload)
 
                 if ok:
                     from core.database import update_active_student_count
@@ -959,7 +967,8 @@ def render_profile_dialog(user_id: str) -> None:
                     st.session_state["avatar_url"] = new_avatar_url
                     st.session_state["ui_lang"] = preferred_ui_language
                     st.session_state["_pre_auth_ui_lang"] = preferred_ui_language
-                    st.session_state["preferred_currency"] = preferred_currency
+                    if _is_teacher:
+                        st.session_state["preferred_currency"] = preferred_currency
                     st.session_state["user_role"] = role
                     _sync_ui_lang_cookie(preferred_ui_language)
                     _set_query(lang=preferred_ui_language)

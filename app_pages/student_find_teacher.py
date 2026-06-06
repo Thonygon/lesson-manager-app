@@ -2,10 +2,12 @@ import streamlit as st
 import html as _html
 import math
 from core.i18n import t
-from core.state import get_current_user_id
+from core.state import get_current_user_id, PROFILE_TEACH_LANG_OPTIONS
 from core.database import load_community_profiles, profile_can_teach, profile_can_study
 from helpers.lesson_planner import QUICK_SUBJECTS, subject_label as _subject_label
+from helpers.native_language import native_language_flag_label, native_language_label, normalize_native_language
 from helpers.teacher_student_integration import archive_teacher_student_link, create_teacher_request, load_student_teacher_links
+from helpers.empty_states import render_empty_state
 
 _FIND_TEACHER_PAGE_SIZE = 6
 
@@ -62,7 +64,16 @@ def _render_end_relationship_action(*, link_id: int, key_prefix: str) -> None:
 
 
 def _lang_flag(code: str) -> str:
-    return {"en": "🇬🇧", "es": "🇪🇸", "tr": "🇹🇷"}.get(code, code)
+    return native_language_flag_label(code)
+
+
+def _normalized_teaching_languages(values) -> list[str]:
+    normalized: list[str] = []
+    for value in values or []:
+        lang_code = normalize_native_language(value)
+        if lang_code and lang_code in PROFILE_TEACH_LANG_OPTIONS and lang_code not in normalized:
+            normalized.append(lang_code)
+    return normalized
 
 
 def _inject_find_teacher_styles() -> None:
@@ -159,7 +170,28 @@ def render_community_member_cards(profiles: list, role_filter: str = "teacher"):
         ]
 
     if not members:
-        st.info(t("no_teachers_found") if role_filter == "teacher" else t("no_students_found"))
+        if role_filter == "teacher":
+            render_empty_state(
+                title_key="student_find_teacher_empty_title",
+                body_key="student_find_teacher_empty_body",
+                steps=[
+                    "student_find_teacher_empty_step_filters",
+                    "student_find_teacher_empty_step_profile",
+                    "student_find_teacher_empty_step_return",
+                ],
+                icon="🔍",
+            )
+        else:
+            render_empty_state(
+                title_key="student_find_students_empty_title",
+                body_key="student_find_students_empty_body",
+                steps=[
+                    "student_find_students_empty_step_profile",
+                    "student_find_students_empty_step_visibility",
+                    "student_find_students_empty_step_return",
+                ],
+                icon="👥",
+            )
         return
 
     st.markdown(
@@ -182,9 +214,7 @@ def render_community_member_cards(profiles: list, role_filter: str = "teacher"):
         _subjects = ", ".join(
             [_subject_label(s) for s in _primary] + [s.title() for s in _custom if s]
         )
-        _languages = " ".join(
-            _lang_flag(l) for l in (member.get("teaching_languages") or [])
-        )
+        _languages = ", ".join(_lang_flag(l) for l in _normalized_teaching_languages(member.get("teaching_languages") or []))
         _country = _html.escape(str(member.get("country") or "").strip())
         _avatar = str(member.get("avatar_url") or "").strip()
         _show_contact = bool(member.get("show_community_contact"))
@@ -304,10 +334,6 @@ def _clean_custom_subject_label(value: str) -> str:
     return text[:1].upper() + text[1:] if text else ""
 
 
-_LANG_OPTIONS = ["en", "es", "tr"]
-_LANG_LABELS = {"en": "🇬🇧 English", "es": "🇪🇸 Español", "tr": "🇹🇷 Türkçe"}
-
-
 def render_student_find_teacher():
     _inject_find_teacher_styles()
     st.markdown(f"## 🔍 {t('find_my_teacher')}")
@@ -344,17 +370,18 @@ def render_student_find_teacher():
 
     lang_filter = st.multiselect(
         t('filter_by_language'),
-        _LANG_OPTIONS,
-        format_func=lambda x: _LANG_LABELS.get(x, x.title() if x else x),
+        PROFILE_TEACH_LANG_OPTIONS,
+        format_func=native_language_label,
         placeholder=t("filter_by_language_helper"),
         key="find_teacher_lang",
     )
 
     # Filter teachers by selected language(s)
     if lang_filter:
+        normalized_filter = set(_normalized_teaching_languages(lang_filter))
         teachers_by_lang = [
             p for p in all_teachers
-            if any(l in (p.get("teaching_languages") or []) for l in lang_filter)
+            if any(l in normalized_filter for l in _normalized_teaching_languages(p.get("teaching_languages") or []))
         ]
     else:
         teachers_by_lang = all_teachers

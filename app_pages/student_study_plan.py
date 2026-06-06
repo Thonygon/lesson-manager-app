@@ -11,6 +11,7 @@ from app_pages.student_assignments import _inject_assignment_page_styles, render
 from helpers.lesson_planner import QUICK_SUBJECTS, normalize_subject, subject_label as _subject_label
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student
 from helpers.teacher_student_integration import get_student_assignment_summary, has_active_teacher_relationships
+from helpers.empty_states import render_empty_state
 
 
 _SMART_PLAN_NS = "student_smart_plan"
@@ -344,7 +345,7 @@ def _build_program_anchor(program_assignments: list[dict]) -> dict | None:
                 "global_number": global_number,
                 "unit_number": int(unit.get("unit_number") or 0),
                 "unit_title": unit.get("title") or "",
-                "is_done": bool(progress_map.get(topic_id, {}).get("is_done")),
+                "is_done": bool(progress_map.get(topic_id, {}).get("teacher_done")),
             }
             if topic_row["is_done"]:
                 completed_topics.append(topic_row)
@@ -916,11 +917,33 @@ def _render_smart_plan_teacher_summary() -> None:
     assignments = get_student_assignment_summary(limit=3)
     has_links = has_active_teacher_relationships()
     if not has_links and not assignments:
+        render_empty_state(
+            title_key="student_study_plan_teacher_empty_title",
+            body_key="student_study_plan_teacher_empty_body",
+            steps=[
+                "student_study_plan_teacher_empty_step_connect",
+                "student_study_plan_teacher_empty_step_assignments",
+                "student_study_plan_teacher_empty_step_review",
+            ],
+            icon="🗂️",
+        )
+        if st.button(t("student_assignments_empty_find_teacher"), key="smart_plan_empty_find_teacher", use_container_width=True):
+            go_to("student_find_teacher")
+            st.rerun()
         return
 
     st.markdown(f"### {t('smart_plan_teacher_assignments_title')}")
     if not assignments:
-        st.info(t("smart_plan_teacher_assignments_empty"))
+        render_empty_state(
+            title_key="student_study_plan_teacher_waiting_title",
+            body_key="student_study_plan_teacher_waiting_body",
+            steps=[
+                "student_study_plan_teacher_empty_step_assignments",
+                "student_study_plan_teacher_empty_step_review",
+                "student_home_recommendations_empty_step_return",
+            ],
+            icon="📝",
+        )
         return
 
     cols = st.columns(len(assignments))
@@ -1016,10 +1039,34 @@ def render_student_study_plan():
             _render_smart_plan_weekly(state)
             _render_smart_plan_recommendations(state)
         else:
-            st.info(t("smart_plan_setup_prompt"))
+            render_empty_state(
+                title_key="student_study_plan_empty_title",
+                body_key="student_study_plan_empty_body",
+                steps=[
+                    "student_study_plan_empty_step_setup",
+                    "student_study_plan_empty_step_daily",
+                    "student_study_plan_empty_step_recommendations",
+                ],
+                icon="📚",
+            )
 
     with tab_programs:
-        render_assigned_learning_programs_section(program_assignments, [])
+        if program_assignments:
+            render_assigned_learning_programs_section(program_assignments, [])
+        else:
+            render_empty_state(
+                title_key="student_study_plan_programs_empty_title",
+                body_key="student_study_plan_programs_empty_body",
+                steps=[
+                    "student_study_plan_programs_empty_step_teacher",
+                    "student_study_plan_programs_empty_step_progress",
+                    "student_study_plan_programs_empty_step_plan",
+                ],
+                icon="📘",
+            )
+            if st.button(t("student_assignments_empty_find_teacher"), key="smart_plan_programs_find_teacher", use_container_width=True):
+                go_to("student_find_teacher")
+                st.rerun()
 
     with tab_teacher:
         _render_smart_plan_teacher_summary()

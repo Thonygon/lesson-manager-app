@@ -16,6 +16,15 @@ from core.navigation import go_to
 from core.state import get_current_user_id, with_owner
 from core.timezone import get_app_tz, today_local
 from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
+from helpers.student_personalization import (
+    NATIVE_LANGUAGE_OPTIONS,
+    apply_native_language_context,
+    build_student_generation_profile,
+    is_language_subject,
+    load_teacher_personalization_students,
+    native_language_label,
+    normalize_native_language,
+)
 from reportlab.lib.enums import TA_CENTER
 
 # ============================================================
@@ -998,11 +1007,12 @@ def render_quick_lesson_plan_result(
     resource_record_id: int | str | None = None,
     action_key_prefix: str = "quick_plan",
     signup_required_actions: bool = False,
+    comparison_mode: bool = False,
 ) -> None:
     _inject_planner_result_css()
     plan = _clean_plan_data(plan)
 
-    if not read_only:
+    if not read_only and not comparison_mode:
         st.success(t("lesson_plan_ready"))
 
     resolved_mode = st.session_state.get("quick_lesson_plan_mode_used", "template")
@@ -1092,6 +1102,9 @@ def render_quick_lesson_plan_result(
         level_or_band=level_or_band,
         lesson_purpose=lesson_purpose,
     )
+
+    if comparison_mode:
+        return
 
     if read_only:
         dc1, dc2 = st.columns(2)
@@ -1611,7 +1624,7 @@ def build_lesson_plan_pdf_bytes(
 
 
 def render_quick_lesson_planner_expander() -> None:
-    with st.expander(f"📝 {t('quick_lesson_planner')}", expanded=False):
+    with st.expander(f"📝 {t('quick_lesson_planner')}", expanded=bool(st.session_state.pop("open_quick_plan_expander", False))):
         st.caption(t("quick_lesson_caption"))
         st.caption(t("plan_language_note"))
 
@@ -1672,20 +1685,74 @@ def render_quick_lesson_planner_expander() -> None:
             )
 
         topic = st.text_input(t("topic_label"), key="quick_plan_topic")
+        student_options = load_teacher_personalization_students()
+        selected_student_label = st.selectbox(
+            t("personalize_for_student") if t("personalize_for_student") != "personalize_for_student" else "Personalize for student",
+            options=[""] + [item["label"] for item in student_options],
+            key="quick_plan_student_personalization",
+            help=t("personalize_for_student_help"),
+        )
+        selected_student = next((item for item in student_options if item["label"] == selected_student_label), None)
+        preview_profile = {}
+        if selected_student:
+            preview_profile = build_student_generation_profile(
+                selected_student["student_user_id"],
+                subject=other_subject_name if subject == "other" else subject,
+            )
+            if preview_profile.get("summary"):
+                st.caption(preview_profile["summary"])
+        native_language = ""
+        show_native_language = is_language_subject(subject, other_subject_name)
+        if show_native_language:
+            native_language_current = normalize_native_language(preview_profile.get("native_language"))
+            native_language = st.selectbox(
+                t("student_native_language"),
+                NATIVE_LANGUAGE_OPTIONS,
+                index=NATIVE_LANGUAGE_OPTIONS.index(native_language_current) if native_language_current in NATIVE_LANGUAGE_OPTIONS else 0,
+                format_func=native_language_label,
+                key="quick_plan_student_native_language",
+                help=t("student_native_language_generation_help"),
+            )
+
+        ab_debug_enabled = False
+        if st.session_state.get("_internal_ab_debug_enabled"):
+            ab_debug_enabled = st.toggle(
+                t("ab_debug_compare_toggle"),
+                key="quick_plan_ab_debug_enabled",
+                help=t("ab_debug_compare_help"),
+                disabled=(quick_plan_mode != "ai" or not selected_student),
+            )
+            if quick_plan_mode != "ai":
+                st.caption(t("ab_debug_compare_ai_only"))
+            elif not selected_student:
+                st.caption(t("ab_debug_compare_requires_student"))
 
         rec_level = _lp().recommend_default_level(subject, learner_stage)
         rec_label = rec_level if rec_level in _lp().LANGUAGE_LEVELS else t(rec_level)
         st.caption(f"{t('recommended_level')}: {rec_label}")
 
         if st.button(t("generate_plan"), key="btn_generate_quick_plan", use_container_width=True):
-            if not topic.strip():
-                st.error(t("enter_topic"))
-            elif subject == "other" and not other_subject_name:
+            if subject == "other" and not other_subject_name:
                 st.error(t("enter_subject_name"))
             elif subject == "other" and quick_plan_mode == "template":
+                st.session_state.pop("quick_plan_ab_debug_compare", None)
+                student_profile = (
+                    build_student_generation_profile(selected_student["student_user_id"], subject=other_subject_name)
+                    if selected_student
+                    else {}
+                )
+                if show_native_language:
+                    student_profile = apply_native_language_context(student_profile, native_language)
+                else:
+                    student_profile.pop("native_language", None)
+                effective_topic = topic.strip() or str(((student_profile.get("program_context") or {}).get("next_topics") or [""])[0]).strip()
+                if not effective_topic:
+                    st.error(t("enter_topic"))
+                    return
+                st.session_state["quick_plan_effective_topic"] = effective_topic
                 community_row = _find_community_plan_for_other(
                     other_subject_name,
-                    topic,
+                    effective_topic,
                     learner_stage,
                     level_or_band,
                     lesson_purpose,
@@ -1704,7 +1771,7 @@ def render_quick_lesson_planner_expander() -> None:
                             "requested_mode": "template",
                             "resolved_mode": "community",
                             "subject": subject,
-                            "topic": topic,
+                            "topic": effective_topic,
                             "lesson_purpose": lesson_purpose,
                         },
                     )
@@ -1712,8 +1779,23 @@ def render_quick_lesson_planner_expander() -> None:
                     st.session_state["quick_lesson_plan_result"] = None
                     st.session_state["quick_lesson_no_template"] = True
             else:
+                st.session_state.pop("quick_plan_ab_debug_compare", None)
                 st.session_state["quick_lesson_no_template"] = False
                 effective_subject = other_subject_name if subject == "other" else subject
+                student_profile = (
+                    build_student_generation_profile(selected_student["student_user_id"], subject=effective_subject)
+                    if selected_student
+                    else {}
+                )
+                if show_native_language:
+                    student_profile = apply_native_language_context(student_profile, native_language)
+                else:
+                    student_profile.pop("native_language", None)
+                effective_topic = topic.strip() or str(((student_profile.get("program_context") or {}).get("next_topics") or [""])[0]).strip()
+                if not effective_topic:
+                    st.error(t("enter_topic"))
+                    return
+                st.session_state["quick_plan_effective_topic"] = effective_topic
 
                 with st.spinner(t("generating")):
                     plan, resolved_mode, warning_msg = _lp().generate_quick_lesson_plan_with_fallback(
@@ -1722,8 +1804,27 @@ def render_quick_lesson_planner_expander() -> None:
                         learner_stage=learner_stage,
                         level_or_band=level_or_band,
                         lesson_purpose=lesson_purpose,
-                        topic=topic,
+                        topic=effective_topic,
+                        student_profile=student_profile,
                     )
+
+                    debug_baseline_plan = {}
+                    debug_baseline_error = ""
+                    if plan and ab_debug_enabled and selected_student and quick_plan_mode == "ai":
+                        try:
+                            debug_baseline_plan = _lp().generate_ai_lesson_plan(
+                                subject=effective_subject,
+                                learner_stage=learner_stage,
+                                level_or_band=level_or_band,
+                                lesson_purpose=lesson_purpose,
+                                topic=effective_topic,
+                                plan_language=_lp().get_plan_language(),
+                                student_material_language=_lp().get_student_material_language(effective_subject),
+                                student_profile={},
+                            )
+                            debug_baseline_plan = _lp().normalize_planner_output(debug_baseline_plan)
+                        except Exception as exc:
+                            debug_baseline_error = str(exc)
 
                 st.session_state["quick_lesson_plan_result"] = plan
                 st.session_state["quick_lesson_plan_kept"] = False
@@ -1736,7 +1837,7 @@ def render_quick_lesson_planner_expander() -> None:
                         learner_stage=learner_stage,
                         level_or_band=level_or_band,
                         lesson_purpose=lesson_purpose,
-                        topic=topic,
+                        topic=effective_topic,
                         mode="ai",
                         plan=plan,
                     )
@@ -1748,10 +1849,23 @@ def render_quick_lesson_planner_expander() -> None:
                         "requested_mode": quick_plan_mode,
                         "resolved_mode": resolved_mode,
                         "subject": effective_subject,
-                        "topic": topic,
+                        "topic": effective_topic,
                         "lesson_purpose": lesson_purpose,
                     },
                 )
+
+                if ab_debug_enabled and selected_student and quick_plan_mode == "ai" and resolved_mode == "ai":
+                    st.session_state["quick_plan_ab_debug_compare"] = {
+                        "student_label": selected_student_label,
+                        "subject": effective_subject,
+                        "learner_stage": learner_stage,
+                        "level_or_band": level_or_band,
+                        "lesson_purpose": lesson_purpose,
+                        "topic": effective_topic,
+                        "baseline_plan": debug_baseline_plan,
+                        "baseline_error": debug_baseline_error,
+                        "personalized_plan": plan,
+                    }
 
         if subject == "other" and st.session_state.get("quick_lesson_no_template"):
             st.info(t("no_template_for_subject"))
@@ -1765,5 +1879,48 @@ def render_quick_lesson_planner_expander() -> None:
                 learner_stage=learner_stage,
                 level_or_band=level_or_band,
                 lesson_purpose=lesson_purpose,
-                topic=topic,
+                topic=st.session_state.get("quick_plan_effective_topic") or topic,
             )
+
+        compare_payload = st.session_state.get("quick_plan_ab_debug_compare") or {}
+        if compare_payload and st.session_state.get("_internal_ab_debug_enabled"):
+            with st.expander(t("ab_debug_compare_panel_title"), expanded=True):
+                st.caption(
+                    t(
+                        "ab_debug_compare_panel_caption",
+                        student=compare_payload.get("student_label") or t("ab_debug_compare_personalized"),
+                        topic=compare_payload.get("topic") or "-",
+                    )
+                )
+                cmp_col1, cmp_col2 = st.columns(2, gap="medium")
+                with cmp_col1:
+                    st.markdown(f"#### {t('ab_debug_compare_baseline')}")
+                    st.caption(t("ab_debug_compare_baseline_desc"))
+                    if compare_payload.get("baseline_error"):
+                        st.error(compare_payload["baseline_error"])
+                    else:
+                        render_quick_lesson_plan_result(
+                            compare_payload.get("baseline_plan") or {},
+                            subject=compare_payload.get("subject") or other_subject_name if subject == "other" else compare_payload.get("subject") or subject,
+                            learner_stage=compare_payload.get("learner_stage") or learner_stage,
+                            level_or_band=compare_payload.get("level_or_band") or level_or_band,
+                            lesson_purpose=compare_payload.get("lesson_purpose") or lesson_purpose,
+                            topic=compare_payload.get("topic") or topic,
+                            read_only=True,
+                            action_key_prefix="quick_plan_ab_baseline",
+                            comparison_mode=True,
+                        )
+                with cmp_col2:
+                    st.markdown(f"#### {t('ab_debug_compare_personalized')}")
+                    st.caption(t("ab_debug_compare_personalized_desc"))
+                    render_quick_lesson_plan_result(
+                        compare_payload.get("personalized_plan") or {},
+                        subject=compare_payload.get("subject") or other_subject_name if subject == "other" else compare_payload.get("subject") or subject,
+                        learner_stage=compare_payload.get("learner_stage") or learner_stage,
+                        level_or_band=compare_payload.get("level_or_band") or level_or_band,
+                        lesson_purpose=compare_payload.get("lesson_purpose") or lesson_purpose,
+                        topic=compare_payload.get("topic") or topic,
+                        read_only=True,
+                        action_key_prefix="quick_plan_ab_personalized",
+                        comparison_mode=True,
+                    )

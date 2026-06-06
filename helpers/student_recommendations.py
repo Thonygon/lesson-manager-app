@@ -1,0 +1,448 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import math
+from typing import Any
+
+import pandas as pd
+
+from core.database import load_profile_row
+from core.i18n import t
+from core.state import get_current_user_id
+from helpers.lesson_planner import normalize_subject, subject_label
+from helpers.practice_engine import get_completed_source_ids, load_practice_progress
+from helpers.teacher_student_integration import load_student_assignments
+from helpers.learning_programs import load_enriched_program_assignments_for_current_student
+
+
+def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
+    return max(low, min(high, float(value)))
+
+
+def _sigmoid(value: float) -> float:
+    if value >= 0:
+        z = math.exp(-value)
+        return 1.0 / (1.0 + z)
+    z = math.exp(value)
+    return z / (1.0 + z)
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value in (None, ""):
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        if value in (None, ""):
+            return default
+        return int(value)
+    except Exception:
+        return default
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _days_since(value: Any) -> float:
+    if value in (None, ""):
+        return 999.0
+    try:
+        ts = pd.to_datetime(value, errors="coerce", utc=True)
+        if pd.isna(ts):
+            return 999.0
+        return max(0.0, (_now_utc() - ts.to_pydatetime()).total_seconds() / 86400.0)
+    except Exception:
+        return 999.0
+
+
+def _normalize_level(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _resource_level(row: dict, resource_type: str) -> str:
+    if resource_type == "worksheet":
+        return _normalize_level(row.get("level_or_band") or row.get("level"))
+    return _normalize_level(row.get("level") or row.get("level_or_band"))
+
+
+def _resource_subject(row: dict) -> str:
+    return normalize_subject(str(row.get("subject") or "").strip())
+
+
+def _resource_stage(row: dict) -> str:
+    return str(row.get("learner_stage") or "").strip()
+
+
+def _resource_topic(row: dict) -> str:
+    return str(row.get("topic") or "").strip()
+
+
+def _dominant_exam_type(row: dict) -> str:
+    exercise_types = row.get("exercise_types") or []
+    if isinstance(exercise_types, list) and exercise_types:
+        return str(exercise_types[0] or "").strip()
+    exam_data = row.get("exam_data") or {}
+    if isinstance(exam_data, dict):
+        sections = exam_data.get("sections") or []
+        if sections and isinstance(sections[0], dict):
+            return str(sections[0].get("type") or "").strip()
+    return ""
+
+
+def _resource_exercise_type(row: dict, resource_type: str) -> str:
+    if resource_type == "worksheet":
+        return str(row.get("worksheet_type") or "").strip()
+    return _dominant_exam_type(row)
+
+
+def _format_activity_label(value: Any) -> str:
+    key = str(value or "").strip()
+    if not key:
+        return ""
+    translated = t(key)
+    if translated and translated != key:
+        return translated
+    return key.replace("_", " ").title()
+
+
+def _load_assignment_exclusions() -> dict[str, set]:
+    excluded: dict[str, set] = {"worksheet": set(), "exam": set()}
+    for row in load_student_assignments():
+        assignment_type = str(row.get("assignment_type") or "").strip()
+        source_record_id = row.get("source_record_id")
+        if assignment_type in excluded and source_record_id not in (None, "", 0, "0"):
+            excluded[assignment_type].add(str(source_record_id).strip())
+    return excluded
+
+
+def _topic_tokens(*values: Any) -> set[str]:
+    tokens: set[str] = set()
+    for value in values:
+        for raw in str(value or "").replace("/", " ").replace("-", " ").split():
+            cleaned = "".join(ch for ch in raw.casefold() if ch.isalnum())
+            if len(cleaned) >= 3:
+                tokens.add(cleaned)
+    return tokens
+
+
+def _load_program_signals() -> dict[str, Any]:
+    enriched = load_enriched_program_assignments_for_current_student()
+    signals = {
+        "subjects": set(),
+        "next_topic_titles": [],
+        "topic_tokens": set(),
+        "worksheet_types": set(),
+        "exam_types": set(),
+    }
+    for assignment in enriched:
+        program = assignment.get("program") or {}
+        subject = normalize_subject(program.get("subject") or assignment.get("subject_key") or "")
+        if subject:
+            signals["subjects"].add(subject)
+        progress_map = assignment.get("progress_map") or {}
+        for unit in program.get("units") or []:
+            for topic in unit.get("topics") or []:
+                topic_id = int(topic.get("topic_id") or 0)
+                if topic_id and bool(progress_map.get(topic_id, {}).get("teacher_done")):
+                    continue
+                title = str(topic.get("title") or "").strip()
+                summary = str(topic.get("student_summary") or topic.get("lesson_focus") or topic.get("subtopic") or "").strip()
+                if title:
+                    signals["next_topic_titles"].append(title)
+                signals["topic_tokens"].update(_topic_tokens(title, summary))
+                for worksheet_type in topic.get("suggested_worksheet_types") or []:
+                    cleaned = str(worksheet_type or "").strip()
+                    if cleaned:
+                        signals["worksheet_types"].add(cleaned)
+                for exam_type in topic.get("suggested_exam_exercise_types") or []:
+                    cleaned = str(exam_type or "").strip()
+                    if cleaned:
+                        signals["exam_types"].add(cleaned)
+    return signals
+
+
+def _level_similarity(target_level: str, resource_level: str) -> float:
+    target_level = _normalize_level(target_level)
+    resource_level = _normalize_level(resource_level)
+    if not target_level or not resource_level:
+        return 0.55
+    if target_level == resource_level:
+        return 1.0
+
+    cefr = ["A1", "A2", "B1", "B2", "C1", "C2"]
+    bands = ["beginner_band", "intermediate_band", "advanced_band"]
+    if target_level in cefr and resource_level in cefr:
+        distance = abs(cefr.index(target_level) - cefr.index(resource_level))
+        return {1: 0.82, 2: 0.6}.get(distance, 0.25)
+    if target_level in bands and resource_level in bands:
+        distance = abs(bands.index(target_level) - bands.index(resource_level))
+        return {1: 0.8, 2: 0.45}.get(distance, 0.25)
+    return 0.4
+
+
+def _fit_need_weights(progress_df: pd.DataFrame) -> list[float]:
+    rows = []
+    for _, row in progress_df.iterrows():
+        accuracy = _safe_float(row.get("accuracy_pct")) / 100.0
+        attempted = _safe_float(row.get("total_attempted"))
+        days = _days_since(row.get("last_practiced"))
+        rows.append(
+            (
+                1.0,
+                _clamp(1.0 - accuracy),
+                _clamp(min(attempted, 12.0) / 12.0),
+                _clamp(min(days, 30.0) / 30.0),
+            )
+        )
+
+    if not rows:
+        return [-0.1, 2.2, 0.7, 0.9]
+
+    weights = [0.0, 1.4, 0.4, 0.5]
+    learning_rate = 0.35
+    targets = []
+    for _, row in progress_df.iterrows():
+        accuracy = _safe_float(row.get("accuracy_pct"))
+        attempted = _safe_float(row.get("total_attempted"))
+        target = 1.0 if accuracy < 78.0 else 0.0
+        if accuracy < 88.0 and attempted <= 2:
+            target = 1.0
+        targets.append(target)
+
+    for _ in range(120):
+        grads = [0.0, 0.0, 0.0, 0.0]
+        for features, target in zip(rows, targets):
+            prediction = _sigmoid(sum(weight * value for weight, value in zip(weights, features)))
+            error = prediction - target
+            for idx, value in enumerate(features):
+                grads[idx] += error * value
+        scale = 1.0 / max(1, len(rows))
+        for idx in range(len(weights)):
+            weights[idx] -= learning_rate * grads[idx] * scale
+    return weights
+
+
+def _build_student_need_profile() -> dict[str, Any]:
+    progress = load_practice_progress()
+    user_id = get_current_user_id()
+    profile_row = load_profile_row(user_id) if user_id else {}
+
+    profile = {
+        "primary_subjects": [normalize_subject(value) for value in (profile_row.get("primary_subjects") or []) if str(value or "").strip()],
+        "subject_need": {},
+        "topic_need": {},
+        "exercise_need": {},
+        "subject_level": {},
+        "subject_stage": {},
+        "overall_accuracy": {},
+        "weights": _fit_need_weights(progress) if not progress.empty else [-0.1, 2.2, 0.7, 0.9],
+    }
+
+    if progress.empty:
+        return profile
+
+    weighted_level_votes: dict[str, dict[str, float]] = {}
+    weighted_stage_votes: dict[str, dict[str, float]] = {}
+
+    for _, row in progress.iterrows():
+        subject = normalize_subject(row.get("subject"))
+        topic = str(row.get("topic") or "").strip()
+        exercise_type = str(row.get("exercise_type") or "").strip()
+        level = _normalize_level(row.get("level"))
+        accuracy = _safe_float(row.get("accuracy_pct")) / 100.0
+        attempted = _safe_float(row.get("total_attempted"))
+        stage = str(row.get("learner_stage") or "").strip()
+        days = _days_since(row.get("last_practiced"))
+        x = (
+            1.0,
+            _clamp(1.0 - accuracy),
+            _clamp(min(attempted, 12.0) / 12.0),
+            _clamp(min(days, 30.0) / 30.0),
+        )
+        need_strength = _sigmoid(sum(weight * value for weight, value in zip(profile["weights"], x)))
+        profile["subject_need"][subject] = max(
+            need_strength,
+            _safe_float(profile["subject_need"].get(subject, 0.0)),
+        )
+        if topic:
+            profile["topic_need"][topic.casefold()] = max(
+                need_strength,
+                _safe_float(profile["topic_need"].get(topic.casefold(), 0.0)),
+            )
+        if exercise_type:
+            current = _safe_float(profile["exercise_need"].get(exercise_type, 0.0))
+            profile["exercise_need"][exercise_type] = max(current, need_strength)
+
+        profile["overall_accuracy"].setdefault(subject, {"correct": 0.0, "attempted": 0.0})
+        profile["overall_accuracy"][subject]["correct"] += attempted * accuracy
+        profile["overall_accuracy"][subject]["attempted"] += attempted
+
+        if level:
+            weighted_level_votes.setdefault(subject, {})
+            weighted_level_votes[subject][level] = weighted_level_votes[subject].get(level, 0.0) + attempted
+        if stage:
+            weighted_stage_votes.setdefault(subject, {})
+            weighted_stage_votes[subject][stage] = weighted_stage_votes[subject].get(stage, 0.0) + attempted
+
+    for subject, levels in weighted_level_votes.items():
+        if levels:
+            profile["subject_level"][subject] = max(levels.items(), key=lambda item: item[1])[0]
+    for subject, stages in weighted_stage_votes.items():
+        if stages:
+            profile["subject_stage"][subject] = max(stages.items(), key=lambda item: item[1])[0]
+    for subject, totals in profile["overall_accuracy"].items():
+        attempted = totals.get("attempted") or 0.0
+        profile["overall_accuracy"][subject] = (totals.get("correct") or 0.0) / attempted if attempted else 0.0
+
+    return profile
+
+
+def _resource_feature_score(row: dict, resource_type: str, student_profile: dict[str, Any]) -> tuple[float, list[str]]:
+    subject = _resource_subject(row)
+    topic = _resource_topic(row)
+    stage = _resource_stage(row)
+    level = _resource_level(row, resource_type)
+    exercise_type = _resource_exercise_type(row, resource_type)
+
+    primary_subjects = student_profile.get("primary_subjects") or []
+    subject_need = _safe_float(student_profile.get("subject_need", {}).get(subject, 0.0))
+    topic_need = _safe_float(student_profile.get("topic_need", {}).get(topic.casefold(), 0.0)) if topic else 0.0
+    exercise_need = _safe_float(student_profile.get("exercise_need", {}).get(exercise_type, 0.0)) if exercise_type else 0.0
+    target_level = student_profile.get("subject_level", {}).get(subject, "")
+    target_stage = student_profile.get("subject_stage", {}).get(subject, "")
+    accuracy = _safe_float(student_profile.get("overall_accuracy", {}).get(subject, 0.0))
+    program_signals = student_profile.get("program_signals", {}) or {}
+    resource_tokens = _topic_tokens(topic, row.get("title"))
+
+    subject_focus = 1.0 if subject_need > 0 else (0.8 if subject in primary_subjects else 0.45)
+    topic_support = max(topic_need, subject_need * 0.55)
+    type_support = max(exercise_need, subject_need * 0.45)
+    level_fit = _level_similarity(target_level, level)
+    stage_fit = 1.0 if target_stage and stage and target_stage == stage else (0.65 if not target_stage or not stage else 0.35)
+    program_topic_overlap = 0.0
+    if resource_tokens and program_signals.get("topic_tokens"):
+        overlap = len(resource_tokens & set(program_signals.get("topic_tokens") or set()))
+        program_topic_overlap = _clamp(overlap / 3.0)
+    program_subject_fit = 1.0 if subject and subject in (program_signals.get("subjects") or set()) else 0.0
+    program_type_fit = 0.0
+    if resource_type == "worksheet" and exercise_type and exercise_type in (program_signals.get("worksheet_types") or set()):
+        program_type_fit = 1.0
+    elif resource_type == "exam" and exercise_type and exercise_type in (program_signals.get("exam_types") or set()):
+        program_type_fit = 1.0
+
+    review_boost = 0.0
+    stretch_boost = 0.0
+    if topic_need >= 0.6:
+        review_boost = 0.18
+    if accuracy >= 0.82 and level_fit >= 0.8 and topic_need < 0.35:
+        stretch_boost = 0.1
+
+    score = (
+        0.28 * subject_focus
+        + 0.28 * topic_support
+        + 0.18 * type_support
+        + 0.14 * level_fit
+        + 0.08 * stage_fit
+        + 0.08 * program_topic_overlap
+        + 0.04 * program_subject_fit
+        + 0.04 * program_type_fit
+        + review_boost
+        + stretch_boost
+    )
+
+    reasons: list[str] = []
+    if topic_need >= 0.65 and topic:
+        reasons.append(t("student_material_reason_revisit_topic", topic=topic))
+    elif subject_need >= 0.55 and subject:
+        reasons.append(t("student_material_reason_subject_support", subject=subject_label(subject)))
+    if exercise_need >= 0.58 and exercise_type:
+        reasons.append(t("student_material_reason_exercise_support", exercise_type=_format_activity_label(exercise_type)))
+    if program_topic_overlap >= 0.34 and topic:
+        reasons.append(t("student_material_reason_program_topic", topic=topic))
+    elif program_type_fit >= 1.0 and exercise_type:
+        reasons.append(t("student_material_reason_program_style"))
+    if level_fit >= 0.95 and level:
+        reasons.append(t("student_material_reason_level_fit", level=level))
+    elif stretch_boost > 0 and level:
+        reasons.append(t("student_material_reason_level_stretch", level=level))
+    if not reasons:
+        reasons.append(t("student_material_reason_balanced"))
+
+    return score, reasons[:3]
+
+
+def _normalize_recommendation_row(row: dict, resource_type: str, score: float, reasons: list[str]) -> dict[str, Any]:
+    return {
+        "resource_type": resource_type,
+        "id": row.get("id"),
+        "title": str(row.get("title") or "").strip(),
+        "subject": str(row.get("subject") or "").strip(),
+        "topic": _resource_topic(row),
+        "learner_stage": _resource_stage(row),
+        "level": _resource_level(row, resource_type),
+        "exercise_type": _resource_exercise_type(row, resource_type),
+        "score": round(score, 4),
+        "reasons": reasons,
+        "row": row,
+    }
+
+
+def build_recommended_materials(
+    worksheets_df: pd.DataFrame | None = None,
+    exams_df: pd.DataFrame | None = None,
+    *,
+    limit: int = 6,
+) -> list[dict[str, Any]]:
+    recommendations: list[dict[str, Any]] = []
+    student_profile = _build_student_need_profile()
+    student_profile["program_signals"] = _load_program_signals()
+    completed = get_completed_source_ids()
+    assigned = _load_assignment_exclusions()
+
+    if worksheets_df is not None and not worksheets_df.empty:
+        for row in worksheets_df.to_dict("records"):
+            if row.get("id") in completed.get("worksheet", set()):
+                continue
+            if str(row.get("id") or "").strip() in assigned.get("worksheet", set()):
+                continue
+            score, reasons = _resource_feature_score(row, "worksheet", student_profile)
+            recommendations.append(_normalize_recommendation_row(row, "worksheet", score, reasons))
+
+    if exams_df is not None and not exams_df.empty:
+        for row in exams_df.to_dict("records"):
+            if row.get("id") in completed.get("exam", set()):
+                continue
+            if str(row.get("id") or "").strip() in assigned.get("exam", set()):
+                continue
+            score, reasons = _resource_feature_score(row, "exam", student_profile)
+            recommendations.append(_normalize_recommendation_row(row, "exam", score, reasons))
+
+    recommendations.sort(
+        key=lambda item: (
+            -_safe_float(item.get("score", 0.0)),
+            str(item.get("topic") or "").casefold(),
+            str(item.get("title") or "").casefold(),
+        )
+    )
+
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in recommendations:
+        key = (
+            str(item.get("resource_type") or ""),
+            str(item.get("topic") or "").casefold(),
+            str(item.get("exercise_type") or "").casefold(),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+        if len(deduped) >= max(1, limit):
+            break
+    return deduped

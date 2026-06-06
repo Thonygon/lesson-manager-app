@@ -1,6 +1,7 @@
 import streamlit as st
 import pycountry
 from zoneinfo import available_timezones
+from helpers.native_language import NATIVE_LANGUAGE_OPTIONS
 
 
 def _user_to_dict(user):
@@ -106,7 +107,7 @@ PROFILE_STAGE_OPTIONS = [
     "adult_stage",
 ]
 
-PROFILE_TEACH_LANG_OPTIONS = ["en", "es", "tr"]
+PROFILE_TEACH_LANG_OPTIONS = [option for option in NATIVE_LANGUAGE_OPTIONS if option]
 PROFILE_DURATION_OPTIONS = [30, 45, 60, 90]
 PROFILE_TIMEZONE_OPTIONS = sorted(available_timezones())
 PROFILE_COUNTRY_OPTIONS = ["Select..."] + sorted([c.name for c in pycountry.countries])

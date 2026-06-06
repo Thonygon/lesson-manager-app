@@ -20,6 +20,7 @@ from core.database import delete_row, update_class_row
 from helpers.package_lang_lookups import latest_payment_languages_for_student
 from helpers.lesson_planner import QUICK_SUBJECTS
 from helpers.planner_storage import render_quick_lesson_planner_expander
+from helpers.empty_states import render_empty_state
 
 # 12.3) PAGE: ADD LESSON
 # =========================
@@ -93,7 +94,19 @@ def _render_add_lesson_form(students: list[str]) -> None:
         del st.session_state["lesson_saved"]
 
     if not students:
-        st.info(t("no_students"))
+        render_empty_state(
+            title_key="lessons_empty_no_students_title",
+            body_key="lessons_empty_no_students_body",
+            steps=[
+                "lessons_empty_step_student",
+                "lessons_empty_step_payment",
+                "lessons_empty_step_record",
+            ],
+            icon="📝",
+        )
+        if st.button(t("lessons_empty_add_student"), key="lesson_empty_add_student", use_container_width=True, type="primary"):
+            go_to("students")
+            st.rerun()
         return
 
     student = st.selectbox(t("select_student"), students, key="lesson_student")
@@ -316,7 +329,16 @@ def _render_view_lessons() -> None:
     classes = load_table("classes")
 
     if classes.empty:
-        st.info(t("no_data"))
+        render_empty_state(
+            title_key="lessons_empty_history_title",
+            body_key="lessons_empty_history_body",
+            steps=[
+                "lessons_empty_history_step_record",
+                "lessons_empty_history_step_dashboard",
+                "lessons_empty_history_step_reports",
+            ],
+            icon="📋",
+        )
         return
 
     for col in ["lesson_date", "number_of_lesson", "student", "modality", "subject", "subject_custom", "note"]:
@@ -333,7 +355,16 @@ def _render_view_lessons() -> None:
 
     valid = classes.dropna(subset=["lesson_date"]).copy()
     if valid.empty:
-        st.info(t("no_data"))
+        render_empty_state(
+            title_key="lessons_empty_history_title",
+            body_key="lessons_empty_history_body",
+            steps=[
+                "lessons_empty_history_step_record",
+                "lessons_empty_history_step_dashboard",
+                "lessons_empty_history_step_reports",
+            ],
+            icon="📋",
+        )
         return
 
     valid["year"] = valid["lesson_date"].dt.year.astype(int)

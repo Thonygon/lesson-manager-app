@@ -38,6 +38,15 @@ from helpers.visual_support import (
 )
 from helpers.answer_key_utils import normalize_answer_key_text, split_answer_key_items
 from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
+from helpers.student_personalization import (
+    NATIVE_LANGUAGE_OPTIONS,
+    apply_native_language_context,
+    build_student_generation_profile,
+    is_language_subject,
+    load_teacher_personalization_students,
+    native_language_label,
+    normalize_native_language,
+)
 
 
 def _wb():
@@ -1235,6 +1244,7 @@ def render_worksheet_result(
     resource_record_id: int | str | None = None,
     signup_required_actions: bool = False,
     action_key_prefix: str = "worksheet_result",
+    comparison_mode: bool = False,
     **meta,
 ) -> None:
     if not ws:
@@ -1248,12 +1258,12 @@ def render_worksheet_result(
     learner_stage = meta.get("learner_stage", ws.get("learner_stage", ""))
     level_or_band = meta.get("level_or_band", ws.get("level_or_band", ""))
 
-    ws = normalize_worksheet_output(ws)
+    ws = normalize_worksheet_output(ws, include_visuals=not comparison_mode)
     ws = _normalize_worksheet_unicode(ws)
     ws = _clean_worksheet_data(ws)
 
     # ── Auto-enrich: generate visuals on first view if missing ──────────
-    if not signup_required_actions and worksheet_eligible_for_visuals(ws, subject=subject, learner_stage=learner_stage, topic=topic):
+    if not comparison_mode and not signup_required_actions and worksheet_eligible_for_visuals(ws, subject=subject, learner_stage=learner_stage, topic=topic):
         if not worksheet_has_ready_visuals(ws):
             _auto_key = f"_ws_vis_tried_{resource_record_id or action_key_prefix}"
             if not st.session_state.get(_auto_key):
@@ -1269,7 +1279,7 @@ def render_worksheet_result(
                     if st.session_state.get("files_selected_worksheet") is not None:
                         st.session_state["files_selected_worksheet"] = ws
 
-    if not read_only:
+    if not read_only and not comparison_mode:
         st.success(t("worksheet_ready"))
         warning = st.session_state.get("worksheet_warning")
         if warning:
@@ -1293,7 +1303,7 @@ def render_worksheet_result(
     render_streamlit_visual_supports(ws.get("visual_supports"))
 
     # Generate / Regenerate image button
-    if not signup_required_actions and worksheet_eligible_for_visuals(ws, subject=subject, learner_stage=learner_stage, topic=topic):
+    if not comparison_mode and not signup_required_actions and worksheet_eligible_for_visuals(ws, subject=subject, learner_stage=learner_stage, topic=topic):
         _has_visuals = worksheet_has_ready_visuals(ws)
         regen_key = f"{action_key_prefix}_regen_img"
         if _has_visuals:
@@ -1382,6 +1392,9 @@ def render_worksheet_result(
         with st.expander(t("ws_teacher_notes"), expanded=False):
             for note in ws["teacher_notes"]:
                 st.write(f"- {_normalize_text(note)}")
+
+    if comparison_mode:
+        return
 
     if not read_only:
         # Debug hook kept intentionally for future developer troubleshooting.
@@ -2202,7 +2215,7 @@ def build_worksheet_pdf_bytes(
 
 # ── Expander UI ──────────────────────────────────────────────────────
 def render_quick_worksheet_maker_expander() -> None:
-    with st.expander(f"📋 {t('worksheet_maker')}", expanded=False):
+    with st.expander(f"📋 {t('worksheet_maker')}", expanded=bool(st.session_state.pop("open_quick_ws_expander", False))):
         st.caption(t("worksheet_maker_caption"))
 
         usage = get_ai_worksheet_usage_status()
@@ -2254,22 +2267,93 @@ def render_quick_worksheet_maker_expander() -> None:
             )
 
         topic = st.text_input(t("topic_label"), key="ws_topic")
+        student_options = load_teacher_personalization_students()
+        selected_student_label = st.selectbox(
+            t("personalize_for_student") if t("personalize_for_student") != "personalize_for_student" else "Personalize for student",
+            options=[""] + [item["label"] for item in student_options],
+            key="quick_ws_student_personalization",
+            help=t("personalize_for_student_help"),
+        )
+        selected_student = next((item for item in student_options if item["label"] == selected_student_label), None)
+        preview_profile = {}
+        if selected_student:
+            preview_profile = build_student_generation_profile(
+                selected_student["student_user_id"],
+                subject=other_subject_name if subject == "other" else subject,
+            )
+            if preview_profile.get("summary"):
+                st.caption(preview_profile["summary"])
+        native_language = ""
+        show_native_language = is_language_subject(subject, other_subject_name)
+        if show_native_language:
+            native_language_current = normalize_native_language(preview_profile.get("native_language"))
+            native_language = st.selectbox(
+                t("student_native_language"),
+                NATIVE_LANGUAGE_OPTIONS,
+                index=NATIVE_LANGUAGE_OPTIONS.index(native_language_current) if native_language_current in NATIVE_LANGUAGE_OPTIONS else 0,
+                format_func=native_language_label,
+                key="quick_ws_student_native_language",
+                help=t("student_native_language_generation_help"),
+            )
+
+        ab_debug_enabled = False
+        if st.session_state.get("_internal_ab_debug_enabled"):
+            ab_debug_enabled = st.toggle(
+                t("ab_debug_compare_toggle"),
+                key="worksheet_ab_debug_enabled",
+                help=t("ab_debug_compare_help"),
+                disabled=(not selected_student),
+            )
+            if not selected_student:
+                st.caption(t("ab_debug_compare_requires_student"))
 
         if st.button(t("generate_worksheet"), key="btn_gen_ws", use_container_width=True):
-            if not topic.strip():
-                st.error(t("enter_topic"))
-            elif subject == "other" and not other_subject_name:
+            if subject == "other" and not other_subject_name:
                 st.error(t("enter_subject_name"))
             else:
+                st.session_state.pop("worksheet_ab_debug_compare", None)
                 effective_subject = other_subject_name if subject == "other" else subject
+                student_profile = (
+                    build_student_generation_profile(selected_student["student_user_id"], subject=effective_subject)
+                    if selected_student
+                    else {}
+                )
+                if show_native_language:
+                    student_profile = apply_native_language_context(student_profile, native_language)
+                else:
+                    student_profile.pop("native_language", None)
+                effective_topic = topic.strip() or str(((student_profile.get("program_context") or {}).get("next_topics") or [""])[0]).strip()
+                if not effective_topic:
+                    st.error(t("enter_topic"))
+                    return
+                st.session_state["ws_effective_topic"] = effective_topic
                 with st.spinner(t("generating")):
                     ws, warning = _wb().generate_worksheet_with_limit(
                         subject=effective_subject,
                         learner_stage=learner_stage,
                         level_or_band=level_or_band,
                         worksheet_type=worksheet_type,
-                        topic=topic,
+                        topic=effective_topic,
+                        student_profile=student_profile,
                     )
+
+                    debug_baseline_ws = {}
+                    debug_baseline_error = ""
+                    if ws and ab_debug_enabled and selected_student:
+                        try:
+                            debug_baseline_ws = _wb().generate_ai_worksheet(
+                                subject=effective_subject,
+                                learner_stage=learner_stage,
+                                level_or_band=level_or_band,
+                                worksheet_type=worksheet_type,
+                                topic=effective_topic,
+                                plan_language=_wb().get_plan_language(),
+                                student_material_language=_wb().get_student_material_language(effective_subject),
+                                student_profile={},
+                                include_visuals=False,
+                            )
+                        except Exception as exc:
+                            debug_baseline_error = str(exc)
 
                 if warning and not ws:
                     st.warning(warning)
@@ -2279,7 +2363,7 @@ def render_quick_worksheet_maker_expander() -> None:
                         ws,
                         subject=effective_subject,
                         learner_stage=learner_stage,
-                        topic=topic,
+                        topic=effective_topic,
                     )
                     st.session_state["worksheet_result"] = ws
                     st.session_state["worksheet_kept"] = False
@@ -2290,9 +2374,22 @@ def render_quick_worksheet_maker_expander() -> None:
                         learner_stage=learner_stage,
                         level_or_band=level_or_band,
                         worksheet_type=worksheet_type,
-                        topic=topic,
+                        topic=effective_topic,
                         worksheet=ws,
                     )
+
+                    if ab_debug_enabled and selected_student:
+                        st.session_state["worksheet_ab_debug_compare"] = {
+                            "student_label": selected_student_label,
+                            "subject": effective_subject,
+                            "learner_stage": learner_stage,
+                            "level_or_band": level_or_band,
+                            "worksheet_type": worksheet_type,
+                            "topic": effective_topic,
+                            "baseline_ws": debug_baseline_ws,
+                            "baseline_error": debug_baseline_error,
+                            "personalized_ws": ws,
+                        }
 
         result = st.session_state.get("worksheet_result")
         if result:
@@ -2304,5 +2401,48 @@ def render_quick_worksheet_maker_expander() -> None:
                 learner_stage=learner_stage,
                 level_or_band=level_or_band,
                 worksheet_type=worksheet_type,
-                topic=topic,
+                topic=st.session_state.get("ws_effective_topic") or topic,
             )
+
+        compare_payload = st.session_state.get("worksheet_ab_debug_compare") or {}
+        if compare_payload and st.session_state.get("_internal_ab_debug_enabled"):
+            with st.expander(t("ab_debug_compare_panel_title"), expanded=True):
+                st.caption(
+                    t(
+                        "ab_debug_compare_panel_caption",
+                        student=compare_payload.get("student_label") or t("ab_debug_compare_personalized"),
+                        topic=compare_payload.get("topic") or "-",
+                    )
+                )
+                cmp_col1, cmp_col2 = st.columns(2, gap="medium")
+                with cmp_col1:
+                    st.markdown(f"#### {t('ab_debug_compare_baseline')}")
+                    st.caption(t("ab_debug_compare_baseline_desc"))
+                    if compare_payload.get("baseline_error"):
+                        st.error(compare_payload["baseline_error"])
+                    else:
+                        render_worksheet_result(
+                            compare_payload.get("baseline_ws") or {},
+                            read_only=True,
+                            action_key_prefix="worksheet_ab_baseline",
+                            subject=compare_payload.get("subject") or subject,
+                            learner_stage=compare_payload.get("learner_stage") or learner_stage,
+                            level_or_band=compare_payload.get("level_or_band") or level_or_band,
+                            worksheet_type=compare_payload.get("worksheet_type") or worksheet_type,
+                            topic=compare_payload.get("topic") or topic,
+                            comparison_mode=True,
+                        )
+                with cmp_col2:
+                    st.markdown(f"#### {t('ab_debug_compare_personalized')}")
+                    st.caption(t("ab_debug_compare_personalized_desc"))
+                    render_worksheet_result(
+                        compare_payload.get("personalized_ws") or {},
+                        read_only=True,
+                        action_key_prefix="worksheet_ab_personalized",
+                        subject=compare_payload.get("subject") or subject,
+                        learner_stage=compare_payload.get("learner_stage") or learner_stage,
+                        level_or_band=compare_payload.get("level_or_band") or level_or_band,
+                        worksheet_type=compare_payload.get("worksheet_type") or worksheet_type,
+                        topic=compare_payload.get("topic") or topic,
+                        comparison_mode=True,
+                    )

@@ -6,8 +6,8 @@ import re
 import urllib.parse
 import pandas as pd
 from core.i18n import t
-from core.navigation import page_header
-from core.database import load_table, load_students, get_sb
+from core.navigation import page_header, go_to
+from core.database import load_profile_row, load_table, load_students, get_sb
 from core.database import (
     ensure_student,
     clear_app_caches,
@@ -17,6 +17,7 @@ from core.database import (
 )
 from core.state import get_current_user_id
 from helpers.student_meta import load_students_df
+from helpers.student_personalization import NATIVE_LANGUAGE_OPTIONS, is_language_subject, native_language_label, normalize_native_language
 from helpers.history import show_student_history
 from helpers.ui_components import translate_df_headers, render_styled_dataframe
 from helpers.whatsapp import _digits_only, normalize_phone_for_whatsapp, build_whatsapp_url
@@ -26,6 +27,7 @@ from helpers.student_report import (
     build_report_email_url,
 )
 from helpers.dashboard import rebuild_dashboard
+from helpers.empty_states import render_empty_state
 from helpers.teacher_student_integration import (
     archive_teacher_assignment_for_teacher,
     archive_teacher_student_link,
@@ -48,11 +50,289 @@ from helpers.learning_programs import (
     load_assignment_progress_map,
     set_assignment_topic_progress,
 )
+from helpers.planner_storage import load_my_lesson_plans, load_public_lesson_plans
+from helpers.worksheet_storage import load_my_worksheets, load_public_worksheets
+from helpers.quick_exam_storage import load_my_exams, load_public_exams
+from helpers.archive_utils import is_archived_status
 
 # 12.2) PAGE: STUDENTS
 # =========================
 
 _TEACHER_PAGE_SIZE = 6
+
+_RECOMMENDED_RESOURCE_GROUP_LIMIT = 24
+_RECOMMENDED_RESOURCE_PAGE_SIZE = 2
+
+_RECOMMENDED_RESOURCE_ASSIGNMENT_TYPES = {
+    "lesson_plan_topic": "plan",
+    "worksheet": "worksheet",
+    "exam": "exam",
+}
+
+
+def _norm_search_text(value) -> str:
+    return re.sub(r"\s+", " ", str(value or "").casefold()).strip()
+
+
+def _recommendation_resource_query(item: dict) -> str:
+    return _norm_search_text(" ".join([str(item.get("title") or ""), str(item.get("objective") or "")]))
+
+
+def _resource_match_band(score: float) -> str:
+    if score >= 12:
+        return t("recommended_resource_match_strong")
+    if score >= 7:
+        return t("recommended_resource_match_good")
+    return t("recommended_resource_match_related")
+
+
+def _recommended_resource_kind_label(kind: str) -> str:
+    return {
+        "plan": t("recommended_resource_kind_plan"),
+        "worksheet": t("recommended_resource_kind_worksheet"),
+        "exam": t("recommended_resource_kind_exam"),
+    }.get(kind, kind.title())
+
+
+def _resource_source_label(source: str) -> str:
+    return t("recommended_resource_source_own") if source == "own" else t("recommended_resource_source_community")
+
+
+def _resource_record_key(kind: str, record_id) -> tuple[str, str] | None:
+    record_text = str(record_id or "").strip()
+    if not kind or not record_text or record_text in {"0", "None", "nan"}:
+        return None
+    return str(kind).strip(), record_text
+
+
+def _resource_preview_text(row: dict, kind: str) -> str:
+    if kind == "plan":
+        return str(row.get("topic") or row.get("lesson_purpose") or "").strip()
+    if kind == "worksheet":
+        return str(row.get("topic") or row.get("worksheet_type") or "").strip()
+    if kind == "exam":
+        return str(row.get("topic") or row.get("exam_length") or "").strip()
+    return ""
+
+
+def _resource_search_blob(row: dict, kind: str) -> str:
+    fields_by_kind = {
+        "plan": ["title", "topic", "lesson_purpose", "subject", "learner_stage", "level_or_band", "author_name"],
+        "worksheet": ["title", "topic", "worksheet_type", "subject", "learner_stage", "level_or_band", "author_name"],
+        "exam": ["title", "topic", "subject", "learner_stage", "level", "exam_length", "author_name"],
+    }
+    return _norm_search_text(" ".join(str(row.get(field) or "") for field in fields_by_kind.get(kind, [])))
+
+
+def _score_resource_for_recommendation(row: dict, kind: str, source: str, item: dict) -> float:
+    query = _recommendation_resource_query(item)
+    title = _norm_search_text(item.get("title"))
+    objective = _norm_search_text(item.get("objective"))
+    blob = str(row.get("_recommended_search_blob") or "") or _resource_search_blob(row, kind)
+    if not query or not blob:
+        return 0.0
+
+    score = 0.0
+    if title and title in blob:
+        score += 8.0
+    if objective and objective in blob:
+        score += 5.0
+    for token in [tok for tok in re.split(r"\W+", query) if len(tok) >= 3]:
+        if token in blob:
+            score += 1.4
+
+    rec_subject = _norm_search_text(item.get("subject_key"))
+    rec_stage = _norm_search_text(item.get("learner_stage"))
+    rec_level = _norm_search_text(item.get("level_or_band"))
+    row_subject = _norm_search_text(row.get("subject"))
+    row_stage = _norm_search_text(row.get("learner_stage"))
+    row_level = _norm_search_text(row.get("level") if kind == "exam" else row.get("level_or_band"))
+
+    if rec_subject and rec_subject == row_subject:
+        score += 3.0
+    if rec_stage and rec_stage == row_stage:
+        score += 1.5
+    if rec_level and rec_level == row_level:
+        score += 1.5
+    if source == "own":
+        score += 1.2
+
+    focus_kind = str(item.get("focus_kind") or "")
+    if focus_kind == "needs_practice" and kind == "worksheet":
+        score += 2.0
+    elif focus_kind == "reteach" and kind == "plan":
+        score += 2.0
+    elif focus_kind == "reinforce" and kind in {"worksheet", "plan"}:
+        score += 1.2
+    return score
+
+
+def _load_recommendation_resource_pool() -> list[dict]:
+    pool: list[dict] = []
+    source_loaders = [
+        ("plan", "own", load_my_lesson_plans),
+        ("plan", "community", load_public_lesson_plans),
+        ("worksheet", "own", load_my_worksheets),
+        ("worksheet", "community", load_public_worksheets),
+        ("exam", "own", load_my_exams),
+        ("exam", "community", load_public_exams),
+    ]
+    for kind, source, loader in source_loaders:
+        try:
+            df = loader()
+        except Exception:
+            df = pd.DataFrame()
+        if df is None or df.empty:
+            continue
+        for row in df.reset_index(drop=True).to_dict("records"):
+            if is_archived_status(row.get("status")):
+                continue
+            row = dict(row)
+            row["_recommended_search_blob"] = _resource_search_blob(row, kind)
+            pool.append({"kind": kind, "source": source, "row": row})
+    return pool
+
+
+def _recommended_resources_for_item(item: dict, resource_pool: list[dict]) -> dict[str, list[dict]]:
+    grouped: dict[str, list[dict]] = {"plan": [], "worksheet": [], "exam": []}
+    for resource in resource_pool:
+        score = _score_resource_for_recommendation(resource["row"], resource["kind"], resource["source"], item)
+        if score < 4.5:
+            continue
+        grouped.setdefault(resource["kind"], []).append({**resource, "score": score})
+    for kind in grouped:
+        grouped[kind] = sorted(grouped[kind], key=lambda resource: resource["score"], reverse=True)[:_RECOMMENDED_RESOURCE_GROUP_LIMIT]
+    return grouped
+
+
+def _load_assigned_resource_keys_for_student(selected_link: dict, program_rows: list[dict]) -> set[tuple[str, str]]:
+    assigned: set[tuple[str, str]] = set()
+
+    student_id = str((selected_link or {}).get("student_id") or "").strip()
+    if not student_id:
+        return assigned
+
+    for row in load_teacher_assignment_progress(student_id=student_id):
+        if is_archived_status(row.get("status")):
+            continue
+        kind = _RECOMMENDED_RESOURCE_ASSIGNMENT_TYPES.get(str(row.get("assignment_type") or "").strip())
+        key = _resource_record_key(kind or "", row.get("source_record_id"))
+        if key:
+            assigned.add(key)
+    return assigned
+
+
+def _recommended_resource_is_assigned(resource: dict, assigned_resource_keys: set[tuple[str, str]]) -> bool:
+    row = resource.get("row") or {}
+    key = _resource_record_key(str(resource.get("kind") or ""), row.get("id"))
+    return bool(key and key in assigned_resource_keys)
+
+
+def _recommended_resource_kind_order(focus_kind: str) -> list[str]:
+    if focus_kind == "needs_practice":
+        return ["worksheet", "plan", "exam"]
+    if focus_kind == "reteach":
+        return ["plan", "worksheet", "exam"]
+    if focus_kind == "stretch":
+        return ["plan", "exam", "worksheet"]
+    return ["worksheet", "plan", "exam"]
+
+
+def _open_recommended_resource(resource: dict, *, assign: bool = False) -> None:
+    kind = resource.get("kind")
+    source = resource.get("source")
+    row = resource.get("row") or {}
+
+    if kind == "program":
+        program_id = int(row.get("id") or 0)
+        if program_id <= 0:
+            return
+        target_key = "my_learning_programs_selected_program_id" if source == "own" else "public_learning_programs_selected_program_id"
+        for key in [
+            "my_learning_programs_selected_program_id",
+            "archived_learning_programs_selected_program_id",
+            "public_learning_programs_selected_program_id",
+            "home_public_learning_programs_selected_program_id",
+        ]:
+            st.session_state.pop(key, None)
+        st.session_state[target_key] = program_id
+        if assign:
+            st.session_state[f"show_assign_learning_program_{program_id}"] = True
+        go_to("resources")
+        st.rerun()
+
+    if kind == "plan":
+        st.session_state["files_selected_plan"] = row.get("plan_json") or {}
+        st.session_state["files_selected_subject"] = str(row.get("subject") or "").strip()
+        st.session_state["files_selected_stage"] = str(row.get("learner_stage") or "").strip()
+        st.session_state["files_selected_level"] = str(row.get("level_or_band") or "").strip()
+        st.session_state["files_selected_purpose"] = str(row.get("lesson_purpose") or "").strip()
+        st.session_state["files_selected_topic"] = str(row.get("topic") or "").strip()
+        st.session_state["files_selected_source_type"] = str(row.get("source_type") or "").strip()
+        st.session_state["files_selected_title"] = str(row.get("title") or t("untitled_plan")).strip()
+        st.session_state["files_selected_plan_id"] = row.get("id")
+        st.session_state["files_selected_plan_status"] = str(row.get("status") or "").strip()
+        st.session_state["files_selected_plan_assign_expanded"] = bool(assign)
+        go_to("resources")
+        st.rerun()
+
+    if kind == "worksheet":
+        st.session_state["files_selected_worksheet"] = row.get("worksheet_json") or {}
+        st.session_state["files_ws_subject"] = str(row.get("subject") or "").strip()
+        st.session_state["files_ws_stage"] = str(row.get("learner_stage") or "").strip()
+        st.session_state["files_ws_level"] = str(row.get("level_or_band") or "").strip()
+        st.session_state["files_ws_type"] = str(row.get("worksheet_type") or "").strip()
+        st.session_state["files_ws_topic"] = str(row.get("topic") or "").strip()
+        st.session_state["files_ws_title"] = str(row.get("title") or t("untitled_worksheet")).strip()
+        st.session_state["files_selected_worksheet_id"] = row.get("id")
+        st.session_state["files_selected_worksheet_status"] = str(row.get("status") or "").strip()
+        st.session_state["files_selected_worksheet_assign_expanded"] = bool(assign)
+        go_to("resources")
+        st.rerun()
+
+    if kind == "exam":
+        st.session_state["files_selected_exam"] = row.get("exam_data") or {}
+        st.session_state["files_selected_exam_answer_key"] = row.get("answer_key") or {}
+        st.session_state["files_exam_subject"] = str(row.get("subject") or "").strip()
+        st.session_state["files_exam_stage"] = str(row.get("learner_stage") or "").strip()
+        st.session_state["files_exam_level"] = str(row.get("level") or "").strip()
+        st.session_state["files_exam_topic"] = str(row.get("topic") or "").strip()
+        st.session_state["files_exam_title"] = str(row.get("title") or t("untitled_plan")).strip()
+        st.session_state["files_selected_exam_id"] = row.get("id")
+        st.session_state["files_selected_exam_status"] = str(row.get("status") or "").strip()
+        st.session_state["files_selected_exam_assign_expanded"] = bool(assign)
+        go_to("resources")
+        st.rerun()
+
+
+def _current_teacher_teaches_languages() -> bool:
+    profile = load_profile_row(get_current_user_id())
+    subjects = profile.get("primary_subjects") or []
+    custom_subjects = profile.get("custom_subjects") or []
+    for subject in subjects:
+        if is_language_subject(str(subject or "")):
+            return True
+    for custom_subject in custom_subjects:
+        if is_language_subject("other", str(custom_subject or "")):
+            return True
+    return False
+
+
+def _student_has_language_subject(student_name: str) -> bool:
+    student_key = norm_student(student_name)
+    if not student_key:
+        return False
+    try:
+        linked_students = load_active_linked_students_for_teacher()
+    except Exception:
+        linked_students = []
+    for linked_student in linked_students or []:
+        if norm_student(linked_student.get("student_name") or "") != student_key:
+            continue
+        for subject in linked_student.get("subjects") or []:
+            if is_language_subject(str(subject.get("subject_key") or ""), str(subject.get("subject_label") or "")):
+                return True
+    return False
 
 
 def _slice_teacher_page(rows: list, state_key: str, *, page_size: int = _TEACHER_PAGE_SIZE):
@@ -118,6 +398,911 @@ def _review_note_block(label_key: str, raw_value, *, feedback: bool = False) -> 
         f"<div class='classio-student-link-note'><strong>{_html.escape(t(label_key))}:</strong> "
         f"{_html.escape(text)}</div>"
     )
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    try:
+        if value in (None, ""):
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
+    return max(low, min(high, float(value)))
+
+
+def _sigmoid(value: float) -> float:
+    if value >= 0:
+        z = math.exp(-value)
+        return 1.0 / (1.0 + z)
+    z = math.exp(value)
+    return z / (1.0 + z)
+
+
+def _assignment_score_value(row: dict) -> float | None:
+    latest = row.get("latest_attempt") or {}
+    value = latest.get("score_pct", row.get("score_pct"))
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _assignment_status_pressure(status: str) -> float:
+    status = str(status or "").strip().lower()
+    mapping = {
+        "overdue": 1.0,
+        "assigned": 0.9,
+        "started": 0.82,
+        "submitted": 0.7,
+        "graded": 0.28,
+        "completed": 0.2,
+        "cancelled": 0.05,
+    }
+    return mapping.get(status, 0.25)
+
+
+def _fit_recommendation_weights(progress_rows: list[dict]) -> list[float]:
+    if not progress_rows:
+        return [-0.25, 1.85, 0.75, 0.95]
+
+    features: list[tuple[float, float, float, float]] = []
+    targets: list[float] = []
+    for row in progress_rows:
+        score = _assignment_score_value(row)
+        score_gap = _clamp((82.0 - score) / 42.0) if score is not None else 0.42
+        retry_pressure = _clamp((max(int(row.get("attempt_count") or 0), 1) - 1.0) / 3.0)
+        status_pressure = _assignment_status_pressure(row.get("status"))
+        features.append((1.0, score_gap, retry_pressure, status_pressure))
+        target = 1.0 if (score is not None and score < 78.0) or status_pressure >= 0.78 else 0.0
+        targets.append(target)
+
+    weights = [-0.2, 1.45, 0.55, 0.85]
+    learning_rate = 0.35
+    for _ in range(120):
+        gradients = [0.0, 0.0, 0.0, 0.0]
+        for row_features, target in zip(features, targets):
+            prediction = _sigmoid(sum(weight * value for weight, value in zip(weights, row_features)))
+            error = prediction - target
+            for idx, value in enumerate(row_features):
+                gradients[idx] += error * value
+        scale = 1.0 / max(1, len(features))
+        for idx in range(len(weights)):
+            weights[idx] -= learning_rate * gradients[idx] * scale
+    return weights
+
+
+def _build_recommendation_signal(rows: list[dict]) -> dict:
+    if not rows:
+        return {
+            "score_gap": 0.2,
+            "retry_pressure": 0.1,
+            "status_pressure": 0.25,
+            "recent_score": None,
+            "active_assignments": 0,
+        }
+
+    score_gaps = []
+    retry_pressures = []
+    status_pressures = []
+    scores = []
+    active_assignments = 0
+
+    for row in rows:
+        score = _assignment_score_value(row)
+        score_gaps.append(_clamp((82.0 - score) / 42.0) if score is not None else 0.35)
+        retry_pressures.append(_clamp((max(int(row.get("attempt_count") or 0), 1) - 1.0) / 3.0))
+        status_value = _assignment_status_pressure(row.get("status"))
+        status_pressures.append(status_value)
+        if status_value >= 0.7:
+            active_assignments += 1
+        if score is not None:
+            scores.append(score)
+
+    return {
+        "score_gap": max(score_gaps) if score_gaps else 0.2,
+        "retry_pressure": max(retry_pressures) if retry_pressures else 0.1,
+        "status_pressure": max(status_pressures) if status_pressures else 0.25,
+        "recent_score": min(scores) if scores else None,
+        "active_assignments": active_assignments,
+    }
+
+
+def _load_teacher_program_rows_for_student(selected_link: dict, selected_student_name: str) -> list[dict]:
+    program_assignments_df = load_program_assignments_for_teacher()
+    selected_student_id = str(selected_link.get("student_id") or "").strip()
+    selected_student_label = str(selected_student_name or "").strip().casefold()
+    program_rows = []
+    if program_assignments_df is None or program_assignments_df.empty:
+        return program_rows
+
+    for _, row in program_assignments_df.iterrows():
+        row_dict = row.to_dict()
+        row_student_id = str(row_dict.get("student_user_id") or "").strip()
+        row_student_name = str(row_dict.get("student_name") or "").strip().casefold()
+        if (selected_student_id and row_student_id == selected_student_id) or (selected_student_label and row_student_name == selected_student_label):
+            program_rows.append(row_dict)
+    return program_rows
+
+
+def _recommendation_actions(focus_kind: str) -> list[str]:
+    if focus_kind == "needs_practice":
+        return [
+            t("student_recommendation_action_need_practice_1"),
+            t("student_recommendation_action_need_practice_2"),
+        ]
+    if focus_kind == "reteach":
+        return [
+            t("student_recommendation_action_reteach_1"),
+            t("student_recommendation_action_reteach_2"),
+        ]
+    if focus_kind == "stretch":
+        return [
+            t("student_recommendation_action_stretch_1"),
+            t("student_recommendation_action_stretch_2"),
+        ]
+    return [
+        t("student_recommendation_action_reinforce_1"),
+        t("student_recommendation_action_reinforce_2"),
+    ]
+
+
+def _recommendation_focus_kind(signal: dict, score: float) -> str:
+    if signal.get("score_gap", 0.0) >= 0.5 or signal.get("status_pressure", 0.0) >= 0.82:
+        return "reteach"
+    if signal.get("retry_pressure", 0.0) >= 0.34 or score >= 0.66:
+        return "reinforce"
+    return "stretch"
+
+
+def _recommendation_priority_label(score: float) -> str:
+    if score >= 0.78:
+        return t("student_recommendation_priority_high")
+    if score >= 0.6:
+        return t("student_recommendation_priority_medium")
+    return t("student_recommendation_priority_low")
+
+
+def _recommendation_focus_label(focus_kind: str) -> str:
+    return t(f"student_recommendation_focus_{focus_kind}")
+
+
+def _recommendation_badge_label(item: dict) -> str:
+    return t("student_recommendation_badge_needs_practice") if item.get("needs_practice") else ""
+
+
+def _topic_objective(topic: dict) -> str:
+    learning_objectives = topic.get("learning_objectives") or []
+    if learning_objectives:
+        return str(learning_objectives[0] or "").strip()
+    success_criteria = topic.get("success_criteria") or []
+    if success_criteria:
+        return str(success_criteria[0] or "").strip()
+    for key in ("lesson_focus", "student_summary", "subtopic", "title"):
+        value = str(topic.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _student_personalization_label(student_name: str, student_profile: dict) -> str:
+    name = str(student_name or "").strip()
+    email = str(student_profile.get("email") or "").strip()
+    return f"{name} · {email}" if email else name
+
+
+def _prefill_smart_tool_from_recommendation(recommendation: dict, tool_kind: str) -> None:
+    subject_key = str(recommendation.get("subject_key") or "").strip() or "other"
+    custom_subject = str(recommendation.get("custom_subject_name") or "").strip()
+    learner_stage = str(recommendation.get("learner_stage") or "").strip()
+    level_or_band = str(recommendation.get("level_or_band") or "").strip()
+    topic = str(recommendation.get("title") or recommendation.get("objective") or "").strip()
+    student_label = str(recommendation.get("student_label") or "").strip()
+    exam_title = f"{topic} {t('exam_title') if t('exam_title') != 'exam_title' else 'Exam'}".strip()
+
+    if tool_kind == "lesson_plan":
+        st.session_state["quick_plan_subject"] = subject_key
+        st.session_state["quick_plan_other_subject"] = custom_subject
+        if learner_stage:
+            st.session_state["quick_plan_learner_stage"] = learner_stage
+        if level_or_band:
+            st.session_state["quick_plan_level"] = level_or_band
+        st.session_state["quick_plan_topic"] = topic
+        st.session_state["quick_plan_student_personalization"] = student_label
+        st.session_state["open_quick_plan_expander"] = True
+    elif tool_kind == "worksheet":
+        st.session_state["quick_ws_subject"] = subject_key
+        st.session_state["ws_other_subject"] = custom_subject
+        if learner_stage:
+            st.session_state["ws_stage"] = learner_stage
+        if level_or_band:
+            st.session_state["ws_level"] = level_or_band
+        st.session_state["ws_topic"] = topic
+        st.session_state["quick_ws_student_personalization"] = student_label
+        st.session_state["open_quick_ws_expander"] = True
+    elif tool_kind == "exam":
+        st.session_state["quick_exam_subject"] = subject_key
+        st.session_state["exam_other_subject"] = custom_subject
+        if learner_stage:
+            st.session_state["exam_stage"] = learner_stage
+        if level_or_band:
+            st.session_state["exam_level"] = level_or_band
+        st.session_state["quick_exam_topic"] = topic
+        st.session_state["quick_exam_title"] = exam_title
+        st.session_state["quick_exam_student_personalization"] = student_label
+        st.session_state["open_quick_exam_expander"] = True
+
+    go_to("smart_tools")
+    st.rerun()
+
+
+def _build_program_recommendations(
+    *,
+    progress_rows: list[dict],
+    program_rows: list[dict],
+    selected_subject: str,
+) -> tuple[list[dict], dict]:
+    rows_by_subject: dict[str, list[dict]] = {}
+    for row in progress_rows:
+        key = str(row.get("subject_key") or "").strip()
+        rows_by_subject.setdefault(key, []).append(row)
+    overall_signal = _build_recommendation_signal(progress_rows)
+    weights = _fit_recommendation_weights(progress_rows)
+    recommendations: list[dict] = []
+
+    for row in program_rows:
+        assignment_id = int(row.get("id") or 0)
+        program_id = int(row.get("program_id") or 0)
+        if assignment_id <= 0 or program_id <= 0:
+            continue
+        program = load_learning_program(program_id)
+        if not program:
+            continue
+        subject_key = str(program.get("subject") or "").strip()
+        if selected_subject != "__all__" and subject_key != selected_subject:
+            continue
+
+        progress_map = load_assignment_progress_map(assignment_id)
+        total_topics = sum(len(unit.get("topics") or []) for unit in (program.get("units") or []))
+        completed_topics = len([1 for item in progress_map.values() if item.get("teacher_done")])
+        progress_gap = _clamp(1.0 - ((completed_topics / total_topics) if total_topics else 0.0))
+        signal = _build_recommendation_signal(rows_by_subject.get(subject_key, [])) if rows_by_subject.get(subject_key) else overall_signal
+
+        topic_position = 0
+        for unit in program.get("units") or []:
+            for topic in unit.get("topics") or []:
+                topic_position += 1
+                topic_id = int(topic.get("topic_id") or 0)
+                topic_progress = progress_map.get(topic_id, {}) if topic_id else {}
+                teacher_done = bool(topic_progress.get("teacher_done"))
+                needs_practice = bool(topic_progress.get("student_done"))
+                if topic_id and teacher_done and not needs_practice:
+                    continue
+
+                model_score = _sigmoid(
+                    weights[0]
+                    + weights[1] * signal.get("score_gap", 0.0)
+                    + weights[2] * signal.get("retry_pressure", 0.0)
+                    + weights[3] * signal.get("status_pressure", 0.0)
+                )
+                sequence_priority = _clamp(1.0 - ((topic_position - 1) / max(total_topics, 4)))
+                score = (
+                    0.58 * model_score
+                    + 0.24 * sequence_priority
+                    + 0.18 * progress_gap
+                )
+                focus_kind = _recommendation_focus_kind(signal, score)
+
+                reasons = []
+                recent_score = signal.get("recent_score")
+                if needs_practice:
+                    score = max(score, 0.94)
+                    focus_kind = "needs_practice"
+                    reasons.append(t("student_recommendation_reason_needs_practice"))
+                if recent_score is not None and signal.get("score_gap", 0.0) >= 0.38:
+                    reasons.append(t("student_recommendation_reason_low_score", score=int(round(recent_score))))
+                if signal.get("retry_pressure", 0.0) >= 0.34:
+                    reasons.append(t("student_recommendation_reason_retries"))
+                if not needs_practice:
+                    reasons.append(t("student_recommendation_reason_next_topic"))
+                if progress_gap >= 0.4:
+                    reasons.append(t("student_recommendation_reason_program_gap"))
+
+                recommendations.append(
+                    {
+                        "title": str(topic.get("title") or t("assigned_learning_program")).strip(),
+                        "subject_key": subject_key,
+                        "subject_display": str(program.get("subject_display") or row.get("subject_label") or subject_key or "—").strip(),
+                        "custom_subject_name": str(program.get("custom_subject_name") or "").strip(),
+                        "learner_stage": str(program.get("learner_stage") or row.get("learner_stage") or "").strip(),
+                        "level_or_band": str(program.get("level_or_band") or row.get("level_or_band") or "").strip(),
+                        "program_title": str(program.get("title") or t("learning_program_singular")).strip(),
+                        "objective": _topic_objective(topic),
+                        "focus_kind": focus_kind,
+                        "priority_label": _recommendation_priority_label(score),
+                        "focus_label": _recommendation_focus_label(focus_kind),
+                        "score": score,
+                        "needs_practice": needs_practice,
+                        "program_progress": int(round((1.0 - progress_gap) * 100)),
+                        "recent_score": recent_score,
+                        "reasons": reasons[:3],
+                        "actions": _recommendation_actions(focus_kind),
+                    }
+                )
+                if len(recommendations) >= 6:
+                    break
+            if len(recommendations) >= 6:
+                break
+
+    if recommendations:
+        recommendations.sort(key=lambda item: -_safe_float(item.get("score"), 0.0))
+        return recommendations[:3], overall_signal
+
+    fallback_recommendations = []
+    weakest_rows = sorted(
+        progress_rows,
+        key=lambda row: (
+            -(
+                0.55 * (_clamp((82.0 - (_assignment_score_value(row) if _assignment_score_value(row) is not None else 64.0)) / 42.0))
+                + 0.45 * _assignment_status_pressure(row.get("status"))
+            ),
+            -_clamp((max(int(row.get("attempt_count") or 0), 1) - 1.0) / 3.0),
+        ),
+    )
+    for row in weakest_rows[:3]:
+        score = _assignment_score_value(row)
+        signal = {
+            "score_gap": _clamp((82.0 - score) / 42.0) if score is not None else 0.35,
+            "retry_pressure": _clamp((max(int(row.get("attempt_count") or 0), 1) - 1.0) / 3.0),
+            "status_pressure": _assignment_status_pressure(row.get("status")),
+            "recent_score": score,
+        }
+        composite = 0.65 * signal["score_gap"] + 0.35 * signal["status_pressure"]
+        focus_kind = _recommendation_focus_kind(signal, composite)
+        reasons = []
+        if score is not None:
+            reasons.append(t("student_recommendation_reason_low_score", score=int(round(score))))
+        if signal["retry_pressure"] >= 0.34:
+            reasons.append(t("student_recommendation_reason_retries"))
+        reasons.append(t("student_recommendation_reason_active_assignment"))
+        fallback_recommendations.append(
+            {
+                "title": str(row.get("topic") or row.get("title") or t("student_progress_assignments_tab")).strip(),
+                "subject_display": str(row.get("subject_display") or "—").strip(),
+                "program_title": t("student_progress_assignments_tab"),
+                "objective": str(row.get("title") or row.get("topic") or "").strip(),
+                "focus_kind": focus_kind,
+                "priority_label": _recommendation_priority_label(composite),
+                "focus_label": _recommendation_focus_label(focus_kind),
+                "score": composite,
+                "program_progress": None,
+                "recent_score": score,
+                "reasons": reasons[:3],
+                "actions": _recommendation_actions(focus_kind),
+            }
+        )
+    return fallback_recommendations, overall_signal
+
+
+def _inject_recommendation_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        .classio-reco-hero {
+            position: relative;
+            overflow: hidden;
+            border-radius: 24px;
+            padding: 22px 24px;
+            margin-bottom: 1rem;
+            background:
+                radial-gradient(circle at top right, color-mix(in srgb, var(--primary, #2563eb) 22%, transparent), transparent 34%),
+                radial-gradient(circle at bottom left, color-mix(in srgb, #10b981 18%, transparent), transparent 38%),
+                linear-gradient(135deg, color-mix(in srgb, var(--panel, #ffffff) 76%, var(--primary, #2563eb) 24%), color-mix(in srgb, var(--panel, #ffffff) 88%, #10b981 12%) 48%, var(--panel, #ffffff));
+            color: var(--text, #0f172a);
+            border: 1px solid color-mix(in srgb, var(--border, rgba(148,163,184,.35)) 78%, var(--primary, #2563eb) 22%);
+            box-shadow: 0 18px 48px color-mix(in srgb, var(--primary, #2563eb) 10%, rgba(15,23,42,.08));
+        }
+        .classio-reco-hero-title {
+            font-size: 1.22rem;
+            font-weight: 900;
+            letter-spacing: -.02em;
+        }
+        .classio-reco-hero-subtitle {
+            margin-top: 0.45rem;
+            max-width: 780px;
+            color: var(--muted, #475569);
+            line-height: 1.45;
+        }
+        .classio-reco-metric {
+            border-radius: 18px;
+            padding: 14px 16px;
+            background: linear-gradient(180deg, color-mix(in srgb, var(--panel, #ffffff) 95%, white 5%), color-mix(in srgb, var(--panel, #ffffff) 86%, var(--primary, #2563eb) 14%));
+            border: 1px solid color-mix(in srgb, var(--border, rgba(148,163,184,.35)) 82%, var(--primary, #2563eb) 18%);
+            min-height: 92px;
+        }
+        .classio-reco-metric-label {
+            font-size: 0.78rem;
+            color: var(--muted, #64748b);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+        }
+        .classio-reco-metric-value {
+            margin-top: 0.35rem;
+            font-size: 1.5rem;
+            font-weight: 900;
+            color: var(--text, #0f172a);
+        }
+        .classio-reco-card {
+            border-radius: 22px;
+            padding: 20px 20px 18px;
+            background:
+                linear-gradient(180deg, color-mix(in srgb, var(--panel, #ffffff) 96%, white 4%), color-mix(in srgb, var(--panel, #ffffff) 90%, var(--primary, #2563eb) 10%));
+            border: 1px solid color-mix(in srgb, var(--border, rgba(148,163,184,.35)) 84%, var(--primary, #2563eb) 16%);
+            box-shadow: 0 16px 36px rgba(15,23,42,.08);
+            min-height: 100%;
+        }
+        .classio-reco-chip-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .classio-reco-chip {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 5px 10px;
+            font-size: 0.75rem;
+            font-weight: 800;
+        }
+        .classio-reco-title {
+            font-size: 1.08rem;
+            font-weight: 900;
+            color: #0f172a;
+            line-height: 1.25;
+        }
+        .classio-reco-meta {
+            margin-top: 0.35rem;
+            font-size: 0.84rem;
+            color: #64748b;
+            font-weight: 600;
+        }
+        .classio-reco-section-label {
+            margin-top: 0.95rem;
+            font-size: 0.78rem;
+            color: #475569;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+        .classio-reco-body {
+            margin-top: 0.3rem;
+            color: #0f172a;
+            line-height: 1.5;
+        }
+        .classio-reco-list {
+            margin: 0.45rem 0 0 0;
+            padding-left: 1.1rem;
+            color: #1e293b;
+        }
+        .classio-reco-list li {
+            margin-bottom: 0.28rem;
+        }
+        .classio-reco-statline {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 0.85rem;
+        }
+        .classio-reco-statpill {
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 0.76rem;
+            font-weight: 700;
+            color: var(--text, #334155);
+            background: color-mix(in srgb, var(--panel-soft, rgba(148,163,184,.12)) 88%, var(--primary, #2563eb) 12%);
+            border: 1px solid color-mix(in srgb, var(--border, rgba(148,163,184,.35)) 82%, var(--primary, #2563eb) 18%);
+        }
+        .classio-reco-resource-tray {
+            margin-top: 10px;
+            padding: 14px;
+            border-radius: 18px;
+            border: 1px solid color-mix(in srgb, var(--border, rgba(148,163,184,.35)) 80%, #10b981 20%);
+            background:
+                linear-gradient(180deg, color-mix(in srgb, var(--panel, #ffffff) 94%, white 6%), color-mix(in srgb, var(--panel, #ffffff) 88%, #10b981 12%));
+            box-shadow: 0 12px 26px rgba(15,23,42,.07);
+        }
+        .classio-reco-resource-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .classio-reco-resource-title {
+            font-size: .92rem;
+            font-weight: 900;
+            color: var(--text, #0f172a);
+            line-height: 1.25;
+        }
+        .classio-reco-resource-subtitle {
+            margin-top: 3px;
+            color: var(--muted, #64748b);
+            font-size: .78rem;
+            line-height: 1.35;
+        }
+        .classio-reco-resource-count {
+            flex: 0 0 auto;
+            border-radius: 999px;
+            padding: 5px 9px;
+            font-size: .72rem;
+            font-weight: 850;
+            color: #047857;
+            background: rgba(16,185,129,.12);
+            border: 1px solid rgba(16,185,129,.2);
+        }
+        div[data-testid="stExpander"]:has(.classio-reco-resource-expander-body) {
+            border: 1px solid color-mix(in srgb, var(--border, rgba(148,163,184,.35)) 78%, #10b981 22%) !important;
+            border-radius: 18px !important;
+            background: linear-gradient(180deg, var(--panel, #ffffff), color-mix(in srgb, var(--panel, #ffffff) 92%, #10b981 8%)) !important;
+            box-shadow: 0 12px 26px rgba(15,23,42,.07) !important;
+            overflow: hidden !important;
+            margin-top: 10px !important;
+        }
+        div[data-testid="stExpander"]:has(.classio-reco-resource-expander-body) summary {
+            font-weight: 900 !important;
+            color: var(--text, #0f172a) !important;
+        }
+        .classio-reco-resource-group {
+            margin-top: 10px;
+        }
+        .classio-reco-resource-group-label {
+            margin-bottom: 6px;
+            font-size: .72rem;
+            font-weight: 900;
+            color: #475569;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+        .classio-reco-resource-page {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            overflow-x: auto;
+            padding-bottom: 2px;
+            scroll-snap-type: x proximity;
+        }
+        .classio-reco-resource-slot {
+            min-width: 0;
+            scroll-snap-align: start;
+        }
+        .classio-reco-resource-card {
+            margin-bottom: 8px;
+            padding: 11px 12px;
+            border-radius: 14px;
+            background: rgba(255,255,255,.72);
+            border: 1px solid rgba(148,163,184,.22);
+            min-height: 132px;
+        }
+        .classio-reco-resource-card-top {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            align-items: flex-start;
+        }
+        .classio-reco-resource-card-title {
+            font-size: .88rem;
+            font-weight: 900;
+            color: #0f172a;
+            line-height: 1.25;
+            min-width: 0;
+        }
+        .classio-reco-resource-assigned {
+            flex: 0 0 auto;
+            border-radius: 999px;
+            padding: 4px 8px;
+            font-size: .68rem;
+            font-weight: 900;
+            color: #047857;
+            background: rgba(16,185,129,.14);
+            border: 1px solid rgba(16,185,129,.24);
+            white-space: nowrap;
+        }
+        .classio-reco-resource-preview {
+            margin-top: 4px;
+            color: #64748b;
+            font-size: .78rem;
+            line-height: 1.35;
+        }
+        .classio-reco-resource-chiprow {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+        .classio-reco-resource-chip {
+            border-radius: 999px;
+            padding: 4px 8px;
+            font-size: .7rem;
+            font-weight: 800;
+            color: #334155;
+            background: rgba(248,250,252,.86);
+            border: 1px solid rgba(148,163,184,.2);
+        }
+        .classio-reco-resource-empty {
+            margin-top: 8px;
+            padding: 10px 12px;
+            border-radius: 14px;
+            color: #64748b;
+            font-size: .8rem;
+            background: rgba(248,250,252,.74);
+            border: 1px dashed rgba(148,163,184,.34);
+        }
+        @media (max-width: 768px) {
+            .classio-reco-card {
+                padding: 16px 16px 14px;
+            }
+            .classio-reco-hero {
+                padding: 18px 18px;
+            }
+            .classio-reco-resource-page {
+                grid-template-columns: repeat(2, minmax(230px, 82vw));
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_recommended_resources_for_item(
+    item: dict,
+    resource_pool: list[dict],
+    *,
+    key_prefix: str,
+    assigned_resource_keys: set[tuple[str, str]] | None = None,
+) -> None:
+    grouped_resources = _recommended_resources_for_item(item, resource_pool)
+    ordered_kinds = _recommended_resource_kind_order(str(item.get("focus_kind") or ""))
+    total_matches = sum(len(grouped_resources.get(kind) or []) for kind in ordered_kinds)
+    assigned_resource_keys = assigned_resource_keys or set()
+
+    expander_label = f"{t('recommended_resources_title')} · {t('recommended_resources_count', count=total_matches)}"
+    with st.expander(expander_label, expanded=False):
+        st.markdown(
+            f"""
+            <div class="classio-reco-resource-expander-body">
+                <div class="classio-reco-resource-head">
+                    <div>
+                        <div class="classio-reco-resource-title">{_html.escape(t('recommended_resources_title'))}</div>
+                        <div class="classio-reco-resource-subtitle">{_html.escape(t('recommended_resources_subtitle'))}</div>
+                    </div>
+                    <div class="classio-reco-resource-count">{_html.escape(t('recommended_resources_count', count=total_matches))}</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if total_matches <= 0:
+            st.markdown(
+                f"<div class='classio-reco-resource-empty'>{_html.escape(t('recommended_resources_empty'))}</div>",
+                unsafe_allow_html=True,
+            )
+            return
+
+        for kind in ordered_kinds:
+            resources = grouped_resources.get(kind) or []
+            if not resources:
+                continue
+            group_label = {
+                "plan": t("recommended_resources_group_plans"),
+                "worksheet": t("recommended_resources_group_practice"),
+                "exam": t("recommended_resources_group_assessment"),
+            }.get(kind, _recommended_resource_kind_label(kind))
+            state_key = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{key_prefix}_{kind}_page")
+            page_resources, *_ = _slice_teacher_page(resources, state_key, page_size=_RECOMMENDED_RESOURCE_PAGE_SIZE)
+            st.markdown(
+                f"<div class='classio-reco-resource-group'><div class='classio-reco-resource-group-label'>{_html.escape(group_label)}</div></div>",
+                unsafe_allow_html=True,
+            )
+
+            resource_cols = st.columns(len(page_resources), gap="small") if page_resources else []
+            for resource_idx, (resource_col, resource) in enumerate(zip(resource_cols, page_resources)):
+                row = resource.get("row") or {}
+                title = str(row.get("title") or _recommended_resource_kind_label(kind)).strip()
+                preview = _resource_preview_text(row, kind) or t("no_description_available")
+                subject = str(row.get("subject") or "").strip()
+                level = str(row.get("level") if kind == "exam" else row.get("level_or_band") or "").strip()
+                source_label = _resource_source_label(str(resource.get("source") or ""))
+                is_assigned = _recommended_resource_is_assigned(resource, assigned_resource_keys)
+                chips = [
+                    source_label,
+                    _recommended_resource_kind_label(kind),
+                    _resource_match_band(float(resource.get("score") or 0.0)),
+                ]
+                if subject:
+                    chips.append(t(f"subject_{subject.lower().replace(' ', '_')}"))
+                if level:
+                    chips.append(level if level in ("A1", "A2", "B1", "B2", "C1", "C2") else t(level))
+                chip_html = "".join(f"<span class='classio-reco-resource-chip'>{_html.escape(str(chip))}</span>" for chip in chips if chip)
+                assigned_html = (
+                    f"<span class='classio-reco-resource-assigned'>{_html.escape(t('assignment_status_assigned'))}</span>"
+                    if is_assigned
+                    else ""
+                )
+                button_key = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{state_key}_{resource.get('source')}_{row.get('id')}_{resource_idx}")
+                with resource_col:
+                    st.markdown(
+                        "<div class='classio-reco-resource-card'>"
+                        "<div class='classio-reco-resource-card-top'>"
+                        f"<div class='classio-reco-resource-card-title'>{_html.escape(title)}</div>"
+                        f"{assigned_html}"
+                        "</div>"
+                        f"<div class='classio-reco-resource-preview'>{_html.escape(preview[:150])}</div>"
+                        f"<div class='classio-reco-resource-chiprow'>{chip_html}</div>"
+                        "</div>",
+                        unsafe_allow_html=True,
+                    )
+                    view_col, assign_col = st.columns(2, gap="small")
+                    with view_col:
+                        if st.button(t("recommended_resource_preview"), key=f"{button_key}_preview", use_container_width=True):
+                            _open_recommended_resource(resource, assign=False)
+                    with assign_col:
+                        if st.button(t("recommended_resource_assign"), key=f"{button_key}_assign", use_container_width=True):
+                            _open_recommended_resource(resource, assign=True)
+            _render_teacher_pagination(resources, state_key, page_size=_RECOMMENDED_RESOURCE_PAGE_SIZE)
+
+
+def _render_recommendations_tab(
+    progress_rows: list[dict],
+    program_rows: list[dict],
+    selected_subject: str,
+    selected_student_name: str,
+    selected_link: dict,
+) -> None:
+    _inject_recommendation_styles()
+    recommendations, overall_signal = _build_program_recommendations(
+        progress_rows=progress_rows,
+        program_rows=program_rows,
+        selected_subject=selected_subject,
+    )
+    resource_pool = _load_recommendation_resource_pool() if recommendations else []
+    filtered_program_count = len(
+        [
+            row for row in program_rows
+            if selected_subject == "__all__"
+            or str((load_learning_program(int(row.get("program_id") or 0)) or {}).get("subject") or "").strip() == selected_subject
+        ]
+    )
+
+    st.markdown(
+        f"""
+        <div class="classio-reco-hero">
+            <div class="classio-reco-hero-title">{_html.escape(t('student_progress_recommendations_title'))}</div>
+            <div class="classio-reco-hero-subtitle">{_html.escape(t('student_progress_recommendations_subtitle'))}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    recent_score_value = overall_signal.get("recent_score")
+    recent_score_text = "—" if recent_score_value is None else f"{int(round(recent_score_value))}%"
+    summary_cards = [
+        (t("student_recommendation_summary_score"), recent_score_text),
+        (t("student_recommendation_summary_assignments"), str(int(overall_signal.get("active_assignments") or 0))),
+        (t("student_recommendation_summary_programs"), str(filtered_program_count)),
+    ]
+    summary_cols = st.columns(3, gap="medium")
+    for col, (label, value) in zip(summary_cols, summary_cards):
+        with col:
+            st.markdown(
+                f"""
+                <div class="classio-reco-metric">
+                    <div class="classio-reco-metric-label">{_html.escape(label)}</div>
+                    <div class="classio-reco-metric-value">{_html.escape(value)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    if not recommendations:
+        st.info(t("student_progress_recommendations_empty"))
+        return
+
+    assigned_resource_keys = _load_assigned_resource_keys_for_student(selected_link, program_rows)
+
+    for idx in range(0, len(recommendations), 2):
+        pair = recommendations[idx: idx + 2]
+        cols = st.columns(len(pair), gap="medium")
+        for offset, (col, item) in enumerate(zip(cols, pair)):
+            with col:
+                priority_color = "#dc2626" if item.get("score", 0.0) >= 0.78 else ("#d97706" if item.get("score", 0.0) >= 0.6 else "#2563eb")
+                focus_color = {
+                    "needs_practice": "#dc2626",
+                    "reteach": "#dc2626",
+                    "reinforce": "#d97706",
+                    "stretch": "#2563eb",
+                }.get(item.get("focus_kind"), "#2563eb")
+                badge_label = _recommendation_badge_label(item)
+                badge_html = (
+                    f"<span class='classio-reco-chip' style='background:#dc262618;color:#dc2626;border:1px solid #dc26262a;'>{_html.escape(badge_label)}</span>"
+                    if badge_label
+                    else ""
+                )
+                reasons_html = "".join(f"<li>{_html.escape(reason)}</li>" for reason in (item.get("reasons") or []))
+                actions_html = "".join(f"<li>{_html.escape(action)}</li>" for action in (item.get("actions") or []))
+                objective = str(item.get("objective") or "").strip() or str(item.get("title") or "—")
+                program_progress = item.get("program_progress")
+                recent_score = item.get("recent_score")
+                stat_parts = []
+                if recent_score is not None:
+                    stat_parts.append(
+                        f"<span class='classio-reco-statpill'>{_html.escape(t('student_recommendation_recent_score'))}: {_html.escape(str(int(round(recent_score))) + '%')}</span>"
+                    )
+                if program_progress is not None:
+                    stat_parts.append(
+                        f"<span class='classio-reco-statpill'>{_html.escape(t('student_recommendation_program_progress'))}: {_html.escape(str(program_progress) + '%')}</span>"
+                    )
+                statline_html = "".join(stat_parts)
+                card_html = (
+                    '<div class="classio-reco-card">'
+                    '<div class="classio-reco-chip-row">'
+                    f'<span class="classio-reco-chip" style="background:{priority_color}18;color:{priority_color};border:1px solid {priority_color}2a;">{_html.escape(str(item.get("priority_label") or ""))}</span>'
+                    f'<span class="classio-reco-chip" style="background:{focus_color}18;color:{focus_color};border:1px solid {focus_color}2a;">{_html.escape(str(item.get("focus_label") or ""))}</span>'
+                    f'{badge_html}'
+                    '</div>'
+                    f'<div class="classio-reco-title">{_html.escape(str(item.get("title") or "-"))}</div>'
+                    f'<div class="classio-reco-meta">{_html.escape(str(item.get("program_title") or "-"))} · {_html.escape(str(item.get("subject_display") or "-"))}</div>'
+                    f'<div class="classio-reco-section-label">{_html.escape(t("student_recommendation_lesson_objective"))}</div>'
+                    f'<div class="classio-reco-body">{_html.escape(objective)}</div>'
+                    f'<div class="classio-reco-statline">{statline_html}</div>'
+                    f'<div class="classio-reco-section-label">{_html.escape(t("student_recommendation_why"))}</div>'
+                    f'<ul class="classio-reco-list">{reasons_html}</ul>'
+                    f'<div class="classio-reco-section-label">{_html.escape(t("student_recommendation_actions"))}</div>'
+                    f'<ul class="classio-reco-list">{actions_html}</ul>'
+                    '</div>'
+                )
+                st.markdown(card_html, unsafe_allow_html=True)
+                student_label = _student_personalization_label(selected_student_name, selected_link)
+                recommendation_payload = {
+                    **item,
+                    "student_label": student_label,
+                }
+                _render_recommended_resources_for_item(
+                    item,
+                    resource_pool,
+                    key_prefix=f"reco_resources_{idx}_{offset}_{str(item.get('title') or '')}",
+                    assigned_resource_keys=assigned_resource_keys,
+                )
+
+                action_cols = st.columns(3, gap="small")
+                with action_cols[0]:
+                    if st.button(
+                        t("student_recommendation_create_lesson_plan"),
+                        key=f"reco_plan_{idx}_{offset}_{str(item.get('title') or '')}",
+                        use_container_width=True,
+                    ):
+                        _prefill_smart_tool_from_recommendation(recommendation_payload, "lesson_plan")
+                with action_cols[1]:
+                    if st.button(
+                        t("student_recommendation_create_worksheet"),
+                        key=f"reco_ws_{idx}_{offset}_{str(item.get('title') or '')}",
+                        use_container_width=True,
+                    ):
+                        _prefill_smart_tool_from_recommendation(recommendation_payload, "worksheet")
+                with action_cols[2]:
+                    if st.button(
+                        t("student_recommendation_create_exam"),
+                        key=f"reco_exam_{idx}_{offset}_{str(item.get('title') or '')}",
+                        use_container_width=True,
+                    ):
+                        _prefill_smart_tool_from_recommendation(recommendation_payload, "exam")
 
 
 def _render_teacher_review_requests(
@@ -520,7 +1705,16 @@ def render_students():
         unsafe_allow_html=True,
     )
     if students_df.empty:
-        st.info(t("no_students"))
+        render_empty_state(
+            title_key="students_empty_title",
+            body_key="students_empty_body",
+            steps=[
+                "students_empty_step_add",
+                "students_empty_step_profile",
+                "students_empty_step_progress",
+            ],
+            icon="👩‍🎓",
+        )
     else:
         tab_list, tab_profile, tab_history, tab_requests, tab_progress, tab_delete = st.tabs([
             f"👩‍🎓 {t('student_list')}",
@@ -718,13 +1912,29 @@ def render_students():
             with col2:
                 color = st.color_picker(t("calendar_color"), value=student_row.get("color", "#3B82F6"), key=f"student_color_{sid}")
                 address = st.text_input(t("address"), value=student_row.get("address", ""), key=f"student_address_{sid}")
+                native_language_current = normalize_native_language(student_row.get("native_language", ""))
+                native_language = native_language_current
+                show_native_language_profile_field = (
+                    _current_teacher_teaches_languages()
+                    or _student_has_language_subject(selected_student)
+                    or bool(native_language_current)
+                )
+                if show_native_language_profile_field:
+                    native_language = st.selectbox(
+                        t("student_native_language"),
+                        NATIVE_LANGUAGE_OPTIONS,
+                        index=NATIVE_LANGUAGE_OPTIONS.index(native_language_current) if native_language_current in NATIVE_LANGUAGE_OPTIONS else 0,
+                        format_func=native_language_label,
+                        key=f"student_native_language_{sid}",
+                        help=t("student_native_language_help"),
+                    )
                 notes = st.text_area(t("notes"), value=student_row.get("notes", ""), key=f"student_notes_{sid}")
 
             if phone and not normalize_phone_for_whatsapp(phone) and len(_digits_only(phone)) < 11:
                 st.warning(t("examples_phone"))
 
             if st.button(t("save"), key=f"btn_save_student_profile_{sid}"):
-                update_student_profile(selected_student, email, zoom_link, notes, color, phone, address)
+                update_student_profile(selected_student, email, zoom_link, notes, color, phone, address, native_language)
                 st.success(t("done_ok"))
                 st.rerun()
 
@@ -758,16 +1968,24 @@ def render_students():
                 _email = str(_row.iloc[0].get("email", "")).strip() if not _row.empty else ""
                 _phone = str(_row.iloc[0].get("phone", "")).strip() if not _row.empty else ""
 
+                from services.permissions_service import can_export_pdf, increment_usage
+
                 btn_cols = st.columns(3)
                 with btn_cols[0]:
-                    st.download_button(
+                    _can_download_pdf = can_export_pdf()
+                    if not _can_download_pdf:
+                        st.warning(t("ai_limit_reached") if t("ai_limit_reached") != "ai_limit_reached" else "PDF export limit reached.")
+                    _downloaded_pdf = st.download_button(
                         label=f"📄 {t('download_pdf')}",
                         data=pdf_bytes,
                         file_name=file_name,
                         mime="application/pdf",
                         key="btn_download_student_report",
                         use_container_width=True,
+                        disabled=not _can_download_pdf,
                     )
+                    if _downloaded_pdf:
+                        increment_usage(None, "pdf_exports")
                 with btn_cols[1]:
                     if _phone:
                         wa_url = build_report_whatsapp_url(hist_student, _phone)
@@ -1022,12 +2240,14 @@ def render_students():
                     student_id=str(selected_link.get("student_id") or ""),
                     subject_key=None if selected_subject == "__all__" else selected_subject,
                 )
+                program_rows = _load_teacher_program_rows_for_student(selected_link, selected_student_name)
 
-                assignments_tab, reviews_tab, programs_tab = st.tabs(
+                assignments_tab, reviews_tab, programs_tab, recommendations_tab = st.tabs(
                     [
                         f"📝 {t('student_progress_assignments_tab')}",
                         f"🧑‍🏫 {t('student_progress_reviews_tab')}",
                         f"📚 {t('assigned_learning_programs_title')}",
+                        f"✨ {t('student_progress_recommendations_tab')}",
                     ]
                 )
 
@@ -1126,19 +2346,16 @@ def render_students():
                                     st.error(t(msg) if msg in {"assignment_archived", "assignment_archive_failed"} else msg)
                         _render_teacher_pagination(filtered_progress_rows, "teacher_assignment_progress_page")
 
-                with programs_tab:
-                    program_assignments_df = load_program_assignments_for_teacher()
-                    selected_student_id = str(selected_link.get("student_id") or "").strip()
-                    selected_student_label = str(selected_student_name or "").strip().casefold()
-                    program_rows = []
-                    if program_assignments_df is not None and not program_assignments_df.empty:
-                        for _, row in program_assignments_df.iterrows():
-                            row_dict = row.to_dict()
-                            row_student_id = str(row_dict.get("student_user_id") or "").strip()
-                            row_student_name = str(row_dict.get("student_name") or "").strip().casefold()
-                            if (selected_student_id and row_student_id == selected_student_id) or (selected_student_label and row_student_name == selected_student_label):
-                                program_rows.append(row_dict)
+                with recommendations_tab:
+                    _render_recommendations_tab(
+                        progress_rows,
+                        program_rows,
+                        selected_subject,
+                        selected_student_name,
+                        selected_link,
+                    )
 
+                with programs_tab:
                     if not program_rows:
                         st.info(t("no_assignments"))
                     else:
@@ -1190,7 +2407,7 @@ def render_students():
                                 ):
                                     for topic in unit.get("topics") or []:
                                         topic_id = int(topic.get("topic_id") or 0)
-                                        done = bool(progress_map.get(topic_id, {}).get("is_done"))
+                                        done = bool(progress_map.get(topic_id, {}).get("teacher_done"))
                                         topic_cols = st.columns([0.14, 0.86], gap="small")
                                         with topic_cols[0]:
                                             new_done = st.checkbox(

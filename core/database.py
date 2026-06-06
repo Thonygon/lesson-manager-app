@@ -652,20 +652,32 @@ def normalize_latest_package(student: str, payment_id: int, note: str = "") -> b
         return False
 
 
-def update_student_profile(student: str, email: str, zoom_link: str, notes: str, color: str, phone: str, address: str = "") -> None:
+def update_student_profile(student: str, email: str, zoom_link: str, notes: str, color: str, phone: str, address: str = "", native_language: str = "") -> None:
     uid = get_current_user_id()
     sb = get_sb()
-    q = sb.table("students").update({
+    payload = {
         "email": email,
         "zoom_link": zoom_link,
         "notes": notes,
         "color": color,
         "phone": phone,
         "address": address,
-    }).eq("student", student)
+        "native_language": native_language,
+    }
+    q = sb.table("students").update(payload).eq("student", student)
     if uid:
         q = q.eq("user_id", uid)
-    q.execute()
+    try:
+        q.execute()
+    except Exception as exc:
+        if "native_language" not in str(exc):
+            raise
+        legacy_payload = dict(payload)
+        legacy_payload.pop("native_language", None)
+        q = sb.table("students").update(legacy_payload).eq("student", student)
+        if uid:
+            q = q.eq("user_id", uid)
+        q.execute()
     clear_app_caches()
 
 

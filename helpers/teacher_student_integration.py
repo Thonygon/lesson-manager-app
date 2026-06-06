@@ -1795,6 +1795,62 @@ def _render_assignment_target_fields(prefix: str, available_links: list[dict]) -
     return link, subject, due_date, teacher_note
 
 
+def _assignment_duplicate_count(
+    *,
+    link: dict,
+    assignment_type: str,
+    source_record_id: int | str | None = None,
+    title: str = "",
+    topic: str = "",
+) -> int:
+    teacher_id = str(get_current_user_id() or "").strip()
+    link_id = int((link or {}).get("id") or 0)
+    if not teacher_id or link_id <= 0:
+        return 0
+    try:
+        query = (
+            get_sb()
+            .table("teacher_assignments")
+            .select("id,title,topic,source_record_id,status")
+            .eq("teacher_id", teacher_id)
+            .eq("link_id", link_id)
+            .eq("assignment_type", str(assignment_type or "").strip())
+            .neq("status", "archived")
+        )
+        source_text = str(source_record_id or "").strip()
+        if source_text and source_text not in {"0", "None"}:
+            query = query.eq("source_record_id", source_record_id)
+        rows = _rows(query.execute())
+    except Exception:
+        return 0
+
+    title_key = _clean_text(title).casefold()
+    topic_key = _clean_text(topic).casefold()
+    if not title_key and not topic_key:
+        return len(rows)
+    count = 0
+    for row in rows:
+        row_title = _clean_text(row.get("title")).casefold()
+        row_topic = _clean_text(row.get("topic")).casefold()
+        if title_key and row_title == title_key:
+            count += 1
+        elif topic_key and row_topic == topic_key:
+            count += 1
+    return count
+
+
+def _render_duplicate_assignment_confirmation(prefix: str, duplicate_count: int) -> bool:
+    if duplicate_count <= 0:
+        return True
+    st.warning(t("assignment_duplicate_warning"))
+    return bool(
+        st.checkbox(
+            t("assignment_duplicate_confirm"),
+            key=f"{prefix}_duplicate_confirm",
+        )
+    )
+
+
 def render_assignment_panel_for_worksheet(
     *,
     prefix: str,
@@ -1810,7 +1866,18 @@ def render_assignment_panel_for_worksheet(
     link, subject_scope, due_date, teacher_note = _render_assignment_target_fields(prefix, links)
     if not link or not subject_scope:
         return
+    duplicate_count = _assignment_duplicate_count(
+        link=link,
+        assignment_type="worksheet",
+        source_record_id=source_record_id,
+        title=str(worksheet.get("title") or topic or t("untitled_worksheet")),
+        topic=topic,
+    )
+    duplicate_confirmed = _render_duplicate_assignment_confirmation(prefix, duplicate_count)
     if st.button(t("create_assignment"), key=f"{prefix}_assign_btn", use_container_width=True):
+        if duplicate_count > 0 and not duplicate_confirmed:
+            st.error(t("assignment_duplicate_confirm_required"))
+            return
         snapshot = {
             "worksheet": worksheet,
             "meta": {
@@ -1857,7 +1924,18 @@ def render_assignment_panel_for_exam(
     link, subject_scope, due_date, teacher_note = _render_assignment_target_fields(prefix, links)
     if not link or not subject_scope:
         return
+    duplicate_count = _assignment_duplicate_count(
+        link=link,
+        assignment_type="exam",
+        source_record_id=source_record_id,
+        title=str(exam_data.get("title") or topic or t("quick_exam_generic_exam_title")),
+        topic=topic,
+    )
+    duplicate_confirmed = _render_duplicate_assignment_confirmation(prefix, duplicate_count)
     if st.button(t("create_assignment"), key=f"{prefix}_assign_btn", use_container_width=True):
+        if duplicate_count > 0 and not duplicate_confirmed:
+            st.error(t("assignment_duplicate_confirm_required"))
+            return
         snapshot = {
             "exam_data": exam_data,
             "answer_key": answer_key,
@@ -1911,9 +1989,23 @@ def render_assignment_panel_for_lesson_plan(
         default=list(topic_options.keys())[:1],
         key=f"{prefix}_plan_topics",
     )
+    duplicate_count = 0
+    for label in selected_labels:
+        item = topic_options[label]
+        duplicate_count += _assignment_duplicate_count(
+            link=link,
+            assignment_type="lesson_plan_topic",
+            source_record_id=source_record_id,
+            title=item["topic_title"],
+            topic=item["topic_title"],
+        )
+    duplicate_confirmed = _render_duplicate_assignment_confirmation(prefix, duplicate_count)
     if st.button(t("create_assignment"), key=f"{prefix}_assign_btn", use_container_width=True):
         if not selected_labels:
             st.error(t("select_assigned_topics"))
+            return
+        if duplicate_count > 0 and not duplicate_confirmed:
+            st.error(t("assignment_duplicate_confirm_required"))
             return
         created = 0
         for label in selected_labels:
