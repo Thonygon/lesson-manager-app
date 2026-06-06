@@ -2,6 +2,7 @@ import json, os, re
 from typing import Optional
 from core.i18n import t
 from helpers.lesson_planner import subject_label as _subject_label
+from helpers.native_language import native_language_label
 # -----------------------------------------------------------------------
 # CV BUILDER — template + AI generation
 # Reuses the same AI infrastructure as helpers/lesson_planner.py
@@ -49,12 +50,7 @@ def _stage_label(stage: str) -> str:
 
 
 def _lang_label(code: str) -> str:
-    labels = {
-        "en": t("english"),
-        "es": t("spanish"),
-        "tr": t("turkish"),
-    }
-    return labels.get(str(code).strip().lower(), str(code))
+    return native_language_label(code)
 
 
 def _parse_lines(text: str) -> list:
@@ -284,7 +280,7 @@ _IMPORT_SYSTEM_PROMPT = (
     '  "professional_summary": "string",\n'
     '  "subjects": ["string"],\n'
     '  "teaching_stages": ["early_primary|upper_primary|lower_secondary|upper_secondary|adult_stage"],\n'
-    '  "teaching_languages": ["en|es|tr"],\n'
+    '  "teaching_languages": ["language names or ISO language codes, e.g. English, Spanish, Arabic, Japanese"],\n'
     '  "education": ["one entry per item"],\n'
     '  "certifications": ["string"],\n'
     '  "experience": ["one entry per item"],\n'

@@ -16,6 +16,7 @@ from core.i18n import t
 from core.state import get_current_user_id, with_owner
 from helpers.archive_utils import ARCHIVED_STATUS, filter_archived_rows, is_archived_status
 from helpers.generation_guidance import build_expert_panel_prompt_blurb
+from helpers.native_language import NATIVE_LANGUAGE_OPTIONS, is_language_subject, native_language_label, normalize_native_language
 
 AI_PROGRAM_DAILY_LIMIT = 1
 AI_PROGRAM_COOLDOWN_SECONDS = 10
@@ -1555,6 +1556,7 @@ def _build_program_generation_payload(
     teaching_weeks: Optional[int] = None,
     additional_notes: str = "",
     previous_program: Optional[dict] = None,
+    student_native_language: str = "",
 ) -> dict:
     guardrails = recommend_program_structure(subject, learner_stage)
     subject_family = infer_subject_family(subject, custom_subject_name)
@@ -1570,6 +1572,7 @@ def _build_program_generation_payload(
         "level_or_band": level_or_band,
         "program_language": _lp().get_plan_language(),
         "student_material_language": _lp().get_student_material_language(subject),
+        "student_native_language": normalize_native_language(student_native_language),
         "requested_units": units,
         "requested_lessons_per_unit": lessons_per_unit,
         "teaching_weeks": _ensure_int(teaching_weeks, units * lessons_per_unit, 1, 104) if teaching_weeks else None,
@@ -1589,6 +1592,7 @@ def _build_program_generation_payload(
             "Keep Classio resources central, but do not force them where a better teacher-led or live activity is needed.",
             "If the subject is Other, infer the closest pedagogical family and adapt intelligently.",
             "For Classio-supported subjects, follow the subject progression profile closely so the scope and sequence feels production-ready.",
+            "Use student_native_language as the support language for beginner-level scaffolding when it is pedagogically useful; do not force translation support into every activity.",
         ],
         "progression_chain_context": previous_context,
         "additional_notes": _clean_text(additional_notes),
@@ -1686,6 +1690,8 @@ Rules:
 - lesson_purpose values must come from recommended_lesson_purposes.
 - Each topic must be concrete enough to generate a lesson plan, worksheet, or exam later.
 - Keep student_summary simple and motivating.
+- If student_native_language is provided and the level is beginner/A1/A2 or the activity needs access support, use that language for brief support notes instead of assuming English or Spanish.
+- Do not over-translate higher-level topics; the program should stay in the requested student_material_language.
 
 Required output shape:
 {{
@@ -1753,6 +1759,7 @@ def _build_program_unit_enrichment_prompts(prompt_payload: dict, program_skeleto
         "recommended_non_classio_activities": prompt_payload.get("recommended_non_classio_activities"),
         "delivery_mode_guidance": prompt_payload.get("delivery_mode_guidance"),
         "subject_progression_profile": prompt_payload.get("subject_progression_profile"),
+        "student_native_language": prompt_payload.get("student_native_language"),
     }
 
     user_prompt = f"""
@@ -1771,6 +1778,8 @@ Rules:
 - Keep lesson_purpose values exactly as already defined in the unit skeleton.
 - Use non-Classio activities only when they genuinely improve pedagogy.
 - Respect online, offline, and blended feasibility.
+- If student_native_language is provided and the level is beginner/A1/A2 or the activity needs access support, use that language for brief support notes instead of assuming English or Spanish.
+- Do not over-translate higher-level topics; keep the requested student_material_language as the main student-facing language.
 - Keep each list concise and useful.
 
 Required output shape:
@@ -1961,6 +1970,7 @@ def generate_ai_learning_program_skeleton(
     teaching_weeks: Optional[int] = None,
     additional_notes: str = "",
     previous_program: Optional[dict] = None,
+    student_native_language: str = "",
 ) -> tuple[dict, str, Optional[str], dict]:
     structure = clamp_program_structure(subject, learner_stage, requested_units, requested_lessons_per_unit)
     fallback = _fallback_program_payload(
@@ -1982,6 +1992,7 @@ def generate_ai_learning_program_skeleton(
         teaching_weeks=teaching_weeks,
         additional_notes=additional_notes,
         previous_program=previous_program,
+        student_native_language=student_native_language,
     )
 
     try:
@@ -2149,6 +2160,7 @@ def generate_ai_learning_program(
     teaching_weeks: Optional[int] = None,
     additional_notes: str = "",
     previous_program: Optional[dict] = None,
+    student_native_language: str = "",
 ) -> tuple[dict, str, Optional[str]]:
     structure = clamp_program_structure(subject, learner_stage, requested_units, requested_lessons_per_unit)
     fallback = _fallback_program_payload(
@@ -2203,6 +2215,7 @@ def generate_ai_learning_program(
         teaching_weeks=teaching_weeks,
         additional_notes=additional_notes,
         previous_program=previous_program,
+        student_native_language=student_native_language,
     )
     skeleton_system_prompt, skeleton_user_prompt = _build_program_skeleton_prompts(payload)
     provider_order = get_ai_provider_order()
@@ -2886,6 +2899,27 @@ def assign_learning_program(
         return False, None, str(e)
 
 
+def learning_program_assignment_duplicate_count(program_id: int, student_user_id: str) -> int:
+    teacher_id = get_current_user_id()
+    student_user_id = _clean_text(student_user_id)
+    if not teacher_id or int(program_id or 0) <= 0 or not student_user_id:
+        return 0
+    try:
+        rows = _rows(
+            get_sb()
+            .table("learning_program_assignments")
+            .select("id,status")
+            .eq("teacher_id", teacher_id)
+            .eq("program_id", int(program_id))
+            .eq("student_user_id", student_user_id)
+            .neq("status", "archived")
+            .execute()
+        )
+        return len(rows)
+    except Exception:
+        return 0
+
+
 def update_learning_program_visibility(program_id: int, visibility: str) -> tuple[bool, str]:
     visibility = str(visibility or "private").strip().lower()
     if visibility not in PROGRAM_VISIBILITY_OPTIONS:
@@ -3056,9 +3090,8 @@ def set_assignment_topic_progress(
             "note": _clean_text(note),
             "updated_at": now,
         }
-        payload["is_done"] = bool(payload["teacher_done"] or payload["student_done"])
-        if payload["is_done"]:
-            payload["completed_at"] = now
+        payload["is_done"] = bool(payload["teacher_done"])
+        payload["completed_at"] = now if payload["is_done"] else None
 
         if existing_rows:
             current = existing_rows[0]
@@ -3066,7 +3099,8 @@ def set_assignment_topic_progress(
                 payload["teacher_done"] = bool(current.get("teacher_done"))
             if done_by_student is None:
                 payload["student_done"] = bool(current.get("student_done"))
-            payload["is_done"] = bool(payload["teacher_done"] or payload["student_done"])
+            payload["is_done"] = bool(payload["teacher_done"])
+            payload["completed_at"] = now if payload["is_done"] else None
             sb.table("learning_program_progress").update(payload).eq("id", int(current["id"])).execute()
         else:
             payload["created_at"] = now
@@ -3559,7 +3593,21 @@ def render_learning_program_assignment_panel(program: dict, prefix: str = "learn
         placeholder=t("assignment_teacher_note_placeholder"),
     ).strip()
 
+    duplicate_count = learning_program_assignment_duplicate_count(program_id, student_user_id)
+    duplicate_confirmed = True
+    if duplicate_count > 0:
+        st.warning(t("assignment_duplicate_warning"))
+        duplicate_confirmed = bool(
+            st.checkbox(
+                t("assignment_duplicate_confirm"),
+                key=f"{prefix}_duplicate_confirm",
+            )
+        )
+
     if st.button(t("assign"), key=f"{prefix}_assign_btn"):
+        if duplicate_count > 0 and not duplicate_confirmed:
+            st.error(t("assignment_duplicate_confirm_required"))
+            return
         ok, assignment_id, msg = assign_learning_program(
             program_id=program_id,
             student_name=selected_student_name,
@@ -3923,7 +3971,7 @@ def render_student_program_view(program: dict, assignment_id: Optional[int] = No
         for topic in unit.get("topics") or []:
             total_topics += 1
             topic_progress = progress_map.get(int(topic.get("topic_id") or 0), {})
-            if topic_progress.get("is_done"):
+            if topic_progress.get("teacher_done"):
                 completed_topics += 1
 
     progress_ratio = (completed_topics / total_topics) if total_topics else 0.0
@@ -3970,25 +4018,11 @@ def render_student_program_view(program: dict, assignment_id: Optional[int] = No
                 global_topic_number += 1
                 topic_id = int(topic.get("topic_id") or 0)
                 topic_progress = progress_map.get(topic_id, {})
-                done = bool(topic_progress.get("is_done"))
+                done = bool(topic_progress.get("teacher_done"))
+                needs_practice = bool(topic_progress.get("student_done"))
                 cols = st.columns([0.12, 0.88])
                 with cols[0]:
-                    if interactive and assignment_id and topic_id > 0:
-                        new_done = st.checkbox(
-                            t("done_label"),
-                            value=done,
-                            key=f"learning_program_done_{assignment_id}_{topic_id}",
-                            label_visibility="collapsed",
-                        )
-                        if new_done != done:
-                            set_assignment_topic_progress(
-                                assignment_id=int(assignment_id),
-                                topic_id=topic_id,
-                                done_by_student=new_done,
-                            )
-                            st.rerun()
-                    else:
-                        st.write("✅" if done else "⬜")
+                    st.write("✅" if done else "⬜")
                 with cols[1]:
                     st.markdown(
                         f"""
@@ -3998,7 +4032,7 @@ def render_student_program_view(program: dict, assignment_id: Optional[int] = No
                                     <div class="classio-program-topic-title">{t("topic_title_format", number=global_topic_number, title=topic.get("title"))}</div>
                                     <div class="classio-program-topic-copy">{topic.get('student_summary') or topic.get('lesson_focus') or topic.get('subtopic') or ''}</div>
                                 </div>
-                                <div class="classio-program-badge">{'+' + str(25) if done else str(global_topic_number)}</div>
+                                <div class="classio-program-badge">{t("need_more_practice_badge") if needs_practice else ('+' + str(25) if done else str(global_topic_number))}</div>
                             </div>
                         </div>
                         """,
@@ -4014,6 +4048,23 @@ def render_student_program_view(program: dict, assignment_id: Optional[int] = No
                         st.caption(summary)
                     elif extra_bits:
                         st.caption(" · ".join(extra_bits))
+                    if interactive and assignment_id and topic_id > 0 and done:
+                        new_needs_practice = st.checkbox(
+                            t("need_more_practice_request_label"),
+                            value=needs_practice,
+                            key=f"learning_program_needs_practice_{assignment_id}_{topic_id}",
+                            help=t("need_more_practice_request_help"),
+                        )
+                        st.caption(t("need_more_practice_request_explainer"))
+                        if new_needs_practice:
+                            st.info(t("need_more_practice_request_sent"))
+                        if new_needs_practice != needs_practice:
+                            set_assignment_topic_progress(
+                                assignment_id=int(assignment_id),
+                                topic_id=topic_id,
+                                done_by_student=new_needs_practice,
+                            )
+                            st.rerun()
 
 
 def render_saved_learning_program_workspace(program: dict, program_id: int, *, ns: str) -> None:
@@ -4122,7 +4173,7 @@ def load_enriched_program_assignments_for_current_student() -> list[dict]:
         teacher_profile = load_profile_row(_clean_text(row_dict.get("teacher_id")))
         progress_map = load_assignment_progress_map(assignment_id)
         total_topics = _count_program_topics(program)
-        done_topics = len([1 for item in progress_map.values() if item.get("is_done")])
+        done_topics = len([1 for item in progress_map.values() if item.get("teacher_done")])
         enriched.append(
             {
                 **row_dict,
@@ -4143,7 +4194,10 @@ def load_enriched_program_assignments_for_current_student() -> list[dict]:
 def render_quick_learning_program_builder_expander() -> None:
     ns = "quick_learning_program"
 
-    with st.expander(f"📚 {t('quick_learning_program_maker')}", expanded=False):
+    with st.expander(
+        f"📚 {t('quick_learning_program_maker')}",
+        expanded=bool(st.session_state.pop("open_quick_learning_program_expander", False)),
+    ):
         st.caption(t("quick_learning_program_maker_caption"))
 
         usage = get_ai_learning_program_usage_status()
@@ -4191,6 +4245,7 @@ def render_quick_learning_program_builder_expander() -> None:
         sequence_group_id = ""
         sequence_order = None
         prerequisite_summary = ""
+        previous_program_complete = True
 
         progression_candidates = load_progression_candidates(subject, learner_stage, custom_subject_name) if generation_path == "next_level" else pd.DataFrame()
         if generation_path == "next_level" and progression_candidates.empty:
@@ -4211,11 +4266,14 @@ def render_quick_learning_program_builder_expander() -> None:
             )
             previous_program = load_learning_program(int(selected_previous_id))
             parent_program_id = int(selected_previous_id)
+            previous_program_complete = _program_is_complete(previous_program)
             sequence_group_id = _clean_text(previous_program.get("sequence_group_id")) or _make_sequence_group_id(subject, learner_stage, custom_subject_name)
             previous_level = _clean_text(previous_program.get("level_or_band"))
             suggested_next_level = _next_recommended_level(subject, learner_stage, previous_level)
             default_level = suggested_next_level if suggested_next_level in level_options else default_level
             sequence_order = int(previous_program.get("sequence_order") or _level_sequence_order(previous_level)) + 1
+            ready_units = _count_ready_program_units(previous_program)
+            total_units = len(previous_program.get("units") or [])
             prerequisite_summary = (
                 previous_program.get("exit_profile")
                 or previous_program.get("scope_and_sequence_rationale")
@@ -4233,6 +4291,8 @@ def render_quick_learning_program_builder_expander() -> None:
                 """,
                 unsafe_allow_html=True,
             )
+            if not previous_program_complete:
+                st.warning(t("learning_program_previous_incomplete_warning", ready_units=ready_units, total_units=total_units))
 
         if st.session_state.get(f"{ns}_level") not in level_options:
             st.session_state[f"{ns}_level"] = default_level
@@ -4270,6 +4330,15 @@ def render_quick_learning_program_builder_expander() -> None:
             format_func=lambda x: t("my_learning_programs") if x == "private" else t("community_learning_programs"),
             key=f"{ns}_visibility",
         )
+        student_native_language = ""
+        if is_language_subject(subject, custom_subject_name):
+            student_native_language = st.selectbox(
+                t("student_native_language"),
+                NATIVE_LANGUAGE_OPTIONS,
+                format_func=native_language_label,
+                key=f"{ns}_student_native_language",
+                help=t("student_native_language_generation_help"),
+            )
         additional_notes = st.text_area(
             t("learning_program_optional_notes"),
             key=f"{ns}_notes",
@@ -4292,6 +4361,8 @@ def render_quick_learning_program_builder_expander() -> None:
         if st.button(t("generate_learning_program"), key=f"{ns}_generate", use_container_width=True):
             if subject == "other" and not custom_subject_name:
                 st.error(t("enter_subject_name"))
+            elif generation_path == "next_level" and previous_program and not previous_program_complete:
+                st.warning(t("learning_program_previous_incomplete_warning", ready_units=_count_ready_program_units(previous_program), total_units=len(previous_program.get("units") or [])))
             else:
                 st.session_state[skeleton_request_key] = {
                     "subject": subject,
@@ -4302,6 +4373,7 @@ def render_quick_learning_program_builder_expander() -> None:
                     "custom_subject_name": custom_subject_name,
                     "additional_notes": additional_notes,
                     "visibility": visibility,
+                    "student_native_language": student_native_language,
                     "generation_path": generation_path,
                     "parent_program_id": parent_program_id,
                     "sequence_group_id": sequence_group_id,
@@ -4334,6 +4406,7 @@ def render_quick_learning_program_builder_expander() -> None:
                     custom_subject_name=skeleton_request.get("custom_subject_name", custom_subject_name),
                     additional_notes=skeleton_request.get("additional_notes", additional_notes),
                     previous_program=skeleton_request.get("previous_program"),
+                    student_native_language=skeleton_request.get("student_native_language", student_native_language),
                 )
                 status.update(label=t("learning_program_loading_ready"), state="complete")
             st.session_state[f"{ns}_result"] = program
@@ -4346,6 +4419,7 @@ def render_quick_learning_program_builder_expander() -> None:
                 "level_or_band": skeleton_request.get("level_or_band", level_or_band),
                 "custom_subject_name": skeleton_request.get("custom_subject_name", custom_subject_name),
                 "visibility": skeleton_request.get("visibility", visibility),
+                "student_native_language": skeleton_request.get("student_native_language", student_native_language),
                 "generation_path": skeleton_request.get("generation_path", generation_path),
                 "parent_program_id": skeleton_request.get("parent_program_id"),
                 "sequence_group_id": skeleton_request.get("sequence_group_id", ""),
@@ -4355,6 +4429,7 @@ def render_quick_learning_program_builder_expander() -> None:
                     "requested_units": skeleton_request.get("requested_units", requested_units),
                     "requested_lessons_per_unit": skeleton_request.get("requested_lessons_per_unit", requested_lessons),
                     "additional_notes": skeleton_request.get("additional_notes", additional_notes),
+                    "student_native_language": skeleton_request.get("student_native_language", student_native_language),
                     "generation_path": skeleton_request.get("generation_path", generation_path),
                     "parent_program_id": skeleton_request.get("parent_program_id"),
                 },

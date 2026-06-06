@@ -8,6 +8,7 @@ from core.timezone import today_local, now_local, get_app_tz_name
 from core.navigation import page_header, go_to
 from core.database import norm_student, update_payment_row, clear_app_caches
 from helpers.dashboard import rebuild_dashboard
+from helpers.empty_states import render_empty_state
 from helpers.student_meta import student_meta_maps
 from helpers.goals import render_home_indicator, YEAR_GOAL_SCOPE
 from helpers.kpi_bubbles import kpi_stat_cards
@@ -349,7 +350,29 @@ def render_dashboard():
 
     dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
     if dash is None or dash.empty:
-        st.info(t("no_dashboard_data"))
+        render_empty_state(
+            title_key="dashboard_empty_title",
+            body_key="dashboard_empty_body",
+            steps=[
+                "dashboard_empty_step_student",
+                "dashboard_empty_step_payment",
+                "dashboard_empty_step_lesson",
+            ],
+            icon="📊",
+        )
+        dash_cols = st.columns(3)
+        with dash_cols[0]:
+            if st.button(t("dashboard_empty_add_student"), key="dash_empty_add_student", use_container_width=True, type="primary"):
+                go_to("students")
+                st.rerun()
+        with dash_cols[1]:
+            if st.button(t("dashboard_empty_add_payment"), key="dash_empty_add_payment", use_container_width=True):
+                go_to("add_payment")
+                st.rerun()
+        with dash_cols[2]:
+            if st.button(t("dashboard_empty_add_lesson"), key="dash_empty_add_lesson", use_container_width=True):
+                go_to("add_lesson")
+                st.rerun()
         st.stop()
 
     d = dash.copy()
@@ -682,16 +705,24 @@ def render_dashboard():
             _s_email = str(_srow.iloc[0].get("email", "")).strip() if not _srow.empty else ""
             _s_phone = str(_srow.iloc[0].get("phone", "")).strip() if not _srow.empty else ""
 
+            from services.permissions_service import can_export_pdf, increment_usage
+
             _rpt_cols = st.columns(3)
             with _rpt_cols[0]:
-                st.download_button(
+                _can_download_pdf = can_export_pdf()
+                if not _can_download_pdf:
+                    st.warning(t("ai_limit_reached") if t("ai_limit_reached") != "ai_limit_reached" else "PDF export limit reached.")
+                _downloaded_pdf = st.download_button(
                     label=f"\U0001f4c4 {t('download_pdf')}",
                     data=_rpt_pdf,
                     file_name=_rpt_file,
                     mime="application/pdf",
                     key="dash_btn_download_report",
                     use_container_width=True,
+                    disabled=not _can_download_pdf,
                 )
+                if _downloaded_pdf:
+                    increment_usage(None, "pdf_exports")
             with _rpt_cols[1]:
                 if _s_phone:
                     _wa_url = build_report_whatsapp_url(_rpt_student, _s_phone)

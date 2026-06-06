@@ -1,4 +1,5 @@
 import datetime
+import html as _html
 import math
 
 import streamlit as st
@@ -23,6 +24,7 @@ from helpers.cv_storage import (
     update_professional_profile_archive,
 )
 from helpers.goal_explorer import _rank_search, render_income_goal_calculator
+from helpers.empty_states import render_empty_state
 from helpers.learning_programs import (
     load_learning_program,
     load_my_learning_programs,
@@ -55,6 +57,76 @@ from styles.theme import load_css_home
 
 
 _RESOURCE_PAGE_SIZE = 4
+
+_RESOURCE_SEARCH_WEIGHTS = {
+    "program": {
+        "title": 6,
+        "program_overview": 4,
+        "custom_subject_name": 4,
+        "subject": 3,
+        "learner_stage": 2,
+        "level_or_band": 2,
+        "author_name": 1,
+    },
+    "plan": {
+        "title": 6,
+        "topic": 5,
+        "lesson_purpose": 4,
+        "subject": 3,
+        "learner_stage": 2,
+        "level_or_band": 2,
+        "source_type": 1,
+        "author_name": 1,
+    },
+    "worksheet": {
+        "title": 6,
+        "topic": 5,
+        "worksheet_type": 4,
+        "subject": 3,
+        "learner_stage": 2,
+        "level_or_band": 2,
+        "source_type": 1,
+        "author_name": 1,
+    },
+    "exam": {
+        "title": 6,
+        "topic": 5,
+        "subject": 3,
+        "learner_stage": 2,
+        "level": 2,
+        "exam_length": 2,
+        "author_name": 1,
+    },
+}
+
+
+def _resource_filter_options(df, column: str, *, normalize=None) -> list[str]:
+    if df is None or df.empty or column not in df.columns:
+        return []
+    values = []
+    for raw_value in df[column].dropna().astype(str):
+        value = normalize(raw_value) if normalize else raw_value.strip()
+        if value:
+            values.append(value)
+    return sorted(set(values))
+
+
+def _apply_resource_filter(df, column: str, selected: str, *, normalize=None):
+    if df is None or df.empty or column not in df.columns or selected == t("all"):
+        return df
+    if normalize:
+        return df[df[column].astype(str).apply(normalize) == selected]
+    return df[df[column].astype(str) == selected]
+
+
+def _search_resources(df, query: str, kind: str):
+    if df is None or df.empty:
+        return df
+    clean_query = str(query or "").strip()
+    if not clean_query:
+        return df.copy()
+    ranked = _rank_search(df, clean_query, _RESOURCE_SEARCH_WEIGHTS.get(kind, {}))
+    return ranked.drop(columns=["_score"], errors="ignore")
 
 
 def _slice_resource_page(df, state_key: str, *, page_size: int = _RESOURCE_PAGE_SIZE):
@@ -241,7 +313,12 @@ def render_home_teaching_resources_preview():
         public_program_df = load_public_learning_programs()
 
         if public_program_df.empty:
-            st.info(t("community_library_empty"))
+            render_empty_state(
+                title_key="community_resources_empty_title",
+                body_key="community_resources_empty_body",
+                steps=["community_resources_empty_step_create", "community_resources_empty_step_share", "community_resources_empty_step_return"],
+                icon="📚",
+            )
         else:
             program_q = st.text_input(
                 t("explore_resource_search"),
@@ -294,7 +371,12 @@ def render_home_teaching_resources_preview():
         public_df = load_public_lesson_plans()
 
         if public_df.empty:
-            st.info(t("community_library_empty"))
+            render_empty_state(
+                title_key="community_resources_empty_title",
+                body_key="community_resources_empty_body",
+                steps=["community_resources_empty_step_create", "community_resources_empty_step_share", "community_resources_empty_step_return"],
+                icon="📝",
+            )
         else:
             plan_q = st.text_input(
                 t("explore_resource_search"),
@@ -350,7 +432,12 @@ def render_home_teaching_resources_preview():
         public_ws_df = load_public_worksheets()
 
         if public_ws_df.empty:
-            st.info(t("community_library_empty"))
+            render_empty_state(
+                title_key="community_resources_empty_title",
+                body_key="community_resources_empty_body",
+                steps=["community_resources_empty_step_create", "community_resources_empty_step_share", "community_resources_empty_step_return"],
+                icon="📋",
+            )
         else:
             ws_q = st.text_input(
                 t("explore_resource_search"),
@@ -406,7 +493,12 @@ def render_home_teaching_resources_preview():
         public_exam_df = load_public_exams()
 
         if public_exam_df.empty:
-            st.info(t("community_library_empty"))
+            render_empty_state(
+                title_key="community_resources_empty_title",
+                body_key="community_resources_empty_body",
+                steps=["community_resources_empty_step_create", "community_resources_empty_step_share", "community_resources_empty_step_return"],
+                icon="📄",
+            )
         else:
             exam_q = st.text_input(
                 t("explore_resource_search"),
@@ -454,6 +546,193 @@ def render_home_teaching_resources_preview():
                 go_to("resources")
                 st.rerun()
 
+
+def _render_smart_tools_hub():
+    st.markdown(
+        f"""
+        <style>
+        .smart-tools-hero {{
+            margin: 4px 0 18px;
+            padding: 22px;
+            border-radius: 22px;
+            border: 1px solid var(--border-strong, rgba(17,24,39,.12));
+            background:
+                linear-gradient(135deg, rgba(37,99,235,.14), rgba(20,184,166,.08)),
+                linear-gradient(180deg, var(--panel, rgba(255,255,255,.94)), var(--panel-2, rgba(248,250,252,.82)));
+            box-shadow: var(--shadow-lg, 0 22px 55px rgba(15,23,42,.10));
+            overflow: hidden;
+            position: relative;
+        }}
+        .smart-tools-hero::after {{
+            content: "";
+            position: absolute;
+            right: -80px;
+            top: -90px;
+            width: 220px;
+            height: 220px;
+            border-radius: 50%;
+            border: 34px solid rgba(59,130,246,.08);
+        }}
+        .smart-tools-eyebrow {{
+            font-size: .76rem;
+            font-weight: 900;
+            color: var(--primary-strong, #2563eb);
+            text-transform: uppercase;
+            letter-spacing: 0;
+        }}
+        .smart-tools-title {{
+            margin-top: 5px;
+            max-width: 760px;
+            color: var(--text, #0f172a);
+            font-size: 1.55rem;
+            line-height: 1.12;
+            font-weight: 950;
+        }}
+        .smart-tools-copy {{
+            margin-top: 8px;
+            max-width: 840px;
+            color: var(--muted, #475569);
+            font-size: .96rem;
+            line-height: 1.5;
+        }}
+        .smart-tools-stats {{
+            margin-top: 16px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            max-width: 760px;
+        }}
+        .smart-tools-stat {{
+            padding: 10px 12px;
+            border-radius: 14px;
+            background: var(--panel-soft, rgba(255,255,255,.65));
+            border: 1px solid var(--border, rgba(148,163,184,.18));
+        }}
+        .smart-tools-stat b {{
+            display: block;
+            color: var(--text, #0f172a);
+            font-size: .98rem;
+        }}
+        .smart-tools-stat span {{
+            color: var(--muted, #475569);
+            font-size: .78rem;
+            font-weight: 700;
+        }}
+        .smart-tool-card {{
+            min-height: 182px;
+            margin-bottom: 8px;
+            padding: 16px;
+            border-radius: 18px;
+            border: 1px solid var(--border-strong, rgba(17,24,39,.12));
+            background:
+                linear-gradient(180deg, var(--panel, rgba(255,255,255,.94)), var(--panel-2, rgba(248,250,252,.82)));
+            box-shadow: var(--shadow-md, 0 12px 28px rgba(15,23,42,.08));
+        }}
+        .smart-tool-card-top {{
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: flex-start;
+        }}
+        .smart-tool-icon {{
+            width: 42px;
+            height: 42px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.3rem;
+            background: color-mix(in srgb, var(--tool-accent) 16%, transparent);
+            border: 1px solid color-mix(in srgb, var(--tool-accent) 28%, transparent);
+        }}
+        .smart-tool-badge {{
+            padding: 4px 8px;
+            border-radius: 999px;
+            font-size: .72rem;
+            font-weight: 850;
+            color: var(--tool-accent);
+            background: color-mix(in srgb, var(--tool-accent) 12%, transparent);
+            border: 1px solid color-mix(in srgb, var(--tool-accent) 22%, transparent);
+            white-space: nowrap;
+        }}
+        .smart-tool-title {{
+            margin-top: 12px;
+            color: var(--text, #0f172a);
+            font-size: 1rem;
+            line-height: 1.2;
+            font-weight: 900;
+        }}
+        .smart-tool-body {{
+            margin-top: 7px;
+            color: var(--muted, #475569);
+            font-size: .84rem;
+            line-height: 1.4;
+        }}
+        .smart-tools-section-label {{
+            margin: 20px 0 10px;
+            color: var(--text, #0f172a);
+            font-size: 1.02rem;
+            font-weight: 900;
+        }}
+        div[data-testid="stExpander"] {{
+            border: 1px solid var(--border-strong, rgba(17,24,39,.12)) !important;
+            border-radius: 18px !important;
+            background: linear-gradient(180deg, var(--panel, rgba(255,255,255,.94)), var(--panel-2, rgba(248,250,252,.86))) !important;
+            box-shadow: var(--shadow-md, 0 12px 28px rgba(15,23,42,.08)) !important;
+            overflow: hidden !important;
+            margin-bottom: 10px !important;
+        }}
+        div[data-testid="stExpander"] summary {{
+            font-weight: 900 !important;
+            color: var(--text, #0f172a) !important;
+        }}
+        </style>
+        <div class="smart-tools-hero">
+          <div class="smart-tools-eyebrow">{t('smart_tools_eyebrow')}</div>
+          <div class="smart-tools-title">{t('smart_tools_hero_title')}</div>
+          <div class="smart-tools-copy">{t('smart_tools_hero_body')}</div>
+          <div class="smart-tools-stats">
+            <div class="smart-tools-stat"><b>{t('smart_tools_stat_create')}</b><span>{t('smart_tools_stat_create_hint')}</span></div>
+            <div class="smart-tools-stat"><b>{t('smart_tools_stat_save')}</b><span>{t('smart_tools_stat_save_hint')}</span></div>
+            <div class="smart-tools-stat"><b>{t('smart_tools_stat_reuse')}</b><span>{t('smart_tools_stat_reuse_hint')}</span></div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    tool_specs = [
+        ("open_quick_learning_program_expander", "📚", "#2563EB", "quick_learning_program_maker", "smart_tools_program_body", "smart_tools_badge_curriculum"),
+        ("open_quick_plan_expander", "📝", "#10B981", "quick_lesson_planner", "smart_tools_plan_body", "smart_tools_badge_lesson"),
+        ("open_quick_ws_expander", "📋", "#A855F7", "worksheet_maker", "smart_tools_worksheet_body", "smart_tools_badge_practice"),
+        ("open_quick_exam_expander", "📄", "#F59E0B", "quick_exam_builder", "smart_tools_exam_body", "smart_tools_badge_assessment"),
+        ("open_quick_cv_expander", "💼", "#0EA5E9", "quick_cv_builder", "smart_tools_cv_body", "smart_tools_badge_professional"),
+        ("open_income_goal_expander", "🎯", "#EF4444", "income_goal_calculator", "smart_tools_goal_body", "smart_tools_badge_business"),
+    ]
+
+    for row_start in range(0, len(tool_specs), 3):
+        cols = st.columns(3, gap="medium")
+        for col, (flag, icon, accent, title_key, body_key, badge_key) in zip(cols, tool_specs[row_start:row_start + 3]):
+            with col:
+                st.markdown(
+                    f"""
+                    <div class="smart-tool-card" style="--tool-accent:{accent};">
+                      <div class="smart-tool-card-top">
+                        <div class="smart-tool-icon">{icon}</div>
+                        <div class="smart-tool-badge">{t(badge_key)}</div>
+                      </div>
+                      <div class="smart-tool-title">{t(title_key)}</div>
+                      <div class="smart-tool-body">{t(body_key)}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if st.button(t("smart_tools_open_tool"), key=f"smart_tool_open_{flag}", use_container_width=True):
+                    st.session_state[flag] = True
+                    st.rerun()
+
+    st.markdown(f"<div class='smart-tools-section-label'>{t('smart_tools_workspace_title')}</div>", unsafe_allow_html=True)
+
 # 10) HOME SCREEN UI (DARK)
 # =========================
 def render_home(*, panel_override: str | None = None, show_home_actions: bool = True):
@@ -464,6 +743,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
     user = st.session_state.get("auth_user") or {}
     user_id = st.session_state.get("user_id", "") or ""
     panel = panel_override if panel_override is not None else _get_qp("panel", "")
+    st.session_state["_internal_ab_debug_enabled"] = _get_qp("ab_debug", "") == "1"
 
     if isinstance(user, dict):
         user_id = user.get("id") or user_id
@@ -656,20 +936,19 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
         with tab_prog:
             prog_df = load_my_learning_programs()
             if prog_df.empty:
-                st.info(t("no_my_learning_programs"))
+                render_empty_state(
+                    title_key="files_empty_programs_title",
+                    body_key="files_empty_programs_body",
+                    steps=["files_empty_step_create", "files_empty_step_save", "files_empty_step_reuse"],
+                    icon="📚",
+                )
             else:
                 prog_q = st.text_input(
                     t("search_learning_programs"),
                     key="my_programs_q",
                     placeholder=t("learning_program_search_placeholder"),
                 ).strip().lower()
-                prog_subj_opts = (
-                    sorted(
-                        set(_normalize_subject(s) for s in prog_df["subject"].dropna().astype(str) if _normalize_subject(s))
-                    )
-                    if "subject" in prog_df.columns
-                    else []
-                )
+                prog_subj_opts = _resource_filter_options(prog_df, "subject", normalize=_normalize_subject)
                 prog_subj_filter = st.selectbox(
                     t("subject_label"),
                     [t("all")] + prog_subj_opts,
@@ -678,7 +957,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 )
                 p_col1, p_col2 = st.columns(2)
                 with p_col1:
-                    prog_stage_opts = sorted(prog_df["learner_stage"].dropna().astype(str).unique().tolist()) if "learner_stage" in prog_df.columns else []
+                    prog_stage_opts = _resource_filter_options(prog_df, "learner_stage")
                     prog_stage_filter = st.selectbox(
                         t("learner_stage"),
                         [t("all")] + prog_stage_opts,
@@ -686,7 +965,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         key="my_programs_stage_filter",
                     )
                 with p_col2:
-                    prog_level_opts = sorted(prog_df["level_or_band"].dropna().astype(str).unique().tolist()) if "level_or_band" in prog_df.columns else []
+                    prog_level_opts = _resource_filter_options(prog_df, "level_or_band")
                     prog_level_filter = st.selectbox(
                         t("level_or_band"),
                         [t("all")] + prog_level_opts,
@@ -694,24 +973,10 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         key="my_programs_level_filter",
                     )
                 prog_filtered = prog_df.copy()
-                if prog_q:
-                    for col in ["title", "program_overview", "custom_subject_name", "subject", "learner_stage", "level_or_band"]:
-                        if col not in prog_filtered.columns:
-                            prog_filtered[col] = ""
-                    prog_filtered = prog_filtered[
-                        prog_filtered["title"].fillna("").astype(str).str.lower().str.contains(prog_q, na=False)
-                        | prog_filtered["program_overview"].fillna("").astype(str).str.lower().str.contains(prog_q, na=False)
-                        | prog_filtered["custom_subject_name"].fillna("").astype(str).str.lower().str.contains(prog_q, na=False)
-                        | prog_filtered["subject"].fillna("").astype(str).str.lower().str.contains(prog_q, na=False)
-                        | prog_filtered["learner_stage"].fillna("").astype(str).str.lower().str.contains(prog_q, na=False)
-                        | prog_filtered["level_or_band"].fillna("").astype(str).str.lower().str.contains(prog_q, na=False)
-                    ]
-                if prog_subj_filter != t("all") and "subject" in prog_filtered.columns:
-                    prog_filtered = prog_filtered[prog_filtered["subject"].astype(str).apply(_normalize_subject) == prog_subj_filter]
-                if prog_stage_filter != t("all") and "learner_stage" in prog_filtered.columns:
-                    prog_filtered = prog_filtered[prog_filtered["learner_stage"].astype(str) == prog_stage_filter]
-                if prog_level_filter != t("all") and "level_or_band" in prog_filtered.columns:
-                    prog_filtered = prog_filtered[prog_filtered["level_or_band"].astype(str) == prog_level_filter]
+                prog_filtered = _apply_resource_filter(prog_filtered, "subject", prog_subj_filter, normalize=_normalize_subject)
+                prog_filtered = _apply_resource_filter(prog_filtered, "learner_stage", prog_stage_filter)
+                prog_filtered = _apply_resource_filter(prog_filtered, "level_or_band", prog_level_filter)
+                prog_filtered = _search_resources(prog_filtered, prog_q, "program")
                 prog_filtered_page_df, *_ = _slice_resource_page(prog_filtered, "my_programs_page")
                 render_learning_program_library_cards(
                     prog_filtered_page_df,
@@ -726,7 +991,12 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
             my_df = load_my_lesson_plans()
 
             if my_df.empty:
-                st.info(t("no_saved_lesson_plans"))
+                render_empty_state(
+                    title_key="files_empty_plans_title",
+                    body_key="files_empty_plans_body",
+                    steps=["files_empty_step_create", "files_empty_step_save", "files_empty_step_reuse"],
+                    icon="📝",
+                )
             else:
                 filter_col1, filter_col2 = st.columns([3, 1])
                 with filter_col1:
@@ -735,11 +1005,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         key="my_plans_topic_q",
                         placeholder=t("explore_resource_search_placeholder"),
                     ).strip().lower()
-                subject_options = (
-                    sorted(set(_normalize_subject(s) for s in my_df["subject"].dropna().astype(str) if _normalize_subject(s)))
-                    if "subject" in my_df.columns
-                    else []
-                )
+                subject_options = _resource_filter_options(my_df, "subject", normalize=_normalize_subject)
                 with filter_col2:
                     subject_filter = st.selectbox(
                         t("subject_label"),
@@ -749,7 +1015,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     )
                 filter_col3, filter_col4 = st.columns(2)
                 with filter_col3:
-                    stage_options = sorted(my_df["learner_stage"].dropna().astype(str).unique().tolist()) if "learner_stage" in my_df.columns else []
+                    stage_options = _resource_filter_options(my_df, "learner_stage")
                     stage_filter = st.selectbox(
                         t("learner_stage"),
                         [t("all")] + stage_options,
@@ -757,7 +1023,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         key="my_plans_stage_filter",
                     )
                 with filter_col4:
-                    level_options = sorted(my_df["level_or_band"].dropna().astype(str).unique().tolist()) if "level_or_band" in my_df.columns else []
+                    level_options = _resource_filter_options(my_df, "level_or_band")
                     level_filter = st.selectbox(
                         t("level_or_band"),
                         [t("all")] + level_options,
@@ -766,26 +1032,10 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     )
 
                 filtered = my_df.copy()
-
-                if topic_q:
-                    for col in ["title", "topic", "subject", "learner_stage", "level_or_band", "lesson_purpose"]:
-                        if col not in filtered.columns:
-                            filtered[col] = ""
-                    filtered = filtered[
-                        filtered["title"].fillna("").astype(str).str.lower().str.contains(topic_q, na=False)
-                        | filtered["topic"].fillna("").astype(str).str.lower().str.contains(topic_q, na=False)
-                        | filtered["subject"].fillna("").astype(str).str.lower().str.contains(topic_q, na=False)
-                        | filtered["learner_stage"].fillna("").astype(str).str.lower().str.contains(topic_q, na=False)
-                        | filtered["level_or_band"].fillna("").astype(str).str.lower().str.contains(topic_q, na=False)
-                        | filtered["lesson_purpose"].fillna("").astype(str).str.lower().str.contains(topic_q, na=False)
-                    ]
-
-                if subject_filter != t("all") and "subject" in filtered.columns:
-                    filtered = filtered[filtered["subject"].astype(str).apply(_normalize_subject) == subject_filter]
-                if stage_filter != t("all") and "learner_stage" in filtered.columns:
-                    filtered = filtered[filtered["learner_stage"].astype(str) == stage_filter]
-                if level_filter != t("all") and "level_or_band" in filtered.columns:
-                    filtered = filtered[filtered["level_or_band"].astype(str) == level_filter]
+                filtered = _apply_resource_filter(filtered, "subject", subject_filter, normalize=_normalize_subject)
+                filtered = _apply_resource_filter(filtered, "learner_stage", stage_filter)
+                filtered = _apply_resource_filter(filtered, "level_or_band", level_filter)
+                filtered = _search_resources(filtered, topic_q, "plan")
 
                 if filtered.empty:
                     st.info(t("no_data"))
@@ -803,7 +1053,12 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
         with tab2:
             ws_df = load_my_worksheets()
             if ws_df.empty:
-                st.info(t("no_saved_worksheets"))
+                render_empty_state(
+                    title_key="files_empty_worksheets_title",
+                    body_key="files_empty_worksheets_body",
+                    steps=["files_empty_step_create", "files_empty_step_save", "files_empty_step_reuse"],
+                    icon="📋",
+                )
             else:
                 filter_col1, filter_col2 = st.columns([3, 1])
                 with filter_col1:
@@ -812,7 +1067,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         key="my_ws_topic_q",
                         placeholder=t("explore_resource_search_placeholder"),
                     ).strip().lower()
-                ws_subj_opts = sorted(set(_normalize_subject(s) for s in ws_df["subject"].dropna().astype(str) if _normalize_subject(s))) if "subject" in ws_df.columns else []
+                ws_subj_opts = _resource_filter_options(ws_df, "subject", normalize=_normalize_subject)
                 with filter_col2:
                     ws_subj_filter = st.selectbox(
                         t("subject_label"),
@@ -822,7 +1077,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     )
                 filter_col3, filter_col4 = st.columns(2)
                 with filter_col3:
-                    ws_stage_opts = sorted(ws_df["learner_stage"].dropna().astype(str).unique().tolist()) if "learner_stage" in ws_df.columns else []
+                    ws_stage_opts = _resource_filter_options(ws_df, "learner_stage")
                     ws_stage_filter = st.selectbox(
                         t("learner_stage"),
                         [t("all")] + ws_stage_opts,
@@ -830,7 +1085,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         key="my_ws_stage_filter",
                     )
                 with filter_col4:
-                    ws_level_opts = sorted(ws_df["level_or_band"].dropna().astype(str).unique().tolist()) if "level_or_band" in ws_df.columns else []
+                    ws_level_opts = _resource_filter_options(ws_df, "level_or_band")
                     ws_level_filter = st.selectbox(
                         t("level_or_band"),
                         [t("all")] + ws_level_opts,
@@ -838,25 +1093,10 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         key="my_ws_level_filter",
                     )
                 ws_filtered = ws_df.copy()
-                if ws_topic_q:
-                    for col in ["title", "topic", "subject", "learner_stage", "level_or_band", "worksheet_type", "source_type"]:
-                        if col not in ws_filtered.columns:
-                            ws_filtered[col] = ""
-                    ws_filtered = ws_filtered[
-                        ws_filtered["title"].fillna("").astype(str).str.lower().str.contains(ws_topic_q, na=False)
-                        | ws_filtered["topic"].fillna("").astype(str).str.lower().str.contains(ws_topic_q, na=False)
-                        | ws_filtered["subject"].fillna("").astype(str).str.lower().str.contains(ws_topic_q, na=False)
-                        | ws_filtered["learner_stage"].fillna("").astype(str).str.lower().str.contains(ws_topic_q, na=False)
-                        | ws_filtered["level_or_band"].fillna("").astype(str).str.lower().str.contains(ws_topic_q, na=False)
-                        | ws_filtered["worksheet_type"].fillna("").astype(str).str.lower().str.contains(ws_topic_q, na=False)
-                        | ws_filtered["source_type"].fillna("").astype(str).str.lower().str.contains(ws_topic_q, na=False)
-                    ]
-                if ws_subj_filter != t("all") and "subject" in ws_filtered.columns:
-                    ws_filtered = ws_filtered[ws_filtered["subject"].astype(str).apply(_normalize_subject) == ws_subj_filter]
-                if ws_stage_filter != t("all") and "learner_stage" in ws_filtered.columns:
-                    ws_filtered = ws_filtered[ws_filtered["learner_stage"].astype(str) == ws_stage_filter]
-                if ws_level_filter != t("all") and "level_or_band" in ws_filtered.columns:
-                    ws_filtered = ws_filtered[ws_filtered["level_or_band"].astype(str) == ws_level_filter]
+                ws_filtered = _apply_resource_filter(ws_filtered, "subject", ws_subj_filter, normalize=_normalize_subject)
+                ws_filtered = _apply_resource_filter(ws_filtered, "learner_stage", ws_stage_filter)
+                ws_filtered = _apply_resource_filter(ws_filtered, "level_or_band", ws_level_filter)
+                ws_filtered = _search_resources(ws_filtered, ws_topic_q, "worksheet")
                 ws_filtered_page_df, *_ = _slice_resource_page(ws_filtered, "my_ws_page")
                 render_worksheet_library_cards(
                     ws_filtered_page_df,
@@ -870,7 +1110,12 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
         with tab_exams:
             exam_df = load_my_exams()
             if exam_df.empty:
-                st.info(t("no_saved_exams"))
+                render_empty_state(
+                    title_key="files_empty_exams_title",
+                    body_key="files_empty_exams_body",
+                    steps=["files_empty_step_create", "files_empty_step_save", "files_empty_step_reuse"],
+                    icon="📄",
+                )
             else:
                 filter_col1, filter_col2 = st.columns([3, 1])
                 with filter_col1:
@@ -879,7 +1124,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         key="my_exam_topic_q",
                         placeholder=t("explore_resource_search_placeholder"),
                     ).strip().lower()
-                exam_subj_opts = sorted(set(_normalize_subject(s) for s in exam_df["subject"].dropna().astype(str) if _normalize_subject(s))) if "subject" in exam_df.columns else []
+                exam_subj_opts = _resource_filter_options(exam_df, "subject", normalize=_normalize_subject)
                 with filter_col2:
                     exam_subj_filter = st.selectbox(
                         t("subject_label"),
@@ -889,7 +1134,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     )
                 filter_col3, filter_col4 = st.columns(2)
                 with filter_col3:
-                    exam_stage_opts = sorted(exam_df["learner_stage"].dropna().astype(str).unique().tolist()) if "learner_stage" in exam_df.columns else []
+                    exam_stage_opts = _resource_filter_options(exam_df, "learner_stage")
                     exam_stage_filter = st.selectbox(
                         t("learner_stage"),
                         [t("all")] + exam_stage_opts,
@@ -897,7 +1142,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         key="my_exam_stage_filter",
                     )
                 with filter_col4:
-                    exam_level_opts = sorted(exam_df["level"].dropna().astype(str).unique().tolist()) if "level" in exam_df.columns else []
+                    exam_level_opts = _resource_filter_options(exam_df, "level")
                     exam_level_filter = st.selectbox(
                         t("level_or_band"),
                         [t("all")] + exam_level_opts,
@@ -905,24 +1150,10 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         key="my_exam_level_filter",
                     )
                 exam_filtered = exam_df.copy()
-                if exam_topic_q:
-                    for col in ["title", "topic", "subject", "learner_stage", "level", "exam_length"]:
-                        if col not in exam_filtered.columns:
-                            exam_filtered[col] = ""
-                    exam_filtered = exam_filtered[
-                        exam_filtered["title"].fillna("").astype(str).str.lower().str.contains(exam_topic_q, na=False)
-                        | exam_filtered["topic"].fillna("").astype(str).str.lower().str.contains(exam_topic_q, na=False)
-                        | exam_filtered["subject"].fillna("").astype(str).str.lower().str.contains(exam_topic_q, na=False)
-                        | exam_filtered["learner_stage"].fillna("").astype(str).str.lower().str.contains(exam_topic_q, na=False)
-                        | exam_filtered["level"].fillna("").astype(str).str.lower().str.contains(exam_topic_q, na=False)
-                        | exam_filtered["exam_length"].fillna("").astype(str).str.lower().str.contains(exam_topic_q, na=False)
-                    ]
-                if exam_subj_filter != t("all") and "subject" in exam_filtered.columns:
-                    exam_filtered = exam_filtered[exam_filtered["subject"].astype(str).apply(_normalize_subject) == exam_subj_filter]
-                if exam_stage_filter != t("all") and "learner_stage" in exam_filtered.columns:
-                    exam_filtered = exam_filtered[exam_filtered["learner_stage"].astype(str) == exam_stage_filter]
-                if exam_level_filter != t("all") and "level" in exam_filtered.columns:
-                    exam_filtered = exam_filtered[exam_filtered["level"].astype(str) == exam_level_filter]
+                exam_filtered = _apply_resource_filter(exam_filtered, "subject", exam_subj_filter, normalize=_normalize_subject)
+                exam_filtered = _apply_resource_filter(exam_filtered, "learner_stage", exam_stage_filter)
+                exam_filtered = _apply_resource_filter(exam_filtered, "level", exam_level_filter)
+                exam_filtered = _search_resources(exam_filtered, exam_topic_q, "exam")
                 exam_filtered_page_df, *_ = _slice_resource_page(exam_filtered, "my_exams_page")
                 render_exam_library_cards(
                     exam_filtered_page_df,
@@ -944,7 +1175,12 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
             with comm_tab_programs:
                 public_program_df = load_public_learning_programs()
                 if public_program_df.empty:
-                    st.info(t("community_library_empty"))
+                    render_empty_state(
+                        title_key="community_resources_empty_title",
+                        body_key="community_resources_empty_body",
+                        steps=["community_resources_empty_step_create", "community_resources_empty_step_share", "community_resources_empty_step_return"],
+                        icon="📚",
+                    )
                 else:
                     pf_col1, pf_col2 = st.columns([3, 1])
                     with pf_col1:
@@ -954,9 +1190,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                             placeholder=t("learning_program_search_placeholder"),
                         ).strip().lower()
                     with pf_col2:
-                        public_program_subj_opts = sorted(
-                            set(_normalize_subject(s) for s in public_program_df["subject"].dropna().astype(str) if _normalize_subject(s))
-                        ) if "subject" in public_program_df.columns else []
+                        public_program_subj_opts = _resource_filter_options(public_program_df, "subject", normalize=_normalize_subject)
                         public_program_subj_filter = st.selectbox(
                             t("subject_label"),
                             [t("all")] + public_program_subj_opts,
@@ -965,7 +1199,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         )
                     pf_col3, pf_col4 = st.columns(2)
                     with pf_col3:
-                        public_program_stage_opts = sorted(public_program_df["learner_stage"].dropna().astype(str).unique().tolist()) if "learner_stage" in public_program_df.columns else []
+                        public_program_stage_opts = _resource_filter_options(public_program_df, "learner_stage")
                         public_program_stage_filter = st.selectbox(
                             t("learner_stage"),
                             [t("all")] + public_program_stage_opts,
@@ -973,7 +1207,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                             key="public_learning_program_stage_filter",
                         )
                     with pf_col4:
-                        public_program_level_opts = sorted(public_program_df["level_or_band"].dropna().astype(str).unique().tolist()) if "level_or_band" in public_program_df.columns else []
+                        public_program_level_opts = _resource_filter_options(public_program_df, "level_or_band")
                         public_program_level_filter = st.selectbox(
                             t("level_or_band"),
                             [t("all")] + public_program_level_opts,
@@ -982,24 +1216,10 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         )
 
                     public_program_filtered = public_program_df.copy()
-                    if public_program_q:
-                        for col in ["title", "program_overview", "custom_subject_name", "subject", "learner_stage", "level_or_band"]:
-                            if col not in public_program_filtered.columns:
-                                public_program_filtered[col] = ""
-                        public_program_filtered = public_program_filtered[
-                            public_program_filtered["title"].fillna("").astype(str).str.lower().str.contains(public_program_q, na=False)
-                            | public_program_filtered["program_overview"].fillna("").astype(str).str.lower().str.contains(public_program_q, na=False)
-                            | public_program_filtered["custom_subject_name"].fillna("").astype(str).str.lower().str.contains(public_program_q, na=False)
-                            | public_program_filtered["subject"].fillna("").astype(str).str.lower().str.contains(public_program_q, na=False)
-                            | public_program_filtered["learner_stage"].fillna("").astype(str).str.lower().str.contains(public_program_q, na=False)
-                            | public_program_filtered["level_or_band"].fillna("").astype(str).str.lower().str.contains(public_program_q, na=False)
-                        ]
-                    if public_program_subj_filter != t("all") and "subject" in public_program_filtered.columns:
-                        public_program_filtered = public_program_filtered[public_program_filtered["subject"].astype(str).apply(_normalize_subject) == public_program_subj_filter]
-                    if public_program_stage_filter != t("all") and "learner_stage" in public_program_filtered.columns:
-                        public_program_filtered = public_program_filtered[public_program_filtered["learner_stage"].astype(str) == public_program_stage_filter]
-                    if public_program_level_filter != t("all") and "level_or_band" in public_program_filtered.columns:
-                        public_program_filtered = public_program_filtered[public_program_filtered["level_or_band"].astype(str) == public_program_level_filter]
+                    public_program_filtered = _apply_resource_filter(public_program_filtered, "subject", public_program_subj_filter, normalize=_normalize_subject)
+                    public_program_filtered = _apply_resource_filter(public_program_filtered, "learner_stage", public_program_stage_filter)
+                    public_program_filtered = _apply_resource_filter(public_program_filtered, "level_or_band", public_program_level_filter)
+                    public_program_filtered = _search_resources(public_program_filtered, public_program_q, "program")
 
                     if public_program_filtered.empty:
                         st.info(t("be_the_first_to_share"))
@@ -1013,18 +1233,23 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 public_df = load_public_lesson_plans()
 
                 if public_df.empty:
-                    st.info(t("community_library_empty"))
+                    render_empty_state(
+                        title_key="community_resources_empty_title",
+                        body_key="community_resources_empty_body",
+                        steps=["community_resources_empty_step_create", "community_resources_empty_step_share", "community_resources_empty_step_return"],
+                        icon="📝",
+                    )
                 else:
                     import helpers.lesson_planner as _lp_mod
                     f_col1, f_col2 = st.columns([3, 1])
                     with f_col1:
                         topic_q_public = st.text_input(
-                            t("search_by_topic"),
+                            t("explore_resource_search"),
                             key="public_plans_topic_q",
-                            placeholder="e.g. fractions, photosynthesis…",
+                            placeholder=t("explore_resource_search_placeholder"),
                         ).strip().lower()
                     with f_col2:
-                        _pub_subj_opts = sorted(set(_normalize_subject(s) for s in public_df["subject"].dropna().astype(str) if _normalize_subject(s))) if "subject" in public_df.columns else []
+                        _pub_subj_opts = _resource_filter_options(public_df, "subject", normalize=_normalize_subject)
                         subject_filter_public = st.selectbox(
                             t("subject_label"),
                             [t("all")] + _pub_subj_opts,
@@ -1034,7 +1259,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
 
                     f_col3, f_col4, f_col5, f_col6 = st.columns(4)
                     with f_col3:
-                        _stage_opts = sorted(public_df["learner_stage"].dropna().astype(str).unique().tolist()) if "learner_stage" in public_df.columns else []
+                        _stage_opts = _resource_filter_options(public_df, "learner_stage")
                         stage_filter_public = st.selectbox(
                             t("learner_stage"),
                             [t("all")] + _stage_opts,
@@ -1042,7 +1267,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                             key="public_plans_stage_filter",
                         )
                     with f_col4:
-                        _level_opts = sorted(public_df["level_or_band"].dropna().astype(str).unique().tolist()) if "level_or_band" in public_df.columns else []
+                        _level_opts = _resource_filter_options(public_df, "level_or_band")
                         level_filter_public = st.selectbox(
                             t("level_or_band"),
                             [t("all")] + _level_opts,
@@ -1050,7 +1275,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                             key="public_plans_level_filter",
                         )
                     with f_col5:
-                        _purpose_opts = sorted(public_df["lesson_purpose"].dropna().astype(str).unique().tolist()) if "lesson_purpose" in public_df.columns else []
+                        _purpose_opts = _resource_filter_options(public_df, "lesson_purpose")
                         purpose_filter_public = st.selectbox(
                             t("lesson_purpose"),
                             [t("all")] + _purpose_opts,
@@ -1058,7 +1283,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                             key="public_plans_purpose_filter",
                         )
                     with f_col6:
-                        _src_opts = sorted(public_df["source_type"].dropna().astype(str).unique().tolist()) if "source_type" in public_df.columns else []
+                        _src_opts = _resource_filter_options(public_df, "source_type")
                         _src_label_map = {"ai": t("mode_ai"), "template": t("mode_template")}
                         source_filter_public = st.selectbox(
                             t("source_type"),
@@ -1068,18 +1293,12 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         )
 
                     filtered_public = public_df.copy()
-                    if topic_q_public and "topic" in filtered_public.columns:
-                        filtered_public = filtered_public[filtered_public["topic"].fillna("").astype(str).str.lower().str.contains(topic_q_public, na=False)]
-                    if subject_filter_public != t("all") and "subject" in filtered_public.columns:
-                        filtered_public = filtered_public[filtered_public["subject"].astype(str).apply(_normalize_subject) == subject_filter_public]
-                    if stage_filter_public != t("all") and "learner_stage" in filtered_public.columns:
-                        filtered_public = filtered_public[filtered_public["learner_stage"].astype(str) == stage_filter_public]
-                    if level_filter_public != t("all") and "level_or_band" in filtered_public.columns:
-                        filtered_public = filtered_public[filtered_public["level_or_band"].astype(str) == level_filter_public]
-                    if purpose_filter_public != t("all") and "lesson_purpose" in filtered_public.columns:
-                        filtered_public = filtered_public[filtered_public["lesson_purpose"].astype(str) == purpose_filter_public]
-                    if source_filter_public != t("all") and "source_type" in filtered_public.columns:
-                        filtered_public = filtered_public[filtered_public["source_type"].astype(str) == source_filter_public]
+                    filtered_public = _apply_resource_filter(filtered_public, "subject", subject_filter_public, normalize=_normalize_subject)
+                    filtered_public = _apply_resource_filter(filtered_public, "learner_stage", stage_filter_public)
+                    filtered_public = _apply_resource_filter(filtered_public, "level_or_band", level_filter_public)
+                    filtered_public = _apply_resource_filter(filtered_public, "lesson_purpose", purpose_filter_public)
+                    filtered_public = _apply_resource_filter(filtered_public, "source_type", source_filter_public)
+                    filtered_public = _search_resources(filtered_public, topic_q_public, "plan")
 
                     if filtered_public.empty:
                         st.info(t("be_the_first_to_share"))
@@ -1093,19 +1312,24 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 pub_ws_df = load_public_worksheets()
 
                 if pub_ws_df.empty:
-                    st.info(t("community_library_empty"))
+                    render_empty_state(
+                        title_key="community_resources_empty_title",
+                        body_key="community_resources_empty_body",
+                        steps=["community_resources_empty_step_create", "community_resources_empty_step_share", "community_resources_empty_step_return"],
+                        icon="📋",
+                    )
                 else:
                     from helpers.worksheet_builder import WORKSHEET_TYPES as _WS_TYPES
                     import helpers.lesson_planner as _lp_mod2
                     wf_col1, wf_col2 = st.columns([3, 1])
                     with wf_col1:
                         pub_ws_topic_q = st.text_input(
-                            t("search_by_topic"),
+                            t("explore_resource_search"),
                             key="pub_ws_topic_q",
-                            placeholder="e.g. fractions, vocabulary…",
+                            placeholder=t("explore_resource_search_placeholder"),
                         ).strip().lower()
                     with wf_col2:
-                        pub_ws_subj_opts = sorted(set(_normalize_subject(s) for s in pub_ws_df["subject"].dropna().astype(str) if _normalize_subject(s))) if "subject" in pub_ws_df.columns else []
+                        pub_ws_subj_opts = _resource_filter_options(pub_ws_df, "subject", normalize=_normalize_subject)
                         pub_ws_subj_filter = st.selectbox(
                             t("subject_label"),
                             [t("all")] + pub_ws_subj_opts,
@@ -1115,7 +1339,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
 
                     wf_col3, wf_col4, wf_col5, wf_col6 = st.columns(4)
                     with wf_col3:
-                        _ws_stage_opts = sorted(pub_ws_df["learner_stage"].dropna().astype(str).unique().tolist()) if "learner_stage" in pub_ws_df.columns else []
+                        _ws_stage_opts = _resource_filter_options(pub_ws_df, "learner_stage")
                         pub_ws_stage_filter = st.selectbox(
                             t("learner_stage"),
                             [t("all")] + _ws_stage_opts,
@@ -1123,7 +1347,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                             key="pub_ws_stage_filter",
                         )
                     with wf_col4:
-                        _ws_level_opts = sorted(pub_ws_df["level_or_band"].dropna().astype(str).unique().tolist()) if "level_or_band" in pub_ws_df.columns else []
+                        _ws_level_opts = _resource_filter_options(pub_ws_df, "level_or_band")
                         pub_ws_level_filter = st.selectbox(
                             t("level_or_band"),
                             [t("all")] + _ws_level_opts,
@@ -1131,7 +1355,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                             key="pub_ws_level_filter",
                         )
                     with wf_col5:
-                        _ws_type_opts = sorted(pub_ws_df["worksheet_type"].dropna().astype(str).unique().tolist()) if "worksheet_type" in pub_ws_df.columns else []
+                        _ws_type_opts = _resource_filter_options(pub_ws_df, "worksheet_type")
                         pub_ws_type_filter = st.selectbox(
                             t("worksheet_type_label"),
                             [t("all")] + _ws_type_opts,
@@ -1139,7 +1363,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                             key="pub_ws_type_filter",
                         )
                     with wf_col6:
-                        _ws_src_opts = sorted(pub_ws_df["source_type"].dropna().astype(str).unique().tolist()) if "source_type" in pub_ws_df.columns else []
+                        _ws_src_opts = _resource_filter_options(pub_ws_df, "source_type")
                         _ws_src_label_map = {"ai": t("mode_ai"), "template": t("mode_template")}
                         pub_ws_src_filter = st.selectbox(
                             t("source_type"),
@@ -1149,18 +1373,12 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         )
 
                     pub_ws_filtered = pub_ws_df.copy()
-                    if pub_ws_topic_q and "topic" in pub_ws_filtered.columns:
-                        pub_ws_filtered = pub_ws_filtered[pub_ws_filtered["topic"].fillna("").astype(str).str.lower().str.contains(pub_ws_topic_q, na=False)]
-                    if pub_ws_subj_filter != t("all") and "subject" in pub_ws_filtered.columns:
-                        pub_ws_filtered = pub_ws_filtered[pub_ws_filtered["subject"].astype(str).apply(_normalize_subject) == pub_ws_subj_filter]
-                    if pub_ws_stage_filter != t("all") and "learner_stage" in pub_ws_filtered.columns:
-                        pub_ws_filtered = pub_ws_filtered[pub_ws_filtered["learner_stage"].astype(str) == pub_ws_stage_filter]
-                    if pub_ws_level_filter != t("all") and "level_or_band" in pub_ws_filtered.columns:
-                        pub_ws_filtered = pub_ws_filtered[pub_ws_filtered["level_or_band"].astype(str) == pub_ws_level_filter]
-                    if pub_ws_type_filter != t("all") and "worksheet_type" in pub_ws_filtered.columns:
-                        pub_ws_filtered = pub_ws_filtered[pub_ws_filtered["worksheet_type"].astype(str) == pub_ws_type_filter]
-                    if pub_ws_src_filter != t("all") and "source_type" in pub_ws_filtered.columns:
-                        pub_ws_filtered = pub_ws_filtered[pub_ws_filtered["source_type"].astype(str) == pub_ws_src_filter]
+                    pub_ws_filtered = _apply_resource_filter(pub_ws_filtered, "subject", pub_ws_subj_filter, normalize=_normalize_subject)
+                    pub_ws_filtered = _apply_resource_filter(pub_ws_filtered, "learner_stage", pub_ws_stage_filter)
+                    pub_ws_filtered = _apply_resource_filter(pub_ws_filtered, "level_or_band", pub_ws_level_filter)
+                    pub_ws_filtered = _apply_resource_filter(pub_ws_filtered, "worksheet_type", pub_ws_type_filter)
+                    pub_ws_filtered = _apply_resource_filter(pub_ws_filtered, "source_type", pub_ws_src_filter)
+                    pub_ws_filtered = _search_resources(pub_ws_filtered, pub_ws_topic_q, "worksheet")
 
                     if pub_ws_filtered.empty:
                         st.info(t("be_the_first_to_share"))
@@ -1174,18 +1392,23 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 pub_exam_df = load_public_exams()
 
                 if pub_exam_df.empty:
-                    st.info(t("community_library_empty"))
+                    render_empty_state(
+                        title_key="community_resources_empty_title",
+                        body_key="community_resources_empty_body",
+                        steps=["community_resources_empty_step_create", "community_resources_empty_step_share", "community_resources_empty_step_return"],
+                        icon="📄",
+                    )
                 else:
                     import helpers.lesson_planner as _lp_mod3
                     ef_col1, ef_col2 = st.columns([3, 1])
                     with ef_col1:
                         pub_exam_topic_q = st.text_input(
-                            t("search_by_topic"),
+                            t("explore_resource_search"),
                             key="pub_exam_topic_q",
-                            placeholder="e.g. grammar, fractions…",
+                            placeholder=t("explore_resource_search_placeholder"),
                         ).strip().lower()
                     with ef_col2:
-                        pub_exam_subj_opts = sorted(set(_normalize_subject(s) for s in pub_exam_df["subject"].dropna().astype(str) if _normalize_subject(s))) if "subject" in pub_exam_df.columns else []
+                        pub_exam_subj_opts = _resource_filter_options(pub_exam_df, "subject", normalize=_normalize_subject)
                         pub_exam_subj_filter = st.selectbox(
                             t("subject_label"),
                             [t("all")] + pub_exam_subj_opts,
@@ -1195,7 +1418,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
 
                     ef_col3, ef_col4 = st.columns(2)
                     with ef_col3:
-                        _exam_stage_opts = sorted(pub_exam_df["learner_stage"].dropna().astype(str).unique().tolist()) if "learner_stage" in pub_exam_df.columns else []
+                        _exam_stage_opts = _resource_filter_options(pub_exam_df, "learner_stage")
                         pub_exam_stage_filter = st.selectbox(
                             t("learner_stage"),
                             [t("all")] + _exam_stage_opts,
@@ -1203,7 +1426,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                             key="pub_exam_stage_filter",
                         )
                     with ef_col4:
-                        _exam_level_opts = sorted(pub_exam_df["level"].dropna().astype(str).unique().tolist()) if "level" in pub_exam_df.columns else []
+                        _exam_level_opts = _resource_filter_options(pub_exam_df, "level")
                         pub_exam_level_filter = st.selectbox(
                             t("level_or_band"),
                             [t("all")] + _exam_level_opts,
@@ -1212,14 +1435,10 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         )
 
                     pub_exam_filtered = pub_exam_df.copy()
-                    if pub_exam_topic_q and "topic" in pub_exam_filtered.columns:
-                        pub_exam_filtered = pub_exam_filtered[pub_exam_filtered["topic"].fillna("").astype(str).str.lower().str.contains(pub_exam_topic_q, na=False)]
-                    if pub_exam_subj_filter != t("all") and "subject" in pub_exam_filtered.columns:
-                        pub_exam_filtered = pub_exam_filtered[pub_exam_filtered["subject"].astype(str).apply(_normalize_subject) == pub_exam_subj_filter]
-                    if pub_exam_stage_filter != t("all") and "learner_stage" in pub_exam_filtered.columns:
-                        pub_exam_filtered = pub_exam_filtered[pub_exam_filtered["learner_stage"].astype(str) == pub_exam_stage_filter]
-                    if pub_exam_level_filter != t("all") and "level" in pub_exam_filtered.columns:
-                        pub_exam_filtered = pub_exam_filtered[pub_exam_filtered["level"].astype(str) == pub_exam_level_filter]
+                    pub_exam_filtered = _apply_resource_filter(pub_exam_filtered, "subject", pub_exam_subj_filter, normalize=_normalize_subject)
+                    pub_exam_filtered = _apply_resource_filter(pub_exam_filtered, "learner_stage", pub_exam_stage_filter)
+                    pub_exam_filtered = _apply_resource_filter(pub_exam_filtered, "level", pub_exam_level_filter)
+                    pub_exam_filtered = _search_resources(pub_exam_filtered, pub_exam_topic_q, "exam")
 
                     if pub_exam_filtered.empty:
                         st.info(t("be_the_first_to_share"))
@@ -1238,14 +1457,24 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
             with pro_tab_cv:
                 cv_df = load_my_cvs()
                 if cv_df.empty:
-                    st.info(t("no_saved_cvs"))
+                    render_empty_state(
+                        title_key="files_empty_professional_title",
+                        body_key="files_empty_professional_body",
+                        steps=["files_empty_professional_step_cv", "files_empty_professional_step_letter", "files_empty_professional_step_reuse"],
+                        icon="💼",
+                    )
                 else:
                     render_cv_library_cards(cv_df, prefix="files_cv", allow_archive_toggle=True)
 
             with pro_tab_cl:
                 cl_df = load_my_cover_letters()
                 if cl_df.empty:
-                    st.info(t("no_saved_cover_letters"))
+                    render_empty_state(
+                        title_key="files_empty_cover_letters_title",
+                        body_key="files_empty_cover_letters_body",
+                        steps=["files_empty_professional_step_cv", "files_empty_professional_step_letter", "files_empty_professional_step_reuse"],
+                        icon="✉️",
+                    )
                 else:
                     render_cv_library_cards(cl_df, prefix="files_cl", allow_archive_toggle=True)
 
@@ -1769,8 +1998,6 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         _rank_html = f"<div style='font-size:0.85rem;font-weight:800;color:#f59e0b;min-width:26px;text-align:center;padding-top:16px;align-self:flex-start;'>#{_rank}</div>" if _rank else ""
 
                         if _show_full:
-                            import html as _html
-
                             _safe_display_name = _html.escape(_display_name)
                             _safe_subj_labels = _html.escape(_subj_labels)
                             _safe_country = _html.escape(_country)
@@ -1852,7 +2079,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
     if panel == "ai_tools":
         ai_head_left, ai_head_mid, ai_head_right = st.columns([5, 1.5, 1], vertical_alignment="center")
         with ai_head_left:
-            st.markdown(f"### 🤖 {t('ai_tools')}")
+            st.markdown(f"### 🤖 {t('smart_tools_command_center')}")
         with ai_head_mid:
             if st.button(t("files"), key="open_resources_from_ai_tools", use_container_width=True):
                 go_to("resources")
@@ -1862,22 +2089,13 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 home_go("home", panel=None)
                 st.rerun()
 
-        # --- Learning Program Maker ---
+        _render_smart_tools_hub()
+
         render_quick_learning_program_builder_expander()
-
-        # --- Lesson Planner ---
         render_quick_lesson_planner_expander()
-
-        # --- Worksheet Maker ---
         render_quick_worksheet_maker_expander()
-
-        # --- Quick Exam Builder ---
         render_quick_exam_builder_expander()
-
-        # --- CV Builder ---
         render_quick_cv_builder_expander()
-
-        # --- Income Goal Calculator ---
         render_income_goal_calculator()
 
         return
@@ -1899,15 +2117,110 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
         unsafe_allow_html=True,
     )
 
+    st.markdown(
+        """
+        <style>
+        .classio-teacher-home-card {
+            position: relative;
+            overflow: hidden;
+            min-height: 148px;
+            padding: 18px 18px 16px;
+            border-radius: 22px;
+            border: 1px solid color-mix(in srgb, var(--border-strong, rgba(15,23,42,.16)) 72%, var(--teacher-accent) 28%);
+            background:
+                radial-gradient(circle at 82% -22%, rgba(var(--teacher-rgb), .24), transparent 42%),
+                radial-gradient(circle at 10% 112%, rgba(var(--teacher-rgb), .12), transparent 36%),
+                linear-gradient(180deg, color-mix(in srgb, var(--panel, #fff) 90%, white 10%), color-mix(in srgb, var(--panel-2, #f8fafc) 82%, var(--teacher-accent) 18%));
+            box-shadow:
+                0 22px 54px rgba(15,23,42,.12),
+                inset 0 1px 0 rgba(255,255,255,.78);
+            color: var(--text, #0f172a);
+        }
+        .classio-teacher-home-card::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,.58), transparent 44%);
+            pointer-events: none;
+        }
+        .classio-teacher-home-card::after {
+            content: "";
+            position: absolute;
+            left: 18px;
+            right: 18px;
+            top: 0;
+            height: 4px;
+            border-radius: 0 0 999px 999px;
+            background: linear-gradient(90deg, transparent, var(--teacher-accent), transparent);
+            opacity: .76;
+        }
+        .classio-teacher-home-card-inner {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 14px;
+            align-items: center;
+            min-height: 112px;
+        }
+        .classio-teacher-home-card-icon {
+            width: 58px;
+            height: 58px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 19px;
+            background:
+                linear-gradient(180deg, rgba(255,255,255,.76), rgba(255,255,255,.28)),
+                color-mix(in srgb, var(--teacher-accent) 15%, transparent);
+            border: 1px solid color-mix(in srgb, var(--teacher-accent) 30%, rgba(255,255,255,.72));
+            box-shadow: 0 14px 28px rgba(var(--teacher-rgb), .17);
+            font-size: 1.85rem;
+            flex: 0 0 auto;
+        }
+        .classio-teacher-home-card-title {
+            margin: 0;
+            font-size: 1.05rem;
+            line-height: 1.18;
+            font-weight: 920;
+            color: var(--text, #0f172a);
+        }
+        .classio-teacher-home-card-desc {
+            margin: 8px 0 0;
+            color: var(--muted, #64748b);
+            font-size: .84rem;
+            line-height: 1.4;
+            font-weight: 650;
+        }
+        div[data-testid="stButton"] > button {
+            border-radius: 17px !important;
+            min-height: 3rem !important;
+            font-weight: 850 !important;
+            border: 1px solid color-mix(in srgb, var(--border-strong, rgba(15,23,42,.16)) 74%, rgba(37,99,235,.24) 26%) !important;
+            background:
+                linear-gradient(180deg, color-mix(in srgb, var(--panel, #fff) 92%, white 8%), color-mix(in srgb, var(--panel-2, #f8fafc) 86%, rgba(37,99,235,.08) 14%)) !important;
+            box-shadow: 0 12px 26px rgba(15,23,42,.09), inset 0 1px 0 rgba(255,255,255,.72) !important;
+            color: var(--text, #0f172a) !important;
+        }
+        div[data-testid="stButton"] > button:hover {
+            transform: translateY(-1px);
+            border-color: color-mix(in srgb, var(--primary, #2563eb) 45%, var(--border-strong, rgba(15,23,42,.16)) 55%) !important;
+            box-shadow: 0 16px 34px rgba(15,23,42,.13), inset 0 1px 0 rgba(255,255,255,.82) !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     menu_items = [
-        ("dashboard",   "📊", t("dashboard"),  "rgba(59,130,246,0.55)", t("explore_feat_dashboard")),
-        ("students",    "👩‍🎓", t("students"),   "rgba(16,185,129,0.55)", t("explore_feat_students")),
-        ("add_lesson",  "📝", t("lesson"),     "rgba(245,158,11,0.55)", t("explore_feat_lesson")),
-        ("add_payment", "💳", t("payment"),    "rgba(239,68,68,0.55)",  t("explore_feat_payment")),
-        ("calendar",    "📅", t("calendar"),   "rgba(6,182,212,0.55)",  t("explore_feat_calendar")),
-        ("analytics",   "📈", t("analytics"),  "rgba(168,85,247,0.55)", t("explore_feat_analytics")),
-        ("ai_tools",    "🤖", t("ai_tools"),   "rgba(234,179,8,0.55)",  t("ai_tools")),
-        ("community",   "🌐", t("community"),  "rgba(20,184,166,0.55)", t("community_subtitle")),
+        ("dashboard",   "📊", t("dashboard"),  "#2563EB", "37,99,235", t("explore_feat_dashboard")),
+        ("students",    "👩‍🎓", t("students"),   "#059669", "5,150,105", t("explore_feat_students")),
+        ("add_lesson",  "📝", t("lesson"),     "#D97706", "217,119,6", t("explore_feat_lesson")),
+        ("add_payment", "💳", t("payment"),    "#DC2626", "220,38,38", t("explore_feat_payment")),
+        ("calendar",    "📅", t("calendar"),   "#0891B2", "8,145,178", t("explore_feat_calendar")),
+        ("analytics",   "📈", t("analytics"),  "#7C3AED", "124,58,237", t("explore_feat_analytics")),
+        ("ai_tools",    "🤖", t("ai_tools"),   "#CA8A04", "202,138,4", t("ai_tools")),
+        ("community",   "🌐", t("community"),  "#0F766E", "15,118,110", t("community_subtitle")),
     ]
 
     menu_rows = [
@@ -1919,22 +2232,18 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
 
     for row in menu_rows:
         cols = st.columns(len(row), gap="medium")
-        for col, (key, icon, label, glow, desc) in zip(cols, row):
+        for col, (key, icon, label, accent, rgb, desc) in zip(cols, row):
             with col:
                 st.markdown(
                     f"""
-                    <div style="
-                        background: linear-gradient(180deg, var(--panel, rgba(255,255,255,0.92)), var(--panel-2, rgba(248,250,255,0.85)));
-                        border: 1px solid var(--border-strong, rgba(17,24,39,0.08));
-                        border-radius: 16px;
-                        padding: 16px 12px 10px 12px;
-                        text-align: center;
-                        box-shadow: 0 4px 18px {glow};
-                        min-height: 90px;
-                    ">
-                        <div style="font-size:1.6rem; margin-bottom:4px;">{icon}</div>
-                        <div style="font-weight:700; font-size:0.95rem; color:var(--text, #0f172a);">{label}</div>
-                        <div style="font-size:0.78rem; color:var(--muted, #64748b); margin-top:2px;">{desc}</div>
+                    <div class="classio-teacher-home-card" style="--teacher-accent:{accent};--teacher-rgb:{rgb};">
+                        <div class="classio-teacher-home-card-inner">
+                            <div class="classio-teacher-home-card-icon">{_html.escape(icon)}</div>
+                            <div>
+                                <div class="classio-teacher-home-card-title">{_html.escape(label)}</div>
+                                <div class="classio-teacher-home-card-desc">{_html.escape(desc)}</div>
+                            </div>
+                        </div>
                     </div>
                     """,
                     unsafe_allow_html=True,

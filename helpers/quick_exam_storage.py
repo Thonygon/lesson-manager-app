@@ -934,6 +934,7 @@ def render_exam_result(
     signup_required_actions: bool = False,
     allow_free_pdf: bool = True,
     action_key_prefix: str = "exam_result",
+    comparison_mode: bool = False,
     **meta,
 ) -> None:
     if not exam_data or not exam_data.get("sections"):
@@ -961,7 +962,7 @@ def render_exam_result(
     # ── Auto-enrich: generate visuals on first view if missing ──────────
     # Only runs once per exam per session (guarded by session-state flag).
     # Avoids expensive repeated calls on every rerun.
-    if not signup_required_actions and exam_eligible_for_visuals(exam_data, subject=subject, learner_stage=learner_stage, topic=topic):
+    if not comparison_mode and not signup_required_actions and exam_eligible_for_visuals(exam_data, subject=subject, learner_stage=learner_stage, topic=topic):
         if not exam_has_ready_visuals(exam_data):
             _auto_key = f"_exam_vis_tried_{resource_record_id or action_key_prefix}"
             if not st.session_state.get(_auto_key):
@@ -979,7 +980,7 @@ def render_exam_result(
                     if st.session_state.get("files_selected_exam") is not None:
                         st.session_state["files_selected_exam"] = exam_data
 
-    if show_ready_banner:
+    if show_ready_banner and not comparison_mode:
         st.success(t("exam_ready") if t("exam_ready") != "exam_ready" else "Exam ready!")
         warning = st.session_state.get("exam_warning")
         if warning:
@@ -1074,6 +1075,9 @@ def render_exam_result(
         #     status_items.append({"label": label, "status": status})
         # render_visual_support_status_group(status_items)
         pass
+
+    if comparison_mode:
+        return
 
     # Generate / Regenerate images button
     if not signup_required_actions and exam_eligible_for_visuals(exam_data, subject=subject, learner_stage=learner_stage, topic=topic):

@@ -1869,7 +1869,10 @@ def _render_plan_preview(plan: dict, meta: dict) -> None:
 # ─────────────────────────────────────────────────────────────
 def render_income_goal_calculator() -> None:
     """Render the income goal calculator for logged-in users (expander)."""
-    with st.expander(f"🎯 {t('income_goal_calculator')}", expanded=False):
+    with st.expander(
+        f"🎯 {t('income_goal_calculator')}",
+        expanded=bool(st.session_state.pop("open_income_goal_expander", False)),
+    ):
         st.markdown(
             f"<p style='color:#475569;font-size:0.93rem;margin:0 0 8px 0;'>{t('explore_goal_subtitle')}</p>",
             unsafe_allow_html=True,

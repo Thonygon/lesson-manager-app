@@ -11,6 +11,7 @@ from typing import Optional
 from core.i18n import t
 from core.state import get_current_user_id, with_owner, PROFILE_SUBJECT_OPTIONS, PROFILE_STAGE_OPTIONS, PROFILE_TEACH_LANG_OPTIONS
 from helpers.lesson_planner import subject_label as _subject_label
+from helpers.native_language import native_language_label, normalize_native_language
 from core.timezone import today_local, get_app_tz
 from core.database import get_sb, load_table, clear_app_caches
 from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
@@ -118,12 +119,16 @@ def _stage_label(stage: str) -> str:
 
 
 def _lang_label(code: str) -> str:
-    labels = {
-        "en": t("english"),
-        "es": t("spanish"),
-        "tr": t("turkish"),
-    }
-    return labels.get(str(code), str(code))
+    return native_language_label(code)
+
+
+def _normalized_cv_languages(values) -> list[str]:
+    normalized: list[str] = []
+    for value in values or []:
+        lang_code = normalize_native_language(value)
+        if lang_code and lang_code in PROFILE_TEACH_LANG_OPTIONS and lang_code not in normalized:
+            normalized.append(lang_code)
+    return normalized
 
 def _country_options() -> list[str]:
     try:
@@ -752,7 +757,10 @@ def render_quick_cv_builder_expander() -> None:
 
         st.session_state["_quick_cv_owner"] = _current_user_id
 
-    with st.expander(f"💼 {t('quick_cv_builder')}", expanded=False):
+    with st.expander(
+        f"💼 {t('quick_cv_builder')}",
+        expanded=bool(st.session_state.pop("open_quick_cv_expander", False)),
+    ):
         st.caption(t("quick_cv_caption"))
         usage = get_ai_cv_usage_status()
 
@@ -824,7 +832,7 @@ def render_quick_cv_builder_expander() -> None:
                             _imp_stages = [s for s in (parsed.get("teaching_stages") or []) if s in PROFILE_STAGE_OPTIONS]
                             if _imp_stages:
                                 st.session_state["cv_stages"] = _imp_stages
-                            _imp_langs = [l for l in (parsed.get("teaching_languages") or []) if l in PROFILE_TEACH_LANG_OPTIONS]
+                            _imp_langs = _normalized_cv_languages(parsed.get("teaching_languages") or [])
                             if _imp_langs:
                                 st.session_state["cv_langs"] = _imp_langs
                             # Sex selectbox
@@ -1000,7 +1008,7 @@ def render_quick_cv_builder_expander() -> None:
             cv_langs = st.multiselect(
                 t("teaching_languages_label"),
                 options=PROFILE_TEACH_LANG_OPTIONS,
-                default=st.session_state.get("cv_langs", []),
+                default=_normalized_cv_languages(st.session_state.get("cv_langs", [])),
                 format_func=_lang_label,
                 key="cv_langs",
                 placeholder=t("select_option"),

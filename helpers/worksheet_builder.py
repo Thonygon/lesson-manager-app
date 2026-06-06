@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # CLASSIO — Worksheet Builder
 # ============================================================
+import ast
 import streamlit as st
 import json, os, re
 from core.i18n import t
@@ -12,6 +13,7 @@ from helpers.generation_guidance import (
     build_generation_profile_guidance,
     infer_subject_family,
 )
+from helpers.student_personalization import build_student_profile_prompt_block
 from helpers.visual_support import enrich_worksheet_with_visuals
 
 AI_WORKSHEET_DAILY_LIMIT = 3
@@ -199,6 +201,9 @@ def _worksheet_quality_issues(ws: dict) -> list[str]:
         if len(ws.get("questions") or []) < 3:
             issues.append("error_correction needs at least 3 valid incorrect sentences")
 
+    if ws_type == "matching":
+        issues.extend(_matching_quality_issues(ws))
+
     return issues
 
 
@@ -241,6 +246,146 @@ def _ensure_list_of_strings(value) -> list[str]:
     return [s] if s else []
 
 
+_MATCHING_ITEM_PREFIX_RE = re.compile(r"^\s*(?:\(?\d+\)?|[A-Za-z])[\.)\-:]\s*")
+
+
+def _strip_matching_item_prefix(value) -> str:
+    return _MATCHING_ITEM_PREFIX_RE.sub("", _clean_str(value))
+
+
+def _parse_text_sequence(value) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        return [_strip_matching_item_prefix(item) for item in value if _strip_matching_item_prefix(item)]
+
+    text = str(value or "").strip()
+    if not text:
+        return []
+
+    for parser in (json.loads, ast.literal_eval):
+        try:
+            parsed = parser(text)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, (list, tuple)):
+            return [_strip_matching_item_prefix(item) for item in parsed if _strip_matching_item_prefix(item)]
+
+    return []
+
+
+def _coerce_matching_side(value, *, prefer: str) -> str:
+    if isinstance(value, dict) and len(value) == 1:
+        only_key, only_val = next(iter(value.items()))
+        return _strip_matching_item_prefix(only_key if prefer == "key" else only_val)
+
+    text = str(value or "").strip()
+    if text.startswith("{") and text.endswith("}"):
+        for parser in (json.loads, ast.literal_eval):
+            try:
+                parsed = parser(text)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict) and len(parsed) == 1:
+                only_key, only_val = next(iter(parsed.items()))
+                return _strip_matching_item_prefix(only_key if prefer == "key" else only_val)
+
+    return _strip_matching_item_prefix(text)
+
+
+def _looks_like_answer_marker(text: str) -> bool:
+    cleaned = _strip_matching_item_prefix(text)
+    if not cleaned:
+        return True
+    return bool(re.fullmatch(r"[A-Za-z]", cleaned) or re.fullmatch(r"\d+", cleaned))
+
+
+def _looks_like_serialized_payload(text: str) -> bool:
+    cleaned = str(text or "").strip()
+    return (
+        (cleaned.startswith("[") and cleaned.endswith("]"))
+        or (cleaned.startswith("{") and cleaned.endswith("}"))
+        or ("\"" in cleaned and ":" in cleaned and "{" in cleaned)
+    )
+
+
+def _repair_matching_payload(ws: dict) -> dict:
+    out = dict(ws or {})
+    if out.get("worksheet_type") != "matching":
+        return out
+
+    pairs = out.get("matching_pairs") or []
+    cleaned_pairs = []
+    for pair in pairs:
+        if not isinstance(pair, dict):
+            continue
+        left = _coerce_matching_side(pair.get("left"), prefer="key")
+        right = _coerce_matching_side(pair.get("right"), prefer="value")
+        if left and right:
+            cleaned_pairs.append({"left": left, "right": right})
+
+    if not cleaned_pairs:
+        left_items = [_coerce_matching_side(item, prefer="key") for item in out.get("left_items") or []]
+        right_items = [_coerce_matching_side(item, prefer="value") for item in out.get("right_items") or []]
+        cleaned_pairs = [
+            {"left": left, "right": right}
+            for left, right in zip(left_items, right_items)
+            if left and right
+        ]
+
+    if cleaned_pairs:
+        out["matching_pairs"] = cleaned_pairs
+        out["left_items"] = [pair["left"] for pair in cleaned_pairs]
+        out["right_items"] = [pair["right"] for pair in cleaned_pairs]
+
+    left_items = out.get("left_items") or []
+    right_items = out.get("right_items") or []
+    expected_count = len(left_items)
+    if not expected_count:
+        return out
+
+    suspicious_right = (
+        not right_items
+        or len({_clean_str(item) for item in right_items if _clean_str(item)}) <= 1
+        or sum(_looks_like_answer_marker(item) for item in right_items) >= max(2, expected_count // 2)
+        or any(_looks_like_serialized_payload(item) for item in right_items)
+    )
+
+    if suspicious_right:
+        for source in list(right_items) + [pair.get("right") for pair in out.get("matching_pairs") or [] if isinstance(pair, dict)]:
+            parsed = [item for item in _parse_text_sequence(source) if item and not _looks_like_answer_marker(item)]
+            if len(parsed) >= expected_count:
+                repaired_right = parsed[:expected_count]
+                out["right_items"] = repaired_right
+                out["matching_pairs"] = [
+                    {"left": left, "right": right}
+                    for left, right in zip(left_items, repaired_right)
+                    if left and right
+                ]
+                break
+
+    return out
+
+
+def _matching_quality_issues(ws: dict) -> list[str]:
+    pairs = ws.get("matching_pairs") or []
+    if not pairs:
+        return ["matching requires usable left/right pairs"]
+
+    left_items = [str(pair.get("left") or "").strip() for pair in pairs if isinstance(pair, dict)]
+    right_items = [str(pair.get("right") or "").strip() for pair in pairs if isinstance(pair, dict)]
+    issues: list[str] = []
+
+    if len(left_items) < 4 or len(right_items) < 4:
+        issues.append("matching needs at least 4 valid pairs")
+    if any(_looks_like_serialized_payload(item) for item in left_items + right_items):
+        issues.append("matching contains serialized payload text instead of clean prompt items")
+    if sum(_looks_like_answer_marker(item) for item in right_items) >= max(2, len(right_items) // 2):
+        issues.append("matching right side contains answer markers instead of real options")
+    if len({_clean_str(item).casefold() for item in right_items if _clean_str(item)}) <= 1 and len(right_items) > 1:
+        issues.append("matching right side is repeated instead of varied")
+
+    return issues
+
+
 def _ensure_matching_pairs(value) -> list[dict]:
     out = []
     if not isinstance(value, list):
@@ -249,8 +394,8 @@ def _ensure_matching_pairs(value) -> list[dict]:
     for item in value:
         if not isinstance(item, dict):
             continue
-        left = _clean_str(item.get("left"))
-        right = _clean_str(item.get("right"))
+        left = _coerce_matching_side(item.get("left"), prefer="key")
+        right = _coerce_matching_side(item.get("right"), prefer="value")
         if left and right:
             out.append({"left": left, "right": right})
     return out
@@ -341,7 +486,7 @@ def _worksheet_instruction_needs_reset(ws_type: str, text: str) -> bool:
     return any(fragment in lowered for fragment in _WORKSHEET_INSTRUCTION_MISMATCHES.get(ws_type, ()))
 
 # ── Normalise AI output ──────────────────────────────────────────────
-def normalize_worksheet_output(raw: dict) -> dict:
+def normalize_worksheet_output(raw: dict, *, include_visuals: bool = True) -> dict:
     out = dict(raw or {})
 
     str_keys = [
@@ -481,9 +626,13 @@ def normalize_worksheet_output(raw: dict) -> dict:
             out["instructions"] = _default_instruction_for_worksheet_type(ws_type)
 
     out = _sanitize_student_material_fields(out)
+    out = _repair_matching_payload(out)
     out = _repair_worksheet_answer_key(out)
     out = _prune_error_correction_items(out)
     out = _repair_worksheet_answer_key(out)
+
+    if not include_visuals:
+        return out
 
     return enrich_worksheet_with_visuals(
         out,
@@ -533,6 +682,8 @@ Worksheet-specific rules for multiple_choice:
 Worksheet-specific rules for matching:
 - This must be a real matching task, not sentence completion.
 - Do NOT create fill-in-the-blank sentences.
+- Do NOT rely on pictures, image labels, icons, or unseen visual references.
+- Both columns must be fully self-contained text that can be printed without images.
 - Create 6-10 clear pairs depending on learner_stage and level.
 - Return the pairs in "matching_pairs" as:
   [{"left":"...", "right":"..."}, ...]
@@ -545,6 +696,7 @@ Worksheet-specific rules for matching:
 - Use polished, publication-ready capitalization and wording for both sides.
 - Do NOT prefix left_items or right_items with letters or numbers.
 - Do NOT return A., B., C. or 1., 2., 3. inside the item text.
+- Do NOT put answer letters, answer_key text, or serialized lists inside matching_pairs.
 - The renderer will add numbering and lettering.
 - If learner_stage is early_primary, lower_primary, primary_lower, or pre_primary, prefer concrete and visually observable items when pedagogically suitable.
 """,
@@ -671,6 +823,11 @@ def _build_worksheet_prompts(payload: dict) -> tuple[str, str]:
     )
 
     type_rules = _worksheet_type_rules(worksheet_type)
+    student_profile_block = build_student_profile_prompt_block(
+        payload.get("student_profile") or {},
+        product="worksheet",
+        selected_formats=[worksheet_type] if worksheet_type else [],
+    )
 
     user_prompt = f"""
 Create one complete, topic-based teaching worksheet as JSON.
@@ -703,6 +860,8 @@ Design principles:
 
 Profile quality guidance:
 {_worksheet_profile_guidance(payload)}
+
+{student_profile_block}
 
 {type_rules}
 
@@ -756,6 +915,9 @@ def generate_ai_worksheet(
     topic: str,
     plan_language: str,
     student_material_language: str,
+    student_profile: dict | None = None,
+    *,
+    include_visuals: bool = True,
 ) -> dict:
     payload = {
         "subject": subject,
@@ -765,6 +927,7 @@ def generate_ai_worksheet(
         "worksheet_type": worksheet_type,
         "plan_language": plan_language,
         "student_material_language": student_material_language,
+        "student_profile": student_profile or {},
     }
 
     system_prompt, user_prompt = _build_worksheet_prompts(payload)
@@ -781,7 +944,7 @@ def generate_ai_worksheet(
                 raw = _lp()._generate_with_openai(system_prompt, user_prompt)
 
             parsed = _lp()._extract_json_object_from_text(raw)
-            normalized = normalize_worksheet_output(parsed)
+            normalized = normalize_worksheet_output(parsed, include_visuals=include_visuals)
             quality_issues = _worksheet_quality_issues(normalized)
             if quality_issues:
                 raise ValueError("; ".join(quality_issues))
@@ -798,6 +961,7 @@ def generate_worksheet_with_limit(
     level_or_band: str,
     worksheet_type: str,
     topic: str,
+    student_profile: dict | None = None,
 ) -> tuple[dict, str | None]:
     from helpers.worksheet_storage import get_ai_worksheet_usage_status, log_ai_usage
 
@@ -826,6 +990,7 @@ def generate_worksheet_with_limit(
             topic=topic,
             plan_language=get_plan_language(),
             student_material_language=get_student_material_language(subject),
+            student_profile=student_profile or {},
         )
         ws = normalize_worksheet_output(ws)
 
@@ -849,5 +1014,6 @@ def reset_worksheet_maker_state() -> None:
     for k in [
         "worksheet_result", "worksheet_kept", "worksheet_warning",
         "ws_subject", "ws_stage", "ws_level", "ws_type", "ws_topic",
+        "worksheet_ab_debug_compare", "worksheet_ab_debug_enabled",
     ]:
         st.session_state.pop(k, None)

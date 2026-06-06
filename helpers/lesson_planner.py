@@ -15,6 +15,7 @@ from helpers.generation_guidance import (
     build_generation_profile_guidance,
     infer_subject_family,
 )
+from helpers.student_personalization import build_student_profile_prompt_block
 
 # ============================================================
 # Planner constants
@@ -2120,6 +2121,10 @@ def _build_ai_prompts(prompt_payload: dict) -> tuple[str, str]:
         prompt_payload.get("level_or_band", ""),
         product="lesson_plan",
     )
+    student_profile_block = build_student_profile_prompt_block(
+        prompt_payload.get("student_profile") or {},
+        product="lesson_plan",
+    )
     system_prompt = (
         f"{build_expert_panel_prompt_blurb('lesson_plan')} "
         "You are an expert private lesson planner. "
@@ -2157,6 +2162,8 @@ Rules:
 
 Profile quality guidance:
 {profile_guidance}
+
+{student_profile_block}
 """
     return system_prompt, user_prompt
 
@@ -2260,6 +2267,7 @@ def generate_ai_lesson_plan(
     topic: str,
     plan_language: str,
     student_material_language: str,
+    student_profile: dict | None = None,
 ) -> dict:
     prompt_payload = {
         "subject": subject,
@@ -2291,6 +2299,7 @@ def generate_ai_lesson_plan(
             "core_material",
         ],
         "core_material_required_keys": _subject_specific_core_keys(subject),
+        "student_profile": student_profile or {},
     }
 
     system_prompt, user_prompt = _build_ai_prompts(prompt_payload)
@@ -2330,6 +2339,7 @@ def generate_quick_lesson_plan_with_fallback(
     level_or_band: str,
     lesson_purpose: str,
     topic: str,
+    student_profile: dict | None = None,
 ) -> tuple[dict, str, Optional[str]]:
     template_plan = normalize_planner_output(
         build_quick_lesson_plan(
@@ -2345,6 +2355,10 @@ def generate_quick_lesson_plan_with_fallback(
         return template_plan, "template", None
 
     from helpers.planner_storage import get_ai_planner_usage_status, log_ai_usage
+    from services.permissions_service import can_use_ai_tool, increment_usage
+
+    if not can_use_ai_tool():
+        return template_plan, "template", t("ai_limit_reached")
 
     usage = get_ai_planner_usage_status()
     if usage["used_today"] >= AI_DAILY_LIMIT:
@@ -2368,6 +2382,7 @@ def generate_quick_lesson_plan_with_fallback(
             topic=topic,
             plan_language=get_plan_language(),
             student_material_language=get_student_material_language(subject),
+            student_profile=student_profile or {},
         )
         ai_plan = normalize_planner_output(ai_plan)
 
@@ -2376,6 +2391,7 @@ def generate_quick_lesson_plan_with_fallback(
             status="success",
             meta={"subject": subject, "topic": topic, "lesson_purpose": lesson_purpose},
         )
+        increment_usage(None, "ai_generations")
         return ai_plan, "ai", None
 
     except Exception as e:
@@ -2401,6 +2417,8 @@ def reset_quick_lesson_planner_state() -> None:
         "quick_plan_purpose",
         "quick_plan_topic",
         "quick_plan_other_subject",
+        "quick_plan_ab_debug_compare",
+        "quick_plan_ab_debug_enabled",
     ]
     for k in keys_to_clear:
         st.session_state.pop(k, None)

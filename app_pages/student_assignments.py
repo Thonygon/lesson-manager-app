@@ -22,6 +22,7 @@ from helpers.teacher_student_integration import (
     update_topic_assignment_status,
 )
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student, render_student_program_view
+from helpers.empty_states import render_empty_state
 
 _STUDENT_PAGE_SIZE = 4
 
@@ -478,7 +479,16 @@ def _assignment_card(row: dict, key_prefix: str) -> None:
 def _render_teacher_relationships() -> None:
     relationships = load_student_teacher_links()
     if not relationships:
-        st.info(t("no_linked_teachers"))
+        render_empty_state(
+            title_key="student_assignments_teachers_empty_title",
+            body_key="student_assignments_teachers_empty_body",
+            steps=[
+                "student_assignments_empty_step_find",
+                "student_assignments_empty_step_receive",
+                "student_assignments_empty_step_practice",
+            ],
+            icon="👥",
+        )
         return
 
     active = [row for row in relationships if str(row.get("status") or "") == "active"]
@@ -503,7 +513,16 @@ def _render_teacher_relationships() -> None:
 
 def _render_assignment_group(title: str, rows: list[dict], group_prefix: str) -> None:
     if not rows:
-        st.info(t("no_assignments"))
+        render_empty_state(
+            title_key="student_assignments_group_empty_title",
+            body_key="student_assignments_group_empty_body",
+            steps=[
+                "student_assignments_group_empty_step_teacher",
+                "student_assignments_group_empty_step_status",
+                "student_assignments_group_empty_step_practice",
+            ],
+            icon="🗂️",
+        )
         return
 
     page_rows, *_ = _slice_student_page(rows, f"{group_prefix}_page")
@@ -519,7 +538,16 @@ def _render_assignment_group(title: str, rows: list[dict], group_prefix: str) ->
 
 def render_assigned_learning_programs_section(program_assignments: list[dict], legacy_topics: list[dict]) -> None:
     if not program_assignments and not legacy_topics:
-        st.info(t("no_assignments"))
+        render_empty_state(
+            title_key="student_study_plan_programs_empty_title",
+            body_key="student_study_plan_programs_empty_body",
+            steps=[
+                "student_study_plan_programs_empty_step_teacher",
+                "student_study_plan_programs_empty_step_progress",
+                "student_study_plan_programs_empty_step_plan",
+            ],
+            icon="📘",
+        )
         return
 
     if program_assignments:
@@ -611,7 +639,7 @@ def _render_program_assigned_topics(program_assignments: list[dict]) -> bool:
         for topic in unit.get("topics") or []:
             global_number += 1
             topic_id = int(topic.get("topic_id") or 0)
-            if bool(progress_map.get(topic_id, {}).get("is_done")):
+            if bool(progress_map.get(topic_id, {}).get("teacher_done")):
                 continue
             next_topics.append(
                 {
@@ -651,13 +679,25 @@ def render_student_assignments() -> None:
     st.markdown(f"## 🗂️ {t('student_assignments_title')}")
     st.caption(t("student_assignments_desc"))
 
-    _render_teacher_relationships()
-
     assignments = load_student_assignments()
     program_assignments = load_enriched_program_assignments_for_current_student()
     if not assignments and not program_assignments and not has_active_teacher_relationships():
-        st.info(t("no_assignments_or_teachers"))
+        render_empty_state(
+            title_key="student_assignments_empty_title",
+            body_key="student_assignments_empty_body",
+            steps=[
+                "student_assignments_empty_step_find",
+                "student_assignments_empty_step_receive",
+                "student_assignments_empty_step_practice",
+            ],
+            icon="🗂️",
+        )
+        if st.button(t("student_assignments_empty_find_teacher"), key="student_assignments_empty_find_teacher", use_container_width=True, type="primary"):
+            go_to("student_find_teacher")
+            st.rerun()
         return
+
+    _render_teacher_relationships()
 
     worksheets = [row for row in assignments if row.get("assignment_type") == "worksheet"]
     exams = [row for row in assignments if row.get("assignment_type") == "exam"]

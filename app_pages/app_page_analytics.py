@@ -1,10 +1,12 @@
 import streamlit as st
 import datetime
+import html
+import math
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from core.i18n import t
-from core.navigation import page_header
+from core.navigation import go_to, page_header
 from core.database import load_table
 import matplotlib.pyplot as plt
 from helpers.analytics import build_income_analytics, money_fmt
@@ -12,6 +14,8 @@ from helpers.ui_components import ts_today_naive, to_dt_naive, pretty_df, transl
 from helpers.language import translate_modality_value
 from helpers.dashboard import rebuild_dashboard
 from helpers.forecast import build_forecast_table
+from helpers.goal_optimizer import build_goal_optimization
+from helpers.business_strategy import build_business_recommendations
 from helpers.year_goals import get_year_goal, set_year_goal
 from helpers.goals import YEAR_GOAL_SCOPE
 from helpers.currency import CURRENCIES, INFLATION_COUNTRIES, get_exchange_rate, fetch_cpi_data, inflate, get_preferred_currency
@@ -150,6 +154,101 @@ def render_analytics():
         show_raw = st.toggle(t("show_raw_data"), value=False, key=toggle_key)
         if show_raw:
             render_styled_dataframe(translate_df_headers(pretty_df(df)))
+
+    def _render_empty_analytics_state():
+        st.markdown(
+            f"""
+            <div style="margin:18px 0 14px;padding:18px;border-radius:16px;
+                        border:1px solid var(--border-strong, rgba(59,130,246,.18));
+                        background:
+                          linear-gradient(135deg, rgba(59,130,246,.10), rgba(16,185,129,.07)),
+                          linear-gradient(180deg, var(--panel, rgba(255,255,255,.94)), var(--panel-2, rgba(248,250,255,.84)));
+                        box-shadow:var(--shadow-md, 0 14px 34px rgba(15,23,42,.10));">
+              <div style="font-size:.78rem;font-weight:900;color:var(--primary-strong,#2563EB);text-transform:uppercase;letter-spacing:0;">
+                {t('analytics_empty_label')}
+              </div>
+              <div style="font-size:1.25rem;font-weight:950;color:var(--text,#0f172a);margin-top:4px;line-height:1.2;">
+                {t('analytics_empty_title')}
+              </div>
+              <div style="font-size:.92rem;color:var(--muted,#475569);max-width:820px;margin-top:7px;line-height:1.5;">
+                {t('analytics_empty_body')}
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(f"#### {t('analytics_empty_what_you_will_get')}")
+        feature_cards = [
+            (t("analytics_empty_card_income_title"), t("analytics_empty_card_income_body"), "#2563EB"),
+            (t("analytics_empty_card_renewal_title"), t("analytics_empty_card_renewal_body"), "#10B981"),
+            (t("analytics_empty_card_strategy_title"), t("analytics_empty_card_strategy_body"), "#8B5CF6"),
+            (t("analytics_empty_card_goal_title"), t("analytics_empty_card_goal_body"), "#F59E0B"),
+        ]
+        cols = st.columns(2)
+        for idx, (title, body, accent) in enumerate(feature_cards):
+            with cols[idx % 2]:
+                st.markdown(
+                    f"""
+                    <div style="min-height:132px;margin:6px 0;padding:14px 15px;border-radius:12px;
+                                border:1px solid var(--border-strong, rgba(15,23,42,.10));
+                                background:linear-gradient(180deg,var(--panel,rgba(255,255,255,.92)),var(--panel-2,rgba(248,250,255,.82)));
+                                box-shadow:var(--shadow-sm,0 8px 20px rgba(15,23,42,.07));">
+                      <div style="width:32px;height:4px;border-radius:999px;background:{accent};margin-bottom:10px;"></div>
+                      <div style="font-size:1rem;font-weight:900;color:var(--text,#0f172a);line-height:1.25;">{html.escape(title)}</div>
+                      <div style="font-size:.86rem;color:var(--muted,#475569);line-height:1.45;margin-top:6px;">{html.escape(body)}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+        st.markdown(f"#### {t('analytics_empty_start_here')}")
+        st.caption(t("analytics_empty_start_caption"))
+        step_cols = st.columns(3)
+        with step_cols[0]:
+            if st.button(t("analytics_empty_add_payment"), key="analytics_empty_add_payment", use_container_width=True, type="primary"):
+                go_to("add_payment")
+                st.rerun()
+        with step_cols[1]:
+            if st.button(t("analytics_empty_add_lesson"), key="analytics_empty_add_lesson", use_container_width=True):
+                go_to("add_lesson")
+                st.rerun()
+        with step_cols[2]:
+            if st.button(t("analytics_empty_set_goal"), key="analytics_empty_set_goal", use_container_width=True):
+                st.session_state["analytics_show_goal_hint"] = True
+
+        if st.session_state.get("analytics_show_goal_hint"):
+            st.info(t("analytics_empty_goal_hint"))
+            empty_goal_year = int(today.year)
+            empty_goal_scope = YEAR_GOAL_SCOPE
+            empty_goal_current = get_year_goal(empty_goal_year, scope=empty_goal_scope, default=0.0)
+            goal_col, save_col = st.columns([2, 1])
+            with goal_col:
+                empty_goal_value = st.number_input(
+                    f"{t('yearly_income_goal')} ({empty_goal_year})",
+                    min_value=0.0,
+                    value=float(empty_goal_current or 0.0),
+                    step=1000.0,
+                    key=f"analytics_empty_goal_{empty_goal_year}_{empty_goal_scope}",
+                )
+            with save_col:
+                st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
+                if st.button(t("save"), key="analytics_empty_save_goal", use_container_width=True, type="primary"):
+                    ok = set_year_goal(empty_goal_year, float(empty_goal_value), scope=empty_goal_scope)
+                    if ok:
+                        st.toast(t("saved"), icon="✅")
+                    else:
+                        st.toast(t("could_not_save_goal"), icon="⚠️")
+
+        st.markdown(f"#### {t('analytics_empty_data_needed')}")
+        st.write(f"- {t('analytics_empty_need_payments')}")
+        st.write(f"- {t('analytics_empty_need_lessons')}")
+        st.write(f"- {t('analytics_empty_need_goal')}")
+
+    has_income_data = bool(income_table is not None and not income_table.empty and float(kpis.get("income_all_time", 0.0) or 0.0) > 0)
+    if not has_income_data:
+        _render_empty_analytics_state()
+        return
 
     # ---------- NEW: YTD + renewal pipeline projection (no more this_month*12) ----------
     def _ytd_income(payments_df: pd.DataFrame, year: int) -> float:
@@ -409,6 +508,7 @@ def render_analytics():
     projected_year = float(proj.get("projected", 0.0) or 0.0) * fx_rate
     ytd_cash = float(proj.get("ytd", 0.0) or 0.0) * fx_rate
     expected_future = float(proj.get("expected_future", 0.0) or 0.0) * fx_rate
+    optimizer = None
 
     # -------------------------
     # Yearly goal (persistent across devices)
@@ -472,6 +572,105 @@ def render_analytics():
                 st.metric(t("remaining_to_goal"), cfmt(remaining))
             with g3:
                 st.metric(t("avg_needed_month"), cfmt(avg_needed))
+
+            optimizer = build_goal_optimization(
+                goal=goal_val,
+                baseline_projection=projected_year,
+                ytd_income=ytd_cash,
+                expected_future=expected_future,
+                effective_rate=eff_rate,
+                payments_df=payments_all,
+                forecast_df=forecast_for_projection,
+                fx_rate=fx_rate,
+                today=today,
+            )
+
+            st.markdown(
+                f"""
+                <div style="margin-top:14px;padding:16px 18px;border-radius:14px;
+                                                        border:1px solid var(--border-strong, rgba(59,130,246,.18));
+                                                        background:
+                                                            linear-gradient(135deg, rgba(59,130,246,.11), rgba(16,185,129,.07)),
+                                                            linear-gradient(180deg, var(--panel, rgba(255,255,255,.92)), var(--panel-2, rgba(248,250,255,.82)));
+                                                        box-shadow:var(--shadow-md, 0 12px 28px rgba(15,23,42,.10));">
+                  <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+                    <div>
+                                            <div style="font-size:.78rem;font-weight:800;color:var(--primary-strong, #2563EB);text-transform:uppercase;letter-spacing:0;">{t('goal_optimizer')}</div>
+                                            <div style="font-size:1.1rem;font-weight:900;color:var(--text, #0f172a);margin-top:2px;">{t('optimizer_best_path')}</div>
+                                            <div style="font-size:.86rem;color:var(--muted, #475569);margin-top:4px;max-width:760px;">{t('optimizer_subtitle')}</div>
+                    </div>
+                                        <div style="font-size:.78rem;font-weight:800;color:var(--primary-strong, #2563EB);background:var(--panel-soft, rgba(59,130,246,.08));border:1px solid rgba(59,130,246,.22);border-radius:999px;padding:5px 10px;white-space:nowrap;">
+                      {t('optimizer_model_note')}
+                    </div>
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            opt_cols = st.columns(4)
+            with opt_cols[0]:
+                st.metric(t("run_rate_annual"), cfmt(optimizer.baseline_projection))
+            with opt_cols[1]:
+                st.metric(t("optimized_projection"), cfmt(optimizer.optimized_projection), cfmt(optimizer.optimized_projection - optimizer.baseline_projection))
+            with opt_cols[2]:
+                st.metric(t("remaining_to_goal"), cfmt(optimizer.remaining_gap))
+            with opt_cols[3]:
+                st.metric(t("goal_likelihood"), f"{optimizer.goal_probability * 100:.0f}%", f"{(optimizer.optimized_probability - optimizer.goal_probability) * 100:.0f} pp")
+
+            scenario_labels = [t(item["label_key"]) for item in optimizer.scenarios]
+            scenario_values = [float(item.get("impact") or 0.0) for item in optimizer.scenarios]
+            if any(value > 0 for value in scenario_values):
+                fig = go.Figure(
+                    data=[
+                        go.Bar(
+                            x=scenario_values,
+                            y=scenario_labels,
+                            orientation="h",
+                            marker=dict(color=["#38bdf8", "#22c55e", "#f59e0b", "#a78bfa"][: len(scenario_values)]),
+                            text=[cfmt(value) for value in scenario_values],
+                            textposition="auto",
+                        )
+                    ]
+                )
+                fig.update_layout(
+                    height=280,
+                    margin=dict(l=10, r=10, t=16, b=10),
+                    xaxis_title=t("income_impact"),
+                    yaxis_title="",
+                    showlegend=False,
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            action_lines = []
+            if optimizer.price_pct >= 0.005:
+                action_lines.append(t("optimizer_action_pricing", pct=f"{optimizer.price_pct * 100:.0f}%", impact=cfmt(optimizer.price_impact)))
+            if optimizer.new_students >= 0.15:
+                action_lines.append(t("optimizer_action_growth", count=max(1, math.ceil(optimizer.new_students)), impact=cfmt(optimizer.growth_impact)))
+            if optimizer.extra_units_week >= 0.15:
+                action_lines.append(t("optimizer_action_capacity", units=f"{optimizer.extra_units_week:.1f}", impact=cfmt(optimizer.capacity_impact)))
+            if optimizer.renewal_focus >= 0.05:
+                action_lines.append(t("optimizer_action_renewal", impact=cfmt(optimizer.renewal_impact)))
+            if not action_lines:
+                action_lines.append(t("optimizer_action_protect"))
+
+            action_col, student_col_opt = st.columns([1.2, 1])
+            with action_col:
+                st.markdown(f"#### {t('recommended_actions')}")
+                for action in action_lines[:4]:
+                    st.write(f"• {action}")
+            with student_col_opt:
+                st.markdown(f"#### {t('optimizer_priority_students')}")
+                if optimizer.action_students:
+                    for item in optimizer.action_students[:5]:
+                        details = [cfmt(float(item.get("value") or 0.0))]
+                        if item.get("units_left") is not None:
+                            details.append(f"{int(float(item.get('units_left') or 0.0))} {t('units_left')}")
+                        if item.get("reminder_date"):
+                            details.append(f"{t('remind')}: {item.get('reminder_date')}")
+                        st.write(f"• {item.get('student')} — " + " · ".join(details))
+                else:
+                    st.caption(t("optimizer_no_priority_students"))
         else:
             st.info(t("set_year_goal_to_see_progress"))  
 
@@ -798,7 +997,7 @@ def render_analytics():
                 st.caption(f"📊 {t('values_adjusted_to')} {_current_year}")
 
         # -------------------------
-        # Summary callout + actions (unchanged)
+        # Summary callout + strategic recommendations
         # -------------------------
         if top1_name:
             _callout(
@@ -811,17 +1010,96 @@ def render_analytics():
                 t("analytics_simple_explanation"),
             )
 
-        st.markdown(f"#### {t('next_steps')}")
-        actions = []
-        if total_week == 0 and total_month > 0:
-            actions.append(t("action_check_week"))
-        if top3_share >= 60:
-            actions.append(t("action_reduce_risk"))
-        if not actions:
-            actions = [t("action_review_top"), t("action_compare_mix"), t("action_check_forecast")]
+        strategy_recs = build_business_recommendations(
+            payments_df=payments_all,
+            by_student=by_student,
+            sold_by_subject=sold_by_subject,
+            sold_by_modality=sold_by_modality,
+            optimizer=optimizer,
+            today=today,
+            total_week=total_week,
+            total_month=total_month,
+            top1_name=top1_name,
+            top1_share=top1_share,
+            top3_share=top3_share,
+            projected_year=projected_year,
+            ytd_cash=ytd_cash,
+            expected_future=expected_future,
+            effective_rate=eff_rate,
+            fx_rate=fx_rate,
+            limit=5,
+        )
 
-        for a in actions[:5]:
-            st.write(f"• {a}")
+        def _strategy_params(raw_params: dict) -> dict:
+            out = {}
+            for key, value in (raw_params or {}).items():
+                if str(key).endswith("_value"):
+                    out[str(key)[:-6]] = cfmt(value)
+                elif key == "segment" and not str(value or "").strip():
+                    out[key] = t("strategy_default_segment")
+                else:
+                    out[key] = value
+            return out
+
+        _strategy_styles = {
+            "renewal": ("#2563EB", "↻"),
+            "pricing": ("#10B981", "$"),
+            "capacity": ("#F59E0B", "+"),
+            "growth": ("#8B5CF6", "↑"),
+            "trend": ("#EF4444", "~"),
+            "risk": ("#F97316", "!"),
+            "seasonality": ("#06B6D4", "◷"),
+            "segment": ("#14B8A6", "◆"),
+            "cashflow": ("#DC2626", "•"),
+            "protect": ("#22C55E", "✓"),
+            "baseline": ("#64748B", "i"),
+        }
+
+        st.markdown(f"#### {t('strategic_recommendations')}")
+        st.caption(t("strategic_recommendations_caption"))
+
+        for idx, rec in enumerate(strategy_recs[:5], start=1):
+            kind = str(rec.get("kind") or "baseline")
+            accent, icon = _strategy_styles.get(kind, ("#2563EB", "•"))
+            params = _strategy_params(rec.get("params") or {})
+            title = html.escape(t(str(rec.get("title_key") or "strategy_title_baseline"), **params))
+            body = html.escape(t(str(rec.get("body_key") or "strategy_body_baseline"), **params))
+            kind_label = html.escape(t(f"strategy_kind_{kind}"))
+            confidence = html.escape(t(f"strategy_confidence_{rec.get('confidence', 'medium')}"))
+            impact_value = float(rec.get("impact_value") or 0.0)
+            impact_html = ""
+            if impact_value > 0:
+                impact_html = (
+                    f"<span style='font-size:.76rem;font-weight:800;color:var(--success,#10B981);"
+                    f"background:rgba(16,185,129,.10);border:1px solid rgba(16,185,129,.18);"
+                    f"border-radius:999px;padding:4px 9px;'>{html.escape(t('estimated_impact'))}: {html.escape(cfmt(impact_value))}</span>"
+                )
+
+            st.markdown(
+                f"""
+                <div style="margin:10px 0;padding:13px 14px;border-radius:12px;
+                            border:1px solid var(--border-strong, rgba(15,23,42,.10));
+                            background:linear-gradient(180deg,var(--panel,rgba(255,255,255,.92)),var(--panel-2,rgba(248,250,255,.82)));
+                            box-shadow:var(--shadow-sm,0 8px 20px rgba(15,23,42,.08));">
+                  <div style="display:flex;gap:12px;align-items:flex-start;">
+                    <div style="width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+                                flex:0 0 34px;background:{accent}1A;color:{accent};font-weight:900;border:1px solid {accent}33;">
+                      {icon}
+                    </div>
+                    <div style="flex:1;min-width:0;">
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px;">
+                        <span style="font-size:.74rem;font-weight:900;color:{accent};text-transform:uppercase;letter-spacing:0;">{kind_label}</span>
+                        <span style="font-size:.72rem;font-weight:800;color:var(--muted,#64748b);background:var(--panel-soft,rgba(15,23,42,.04));border-radius:999px;padding:3px 8px;">{confidence}</span>
+                        {impact_html}
+                      </div>
+                      <div style="font-size:1rem;font-weight:900;color:var(--text,#0f172a);line-height:1.25;">{idx}. {title}</div>
+                      <div style="font-size:.86rem;color:var(--muted,#475569);line-height:1.45;margin-top:4px;">{body}</div>
+                    </div>
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     # ======================
     # TAB 2 — Revenue drivers

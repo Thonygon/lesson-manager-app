@@ -24,6 +24,7 @@ from helpers.teacher_student_integration import (
     load_student_teacher_links,
     load_teacher_assignment_progress,
 )
+from helpers.learning_programs import load_learning_program, load_program_assignments_for_teacher
 
 
 def _uid() -> str:
@@ -252,6 +253,70 @@ def _classes_this_week_count() -> int:
     return int(((df["lesson_date"] >= week_start) & (df["lesson_date"] <= week_end)).sum())
 
 
+def _topic_title_from_program(program: dict, topic_id: int) -> str:
+    for unit in program.get("units") or []:
+        for topic in unit.get("topics") or []:
+            if int(topic.get("topic_id") or 0) == int(topic_id or 0):
+                return _safe_title_case(topic.get("title") or topic.get("lesson_focus") or topic.get("subtopic") or "")
+    return ""
+
+
+def _teacher_learning_program_help_requests(limit: int = 5) -> list[dict]:
+    try:
+        assignments_df = load_program_assignments_for_teacher(limit=500)
+        if assignments_df is None or assignments_df.empty or "id" not in assignments_df.columns:
+            return []
+        assignment_rows = assignments_df.to_dict("records")
+        assignment_by_id = {int(row.get("id") or 0): row for row in assignment_rows if int(row.get("id") or 0) > 0}
+        assignment_ids = list(assignment_by_id.keys())
+        if not assignment_ids:
+            return []
+
+        progress_rows = _rows(
+            get_sb()
+            .table("learning_program_progress")
+            .select("*")
+            .in_("assignment_id", assignment_ids)
+            .eq("teacher_done", True)
+            .eq("student_done", True)
+            .order("updated_at", desc=True)
+            .limit(25)
+            .execute()
+        )
+        if not progress_rows:
+            return []
+
+        program_cache: dict[int, dict] = {}
+        requests: list[dict] = []
+        for progress in progress_rows:
+            assignment_id = int(progress.get("assignment_id") or 0)
+            topic_id = int(progress.get("topic_id") or 0)
+            assignment = assignment_by_id.get(assignment_id) or {}
+            program_id = int(assignment.get("program_id") or 0)
+            if assignment_id <= 0 or topic_id <= 0 or program_id <= 0:
+                continue
+            if program_id not in program_cache:
+                program_cache[program_id] = load_learning_program(program_id)
+            topic_title = _topic_title_from_program(program_cache.get(program_id) or {}, topic_id)
+            if not topic_title:
+                continue
+            requests.append(
+                {
+                    "assignment_id": assignment_id,
+                    "topic_id": topic_id,
+                    "progress_id": int(progress.get("id") or 0),
+                    "student": _safe_title_case(assignment.get("student_name") or ""),
+                    "topic": topic_title,
+                    "updated_at": progress.get("updated_at") or progress.get("created_at"),
+                }
+            )
+            if len(requests) >= limit:
+                break
+        return requests
+    except Exception:
+        return []
+
+
 def get_teacher_notifications() -> list[dict]:
     uid = _uid()
     _, first_name = _load_name()
@@ -303,6 +368,26 @@ def get_teacher_notifications() -> list[dict]:
                 count=len(review_requests),
                 kind=_review_kind_label(review_requests[0].get("source_type", "")),
                 title=_safe_title_case(review_requests[0].get("title", "")),
+            ),
+        ))
+
+    help_requests = _teacher_learning_program_help_requests(limit=5)
+    if help_requests:
+        key = "notif_teacher_student_needs_help_many" if len(help_requests) > 1 else "notif_teacher_student_needs_help_one"
+        notifications.append(_notification(
+            signature="teacher_learning_program_help_" + "_".join(
+                f"{r.get('assignment_id')}_{r.get('topic_id')}_{_format_short_date(r.get('updated_at')) or r.get('progress_id')}"
+                for r in help_requests[:5]
+            ),
+            category="progress",
+            priority=6,
+            cloud=True,
+            tone="action",
+            message=t(key).format(
+                name=first_name,
+                student=help_requests[0].get("student") or t("student"),
+                topic=help_requests[0].get("topic") or "topic",
+                count=len(help_requests),
             ),
         ))
 

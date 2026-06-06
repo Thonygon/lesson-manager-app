@@ -4,11 +4,12 @@ from datetime import datetime as _dt, date, time, timedelta
 import pandas as pd
 from core.i18n import t
 from core.timezone import today_local, get_app_tz, get_app_tz_name
-from core.navigation import page_header
+from core.navigation import go_to, page_header
 from core.database import load_students, get_sb, clear_app_caches
 from helpers.calendar_helpers import build_calendar_events, render_fullcalendar, _parse_time_value, validate_hhmm
 from helpers.schedule import load_schedules, load_overrides, add_schedule, delete_schedule, add_override, delete_override, find_gcal_event_id
 from helpers.ui_components import pretty_df, translate_df_headers, render_styled_dataframe
+from helpers.empty_states import render_empty_state
 from helpers.google_calendar import (
     gcal_configured,
     get_google_auth_url,
@@ -23,6 +24,35 @@ from helpers.google_calendar import (
 # 12.5) PAGE: CALENDAR
 # =========================
 
+def _render_calendar_new_user_setup():
+    render_empty_state(
+        title_key="calendar_empty_title",
+        body_key="calendar_empty_body",
+        steps=[
+            "calendar_empty_need_student",
+            "calendar_empty_need_schedule",
+            "calendar_empty_need_optional_gcal",
+        ],
+        eyebrow_key="calendar_empty_label",
+        icon="📅",
+    )
+
+    st.markdown(f"#### {t('calendar_empty_start_here')}")
+    setup_cols = st.columns(3)
+    with setup_cols[0]:
+        if st.button(t("calendar_empty_add_student"), key="calendar_empty_add_student", use_container_width=True, type="primary"):
+            go_to("students")
+            st.rerun()
+    with setup_cols[1]:
+        if st.button(t("calendar_empty_add_lesson"), key="calendar_empty_add_lesson", use_container_width=True):
+            go_to("add_lesson")
+            st.rerun()
+    with setup_cols[2]:
+        st.button(t("calendar_empty_schedule_locked"), key="calendar_empty_schedule_locked", use_container_width=True, disabled=True)
+
+    with st.expander(f"{t('add')} {t('schedule')}", expanded=True):
+        st.info(t("calendar_empty_add_schedule_hint"))
+
 def render_calendar():
     page_header(t("calendar"))
     st.caption(t("create_and_manage_your_weekly_program"))
@@ -32,7 +62,7 @@ def render_calendar():
     # SCHEDULE SECTION
     # =======================================
     if not students:
-        st.info(t("no_students"))
+        _render_calendar_new_user_setup()
     else:
         schedules = load_schedules()
 
@@ -189,7 +219,17 @@ def render_calendar():
     # CALENDAR RENDER
     # ---------------------------------------
     if events is None or events.empty:
-        st.info(t("no_data"))
+        if students:
+            render_empty_state(
+                title_key="calendar_empty_events_title",
+                body_key="calendar_empty_events_body",
+                steps=[
+                    "calendar_empty_events_step_schedule",
+                    "calendar_empty_events_step_one_time",
+                    "calendar_empty_events_step_sync",
+                ],
+                icon="📅",
+            )
     else:
         students_list = sorted(events["Student"].dropna().unique().tolist())
 
@@ -262,7 +302,16 @@ def render_calendar():
     with st.expander(t("current_schedule"), expanded=False):
 
         if schedules.empty:
-            st.info(t("no_data"))
+            render_empty_state(
+                title_key="calendar_empty_schedule_title",
+                body_key="calendar_empty_schedule_body",
+                steps=[
+                    "calendar_empty_events_step_schedule",
+                    "calendar_empty_events_step_one_time",
+                    "calendar_empty_events_step_sync",
+                ],
+                icon="📋",
+            )
         else:
             show = schedules.copy()
 
@@ -325,7 +374,7 @@ def render_calendar():
     with st.expander(t("cancel_or_reschedule"), expanded=False):
 
         if not students_master:
-            st.info(t("no_students"))
+            st.info(t("calendar_empty_add_schedule_hint"))
         else:
             c1, c2 = st.columns(2)
 
@@ -438,7 +487,7 @@ def render_calendar():
     with st.expander(t("previous_changes"), expanded=False):
 
         if overrides.empty:
-            st.caption(t("no_data"))
+            st.caption(t("calendar_no_changes_yet"))
         else:
             show = overrides.copy()
 

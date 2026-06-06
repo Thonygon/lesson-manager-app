@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # CLASSIO — Quick Exam Builder (AI generation)
 # ============================================================
+import ast
 import json
 import re
 from collections import OrderedDict
@@ -13,6 +14,16 @@ from helpers.generation_guidance import (
     build_expert_panel_prompt_blurb,
     build_generation_profile_guidance,
     infer_subject_family,
+)
+from helpers.student_personalization import build_student_profile_prompt_block
+from helpers.student_personalization import (
+    NATIVE_LANGUAGE_OPTIONS,
+    apply_native_language_context,
+    build_student_generation_profile,
+    is_language_subject,
+    load_teacher_personalization_students,
+    native_language_label,
+    normalize_native_language,
 )
 from helpers.visual_support import enrich_exam_with_visuals
 
@@ -154,6 +165,41 @@ def _strip_leading_numbering(value) -> str:
         "",
         text,
     ).strip()
+
+
+def _looks_like_serialized_payload(text: str) -> bool:
+    cleaned = str(text or "").strip()
+    return (
+        (cleaned.startswith("[") and cleaned.endswith("]"))
+        or (cleaned.startswith("{") and cleaned.endswith("}"))
+        or ("\"" in cleaned and ":" in cleaned and "{" in cleaned)
+    )
+
+
+def _looks_like_answer_marker(text: str) -> bool:
+    cleaned = _strip_leading_numbering(text)
+    if not cleaned:
+        return True
+    return bool(re.fullmatch(r"[A-Za-z]", cleaned) or re.fullmatch(r"\d+", cleaned))
+
+
+def _parse_text_sequence(value) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        return [_strip_leading_numbering(item) for item in value if _strip_leading_numbering(item)]
+
+    text = str(value or "").strip()
+    if not text:
+        return []
+
+    for parser in (json.loads, ast.literal_eval):
+        try:
+            parsed = parser(text)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, (list, tuple)):
+            return [_strip_leading_numbering(item) for item in parsed if _strip_leading_numbering(item)]
+
+    return []
 
 
 def _sentence_case_fragment(value) -> str:
@@ -319,6 +365,35 @@ def _exam_quality_issues(exam_data: dict, answer_key: dict) -> list[str]:
 
         if sec_type == "error_correction" and len(questions) < 3:
             issues.append(f"section {idx + 1} error_correction needs at least 3 valid items")
+
+        if sec_type == "matching":
+            left_items = []
+            right_items = []
+            for question in questions:
+                if not isinstance(question, dict):
+                    continue
+                left_items.append(_clean_str(question.get("left", "")))
+                right_items.append(_clean_str(question.get("right", "")))
+
+            if len(left_items) < 4 or len(right_items) < 4:
+                issues.append(f"section {idx + 1} matching needs at least 4 valid pairs")
+            if any(_looks_like_serialized_payload(item) for item in left_items + right_items):
+                issues.append(f"section {idx + 1} matching contains serialized payload text")
+            if sum(_looks_like_answer_marker(item) for item in right_items) >= max(2, len(right_items) // 2):
+                issues.append(f"section {idx + 1} matching right side contains answer markers instead of real options")
+            if len({_clean_str(item).casefold() for item in right_items if _clean_str(item)}) <= 1 and len(right_items) > 1:
+                parsed = []
+                for item in right_items:
+                    parsed = _parse_text_sequence(item)
+                    if len(parsed) >= len(left_items):
+                        break
+                if len(parsed) >= len(left_items):
+                    section["questions"] = [
+                        {"left": left, "right": right}
+                        for left, right in zip(left_items, parsed[:len(left_items)])
+                    ]
+                else:
+                    issues.append(f"section {idx + 1} matching right side is repeated instead of varied")
 
     return issues
 
@@ -629,6 +704,8 @@ def _section_type_rules(exercise_type: str, subject_group: str = "") -> str:
             "Each question is an object with 'left' and 'right'. "
             "Shuffle the right side. Provide the correct mapping in 'answers'. "
             "Use clean, publication-ready text fragments for both sides, with correct capitalization and no raw dictionary formatting. "
+            "Do not rely on unseen pictures, image labels, or answer letters as prompt content. "
+            "Both sides must be self-contained text and must never contain serialized list/dict payloads. "
             "For lower-primary learners, prefer concrete and visually observable items when pedagogically suitable."
         ),
         "fill_in_blank": (
@@ -907,6 +984,11 @@ def _build_exam_prompts(payload: dict) -> tuple[str, str]:
     for et in exercise_types[:n_sections]:
         rule = _section_type_rules(et, subject_group=subject_group)
         type_details.append(f"- {et}: {rule}" if rule else f"- {et}")
+    student_profile_block = build_student_profile_prompt_block(
+        payload.get("student_profile") or {},
+        product="exam",
+        selected_formats=exercise_types,
+    )
 
     system_prompt = (
         f"{build_expert_panel_prompt_blurb('exam')} "
@@ -975,6 +1057,8 @@ Design principles:
 Profile quality guidance:
 {_exam_profile_guidance(payload)}
 
+{student_profile_block}
+
 Section sequencing guidance:
 {_section_sequence_guidance(subject_group)}
 
@@ -1012,6 +1096,9 @@ def generate_ai_exam(
     instructions: str,
     plan_language: str,
     student_material_language: str,
+    student_profile: dict | None = None,
+    *,
+    include_visuals: bool = True,
 ) -> tuple[dict, dict]:
     subject_group = get_subject_group(subject)
 
@@ -1027,6 +1114,7 @@ def generate_ai_exam(
         "instructions": instructions,
         "plan_language": plan_language,
         "student_material_language": student_material_language,
+        "student_profile": student_profile or {},
     }
 
     system_prompt, user_prompt = _build_exam_prompts(payload)
@@ -1049,12 +1137,13 @@ def generate_ai_exam(
             quality_issues = _exam_quality_issues(exam_data, answer_key)
             if quality_issues:
                 raise ValueError("; ".join(quality_issues))
-            exam_data = enrich_exam_with_visuals(
-                exam_data,
-                subject=subject,
-                learner_stage=learner_stage,
-                topic=topic,
-            )
+            if include_visuals:
+                exam_data = enrich_exam_with_visuals(
+                    exam_data,
+                    subject=subject,
+                    learner_stage=learner_stage,
+                    topic=topic,
+                )
             return exam_data, answer_key
         except Exception as e:
             errors.append(f"{p}: {e}")
@@ -1071,8 +1160,13 @@ def generate_exam_with_limit(
     exam_length: str,
     exercise_types: list[str],
     instructions: str = "",
+    student_profile: dict | None = None,
 ) -> tuple[dict, dict, str | None]:
     from helpers.quick_exam_storage import get_ai_exam_usage_status, log_exam_ai_usage
+    from services.permissions_service import can_use_ai_tool, increment_usage
+
+    if not can_use_ai_tool():
+        return {}, {}, t("ai_limit_reached") if "ai_limit_reached" in I18N.get(get_plan_language(), {}) else "AI plan limit reached."
 
     usage = get_ai_exam_usage_status()
 
@@ -1102,9 +1196,11 @@ def generate_exam_with_limit(
             instructions=instructions,
             plan_language=get_plan_language(),
             student_material_language=get_student_material_language(subject),
+            student_profile=student_profile or {},
         )
 
         log_exam_ai_usage("success", {"subject": subject, "topic": topic})
+        increment_usage(None, "ai_generations")
         return exam_data, answer_key, None
 
     except Exception as e:
@@ -1117,9 +1213,11 @@ def reset_exam_builder_state():
     for key in [
         "exam_result", "exam_answer_key", "exam_kept",
         "exam_warning", "quick_exam_subject", "quick_exam_topic",
+        "quick_exam_effective_topic",
         "quick_exam_title", "quick_exam_instructions",
         "exam_show_more_types", "exam_available_types_cache",
         "exam_recommended_types_cache", "exam_selected_subject_group",
+        "exam_ab_debug_compare", "exam_ab_debug_enabled",
     ]:
         st.session_state.pop(key, None)
 
@@ -1130,7 +1228,7 @@ def render_quick_exam_builder_expander() -> None:
 
     with st.expander(
         f"🧪 {t('quick_exam_builder') if t('quick_exam_builder') != 'quick_exam_builder' else 'Quick Exam Builder'}",
-        expanded=False,
+        expanded=bool(st.session_state.pop("open_quick_exam_expander", False)),
     ):
         st.caption(
             t("quick_exam_builder_caption")
@@ -1247,15 +1345,52 @@ def render_quick_exam_builder_expander() -> None:
             height=110,
             placeholder=t("quick_exam_instructions_placeholder"),
         )
+        student_options = load_teacher_personalization_students()
+        selected_student_label = st.selectbox(
+            t("personalize_for_student") if t("personalize_for_student") != "personalize_for_student" else "Personalize for student",
+            options=[""] + [item["label"] for item in student_options],
+            key="quick_exam_student_personalization",
+            help=t("personalize_for_student_help"),
+        )
+        selected_student = next((item for item in student_options if item["label"] == selected_student_label), None)
+        preview_profile = {}
+        if selected_student:
+            preview_profile = build_student_generation_profile(
+                selected_student["student_user_id"],
+                subject=effective_subject,
+            )
+            if preview_profile.get("summary"):
+                st.caption(preview_profile["summary"])
+        native_language = ""
+        show_native_language = is_language_subject(subject, other_subject_name)
+        if show_native_language:
+            native_language_current = normalize_native_language(preview_profile.get("native_language"))
+            native_language = st.selectbox(
+                t("student_native_language"),
+                NATIVE_LANGUAGE_OPTIONS,
+                index=NATIVE_LANGUAGE_OPTIONS.index(native_language_current) if native_language_current in NATIVE_LANGUAGE_OPTIONS else 0,
+                format_func=native_language_label,
+                key="quick_exam_student_native_language",
+                help=t("student_native_language_generation_help"),
+            )
+
+        ab_debug_enabled = False
+        if st.session_state.get("_internal_ab_debug_enabled"):
+            ab_debug_enabled = st.toggle(
+                t("ab_debug_compare_toggle"),
+                key="exam_ab_debug_enabled",
+                help=t("ab_debug_compare_help"),
+                disabled=(not selected_student),
+            )
+            if not selected_student:
+                st.caption(t("ab_debug_compare_requires_student"))
 
         if st.button(
             t("generate_exam") if t("generate_exam") != "generate_exam" else "Generate Exam",
             key="btn_gen_exam",
             use_container_width=True,
         ):
-            if not topic.strip():
-                st.error(t("enter_topic"))
-            elif subject == "other" and not other_subject_name:
+            if subject == "other" and not other_subject_name:
                 st.error(t("enter_subject_name"))
             elif not exercise_types:
                 st.error(
@@ -1264,6 +1399,21 @@ def render_quick_exam_builder_expander() -> None:
                     else "Please select at least one exercise type."
                 )
             else:
+                st.session_state.pop("exam_ab_debug_compare", None)
+                student_profile = (
+                    build_student_generation_profile(selected_student["student_user_id"], subject=effective_subject)
+                    if selected_student
+                    else {}
+                )
+                if show_native_language:
+                    student_profile = apply_native_language_context(student_profile, native_language)
+                else:
+                    student_profile.pop("native_language", None)
+                effective_topic = topic.strip() or str(((student_profile.get("program_context") or {}).get("next_topics") or [""])[0]).strip()
+                if not effective_topic:
+                    st.error(t("enter_topic"))
+                    return
+                st.session_state["quick_exam_effective_topic"] = effective_topic
                 selected_types = _dedupe_keep_order(exercise_types)
                 length_spec = _LENGTH_SPEC.get(exam_length, _LENGTH_SPEC["medium"])
                 max_recommended_sections = length_spec["sections"]
@@ -1275,12 +1425,35 @@ def render_quick_exam_builder_expander() -> None:
                         subject=effective_subject,
                         learner_stage=learner_stage,
                         level_or_band=level_or_band,
-                        topic=topic,
+                        topic=effective_topic,
                         exam_title=exam_title or t("quick_exam_default_title", subject=effective_subject),
                         exam_length=exam_length,
                         exercise_types=selected_types,
                         instructions=instructions,
+                        student_profile=student_profile,
                     )
+
+                    debug_baseline_exam = {}
+                    debug_baseline_answer_key = {}
+                    debug_baseline_error = ""
+                    if exam_data and ab_debug_enabled and selected_student:
+                        try:
+                            debug_baseline_exam, debug_baseline_answer_key = generate_ai_exam(
+                                subject=effective_subject,
+                                learner_stage=learner_stage,
+                                level_or_band=level_or_band,
+                                topic=effective_topic,
+                                exam_title=exam_title or t("quick_exam_default_title", subject=effective_subject),
+                                exam_length=exam_length,
+                                exercise_types=selected_types,
+                                instructions=instructions,
+                                plan_language=get_plan_language(),
+                                student_material_language=get_student_material_language(effective_subject),
+                                student_profile={},
+                                include_visuals=False,
+                            )
+                        except Exception as exc:
+                            debug_baseline_error = str(exc)
 
                 if warning and not exam_data:
                     st.warning(warning)
@@ -1295,7 +1468,7 @@ def render_quick_exam_builder_expander() -> None:
                         exam_data,
                         subject=effective_subject,
                         learner_stage=learner_stage,
-                        topic=topic,
+                        topic=effective_topic,
                     )
                     st.session_state["exam_result"] = exam_data
                     st.session_state["exam_answer_key"] = answer_key
@@ -1307,7 +1480,7 @@ def render_quick_exam_builder_expander() -> None:
                         subject=effective_subject,
                         learner_stage=learner_stage,
                         level_or_band=level_or_band,
-                        topic=topic,
+                        topic=effective_topic,
                         exam_length=exam_length,
                         exercise_types=selected_types,
                         exam_data=exam_data,
@@ -1315,6 +1488,20 @@ def render_quick_exam_builder_expander() -> None:
                     )
                     if _saved_id:
                         st.session_state["exam_record_id"] = _saved_id
+
+                    if ab_debug_enabled and selected_student:
+                        st.session_state["exam_ab_debug_compare"] = {
+                            "student_label": selected_student_label,
+                            "subject": effective_subject,
+                            "learner_stage": learner_stage,
+                            "level_or_band": level_or_band,
+                            "topic": effective_topic,
+                            "baseline_exam": debug_baseline_exam,
+                            "baseline_answer_key": debug_baseline_answer_key,
+                            "baseline_error": debug_baseline_error,
+                            "personalized_exam": exam_data,
+                            "personalized_answer_key": answer_key,
+                        }
 
         result = st.session_state.get("exam_result")
         ak = st.session_state.get("exam_answer_key")
@@ -1326,7 +1513,52 @@ def render_quick_exam_builder_expander() -> None:
                 allow_assign=True,
                 resource_record_id=st.session_state.get("exam_record_id"),
                 subject=effective_subject,
-                topic=topic,
+                topic=st.session_state.get("quick_exam_effective_topic") or topic,
                 learner_stage=learner_stage,
                 level_or_band=level_or_band,
             )
+
+        compare_payload = st.session_state.get("exam_ab_debug_compare") or {}
+        if compare_payload and st.session_state.get("_internal_ab_debug_enabled"):
+            with st.expander(t("ab_debug_compare_panel_title"), expanded=True):
+                st.caption(
+                    t(
+                        "ab_debug_compare_panel_caption",
+                        student=compare_payload.get("student_label") or t("ab_debug_compare_personalized"),
+                        topic=compare_payload.get("topic") or "-",
+                    )
+                )
+                cmp_col1, cmp_col2 = st.columns(2, gap="medium")
+                with cmp_col1:
+                    st.markdown(f"#### {t('ab_debug_compare_baseline')}")
+                    st.caption(t("ab_debug_compare_baseline_desc"))
+                    if compare_payload.get("baseline_error"):
+                        st.error(compare_payload["baseline_error"])
+                    else:
+                        from helpers.quick_exam_storage import render_exam_result
+                        render_exam_result(
+                            compare_payload.get("baseline_exam") or {},
+                            compare_payload.get("baseline_answer_key") or {},
+                            show_ready_banner=False,
+                            action_key_prefix="exam_ab_baseline",
+                            subject=compare_payload.get("subject") or effective_subject,
+                            topic=compare_payload.get("topic") or topic,
+                            learner_stage=compare_payload.get("learner_stage") or learner_stage,
+                            level_or_band=compare_payload.get("level_or_band") or level_or_band,
+                            comparison_mode=True,
+                        )
+                with cmp_col2:
+                    st.markdown(f"#### {t('ab_debug_compare_personalized')}")
+                    st.caption(t("ab_debug_compare_personalized_desc"))
+                    from helpers.quick_exam_storage import render_exam_result
+                    render_exam_result(
+                        compare_payload.get("personalized_exam") or {},
+                        compare_payload.get("personalized_answer_key") or {},
+                        show_ready_banner=False,
+                        action_key_prefix="exam_ab_personalized",
+                        subject=compare_payload.get("subject") or effective_subject,
+                        topic=compare_payload.get("topic") or topic,
+                        learner_stage=compare_payload.get("learner_stage") or learner_stage,
+                        level_or_band=compare_payload.get("level_or_band") or level_or_band,
+                        comparison_mode=True,
+                    )
