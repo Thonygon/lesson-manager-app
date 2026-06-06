@@ -1,6 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import os
+from streamlit.errors import StreamlitAuthError
 from core.i18n import t
 from core.state import (
     get_current_user_id,
@@ -251,6 +252,84 @@ def _restore_user_from_email() -> str:
     except Exception:
         return ""
 
+
+def _safe_secret_get(key: str, default=None):
+    try:
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
+
+def _has_configured_auth_provider() -> bool:
+    auth_config = _safe_secret_get("auth", None)
+
+    if not auth_config:
+        return False
+
+    try:
+        required_default_keys = ("client_id", "client_secret", "server_metadata_url")
+        if all(auth_config.get(key) for key in required_default_keys):
+            return True
+    except Exception:
+        pass
+
+    try:
+        for provider_name in ("google", "microsoft", "github", "auth0", "okta"):
+            if auth_config.get(provider_name):
+                return True
+    except Exception:
+        return False
+
+    return False
+
+
+def _get_dev_login_email() -> str:
+    for candidate in (
+        _safe_secret_get("DEV_LOGIN_EMAIL", ""),
+        os.getenv("CLASSIO_DEV_LOGIN_EMAIL", ""),
+        os.getenv("DEV_LOGIN_EMAIL", ""),
+    ):
+        email = str(candidate or "").strip().lower()
+        if email:
+            return email
+    return ""
+
+
+def _try_local_dev_login() -> bool:
+    email = _get_dev_login_email()
+    if not email:
+        return False
+
+    row = get_profile_by_email(email)
+    if not row:
+        st.error(
+            f"Local dev login failed: no profile was found for {email}. Update DEV_LOGIN_EMAIL to an existing profile email."
+        )
+        return False
+
+    st.session_state["user_email"] = email
+    apply_auth_session()
+
+    if st.session_state.get("user_id"):
+        after_page = st.session_state.pop("_after_signup_page", None)
+        if after_page:
+            st.session_state["page"] = after_page
+        st.session_state["_dev_login_email"] = email
+        return True
+
+    st.error(
+        f"Local dev login failed for {email}. Check Supabase connectivity and try again."
+    )
+    return False
+
+
+def _missing_auth_config_message() -> str:
+    return (
+        "Google sign-in is not configured for this environment. "
+        "Add an authentication provider to .streamlit/secrets.toml, or set DEV_LOGIN_EMAIL "
+        "to an existing profile email for local development."
+    )
+
 def render_google_auth_card(
     title_key,
     body_key=None,
@@ -313,12 +392,18 @@ def render_google_auth_card(
 
     st.markdown(html, unsafe_allow_html=True)
 
-    st.button(
+    auth_provider_configured = _has_configured_auth_provider()
+    if st.button(
         t(button_key),
-        on_click=st.login,
         use_container_width=True,
         key=button_widget_key,
-    )
+        disabled=not auth_provider_configured,
+        help=None if auth_provider_configured else _missing_auth_config_message(),
+    ):
+        try:
+            st.login()
+        except StreamlitAuthError:
+            st.error(_missing_auth_config_message())
 
     if show_signup_note:
         st.caption(t("google_auth_signup_note"))
@@ -339,6 +424,10 @@ def require_login():
             if after_page:
                 st.session_state["page"] = after_page
             return
+
+    auth_provider_configured = _has_configured_auth_provider()
+    if not auth_provider_configured and _try_local_dev_login():
+        return
 
     _theme_mode = st.session_state.get("ui_theme_mode", "auto")
     _dark_login = _theme_mode == "dark"
@@ -400,6 +489,17 @@ def require_login():
         st.markdown('<div class="login-logo-wrap">', unsafe_allow_html=True)
         st.image(logo_bytes, width=500)
         st.markdown("</div>", unsafe_allow_html=True)
+
+    if not auth_provider_configured:
+        dev_login_email = _get_dev_login_email()
+        if dev_login_email:
+            st.info(
+                f"Google sign-in is not configured for this environment. The app will try DEV_LOGIN_EMAIL={dev_login_email} for local development."
+            )
+        else:
+            st.info(
+                _missing_auth_config_message()
+            )
 
     _from_explore = st.session_state.pop("_explore_go_signup", False)
     _focus_login = st.session_state.pop("_auth_focus_login", False)

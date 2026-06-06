@@ -61,11 +61,13 @@ def _strip_auto_numbering(value) -> str:
     a. Text
     """
     text = _normalize_text(value)
-    return re.sub(
-        r"^\s*(?:\(?\d+\)?[.)-]|\(?[A-Za-z]\)?[.)-])\s+",
-        "",
-        str(text or "")
-    ).strip()
+    cleaned = str(text or "").strip()
+    pattern = re.compile(r"^\s*(?:\(?\d+\)?[.)\-:]|\(?[A-Za-z]\)?[.)\-:])\s*")
+    while True:
+        updated = pattern.sub("", cleaned, count=1).strip()
+        if updated == cleaned:
+            return updated
+        cleaned = updated
 
 
 def _sentence_case_fragment(value) -> str:
@@ -174,6 +176,13 @@ def save_exam_record(
     try:
         from helpers.branding import get_user_branding, resolve_is_public
         branding = get_user_branding()
+        exam_data, answer_key = _eb().repair_exam_answer_key(exam_data, answer_key)
+        exam_data = enrich_exam_with_visuals(
+            exam_data,
+            subject=subject,
+            learner_stage=learner_stage,
+            topic=topic,
+        )
         payload = with_owner({
             "title": str(exam_data.get("title", "")).strip(),
             "subject": str(subject).strip(),
@@ -680,7 +689,7 @@ def build_exam_pdf_bytes(
                     ]
                     for oi, opt in enumerate(options):
                         letter = chr(65 + oi)
-                        block.append(Paragraph(_pdf_safe_text(f"{letter}) {opt}"), _S["mc_option"]))
+                        block.append(Paragraph(_pdf_safe_text(f"{letter}) {_strip_auto_numbering(opt)}"), _S["mc_option"]))
                     block.append(Spacer(1, 4))
                     story.append(KeepTogether(block))
                 else:
@@ -941,6 +950,7 @@ def render_exam_result(
         return
 
     from helpers.quick_exam_builder import _default_instruction_for_exam_type, _exam_instruction_needs_reset
+    exam_data, answer_key = _eb().repair_exam_answer_key(exam_data, answer_key)
 
     subject = meta.get("subject", exam_data.get("subject", ""))
     topic = meta.get("topic", exam_data.get("topic", ""))
@@ -1021,7 +1031,7 @@ def render_exam_result(
                     stem = _strip_auto_numbering(q.get("stem", q.get("text", "")))
                     st.write(f"**{idx}. {stem}**")
                     for oi, opt in enumerate(q.get("options", [])):
-                        st.write(f"   {chr(65+oi)}) {opt}")
+                        st.write(f"   {chr(65+oi)}) {_strip_auto_numbering(opt)}")
                 else:
                     st.write(f"{idx}. {_strip_auto_numbering(q)}")
 

@@ -65,7 +65,12 @@ _MC_STEM_PREFIX_RE = re.compile(r"^\s*\d+[\)\.\-:]\s*")
 _LEADING_ENUM_RE = re.compile(r"^\s*(?:\d+|[A-Za-z])[\.\)\-:]\s*")
 
 def _strip_leading_enum(text: str) -> str:
-    return _LEADING_ENUM_RE.sub("", _normalize_text(text or "").strip())
+    cleaned = _normalize_text(text or "").strip()
+    while True:
+        updated = _LEADING_ENUM_RE.sub("", cleaned, count=1).strip()
+        if updated == cleaned:
+            return updated
+        cleaned = updated
 
 
 def _sentence_case_fragment(text: str) -> str:
@@ -91,10 +96,20 @@ def _sentence_case_fragment(text: str) -> str:
     return cleaned
 
 def _strip_mc_option_prefix(text: str) -> str:
-    return _MC_OPTION_PREFIX_RE.sub("", _normalize_text(text or "").strip())
+    cleaned = _normalize_text(text or "").strip()
+    while True:
+        updated = _MC_OPTION_PREFIX_RE.sub("", cleaned, count=1).strip()
+        if updated == cleaned:
+            return updated
+        cleaned = updated
 
 def _strip_mc_stem_prefix(text: str) -> str:
-    return _MC_STEM_PREFIX_RE.sub("", _normalize_text(text or "").strip())
+    cleaned = _normalize_text(text or "").strip()
+    while True:
+        updated = _MC_STEM_PREFIX_RE.sub("", cleaned, count=1).strip()
+        if updated == cleaned:
+            return updated
+        cleaned = updated
 
 
 def _strip_leading_number(text: str) -> str:
@@ -694,11 +709,19 @@ def _get_multiple_choice_items(ws: dict) -> list[dict]:
             flags=re.IGNORECASE,
         )
         if m:
-            stem = m.group(1).strip()
-            opts = [m.group(2).strip(), m.group(3).strip(), m.group(4).strip()]
+            stem = _strip_mc_stem_prefix(m.group(1))
+            opts = [
+                _strip_mc_option_prefix(m.group(2)),
+                _strip_mc_option_prefix(m.group(3)),
+                _strip_mc_option_prefix(m.group(4)),
+            ]
             if m.group(5):
-                opts.append(m.group(5).strip())
-            parsed.append({"stem": stem, "options": opts, "answer": ""})
+                opts.append(_strip_mc_option_prefix(m.group(5)))
+            parsed.append({
+                "stem": stem,
+                "options": [opt for opt in opts if opt],
+                "answer": "",
+            })
 
     return parsed
 
