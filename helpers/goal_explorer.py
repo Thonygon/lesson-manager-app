@@ -1,5 +1,6 @@
 # CLASSIO — Pre-login Goal Explorer
 # ============================================================
+import html as _html
 import json
 import math
 import streamlit as st
@@ -761,6 +762,7 @@ def render_goal_explorer() -> bool:
     Returns True when the user clicks the CTA to find students (triggers sign-up).
     """
     load_css_home()
+    _inject_explore_premium_styles()
 
     # ── Work Smart Tools ── 
     _render_explore_ai_tools()  
@@ -998,12 +1000,12 @@ def render_goal_explorer() -> bool:
 # App feature showcase — shows what users can do after signup
 # ─────────────────────────────────────────────────────────────
 _FEATURE_ITEMS = [
-    ("dashboard", "📊", "rgba(59,130,246,0.55)"),
-    ("students",  "👩‍🎓", "rgba(16,185,129,0.55)"),
-    ("add_lesson", "📝", "rgba(245,158,11,0.55)"),
-    ("add_payment", "💳", "rgba(239,68,68,0.55)"),
-    ("calendar",  "📅", "rgba(6,182,212,0.55)"),
-    ("analytics", "📈", "rgba(168,85,247,0.55)"),
+    ("dashboard", "📊", "#2563EB", "37,99,235"),
+    ("students", "👩‍🎓", "#059669", "5,150,105"),
+    ("add_lesson", "📝", "#D97706", "217,119,6"),
+    ("add_payment", "💳", "#DC2626", "220,38,38"),
+    ("calendar", "📅", "#0891B2", "8,145,178"),
+    ("analytics", "📈", "#7C3AED", "124,58,237"),
 ]
 
 _FEATURE_DESCRIPTIONS = {
@@ -1019,13 +1021,10 @@ _FEATURE_DESCRIPTIONS = {
 def _render_feature_showcase() -> None:
     st.markdown(
         f"""
-        <div style="text-align:center; padding:12px 0 8px 0;">
-            <h3 style="margin:0 0 4px 0; font-size:1.2rem; font-weight:800; color:var(--text, #0f172a);">
-                {t('explore_features_title')}
-            </h3>
-            <p style="margin:0; color:var(--muted, #475569); font-size:0.9rem;">
-                {t('explore_features_subtitle')}
-            </p>
+        <div class="classio-explore-section-hero" style="--explore-accent:#059669;">
+            <div class="classio-explore-eyebrow">{_html.escape(t('manage_students'))}</div>
+            <div class="classio-explore-title">{_html.escape(t('explore_features_title'))}</div>
+            <div class="classio-explore-subtitle">{_html.escape(t('explore_features_subtitle'))}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1035,24 +1034,19 @@ def _render_feature_showcase() -> None:
 
     for row in rows:
         cols = st.columns(len(row), gap="medium")
-        for col, (key, icon, glow) in zip(cols, row):
+        for col, (key, icon, accent, rgb) in zip(cols, row):
             with col:
                 label = t(key) if key in ("dashboard", "students", "calendar", "analytics") else t(key.replace("add_", ""))
                 desc = t(_FEATURE_DESCRIPTIONS[key])
                 st.markdown(
                     f"""
-                    <div style="
-                        background: linear-gradient(180deg, var(--panel, rgba(255,255,255,0.92)), var(--panel-2, rgba(248,250,255,0.85)));
-                        border: 1px solid var(--border-strong, rgba(17,24,39,0.08));
-                        border-radius: 16px;
-                        padding: 16px 12px 10px 12px;
-                        text-align: center;
-                        box-shadow: 0 4px 18px {glow};
-                        min-height: 90px;
-                    ">
-                        <div style="font-size:1.6rem; margin-bottom:4px;">{icon}</div>
-                        <div style="font-weight:700; font-size:0.95rem; color:var(--text, #0f172a);">{label}</div>
-                        <div style="font-size:0.78rem; color:var(--muted, #64748b); margin-top:2px;">{desc}</div>
+                    <div class="classio-explore-feature-card" style="--card-accent:{accent};--card-rgb:{rgb};">
+                        <div class="classio-explore-card-top">
+                            <div class="classio-explore-card-icon">{_html.escape(icon)}</div>
+                            <div class="classio-explore-card-badge">{_html.escape(t('explore_try_feature'))}</div>
+                        </div>
+                        <div class="classio-explore-card-title">{_html.escape(label)}</div>
+                        <div class="classio-explore-card-body">{_html.escape(desc)}</div>
                     </div>
                     """,
                     unsafe_allow_html=True,
@@ -1215,17 +1209,166 @@ def _render_explore_cv_builder() -> None:
 _EXPLORE_AI_LIMIT = 1  # anonymous users: 1 AI use per tool
 
 
+def _inject_explore_premium_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        .classio-explore-section-hero {
+            margin: 8px 0 16px;
+            padding: 22px;
+            border-radius: 22px;
+            border: 1px solid var(--border-strong, rgba(17,24,39,.12));
+            background:
+                linear-gradient(135deg, color-mix(in srgb, var(--explore-accent, #2563eb) 16%, transparent), rgba(20,184,166,.08)),
+                linear-gradient(180deg, var(--panel, rgba(255,255,255,.94)), var(--panel-2, rgba(248,250,252,.84)));
+            box-shadow: var(--shadow-lg, 0 22px 55px rgba(15,23,42,.10));
+            overflow: hidden;
+            position: relative;
+        }
+        .classio-explore-section-hero::after {
+            content: "";
+            position: absolute;
+            right: -76px;
+            top: -92px;
+            width: 210px;
+            height: 210px;
+            border-radius: 50%;
+            border: 32px solid color-mix(in srgb, var(--explore-accent, #2563eb) 10%, transparent);
+            pointer-events: none;
+        }
+        .classio-explore-eyebrow {
+            font-size: .74rem;
+            font-weight: 900;
+            color: var(--explore-accent, #2563eb);
+            text-transform: uppercase;
+            letter-spacing: 0;
+        }
+        .classio-explore-title {
+            margin-top: 5px;
+            max-width: 820px;
+            color: var(--text, #0f172a);
+            font-size: 1.45rem;
+            line-height: 1.16;
+            font-weight: 950;
+        }
+        .classio-explore-subtitle {
+            margin-top: 8px;
+            max-width: 860px;
+            color: var(--muted, #475569);
+            font-size: .94rem;
+            line-height: 1.5;
+        }
+        .classio-explore-tool-card,
+        .classio-explore-feature-card {
+            position: relative;
+            overflow: hidden;
+            min-height: 164px;
+            margin-bottom: 8px;
+            padding: 16px;
+            border-radius: 18px;
+            border: 1px solid color-mix(in srgb, var(--border-strong, rgba(17,24,39,.12)) 72%, var(--card-accent, #2563eb) 28%);
+            background:
+                radial-gradient(circle at 86% -18%, rgba(var(--card-rgb, 37,99,235), .20), transparent 38%),
+                linear-gradient(180deg, var(--panel, rgba(255,255,255,.94)), color-mix(in srgb, var(--panel-2, rgba(248,250,252,.86)) 86%, var(--card-accent, #2563eb) 14%));
+            box-shadow: 0 18px 42px rgba(15,23,42,.10), inset 0 1px 0 rgba(255,255,255,.72);
+            color: var(--text, #0f172a);
+        }
+        .classio-explore-tool-card.is-active {
+            border-color: color-mix(in srgb, var(--card-accent, #2563eb) 64%, var(--border-strong, rgba(17,24,39,.12)) 36%);
+            box-shadow: 0 22px 52px rgba(var(--card-rgb, 37,99,235), .18), inset 0 1px 0 rgba(255,255,255,.82);
+        }
+        .classio-explore-tool-card::before,
+        .classio-explore-feature-card::before {
+            content: "";
+            position: absolute;
+            left: 14px;
+            right: 14px;
+            top: 0;
+            height: 4px;
+            border-radius: 0 0 999px 999px;
+            background: linear-gradient(90deg, transparent, var(--card-accent, #2563eb), transparent);
+            opacity: .76;
+        }
+        .classio-explore-card-top {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: flex-start;
+        }
+        .classio-explore-card-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.35rem;
+            background: color-mix(in srgb, var(--card-accent, #2563eb) 16%, transparent);
+            border: 1px solid color-mix(in srgb, var(--card-accent, #2563eb) 28%, transparent);
+            box-shadow: 0 12px 24px rgba(var(--card-rgb, 37,99,235), .14);
+        }
+        .classio-explore-card-badge {
+            max-width: 48%;
+            border-radius: 999px;
+            padding: 4px 8px;
+            font-size: .7rem;
+            font-weight: 850;
+            color: var(--card-accent, #2563eb);
+            background: color-mix(in srgb, var(--card-accent, #2563eb) 12%, transparent);
+            border: 1px solid color-mix(in srgb, var(--card-accent, #2563eb) 22%, transparent);
+            white-space: normal;
+            text-align: right;
+        }
+        .classio-explore-card-title {
+            position: relative;
+            z-index: 1;
+            margin-top: 14px;
+            color: var(--text, #0f172a);
+            font-size: 1rem;
+            line-height: 1.2;
+            font-weight: 920;
+        }
+        .classio-explore-card-body {
+            position: relative;
+            z-index: 1;
+            margin-top: 8px;
+            color: var(--muted, #475569);
+            font-size: .84rem;
+            line-height: 1.42;
+            font-weight: 620;
+        }
+        .classio-explore-feature-card {
+            min-height: 150px;
+        }
+        @media (max-width: 768px) {
+            .classio-explore-section-hero {
+                padding: 18px;
+                border-radius: 18px;
+            }
+            .classio-explore-title {
+                font-size: 1.22rem;
+            }
+            .classio-explore-card-badge {
+                max-width: 58%;
+                font-size: .66rem;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _render_explore_ai_tools() -> None:
     """AI Tools section for the explore page: Lesson Planner + Worksheet Maker."""
     st.markdown(
         f"""
-        <div style="text-align:center; padding:0px 0 8px 0;">
-            <h3 style="margin:0 0 4px 0; font-size:1.2rem; font-weight:800; color:var(--text);">
-                🤖 {t('explore_ai_tools_title')}
-            </h3>
-            <p style="margin:0; color:var(--muted); font-size:0.9rem;">
-                {t('explore_ai_tools_subtitle')}
-            </p>
+        <div class="classio-explore-section-hero" style="--explore-accent:#2563EB;">
+            <div class="classio-explore-eyebrow">{_html.escape(t('smart_tools_eyebrow'))}</div>
+            <div class="classio-explore-title">{_html.escape(t('explore_ai_tools_title'))}</div>
+            <div class="classio-explore-subtitle">{_html.escape(t('explore_ai_tools_subtitle'))}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1238,28 +1381,36 @@ def _render_explore_ai_tools() -> None:
             "key": "planner",
             "icon": "📝",
             "title": t("quick_lesson_planner"),
-            "glow": "rgba(59,130,246,0.55)",
+            "accent": "#2563EB",
+            "rgb": "37,99,235",
+            "badge": t("smart_tools_badge_lesson"),
             "desc": t("explore_planner_caption_one"),
         },
         {
             "key": "worksheet",
             "icon": "📋",
             "title": t("worksheet_maker"),
-            "glow": "rgba(16,185,129,0.55)",
+            "accent": "#10B981",
+            "rgb": "16,185,129",
+            "badge": t("smart_tools_badge_practice"),
             "desc": t("worksheet_maker_caption_one"),
         },
         {
             "key": "exam",
             "icon": "🧪",
             "title": t("quick_exam_builder"),
-            "glow": "rgba(239,68,68,0.55)",
+            "accent": "#F59E0B",
+            "rgb": "245,158,11",
+            "badge": t("smart_tools_badge_assessment"),
             "desc": t("quick_exam_builder_caption"),
         },
         {
             "key": "program",
             "icon": "📚",
             "title": t("quick_learning_program_maker"),
-            "glow": "rgba(168,85,247,0.55)",
+            "accent": "#7C3AED",
+            "rgb": "124,58,237",
+            "badge": t("smart_tools_badge_curriculum"),
             "desc": t("quick_learning_program_maker_caption"),
         },
     ]
@@ -1271,30 +1422,17 @@ def _render_explore_ai_tools() -> None:
         for col, card in zip(cols, row_cards):
             with col:
                 is_active = selected == card["key"]
-                border_style = (
-                    "2px solid var(--primary)"
-                    if is_active
-                    else "1px solid var(--border-strong, rgba(17,24,39,0.08))"
-                )
+                active_class = " is-active" if is_active else ""
 
                 st.markdown(
                     f"""
-                    <div style="
-                        background: linear-gradient(180deg, var(--panel, rgba(255,255,255,0.92)), var(--panel-2, rgba(248,250,255,0.85)));
-                        border: {border_style};
-                        border-radius: 16px;
-                        padding: 18px 14px 12px 14px;
-                        text-align: center;
-                        box-shadow: 0 4px 18px {card["glow"]};
-                        min-height: 120px;
-                    ">
-                        <div style="font-size:1.8rem; margin-bottom:6px;">{card["icon"]}</div>
-                        <div style="font-weight:700; font-size:1rem; color:var(--text, #0f172a);">
-                            {card["title"]}
+                    <div class="classio-explore-tool-card{active_class}" style="--card-accent:{card['accent']};--card-rgb:{card['rgb']};">
+                        <div class="classio-explore-card-top">
+                            <div class="classio-explore-card-icon">{_html.escape(card['icon'])}</div>
+                            <div class="classio-explore-card-badge">{_html.escape(card['badge'])}</div>
                         </div>
-                        <div style="font-size:0.82rem; color:var(--muted, #64748b); margin-top:6px; line-height:1.35;">
-                            {card["desc"]}
-                        </div>
+                        <div class="classio-explore-card-title">{_html.escape(card['title'])}</div>
+                        <div class="classio-explore-card-body">{_html.escape(card['desc'])}</div>
                     </div>
                     """,
                     unsafe_allow_html=True,
