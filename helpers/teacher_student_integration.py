@@ -7,7 +7,7 @@ from typing import Any
 
 import streamlit as st
 
-from core.database import clear_app_caches, get_sb
+from core.database import clear_app_caches, get_sb, register_cache
 from core.i18n import t
 from core.state import get_current_user_id
 from helpers.archive_utils import truthy_flag
@@ -421,8 +421,8 @@ def _sync_student_record_for_link(
     return True, "teacher_request_accepted_created_student"
 
 
-def load_student_teacher_links(statuses: list[str] | None = None) -> list[dict]:
-    uid = get_current_user_id()
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_student_teacher_links_cached(uid: str, statuses_key: tuple[str, ...]) -> list[dict]:
     if not uid:
         return []
     try:
@@ -433,8 +433,8 @@ def load_student_teacher_links(statuses: list[str] | None = None) -> list[dict]:
             .eq("student_id", uid)
             .order("created_at", desc=True)
         )
-        if statuses:
-            query = query.in_("status", statuses)
+        if statuses_key:
+            query = query.in_("status", list(statuses_key))
         rows = _rows(query.execute())
     except Exception:
         return []
@@ -475,6 +475,15 @@ def load_student_teacher_links(statuses: list[str] | None = None) -> list[dict]:
             }
         )
     return enriched
+
+
+register_cache(_load_student_teacher_links_cached)
+
+
+def load_student_teacher_links(statuses: list[str] | None = None) -> list[dict]:
+    uid = str(get_current_user_id() or "").strip()
+    statuses_key = tuple(sorted(str(item).strip() for item in (statuses or []) if str(item).strip()))
+    return _load_student_teacher_links_cached(uid, statuses_key)
 
 
 def load_incoming_teacher_requests() -> list[dict]:
@@ -828,8 +837,8 @@ def create_teacher_assignment(
         return False, "assignment_create_failed"
 
 
-def load_student_assignments(statuses: list[str] | None = None) -> list[dict]:
-    uid = str(get_current_user_id() or "").strip()
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_student_assignments_cached(uid: str, statuses_key: tuple[str, ...]) -> list[dict]:
     if not uid:
         return []
     try:
@@ -840,8 +849,8 @@ def load_student_assignments(statuses: list[str] | None = None) -> list[dict]:
             .eq("student_id", uid)
             .order("created_at", desc=True)
         )
-        if statuses:
-            query = query.in_("status", statuses)
+        if statuses_key:
+            query = query.in_("status", list(statuses_key))
         else:
             query = query.neq("status", "archived")
         rows = _rows(query.execute())
@@ -866,6 +875,15 @@ def load_student_assignments(statuses: list[str] | None = None) -> list[dict]:
             }
         )
     return grouped_rows
+
+
+register_cache(_load_student_assignments_cached)
+
+
+def load_student_assignments(statuses: list[str] | None = None) -> list[dict]:
+    uid = str(get_current_user_id() or "").strip()
+    statuses_key = tuple(sorted(str(item).strip() for item in (statuses or []) if str(item).strip()))
+    return _load_student_assignments_cached(uid, statuses_key)
 
 
 def archive_teacher_assignment_for_teacher(assignment_id: int) -> tuple[bool, str]:

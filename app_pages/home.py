@@ -729,6 +729,7 @@ def _render_smart_tools_hub():
                 )
                 if st.button(t("smart_tools_open_tool"), key=f"smart_tool_open_{flag}", use_container_width=True):
                     st.session_state[flag] = True
+                    st.toast(t("scroll_down_to_view"))
                     st.rerun()
 
     st.markdown(f"<div class='smart-tools-section-label'>{t('smart_tools_workspace_title')}</div>", unsafe_allow_html=True)

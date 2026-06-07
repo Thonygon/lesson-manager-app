@@ -19,7 +19,7 @@ from typing import Optional
 
 from core.i18n import t
 from core.state import get_current_user_id, with_owner
-from core.database import get_sb, load_table, clear_app_caches
+from core.database import get_sb, load_table, clear_app_caches, register_cache
 from helpers.answer_key_utils import clean_answer_key_item, split_answer_key_items
 from helpers.visual_support import enrich_worksheet_with_visuals, enrich_exam_with_visuals, render_streamlit_visual_support
 
@@ -2229,8 +2229,10 @@ def update_practice_progress(
     clear_app_caches()
 
 
-def load_practice_history(limit: int = 50) -> pd.DataFrame:
-    """Load the current user's recent practice sessions."""
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_practice_history_cached(uid: str, limit: int = 50) -> pd.DataFrame:
+    if not uid:
+        return pd.DataFrame()
     try:
         df = load_table("practice_sessions")
         if df is None or df.empty:
@@ -2244,6 +2246,14 @@ def load_practice_history(limit: int = 50) -> pd.DataFrame:
         return df.head(limit).reset_index(drop=True)
     except Exception:
         return pd.DataFrame()
+
+
+register_cache(_load_practice_history_cached)
+
+
+def load_practice_history(limit: int = 50) -> pd.DataFrame:
+    """Load the current user's recent practice sessions."""
+    return _load_practice_history_cached(str(get_current_user_id() or "").strip(), limit=limit)
 
 
 def load_in_progress_practice_session(source_type: str, source_id: int | None) -> dict:
@@ -2336,8 +2346,10 @@ def update_practice_session(
         return False
 
 
-def load_practice_progress() -> pd.DataFrame:
-    """Load the current user's practice progress aggregates."""
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_practice_progress_cached(uid: str) -> pd.DataFrame:
+    if not uid:
+        return pd.DataFrame()
     try:
         df = load_table("practice_progress")
         if df is None or df.empty:
@@ -2345,6 +2357,14 @@ def load_practice_progress() -> pd.DataFrame:
         return df.reset_index(drop=True)
     except Exception:
         return pd.DataFrame()
+
+
+register_cache(_load_practice_progress_cached)
+
+
+def load_practice_progress() -> pd.DataFrame:
+    """Load the current user's practice progress aggregates."""
+    return _load_practice_progress_cached(str(get_current_user_id() or "").strip())
 
 
 def get_total_xp() -> int:

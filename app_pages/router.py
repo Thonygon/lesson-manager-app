@@ -106,12 +106,16 @@ def render_top_nav(active_page: str):
             },
         )
     with more_col:
+        if "top_nav_more_nonce" not in st.session_state:
+            st.session_state["top_nav_more_nonce"] = 0
         more_label = t("more") if t("more") != "more" else "More"
         more_active = active_page in {key for key, _, _ in more_items}
-        popover_label = f"⋯ {more_label}" + (" •" if more_active else "")
+        nonce = int(st.session_state.get("top_nav_more_nonce", 0))
+        popover_label = f"⋯ {more_label}" + (" •" if more_active else "") + ("\u200b" * nonce)
         with st.popover(popover_label, use_container_width=True):
             for idx, (key, label, _icon) in enumerate(more_items):
                 if st.button(label, key=f"more_nav_{key}", use_container_width=True):
+                    st.session_state["top_nav_more_nonce"] = nonce + 1
                     if key == "sign_out":
                         sign_out_user()
                     elif key == "profile":

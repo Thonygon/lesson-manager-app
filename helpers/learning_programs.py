@@ -11,7 +11,7 @@ from uuid import uuid4
 import pandas as pd
 import streamlit as st
 
-from core.database import clear_app_caches, get_sb, load_profile_row
+from core.database import clear_app_caches, get_sb, load_profile_row, register_cache, show_data_load_error
 from core.i18n import t
 from core.state import get_current_user_id, with_owner
 from helpers.archive_utils import ARCHIVED_STATUS, filter_archived_rows, is_archived_status
@@ -51,6 +51,24 @@ PROGRAM_SOURCE_TYPES = ["classio", "ai", "custom"]
 PROGRAM_VISIBILITY_OPTIONS = ["private", "public"]
 PROGRAM_STATUS_OPTIONS = ["draft", "active", "archived"]
 PROGRAM_ASSIGNMENT_STATUS = ["assigned", "in_progress", "completed", "archived"]
+
+_LEARNING_PROGRAM_LIST_COLUMNS = ",".join([
+    "id",
+    "user_id",
+    "title",
+    "subject",
+    "custom_subject_name",
+    "learner_stage",
+    "level_or_band",
+    "program_overview",
+    "is_public",
+    "status",
+    "total_units",
+    "total_topics",
+    "sequence_order",
+    "created_at",
+    "updated_at",
+])
 
 _LANGUAGE_LEVEL_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
 _ACADEMIC_LEVEL_ORDER = ["beginner_band", "intermediate_band", "advanced_band"]
@@ -2691,60 +2709,75 @@ def load_my_learning_programs(
     if not uid:
         return pd.DataFrame()
     try:
-        res = (
-            get_sb()
-            .table("learning_programs")
-            .select("*")
-            .eq("user_id", uid)
-            .order("updated_at", desc=True)
-            .limit(limit)
-            .execute()
-        )
-        df = pd.DataFrame(_rows(res))
+        df = _load_my_learning_programs_cached(str(uid), limit=limit)
         if df.empty:
             return pd.DataFrame()
-        for col in ("created_at", "updated_at"):
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors="coerce")
         return filter_archived_rows(
             df,
             include_archived=include_archived,
             archived_only=archived_only,
             default="active",
         )
-    except Exception:
+    except Exception as exc:
+        show_data_load_error(exc)
         return pd.DataFrame()
 
 
 def load_public_learning_programs(limit: int = 500) -> pd.DataFrame:
     try:
-        res = (
-            get_sb()
-            .table("learning_programs")
-            .select("*")
-            .eq("is_public", True)
-            .neq("status", "archived")
-            .order("updated_at", desc=True)
-            .limit(limit)
-            .execute()
-        )
-        df = pd.DataFrame(_rows(res))
-        if df.empty:
-            return pd.DataFrame()
-        if "program_data" in df.columns:
-            df = df[
-                df["program_data"].apply(
-                    lambda value: _program_is_complete(normalize_learning_program_output(value or {}))
-                )
-            ].copy()
-        if df.empty:
-            return pd.DataFrame()
-        for col in ("created_at", "updated_at"):
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors="coerce")
-        return df.reset_index(drop=True)
-    except Exception:
+        return _load_public_learning_programs_cached(limit=limit)
+    except Exception as exc:
+        show_data_load_error(exc)
         return pd.DataFrame()
+
+
+def _normalize_learning_program_frame(rows: list[dict] | None) -> pd.DataFrame:
+    df = pd.DataFrame(rows or [])
+    if df.empty:
+        return pd.DataFrame()
+    for col in ("created_at", "updated_at"):
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors="coerce")
+    if "updated_at" in df.columns:
+        df = df.sort_values("updated_at", ascending=False, na_position="last")
+    return df.reset_index(drop=True)
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_my_learning_programs_cached(uid: str, limit: int = 500) -> pd.DataFrame:
+    if not uid:
+        return pd.DataFrame()
+    res = (
+        get_sb()
+        .table("learning_programs")
+        .select(_LEARNING_PROGRAM_LIST_COLUMNS)
+        .eq("user_id", uid)
+        .order("updated_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return _normalize_learning_program_frame(_rows(res))
+
+
+register_cache(_load_my_learning_programs_cached)
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_public_learning_programs_cached(limit: int = 500) -> pd.DataFrame:
+    res = (
+        get_sb()
+        .table("learning_programs")
+        .select(_LEARNING_PROGRAM_LIST_COLUMNS)
+        .eq("is_public", True)
+        .eq("status", "active")
+        .order("updated_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return _normalize_learning_program_frame(_rows(res))
+
+
+register_cache(_load_public_learning_programs_cached)
 
 
 def load_progression_candidates(subject: str, learner_stage: str, custom_subject_name: str = "", limit: int = 200) -> pd.DataFrame:
@@ -2768,6 +2801,7 @@ def load_progression_candidates(subject: str, learner_stage: str, custom_subject
     return out.reset_index(drop=True)
 
 
+@st.cache_data(ttl=45, show_spinner=False)
 def load_learning_program(program_id: int) -> dict:
     try:
         sb = get_sb()
@@ -2846,8 +2880,12 @@ def load_learning_program(program_id: int) -> dict:
             ),
             "units": units,
         }
-    except Exception:
+    except Exception as exc:
+        show_data_load_error(exc)
         return {}
+
+
+register_cache(load_learning_program)
 
 
 def assign_learning_program(
@@ -3010,7 +3048,8 @@ def load_program_assignments_for_teacher(limit: int = 500) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def load_program_assignments_for_student(student_user_id: str = "", student_name: str = "", limit: int = 500) -> pd.DataFrame:
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_program_assignments_for_student_cached(student_user_id: str = "", student_name: str = "", limit: int = 500) -> pd.DataFrame:
     sb = get_sb()
     try:
         if student_user_id:
@@ -3043,6 +3082,18 @@ def load_program_assignments_for_student(student_user_id: str = "", student_name
         return pd.DataFrame()
 
 
+register_cache(_load_program_assignments_for_student_cached)
+
+
+def load_program_assignments_for_student(student_user_id: str = "", student_name: str = "", limit: int = 500) -> pd.DataFrame:
+    return _load_program_assignments_for_student_cached(
+        student_user_id=_clean_text(student_user_id),
+        student_name=_clean_text(student_name),
+        limit=limit,
+    )
+
+
+@st.cache_data(ttl=45, show_spinner=False)
 def load_assignment_progress_map(assignment_id: int) -> dict[int, dict]:
     try:
         res = (
@@ -3056,6 +3107,9 @@ def load_assignment_progress_map(assignment_id: int) -> dict[int, dict]:
         return {int(row.get("topic_id") or 0): row for row in rows}
     except Exception:
         return {}
+
+
+register_cache(load_assignment_progress_map)
 
 
 def set_assignment_topic_progress(
@@ -3133,14 +3187,12 @@ def render_learning_program_library_cards(
 
         for col_idx, row in enumerate(pair):
             with cols[col_idx]:
-                row_program_raw = row.get("program_data") or {}
-                row_program = normalize_learning_program_output(row_program_raw)
                 row_title = _clean_text(row.get("title"))
                 row_overview = _clean_text(row.get("program_overview"))
-                row_subject = _clean_text(row.get("subject")) or _clean_text((row_program_raw or {}).get("subject")) or _infer_subject_from_program_text(row_title, row_overview)
-                row_custom_subject = _clean_text(row.get("custom_subject_name")) or _clean_text((row_program_raw or {}).get("custom_subject_name"))
-                row_stage = _clean_text(row.get("learner_stage")) or _clean_text((row_program_raw or {}).get("learner_stage")) or _infer_stage_from_program_text(row_title, row_overview)
-                row_level = _clean_text(row.get("level_or_band")) or _clean_text((row_program_raw or {}).get("level_or_band")) or _infer_level_from_program_text(row_title, row_overview)
+                row_subject = _clean_text(row.get("subject")) or _infer_subject_from_program_text(row_title, row_overview)
+                row_custom_subject = _clean_text(row.get("custom_subject_name"))
+                row_stage = _clean_text(row.get("learner_stage")) or _infer_stage_from_program_text(row_title, row_overview)
+                row_level = _clean_text(row.get("level_or_band")) or _infer_level_from_program_text(row_title, row_overview)
                 title = _clean_display_text(row.get("title")) or t("untitled_learning_program")
                 subject_text = _subject_display(row_subject, row_custom_subject)
                 stage_text = _lp()._stage_label(row_stage) if row_stage else ""
@@ -3152,12 +3204,7 @@ def render_learning_program_library_cards(
                 visibility = t("public_label") if bool(row.get("is_public")) else t("private_label")
                 is_archived = is_archived_status(row.get("status"))
                 sequence_order = int(row.get("sequence_order") or 0)
-                is_complete = _program_is_complete(row_program)
-                if not total_units:
-                    total_units = len(row_program.get("units") or [])
-                if not total_topics:
-                    total_topics = _count_program_topics(row_program)
-                seq_label = f" · {t('path_step_label', step=sequence_order)}" if sequence_order > 0 else ""
+                is_complete = str(row.get("status") or "").strip().lower() == "active"
                 chips = "".join(
                     [
                         f'<span class="cm-resource-chip">📚 {html.escape(subject_text)}</span>' if subject_text else "",
@@ -4151,8 +4198,8 @@ def render_saved_learning_program_workspace(program: dict, program_id: int, *, n
     )
 
 
-def load_enriched_program_assignments_for_current_student() -> list[dict]:
-    student_id = _clean_text(get_current_user_id())
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_enriched_program_assignments_for_student_cached(student_id: str) -> list[dict]:
     if not student_id:
         return []
 
@@ -4189,6 +4236,14 @@ def load_enriched_program_assignments_for_current_student() -> list[dict]:
             }
         )
     return enriched
+
+
+register_cache(_load_enriched_program_assignments_for_student_cached)
+
+
+def load_enriched_program_assignments_for_current_student() -> list[dict]:
+    student_id = _clean_text(get_current_user_id())
+    return _load_enriched_program_assignments_for_student_cached(student_id)
 
 
 def render_quick_learning_program_builder_expander() -> None:

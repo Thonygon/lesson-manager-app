@@ -9,10 +9,10 @@ from core.i18n import t
 from core.navigation import go_to, page_header
 from core.database import load_table
 import matplotlib.pyplot as plt
-from helpers.analytics import build_income_analytics, money_fmt
+from helpers.analytics import build_income_analytics, money_fmt, _build_income_analytics_from_payments
 from helpers.ui_components import ts_today_naive, to_dt_naive, pretty_df, translate_df_headers, chart_series, render_styled_dataframe
 from helpers.language import translate_modality_value
-from helpers.dashboard import rebuild_dashboard
+from helpers.dashboard import rebuild_dashboard, _rebuild_dashboard_from_frames
 from helpers.forecast import build_forecast_table
 from helpers.goal_optimizer import build_goal_optimization
 from helpers.business_strategy import build_business_recommendations
@@ -26,7 +26,34 @@ def render_analytics():
     page_header(t("analytics"))
     st.caption(t("view_your_income_and_business_indicators"))
 
-    kpis, income_table, by_student, sold_by_subject, sold_by_modality = build_income_analytics(group="monthly")
+    payments_all = load_table("payments")
+    classes_all = load_table("classes")
+    dashboard_all = _rebuild_dashboard_from_frames(
+        classes_all,
+        payments_all,
+        active_window_days=183,
+        expiry_days=365,
+        grace_days=0,
+    )
+    kpis, income_table, by_student, sold_by_subject, sold_by_modality = _build_income_analytics_from_payments(
+        payments_all,
+        group="monthly",
+    )
+    _, yearly_income_table, *_ = _build_income_analytics_from_payments(
+        payments_all,
+        group="yearly",
+    )
+    dashboard_student_units = {}
+    if dashboard_all is not None and not dashboard_all.empty and "Student" in dashboard_all.columns:
+        dash_tmp = dashboard_all.copy()
+        dash_tmp["Student"] = dash_tmp["Student"].fillna("").astype(str).str.strip()
+        if "Lessons_Paid_Total" in dash_tmp.columns:
+            dash_tmp["Lessons_Paid_Total"] = pd.to_numeric(dash_tmp["Lessons_Paid_Total"], errors="coerce").fillna(0.0)
+        dashboard_student_units = {
+            str(row.get("Student") or "").strip(): float(row.get("Lessons_Paid_Total") or 0.0)
+            for row in dash_tmp.to_dict("records")
+            if str(row.get("Student") or "").strip()
+        }
     today = ts_today_naive()
 
     # ── Currency & inflation settings (persisted in session_state) ──
@@ -291,31 +318,7 @@ def render_analytics():
         return float(tail.median())
 
     def _estimate_typical_units_from_dashboard(student_name: str) -> float:
-        """
-        If dashboard has a total-paid-units column, we use it as package-size proxy.
-        Otherwise returns 0 (caller will fallback).
-        """
-        try:
-            dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=0)
-            if dash is None or dash.empty:
-                return 0.0
-            if "Student" not in dash.columns:
-                return 0.0
-            d = dash.copy()
-            d["Student"] = d["Student"].fillna("").astype(str).str.strip()
-            row = d[d["Student"] == str(student_name).strip()]
-            if row.empty:
-                return 0.0
-
-            # Common candidates across your app versions:
-            cand = _first_existing_col(row, ["Lessons_Paid_Total", "Lessons_Paid", "Paid_Units", "Package_Units"])
-            if not cand:
-                return 0.0
-            v = row.iloc[0].get(cand, 0)
-            v = float(pd.to_numeric(v, errors="coerce") or 0.0)
-            return max(0.0, v)
-        except Exception:
-            return 0.0
+        return max(0.0, float(dashboard_student_units.get(str(student_name).strip(), 0.0) or 0.0))
 
     def estimate_year_projection_current_students(
         today_ts: pd.Timestamp,
@@ -403,7 +406,7 @@ def render_analytics():
     total_week = float(kpis.get("income_this_week", 0.0) or 0.0)
 
     # Effective rate (income per lesson unit) — uses all-time totals
-    classes_for_rate = load_table("classes")
+    classes_for_rate = classes_all
     total_units = 0.0
     if classes_for_rate is not None and not classes_for_rate.empty and "number_of_lesson" in classes_for_rate.columns:
         total_units = float(pd.to_numeric(classes_for_rate["number_of_lesson"], errors="coerce").fillna(0).sum())
@@ -432,8 +435,7 @@ def render_analytics():
     # --- Average yearly income (average across available years) ---
     avg_yearly = 0.0
     try:
-        _, yearly_table_avg, *_ = build_income_analytics(group="yearly")
-        yearly_table_avg = _apply_fx(yearly_table_avg)
+        yearly_table_avg = _apply_fx(yearly_income_table)
         if yearly_table_avg is not None and not yearly_table_avg.empty and "Key" in yearly_table_avg.columns:
             ytmp = yearly_table_avg.copy()
             ycol_y = "income" if "income" in ytmp.columns else ("Income" if "Income" in ytmp.columns else None)
@@ -497,8 +499,11 @@ def render_analytics():
             top3_share = _pct(float(bs.loc[:, top_income_col].sum()), float(by_student_total))
 
     # ---------- NEW: compute projection inputs once (used in Summary + Goal) ----------
-    payments_all = load_table("payments")
-    forecast_for_projection = build_forecast_table(payment_buffer_days=0)
+    forecast_for_projection = build_forecast_table(
+        payment_buffer_days=0,
+        dashboard_df=dashboard_all,
+        classes_df=classes_all,
+    )
 
     proj = estimate_year_projection_current_students(
         today_ts=today,
@@ -762,8 +767,7 @@ def render_analytics():
 
     with tab_year:
         st.subheader(t("yearly_income"))
-        _, yearly_table, *_ = build_income_analytics(group="yearly")
-        yearly_table = _apply_fx(yearly_table)
+        yearly_table = _apply_fx(yearly_income_table)
 
         if yearly_table is None or yearly_table.empty:
             st.info(t("no_data"))
@@ -846,7 +850,7 @@ def render_analytics():
     with tab_week:
         st.subheader(t("weekly_income"))
 
-        payments_week = load_table("payments")
+        payments_week = payments_all
         if payments_week is None or payments_week.empty:
             st.info(t("no_data"))
         else:
@@ -937,7 +941,7 @@ def render_analytics():
             _yr_total_lessons = 0.0
 
             # Total income for the selected year
-            _pay_yr = load_table("payments")
+            _pay_yr = payments_all
             if _pay_yr is not None and not _pay_yr.empty:
                 _pyc = _pay_yr.copy()
                 _pyc["payment_date"] = to_dt_naive(_pyc["payment_date"], utc=True)
@@ -954,7 +958,7 @@ def render_analytics():
                     _yr_avg_monthly = float(pd.to_numeric(_ym[_mc], errors="coerce").fillna(0.0).mean())
 
             # Lessons & effective rate for the year
-            _cls_yr = load_table("classes")
+            _cls_yr = classes_all
             if _cls_yr is not None and not _cls_yr.empty:
                 _cyc = _cls_yr.copy()
                 if "lesson_date" in _cyc.columns and "number_of_lesson" in _cyc.columns:
@@ -1228,7 +1232,7 @@ def render_analytics():
     with tab_delivery:
         # (UNCHANGED from your current code)
         st.markdown(f"#### {t('lessons_by_subject')}")
-        classes = load_table("classes")
+        classes = classes_all
         if classes is None or classes.empty:
             st.info(t("no_data"))
         else:
@@ -1274,7 +1278,7 @@ def render_analytics():
             _show_raw_toggle(teach_lang, "raw_lessons_lang")
 
         st.markdown(f"#### {t('lessons_by_modality')}")
-        classes = load_table("classes")
+        classes = classes_all
         if classes is None or classes.empty:
             st.info(t("no_data"))
         else:
@@ -1334,7 +1338,11 @@ def render_analytics():
             key="forecast_buffer_analytics",
         )
 
-        forecast_df = build_forecast_table(payment_buffer_days=int(buffer_days))
+        forecast_df = build_forecast_table(
+            payment_buffer_days=int(buffer_days),
+            dashboard_df=dashboard_all,
+            classes_df=classes_all,
+        )
         if forecast_df is None or forecast_df.empty:
             st.info(t("no_data"))
         else:
@@ -1420,4 +1428,3 @@ def render_analytics():
 
             # Raw toggle (keeps your pattern)
             _show_raw_toggle(ftmp.drop(columns=["_rem_dt", "_fin_dt", "_due_now"], errors="ignore"), "raw_forecast")
-

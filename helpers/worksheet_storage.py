@@ -10,7 +10,7 @@ from io import BytesIO
 from core.i18n import t
 from core.state import get_current_user_id, with_owner
 from core.timezone import now_local, today_local, get_app_tz
-from core.database import get_sb, load_table, clear_app_caches
+from core.database import get_sb, load_table, clear_app_caches, register_cache, show_data_load_error
 import math
 import html
 import textwrap
@@ -47,6 +47,24 @@ from helpers.student_personalization import (
     native_language_label,
     normalize_native_language,
 )
+
+
+_WORKSHEET_LIST_COLUMNS = ",".join([
+    "id",
+    "user_id",
+    "title",
+    "subject",
+    "topic",
+    "learner_stage",
+    "level_or_band",
+    "worksheet_type",
+    "source_type",
+    "author_name",
+    "subject_display",
+    "is_public",
+    "status",
+    "created_at",
+])
 
 
 def _wb():
@@ -843,42 +861,100 @@ def save_worksheet_record(
 
 def load_my_worksheets(*, include_archived: bool = False, archived_only: bool = False) -> pd.DataFrame:
     try:
-        df = load_table("worksheets")
+        df = _load_my_worksheets_cached(str(get_current_user_id() or ""))
         if df is None or df.empty:
             return pd.DataFrame()
-        df = df.copy()
-        if "created_at" in df.columns:
-            df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-        sort_col = "created_at" if "created_at" in df.columns else None
-        if sort_col:
-            df = df.sort_values(sort_col, ascending=False, na_position="last")
         return filter_archived_rows(
             df,
             include_archived=include_archived,
             archived_only=archived_only,
         )
-    except Exception:
+    except Exception as exc:
+        show_data_load_error(exc)
         return pd.DataFrame()
+
+
+def _normalize_worksheet_frame(rows: list[dict] | None) -> pd.DataFrame:
+    df = pd.DataFrame(rows or [])
+    if df.empty:
+        return pd.DataFrame()
+    if "created_at" in df.columns:
+        df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+        df = df.sort_values("created_at", ascending=False, na_position="last")
+    return df
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_my_worksheets_cached(uid: str, limit: int = 500) -> pd.DataFrame:
+    if not uid:
+        return pd.DataFrame()
+    res = (
+        get_sb()
+        .table("worksheets")
+        .select(_WORKSHEET_LIST_COLUMNS)
+        .eq("user_id", uid)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return _normalize_worksheet_frame(getattr(res, "data", None) or [])
+
+
+register_cache(_load_my_worksheets_cached)
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_public_worksheets_cached(limit: int = 500) -> pd.DataFrame:
+    res = (
+        get_sb()
+        .table("worksheets")
+        .select(_WORKSHEET_LIST_COLUMNS)
+        .eq("is_public", True)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return _normalize_worksheet_frame(getattr(res, "data", None) or [])
+
+
+register_cache(_load_public_worksheets_cached)
 
 
 def load_public_worksheets() -> pd.DataFrame:
     try:
+        return filter_archived_rows(_load_public_worksheets_cached())
+    except Exception as exc:
+        show_data_load_error(exc)
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def load_worksheet_record(worksheet_id) -> dict:
+    safe_worksheet_id = worksheet_id
+    if isinstance(worksheet_id, str):
+        stripped = worksheet_id.strip()
+        if not stripped:
+            return {}
+        safe_worksheet_id = int(stripped) if stripped.isdigit() else stripped
+    elif worksheet_id is None:
+        return {}
+    try:
         res = (
-            get_sb().table("worksheets")
+            get_sb()
+            .table("worksheets")
             .select("*")
-            .eq("is_public", True)
-            .order("created_at", desc=True)
-            .limit(500)
+            .eq("id", safe_worksheet_id)
+            .limit(1)
             .execute()
         )
-        df = pd.DataFrame(res.data or [])
-        if df.empty:
-            return pd.DataFrame()
-        if "created_at" in df.columns:
-            df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-        return filter_archived_rows(df)
-    except Exception:
-        return pd.DataFrame()
+        rows = getattr(res, "data", None) or []
+        return dict(rows[0]) if rows else {}
+    except Exception as exc:
+        show_data_load_error(exc)
+        return {}
+
+
+register_cache(load_worksheet_record)
 
 
 # ── AI usage tracking ────────────────────────────────────────────────
@@ -973,6 +1049,13 @@ def _open_worksheet_library_record(
         st.session_state["_post_signup_open_tab"] = "community_library"
         st.session_state["_explore_go_signup"] = True
         st.rerun()
+
+    if row.get("id") and not row.get("worksheet_json"):
+        full_row = load_worksheet_record(row.get("id"))
+        if full_row:
+            row = {**row, **full_row}
+        else:
+            return
 
     # If the same resource is already selected (e.g. switching from View to
     # Assign), keep the enriched session-state data instead of overwriting

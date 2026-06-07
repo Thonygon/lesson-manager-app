@@ -1328,6 +1328,8 @@ EN: Dict[str, str] = {
     "could_not_save_lesson_plan": "Could not save lesson plan",
     "could_not_load_your_lesson_plans": "Could not load your lesson plans",
     "could_not_load_community_lesson_plans": "Could not load community lesson plans",
+    "data_load_temporarily_unavailable": "We couldn't load this data right now. Please try again in a moment.",
+    "data_load_timeout": "This content is taking longer than expected to load right now. Please try again in a moment.",
     "lesson_overview": "Lesson overview",
     "lesson_flow": "Lesson flow",
     "lesson_materials": "Lesson materials",

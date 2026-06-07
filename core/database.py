@@ -3,11 +3,16 @@ import pandas as pd
 import os
 import re
 import html as _html
+import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 from supabase import create_client
 
+from core.i18n import t
 from core.state import get_current_user_id, with_owner, _set_logged_in_user, _clear_logged_in_user
+
+
+logger = logging.getLogger(__name__)
 
 
 LESSON_NOTE_DEFAULT_TOKEN = "__NO_TOPIC_REGISTERED__"
@@ -79,6 +84,30 @@ def clear_app_caches() -> None:
             fn.clear()
         except Exception:
             pass
+
+
+_TIMEOUT_ERROR_PATTERNS = (
+    "statement timeout",
+    "timed out",
+    "timeout",
+    "deadline exceeded",
+    "canceling statement due to statement timeout",
+    "upstream request timeout",
+)
+
+
+def is_query_timeout_error(exc: Exception | str | None) -> bool:
+    text = str(exc or "").strip().lower()
+    if not text:
+        return False
+    return any(pattern in text for pattern in _TIMEOUT_ERROR_PATTERNS)
+
+
+def show_data_load_error(exc: Exception | str | None = None) -> None:
+    if exc:
+        logger.exception("Data load failed: %s", exc)
+    message_key = "data_load_timeout" if is_query_timeout_error(exc) else "data_load_temporarily_unavailable"
+    st.error(t(message_key))
 
 
 # ---- Auth helpers (OIDC-compatible) ----
@@ -288,8 +317,9 @@ def _load_table_cached(name: str, uid: str, limit: int = 10000, page_size: int =
                 break
             offset += page_size
         return pd.DataFrame(all_rows)
-    except Exception as e:
-        st.error(f"Supabase error loading table '{name}'.\n\n{e}")
+    except Exception as exc:
+        logger.exception("Supabase error loading table %s", name)
+        show_data_load_error(exc)
         return pd.DataFrame()
 
 

@@ -1327,6 +1327,8 @@ TR: Dict[str, str] = {
     "could_not_save_lesson_plan": "Ders planı kaydedilemedi",
     "could_not_load_your_lesson_plans": "Ders planlarınız yüklenemedi",
     "could_not_load_community_lesson_plans": "Topluluk ders planları yüklenemedi",
+    "data_load_temporarily_unavailable": "Bu veriler şu anda yüklenemedi. Lütfen biraz sonra tekrar deneyin.",
+    "data_load_timeout": "Bu içerik şu anda beklenenden daha uzun sürede yükleniyor. Lütfen biraz sonra tekrar deneyin.",
     "lesson_overview": "Ders özeti",
     "lesson_flow": "Ders akışı",
     "lesson_materials": "Ders materyalleri",
