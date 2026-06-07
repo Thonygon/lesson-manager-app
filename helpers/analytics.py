@@ -69,10 +69,7 @@ def _display_subject_combo(subject_key: str) -> str:
     return " + ".join(translated)
 
 
-@st.cache_data(ttl=45, show_spinner=False)
-def build_income_analytics(group: str = "monthly"):
-    payments = load_table("payments")
-
+def _build_income_analytics_from_payments(payments: pd.DataFrame | None, group: str = "monthly"):
     if payments is None or payments.empty:
         payments = pd.DataFrame(columns=["student", "payment_date", "paid_amount", "number_of_lesson", "modality", "subject"])
 
@@ -167,4 +164,10 @@ def build_income_analytics(group: str = "monthly"):
     )
 
     return kpis, income_table, by_student, sold_by_subject, sold_by_modality
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def build_income_analytics(group: str = "monthly"):
+    payments = load_table("payments")
+    return _build_income_analytics_from_payments(payments, group=group)
 # =========================

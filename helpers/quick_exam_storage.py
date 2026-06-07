@@ -11,7 +11,7 @@ from core.i18n import t
 from core.navigation import go_to
 from core.state import get_current_user_id, with_owner
 from core.timezone import now_local, today_local, get_app_tz
-from core.database import get_sb, load_table, clear_app_caches
+from core.database import get_sb, load_table, clear_app_caches, register_cache, show_data_load_error
 from xml.sax.saxutils import escape as xml_escape
 import unicodedata
 from styles.pdf_styles import (
@@ -31,6 +31,22 @@ from helpers.visual_support import (
     render_visual_support_status_group,
 )
 from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
+
+
+_QUICK_EXAM_LIST_COLUMNS = ",".join([
+    "id",
+    "user_id",
+    "title",
+    "subject",
+    "topic",
+    "learner_stage",
+    "level",
+    "exam_length",
+    "exercise_types",
+    "is_public",
+    "status",
+    "created_at",
+])
 
 
 def _eb():
@@ -214,45 +230,102 @@ def save_exam_record(
         return None
 
 
+def _normalize_exam_frame(rows: list[dict] | None) -> pd.DataFrame:
+    df = pd.DataFrame(rows or [])
+    if df.empty:
+        return pd.DataFrame()
+    if "created_at" in df.columns:
+        df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+        df = df.sort_values("created_at", ascending=False, na_position="last")
+    return df
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_my_exams_cached(uid: str, limit: int = 500) -> pd.DataFrame:
+    if not uid:
+        return pd.DataFrame()
+    res = (
+        get_sb()
+        .table("quick_exams")
+        .select(_QUICK_EXAM_LIST_COLUMNS)
+        .eq("user_id", uid)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return _normalize_exam_frame(getattr(res, "data", None) or [])
+
+
+register_cache(_load_my_exams_cached)
+
+
 def load_my_exams(*, include_archived: bool = False, archived_only: bool = False) -> pd.DataFrame:
     try:
-        df = load_table("quick_exams")
+        df = _load_my_exams_cached(str(get_current_user_id() or ""))
         if df is None or df.empty:
             return pd.DataFrame()
-        df = df.copy()
-        if "created_at" in df.columns:
-            df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-        sort_col = "created_at" if "created_at" in df.columns else None
-        if sort_col:
-            df = df.sort_values(sort_col, ascending=False, na_position="last")
         return filter_archived_rows(
             df,
             include_archived=include_archived,
             archived_only=archived_only,
         )
-    except Exception:
+    except Exception as exc:
+        show_data_load_error(exc)
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_public_exams_cached(limit: int = 500) -> pd.DataFrame:
+    res = (
+        get_sb()
+        .table("quick_exams")
+        .select(_QUICK_EXAM_LIST_COLUMNS)
+        .eq("is_public", True)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return _normalize_exam_frame(getattr(res, "data", None) or [])
+
+
+register_cache(_load_public_exams_cached)
+
+
 def load_public_exams() -> pd.DataFrame:
+    try:
+        return filter_archived_rows(_load_public_exams_cached())
+    except Exception as exc:
+        show_data_load_error(exc)
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def load_exam_record(exam_id) -> dict:
+    safe_exam_id = exam_id
+    if isinstance(exam_id, str):
+        stripped = exam_id.strip()
+        if not stripped:
+            return {}
+        safe_exam_id = int(stripped) if stripped.isdigit() else stripped
+    elif exam_id is None:
+        return {}
     try:
         res = (
             get_sb()
             .table("quick_exams")
             .select("*")
-            .eq("is_public", True)
-            .order("created_at", desc=True)
-            .limit(500)
+            .eq("id", safe_exam_id)
+            .limit(1)
             .execute()
         )
-        df = pd.DataFrame(res.data or [])
-        if df.empty:
-            return pd.DataFrame()
-        if "created_at" in df.columns:
-            df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-        return filter_archived_rows(df)
-    except Exception:
-        return pd.DataFrame()
+        rows = getattr(res, "data", None) or []
+        return dict(rows[0]) if rows else {}
+    except Exception as exc:
+        show_data_load_error(exc)
+        return {}
+
+
+register_cache(load_exam_record)
 
 
 def _format_exam_dt(value) -> str:
@@ -360,6 +433,13 @@ def _open_exam_library_record(
         st.session_state["_post_signup_open_tab"] = "community_library"
         st.session_state["_explore_go_signup"] = True
         st.rerun()
+
+    if row.get("id") and (not row.get("exam_data") or not row.get("answer_key")):
+        full_row = load_exam_record(row.get("id"))
+        if full_row:
+            row = {**row, **full_row}
+        elif not row.get("exam_data"):
+            return
 
     # If the same resource is already selected (e.g. switching from View to
     # Assign), keep the enriched session-state data instead of overwriting

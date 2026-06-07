@@ -10,7 +10,7 @@ from typing import Optional
 
 import pandas as pd
 import streamlit as st
-from core.database import clear_app_caches, get_sb, load_table
+from core.database import clear_app_caches, get_sb, load_table, register_cache, show_data_load_error
 from core.i18n import t
 from core.navigation import go_to
 from core.state import get_current_user_id, with_owner
@@ -26,6 +26,25 @@ from helpers.student_personalization import (
     normalize_native_language,
 )
 from reportlab.lib.enums import TA_CENTER
+
+
+_LESSON_PLAN_LIST_COLUMNS = ",".join([
+    "id",
+    "user_id",
+    "title",
+    "subject",
+    "topic",
+    "learner_stage",
+    "level_or_band",
+    "lesson_purpose",
+    "source_type",
+    "planner_mode",
+    "author_name",
+    "subject_display",
+    "is_public",
+    "status",
+    "created_at",
+])
 
 # ============================================================
 # Cleanup helpers
@@ -566,43 +585,100 @@ def save_lesson_plan_record(
 
 def load_my_lesson_plans(*, include_archived: bool = False, archived_only: bool = False) -> pd.DataFrame:
     try:
-        df = load_table("lesson_plans")
+        df = _load_my_lesson_plans_cached(str(get_current_user_id() or ""))
         if df is None or df.empty:
             return pd.DataFrame()
-
-        df = df.copy()
-        if "created_at" in df.columns:
-            df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-
-        if "created_at" in df.columns:
-            df = df.sort_values("created_at", ascending=False, na_position="last")
-
         return filter_archived_rows(
             df,
             include_archived=include_archived,
             archived_only=archived_only,
         )
-    except Exception as e:
-        st.error(f"{t('could_not_load_your_lesson_plans')}: {e}")
+    except Exception as exc:
+        show_data_load_error(exc)
         return pd.DataFrame()
+
+
+def _normalize_lesson_plan_frame(rows: list[dict] | None) -> pd.DataFrame:
+    df = pd.DataFrame(rows or [])
+    if df.empty:
+        return pd.DataFrame()
+    if "created_at" in df.columns:
+        df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+        df = df.sort_values("created_at", ascending=False, na_position="last")
+    return df
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_my_lesson_plans_cached(uid: str, limit: int = 500) -> pd.DataFrame:
+    if not uid:
+        return pd.DataFrame()
+    res = (
+        get_sb()
+        .table("lesson_plans")
+        .select(_LESSON_PLAN_LIST_COLUMNS)
+        .eq("user_id", uid)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return _normalize_lesson_plan_frame(getattr(res, "data", None) or [])
+
+
+register_cache(_load_my_lesson_plans_cached)
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_public_lesson_plans_cached(limit: int = 500) -> pd.DataFrame:
+    res = (
+        get_sb()
+        .table("lesson_plans")
+        .select(_LESSON_PLAN_LIST_COLUMNS)
+        .eq("is_public", True)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return _normalize_lesson_plan_frame(getattr(res, "data", None) or [])
+
+
+register_cache(_load_public_lesson_plans_cached)
 
 
 def load_public_lesson_plans() -> pd.DataFrame:
     try:
-        res = (
-            get_sb().table("lesson_plans").select("*").eq("is_public", True).order("created_at", desc=True).limit(500).execute()
-        )
-        df = pd.DataFrame(res.data or [])
-        if df.empty:
-            return pd.DataFrame()
-
-        if "created_at" in df.columns:
-            df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-
-        return filter_archived_rows(df)
-    except Exception as e:
-        st.error(f"{t('could_not_load_community_lesson_plans')}: {e}")
+        return filter_archived_rows(_load_public_lesson_plans_cached())
+    except Exception as exc:
+        show_data_load_error(exc)
         return pd.DataFrame()
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def load_lesson_plan_record(plan_id) -> dict:
+    safe_plan_id = plan_id
+    if isinstance(plan_id, str):
+        stripped = plan_id.strip()
+        if not stripped:
+            return {}
+        safe_plan_id = int(stripped) if stripped.isdigit() else stripped
+    elif plan_id is None:
+        return {}
+    try:
+        res = (
+            get_sb()
+            .table("lesson_plans")
+            .select("*")
+            .eq("id", safe_plan_id)
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(res, "data", None) or []
+        return dict(rows[0]) if rows else {}
+    except Exception as exc:
+        show_data_load_error(exc)
+        return {}
+
+
+register_cache(load_lesson_plan_record)
 
 
 def format_plan_datetime(value) -> str:
@@ -717,6 +793,13 @@ def _open_plan_library_record(
         st.session_state["_post_signup_open_tab"] = "community_library"
         st.session_state["_explore_go_signup"] = True
         st.rerun()
+
+    if row.get("id") and not row.get("plan_json"):
+        full_row = load_lesson_plan_record(row.get("id"))
+        if full_row:
+            row = {**row, **full_row}
+        else:
+            return
 
     st.session_state["files_selected_plan"] = row.get("plan_json") or {}
     st.session_state["files_selected_subject"] = str(row.get("subject") or "").strip()

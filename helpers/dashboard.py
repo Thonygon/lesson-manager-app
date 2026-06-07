@@ -82,11 +82,18 @@ def dash_chart_series(
 
     return ser
 
-@st.cache_data(ttl=45, show_spinner=False)
-def rebuild_dashboard(active_window_days: int = 183, expiry_days: int = 365, grace_days: int = 0) -> pd.DataFrame:
-    classes = load_table("classes")
-    payments = load_table("payments")
-
+def _rebuild_dashboard_from_frames(
+    classes: pd.DataFrame | None,
+    payments: pd.DataFrame | None,
+    *,
+    active_window_days: int = 183,
+    expiry_days: int = 365,
+    grace_days: int = 0,
+) -> pd.DataFrame:
+    if classes is None:
+        classes = pd.DataFrame()
+    if payments is None:
+        payments = pd.DataFrame()
     if classes.empty:
         classes = pd.DataFrame(columns=["id","student","number_of_lesson","lesson_date","modality","note","subject"])
     if payments.empty:
@@ -321,5 +328,18 @@ def rebuild_dashboard(active_window_days: int = 183, expiry_days: int = 365, gra
         "Payment_ID",
         "Normalize_Allowed"
     ]]
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def rebuild_dashboard(active_window_days: int = 183, expiry_days: int = 365, grace_days: int = 0) -> pd.DataFrame:
+    classes = load_table("classes")
+    payments = load_table("payments")
+    return _rebuild_dashboard_from_frames(
+        classes,
+        payments,
+        active_window_days=active_window_days,
+        expiry_days=expiry_days,
+        grace_days=grace_days,
+    )
 
 # =========================

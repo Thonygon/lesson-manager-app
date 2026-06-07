@@ -19,14 +19,15 @@ def build_forecast_table(
     active_window_days: int = 183,
     finished_keep_days: int = 90,
     lookback_days_for_rate: int = 56,
+    dashboard_df: pd.DataFrame | None = None,
+    classes_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-
-    dash = rebuild_dashboard(active_window_days=active_window_days, expiry_days=365, grace_days=0)
+    dash = dashboard_df if dashboard_df is not None else rebuild_dashboard(active_window_days=active_window_days, expiry_days=365, grace_days=0)
     if dash is None or dash.empty:
         return pd.DataFrame()
 
     # Need raw classes to estimate burn rate
-    classes = load_table("classes")
+    classes = classes_df if classes_df is not None else load_table("classes")
     if classes is None or classes.empty:
         classes = pd.DataFrame(columns=["student", "lesson_date", "number_of_lesson", "modality", "note"])
     else:

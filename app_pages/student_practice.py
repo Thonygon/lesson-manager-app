@@ -42,6 +42,47 @@ def _ui_text(key: str, fallback: str) -> str:
     return value if value != key else fallback
 
 
+def _resolve_exam_payload(row: dict) -> tuple[dict, dict, dict]:
+    exam_data = row.get("exam_data") or {}
+    answer_key = row.get("answer_key") or {}
+    if row.get("id") and (not exam_data or not answer_key):
+        from helpers.quick_exam_storage import load_exam_record
+
+        full_row = load_exam_record(row.get("id"))
+        if full_row:
+            row = {**row, **full_row}
+            exam_data = row.get("exam_data") or {}
+            answer_key = row.get("answer_key") or {}
+    if isinstance(exam_data, str):
+        try:
+            exam_data = json.loads(exam_data)
+        except Exception:
+            exam_data = {}
+    if isinstance(answer_key, str):
+        try:
+            answer_key = json.loads(answer_key)
+        except Exception:
+            answer_key = {}
+    return exam_data if isinstance(exam_data, dict) else {}, answer_key if isinstance(answer_key, dict) else {}, row
+
+
+def _resolve_worksheet_payload(row: dict) -> tuple[dict, dict]:
+    worksheet_json = row.get("worksheet_json") or {}
+    if row.get("id") and not worksheet_json:
+        from helpers.worksheet_storage import load_worksheet_record
+
+        full_row = load_worksheet_record(row.get("id"))
+        if full_row:
+            row = {**row, **full_row}
+            worksheet_json = row.get("worksheet_json") or {}
+    if isinstance(worksheet_json, str):
+        try:
+            worksheet_json = json.loads(worksheet_json)
+        except Exception:
+            worksheet_json = {}
+    return worksheet_json if isinstance(worksheet_json, dict) else {}, row
+
+
 def _slice_practice_page(rows: list[dict], state_key: str, *, page_size: int = _STUDENT_PRACTICE_PAGE_SIZE):
     total_items = len(rows or [])
     total_pages = max(1, math.ceil(total_items / page_size)) if total_items else 1
@@ -474,12 +515,7 @@ def _render_browse_tab():
                                     color="#A78BFA",
                                 )
                                 if st.session_state.pop(f"_start_sp_ws_search_{row.get('id', idx)}_{idx}_{col_i}", False):
-                                    ws_json = row.get("worksheet_json") or {}
-                                    if isinstance(ws_json, str):
-                                        try:
-                                            ws_json = json.loads(ws_json)
-                                        except Exception:
-                                            ws_json = {}
+                                    ws_json, row = _resolve_worksheet_payload(row)
                                     if ws_json:
                                         from helpers.worksheet_builder import normalize_worksheet_output
                                         ws_json = normalize_worksheet_output(ws_json)
@@ -556,12 +592,7 @@ def _render_browse_tab():
                                     color="#A78BFA",
                                 )
                                 if st.session_state.pop(f"_start_sp_ws_{row.get('id', idx)}_{idx}_{col_i}", False):
-                                    ws_json = row.get("worksheet_json") or {}
-                                    if isinstance(ws_json, str):
-                                        try:
-                                            ws_json = json.loads(ws_json)
-                                        except Exception:
-                                            ws_json = {}
+                                    ws_json, row = _resolve_worksheet_payload(row)
                                     if ws_json:
                                         from helpers.worksheet_builder import normalize_worksheet_output
                                         ws_json = normalize_worksheet_output(ws_json)
@@ -662,18 +693,7 @@ def _render_browse_tab():
                                 color="#F87171",
                             )
                             if st.session_state.pop(f"_start_sp_ex_{row.get('id', idx)}_{idx}_{col_i}", False):
-                                exam_data = row.get("exam_data") or {}
-                                answer_key = row.get("answer_key") or {}
-                                if isinstance(exam_data, str):
-                                    try:
-                                        exam_data = json.loads(exam_data)
-                                    except Exception:
-                                        exam_data = {}
-                                if isinstance(answer_key, str):
-                                    try:
-                                        answer_key = json.loads(answer_key)
-                                    except Exception:
-                                        answer_key = {}
+                                exam_data, answer_key, row = _resolve_exam_payload(row)
                                 if exam_data:
                                     if isinstance(exam_data, dict):
                                         exam_data.setdefault("subject", row.get("subject", ""))
@@ -1261,12 +1281,7 @@ def _render_recommended_materials(pub_ws, pub_ex) -> None:
                 trigger_key = f"_start_sp_reco_{resource_type}_{row.get('id', idx)}_{idx}_{col_idx}"
                 if st.session_state.pop(trigger_key, False):
                     if resource_type == "worksheet":
-                        ws_json = row.get("worksheet_json") or {}
-                        if isinstance(ws_json, str):
-                            try:
-                                ws_json = json.loads(ws_json)
-                            except Exception:
-                                ws_json = {}
+                        ws_json, row = _resolve_worksheet_payload(row)
                         if ws_json:
                             from helpers.worksheet_builder import normalize_worksheet_output
 
@@ -1283,18 +1298,7 @@ def _render_recommended_materials(pub_ws, pub_ex) -> None:
                             ):
                                 st.rerun()
                     elif resource_type == "exam":
-                        exam_data = row.get("exam_data") or {}
-                        answer_key = row.get("answer_key") or {}
-                        if isinstance(exam_data, str):
-                            try:
-                                exam_data = json.loads(exam_data)
-                            except Exception:
-                                exam_data = {}
-                        if isinstance(answer_key, str):
-                            try:
-                                answer_key = json.loads(answer_key)
-                            except Exception:
-                                answer_key = {}
+                        exam_data, answer_key, row = _resolve_exam_payload(row)
                         if exam_data:
                             if isinstance(exam_data, dict):
                                 exam_data.setdefault("subject", row.get("subject", ""))
