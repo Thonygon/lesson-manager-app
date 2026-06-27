@@ -7,7 +7,18 @@ from core.timezone import today_local, get_app_tz, get_app_tz_name
 from core.navigation import go_to, page_header
 from core.database import load_students, get_sb, clear_app_caches
 from helpers.calendar_helpers import build_calendar_events, render_fullcalendar, _parse_time_value, validate_hhmm
-from helpers.schedule import load_schedules, load_overrides, add_schedule, delete_schedule, add_override, delete_override, find_gcal_event_id
+from helpers.schedule import (
+    active_schedule_freezes,
+    add_schedule,
+    add_schedule_freeze,
+    add_override,
+    delete_override,
+    delete_schedule,
+    find_gcal_event_id,
+    load_overrides,
+    load_schedules,
+    resume_schedule_freeze,
+)
 from helpers.ui_components import pretty_df, translate_df_headers, render_styled_dataframe
 from helpers.empty_states import render_empty_state
 from helpers.google_calendar import (
@@ -297,6 +308,65 @@ def render_calendar():
     students_master = load_students()
 
     # ---------------------------------------
+    # PAUSE STUDENT SCHEDULE
+    # ---------------------------------------
+    with st.expander(t("pause_student_schedule"), expanded=False):
+        if not students_master:
+            st.info(t("calendar_empty_add_schedule_hint"))
+        else:
+            st.caption(t("pause_student_schedule_caption"))
+            p1, p2, p3 = st.columns([1.2, 1, 1], gap="medium")
+            with p1:
+                pause_student = st.selectbox(t("select_student"), students_master, key="schedule_pause_student")
+                pause_reason = st.selectbox(
+                    t("schedule_pause_reason"),
+                    ["vacation", "break", "illness", "payment_pause", "other"],
+                    format_func=lambda value: t(f"schedule_pause_reason_{value}"),
+                    key="schedule_pause_reason",
+                )
+            with p2:
+                use_start = st.checkbox(t("schedule_pause_use_start"), value=True, key="schedule_pause_use_start")
+                pause_start = st.date_input(t("schedule_pause_start_date"), value=today_d, key="schedule_pause_start_date") if use_start else None
+            with p3:
+                use_end = st.checkbox(t("schedule_pause_use_end"), value=False, key="schedule_pause_use_end")
+                pause_end = st.date_input(t("schedule_pause_end_date"), value=today_d + datetime.timedelta(days=14), key="schedule_pause_end_date") if use_end else None
+
+            pause_note = st.text_input(t("schedule_pause_note"), key="schedule_pause_note")
+            if st.button(t("schedule_pause_save"), key="schedule_pause_save", use_container_width=True):
+                try:
+                    add_schedule_freeze(
+                        student=pause_student,
+                        start_date=pause_start,
+                        end_date=pause_end,
+                        reason=pause_reason,
+                        note=pause_note,
+                    )
+                    st.success(t("schedule_pause_saved"))
+                    st.rerun()
+                except Exception as exc:
+                    st.error(str(exc))
+
+            active_pauses = active_schedule_freezes(today_d)
+            st.markdown(f"#### {t('schedule_paused_students')}")
+            if active_pauses.empty:
+                st.caption(t("schedule_no_active_pauses"))
+            else:
+                show_pauses = active_pauses.copy()
+                show_pauses["reason"] = show_pauses["reason"].apply(lambda value: t(f"schedule_pause_reason_{str(value or 'other')}"))
+                show_pauses["start_date"] = show_pauses["start_date"].apply(lambda value: value.isoformat() if pd.notna(value) else t("today"))
+                show_pauses["end_date"] = show_pauses["end_date"].apply(lambda value: value.isoformat() if pd.notna(value) else t("schedule_pause_until_resumed"))
+                render_styled_dataframe(
+                    translate_df_headers(
+                        pretty_df(show_pauses[["id", "student", "start_date", "end_date", "reason", "note"]])
+                    )
+                )
+                resume_id = st.number_input(t("schedule_pause_resume_id"), min_value=1, step=1, key="schedule_pause_resume_id")
+                if st.button(t("schedule_pause_resume"), key="schedule_pause_resume", use_container_width=True):
+                    resume_schedule_freeze(int(resume_id))
+                    st.success(t("schedule_pause_resumed"))
+                    st.rerun()
+
+    # ---------------------------------------
     # CURRENT SCHEDULE TABLE
     # ---------------------------------------
     with st.expander(t("current_schedule"), expanded=False):
@@ -562,4 +632,3 @@ def render_calendar():
                 delete_override(del_id)
                 st.success(t("deleted"))
                 st.rerun()
-

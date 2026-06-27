@@ -15,6 +15,7 @@ from core.timezone import now_local, today_local, get_app_tz_name
 from helpers.calendar_helpers import build_calendar_events
 from helpers.dashboard import rebuild_dashboard
 from helpers.goals import get_year_goal_progress_snapshot
+from helpers.schedule import active_schedule_freezes
 from helpers.practice_engine import load_in_progress_practice_session, load_practice_progress
 from helpers.teacher_student_integration import (
     get_student_assignment_summary,
@@ -178,9 +179,7 @@ def _smart_plan_state() -> dict:
     return state if isinstance(state, dict) else {}
 
 
-def _today_events_df():
-    today = today_local()
-    events = build_calendar_events(today, today, get_app_tz_name())
+def _today_events_df_from_events(events: pd.DataFrame | None) -> pd.DataFrame:
     if events is None or events.empty:
         return pd.DataFrame()
     df = events.copy()
@@ -192,10 +191,13 @@ def _today_events_df():
     return df
 
 
-def _future_events_students(days: int = 14) -> set[str]:
+def _today_events_df():
     today = today_local()
-    end = today + timedelta(days=days)
-    events = build_calendar_events(today, end, get_app_tz_name())
+    events = build_calendar_events(today, today, get_app_tz_name())
+    return _today_events_df_from_events(events)
+
+
+def _future_events_students_from_events(events: pd.DataFrame | None) -> set[str]:
     if events is None or events.empty:
         return set()
     df = events.copy()
@@ -204,8 +206,14 @@ def _future_events_students(days: int = 14) -> set[str]:
     return {_norm(v) for v in df["Student"].fillna("").astype(str).tolist() if _clean(v)}
 
 
-def _today_classes_logged_count() -> int:
-    classes = load_table("classes")
+def _future_events_students(days: int = 14) -> set[str]:
+    today = today_local()
+    end = today + timedelta(days=days)
+    events = build_calendar_events(today, end, get_app_tz_name())
+    return _future_events_students_from_events(events)
+
+
+def _today_classes_logged_count_from_classes(classes: pd.DataFrame | None) -> int:
     if classes is None or classes.empty:
         return 0
     if "lesson_date" not in classes.columns:
@@ -215,8 +223,12 @@ def _today_classes_logged_count() -> int:
     return int((df["lesson_date"] == today_local()).sum())
 
 
-def _payments_this_month() -> pd.DataFrame:
-    payments = load_table("payments")
+def _today_classes_logged_count() -> int:
+    classes = load_table("classes")
+    return _today_classes_logged_count_from_classes(classes)
+
+
+def _payments_this_month_from_frame(payments: pd.DataFrame | None) -> pd.DataFrame:
     if payments is None or payments.empty or "payment_date" not in payments.columns:
         return pd.DataFrame()
     df = payments.copy()
@@ -229,8 +241,12 @@ def _payments_this_month() -> pd.DataFrame:
     ].copy()
 
 
-def _payments_this_year() -> pd.DataFrame:
+def _payments_this_month() -> pd.DataFrame:
     payments = load_table("payments")
+    return _payments_this_month_from_frame(payments)
+
+
+def _payments_this_year_from_frame(payments: pd.DataFrame | None) -> pd.DataFrame:
     if payments is None or payments.empty or "payment_date" not in payments.columns:
         return pd.DataFrame()
     df = payments.copy()
@@ -240,8 +256,12 @@ def _payments_this_year() -> pd.DataFrame:
     return df[df["payment_date"].dt.year == today.year].copy()
 
 
-def _classes_this_week_count() -> int:
-    classes = load_table("classes")
+def _payments_this_year() -> pd.DataFrame:
+    payments = load_table("payments")
+    return _payments_this_year_from_frame(payments)
+
+
+def _classes_this_week_count_from_frame(classes: pd.DataFrame | None) -> int:
     if classes is None or classes.empty or "lesson_date" not in classes.columns:
         return 0
     df = classes.copy()
@@ -251,6 +271,11 @@ def _classes_this_week_count() -> int:
     week_start = today - pd.Timedelta(days=today.weekday())
     week_end = week_start + pd.Timedelta(days=6)
     return int(((df["lesson_date"] >= week_start) & (df["lesson_date"] <= week_end)).sum())
+
+
+def _classes_this_week_count() -> int:
+    classes = load_table("classes")
+    return _classes_this_week_count_from_frame(classes)
 
 
 def _topic_title_from_program(program: dict, topic_id: int) -> str:
@@ -317,7 +342,14 @@ def _teacher_learning_program_help_requests(limit: int = 5) -> list[dict]:
         return []
 
 
-def get_teacher_notifications() -> list[dict]:
+def get_teacher_notifications_from_context(
+    *,
+    dashboard_df: pd.DataFrame | None = None,
+    today_events_df: pd.DataFrame | None = None,
+    future_events_df: pd.DataFrame | None = None,
+    payments_df: pd.DataFrame | None = None,
+    classes_df: pd.DataFrame | None = None,
+) -> list[dict]:
     uid = _uid()
     _, first_name = _load_name()
     notifications: list[dict] = []
@@ -427,7 +459,7 @@ def get_teacher_notifications() -> list[dict]:
             message=t(key).format(name=first_name, student=student_name, count=len(recent_links)),
         ))
 
-    today_events = _today_events_df()
+    today_events = _today_events_df_from_events(today_events_df) if today_events_df is not None else _today_events_df()
     if not today_events.empty:
         notifications.append(_notification(
             signature=f"teacher_today_lessons_{today.isoformat()}_{len(today_events)}",
@@ -444,7 +476,7 @@ def get_teacher_notifications() -> list[dict]:
         if m:
             hh, mm = int(m.group(1)), int(m.group(2))
             after_last = (now.hour, now.minute) >= (hh, mm)
-        logged = _today_classes_logged_count()
+        logged = _today_classes_logged_count_from_classes(classes_df) if classes_df is not None else _today_classes_logged_count()
         if after_last and logged < len(today_events):
             notifications.append(_notification(
                 signature=f"teacher_record_lessons_{today.isoformat()}_{len(today_events)}_{logged}",
@@ -455,7 +487,7 @@ def get_teacher_notifications() -> list[dict]:
                 message=t("notif_teacher_record_lessons").format(name=first_name, count=len(today_events)),
             ))
 
-    month_payments = _payments_this_month()
+    month_payments = _payments_this_month_from_frame(payments_df) if payments_df is not None else _payments_this_month()
     if linked_students and month_payments.empty:
         notifications.append(_notification(
             signature=f"teacher_no_payments_{today.year}_{today.month}",
@@ -475,7 +507,7 @@ def get_teacher_notifications() -> list[dict]:
             message=t("notif_teacher_first_payment_month").format(name=first_name),
         ))
 
-    dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
+    dash = dashboard_df if dashboard_df is not None else rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
     if dash is not None and not dash.empty:
         d = dash.copy()
         d["Status"] = d.get("Status", "").fillna("").astype(str).str.strip().str.casefold()
@@ -589,8 +621,17 @@ def get_teacher_notifications() -> list[dict]:
             message=t(key).format(name=first_name, student=_safe_title_case(topic_completed[0].get("student_name", "")), count=len(topic_completed)),
         ))
 
-    future_students = _future_events_students(days=14)
-    unscheduled = [row for row in linked_students if _norm(row.get("student_name")) not in future_students]
+    future_students = _future_events_students_from_events(future_events_df) if future_events_df is not None else _future_events_students(days=14)
+    paused_students = {
+        _norm(row.get("student"))
+        for _, row in active_schedule_freezes(today_local()).iterrows()
+        if _norm(row.get("student"))
+    }
+    unscheduled = [
+        row for row in linked_students
+        if _norm(row.get("student_name")) not in future_students
+        and _norm(row.get("student_name")) not in paused_students
+    ]
     if unscheduled:
         key = "notif_teacher_no_upcoming_lesson_many" if len(unscheduled) > 1 else "notif_teacher_no_upcoming_lesson_one"
         notifications.append(_notification(
@@ -615,7 +656,7 @@ def get_teacher_notifications() -> list[dict]:
             message=t(key).format(name=first_name, percent=milestone),
         ))
 
-    week_lessons = _classes_this_week_count()
+    week_lessons = _classes_this_week_count_from_frame(classes_df) if classes_df is not None else _classes_this_week_count()
     if week_lessons >= 5:
         notifications.append(_notification(
             signature=f"teacher_lessons_week_{today.isocalendar().week}_{week_lessons}",
@@ -637,6 +678,10 @@ def get_teacher_notifications() -> list[dict]:
         ))
 
     return sorted(notifications, key=lambda item: (item["priority"], item["message"]))
+
+
+def get_teacher_notifications() -> list[dict]:
+    return get_teacher_notifications_from_context()
 
 
 def get_student_notifications() -> list[dict]:

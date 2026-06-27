@@ -12,7 +12,7 @@ import json
 from typing import Tuple
 import streamlit.components.v1 as components
 from core.database import norm_student
-from helpers.schedule import load_schedules, load_overrides
+from helpers.schedule import load_schedules, load_overrides, load_schedule_freezes
 from helpers.student_meta import student_meta_maps
 from helpers.ui_components import to_dt_naive
 
@@ -74,6 +74,7 @@ def best_text_color(hex_color: str) -> str:
 def build_calendar_events(start_day: date, end_day: date, tz_name: str | None = None) -> pd.DataFrame:
     schedules = load_schedules()
     overrides = load_overrides()
+    freezes = load_schedule_freezes()
     color_map, zoom_map, _, _, address_map = student_meta_maps()
     current_tz_name = str(tz_name or get_app_tz_name() or DEFAULT_TZ_NAME).strip()
     current_tz = _safe_zoneinfo(current_tz_name, DEFAULT_TZ_NAME)
@@ -198,6 +199,34 @@ def build_calendar_events(start_day: date, end_day: date, tz_name: str | None = 
 
     if events_df is None or events_df.empty:
         return events_df
+
+    if freezes is not None and not freezes.empty:
+        for c, default in {"student": "", "start_date": None, "end_date": None, "active": True}.items():
+            if c not in freezes.columns:
+                freezes[c] = default
+        active_freezes = freezes[freezes["active"] == True].copy()
+        if not active_freezes.empty:
+            events_df["_student_key"] = events_df["Student"].astype(str).str.strip().str.casefold()
+            events_df["_event_date"] = pd.to_datetime(events_df["Date"], errors="coerce").dt.date
+            keep_mask = pd.Series(True, index=events_df.index)
+            for _, freeze in active_freezes.iterrows():
+                student_key = str(freeze.get("student") or "").strip().casefold()
+                if not student_key:
+                    continue
+                freeze_start = pd.to_datetime(freeze.get("start_date"), errors="coerce")
+                freeze_end = pd.to_datetime(freeze.get("end_date"), errors="coerce")
+                start_date = None if pd.isna(freeze_start) else freeze_start.date()
+                end_date = None if pd.isna(freeze_end) else freeze_end.date()
+                student_mask = events_df["_student_key"] == student_key
+                date_mask = pd.Series(True, index=events_df.index)
+                if start_date is not None:
+                    date_mask &= events_df["_event_date"].apply(lambda value: value >= start_date if pd.notna(value) else False)
+                if end_date is not None:
+                    date_mask &= events_df["_event_date"].apply(lambda value: value <= end_date if pd.notna(value) else False)
+                keep_mask &= ~(student_mask & date_mask)
+            events_df = events_df[keep_mask].drop(columns=["_student_key", "_event_date"], errors="ignore").copy()
+            if events_df.empty:
+                return events_df
 
     events_df["DateTime"] = to_dt_naive(events_df["DateTime"], utc=False)
     events_df = events_df.dropna(subset=["DateTime"]).sort_values("DateTime").reset_index(drop=True)

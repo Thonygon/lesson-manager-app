@@ -9,7 +9,7 @@ from typing import List, Optional
 from supabase import create_client
 
 from core.i18n import t
-from core.state import get_current_user_id, with_owner, _set_logged_in_user, _clear_logged_in_user
+from core.state import get_current_user_id, with_owner, _set_logged_in_user, _clear_logged_in_user, resolve_active_face
 
 
 logger = logging.getLogger(__name__)
@@ -157,7 +157,10 @@ def apply_auth_session() -> None:
             profile_name=display_name,
             profile_username=username,
             user_id=uid,
-            user_role=resolve_active_mode(profile),
+            user_role=resolve_active_face(
+                str(profile.get("role") or ""),
+                resolve_active_mode(profile),
+            ),
         )
 
         # Sync email into profiles once per session if needed
@@ -198,6 +201,8 @@ def apply_auth_session() -> None:
                     st.session_state["_post_login_action"] = "choose_role"
                 elif not _has_username:
                     st.session_state["_post_login_action"] = "choose_username"
+                elif str(profile.get("role") or "").strip().lower() == "admin":
+                    st.session_state["_post_login_action"] = "page:admin"
                 elif _user_role == "student":
                     _student_default = "student_home"
                     _target = _last_page if _last_page.startswith("student_") else _student_default
@@ -287,6 +292,7 @@ def _load_table_cached(name: str, uid: str, limit: int = 10000, page_size: int =
         "payments",
         "schedules",
         "calendar_overrides",
+        "student_schedule_freezes",
         "pricing_items",
         "app_settings",
         "profiles",
@@ -505,6 +511,8 @@ def profile_can_study(profile: dict) -> bool:
 
 def resolve_active_mode(profile: dict) -> str:
     desired = str((profile or {}).get("last_active_mode") or "").strip().lower()
+    if desired == "admin" and str((profile or {}).get("role") or "").strip().lower() == "admin":
+        return "admin"
     if desired == "student" and profile_can_study(profile):
         return "student"
     if desired == "teacher" and profile_can_teach(profile):
@@ -554,9 +562,11 @@ def upsert_profile_row(user_id: str, payload: dict) -> bool:
 
 def enable_profile_mode(user_id: str, target_role: str) -> bool:
     role = str(target_role or "").strip().lower()
-    if not user_id or role not in ("teacher", "student"):
+    if not user_id or role not in ("teacher", "student", "admin"):
         return False
     profile = load_profile_row(user_id)
+    if role == "admin":
+        return bool(str(profile.get("role") or "").strip().lower() == "admin")
     payload = {"last_active_mode": role}
     if role == "teacher":
         payload["can_teach"] = True

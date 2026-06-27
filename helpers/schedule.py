@@ -140,6 +140,104 @@ def load_overrides() -> pd.DataFrame:
 
 register_cache(_load_overrides_cached)
 
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_schedule_freezes_cached(uid: str) -> pd.DataFrame:
+    if not uid:
+        return pd.DataFrame(columns=["id", "student", "start_date", "end_date", "reason", "note", "active", "created_at"])
+    try:
+        rows = (
+            get_sb()
+            .table("student_schedule_freezes")
+            .select("*")
+            .eq("user_id", uid)
+            .order("created_at", desc=True)
+            .limit(500)
+            .execute()
+        )
+        df = pd.DataFrame(getattr(rows, "data", None) or [])
+    except Exception:
+        return pd.DataFrame(columns=["id", "student", "start_date", "end_date", "reason", "note", "active", "created_at"])
+    if df.empty:
+        return pd.DataFrame(columns=["id", "student", "start_date", "end_date", "reason", "note", "active", "created_at"])
+
+    for c, default in {
+        "id": None,
+        "student": "",
+        "start_date": None,
+        "end_date": None,
+        "reason": "",
+        "note": "",
+        "active": True,
+        "created_at": None,
+    }.items():
+        if c not in df.columns:
+            df[c] = default
+
+    df["student"] = df["student"].astype(str).str.strip()
+    df["start_date"] = pd.to_datetime(df["start_date"], errors="coerce").dt.date
+    df["end_date"] = pd.to_datetime(df["end_date"], errors="coerce").dt.date
+    df["reason"] = df["reason"].fillna("").astype(str).str.strip()
+    df["note"] = df["note"].fillna("").astype(str).str.strip()
+    df["active"] = df["active"].fillna(True).astype(bool)
+    return df
+
+
+def load_schedule_freezes() -> pd.DataFrame:
+    uid = get_current_user_id()
+    return _load_schedule_freezes_cached(uid or "")
+
+
+register_cache(_load_schedule_freezes_cached)
+
+
+def add_schedule_freeze(
+    student: str,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    reason: str = "",
+    note: str = "",
+) -> None:
+    student = str(student or "").strip()
+    if not student:
+        raise ValueError(t("select_student"))
+    start_date = start_date or now_local().date()
+    if start_date and end_date and end_date < start_date:
+        raise ValueError(t("schedule_pause_invalid_dates"))
+    ensure_student(student)
+    payload = with_owner({
+        "student": student,
+        "start_date": start_date.isoformat() if start_date else None,
+        "end_date": end_date.isoformat() if end_date else None,
+        "reason": str(reason or "").strip(),
+        "note": str(note or "").strip(),
+        "active": True,
+    })
+    get_sb().table("student_schedule_freezes").insert(payload).execute()
+    clear_app_caches()
+
+
+def resume_schedule_freeze(freeze_id: int) -> None:
+    uid = get_current_user_id()
+    q = get_sb().table("student_schedule_freezes").update({"active": False}).eq("id", int(freeze_id))
+    if uid:
+        q = q.eq("user_id", uid)
+    q.execute()
+    clear_app_caches()
+
+
+def active_schedule_freezes(on_date: date | None = None) -> pd.DataFrame:
+    day = on_date or date.today()
+    freezes = load_schedule_freezes()
+    if freezes.empty:
+        return freezes
+    active = freezes[freezes["active"] == True].copy()
+    if active.empty:
+        return active
+    start_ok = active["start_date"].isna() | active["start_date"].apply(lambda value: value <= day if pd.notna(value) else True)
+    end_ok = active["end_date"].isna() | active["end_date"].apply(lambda value: value >= day if pd.notna(value) else True)
+    return active[start_ok & end_ok].copy()
+
+
 def _to_utc_iso(dt: Optional[datetime]) -> Optional[str]:
     """
     Convert a datetime to a UTC ISO string for storage.

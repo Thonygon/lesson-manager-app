@@ -1,7 +1,7 @@
 import streamlit as st
 from core.database import load_table
 import pandas as pd
-from core.database import norm_student
+from core.database import norm_student, register_cache
 
 # 07.10) STUDENT META
 # =========================
@@ -41,5 +41,9 @@ def student_meta_maps():
     phone_map   = dict(zip(s["student_norm"], s["phone"]))
     address_map = dict(zip(s["student_norm"], s["address"]))
     return color_map, zoom_map, email_map, phone_map, address_map
+
+
+student_meta_maps = st.cache_data(ttl=45, show_spinner=False)(student_meta_maps)
+register_cache(student_meta_maps)
 
 # =========================

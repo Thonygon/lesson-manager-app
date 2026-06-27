@@ -1862,13 +1862,23 @@ def _summarize_prior_units(program: dict, current_unit_number: int) -> list[dict
     return summaries
 
 
+def _topic_has_generated_details(topic: dict) -> bool:
+    return bool(
+        topic.get("learning_objectives")
+        or topic.get("success_criteria")
+        or topic.get("student_can_do")
+        or topic.get("suggested_worksheet_types")
+        or topic.get("suggested_exam_exercise_types")
+        or _clean_text(topic.get("homework_idea"))
+        or _clean_text(topic.get("teacher_notes"))
+    )
+
+
 def _program_has_generated_unit_details(unit: dict) -> bool:
-    if unit.get("unit_objectives") or unit.get("delivery_notes") or unit.get("recommended_worksheet_types") or unit.get("recommended_exam_exercise_types"):
-        return True
-    for topic in unit.get("topics") or []:
-        if topic.get("learning_objectives") or topic.get("success_criteria") or topic.get("suggested_worksheet_types") or topic.get("suggested_exam_exercise_types"):
-            return True
-    return False
+    topics = unit.get("topics") or []
+    if not topics:
+        return False
+    return all(_topic_has_generated_details(topic) for topic in topics)
 
 
 def _call_learning_program_provider(
@@ -2398,6 +2408,10 @@ def _program_is_complete(program: dict) -> bool:
     return all(_program_has_generated_unit_details(unit) for unit in units)
 
 
+def learning_program_is_complete(program: dict) -> bool:
+    return _program_is_complete(normalize_learning_program_output(program))
+
+
 def _flatten_program_rows(program: dict) -> tuple[list[dict], list[dict]]:
     units_payload: list[dict] = []
     topics_payload: list[dict] = []
@@ -2474,6 +2488,8 @@ def _program_record_payload(
     if not is_complete:
         visibility = "private"
         status = "draft"
+    elif status == "draft":
+        status = "active"
 
     units_payload, topics_payload = _flatten_program_rows(program)
     total_units = len(units_payload)
@@ -2963,13 +2979,15 @@ def update_learning_program_visibility(program_id: int, visibility: str) -> tupl
     if visibility not in PROGRAM_VISIBILITY_OPTIONS:
         visibility = "private"
     program = load_learning_program(int(program_id))
-    if visibility == "public" and not _program_is_complete(program):
+    is_complete = _program_is_complete(program)
+    if visibility == "public" and not is_complete:
         return False, "program_incomplete"
     try:
         get_sb().table("learning_programs").update(
             {
                 "visibility": visibility,
-                "is_public": visibility == "public" and _program_is_complete(program),
+                "is_public": visibility == "public" and is_complete,
+                "status": "active" if is_complete else "draft",
                 "updated_at": _now_iso(),
             }
         ).eq("id", int(program_id)).eq("user_id", get_current_user_id()).execute()
@@ -3204,7 +3222,10 @@ def render_learning_program_library_cards(
                 visibility = t("public_label") if bool(row.get("is_public")) else t("private_label")
                 is_archived = is_archived_status(row.get("status"))
                 sequence_order = int(row.get("sequence_order") or 0)
+                is_owner = str(row.get("user_id") or "") == str(get_current_user_id() or "")
                 is_complete = str(row.get("status") or "").strip().lower() == "active"
+                if is_owner and program_id > 0:
+                    is_complete = _program_is_complete(load_learning_program(program_id))
                 chips = "".join(
                     [
                         f'<span class="cm-resource-chip">📚 {html.escape(subject_text)}</span>' if subject_text else "",
@@ -3245,7 +3266,6 @@ def render_learning_program_library_cards(
 
                 st.markdown(card_html, unsafe_allow_html=True)
 
-                is_owner = str(row.get("user_id") or "") == str(get_current_user_id() or "")
                 show_owner_controls = allow_visibility_toggle or allow_archive_toggle
                 action_cols = st.columns([1, 1, 1, 1] if show_owner_controls else [1, 1])
                 with action_cols[0]:
@@ -4123,6 +4143,18 @@ def render_saved_learning_program_workspace(program: dict, program_id: int, *, n
     pending_unit_key = f"{ns}_pending_unit"
     original_program = dict(program or {})
     program = normalize_learning_program_output(program)
+    if _program_is_complete(program) and str(original_program.get("status") or "").strip().lower() == "draft":
+        try:
+            get_sb().table("learning_programs").update(
+                {
+                    "status": "active",
+                    "updated_at": _now_iso(),
+                }
+            ).eq("id", int(program_id)).eq("user_id", get_current_user_id()).execute()
+            clear_app_caches()
+            original_program["status"] = "active"
+        except Exception:
+            pass
 
     pending_unit = st.session_state.get(pending_unit_key)
     if pending_unit:

@@ -26,6 +26,7 @@ from helpers.cv_storage import (
 from helpers.goal_explorer import _rank_search, render_income_goal_calculator
 from helpers.empty_states import render_empty_state
 from helpers.learning_programs import (
+    learning_program_is_complete,
     load_learning_program,
     load_my_learning_programs,
     load_public_learning_programs,
@@ -1603,7 +1604,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
             else:
                 render_teacher_program_view(selected_program)
 
-            program_complete = bool(selected_program) and all(unit.get("unit_objectives") or unit.get("delivery_notes") or any(topic.get("learning_objectives") for topic in (unit.get("topics") or [])) for unit in (selected_program.get("units") or []))
+            program_complete = bool(selected_program) and learning_program_is_complete(selected_program)
             if (
                 program_complete
                 and not is_archived_status(selected_program.get("status"))

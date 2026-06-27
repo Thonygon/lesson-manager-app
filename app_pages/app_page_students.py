@@ -50,6 +50,7 @@ from helpers.learning_programs import (
     load_assignment_progress_map,
     set_assignment_topic_progress,
 )
+from helpers.material_recommendations import build_generation_request, find_similar_materials, load_material_pool, open_material_recommendation
 from helpers.planner_storage import load_my_lesson_plans, load_public_lesson_plans
 from helpers.worksheet_storage import load_my_worksheets, load_public_worksheets
 from helpers.quick_exam_storage import load_my_exams, load_public_exams
@@ -168,40 +169,37 @@ def _score_resource_for_recommendation(row: dict, kind: str, source: str, item: 
 
 
 def _load_recommendation_resource_pool() -> list[dict]:
-    pool: list[dict] = []
-    source_loaders = [
-        ("plan", "own", load_my_lesson_plans),
-        ("plan", "community", load_public_lesson_plans),
-        ("worksheet", "own", load_my_worksheets),
-        ("worksheet", "community", load_public_worksheets),
-        ("exam", "own", load_my_exams),
-        ("exam", "community", load_public_exams),
-    ]
-    for kind, source, loader in source_loaders:
-        try:
-            df = loader()
-        except Exception:
-            df = pd.DataFrame()
-        if df is None or df.empty:
-            continue
-        for row in df.reset_index(drop=True).to_dict("records"):
-            if is_archived_status(row.get("status")):
-                continue
-            row = dict(row)
-            row["_recommended_search_blob"] = _resource_search_blob(row, kind)
-            pool.append({"kind": kind, "source": source, "row": row})
-    return pool
+    return load_material_pool()
 
 
 def _recommended_resources_for_item(item: dict, resource_pool: list[dict]) -> dict[str, list[dict]]:
     grouped: dict[str, list[dict]] = {"plan": [], "worksheet": [], "exam": []}
-    for resource in resource_pool:
-        score = _score_resource_for_recommendation(resource["row"], resource["kind"], resource["source"], item)
-        if score < 4.5:
-            continue
-        grouped.setdefault(resource["kind"], []).append({**resource, "score": score})
+    base_kwargs = {
+        "subject": item.get("subject_key"),
+        "learner_stage": item.get("learner_stage"),
+        "level_or_band": item.get("level_or_band"),
+        "topic": item.get("title"),
+        "student_profile": {
+            "program_context": {
+                "next_topics": [item.get("title")],
+                "next_objectives": [item.get("objective")],
+            },
+            "weak_topics": [item.get("objective"), item.get("title")],
+        },
+    }
     for kind in grouped:
-        grouped[kind] = sorted(grouped[kind], key=lambda resource: resource["score"], reverse=True)[:_RECOMMENDED_RESOURCE_GROUP_LIMIT]
+        request = build_generation_request(
+            kind=kind,
+            lesson_purpose=item.get("objective") if kind == "plan" else "",
+            worksheet_type=item.get("objective") if kind == "worksheet" else "",
+            exercise_types=[],
+            **base_kwargs,
+        )
+        grouped[kind] = find_similar_materials(
+            request,
+            limit=_RECOMMENDED_RESOURCE_GROUP_LIMIT,
+            min_score=5.0,
+        )
     return grouped
 
 
@@ -261,48 +259,8 @@ def _open_recommended_resource(resource: dict, *, assign: bool = False) -> None:
         go_to("resources")
         st.rerun()
 
-    if kind == "plan":
-        st.session_state["files_selected_plan"] = row.get("plan_json") or {}
-        st.session_state["files_selected_subject"] = str(row.get("subject") or "").strip()
-        st.session_state["files_selected_stage"] = str(row.get("learner_stage") or "").strip()
-        st.session_state["files_selected_level"] = str(row.get("level_or_band") or "").strip()
-        st.session_state["files_selected_purpose"] = str(row.get("lesson_purpose") or "").strip()
-        st.session_state["files_selected_topic"] = str(row.get("topic") or "").strip()
-        st.session_state["files_selected_source_type"] = str(row.get("source_type") or "").strip()
-        st.session_state["files_selected_title"] = str(row.get("title") or t("untitled_plan")).strip()
-        st.session_state["files_selected_plan_id"] = row.get("id")
-        st.session_state["files_selected_plan_status"] = str(row.get("status") or "").strip()
-        st.session_state["files_selected_plan_assign_expanded"] = bool(assign)
-        go_to("resources")
-        st.rerun()
-
-    if kind == "worksheet":
-        st.session_state["files_selected_worksheet"] = row.get("worksheet_json") or {}
-        st.session_state["files_ws_subject"] = str(row.get("subject") or "").strip()
-        st.session_state["files_ws_stage"] = str(row.get("learner_stage") or "").strip()
-        st.session_state["files_ws_level"] = str(row.get("level_or_band") or "").strip()
-        st.session_state["files_ws_type"] = str(row.get("worksheet_type") or "").strip()
-        st.session_state["files_ws_topic"] = str(row.get("topic") or "").strip()
-        st.session_state["files_ws_title"] = str(row.get("title") or t("untitled_worksheet")).strip()
-        st.session_state["files_selected_worksheet_id"] = row.get("id")
-        st.session_state["files_selected_worksheet_status"] = str(row.get("status") or "").strip()
-        st.session_state["files_selected_worksheet_assign_expanded"] = bool(assign)
-        go_to("resources")
-        st.rerun()
-
-    if kind == "exam":
-        st.session_state["files_selected_exam"] = row.get("exam_data") or {}
-        st.session_state["files_selected_exam_answer_key"] = row.get("answer_key") or {}
-        st.session_state["files_exam_subject"] = str(row.get("subject") or "").strip()
-        st.session_state["files_exam_stage"] = str(row.get("learner_stage") or "").strip()
-        st.session_state["files_exam_level"] = str(row.get("level") or "").strip()
-        st.session_state["files_exam_topic"] = str(row.get("topic") or "").strip()
-        st.session_state["files_exam_title"] = str(row.get("title") or t("untitled_plan")).strip()
-        st.session_state["files_selected_exam_id"] = row.get("id")
-        st.session_state["files_selected_exam_status"] = str(row.get("status") or "").strip()
-        st.session_state["files_selected_exam_assign_expanded"] = bool(assign)
-        go_to("resources")
-        st.rerun()
+    if kind in {"plan", "worksheet", "exam"}:
+        open_material_recommendation(resource, assign=assign, open_in_files=True)
 
 
 def _current_teacher_teaches_languages() -> bool:

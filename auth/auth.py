@@ -6,6 +6,7 @@ from core.i18n import t
 from core.state import (
     get_current_user_id,
     get_current_user_role,
+    resolve_active_face,
     _set_logged_in_user,
     _clear_logged_in_user,
     PROFILE_SUBJECT_OPTIONS,
@@ -245,7 +246,10 @@ def _restore_user_from_email() -> str:
             profile_name=profile_name or google_name,
             profile_username=str(row.get("username") or "").strip(),
             user_id=user_id,
-            user_role=resolve_active_mode(row),
+            user_role=resolve_active_face(
+                str(row.get("role") or ""),
+                resolve_active_mode(row),
+            ),
         )
 
         return user_id
@@ -743,7 +747,13 @@ def render_profile_dialog(user_id: str) -> None:
                 )
                 phone_number_val = _re.sub(r"[^\d+]", "", _raw_phone)
 
-            role_value = str(profile.get("role") or "teacher")
+            profile_role_value = str(profile.get("role") or "teacher").strip().lower()
+            _is_admin_profile = profile_role_value == "admin"
+            role_value = (
+                str(profile.get("primary_role") or profile.get("last_active_mode") or "teacher").strip().lower()
+                if _is_admin_profile
+                else profile_role_value
+            )
             _role_options = ["teacher", "student"]
             _role_idx = _role_options.index(role_value) if role_value in _role_options else 0
 
@@ -937,7 +947,11 @@ def render_profile_dialog(user_id: str) -> None:
                     "preferred_ui_language": preferred_ui_language,
                     "timezone": timezone_name,
                     "country": None if country == "Select..." else country,
-                    "role": role,
+                    "role": "admin" if _is_admin_profile else role,
+                    "primary_role": role,
+                    "can_teach": bool(_is_admin_profile or role == "teacher"),
+                    "can_study": bool(role == "student"),
+                    "last_active_mode": role,
                     "primary_subjects": primary_subjects,
                     "custom_subjects": [
                         s.strip().lower()

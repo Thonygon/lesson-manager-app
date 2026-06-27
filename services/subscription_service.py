@@ -18,12 +18,14 @@ DEFAULT_PLANS = [
         "features_json": {
             "ai_tools": True,
             "pdf_export": True,
+            "word_export": True,
             "premium_tools": False,
             "school_admin": False,
         },
         "limits_json": {
             "ai_generations": 10,
             "pdf_exports": 3,
+            "word_exports": 3,
             "students_count": 5,
             "classes_count": 20,
         },
@@ -37,12 +39,14 @@ DEFAULT_PLANS = [
         "features_json": {
             "ai_tools": True,
             "pdf_export": True,
+            "word_export": True,
             "premium_tools": True,
             "school_admin": False,
         },
         "limits_json": {
             "ai_generations": 250,
             "pdf_exports": 100,
+            "word_exports": 100,
             "students_count": 75,
             "classes_count": 500,
         },
@@ -56,12 +60,14 @@ DEFAULT_PLANS = [
         "features_json": {
             "ai_tools": True,
             "pdf_export": True,
+            "word_export": True,
             "premium_tools": True,
             "school_admin": True,
         },
         "limits_json": {
             "ai_generations": 2000,
             "pdf_exports": 1000,
+            "word_exports": 1000,
             "students_count": 1000,
             "classes_count": 10000,
         },
@@ -75,12 +81,14 @@ DEFAULT_PLANS = [
         "features_json": {
             "ai_tools": True,
             "pdf_export": True,
+            "word_export": True,
             "premium_tools": True,
             "school_admin": False,
         },
         "limits_json": {
             "ai_generations": 1000,
             "pdf_exports": 500,
+            "word_exports": 500,
             "students_count": 500,
             "classes_count": 5000,
         },
@@ -97,17 +105,32 @@ def _normalize_plan(row: dict) -> dict:
     return out
 
 
+def _merge_plan_catalog(rows: list[dict]) -> list[dict]:
+    order = {plan_id: idx for idx, plan_id in enumerate(PLAN_ORDER)}
+    merged: dict[str, dict] = {str(plan.get("id")): _normalize_plan(plan) for plan in DEFAULT_PLANS}
+    for row in rows or []:
+        plan_id = str((row or {}).get("id") or "").strip()
+        if not plan_id:
+            continue
+        merged[plan_id] = _normalize_plan({**merged.get(plan_id, {}), **dict(row or {})})
+    return sorted(merged.values(), key=lambda r: order.get(str(r.get("id")), 99))
+
+
 @st.cache_data(ttl=60, show_spinner=False)
-def list_active_plans() -> list[dict]:
+def list_plan_catalog() -> list[dict]:
     try:
-        res = get_sb().table("plans").select("*").eq("active", True).execute()
+        res = get_sb().table("plans").select("*").execute()
         rows = getattr(res, "data", None) or []
         if rows:
-            order = {plan_id: idx for idx, plan_id in enumerate(PLAN_ORDER)}
-            return sorted([_normalize_plan(r) for r in rows], key=lambda r: order.get(str(r.get("id")), 99))
+            return _merge_plan_catalog(rows)
     except Exception:
         pass
-    return DEFAULT_PLANS
+    return _merge_plan_catalog([])
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def list_active_plans() -> list[dict]:
+    return [plan for plan in list_plan_catalog() if bool(plan.get("active", True))]
 
 
 def get_plan_by_id(plan_id: str) -> dict:
@@ -164,6 +187,7 @@ def get_usage(user_id: str | None = None) -> dict:
         "user_id": uid,
         "ai_generations": 0,
         "pdf_exports": 0,
+        "word_exports": 0,
         "students_count": 0,
         "classes_count": 0,
         "monthly_reset_date": date.today().isoformat(),
@@ -186,6 +210,7 @@ def usage_dataframe(user_id: str | None = None) -> pd.DataFrame:
     for key, label in [
         ("ai_generations", "AI generations"),
         ("pdf_exports", "PDF exports"),
+        ("word_exports", "Word exports"),
         ("students_count", "Students"),
         ("classes_count", "Classes"),
     ]:
@@ -210,6 +235,7 @@ def reset_usage(user_id: str) -> None:
             "user_id": str(user_id),
             "ai_generations": 0,
             "pdf_exports": 0,
+            "word_exports": 0,
             "students_count": 0,
             "classes_count": 0,
             "monthly_reset_date": datetime.now(timezone.utc).date().isoformat(),
