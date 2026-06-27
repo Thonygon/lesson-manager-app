@@ -25,6 +25,13 @@ from helpers.student_personalization import (
     native_language_label,
     normalize_native_language,
 )
+from helpers.material_recommendations import (
+    approve_generation_reuse_gate,
+    build_generation_request,
+    is_generation_reuse_gate_pending,
+    maybe_pause_generation_for_matches,
+    render_generation_recommendations,
+)
 from reportlab.lib.enums import TA_CENTER
 
 
@@ -1776,11 +1783,12 @@ def render_quick_lesson_planner_expander() -> None:
             help=t("personalize_for_student_help"),
         )
         selected_student = next((item for item in student_options if item["label"] == selected_student_label), None)
+        effective_subject = other_subject_name if subject == "other" else subject
         preview_profile = {}
         if selected_student:
             preview_profile = build_student_generation_profile(
                 selected_student["student_user_id"],
-                subject=other_subject_name if subject == "other" else subject,
+                subject=effective_subject,
             )
             if preview_profile.get("summary"):
                 st.caption(preview_profile["summary"])
@@ -1814,7 +1822,24 @@ def render_quick_lesson_planner_expander() -> None:
         rec_label = rec_level if rec_level in _lp().LANGUAGE_LEVELS else t(rec_level)
         st.caption(f"{t('recommended_level')}: {rec_label}")
 
-        if st.button(t("generate_plan"), key="btn_generate_quick_plan", use_container_width=True):
+        effective_topic_preview = topic.strip() or str(((preview_profile.get("program_context") or {}).get("next_topics") or [""])[0]).strip()
+        plan_request = build_generation_request(
+            kind="plan",
+            subject=effective_subject,
+            learner_stage=learner_stage,
+            level_or_band=level_or_band,
+            topic=effective_topic_preview,
+            lesson_purpose=lesson_purpose,
+            student_profile=preview_profile,
+        )
+        render_generation_recommendations(plan_request, state_prefix="quick_plan")
+        generate_plan_label = (
+            t("material_recommendations_generate_anyway")
+            if quick_plan_mode == "ai" and is_generation_reuse_gate_pending(plan_request, state_prefix="quick_plan")
+            else t("generate_plan")
+        )
+
+        if st.button(generate_plan_label, key="btn_generate_quick_plan", use_container_width=True):
             if subject == "other" and not other_subject_name:
                 st.error(t("enter_subject_name"))
             elif subject == "other" and quick_plan_mode == "template":
@@ -1864,7 +1889,6 @@ def render_quick_lesson_planner_expander() -> None:
             else:
                 st.session_state.pop("quick_plan_ab_debug_compare", None)
                 st.session_state["quick_lesson_no_template"] = False
-                effective_subject = other_subject_name if subject == "other" else subject
                 student_profile = (
                     build_student_generation_profile(selected_student["student_user_id"], subject=effective_subject)
                     if selected_student
@@ -1878,6 +1902,19 @@ def render_quick_lesson_planner_expander() -> None:
                 if not effective_topic:
                     st.error(t("enter_topic"))
                     return
+                generation_request = build_generation_request(
+                    kind="plan",
+                    subject=effective_subject,
+                    learner_stage=learner_stage,
+                    level_or_band=level_or_band,
+                    topic=effective_topic,
+                    lesson_purpose=lesson_purpose,
+                    student_profile=student_profile,
+                )
+                if quick_plan_mode == "ai" and is_generation_reuse_gate_pending(generation_request, state_prefix="quick_plan"):
+                    approve_generation_reuse_gate(generation_request, state_prefix="quick_plan")
+                elif quick_plan_mode == "ai" and maybe_pause_generation_for_matches(generation_request, state_prefix="quick_plan"):
+                    st.rerun()
                 st.session_state["quick_plan_effective_topic"] = effective_topic
 
                 with st.spinner(t("generating")):
@@ -1908,6 +1945,8 @@ def render_quick_lesson_planner_expander() -> None:
                             debug_baseline_plan = _lp().normalize_planner_output(debug_baseline_plan)
                         except Exception as exc:
                             debug_baseline_error = str(exc)
+                st.session_state.pop("quick_plan_reuse_gate_pending", None)
+                st.session_state.pop("quick_plan_reuse_gate_approved", None)
 
                 st.session_state["quick_lesson_plan_result"] = plan
                 st.session_state["quick_lesson_plan_kept"] = False

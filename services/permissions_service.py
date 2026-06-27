@@ -7,6 +7,7 @@ from services.subscription_service import get_user_plan, get_usage
 FEATURE_ALIASES = {
     "ai_generations": "ai_tools",
     "pdf_exports": "pdf_export",
+    "word_exports": "word_export",
 }
 
 
@@ -48,6 +49,11 @@ def increment_usage(user_id: str | None, feature: str, amount: int = 1) -> bool:
 def can_export_pdf(user_id: str | None = None) -> bool:
     uid = user_id or get_current_user_id()
     return user_has_feature(uid, "pdf_export") and check_usage_limit(uid, "pdf_exports")
+
+
+def can_export_word(user_id: str | None = None) -> bool:
+    uid = user_id or get_current_user_id()
+    return user_has_feature(uid, "word_export") and check_usage_limit(uid, "word_exports")
 
 
 def can_use_ai_tool(user_id: str | None = None) -> bool:

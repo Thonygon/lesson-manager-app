@@ -6,18 +6,19 @@ import pandas as pd
 from core.i18n import t
 from core.timezone import today_local, now_local, get_app_tz_name
 from core.navigation import page_header, go_to
-from core.database import norm_student, update_payment_row, clear_app_caches
+from core.database import norm_student, update_payment_row, clear_app_caches, load_table
 from helpers.dashboard import rebuild_dashboard
 from helpers.empty_states import render_empty_state
 from helpers.student_meta import student_meta_maps
 from helpers.goals import render_home_indicator, YEAR_GOAL_SCOPE
 from helpers.kpi_bubbles import kpi_stat_cards
 from helpers.ui_components import pretty_df, translate_df_headers, translate_df, ts_today_naive, render_styled_dataframe
-from helpers.analytics import build_income_analytics
+from helpers.analytics import build_income_analytics, _build_income_analytics_from_payments
 from helpers.year_goals import get_year_goal
 from helpers.currency import format_currency, get_preferred_currency, get_exchange_rate
 from helpers.language import translate_status, translate_modality_value, translate_language_value
 from helpers.calendar_helpers import build_calendar_events
+from helpers.schedule import active_schedule_freezes
 from helpers.whatsapp import build_whatsapp_url, build_msg_confirm, build_msg_cancel, build_msg_package_header, build_pricing_block, _msg_lang_label
 from helpers.history import show_student_history
 from helpers.student_meta import load_students_df
@@ -28,6 +29,7 @@ from helpers.student_report import (
 )
 from helpers.notifications import (
     get_teacher_notifications,
+    get_teacher_notifications_from_context,
     render_notification_cloud,
     render_notification_heading,
     render_notification_panel,
@@ -80,26 +82,27 @@ def _localized_weekday_short(dt_obj) -> str:
     }
     return t(weekday_keys[dt_obj.weekday()])
 
-def _get_next_lesson_from_calendar() -> str:
-    now_dt = now_local()
-    start_day = today_local()
-    end_day = start_day + datetime.timedelta(days=60)
-
-    events = build_calendar_events(start_day, end_day, get_app_tz_name())
+def _normalize_calendar_events(events: pd.DataFrame | None) -> pd.DataFrame:
     if events is None or events.empty:
-        return "—"
+        return pd.DataFrame()
 
     df = events.copy()
 
-    # Make sure expected columns exist
     for col in ["Student", "Time"]:
         if col not in df.columns:
             df[col] = ""
 
     df["Student"] = df["Student"].fillna("").astype(str).str.strip()
     df["Time"] = df["Time"].fillna("").astype(str).str.strip()
+    return df
 
-    # Try to detect a date column from build_calendar_events output
+
+def _get_next_lesson_from_events(events: pd.DataFrame | None) -> str:
+    now_dt = now_local()
+    df = _normalize_calendar_events(events)
+    if df.empty:
+        return "—"
+
     date_col = None
     for candidate in ["Date", "date", "Start_Date", "start_date", "Start", "start"]:
         if candidate in df.columns:
@@ -343,12 +346,38 @@ def _render_today_lessons_cards(df: pd.DataFrame, color_map: dict, phone_map: di
         st.markdown(html, unsafe_allow_html=True)
 
 def render_dashboard():
-    teacher_notifications = get_teacher_notifications()
-    render_notification_cloud(teacher_notifications, scope="teacher")
     page_header(t("dashboard"))
     st.caption(t("manage_current_students"))
 
-    dash = rebuild_dashboard(active_window_days=183, expiry_days=365, grace_days=35)
+    classes_df = load_table("classes")
+    payments_df = load_table("payments")
+    dash = rebuild_dashboard(
+        active_window_days=183,
+        expiry_days=365,
+        grace_days=35,
+    )
+    start_day = today_local()
+    end_day = start_day + datetime.timedelta(days=60)
+    future_events = _normalize_calendar_events(build_calendar_events(start_day, end_day, get_app_tz_name()))
+    today = today_local()
+    active_pauses = active_schedule_freezes(today)
+    today_iso = today.strftime("%Y-%m-%d")
+    today_events = future_events[future_events.get("Date", "").astype(str) == today_iso].copy() if not future_events.empty and "Date" in future_events.columns else pd.DataFrame()
+    future_events_14 = future_events.copy()
+    if not future_events_14.empty and "Date" in future_events_14.columns:
+        future_cutoff = (today + datetime.timedelta(days=14)).strftime("%Y-%m-%d")
+        future_events_14 = future_events_14[
+            future_events_14["Date"].astype(str).between(today_iso, future_cutoff)
+        ].copy()
+    teacher_notifications = get_teacher_notifications_from_context(
+        dashboard_df=dash,
+        today_events_df=today_events,
+        future_events_df=future_events_14,
+        payments_df=payments_df,
+        classes_df=classes_df,
+    )
+    render_notification_cloud(teacher_notifications, scope="teacher")
+
     if dash is None or dash.empty:
         render_empty_state(
             title_key="dashboard_empty_title",
@@ -376,6 +405,7 @@ def render_dashboard():
         st.stop()
 
     d = dash.copy()
+    color_map, _, _, phone_map, address_map = student_meta_maps()
 
     # --- IMPORTANT: treat status as INTERNAL CODES (lowercase) ---
     d["Status"] = d.get("Status", "").fillna("").astype(str).str.strip().str.casefold()
@@ -395,9 +425,9 @@ def render_dashboard():
         .sum()
     )
 
-    next_lesson = _get_next_lesson_from_calendar()
+    next_lesson = _get_next_lesson_from_events(future_events)
 
-    kpis, *_ = build_income_analytics(group="monthly")
+    kpis, *_ = _build_income_analytics_from_payments(payments_df, group="monthly")
     income_this_year = float(kpis.get("income_this_year", 0.0))
 
     current_year = int(ts_today_naive().year)
@@ -437,9 +467,6 @@ def render_dashboard():
     # ---------------------------------------
     st.subheader("📅 " + t("todays_lessons"))
 
-    today = today_local()
-    today_events = build_calendar_events(today, today, get_app_tz_name())
-
     # Keep a DF for WhatsApp templates (confirm/cancel)
     today_df = pd.DataFrame()
 
@@ -463,7 +490,6 @@ def render_dashboard():
 
         today_df = df.copy()
 
-        color_map, _, _, phone_map, address_map = student_meta_maps()
         _render_today_lessons_cards(df, color_map, phone_map, address_map)
 
     # ---------------------------------------
@@ -478,7 +504,6 @@ def render_dashboard():
     if due_df.empty:
         st.caption(t("no_data"))
     else:
-        color_map, _, _, _, _ = student_meta_maps()
         for _, row in due_df.iterrows():
             student = str(row.get("Student", ""))
             lessons_left = int(row.get("Lessons_Left", 0))
@@ -560,8 +585,6 @@ def render_dashboard():
     )
 
     # Phone map
-    _, _, _, phone_map, _ = student_meta_maps()
-
     # Decide eligible list + pick student
     pick = ""
     default_msg = ""
@@ -652,6 +675,7 @@ def render_dashboard():
     finish_soon_count = int((d["Status"] == "almost_finished").sum())
     finished_recent_count = int((d["Status"] == "finished").sum())
     mismatch_count = int((d["Status"] == "mismatch").sum())
+    paused_count = int(len(active_pauses)) if active_pauses is not None else 0
 
     kpi_stat_cards(
         values=[
@@ -660,6 +684,7 @@ def render_dashboard():
             (t("action_finish_soon"), str(finish_soon_count)),
             (t("finished"), str(finished_recent_count)),
             (t("mismatch"), str(mismatch_count)),
+            (t("dashboard_paused_students"), str(paused_count)),
         ],
         accent_colors=[
             "#3B82F6",  # blue
@@ -667,6 +692,7 @@ def render_dashboard():
             "#F59E0B",  # amber
             "#8B5CF6",  # purple
             "#EF4444",  # red
+            "#0EA5E9",  # cyan
         ],
     )
 

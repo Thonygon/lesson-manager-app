@@ -25,6 +25,13 @@ from helpers.student_personalization import (
     native_language_label,
     normalize_native_language,
 )
+from helpers.material_recommendations import (
+    approve_generation_reuse_gate,
+    build_generation_request,
+    is_generation_reuse_gate_pending,
+    maybe_pause_generation_for_matches,
+    render_generation_recommendations,
+)
 from helpers.visual_support import enrich_exam_with_visuals
 
 
@@ -1436,8 +1443,25 @@ def render_quick_exam_builder_expander() -> None:
             if not selected_student:
                 st.caption(t("ab_debug_compare_requires_student"))
 
+        effective_topic_preview = topic.strip() or str(((preview_profile.get("program_context") or {}).get("next_topics") or [""])[0]).strip()
+        exam_request = build_generation_request(
+            kind="exam",
+            subject=effective_subject,
+            learner_stage=learner_stage,
+            level_or_band=level_or_band,
+            topic=effective_topic_preview,
+            exercise_types=_dedupe_keep_order(exercise_types),
+            student_profile=preview_profile,
+        )
+        render_generation_recommendations(exam_request, state_prefix="quick_exam")
+        generate_exam_label = (
+            t("material_recommendations_generate_anyway")
+            if is_generation_reuse_gate_pending(exam_request, state_prefix="quick_exam")
+            else (t("generate_exam") if t("generate_exam") != "generate_exam" else "Generate Exam")
+        )
+
         if st.button(
-            t("generate_exam") if t("generate_exam") != "generate_exam" else "Generate Exam",
+            generate_exam_label,
             key="btn_gen_exam",
             use_container_width=True,
         ):
@@ -1466,6 +1490,19 @@ def render_quick_exam_builder_expander() -> None:
                     return
                 st.session_state["quick_exam_effective_topic"] = effective_topic
                 selected_types = _dedupe_keep_order(exercise_types)
+                generation_request = build_generation_request(
+                    kind="exam",
+                    subject=effective_subject,
+                    learner_stage=learner_stage,
+                    level_or_band=level_or_band,
+                    topic=effective_topic,
+                    exercise_types=selected_types,
+                    student_profile=student_profile,
+                )
+                if is_generation_reuse_gate_pending(generation_request, state_prefix="quick_exam"):
+                    approve_generation_reuse_gate(generation_request, state_prefix="quick_exam")
+                elif maybe_pause_generation_for_matches(generation_request, state_prefix="quick_exam"):
+                    st.rerun()
                 length_spec = _LENGTH_SPEC.get(exam_length, _LENGTH_SPEC["medium"])
                 max_recommended_sections = length_spec["sections"]
                 if len(selected_types) > max_recommended_sections:
@@ -1505,6 +1542,8 @@ def render_quick_exam_builder_expander() -> None:
                             )
                         except Exception as exc:
                             debug_baseline_error = str(exc)
+                st.session_state.pop("quick_exam_reuse_gate_pending", None)
+                st.session_state.pop("quick_exam_reuse_gate_approved", None)
 
                 if warning and not exam_data:
                     st.warning(warning)

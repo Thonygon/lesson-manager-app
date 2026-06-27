@@ -47,6 +47,13 @@ from helpers.student_personalization import (
     native_language_label,
     normalize_native_language,
 )
+from helpers.material_recommendations import (
+    approve_generation_reuse_gate,
+    build_generation_request,
+    is_generation_reuse_gate_pending,
+    maybe_pause_generation_for_matches,
+    render_generation_recommendations,
+)
 
 
 _WORKSHEET_LIST_COLUMNS = ",".join([
@@ -2358,11 +2365,12 @@ def render_quick_worksheet_maker_expander() -> None:
             help=t("personalize_for_student_help"),
         )
         selected_student = next((item for item in student_options if item["label"] == selected_student_label), None)
+        effective_subject = other_subject_name if subject == "other" else subject
         preview_profile = {}
         if selected_student:
             preview_profile = build_student_generation_profile(
                 selected_student["student_user_id"],
-                subject=other_subject_name if subject == "other" else subject,
+                subject=effective_subject,
             )
             if preview_profile.get("summary"):
                 st.caption(preview_profile["summary"])
@@ -2390,12 +2398,28 @@ def render_quick_worksheet_maker_expander() -> None:
             if not selected_student:
                 st.caption(t("ab_debug_compare_requires_student"))
 
-        if st.button(t("generate_worksheet"), key="btn_gen_ws", use_container_width=True):
+        effective_topic_preview = topic.strip() or str(((preview_profile.get("program_context") or {}).get("next_topics") or [""])[0]).strip()
+        worksheet_request = build_generation_request(
+            kind="worksheet",
+            subject=effective_subject,
+            learner_stage=learner_stage,
+            level_or_band=level_or_band,
+            topic=effective_topic_preview,
+            worksheet_type=worksheet_type,
+            student_profile=preview_profile,
+        )
+        render_generation_recommendations(worksheet_request, state_prefix="quick_ws")
+        generate_button_label = (
+            t("material_recommendations_generate_anyway")
+            if is_generation_reuse_gate_pending(worksheet_request, state_prefix="quick_ws")
+            else t("generate_worksheet")
+        )
+
+        if st.button(generate_button_label, key="btn_gen_ws", use_container_width=True):
             if subject == "other" and not other_subject_name:
                 st.error(t("enter_subject_name"))
             else:
                 st.session_state.pop("worksheet_ab_debug_compare", None)
-                effective_subject = other_subject_name if subject == "other" else subject
                 student_profile = (
                     build_student_generation_profile(selected_student["student_user_id"], subject=effective_subject)
                     if selected_student
@@ -2409,6 +2433,19 @@ def render_quick_worksheet_maker_expander() -> None:
                 if not effective_topic:
                     st.error(t("enter_topic"))
                     return
+                generation_request = build_generation_request(
+                    kind="worksheet",
+                    subject=effective_subject,
+                    learner_stage=learner_stage,
+                    level_or_band=level_or_band,
+                    topic=effective_topic,
+                    worksheet_type=worksheet_type,
+                    student_profile=student_profile,
+                )
+                if is_generation_reuse_gate_pending(generation_request, state_prefix="quick_ws"):
+                    approve_generation_reuse_gate(generation_request, state_prefix="quick_ws")
+                elif maybe_pause_generation_for_matches(generation_request, state_prefix="quick_ws"):
+                    st.rerun()
                 st.session_state["ws_effective_topic"] = effective_topic
                 with st.spinner(t("generating")):
                     ws, warning = _wb().generate_worksheet_with_limit(
@@ -2437,6 +2474,8 @@ def render_quick_worksheet_maker_expander() -> None:
                             )
                         except Exception as exc:
                             debug_baseline_error = str(exc)
+                st.session_state.pop("quick_ws_reuse_gate_pending", None)
+                st.session_state.pop("quick_ws_reuse_gate_approved", None)
 
                 if warning and not ws:
                     st.warning(warning)

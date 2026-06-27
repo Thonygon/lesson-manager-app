@@ -31,8 +31,6 @@ def render_top_nav(active_page: str):
         ("smart_tools", t("ai_tools"),  "robot"),
         ("resources",   t("files"),     "folder2-open"),
     ]
-    # Pricing and account entries are intentionally hidden from the UI until ready.
-    # The underlying pages and routes remain available (e.g. for Stripe redirects).
     more_items = [
         ("home",      t("home"),      "house"),
         ("community", t("community"), "globe"),
@@ -40,6 +38,8 @@ def render_top_nav(active_page: str):
         ("analytics", t("analytics"), "graph-up"),
     ]
     if current_user_is_admin():
+        more_items.append(("pricing", t("pricing"), "gem"))
+        more_items.append(("account", t("account"), "person-badge"))
         more_items.append(("admin", t("admin"), "shield-lock"))
     more_items.append(("sign_out", t("sign_out"), "box-arrow-right"))
 
@@ -222,6 +222,79 @@ def render_student_top_nav(active_page: str):
             st.rerun()
 
 
+def render_admin_top_nav(active_page: str):
+    items = [
+        ("admin", t("admin"), "shield-lock"),
+        ("switch_teacher", t("switch_to_teacher"), "arrow-left-right"),
+        ("switch_student", t("switch_to_student"), "arrow-left-right"),
+        ("profile", t("profile"), "person-circle"),
+        ("sign_out", t("sign_out"), "box-arrow-right"),
+    ]
+
+    keys = [k for k, _, _ in items]
+    labels = [label for _, label, _ in items]
+    icons = [icon for _, _, icon in items]
+
+    try:
+        default_index = keys.index(active_page)
+    except ValueError:
+        default_index = 0
+
+    selected_label = option_menu(
+        menu_title=None,
+        options=labels,
+        icons=icons,
+        orientation="horizontal",
+        default_index=default_index,
+        key="admin_top_nav_option_menu",
+        styles={
+            "container": {
+                "padding": "0 !important",
+                "margin": "0 0 1rem 0 !important",
+                "background": "var(--panel)",
+                "border": "1px solid var(--border)",
+                "border-radius": "14px",
+            },
+            "nav-link": {
+                "font-size": "14px",
+                "text-align": "center",
+                "padding": "6px 8px",
+                "color": "var(--muted)",
+                "--hover-color": "var(--panel-soft)",
+            },
+            "nav-link-selected": {
+                "background": "var(--primary)",
+                "color": "#f1f5f9",
+            },
+            "icon": {
+                "font-size": "16px",
+                "color": "var(--primary-light)",
+            },
+        },
+    )
+
+    selected_key = active_page
+    for key, label, _ in items:
+        if label == selected_label:
+            selected_key = key
+            break
+
+    previous_key = st.session_state.get("admin_top_nav_prev", active_page)
+    if selected_key != previous_key:
+        st.session_state["admin_top_nav_prev"] = selected_key
+        if selected_key == "sign_out":
+            sign_out_user()
+        elif selected_key == "profile":
+            st.session_state["show_profile_dialog"] = True
+        elif selected_key == "switch_teacher":
+            _switch_role("teacher")
+        elif selected_key == "switch_student":
+            _switch_role("student")
+        elif selected_key != active_page:
+            go_to(selected_key)
+            st.rerun()
+
+
 def _switch_role(target_role: str):
     """Switch the user's active app mode without rewriting the saved profile role."""
     uid = get_current_user_id()
@@ -231,6 +304,9 @@ def _switch_role(target_role: str):
     if target_role == "student":
         st.session_state["page"] = "student_home"
         _set_query(page="student_home", lang=st.session_state.get("ui_lang", "en"))
+    elif target_role == "admin":
+        st.session_state["page"] = "admin"
+        _set_query(page="admin", lang=st.session_state.get("ui_lang", "en"))
     else:
         st.session_state["page"] = "home"
         _set_query(page="home", lang=st.session_state.get("ui_lang", "en"))
@@ -239,6 +315,10 @@ def _switch_role(target_role: str):
 
 def route_app_pages(page: str):
     role = get_current_user_role()
+
+    if role == "admin" or page == "admin":
+        _route_admin_pages(page)
+        return
 
     # Student role routing
     if role == "student" or page.startswith("student_"):
@@ -342,3 +422,16 @@ def _route_student_pages(page: str):
     else:
         go_to("student_home")
         st.rerun()
+
+
+def _route_admin_pages(page: str):
+    from app_pages.admin import render_admin
+    from styles.theme import load_css_app
+
+    if page != "admin":
+        page = "admin"
+
+    load_css_app(compact=bool(st.session_state.get("compact_mode", False)))
+    render_admin_top_nav(page)
+    _render_profile_dialog_if_requested()
+    render_admin()

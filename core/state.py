@@ -34,6 +34,15 @@ def get_current_user_role() -> str:
     return str(st.session_state.get("user_role") or "teacher")
 
 
+def resolve_active_face(profile_role: str, fallback_role: str = "teacher") -> str:
+    profile_role = str(profile_role or "").strip().lower()
+    fallback_role = str(fallback_role or "teacher").strip().lower()
+    current_role = str(st.session_state.get("user_role") or "").strip().lower()
+    if profile_role == "admin" and current_role in ("teacher", "student", "admin"):
+        return current_role
+    return fallback_role if fallback_role in ("teacher", "student", "admin") else "teacher"
+
+
 def _set_logged_in_user(
     user,
     profile_name: str = "",
@@ -74,7 +83,7 @@ def _set_logged_in_user(
         or str(st.session_state.get("user_username") or "").strip()
     )
 
-    st.session_state["user_role"] = user_role if user_role in ("teacher", "student") else "teacher"
+    st.session_state["user_role"] = user_role if user_role in ("teacher", "student", "admin") else "teacher"
 
 
 def _clear_logged_in_user() -> None:
