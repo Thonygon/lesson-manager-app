@@ -229,8 +229,30 @@ def update_user_plan(user_id: str, plan_id: str, status: str = "active", manual_
     get_sb().table("profiles").update({"current_plan": str(plan_id), "subscription_status": str(status)}).eq("user_id", str(user_id)).execute()
 
 
+def _usage_tracking_upsert(payload: dict) -> None:
+    safe_payload = dict(payload or {})
+    optional_columns = ["word_exports"]
+    last_exc = None
+    while True:
+        try:
+            get_sb().table("usage_tracking").upsert(safe_payload, on_conflict="user_id").execute()
+            return
+        except Exception as exc:
+            last_exc = exc
+            message = str(exc)
+            removed = False
+            for column in list(optional_columns):
+                if column in safe_payload and column in message:
+                    safe_payload.pop(column, None)
+                    optional_columns.remove(column)
+                    removed = True
+                    break
+            if not removed:
+                raise last_exc
+
+
 def reset_usage(user_id: str) -> None:
-    get_sb().table("usage_tracking").upsert(
+    _usage_tracking_upsert(
         {
             "user_id": str(user_id),
             "ai_generations": 0,
@@ -239,6 +261,5 @@ def reset_usage(user_id: str) -> None:
             "students_count": 0,
             "classes_count": 0,
             "monthly_reset_date": datetime.now(timezone.utc).date().isoformat(),
-        },
-        on_conflict="user_id",
-    ).execute()
+        }
+    )

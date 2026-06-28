@@ -172,37 +172,38 @@ def _render_comparison_matrix(plans: list[dict], preview_currency: str) -> None:
         """
         <style>
         .pricing-compare-wrap{
-          border:1px solid rgba(15,23,42,.08);
+          border:1px solid var(--border);
           border-radius:20px;
           overflow:hidden;
-          background:linear-gradient(180deg, rgba(255,255,255,.96), rgba(248,250,252,.98));
+          background:linear-gradient(180deg, color-mix(in srgb, var(--panel) 96%, white 4%), var(--panel-soft));
           box-shadow:0 20px 60px rgba(15,23,42,.06);
         }
         .pricing-compare-row{
           display:grid;
           grid-template-columns:minmax(180px,1.05fr) repeat(3, minmax(140px,1fr));
-          border-top:1px solid rgba(15,23,42,.06);
+          border-top:1px solid var(--border);
         }
         .pricing-compare-header{
           border-top:none;
-          background:linear-gradient(180deg, rgba(241,245,249,.92), rgba(248,250,252,.92));
+          background:linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 88%, var(--primary) 12%), var(--panel-soft));
         }
         .pricing-compare-cell{
           padding:14px 16px;
           font-size:14px;
-          color:#334155;
+          color:var(--text);
         }
         .pricing-compare-label{
           font-weight:700;
-          color:#0f172a;
+          color:var(--text);
         }
         .pricing-compare-header .pricing-compare-cell{
           font-weight:800;
-          color:#0f172a;
+          color:var(--text);
           font-size:15px;
         }
         .pricing-compare-value{
           font-weight:600;
+          color:var(--muted);
         }
         @media (max-width: 900px){
           .pricing-compare-row{
@@ -298,5 +299,3 @@ def render_pricing() -> None:
         email=email,
         show_comparison=True,
     )
-
-    st.info(t("pricing_admin_control_note"))

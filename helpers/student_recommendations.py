@@ -135,6 +135,8 @@ def _load_program_signals() -> dict[str, Any]:
     enriched = load_enriched_program_assignments_for_current_student()
     signals = {
         "subjects": set(),
+        "subject_levels": {},
+        "subject_stages": {},
         "next_topic_titles": [],
         "topic_tokens": set(),
         "worksheet_types": set(),
@@ -145,6 +147,12 @@ def _load_program_signals() -> dict[str, Any]:
         subject = normalize_subject(program.get("subject") or assignment.get("subject_key") or "")
         if subject:
             signals["subjects"].add(subject)
+            level = _normalize_level(program.get("level_or_band") or assignment.get("level_or_band") or "")
+            stage = str(program.get("learner_stage") or assignment.get("learner_stage") or "").strip()
+            if level and subject not in signals["subject_levels"]:
+                signals["subject_levels"][subject] = level
+            if stage and subject not in signals["subject_stages"]:
+                signals["subject_stages"][subject] = stage
         progress_map = assignment.get("progress_map") or {}
         for unit in program.get("units") or []:
             for topic in unit.get("topics") or []:
@@ -236,6 +244,7 @@ def _build_student_need_profile() -> dict[str, Any]:
     profile = {
         "primary_subjects": [normalize_subject(value) for value in (profile_row.get("primary_subjects") or []) if str(value or "").strip()],
         "subject_need": {},
+        "subject_attempts": {},
         "topic_need": {},
         "exercise_need": {},
         "subject_level": {},
@@ -282,6 +291,7 @@ def _build_student_need_profile() -> dict[str, Any]:
         profile["overall_accuracy"].setdefault(subject, {"correct": 0.0, "attempted": 0.0})
         profile["overall_accuracy"][subject]["correct"] += attempted * accuracy
         profile["overall_accuracy"][subject]["attempted"] += attempted
+        profile["subject_attempts"][subject] = _safe_float(profile["subject_attempts"].get(subject, 0.0)) + attempted
 
         if level:
             weighted_level_votes.setdefault(subject, {})
@@ -314,13 +324,28 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
     subject_need = _safe_float(student_profile.get("subject_need", {}).get(subject, 0.0))
     topic_need = _safe_float(student_profile.get("topic_need", {}).get(topic.casefold(), 0.0)) if topic else 0.0
     exercise_need = _safe_float(student_profile.get("exercise_need", {}).get(exercise_type, 0.0)) if exercise_type else 0.0
-    target_level = student_profile.get("subject_level", {}).get(subject, "")
-    target_stage = student_profile.get("subject_stage", {}).get(subject, "")
+    program_subjects = set(student_profile.get("program_signals", {}).get("subjects") or set())
+    program_levels = student_profile.get("program_signals", {}).get("subject_levels", {}) or {}
+    program_stages = student_profile.get("program_signals", {}).get("subject_stages", {}) or {}
+    subject_attempts = _safe_float(student_profile.get("subject_attempts", {}).get(subject, 0.0))
+    bootstrap_mode = bool(program_subjects) and subject_attempts < 5.0
+    target_level = student_profile.get("subject_level", {}).get(subject, "") or program_levels.get(subject, "")
+    target_stage = student_profile.get("subject_stage", {}).get(subject, "") or program_stages.get(subject, "")
     accuracy = _safe_float(student_profile.get("overall_accuracy", {}).get(subject, 0.0))
     program_signals = student_profile.get("program_signals", {}) or {}
     resource_tokens = _topic_tokens(topic, row.get("title"))
 
+    if bootstrap_mode and program_subjects and subject not in program_subjects:
+        return -1.0, []
+    if bootstrap_mode and target_level and level and _normalize_level(level) != _normalize_level(target_level):
+        return -1.0, []
+
     subject_focus = 1.0 if subject_need > 0 else (0.8 if subject in primary_subjects else 0.45)
+    if program_subjects:
+        if subject in program_subjects:
+            subject_focus = max(subject_focus, 1.0 if bootstrap_mode else 0.92)
+        else:
+            subject_focus = min(subject_focus, 0.2)
     topic_support = max(topic_need, subject_need * 0.55)
     type_support = max(exercise_need, subject_need * 0.45)
     level_fit = _level_similarity(target_level, level)
@@ -412,6 +437,8 @@ def build_recommended_materials(
             if str(row.get("id") or "").strip() in assigned.get("worksheet", set()):
                 continue
             score, reasons = _resource_feature_score(row, "worksheet", student_profile)
+            if score < 0:
+                continue
             recommendations.append(_normalize_recommendation_row(row, "worksheet", score, reasons))
 
     if exams_df is not None and not exams_df.empty:
@@ -421,6 +448,8 @@ def build_recommended_materials(
             if str(row.get("id") or "").strip() in assigned.get("exam", set()):
                 continue
             score, reasons = _resource_feature_score(row, "exam", student_profile)
+            if score < 0:
+                continue
             recommendations.append(_normalize_recommendation_row(row, "exam", score, reasons))
 
     recommendations.sort(

@@ -23,8 +23,9 @@ from helpers.teacher_student_integration import (
 )
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student, render_student_program_view
 from helpers.empty_states import render_empty_state
+from helpers.resource_gallery import extract_gallery_image_url, inject_resource_gallery_styles, render_gallery_card_html
 
-_STUDENT_PAGE_SIZE = 4
+_STUDENT_PAGE_SIZE = 6
 
 
 def _normalize_source_record_id(source_record_id):
@@ -398,16 +399,19 @@ def _inject_assignment_page_styles() -> None:
     )
 
 
-def _assignment_card(row: dict, key_prefix: str) -> None:
-    title = _html.escape(str(row.get("title") or "—"))
+def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> None:
+    title_raw = str(row.get("title") or "—")
+    title = _html.escape(title_raw)
     status = str(row.get("status") or "").strip()
     due_at = str(row.get("due_at") or "").strip()
     created_at = str(row.get("created_at") or "").strip()
     teacher_note = _clean_teacher_feedback_text(row.get("teacher_note"))
     assignment_type = str(row.get("assignment_type") or "").strip()
     source_archived = bool(row.get("source_archived"))
-    teacher_name = _html.escape(str(row.get("teacher_name") or "—"))
-    subject_name = _html.escape(str(row.get("subject_display") or "—"))
+    teacher_name_raw = str(row.get("teacher_name") or "—")
+    subject_name_raw = str(row.get("subject_display") or "—")
+    teacher_name = _html.escape(teacher_name_raw)
+    subject_name = _html.escape(subject_name_raw)
     type_class = {
         "worksheet": "classio-assign-card--worksheet",
         "exam": "classio-assign-card--exam",
@@ -420,31 +424,60 @@ def _assignment_card(row: dict, key_prefix: str) -> None:
     elif created_at:
         meta_bits.append(f"{_html.escape(t('created_at_label'))}: {_html.escape(created_at[:10])}")
 
-    left_col, right_col = st.columns([6, 2], gap="medium")
-    with left_col:
-        st.markdown(
-            f"""
-            <div class="classio-assign-card {type_class}">
-                <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
-                    <div>
-                        <div class="classio-assign-title">{title}</div>
-                        <div class="classio-assign-meta">{' · '.join(meta_bits)}</div>
-                    </div>
-                    <div>{_status_badge(status)}</div>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if teacher_note:
+    def _render_assignment_body() -> None:
+        if assignment_type not in {"worksheet", "exam"}:
             st.markdown(
-                f"<div class='classio-assign-note'><strong>{_html.escape(t('teacher_note'))}:</strong> {_html.escape(teacher_note)}</div>",
+                f"""
+                <div class="classio-assign-card {type_class}">
+                    <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+                        <div>
+                            <div class="classio-assign-title">{title}</div>
+                            <div class="classio-assign-meta">{' · '.join(meta_bits)}</div>
+                        </div>
+                        <div>{_status_badge(status)}</div>
+                    </div>
+                </div>
+                """,
                 unsafe_allow_html=True,
             )
-        else:
-            st.markdown("<div style='height:0.8rem;'></div>", unsafe_allow_html=True)
+            return
 
-    with right_col:
+        inject_resource_gallery_styles()
+        snapshot = row.get("content_snapshot") or {}
+        payload = snapshot.get("worksheet") if assignment_type == "worksheet" else snapshot.get("exam_data")
+        if not payload and row.get("source_record_id"):
+            payload = _load_source_worksheet(row.get("source_record_id")) if assignment_type == "worksheet" else _load_source_exam(row.get("source_record_id"))
+        hero_image = extract_gallery_image_url(payload)
+        if not hero_image and row.get("source_record_id"):
+            source_payload = _load_source_worksheet(row.get("source_record_id")) if assignment_type == "worksheet" else _load_source_exam(row.get("source_record_id"))
+            source_image = extract_gallery_image_url(source_payload)
+            if source_image:
+                payload = source_payload
+                hero_image = source_image
+        status_label = _safe_ui_label(f"assignment_status_{status}") if status else ""
+        type_label = t("exam_label") if assignment_type == "exam" else t("worksheet_label")
+        chips = "".join(
+            [
+                f'<span class="cm-resource-chip">📚 {_html.escape(subject_name_raw)}</span>',
+                f'<span class="cm-resource-chip">🧩 {_html.escape(type_label)}</span>',
+                f'<span class="cm-resource-chip">📌 {_html.escape(status_label)}</span>' if status_label else "",
+            ]
+        )
+        meta_html = f'<div class="cm-resource-meta">{" · ".join(meta_bits)}</div>'
+        st.markdown(
+            render_gallery_card_html(
+                kind="exam" if assignment_type == "exam" else "worksheet",
+                title=title_raw,
+                chips_html=chips,
+                description=teacher_note or str(row.get("topic") or t("assigned_material")),
+                meta_html=meta_html,
+                image_url=hero_image,
+                placeholder_label=t("exam_label") if assignment_type == "exam" else t("worksheet_label"),
+            ),
+            unsafe_allow_html=True,
+        )
+
+    def _render_assignment_action() -> None:
         draft = load_in_progress_practice_session(assignment_type, row.get("id"))
         if assignment_type in {"worksheet", "exam"}:
             is_finalized = status in {"submitted", "graded", "completed", "cancelled"}
@@ -474,6 +507,29 @@ def _assignment_card(row: dict, key_prefix: str) -> None:
                 update_topic_assignment_status(row.get("id"), "completed")
                 st.rerun()
         st.markdown("<div style='height:0.7rem;'></div>", unsafe_allow_html=True)
+
+    if grid_mode and assignment_type in {"worksheet", "exam"}:
+        _render_assignment_body()
+        if teacher_note:
+            st.markdown(
+                f"<div class='classio-assign-note'><strong>{_html.escape(t('teacher_note'))}:</strong> {_html.escape(teacher_note)}</div>",
+                unsafe_allow_html=True,
+            )
+        _render_assignment_action()
+        return
+
+    left_col, right_col = st.columns([6, 2], gap="medium")
+    with left_col:
+        _render_assignment_body()
+        if teacher_note:
+            st.markdown(
+                f"<div class='classio-assign-note'><strong>{_html.escape(t('teacher_note'))}:</strong> {_html.escape(teacher_note)}</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown("<div style='height:0.8rem;'></div>", unsafe_allow_html=True)
+    with right_col:
+        _render_assignment_action()
 
 
 def _render_teacher_relationships() -> None:
@@ -526,6 +582,17 @@ def _render_assignment_group(title: str, rows: list[dict], group_prefix: str) ->
         return
 
     page_rows, *_ = _slice_student_page(rows, f"{group_prefix}_page")
+    if all(str(row.get("assignment_type") or "").strip() in {"worksheet", "exam"} for row in page_rows):
+        inject_resource_gallery_styles()
+        for idx in range(0, len(page_rows), 3):
+            trio = page_rows[idx:idx + 3]
+            cols = st.columns(3, gap="medium")
+            for col_idx, row in enumerate(trio):
+                with cols[col_idx]:
+                    _assignment_card(row, f"{group_prefix}_{row.get('id', idx)}_{idx}_{col_idx}", grid_mode=True)
+        _render_student_pagination(rows, f"{group_prefix}_page")
+        return
+
     grouped = group_assignments_by_teacher_subject(page_rows)
     for teacher_name, subject_groups in grouped:
         st.markdown(f"<div class='classio-assign-teacher'>{_html.escape(teacher_name)}</div>", unsafe_allow_html=True)
@@ -551,30 +618,50 @@ def render_assigned_learning_programs_section(program_assignments: list[dict], l
         return
 
     if program_assignments:
-        for idx, item in enumerate(program_assignments):
+        inject_resource_gallery_styles()
+        page_programs, *_ = _slice_student_page(
+            program_assignments,
+            "student_assigned_learning_programs_page",
+            page_size=1,
+        )
+        for idx, item in enumerate(page_programs):
             program = item.get("program") or {}
-            title = _html.escape(str(program.get("title") or "Learning program"))
-            teacher_name = _html.escape(str(item.get("teacher_name") or "Teacher"))
-            subject_display = _html.escape(str(item.get("subject_display") or "—"))
+            title_raw = str(program.get("title") or t("learning_program"))
+            teacher_name_raw = str(item.get("teacher_name") or t("teacher_role"))
+            subject_display_raw = str(item.get("subject_display") or "—")
             completed_topics = int(item.get("completed_topics") or 0)
             total_topics = int(item.get("total_topics") or 0)
             progress_pct = int(item.get("progress_pct") or 0)
             start_on = str(item.get("start_on") or "").strip()
             target_completion_on = str(item.get("target_completion_on") or "").strip()
             teacher_note = _clean_teacher_feedback_text(item.get("teacher_note"))
-
+            target_label = (
+                f"{t('assignment_target_completion_on')}: {target_completion_on[:10]}"
+                if target_completion_on
+                else t("start_from_lesson_1")
+            )
+            chips = "".join(
+                [
+                    f'<span class="cm-resource-chip">📚 {_html.escape(subject_display_raw)}</span>',
+                    f'<span class="cm-resource-chip">📘 {_html.escape(t("learning_program"))}</span>',
+                    f'<span class="cm-resource-chip">📈 {completed_topics}/{total_topics} {_html.escape(t("topics_label").lower())}</span>',
+                    f'<span class="cm-resource-chip">🎯 {progress_pct}%</span>',
+                ]
+            )
+            meta_html = (
+                f'<div class="cm-resource-meta">👤 {_html.escape(teacher_name_raw)}</div>'
+                f'<div class="cm-resource-meta">🗓️ {_html.escape(target_label)}</div>'
+            )
             st.markdown(
-                f"""
-                <div class="classio-assigned-program-wrap">
-                    <div class="classio-assigned-program-title">{title}</div>
-                    <div class="classio-assigned-program-subtitle">{teacher_name} · {subject_display}</div>
-                    <div class="classio-assigned-program-progress">
-                        <span class="classio-assigned-pill">{completed_topics}/{total_topics} topics done</span>
-                        <span class="classio-assigned-pill">{progress_pct}% complete</span>
-                        <span class="classio-assigned-pill">{'Target: ' + _html.escape(target_completion_on[:10]) if target_completion_on else 'Start from lesson 1'}</span>
-                    </div>
-                </div>
-                """,
+                render_gallery_card_html(
+                    kind="program",
+                    title=title_raw,
+                    chips_html=chips,
+                    description=teacher_note or str(program.get("program_overview") or program.get("student_summary") or t("no_description_available")),
+                    meta_html=meta_html,
+                    image_url=extract_gallery_image_url(program),
+                    placeholder_label=t("learning_program"),
+                ),
                 unsafe_allow_html=True,
             )
             if start_on or teacher_note:
@@ -586,8 +673,13 @@ def render_assigned_learning_programs_section(program_assignments: list[dict], l
                 st.caption(" · ".join(meta_parts))
 
             render_student_program_view(program, assignment_id=int(item.get("id") or 0), interactive=True)
-            if idx < len(program_assignments) - 1:
+            if idx < len(page_programs) - 1:
                 st.markdown("<div style='height:.6rem;'></div>", unsafe_allow_html=True)
+        _render_student_pagination(
+            program_assignments,
+            "student_assigned_learning_programs_page",
+            page_size=1,
+        )
 
     if legacy_topics:
         st.markdown(f"<div class='classio-assigned-program-head'>{t('legacy_topic_tasks')}</div>", unsafe_allow_html=True)
@@ -607,7 +699,14 @@ def _render_program_assigned_topics(program_assignments: list[dict]) -> bool:
     tasks = list(smart_state.get("tasks") or [])
     if tasks and smart_state.get("program_anchor_signature"):
         st.caption(t("smart_plan_program_anchor_setup_hint"))
-        for idx, task in enumerate(tasks, 1):
+        page_tasks, *_ = _slice_student_page(
+            tasks,
+            "student_program_assigned_smart_tasks_page",
+            page_size=6,
+        )
+        current_page = int(st.session_state.get("student_program_assigned_smart_tasks_page", 1) or 1)
+        page_start = (current_page - 1) * 6
+        for idx, task in enumerate(page_tasks, page_start + 1):
             title = _html.escape(str(task.get("title") or "—"))
             subtitle = _html.escape(str(task.get("subtitle") or ""))
             category = _html.escape(str(t(f"smart_plan_category_{task.get('category')}")))
@@ -628,6 +727,11 @@ def _render_program_assigned_topics(program_assignments: list[dict]) -> bool:
                 """,
                 unsafe_allow_html=True,
             )
+        _render_student_pagination(
+            tasks,
+            "student_program_assigned_smart_tasks_page",
+            page_size=6,
+        )
         return True
 
     first_program = program_assignments[0]
@@ -649,17 +753,18 @@ def _render_program_assigned_topics(program_assignments: list[dict]) -> bool:
                     "summary": str(topic.get("student_summary") or topic.get("lesson_focus") or topic.get("subtopic") or "").strip(),
                 }
             )
-            if len(next_topics) >= 5:
-                break
-        if len(next_topics) >= 5:
-            break
 
     if not next_topics:
         st.info(t("smart_plan_program_anchor_all_done"))
         return True
 
     st.caption(t("smart_plan_program_anchor_setup_hint"))
-    for item in next_topics:
+    page_topics, *_ = _slice_student_page(
+        next_topics,
+        "student_program_assigned_next_topics_page",
+        page_size=6,
+    )
+    for item in page_topics:
         title = t("smart_plan_program_task_title", number=item["global_number"], title=item["title"] or "—")
         subtitle = t("smart_plan_program_task_subtitle", unit=item["unit_number"] or 1, summary=item["summary"] or t("smart_plan_program_anchor_default_summary"))
         st.markdown(
@@ -671,6 +776,11 @@ def _render_program_assigned_topics(program_assignments: list[dict]) -> bool:
             """,
             unsafe_allow_html=True,
         )
+    _render_student_pagination(
+        next_topics,
+        "student_program_assigned_next_topics_page",
+        page_size=6,
+    )
     return True
 
 

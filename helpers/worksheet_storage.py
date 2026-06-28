@@ -30,6 +30,7 @@ from helpers.visual_support import (
     regenerate_worksheet_visuals,
     worksheet_has_ready_visuals,
     worksheet_eligible_for_visuals,
+    generate_resource_cover_image,
     render_streamlit_visual_supports,
     render_visual_support_status,
     build_pdf_visual_flowables,
@@ -53,6 +54,12 @@ from helpers.material_recommendations import (
     is_generation_reuse_gate_pending,
     maybe_pause_generation_for_matches,
     render_generation_recommendations,
+)
+from helpers.resource_gallery import (
+    extract_gallery_language_label,
+    extract_gallery_image_url,
+    inject_resource_gallery_styles,
+    render_gallery_card_html,
 )
 
 
@@ -1189,11 +1196,12 @@ def render_worksheet_library_cards(
         st.info(t("no_data"))
         return
 
+    inject_resource_gallery_styles()
     rows = df.reset_index(drop=True).to_dict("records")
 
-    for idx in range(0, len(rows), 2):
-        pair = rows[idx:idx + 2]
-        cols = st.columns(2, gap="medium")
+    for idx in range(0, len(rows), 3):
+        pair = rows[idx:idx + 3]
+        cols = st.columns(3, gap="medium")
 
         for col_idx, row in enumerate(pair):
             row_id = row.get("id", idx + col_idx)
@@ -1230,8 +1238,14 @@ def render_worksheet_library_cards(
             safe_title = html.escape(title)
             safe_author = html.escape(author_name)
             preview_text = html.escape((topic or t("no_description_available"))[:180])
+            full_payload = dict(row or {})
+            if not extract_gallery_image_url(full_payload) and worksheet_id not in (None, "", 0, "0"):
+                full_payload = load_worksheet_record(worksheet_id) or full_payload
+            hero_image = extract_gallery_image_url(full_payload)
+            language_label = extract_gallery_language_label(full_payload)
 
             chips = "".join([
+                f'<span class="cm-resource-chip">🌐 {html.escape(language_label)}</span>' if language_label else "",
                 f'<span class="cm-resource-chip">📚 {html.escape(subject_label)}</span>' if subject_label else "",
                 f'<span class="cm-resource-chip">🧩 {html.escape(ws_type_label)}</span>' if ws_type_label else "",
                 f'<span class="cm-resource-chip">👥 {html.escape(stage_label)}</span>' if stage_label else "",
@@ -1247,12 +1261,15 @@ def render_worksheet_library_cards(
             ])
 
             card_html = (
-                f'<div class="cm-resource-card cm-resource-worksheet">'
-                f'<div class="cm-resource-card__title">{safe_title}</div>'
-                f'<div class="cm-resource-chip-row">{chips}</div>'
-                f'<div class="cm-resource-preview">{preview_text}</div>'
-                f'{meta}'
-                f'</div>'
+                render_gallery_card_html(
+                    kind="worksheet",
+                    title=title,
+                    chips_html=chips,
+                    description=topic or t("no_description_available"),
+                    meta_html=meta,
+                    image_url=hero_image,
+                    placeholder_label=t("worksheet_maker"),
+                )
             )
 
             with cols[col_idx]:
@@ -1347,13 +1364,20 @@ def render_worksheet_result(
     ws_type = meta.get("worksheet_type", ws.get("worksheet_type", ""))
     learner_stage = meta.get("learner_stage", ws.get("learner_stage", ""))
     level_or_band = meta.get("level_or_band", ws.get("level_or_band", ""))
+    image_edit_allowed = not read_only
+    if read_only and resource_record_id not in (None, "", 0, "0"):
+        try:
+            owner_row = load_worksheet_record(resource_record_id) or {}
+            image_edit_allowed = str(owner_row.get("user_id") or "").strip() == str(get_current_user_id() or "").strip()
+        except Exception:
+            image_edit_allowed = False
 
     ws = normalize_worksheet_output(ws, include_visuals=not comparison_mode)
     ws = _normalize_worksheet_unicode(ws)
     ws = _clean_worksheet_data(ws)
 
     # ── Auto-enrich: generate visuals on first view if missing ──────────
-    if not comparison_mode and not signup_required_actions and worksheet_eligible_for_visuals(ws, subject=subject, learner_stage=learner_stage, topic=topic):
+    if image_edit_allowed and not comparison_mode and not signup_required_actions and worksheet_eligible_for_visuals(ws, subject=subject, learner_stage=learner_stage, topic=topic):
         if not worksheet_has_ready_visuals(ws):
             _auto_key = f"_ws_vis_tried_{resource_record_id or action_key_prefix}"
             if not st.session_state.get(_auto_key):
@@ -1379,6 +1403,8 @@ def render_worksheet_result(
     visual_state = str((visual_status or {}).get("state") or "").strip()
     if not worksheet_has_ready_visuals(ws) and visual_state in {"generation_failed", "provider_unavailable"}:
         render_visual_support_status(visual_status, compact=True)
+    if st.session_state.pop("worksheet_image_save_warning", False):
+        st.warning(t("worksheet_image_save_failed"))
 
     st.markdown(f"### {_normalize_text(ws.get('title', ''))}")
     st.caption(
@@ -1392,11 +1418,23 @@ def render_worksheet_result(
 
     render_streamlit_visual_supports(ws.get("visual_supports"))
 
+    current_image_url = extract_gallery_image_url(ws)
+    if current_image_url and not worksheet_has_ready_visuals(ws):
+        st.markdown(
+            f'<div style="max-width:560px;margin:.4rem 0 1rem;">'
+            f'<img src="{html.escape(current_image_url, quote=True)}" alt="{html.escape(str(ws.get("title") or t("worksheet_label")), quote=True)}" '
+            f'style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:18px;border:1px solid var(--border);box-shadow:var(--shadow-md);" />'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
     # Generate / Regenerate image button
-    if not comparison_mode and not signup_required_actions and worksheet_eligible_for_visuals(ws, subject=subject, learner_stage=learner_stage, topic=topic):
+    if image_edit_allowed and not comparison_mode and not signup_required_actions:
         _has_visuals = worksheet_has_ready_visuals(ws)
+        _has_any_image = bool(extract_gallery_image_url(ws))
+        _eligible_visuals = worksheet_eligible_for_visuals(ws, subject=subject, learner_stage=learner_stage, topic=topic)
         regen_key = f"{action_key_prefix}_regen_img"
-        if _has_visuals:
+        if _has_any_image:
             btn_label = "🔄 " + (t("regenerate_image") if t("regenerate_image") != "regenerate_image" else "Regenerate image")
         else:
             btn_label = "🖼️ " + (t("generate_image") if t("generate_image") != "generate_image" else "Generate image")
@@ -1406,17 +1444,32 @@ def render_worksheet_result(
                     ws_updated = regenerate_worksheet_visuals(
                         ws, subject=subject, learner_stage=learner_stage, topic=topic,
                     )
-            else:
+            elif _eligible_visuals:
                 with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating image…"):
                     ws_updated = enrich_worksheet_with_visuals(
                         ws, subject=subject, learner_stage=learner_stage, topic=topic,
                     )
-            if worksheet_has_ready_visuals(ws_updated):
+            else:
+                with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating image…"):
+                    ws_updated = dict(ws or {})
+                    ws_updated["cover_image"] = generate_resource_cover_image(
+                        title=str(ws_updated.get("title") or ""),
+                        resource_type=t("worksheet_label"),
+                        subject=subject,
+                        learner_stage=learner_stage,
+                        level_or_band=level_or_band,
+                        topic=topic,
+                        overview=str(ws_updated.get("instructions") or ws_updated.get("reading_passage") or ""),
+                    )
+            if extract_gallery_image_url(ws_updated):
+                persisted = True
                 if resource_record_id not in (None, "", 0, "0"):
-                    _persist_saved_worksheet_visuals(resource_record_id, ws_updated)
+                    persisted = _persist_saved_worksheet_visuals(resource_record_id, ws_updated)
                 st.session_state["worksheet_result"] = ws_updated
                 if st.session_state.get("files_selected_worksheet") is not None:
                     st.session_state["files_selected_worksheet"] = ws_updated
+                if not persisted:
+                    st.session_state["worksheet_image_save_warning"] = True
                 st.rerun()
             else:
                 st.warning(t("image_generation_failed") if t("image_generation_failed") != "image_generation_failed" else "Image generation failed. Please try again.")
@@ -1649,26 +1702,53 @@ def render_worksheet_result(
             )
 
 
-def _persist_saved_worksheet_visuals(worksheet_id: int | str, worksheet: dict) -> None:
+def _persist_saved_worksheet_visuals(worksheet_id: int | str, worksheet: dict) -> bool:
     uid = str(get_current_user_id() or "").strip()
     if not uid or worksheet_id in (None, "", 0, "0"):
-        return
+        return False
     safe_id = worksheet_id
     if isinstance(worksheet_id, str):
         stripped = worksheet_id.strip()
         if not stripped:
-            return
+            return False
         safe_id = int(stripped) if stripped.isdigit() else stripped
+    worksheet = _clean_worksheet_data(_normalize_worksheet_unicode(dict(worksheet or {})))
     try:
-        get_sb().table("worksheets").update(
-            {
-                "worksheet_json": worksheet,
-                "updated_at": _dt.now(timezone.utc).isoformat(),
-            }
-        ).eq("id", safe_id).eq("user_id", uid).execute()
+        payload_with_timestamp = {
+            "worksheet_json": worksheet,
+            "updated_at": _dt.now(timezone.utc).isoformat(),
+        }
+        payload_minimal = {"worksheet_json": worksheet}
+        try:
+            (
+                get_sb()
+                .table("worksheets")
+                .update(payload_with_timestamp)
+                .eq("id", safe_id)
+                .eq("user_id", uid)
+                .execute()
+            )
+        except Exception:
+            (
+                get_sb()
+                .table("worksheets")
+                .update(payload_minimal)
+                .eq("id", safe_id)
+                .eq("user_id", uid)
+                .execute()
+            )
         clear_app_caches()
+        try:
+            load_worksheet_record.clear()
+        except Exception:
+            pass
+        saved_row = load_worksheet_record(safe_id)
+        saved_payload = saved_row.get("worksheet_json") or {}
+        saved_image = extract_gallery_image_url(saved_payload)
+        new_image = extract_gallery_image_url(worksheet)
+        return bool(saved_image and new_image and saved_image == new_image)
     except Exception:
-        pass
+        return False
 
 
 # ── PDF generation ───────────────────────────────────────────────────

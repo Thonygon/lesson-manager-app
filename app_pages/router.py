@@ -1,5 +1,6 @@
 import streamlit as st
 from streamlit_option_menu import option_menu
+from typing import Callable
 
 from core.i18n import t
 from core.navigation import go_to, PAGE_KEYS, _set_query
@@ -16,6 +17,44 @@ def _render_profile_dialog_if_requested() -> None:
     uid = get_current_user_id()
     if uid:
         render_profile_dialog(uid)
+
+
+def _page_loading_label(page_key: str) -> str:
+    label_keys = {
+        "home": "home",
+        "resources": "files",
+        "community": "community",
+        "dashboard": "dashboard",
+        "students": "students",
+        "add_lesson": "lessons",
+        "add_payment": "payment",
+        "calendar": "calendar",
+        "smart_tools": "ai_tools",
+        "analytics": "analytics",
+        "pricing": "pricing",
+        "account": "account",
+        "admin": "admin",
+        "student_home": "student_home_title",
+        "student_practice": "smart_practice",
+        "student_study_plan": "smart_study_plan",
+        "student_assignments": "student_assignments_title",
+        "student_find_teacher": "find_my_teacher",
+    }
+    label_key = label_keys.get(page_key, page_key)
+    label = t(label_key)
+    return label if label != label_key else page_key.replace("_", " ").title()
+
+
+def _render_page_with_loading(page_key: str, render_fn: Callable[[], None]) -> None:
+    label = _page_loading_label(page_key)
+    loading_slot = st.empty()
+    progress = loading_slot.progress(0.12, text=t("section_loading_start", section=label))
+    progress.progress(0.42, text=t("section_loading_data", section=label))
+    try:
+        render_fn()
+        progress.progress(1.0, text=t("section_loading_ready", section=label))
+    finally:
+        loading_slot.empty()
 
 
 def render_top_nav(active_page: str):
@@ -106,26 +145,40 @@ def render_top_nav(active_page: str):
             },
         )
     with more_col:
-        if "top_nav_more_nonce" not in st.session_state:
-            st.session_state["top_nav_more_nonce"] = 0
+        if "top_nav_more_open" not in st.session_state:
+            st.session_state["top_nav_more_open"] = False
         more_label = t("more") if t("more") != "more" else "More"
         more_active = active_page in {key for key, _, _ in more_items}
-        nonce = int(st.session_state.get("top_nav_more_nonce", 0))
-        popover_label = f"⋯ {more_label}" + (" •" if more_active else "") + ("\u200b" * nonce)
-        with st.popover(popover_label, use_container_width=True):
-            for idx, (key, label, _icon) in enumerate(more_items):
-                if st.button(label, key=f"more_nav_{key}", use_container_width=True):
-                    st.session_state["top_nav_more_nonce"] = nonce + 1
-                    if key == "sign_out":
-                        sign_out_user()
-                    elif key == "profile":
-                        st.session_state["show_profile_dialog"] = True
-                        st.rerun()
-                    else:
-                        go_to(key)
-                        st.rerun()
-                if idx == len(more_items) - 2:
-                    st.markdown("---")
+        menu_label = f"⋯ {more_label}" + (" •" if more_active else "")
+        if st.button(menu_label, key="top_nav_more_toggle", use_container_width=True):
+            st.session_state["top_nav_more_open"] = not bool(st.session_state.get("top_nav_more_open", False))
+            st.rerun()
+        if st.session_state.get("top_nav_more_open", False):
+            menu_box = st.container(border=True)
+            with menu_box:
+                st.markdown(
+                    """
+                    <style>
+                    div[data-testid="stVerticalBlockBorderWrapper"] button[kind="secondary"]{
+                      justify-content: flex-start;
+                    }
+                    </style>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                for idx, (key, label, _icon) in enumerate(more_items):
+                    if st.button(label, key=f"more_nav_{key}", use_container_width=True):
+                        st.session_state["top_nav_more_open"] = False
+                        if key == "sign_out":
+                            sign_out_user()
+                        elif key == "profile":
+                            st.session_state["show_profile_dialog"] = True
+                            st.rerun()
+                        else:
+                            go_to(key)
+                            st.rerun()
+                    if idx == len(more_items) - 2:
+                        st.markdown("---")
 
     selected_key = active_page
     for key, label, _ in primary_items:
@@ -138,6 +191,7 @@ def render_top_nav(active_page: str):
     if selected_key != previous_key:
         st.session_state["top_nav_prev"] = selected_key
         if selected_key != active_page:
+            st.session_state["top_nav_more_open"] = False
             go_to(selected_key)
             st.rerun()
 
@@ -339,28 +393,37 @@ def route_app_pages(page: str):
 
     if page == "home":
         load_css_home()
-        render_home()
+        _render_page_with_loading("home", render_home)
         st.stop()
 
     if page == "resources":
         load_css_home()
         render_top_nav("resources")
         _render_profile_dialog_if_requested()
-        render_home(panel_override="files", show_home_actions=False)
+        _render_page_with_loading(
+            "resources",
+            lambda: render_home(panel_override="files", show_home_actions=False),
+        )
         st.stop()
 
     if page == "smart_tools":
         load_css_home()
         render_top_nav("smart_tools")
         _render_profile_dialog_if_requested()
-        render_home(panel_override="ai_tools", show_home_actions=False)
+        _render_page_with_loading(
+            "smart_tools",
+            lambda: render_home(panel_override="ai_tools", show_home_actions=False),
+        )
         st.stop()
 
     if page == "community":
         load_css_home()
         render_top_nav("community")
         _render_profile_dialog_if_requested()
-        render_home(panel_override="community", show_home_actions=False)
+        _render_page_with_loading(
+            "community",
+            lambda: render_home(panel_override="community", show_home_actions=False),
+        )
         st.stop()
 
     load_css_app(compact=bool(st.session_state.get("compact_mode", False)))
@@ -370,24 +433,27 @@ def route_app_pages(page: str):
     if page == "dashboard":
         render_dashboard()
     elif page == "students":
-        render_students()
+        _render_page_with_loading("students", render_students)
     elif page == "add_lesson":
-        render_add_lesson()
+        _render_page_with_loading("add_lesson", render_add_lesson)
     elif page == "add_payment":
-        render_add_payment()
+        _render_page_with_loading("add_payment", render_add_payment)
     elif page == "calendar":
-        render_calendar()
+        _render_page_with_loading("calendar", render_calendar)
     elif page == "smart_tools":
         load_css_home()
-        render_home(panel_override="ai_tools", show_home_actions=False)
+        _render_page_with_loading(
+            "smart_tools",
+            lambda: render_home(panel_override="ai_tools", show_home_actions=False),
+        )
     elif page == "analytics":
-        render_analytics()
+        _render_page_with_loading("analytics", render_analytics)
     elif page == "pricing":
-        render_pricing()
+        _render_page_with_loading("pricing", render_pricing)
     elif page == "account":
-        render_account()
+        _render_page_with_loading("account", render_account)
     elif page == "admin":
-        render_admin()
+        _render_page_with_loading("admin", render_admin)
     else:
         go_to("home")
         st.rerun()
@@ -410,15 +476,15 @@ def _route_student_pages(page: str):
     _render_profile_dialog_if_requested()
 
     if page == "student_home":
-        render_student_home()
+        _render_page_with_loading("student_home", render_student_home)
     elif page == "student_practice":
-        render_student_practice()
+        _render_page_with_loading("student_practice", render_student_practice)
     elif page == "student_study_plan":
-        render_student_study_plan()
+        _render_page_with_loading("student_study_plan", render_student_study_plan)
     elif page == "student_assignments":
-        render_student_assignments()
+        _render_page_with_loading("student_assignments", render_student_assignments)
     elif page == "student_find_teacher":
-        render_student_find_teacher()
+        _render_page_with_loading("student_find_teacher", render_student_find_teacher)
     else:
         go_to("student_home")
         st.rerun()
@@ -434,4 +500,4 @@ def _route_admin_pages(page: str):
     load_css_app(compact=bool(st.session_state.get("compact_mode", False)))
     render_admin_top_nav(page)
     _render_profile_dialog_if_requested()
-    render_admin()
+    _render_page_with_loading("admin", render_admin)

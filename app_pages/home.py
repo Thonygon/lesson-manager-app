@@ -57,7 +57,7 @@ from helpers.worksheet_storage import (
 from styles.theme import load_css_home
 
 
-_RESOURCE_PAGE_SIZE = 4
+_RESOURCE_PAGE_SIZE = 6
 
 _RESOURCE_SEARCH_WEIGHTS = {
     "program": {
@@ -345,7 +345,7 @@ def render_home_teaching_resources_preview():
             if "updated_at" in filtered_programs.columns:
                 filtered_programs = filtered_programs.sort_values("updated_at", ascending=False)
 
-            programs_to_show = filtered_programs if program_q else filtered_programs.head(4)
+            programs_to_show = filtered_programs if program_q else filtered_programs.head(3)
 
             if programs_to_show.empty:
                 st.info(t("be_the_first_to_share"))
@@ -405,7 +405,7 @@ def render_home_teaching_resources_preview():
             if "created_at" in filtered_plans.columns:
                 filtered_plans = filtered_plans.sort_values("created_at", ascending=False)
 
-            plans_to_show = filtered_plans if plan_q else filtered_plans.head(4)
+            plans_to_show = filtered_plans if plan_q else filtered_plans.head(3)
 
             if plans_to_show.empty:
                 st.info(t("be_the_first_to_share"))
@@ -466,7 +466,7 @@ def render_home_teaching_resources_preview():
             if "created_at" in filtered_ws.columns:
                 filtered_ws = filtered_ws.sort_values("created_at", ascending=False)
 
-            ws_to_show = filtered_ws if ws_q else filtered_ws.head(4)
+            ws_to_show = filtered_ws if ws_q else filtered_ws.head(3)
 
             if ws_to_show.empty:
                 st.info(t("be_the_first_to_share"))
@@ -526,7 +526,7 @@ def render_home_teaching_resources_preview():
             if "created_at" in filtered_exams.columns:
                 filtered_exams = filtered_exams.sort_values("created_at", ascending=False)
 
-            exams_to_show = filtered_exams if exam_q else filtered_exams.head(4)
+            exams_to_show = filtered_exams if exam_q else filtered_exams.head(3)
 
             if exams_to_show.empty:
                 st.info(t("be_the_first_to_share"))
@@ -1712,6 +1712,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     selected_exam,
                     selected_exam_ak,
                     show_ready_banner=False,
+                    read_only=True,
                     allow_assign=not is_archived_status(st.session_state.get("files_selected_exam_status")),
                     assign_expanded=bool(st.session_state.get("files_selected_exam_assign_expanded", False)),
                     resource_record_id=(lambda value: None if value in (None, "", 0, "0") else value)(st.session_state.get("files_selected_exam_id")),

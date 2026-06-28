@@ -17,6 +17,13 @@ from core.state import get_current_user_id, with_owner
 from helpers.archive_utils import ARCHIVED_STATUS, filter_archived_rows, is_archived_status
 from helpers.generation_guidance import build_expert_panel_prompt_blurb
 from helpers.native_language import NATIVE_LANGUAGE_OPTIONS, is_language_subject, native_language_label, normalize_native_language
+from helpers.resource_gallery import (
+    extract_gallery_language_label,
+    extract_gallery_image_url,
+    inject_resource_gallery_styles,
+    render_gallery_card_html,
+)
+from helpers.visual_support import generate_resource_cover_image
 
 AI_PROGRAM_DAILY_LIMIT = 1
 AI_PROGRAM_COOLDOWN_SECONDS = 10
@@ -1436,6 +1443,7 @@ def normalize_learning_program_output(program: dict) -> dict:
             "delivery_design_notes": _ensure_list_of_strings(src.get("delivery_design_notes")),
             "non_classio_support_strategy": _clean_text(src.get("non_classio_support_strategy")),
             "best_practice_frameworks": _ensure_list_of_strings(src.get("best_practice_frameworks")),
+            "cover_image": dict(src.get("cover_image") or {}) if isinstance(src.get("cover_image"), dict) else {},
             "units": units,
         }
     )
@@ -2715,6 +2723,36 @@ def update_learning_program(
         return False, str(e)
 
 
+def _persist_learning_program_cover(program_id: int, program: dict) -> bool:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid or int(program_id or 0) <= 0:
+        return False
+    normalized_program = normalize_learning_program_output(program)
+    try:
+        try:
+            get_sb().table("learning_programs").update(
+                {
+                    "program_data": normalized_program,
+                    "updated_at": _now_iso(),
+                }
+            ).eq("id", int(program_id)).eq("user_id", uid).execute()
+        except Exception:
+            get_sb().table("learning_programs").update(
+                {"program_data": normalized_program}
+            ).eq("id", int(program_id)).eq("user_id", uid).execute()
+        clear_app_caches()
+        try:
+            load_learning_program.clear()
+        except Exception:
+            pass
+        saved_program = load_learning_program(int(program_id)) or {}
+        saved_image = extract_gallery_image_url(saved_program)
+        new_image = extract_gallery_image_url(normalized_program)
+        return bool(saved_image and new_image and saved_image == new_image)
+    except Exception:
+        return False
+
+
 def load_my_learning_programs(
     limit: int = 500,
     *,
@@ -2885,8 +2923,10 @@ def load_learning_program(program_id: int) -> dict:
                 }
             )
 
+        program_data = program_row.get("program_data") if isinstance(program_row.get("program_data"), dict) else {}
         return {
             **program_row,
+            "cover_image": program_row.get("cover_image") or program_data.get("cover_image") or {},
             "subject_display": _subject_display(program_row.get("subject"), program_row.get("custom_subject_name")),
             "tagline": _program_tagline(
                 program_row.get("subject"),
@@ -3196,12 +3236,13 @@ def render_learning_program_library_cards(
         st.info(t("no_learning_programs_found"))
         return
 
+    inject_resource_gallery_styles()
     profile_cache: dict[str, dict] = {}
     rows = df.reset_index(drop=True).to_dict("records")
 
-    for idx in range(0, len(rows), 2):
-        pair = rows[idx : idx + 2]
-        cols = st.columns(2, gap="medium")
+    for idx in range(0, len(rows), 3):
+        pair = rows[idx : idx + 3]
+        cols = st.columns(3, gap="medium")
 
         for col_idx, row in enumerate(pair):
             with cols[col_idx]:
@@ -3226,11 +3267,18 @@ def render_learning_program_library_cards(
                 is_complete = str(row.get("status") or "").strip().lower() == "active"
                 if is_owner and program_id > 0:
                     is_complete = _program_is_complete(load_learning_program(program_id))
+                program_payload = dict(row or {})
+                if not extract_gallery_image_url(program_payload) and program_id > 0:
+                    program_payload = load_learning_program(program_id) or program_payload
+                hero_image = extract_gallery_image_url(program_payload)
+                language_label = extract_gallery_language_label(program_payload)
                 chips = "".join(
                     [
+                        f'<span class="cm-resource-chip">🌐 {html.escape(language_label)}</span>' if language_label else "",
                         f'<span class="cm-resource-chip">📚 {html.escape(subject_text)}</span>' if subject_text else "",
                         f'<span class="cm-resource-chip">👥 {html.escape(stage_text)}</span>' if stage_text else "",
                         f'<span class="cm-resource-chip">🏷️ {html.escape(level_text)}</span>' if level_text else "",
+                        f'<span class="cm-resource-chip">⚙️ {html.escape(t("mode_ai"))}</span>',
                         f'<span class="cm-resource-chip">🪜 {html.escape(t("path_step_label", step=sequence_order))}</span>' if sequence_order > 0 else "",
                     ]
                 )
@@ -3256,12 +3304,15 @@ def render_learning_program_library_cards(
                     meta += f'<div class="cm-resource-meta">⚠️ {html.escape(t("learning_program_incomplete_note"))}</div>'
 
                 card_html = (
-                    f'<div class="cm-resource-card cm-resource-program">'
-                    f'<div class="cm-resource-card__title">{safe_title}</div>'
-                    f'<div class="cm-resource-chip-row">{chips}</div>'
-                    f'<div class="cm-resource-preview">{preview_text}</div>'
-                    f'{meta}'
-                    f'</div>'
+                    render_gallery_card_html(
+                        kind="program",
+                        title=title,
+                        chips_html=chips,
+                        description=overview or t("no_description_available"),
+                        meta_html=meta,
+                        image_url=hero_image,
+                        placeholder_label=t("learning_program"),
+                    )
                 )
 
                 st.markdown(card_html, unsafe_allow_html=True)
@@ -4214,6 +4265,47 @@ def render_saved_learning_program_workspace(program: dict, program_id: int, *, n
     warning = st.session_state.get(warning_key)
     if warning:
         st.warning(warning)
+
+    cover_url = extract_gallery_image_url(program.get("cover_image") or program)
+    has_cover = bool(cover_url)
+    cover_label = t("regenerate_image") if has_cover else t("generate_image")
+    if cover_url:
+        st.markdown(
+            f'<div style="max-width:560px;margin:.4rem 0 1rem;">'
+            f'<img src="{html.escape(cover_url, quote=True)}" alt="{html.escape(str(program.get("title") or t("learning_program")), quote=True)}" '
+            f'style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:18px;border:1px solid var(--border);box-shadow:var(--shadow-md);" />'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    if st.button(
+        ("🔄 " if has_cover else "🖼️ ") + cover_label,
+        key=f"{ns}_cover_image",
+        type="secondary",
+    ):
+        with st.spinner(t("generating_image")):
+            updated_program = dict(program or {})
+            updated_program["cover_image"] = generate_resource_cover_image(
+                title=str(updated_program.get("title") or original_program.get("title") or ""),
+                resource_type=t("learning_program"),
+                subject=str(original_program.get("subject") or ""),
+                learner_stage=str(original_program.get("learner_stage") or ""),
+                level_or_band=str(original_program.get("level_or_band") or ""),
+                topic=str(updated_program.get("program_overview") or ""),
+                overview=str(updated_program.get("student_summary") or updated_program.get("teacher_rationale") or ""),
+            )
+        new_cover_url = extract_gallery_image_url(updated_program.get("cover_image"))
+        if not new_cover_url:
+            st.warning(t("resource_cover_generation_failed"))
+            return
+        if not _persist_learning_program_cover(int(program_id), updated_program):
+            st.warning(t("resource_cover_save_failed"))
+            return
+        try:
+            load_learning_program.clear()
+        except Exception:
+            pass
+        st.success(t("resource_cover_generated"))
+        st.rerun()
 
     ready_units = _count_ready_program_units(program)
     total_units = len(program.get("units") or [])

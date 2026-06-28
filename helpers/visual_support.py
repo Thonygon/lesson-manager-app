@@ -972,6 +972,46 @@ def regenerate_exam_visuals(exam_data: dict, *, subject: str = "", learner_stage
     return enrich_exam_with_visuals(payload, subject=subject, learner_stage=learner_stage, topic=topic)
 
 
+def generate_resource_cover_image(
+    *,
+    title: str = "",
+    resource_type: str = "",
+    subject: str = "",
+    learner_stage: str = "",
+    level_or_band: str = "",
+    topic: str = "",
+    overview: str = "",
+) -> dict:
+    """Generate a reusable gallery cover image for resources without worksheet visuals."""
+    label = _clean_text(resource_type or "teaching resource")
+    no_text_rule = (
+        "\n\nCRITICAL: absolutely no text in the image. "
+        "Do not render letters, words, numbers, labels, captions, titles, headings, "
+        "speech bubbles, logos, watermarks, or any readable writing."
+    )
+    prompt = (
+        "Asset type: Classio resource gallery cover image\n"
+        f"Resource type: {label}\n"
+        f"Title/context: {_clean_text(title) or 'Untitled resource'}\n"
+        f"Subject: {_clean_text(subject) or 'general education'}\n"
+        f"Topic: {_clean_text(topic) or _clean_text(overview)[:160] or 'learning'}\n"
+        f"Learner stage: {_clean_text(learner_stage) or 'mixed'}\n"
+        f"Level/band: {_clean_text(level_or_band) or 'not specified'}\n"
+        f"Visual style: {_visual_style(learner_stage)}\n"
+        f"Mood: {_visual_mood(learner_stage)}\n"
+        "Composition/framing: wide 16:9 modern educational illustration, one clear scene, polished SaaS content-library cover\n"
+        "Avoid: text, labels, worksheets, UI screenshots, logos, watermarks, title cards, readable writing\n"
+        + no_text_rule
+    )
+    data_url = _generate_ai_image_data_url(prompt)
+    return {
+        "generator": "classio_ai_resource_cover_v1",
+        "image_data_url": data_url,
+        "image_prompt": prompt,
+        "resource_type": label,
+    }
+
+
 def worksheet_eligible_for_visuals(ws: dict, *, subject: str = "", learner_stage: str = "", topic: str = "") -> bool:
     """Return True if the worksheet type/stage qualifies for image generation."""
     try:

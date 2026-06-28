@@ -121,4 +121,10 @@ if page not in PAGE_KEYS:
     st.session_state["page"] = "home"
     _set_query(page="home", lang=st.session_state.get("ui_lang", "en"))
 
+try:
+    from core.database import touch_current_user_activity
+    touch_current_user_activity(page)
+except Exception:
+    pass
+
 route_app_pages(page)

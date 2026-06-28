@@ -12,9 +12,15 @@ from helpers.notifications import (
     render_notification_panel,
 )
 from helpers.empty_states import render_empty_state
-from helpers.quick_exam_storage import load_public_exams
+from helpers.quick_exam_storage import load_exam_record, load_public_exams
 from helpers.student_recommendations import build_recommended_materials
-from helpers.worksheet_storage import load_public_worksheets
+from helpers.worksheet_storage import load_public_worksheets, load_worksheet_record
+from helpers.resource_gallery import (
+    extract_gallery_language_label,
+    extract_gallery_image_url,
+    inject_resource_gallery_styles,
+    render_gallery_card_html,
+)
 
 
 def _ui_text(key: str, fallback: str) -> str:
@@ -221,6 +227,7 @@ def render_student_home():
         limit=3,
     )
     if recommended:
+        inject_resource_gallery_styles()
         st.markdown(f"### {_ui_text('recommended_materials', 'Recommended for you')}")
         st.caption(
             _ui_text(
@@ -228,25 +235,39 @@ def render_student_home():
                 "These are the best next materials for this student right now based on recent progress and practice history.",
             )
         )
-        for item in recommended:
-            resource_label = _ui_text("worksheet_label", "Worksheet") if item.get("resource_type") == "worksheet" else _ui_text("exam_label", "Exam")
-            st.markdown(
-                f"""
-                <div style="
-                    background: linear-gradient(135deg, rgba(34,197,94,0.10), rgba(59,130,246,0.08));
-                    border: 1px solid var(--border);
-                    border-radius: 16px;
-                    padding: 16px 18px;
-                    margin-bottom: 12px;
-                ">
-                    <div style="font-size:0.8rem; font-weight:700; opacity:0.7; margin-bottom:4px;">{resource_label}</div>
-                    <div style="font-size:1rem; font-weight:800; margin-bottom:4px;">{item.get("title") or "—"}</div>
-                    <div style="opacity:0.8; font-size:0.92rem;">{item.get("topic") or ""}</div>
-                    <div style="opacity:0.75; font-size:0.82rem; margin-top:6px;">{(item.get("reasons") or [''])[0]}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
+        rec_cols = st.columns(min(3, len(recommended)), gap="medium")
+        for idx, item in enumerate(recommended[:3]):
+            row = item.get("row") or {}
+            resource_type = str(item.get("resource_type") or "worksheet")
+            resource_label = _ui_text("worksheet_label", "Worksheet") if resource_type == "worksheet" else _ui_text("exam_label", "Exam")
+            payload = dict(row or {})
+            if not extract_gallery_image_url(payload) and row.get("id"):
+                full_row = load_worksheet_record(row.get("id")) if resource_type == "worksheet" else load_exam_record(row.get("id"))
+                payload = full_row or payload
+            hero_image = extract_gallery_image_url(payload)
+            language_label = extract_gallery_language_label(payload)
+            chips = "".join(
+                [
+                    f'<span class="cm-resource-chip">{_html.escape(resource_label)}</span>',
+                    f'<span class="cm-resource-chip">🌐 {_html.escape(language_label)}</span>' if language_label else "",
+                    f'<span class="cm-resource-chip">🏷️ {_html.escape(str(item.get("level") or ""))}</span>' if item.get("level") else "",
+                    f'<span class="cm-resource-chip">⚙️ {_html.escape(t("mode_ai"))}</span>',
+                ]
             )
+            meta = f'<div class="cm-resource-meta">✨ {_html.escape((item.get("reasons") or [""])[0])}</div>'
+            with rec_cols[idx]:
+                st.markdown(
+                    render_gallery_card_html(
+                        kind="exam" if resource_type == "exam" else "worksheet",
+                        title=str(item.get("title") or "—"),
+                        chips_html=chips,
+                        description=str(item.get("topic") or t("no_description_available")),
+                        meta_html=meta,
+                        image_url=hero_image,
+                        placeholder_label=resource_label,
+                    ),
+                    unsafe_allow_html=True,
+                )
         if st.button(_ui_text("open_recommended_materials", "Open recommended materials"), key="student_home_open_recommended", use_container_width=True):
             go_to("student_practice")
             st.rerun()
