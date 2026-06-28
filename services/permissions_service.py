@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from core.database import get_sb
 from core.state import get_current_user_id
-from services.subscription_service import get_user_plan, get_usage
+from services.subscription_service import get_user_plan, get_usage, _usage_tracking_upsert
 
 FEATURE_ALIASES = {
     "ai_generations": "ai_tools",
@@ -40,7 +40,7 @@ def increment_usage(user_id: str | None, feature: str, amount: int = 1) -> bool:
     current = int(usage.get(feature) or 0)
     payload = {"user_id": uid, feature: current + int(amount)}
     try:
-        get_sb().table("usage_tracking").upsert(payload, on_conflict="user_id").execute()
+        _usage_tracking_upsert(payload)
         return True
     except Exception:
         return False

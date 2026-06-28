@@ -745,6 +745,7 @@ def _render_explore_teaching_resources() -> None:
             selected_exam,
             selected_exam_ak,
             show_ready_banner=False,
+            read_only=True,
             allow_assign=not is_archived_status(st.session_state.get("files_selected_exam_status")),
             resource_record_id=_session_resource_id("files_selected_exam_id"),
             subject=st.session_state.get("files_exam_subject", ""),

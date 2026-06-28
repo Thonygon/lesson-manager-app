@@ -33,8 +33,14 @@ from helpers.teacher_student_integration import (
 )
 from helpers.student_recommendations import build_recommended_materials
 from helpers.empty_states import render_empty_state
+from helpers.resource_gallery import (
+    extract_gallery_language_label,
+    extract_gallery_image_url,
+    inject_resource_gallery_styles,
+    render_gallery_card_html,
+)
 
-_STUDENT_PRACTICE_PAGE_SIZE = 4
+_STUDENT_PRACTICE_PAGE_SIZE = 6
 
 
 def _ui_text(key: str, fallback: str) -> str:
@@ -157,6 +163,7 @@ def _open_practice_item(exercise_data: dict, meta: dict | None = None, *, demo_i
 def render_student_practice():
     st.markdown(f"## 🧠 {t('smart_practice')}")
     _inject_student_practice_styles()
+    inject_resource_gallery_styles()
 
     # ── Active practice session ─────────────────────────────────
     exercise_data = st.session_state.get("practice_exercise_data")
@@ -500,9 +507,9 @@ def _render_browse_tab():
                 if not ws_search_page_rows:
                     st.info(t("no_data"))
                 else:
-                    for idx in range(0, len(ws_search_page_rows), 2):
-                        pair = ws_search_page_rows[idx:idx + 2]
-                        _ws_cols = st.columns(2, gap="medium")
+                    for idx in range(0, len(ws_search_page_rows), 3):
+                        pair = ws_search_page_rows[idx:idx + 3]
+                        _ws_cols = st.columns(3, gap="medium")
                         for col_i, row in enumerate(pair):
                             with _ws_cols[col_i]:
                                 _render_practice_card(
@@ -513,6 +520,8 @@ def _render_browse_tab():
                                     ws_type=str(row.get("worksheet_type") or ""),
                                     btn_key=f"sp_ws_search_{row.get('id', idx)}_{idx}_{col_i}",
                                     color="#A78BFA",
+                                    row=row,
+                                    resource_type="worksheet",
                                 )
                                 if st.session_state.pop(f"_start_sp_ws_search_{row.get('id', idx)}_{idx}_{col_i}", False):
                                     ws_json, row = _resolve_worksheet_payload(row)
@@ -577,9 +586,9 @@ def _render_browse_tab():
                 else:
                     _ws_rows = _ws_cat.reset_index(drop=True).to_dict("records")
                     _ws_page_rows, *_ = _slice_practice_page(_ws_rows, f"student_practice_ws_cat_{active_cat}")
-                    for idx in range(0, len(_ws_page_rows), 2):
-                        pair = _ws_page_rows[idx:idx + 2]
-                        _ws_cols = st.columns(2, gap="medium")
+                    for idx in range(0, len(_ws_page_rows), 3):
+                        pair = _ws_page_rows[idx:idx + 3]
+                        _ws_cols = st.columns(3, gap="medium")
                         for col_i, row in enumerate(pair):
                             with _ws_cols[col_i]:
                                 _render_practice_card(
@@ -590,6 +599,8 @@ def _render_browse_tab():
                                     ws_type=str(row.get("worksheet_type") or ""),
                                     btn_key=f"sp_ws_{row.get('id', idx)}_{idx}_{col_i}",
                                     color="#A78BFA",
+                                    row=row,
+                                    resource_type="worksheet",
                                 )
                                 if st.session_state.pop(f"_start_sp_ws_{row.get('id', idx)}_{idx}_{col_i}", False):
                                     ws_json, row = _resolve_worksheet_payload(row)
@@ -678,9 +689,9 @@ def _render_browse_tab():
             else:
                 rows = filtered.reset_index(drop=True).to_dict("records")
                 page_rows, *_ = _slice_practice_page(rows, "student_practice_exams_page")
-                for idx in range(0, len(page_rows), 2):
-                    pair = page_rows[idx:idx + 2]
-                    cols = st.columns(2, gap="medium")
+                for idx in range(0, len(page_rows), 3):
+                    pair = page_rows[idx:idx + 3]
+                    cols = st.columns(3, gap="medium")
                     for col_i, row in enumerate(pair):
                         with cols[col_i]:
                             _render_practice_card(
@@ -691,6 +702,8 @@ def _render_browse_tab():
                                 ws_type=str(row.get("exam_length") or ""),
                                 btn_key=f"sp_ex_{row.get('id', idx)}_{idx}_{col_i}",
                                 color="#F87171",
+                                row=row,
+                                resource_type="exam",
                             )
                             if st.session_state.pop(f"_start_sp_ex_{row.get('id', idx)}_{idx}_{col_i}", False):
                                 exam_data, answer_key, row = _resolve_exam_payload(row)
@@ -713,56 +726,51 @@ def _render_browse_tab():
 def _render_practice_card(
     title: str, subject: str, topic: str, level: str,
     ws_type: str, btn_key: str, color: str = "#A78BFA",
+    row: dict | None = None,
+    resource_type: str = "worksheet",
 ):
-    """Render a compact practice card matching assignment-page styling."""
+    """Render a gallery practice card matching the teacher resource bank."""
     import html as _html
-
-    # Derive color family from the accent color
-    _COLOR_FAMILIES = {
-        "#A78BFA": {"rgb": "167,139,250", "chip_bg": "rgba(167,139,250,0.10)", "chip_border": "rgba(167,139,250,0.18)"},
-        "#F87171": {"rgb": "248,113,113", "chip_bg": "rgba(248,113,113,0.10)", "chip_border": "rgba(248,113,113,0.18)"},
-        "#60A5FA": {"rgb": "96,165,250",  "chip_bg": "rgba(96,165,250,0.10)",  "chip_border": "rgba(96,165,250,0.18)"},
-    }
-    family = _COLOR_FAMILIES.get(color, _COLOR_FAMILIES["#A78BFA"])
-    rgb = family["rgb"]
 
     subject_label = t(f"subject_{subject.lower().replace(' ', '_')}") if subject else ""
     level_label = level if level in ("A1", "A2", "B1", "B2", "C1", "C2") else (t(level) if level else "")
+    type_label = t(ws_type) if ws_type and t(ws_type) != ws_type else ws_type
+    row = dict(row or {})
+    payload = {}
+    if resource_type == "exam":
+        payload, _answer_key, _row = _resolve_exam_payload(row)
+    else:
+        payload, _row = _resolve_worksheet_payload(row)
+    hero_image = extract_gallery_image_url(row or payload)
+    language_label = extract_gallery_language_label(row or payload)
 
-    chip_style = (
-        f"background:{family['chip_bg']};border:1px solid {family['chip_border']};"
-        f"border-radius:999px;padding:3px 8px;font-size:0.72rem;font-weight:700;"
-    )
     chips = ""
+    if language_label:
+        chips += f'<span class="cm-resource-chip">🌐 {_html.escape(language_label)}</span>'
     if subject_label:
-        chips += f'<span style="{chip_style}">📚 {_html.escape(subject_label)}</span> '
+        chips += f'<span class="cm-resource-chip">📚 {_html.escape(subject_label)}</span>'
     if level_label:
-        chips += f'<span style="{chip_style}">🏷️ {_html.escape(level_label)}</span> '
-    if ws_type:
-        chips += f'<span style="{chip_style}">🧩 {_html.escape(t(ws_type) if t(ws_type) != ws_type else ws_type)}</span>'
+        chips += f'<span class="cm-resource-chip">🏷️ {_html.escape(level_label)}</span>'
+    if type_label:
+        chips += f'<span class="cm-resource-chip">🧩 {_html.escape(type_label)}</span>'
+    chips += f'<span class="cm-resource-chip">⚙️ {_html.escape(t("mode_ai"))}</span>'
 
-    preview = _html.escape((topic or t("no_description_available"))[:120])
+    meta_html = ""
+    if row.get("author_name"):
+        meta_html += f'<div class="cm-resource-meta">👤 {_html.escape(str(row.get("author_name") or ""))}</div>'
+    if row.get("created_at"):
+        meta_html += f'<div class="cm-resource-meta">🕒 {_html.escape(str(row.get("created_at") or "")[:16])}</div>'
 
     st.markdown(
-        f"""<div style="
-position: relative;
-overflow: hidden;
-border-radius: 22px;
-padding: 18px 20px;
-background:
-  radial-gradient(circle at top right, rgba({rgb},.12), transparent 38%),
-  linear-gradient(180deg, var(--panel, rgba(255,255,255,0.96)), color-mix(in srgb, var(--panel, rgba(255,255,255,0.96)) 84%, white 16%));
-border: 1px solid color-mix(in srgb, var(--border, rgba(17,24,39,0.08)) 76%, rgba({rgb},.28) 24%);
-border-left: 5px solid {color};
-box-shadow: 0 12px 34px rgba(15,23,42,.08);
-margin-bottom: 6px;
-min-height: 140px;
-color: var(--text);
-">
-<div style="font-weight:800;font-size:0.95rem;margin-bottom:6px;color:var(--text);">{_html.escape(title)}</div>
-<div style="margin-bottom:8px;">{chips}</div>
-<div style="font-size:0.82rem;color:var(--muted);">{preview}</div>
-</div>""",
+        render_gallery_card_html(
+            kind="exam" if resource_type == "exam" else "worksheet",
+            title=title,
+            chips_html=chips,
+            description=topic or t("no_description_available"),
+            meta_html=meta_html,
+            image_url=hero_image,
+            placeholder_label=t("quick_exam_builder") if resource_type == "exam" else t("worksheet_maker"),
+        ),
         unsafe_allow_html=True,
     )
 
@@ -1233,7 +1241,7 @@ def _render_progress_tab():
 
 
 def _render_recommended_materials(pub_ws, pub_ex) -> None:
-    recommendations = build_recommended_materials(pub_ws, pub_ex, limit=4)
+    recommendations = build_recommended_materials(pub_ws, pub_ex, limit=6)
     if not recommendations:
         if pub_ws.empty and pub_ex.empty:
             return
@@ -1259,9 +1267,9 @@ def _render_recommended_materials(pub_ws, pub_ex) -> None:
         )
     )
 
-    for idx in range(0, len(recommendations), 2):
-        pair = recommendations[idx:idx + 2]
-        cols = st.columns(2, gap="medium")
+    for idx in range(0, len(recommendations), 3):
+        pair = recommendations[idx:idx + 3]
+        cols = st.columns(3, gap="medium")
         for col_idx, item in enumerate(pair):
             row = item.get("row") or {}
             resource_type = str(item.get("resource_type") or "")
@@ -1274,6 +1282,8 @@ def _render_recommended_materials(pub_ws, pub_ex) -> None:
                     ws_type=str(item.get("exercise_type") or resource_type),
                     btn_key=f"sp_reco_{resource_type}_{row.get('id', idx)}_{idx}_{col_idx}",
                     color="#22C55E" if resource_type == "worksheet" else "#F59E0B",
+                    row=row,
+                    resource_type="exam" if resource_type == "exam" else "worksheet",
                 )
                 for reason in item.get("reasons") or []:
                     st.caption(f"- {reason}")

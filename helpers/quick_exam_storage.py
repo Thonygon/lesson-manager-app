@@ -26,11 +26,18 @@ from helpers.visual_support import (
     regenerate_exam_visuals,
     exam_has_ready_visuals,
     exam_eligible_for_visuals,
+    generate_resource_cover_image,
     render_streamlit_visual_support,
     build_pdf_visual_flowables,
     render_visual_support_status_group,
 )
 from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
+from helpers.resource_gallery import (
+    extract_gallery_language_label,
+    extract_gallery_image_url,
+    inject_resource_gallery_styles,
+    render_gallery_card_html,
+)
 
 
 _QUICK_EXAM_LIST_COLUMNS = ",".join([
@@ -477,11 +484,12 @@ def render_exam_library_cards(
         st.info(t("no_data"))
         return
 
+    inject_resource_gallery_styles()
     rows = df.reset_index(drop=True).to_dict("records")
 
-    for idx in range(0, len(rows), 2):
-        pair = rows[idx : idx + 2]
-        cols = st.columns(2, gap="medium")
+    for idx in range(0, len(rows), 3):
+        pair = rows[idx : idx + 3]
+        cols = st.columns(3, gap="medium")
 
         for col_idx, row in enumerate(pair):
             row_id = row.get("id", idx + col_idx)
@@ -508,12 +516,19 @@ def render_exam_library_cards(
             safe_title = html.escape(title)
             safe_author = html.escape(author_name)
             preview_text = html.escape((topic or t("no_description_available"))[:180])
+            full_payload = dict(row or {})
+            if not extract_gallery_image_url(full_payload) and exam_id not in (None, "", 0, "0"):
+                full_payload = load_exam_record(exam_id) or full_payload
+            hero_image = extract_gallery_image_url(full_payload)
+            language_label = extract_gallery_language_label(full_payload)
 
             chips = "".join([
+                f'<span class="cm-resource-chip">🌐 {html.escape(language_label)}</span>' if language_label else "",
                 f'<span class="cm-resource-chip">📚 {html.escape(subject_label)}</span>' if subject_label else "",
                 f'<span class="cm-resource-chip">📏 {html.escape(length_label)}</span>' if length_label else "",
                 f'<span class="cm-resource-chip">👥 {html.escape(stage_label)}</span>' if stage_label else "",
                 f'<span class="cm-resource-chip">🏷️ {html.escape(level_label)}</span>' if level_label else "",
+                f'<span class="cm-resource-chip">⚙️ {html.escape(t("mode_ai"))}</span>',
             ])
 
             meta = "".join([
@@ -524,12 +539,15 @@ def render_exam_library_cards(
             ])
 
             card_html = (
-                f'<div class="cm-resource-card cm-resource-exam">'
-                f'<div class="cm-resource-card__title">{safe_title}</div>'
-                f'<div class="cm-resource-chip-row">{chips}</div>'
-                f'<div class="cm-resource-preview">{preview_text}</div>'
-                f'{meta}'
-                f'</div>'
+                render_gallery_card_html(
+                    kind="exam",
+                    title=title,
+                    chips_html=chips,
+                    description=topic or t("no_description_available"),
+                    meta_html=meta,
+                    image_url=hero_image,
+                    placeholder_label=t("quick_exam_builder"),
+                )
             )
 
             with cols[col_idx]:
@@ -1017,6 +1035,7 @@ def render_exam_result(
     answer_key: dict,
     *,
     show_ready_banner: bool = True,
+    read_only: bool = False,
     allow_assign: bool = False,
     assign_expanded: bool = False,
     resource_record_id: int | str | None = None,
@@ -1036,6 +1055,13 @@ def render_exam_result(
     topic = meta.get("topic", exam_data.get("topic", ""))
     learner_stage = meta.get("learner_stage", exam_data.get("learner_stage", ""))
     level_or_band = meta.get("level_or_band", exam_data.get("level_or_band", ""))
+    image_edit_allowed = not read_only
+    if read_only and resource_record_id not in (None, "", 0, "0"):
+        try:
+            owner_row = load_exam_record(resource_record_id) or {}
+            image_edit_allowed = str(owner_row.get("user_id") or "").strip() == str(get_current_user_id() or "").strip()
+        except Exception:
+            image_edit_allowed = False
 
     exam_data = dict(exam_data or {})
     normalized_sections = []
@@ -1052,7 +1078,7 @@ def render_exam_result(
     # ── Auto-enrich: generate visuals on first view if missing ──────────
     # Only runs once per exam per session (guarded by session-state flag).
     # Avoids expensive repeated calls on every rerun.
-    if not comparison_mode and not signup_required_actions and exam_eligible_for_visuals(exam_data, subject=subject, learner_stage=learner_stage, topic=topic):
+    if image_edit_allowed and not comparison_mode and not signup_required_actions and exam_eligible_for_visuals(exam_data, subject=subject, learner_stage=learner_stage, topic=topic):
         if not exam_has_ready_visuals(exam_data):
             _auto_key = f"_exam_vis_tried_{resource_record_id or action_key_prefix}"
             if not st.session_state.get(_auto_key):
@@ -1081,7 +1107,7 @@ def render_exam_result(
         for sec in exam_data.get("sections", [])
         if isinstance(sec, dict)
     )
-    if not exam_has_ready_visuals(exam_data) and has_visual_failure:
+    if not exam_has_ready_visuals(exam_data) and not extract_gallery_image_url(exam_data) and has_visual_failure:
         st.warning(t("image_support_generation_failed"))
 
     st.markdown(f"### {exam_data.get('title', '')}")
@@ -1089,6 +1115,68 @@ def render_exam_result(
     if exam_data.get("instructions"):
         st.markdown(f"**{t('ws_instructions')}**")
         st.write(exam_data["instructions"])
+
+    if not comparison_mode:
+        current_image_url = extract_gallery_image_url(exam_data)
+        if current_image_url and not exam_has_ready_visuals(exam_data):
+            st.markdown(
+                f'<div style="max-width:560px;margin:.4rem 0 1rem;">'
+                f'<img src="{html.escape(current_image_url, quote=True)}" alt="{html.escape(str(exam_data.get("title") or t("exam_label")), quote=True)}" '
+                f'style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:18px;border:1px solid var(--border);box-shadow:var(--shadow-md);" />'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        # Generate / Regenerate images button
+        if image_edit_allowed and not signup_required_actions:
+            _has_visuals = exam_has_ready_visuals(exam_data)
+            _has_any_image = bool(extract_gallery_image_url(exam_data))
+            _eligible_visuals = exam_eligible_for_visuals(exam_data, subject=subject, learner_stage=learner_stage, topic=topic)
+            regen_key = f"{action_key_prefix}_regen_img"
+            if _has_any_image:
+                btn_label = "🔄 " + (t("regenerate_image") if t("regenerate_image") != "regenerate_image" else "Regenerate image")
+            else:
+                btn_label = "🖼️ " + (t("generate_image") if t("generate_image") != "generate_image" else "Generate image")
+            if st.button(btn_label, key=regen_key, type="secondary"):
+                if _has_visuals:
+                    # Regenerate — deep-copies internally so original data is safe
+                    with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating new image…"):
+                        exam_updated = regenerate_exam_visuals(
+                            exam_data, subject=subject, learner_stage=learner_stage, topic=topic,
+                        )
+                elif _eligible_visuals:
+                    # First generation for an exam that previously failed
+                    with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating image…"):
+                        exam_updated = enrich_exam_with_visuals(
+                            exam_data, subject=subject, learner_stage=learner_stage, topic=topic,
+                        )
+                else:
+                    with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating image…"):
+                        exam_updated = dict(exam_data or {})
+                        exam_updated["cover_image"] = generate_resource_cover_image(
+                            title=str(exam_updated.get("title") or ""),
+                            resource_type=t("exam_label"),
+                            subject=subject,
+                            learner_stage=learner_stage,
+                            level_or_band=level_or_band,
+                            topic=topic,
+                            overview=str(exam_updated.get("instructions") or ""),
+                        )
+                if extract_gallery_image_url(exam_updated):
+                    # Persist to DB so students also see the images
+                    persisted = True
+                    if resource_record_id not in (None, "", 0, "0"):
+                        persisted = _persist_saved_exam_visuals(resource_record_id, exam_updated)
+                    # Update every session-state reference
+                    st.session_state["exam_result"] = exam_updated
+                    if st.session_state.get("files_selected_exam") is not None:
+                        st.session_state["files_selected_exam"] = exam_updated
+                    if not persisted:
+                        st.warning(t("resource_cover_save_failed"))
+                        return
+                    st.rerun()
+                else:
+                    st.warning(t("image_generation_failed") if t("image_generation_failed") != "image_generation_failed" else "Image generation failed. Please try again.")
 
     for sec in exam_data.get("sections", []):
         sec_type = sec.get("type", "")
@@ -1168,39 +1256,6 @@ def render_exam_result(
 
     if comparison_mode:
         return
-
-    # Generate / Regenerate images button
-    if not signup_required_actions and exam_eligible_for_visuals(exam_data, subject=subject, learner_stage=learner_stage, topic=topic):
-        _has_visuals = exam_has_ready_visuals(exam_data)
-        regen_key = f"{action_key_prefix}_regen_img"
-        if _has_visuals:
-            btn_label = "🔄 " + (t("regenerate_image") if t("regenerate_image") != "regenerate_image" else "Regenerate image")
-        else:
-            btn_label = "🖼️ " + (t("generate_image") if t("generate_image") != "generate_image" else "Generate image")
-        if st.button(btn_label, key=regen_key, type="secondary"):
-            if _has_visuals:
-                # Regenerate — deep-copies internally so original data is safe
-                with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating new image…"):
-                    exam_updated = regenerate_exam_visuals(
-                        exam_data, subject=subject, learner_stage=learner_stage, topic=topic,
-                    )
-            else:
-                # First generation for an exam that previously failed
-                with st.spinner(t("generating_image") if t("generating_image") != "generating_image" else "Generating image…"):
-                    exam_updated = enrich_exam_with_visuals(
-                        exam_data, subject=subject, learner_stage=learner_stage, topic=topic,
-                    )
-            if exam_has_ready_visuals(exam_updated):
-                # Persist to DB so students also see the images
-                if resource_record_id not in (None, "", 0, "0"):
-                    _persist_saved_exam_visuals(resource_record_id, exam_updated)
-                # Update every session-state reference
-                st.session_state["exam_result"] = exam_updated
-                if st.session_state.get("files_selected_exam") is not None:
-                    st.session_state["files_selected_exam"] = exam_updated
-                st.rerun()
-            else:
-                st.warning(t("image_generation_failed") if t("image_generation_failed") != "image_generation_failed" else "Image generation failed. Please try again.")
 
     if signup_required_actions:
         st.caption(t("explore_resource_action_signup_note"))
@@ -1324,23 +1379,49 @@ def render_quick_exam_builder_expander() -> None:
     return _eb().render_quick_exam_builder_expander()
 
 
-def _persist_saved_exam_visuals(exam_id: int | str, exam_data: dict) -> None:
+def _persist_saved_exam_visuals(exam_id: int | str, exam_data: dict) -> bool:
     uid = str(get_current_user_id() or "").strip()
     if not uid or exam_id in (None, "", 0, "0"):
-        return
+        return False
     safe_id = exam_id
     if isinstance(exam_id, str):
         stripped = exam_id.strip()
         if not stripped:
-            return
+            return False
         safe_id = int(stripped) if stripped.isdigit() else stripped
     try:
-        get_sb().table("quick_exams").update(
-            {
-                "exam_data": exam_data,
-                "updated_at": _dt.now(timezone.utc).isoformat(),
-            }
-        ).eq("id", safe_id).eq("user_id", uid).execute()
+        payload_with_timestamp = {
+            "exam_data": exam_data,
+            "updated_at": _dt.now(timezone.utc).isoformat(),
+        }
+        payload_minimal = {"exam_data": exam_data}
+        try:
+            (
+                get_sb()
+                .table("quick_exams")
+                .update(payload_with_timestamp)
+                .eq("id", safe_id)
+                .eq("user_id", uid)
+                .execute()
+            )
+        except Exception:
+            (
+                get_sb()
+                .table("quick_exams")
+                .update(payload_minimal)
+                .eq("id", safe_id)
+                .eq("user_id", uid)
+                .execute()
+            )
         clear_app_caches()
+        try:
+            load_exam_record.clear()
+        except Exception:
+            pass
+        saved_row = load_exam_record(safe_id)
+        saved_payload = saved_row.get("exam_data") or {}
+        saved_image = extract_gallery_image_url(saved_payload)
+        new_image = extract_gallery_image_url(exam_data)
+        return bool(saved_image and new_image and saved_image == new_image)
     except Exception:
-        pass
+        return False

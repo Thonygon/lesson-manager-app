@@ -32,6 +32,13 @@ from helpers.material_recommendations import (
     maybe_pause_generation_for_matches,
     render_generation_recommendations,
 )
+from helpers.resource_gallery import (
+    extract_gallery_language_label,
+    extract_gallery_image_url,
+    inject_resource_gallery_styles,
+    render_gallery_card_html,
+)
+from helpers.visual_support import generate_resource_cover_image
 from reportlab.lib.enums import TA_CENTER
 
 
@@ -688,6 +695,37 @@ def load_lesson_plan_record(plan_id) -> dict:
 register_cache(load_lesson_plan_record)
 
 
+def _persist_lesson_plan_cover(plan_id: int | str, plan: dict) -> bool:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid or plan_id in (None, "", 0, "0"):
+        return False
+    safe_id = int(str(plan_id).strip()) if str(plan_id).strip().isdigit() else plan_id
+    clean_plan = _clean_plan_data(plan)
+    try:
+        try:
+            get_sb().table("lesson_plans").update(
+                {
+                    "plan_json": clean_plan,
+                    "updated_at": _dt.now(timezone.utc).isoformat(),
+                }
+            ).eq("id", safe_id).eq("user_id", uid).execute()
+        except Exception:
+            get_sb().table("lesson_plans").update(
+                {"plan_json": clean_plan}
+            ).eq("id", safe_id).eq("user_id", uid).execute()
+        clear_app_caches()
+        try:
+            load_lesson_plan_record.clear()
+        except Exception:
+            pass
+        saved_row = load_lesson_plan_record(safe_id) or {}
+        saved_image = extract_gallery_image_url(saved_row)
+        new_image = extract_gallery_image_url(clean_plan)
+        return bool(saved_image and new_image and saved_image == new_image)
+    except Exception:
+        return False
+
+
 def format_plan_datetime(value) -> str:
     try:
         dt = pd.to_datetime(value, errors="coerce")
@@ -844,11 +882,12 @@ def render_plan_library_cards(
     if df is None or df.empty:
         return
 
+    inject_resource_gallery_styles()
     rows = df.reset_index(drop=True).to_dict("records")
 
-    for idx in range(0, len(rows), 2):
-        pair = rows[idx : idx + 2]
-        cols = st.columns(2, gap="medium")
+    for idx in range(0, len(rows), 3):
+        pair = rows[idx : idx + 3]
+        cols = st.columns(3, gap="medium")
 
         for col_idx, row in enumerate(pair):
             row_id = row.get("id", idx + col_idx)
@@ -874,9 +913,16 @@ def render_plan_library_cards(
             safe_title = html.escape(title)
             safe_author = html.escape(author_name)
             preview_text = html.escape((topic or t("no_description_available"))[:180])
+            full_payload = dict(row or {})
+            if not extract_gallery_image_url(full_payload) and plan_id not in (None, "", 0, "0"):
+                full_row = load_lesson_plan_record(plan_id) or {}
+                full_payload = full_row or full_payload
+            hero_image = extract_gallery_image_url(full_payload)
+            language_label = extract_gallery_language_label(full_payload)
 
             chips = "".join(
                 [
+                    f'<span class="cm-resource-chip">🌐 {html.escape(language_label)}</span>' if language_label else "",
                     f'<span class="cm-resource-chip">📚 {html.escape(subject_label)}</span>' if subject_label else "",
                     f'<span class="cm-resource-chip">🎯 {html.escape(purpose_label)}</span>' if purpose_label else "",
                     f'<span class="cm-resource-chip">👥 {html.escape(stage_label)}</span>' if stage_label else "",
@@ -895,12 +941,15 @@ def render_plan_library_cards(
             )
 
             card_html = (
-                f'<div class="cm-resource-card cm-resource-plan">'
-                f'<div class="cm-resource-card__title">{safe_title}</div>'
-                f'<div class="cm-resource-chip-row">{chips}</div>'
-                f'<div class="cm-resource-preview">{preview_text}</div>'
-                f"{meta}"
-                f"</div>"
+                render_gallery_card_html(
+                    kind="plan",
+                    title=title,
+                    chips_html=chips,
+                    description=topic or t("no_description_available"),
+                    meta_html=meta,
+                    image_url=hero_image,
+                    placeholder_label=t("lesson_plan"),
+                )
             )
 
             with cols[col_idx]:
@@ -1121,6 +1170,54 @@ def render_quick_lesson_plan_result(
         mode_label=mode_label,
         material_language=str(plan.get("student_material_language") or "").upper(),
     )
+    cover_allowed = not read_only
+    if read_only and resource_record_id not in (None, "", 0, "0"):
+        try:
+            cover_row = load_lesson_plan_record(resource_record_id)
+            cover_allowed = str(cover_row.get("user_id") or "") == str(get_current_user_id() or "")
+        except Exception:
+            cover_allowed = False
+    if cover_allowed and not comparison_mode and not signup_required_actions:
+        cover_url = extract_gallery_image_url(plan.get("cover_image") or plan)
+        has_cover = bool(cover_url)
+        cover_label = t("regenerate_image") if has_cover else t("generate_image")
+        if cover_url:
+            st.markdown(
+                f'<div style="max-width:560px;margin:.4rem 0 1rem;">'
+                f'<img src="{html.escape(cover_url, quote=True)}" alt="{html.escape(str(plan.get("title") or t("lesson_plan")), quote=True)}" '
+                f'style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:18px;border:1px solid var(--border);box-shadow:var(--shadow-md);" />'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        if st.button(
+            ("🔄 " if has_cover else "🖼️ ") + cover_label,
+            key=f"{action_key_prefix}_cover_image",
+            type="secondary",
+        ):
+            with st.spinner(t("generating_image")):
+                updated_plan = dict(plan or {})
+                updated_plan["cover_image"] = generate_resource_cover_image(
+                    title=str(updated_plan.get("title") or ""),
+                    resource_type=t("lesson_plan"),
+                    subject=subject,
+                    learner_stage=learner_stage,
+                    level_or_band=level_or_band,
+                    topic=topic,
+                    overview=str(updated_plan.get("objective") or ""),
+                )
+            new_cover_url = extract_gallery_image_url(updated_plan.get("cover_image"))
+            if not new_cover_url:
+                st.warning(t("resource_cover_generation_failed"))
+                return
+            if resource_record_id not in (None, "", 0, "0"):
+                if not _persist_lesson_plan_cover(resource_record_id, updated_plan):
+                    st.warning(t("resource_cover_save_failed"))
+                    return
+            st.session_state["quick_lesson_plan_result"] = updated_plan
+            if st.session_state.get("files_selected_plan") is not None:
+                st.session_state["files_selected_plan"] = updated_plan
+            st.success(t("resource_cover_generated"))
+            st.rerun()
 
     # Lesson Overview
     with st.expander(f"📌 {t('lesson_overview')}", expanded=True):

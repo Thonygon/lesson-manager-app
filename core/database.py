@@ -560,6 +560,44 @@ def upsert_profile_row(user_id: str, payload: dict) -> bool:
         return False
 
 
+def touch_current_user_activity(page_name: str = "") -> None:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid:
+        return
+
+    safe_page = str(page_name or "").strip()
+    now = datetime.now(timezone.utc)
+    now_epoch = now.timestamp()
+    last_epoch = float(st.session_state.get("_app_usage_touch_epoch") or 0.0)
+    last_page = str(st.session_state.get("_app_usage_touch_page") or "").strip()
+    should_touch = safe_page != last_page or (now_epoch - last_epoch) >= 300
+    if not should_touch:
+        return
+
+    payload = {"last_used_at": now.isoformat()}
+    if safe_page and safe_page != "home":
+        payload["last_page"] = safe_page
+
+    try:
+        get_sb().table("profiles").update(payload).eq("user_id", uid).execute()
+    except Exception as exc:
+        if "last_used_at" in str(exc):
+            fallback_payload = dict(payload)
+            fallback_payload.pop("last_used_at", None)
+            if fallback_payload:
+                try:
+                    get_sb().table("profiles").update(fallback_payload).eq("user_id", uid).execute()
+                except Exception:
+                    return
+            else:
+                return
+        else:
+            return
+
+    st.session_state["_app_usage_touch_epoch"] = now_epoch
+    st.session_state["_app_usage_touch_page"] = safe_page
+
+
 def enable_profile_mode(user_id: str, target_role: str) -> bool:
     role = str(target_role or "").strip().lower()
     if not user_id or role not in ("teacher", "student", "admin"):

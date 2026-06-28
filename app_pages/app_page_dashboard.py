@@ -7,13 +7,13 @@ from core.i18n import t
 from core.timezone import today_local, now_local, get_app_tz_name
 from core.navigation import page_header, go_to
 from core.database import norm_student, update_payment_row, clear_app_caches, load_table
-from helpers.dashboard import rebuild_dashboard
+from helpers.dashboard import _rebuild_dashboard_from_frames
 from helpers.empty_states import render_empty_state
 from helpers.student_meta import student_meta_maps
 from helpers.goals import render_home_indicator, YEAR_GOAL_SCOPE
 from helpers.kpi_bubbles import kpi_stat_cards
 from helpers.ui_components import pretty_df, translate_df_headers, translate_df, ts_today_naive, render_styled_dataframe
-from helpers.analytics import build_income_analytics, _build_income_analytics_from_payments
+from helpers.analytics import _build_income_analytics_from_payments
 from helpers.year_goals import get_year_goal
 from helpers.currency import format_currency, get_preferred_currency, get_exchange_rate
 from helpers.language import translate_status, translate_modality_value, translate_language_value
@@ -345,22 +345,108 @@ def _render_today_lessons_cards(df: pd.DataFrame, color_map: dict, phone_map: di
         html = "<div class='dash-today-list'>" + "".join(cards) + "</div>"
         st.markdown(html, unsafe_allow_html=True)
 
+
+def _render_loaded_student_report(student: str, dashboard_df: pd.DataFrame) -> None:
+    _rpt_lessons, _rpt_payments = show_student_history(student)
+
+    _rptA, _rptB = st.columns(2)
+    with _rptA:
+        st.markdown(f"### {t('lessons')}")
+        render_styled_dataframe(translate_df_headers(_rpt_lessons))
+    with _rptB:
+        st.markdown(f"### {t('payments')}")
+        render_styled_dataframe(translate_df_headers(_rpt_payments))
+
+    st.markdown(f"#### {t('report_actions')}")
+    _pkg_df = dashboard_df[dashboard_df["Student"] == student].copy()
+    _rpt_pdf = build_student_report_pdf(student, _rpt_lessons, _rpt_payments, _pkg_df)
+    _safe_name = _re.sub(r"[^A-Za-z0-9._-]+", "_", student.strip()) or "student"
+    _rpt_file = f"report_{_safe_name}.pdf"
+
+    _sdf = load_students_df()
+    _srow = _sdf.loc[_sdf["student"] == student]
+    _s_email = str(_srow.iloc[0].get("email", "")).strip() if not _srow.empty else ""
+    _s_phone = str(_srow.iloc[0].get("phone", "")).strip() if not _srow.empty else ""
+
+    from services.permissions_service import can_export_pdf, increment_usage
+
+    _rpt_cols = st.columns(3)
+    with _rpt_cols[0]:
+        _can_download_pdf = can_export_pdf()
+        if not _can_download_pdf:
+            st.warning(t("ai_limit_reached") if t("ai_limit_reached") != "ai_limit_reached" else "PDF export limit reached.")
+        _downloaded_pdf = st.download_button(
+            label=f"\U0001f4c4 {t('download_pdf')}",
+            data=_rpt_pdf,
+            file_name=_rpt_file,
+            mime="application/pdf",
+            key="dash_btn_download_report",
+            use_container_width=True,
+            disabled=not _can_download_pdf,
+        )
+        if _downloaded_pdf:
+            increment_usage(None, "pdf_exports")
+    with _rpt_cols[1]:
+        if _s_phone:
+            _wa_url = build_report_whatsapp_url(student, _s_phone)
+            st.link_button(
+                f"\U0001f4ac {t('send_whatsapp')}",
+                url=_wa_url,
+                use_container_width=True,
+            )
+        else:
+            st.button(
+                f"\U0001f4ac {t('send_whatsapp')}",
+                disabled=True,
+                help=t("no_phone_on_file"),
+                key="dash_btn_wa_report_disabled",
+                use_container_width=True,
+            )
+    with _rpt_cols[2]:
+        if _s_email:
+            _mail_url = build_report_email_url(student, _s_email)
+            st.link_button(
+                f"\U0001f4e7 {t('send_email')}",
+                url=_mail_url,
+                use_container_width=True,
+            )
+        else:
+            st.button(
+                f"\U0001f4e7 {t('send_email')}",
+                disabled=True,
+                help=t("no_email_on_file"),
+                key="dash_btn_email_report_disabled",
+                use_container_width=True,
+            )
+    if _s_phone or _s_email:
+        st.caption(t("share_report_hint"))
+
+
 def render_dashboard():
     page_header(t("dashboard"))
     st.caption(t("manage_current_students"))
 
+    load_slot = st.empty()
+    load_progress = load_slot.progress(0.06, text=t("dashboard_loading_start"))
     classes_df = load_table("classes")
+    load_progress.progress(0.22, text=t("dashboard_loading_lessons"))
     payments_df = load_table("payments")
-    dash = rebuild_dashboard(
+    load_progress.progress(0.38, text=t("dashboard_loading_payments"))
+    dash = _rebuild_dashboard_from_frames(
+        classes_df,
+        payments_df,
         active_window_days=183,
         expiry_days=365,
         grace_days=35,
     )
+    load_progress.progress(0.56, text=t("dashboard_loading_packages"))
     start_day = today_local()
     end_day = start_day + datetime.timedelta(days=60)
     future_events = _normalize_calendar_events(build_calendar_events(start_day, end_day, get_app_tz_name()))
+    load_progress.progress(0.72, text=t("dashboard_loading_calendar"))
     today = today_local()
     active_pauses = active_schedule_freezes(today)
+    load_progress.progress(0.82, text=t("dashboard_loading_status"))
     today_iso = today.strftime("%Y-%m-%d")
     today_events = future_events[future_events.get("Date", "").astype(str) == today_iso].copy() if not future_events.empty and "Date" in future_events.columns else pd.DataFrame()
     future_events_14 = future_events.copy()
@@ -376,6 +462,8 @@ def render_dashboard():
         payments_df=payments_df,
         classes_df=classes_df,
     )
+    load_progress.progress(1.0, text=t("dashboard_loading_ready"))
+    load_slot.empty()
     render_notification_cloud(teacher_notifications, scope="teacher")
 
     if dash is None or dash.empty:
@@ -710,79 +798,14 @@ def render_dashboard():
             st.info(t("no_students"))
         else:
             _rpt_student = st.selectbox(t("select_student"), _dash_students, key="dash_report_student")
-            _rpt_lessons, _rpt_payments = show_student_history(_rpt_student)
+            if st.button(t("dashboard_load_student_report"), key="dash_load_student_report", use_container_width=True):
+                st.session_state["dash_report_loaded_student"] = _rpt_student
 
-            _rptA, _rptB = st.columns(2)
-            with _rptA:
-                st.markdown(f"### {t('lessons')}")
-                render_styled_dataframe(translate_df_headers(_rpt_lessons))
-            with _rptB:
-                st.markdown(f"### {t('payments')}")
-                render_styled_dataframe(translate_df_headers(_rpt_payments))
-
-            st.markdown(f"#### {t('report_actions')}")
-            _pkg_df = d[d["Student"] == _rpt_student].copy()
-            _rpt_pdf = build_student_report_pdf(_rpt_student, _rpt_lessons, _rpt_payments, _pkg_df)
-            _safe_name = _re.sub(r"[^A-Za-z0-9._-]+", "_", _rpt_student.strip()) or "student"
-            _rpt_file = f"report_{_safe_name}.pdf"
-
-            _sdf = load_students_df()
-            _srow = _sdf.loc[_sdf["student"] == _rpt_student]
-            _s_email = str(_srow.iloc[0].get("email", "")).strip() if not _srow.empty else ""
-            _s_phone = str(_srow.iloc[0].get("phone", "")).strip() if not _srow.empty else ""
-
-            from services.permissions_service import can_export_pdf, increment_usage
-
-            _rpt_cols = st.columns(3)
-            with _rpt_cols[0]:
-                _can_download_pdf = can_export_pdf()
-                if not _can_download_pdf:
-                    st.warning(t("ai_limit_reached") if t("ai_limit_reached") != "ai_limit_reached" else "PDF export limit reached.")
-                _downloaded_pdf = st.download_button(
-                    label=f"\U0001f4c4 {t('download_pdf')}",
-                    data=_rpt_pdf,
-                    file_name=_rpt_file,
-                    mime="application/pdf",
-                    key="dash_btn_download_report",
-                    use_container_width=True,
-                    disabled=not _can_download_pdf,
-                )
-                if _downloaded_pdf:
-                    increment_usage(None, "pdf_exports")
-            with _rpt_cols[1]:
-                if _s_phone:
-                    _wa_url = build_report_whatsapp_url(_rpt_student, _s_phone)
-                    st.link_button(
-                        f"\U0001f4ac {t('send_whatsapp')}",
-                        url=_wa_url,
-                        use_container_width=True,
-                    )
-                else:
-                    st.button(
-                        f"\U0001f4ac {t('send_whatsapp')}",
-                        disabled=True,
-                        help=t("no_phone_on_file"),
-                        key="dash_btn_wa_report_disabled",
-                        use_container_width=True,
-                    )
-            with _rpt_cols[2]:
-                if _s_email:
-                    _mail_url = build_report_email_url(_rpt_student, _s_email)
-                    st.link_button(
-                        f"\U0001f4e7 {t('send_email')}",
-                        url=_mail_url,
-                        use_container_width=True,
-                    )
-                else:
-                    st.button(
-                        f"\U0001f4e7 {t('send_email')}",
-                        disabled=True,
-                        help=t("no_email_on_file"),
-                        key="dash_btn_email_report_disabled",
-                        use_container_width=True,
-                    )
-            if _s_phone or _s_email:
-                st.caption(t("share_report_hint"))
+            if st.session_state.get("dash_report_loaded_student") == _rpt_student:
+                with st.spinner(t("dashboard_loading_student_report")):
+                    _render_loaded_student_report(_rpt_student, d)
+            else:
+                st.caption(t("dashboard_load_student_report_hint"))
 
     # ---------------------------------------
     # MISMATCHES
