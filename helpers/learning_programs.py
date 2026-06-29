@@ -1372,6 +1372,8 @@ def _normalize_topic_record(topic: dict, fallback_topic_number: int, unit_number
         lesson_purpose = _lp().LESSON_PURPOSES[0]
 
     return {
+        "topic_id": _ensure_int(topic.get("topic_id"), 0, 0, 10**12),
+        "unit_id": _ensure_int(topic.get("unit_id"), 0, 0, 10**12),
         "topic_number": fallback_topic_number,
         "unit_number": unit_number,
         "title": _clean_display_text(topic.get("title") or topic.get("lesson_focus") or f"Topic {fallback_topic_number}"),
@@ -1406,6 +1408,7 @@ def _normalize_unit_record(unit: dict, fallback_unit_number: int) -> dict:
     exam_types = [x for x in _ensure_list_of_strings(unit.get("recommended_exam_exercise_types")) if x in _eb().EXAM_EXERCISE_TYPES]
 
     return {
+        "unit_id": _ensure_int(unit.get("unit_id"), 0, 0, 10**12),
         "unit_number": unit_number,
         "title": _clean_display_text(unit.get("title") or f"Unit {unit_number}"),
         "overview": _clean_text(unit.get("overview")),
@@ -2427,6 +2430,7 @@ def _flatten_program_rows(program: dict) -> tuple[list[dict], list[dict]]:
     for unit in program.get("units") or []:
         units_payload.append(
             {
+                "existing_unit_id": int(unit.get("unit_id") or 0),
                 "unit_number": unit["unit_number"],
                 "title": unit["title"],
                 "overview": unit["overview"],
@@ -2440,6 +2444,8 @@ def _flatten_program_rows(program: dict) -> tuple[list[dict], list[dict]]:
         for topic in unit.get("topics") or []:
             topics_payload.append(
                 {
+                    "existing_topic_id": int(topic.get("topic_id") or 0),
+                    "existing_unit_id": int(topic.get("unit_id") or unit.get("unit_id") or 0),
                     "unit_number": unit["unit_number"],
                     "topic_number": topic["topic_number"],
                     "title": topic["title"],
@@ -2588,12 +2594,17 @@ def save_learning_program(
         program_id = int(rows[0]["id"])
 
         for unit in units_payload:
+            unit_insert_payload = {
+                key: value
+                for key, value in unit.items()
+                if key != "existing_unit_id"
+            }
             unit_insert = (
                 sb.table("learning_program_units")
                 .insert(
                     {
                         "program_id": program_id,
-                        **unit,
+                        **unit_insert_payload,
                         "created_at": _now_iso(),
                         "updated_at": _now_iso(),
                     }
@@ -2612,7 +2623,11 @@ def save_learning_program(
                         {
                             "program_id": program_id,
                             "unit_id": unit_id,
-                            **topic,
+                            **{
+                                key: value
+                                for key, value in topic.items()
+                                if key not in {"existing_topic_id", "existing_unit_id"}
+                            },
                             "created_at": _now_iso(),
                             "updated_at": _now_iso(),
                         }
@@ -2679,43 +2694,103 @@ def update_learning_program(
             .eq("program_id", int(program_id))
             .execute()
         )
-        existing_unit_ids = [int(row.get("id") or 0) for row in existing_units if int(row.get("id") or 0) > 0]
-        if existing_unit_ids:
-            sb.table("learning_program_topics").delete().eq("program_id", int(program_id)).execute()
-            sb.table("learning_program_units").delete().eq("program_id", int(program_id)).execute()
-
+        existing_topics = _rows(
+            sb.table("learning_program_topics")
+            .select("id,unit_id")
+            .eq("program_id", int(program_id))
+            .execute()
+        )
+        kept_unit_ids: set[int] = set()
+        kept_topic_ids: set[int] = set()
         for unit in units_payload:
+            existing_unit_id = int(unit.get("existing_unit_id") or 0)
+            unit_payload = {
+                key: value
+                for key, value in unit.items()
+                if key != "existing_unit_id"
+            }
+            unit_row = None
+            if existing_unit_id > 0:
+                updated_unit = (
+                    sb.table("learning_program_units")
+                    .update(
+                        {
+                            **unit_payload,
+                            "updated_at": _now_iso(),
+                        }
+                    )
+                    .eq("id", existing_unit_id)
+                    .eq("program_id", int(program_id))
+                    .execute()
+                )
+                updated_rows = _rows(updated_unit)
+                unit_row = updated_rows[0] if updated_rows else None
             unit_insert = (
-                sb.table("learning_program_units")
+                None
+                if unit_row is not None
+                else sb.table("learning_program_units")
                 .insert(
                     {
                         "program_id": int(program_id),
-                        **unit,
+                        **unit_payload,
                         "created_at": _now_iso(),
                         "updated_at": _now_iso(),
                     }
                 )
                 .execute()
             )
-            unit_rows = _rows(unit_insert)
-            if not unit_rows:
-                continue
-            unit_id = int(unit_rows[0]["id"])
-            unit_number = int(unit_rows[0]["unit_number"])
+            if unit_row is None:
+                unit_rows = _rows(unit_insert)
+                if not unit_rows:
+                    continue
+                unit_row = unit_rows[0]
+            unit_id = int(unit_row["id"])
+            unit_number = int(unit_row["unit_number"])
+            kept_unit_ids.add(unit_id)
             unit_topics = [topic for topic in topics_payload if int(topic["unit_number"]) == unit_number]
-            if unit_topics:
-                sb.table("learning_program_topics").insert(
-                    [
+            for topic in unit_topics:
+                existing_topic_id = int(topic.get("existing_topic_id") or 0)
+                topic_payload = {
+                    key: value
+                    for key, value in topic.items()
+                    if key not in {"existing_topic_id", "existing_unit_id"}
+                }
+                if existing_topic_id > 0:
+                    sb.table("learning_program_topics").update(
                         {
-                            "program_id": int(program_id),
+                            **topic_payload,
                             "unit_id": unit_id,
-                            **topic,
-                            "created_at": _now_iso(),
+                            "program_id": int(program_id),
                             "updated_at": _now_iso(),
                         }
-                        for topic in unit_topics
-                    ]
-                ).execute()
+                    ).eq("id", existing_topic_id).eq("program_id", int(program_id)).execute()
+                    kept_topic_ids.add(existing_topic_id)
+                else:
+                    inserted_topic = (
+                        sb.table("learning_program_topics")
+                        .insert(
+                            {
+                                "program_id": int(program_id),
+                                "unit_id": unit_id,
+                                **topic_payload,
+                                "created_at": _now_iso(),
+                                "updated_at": _now_iso(),
+                            }
+                        )
+                        .execute()
+                    )
+                    inserted_topic_rows = _rows(inserted_topic)
+                    if inserted_topic_rows:
+                        kept_topic_ids.add(int(inserted_topic_rows[0].get("id") or 0))
+
+        for topic_row in existing_topics:
+            topic_id = int(topic_row.get("id") or 0)
+            if topic_id > 0 and topic_id not in kept_topic_ids:
+                sb.table("learning_program_topics").delete().eq("id", topic_id).eq("program_id", int(program_id)).execute()
+        for unit_row in existing_units:
+            unit_id = int(unit_row.get("id") or 0)
+            if unit_id > 0 and unit_id not in kept_unit_ids:
+                sb.table("learning_program_units").delete().eq("id", unit_id).eq("program_id", int(program_id)).execute()
 
         clear_app_caches()
         return True, "updated"
@@ -4167,22 +4242,27 @@ def render_student_program_view(program: dict, assignment_id: Optional[int] = No
                     elif extra_bits:
                         st.caption(" · ".join(extra_bits))
                     if interactive and assignment_id and topic_id > 0 and done:
+                        checkbox_key = f"learning_program_needs_practice_{assignment_id}_{topic_id}"
                         new_needs_practice = st.checkbox(
                             t("need_more_practice_request_label"),
                             value=needs_practice,
-                            key=f"learning_program_needs_practice_{assignment_id}_{topic_id}",
+                            key=checkbox_key,
                             help=t("need_more_practice_request_help"),
                         )
                         st.caption(t("need_more_practice_request_explainer"))
                         if new_needs_practice:
                             st.info(t("need_more_practice_request_sent"))
                         if new_needs_practice != needs_practice:
-                            set_assignment_topic_progress(
+                            saved = set_assignment_topic_progress(
                                 assignment_id=int(assignment_id),
                                 topic_id=topic_id,
                                 done_by_student=new_needs_practice,
                             )
-                            st.rerun()
+                            if saved:
+                                st.session_state.pop(checkbox_key, None)
+                                clear_app_caches()
+                                st.rerun()
+                            st.error(t("save_failed"))
 
 
 def render_saved_learning_program_workspace(program: dict, program_id: int, *, ns: str) -> None:

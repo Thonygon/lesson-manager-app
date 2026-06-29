@@ -28,6 +28,120 @@ from helpers.resource_gallery import extract_gallery_image_url, inject_resource_
 _STUDENT_PAGE_SIZE = 6
 
 
+def _program_sequence_value(item: dict) -> int:
+    program = item.get("program") or {}
+    raw = program.get("sequence_order") or item.get("sequence_order") or 0
+    try:
+        return int(raw or 0)
+    except Exception:
+        return 0
+
+
+def _program_sort_key(item: dict) -> tuple[int, str]:
+    program = item.get("program") or {}
+    stamp = str(
+        item.get("updated_at")
+        or item.get("assigned_at")
+        or program.get("updated_at")
+        or program.get("created_at")
+        or ""
+    ).strip()
+    return (_program_sequence_value(item), stamp)
+
+
+def _program_subject_groups(program_assignments: list[dict]) -> list[tuple[str, str, list[dict]]]:
+    grouped: dict[str, dict[str, object]] = {}
+    for item in program_assignments or []:
+        program = item.get("program") or {}
+        subject_key = str(program.get("subject") or item.get("subject_key") or "").strip() or "other"
+        subject_display = str(item.get("subject_display") or program.get("subject_display") or subject_key or "—").strip()
+        bucket = grouped.setdefault(subject_key, {"label": subject_display, "rows": []})
+        bucket["rows"].append(item)
+
+    ordered_groups: list[tuple[str, str, list[dict]]] = []
+    for subject_key, payload in grouped.items():
+        rows = sorted(list(payload.get("rows") or []), key=_program_sort_key, reverse=True)
+        ordered_groups.append((subject_key, str(payload.get("label") or subject_key), rows))
+
+    ordered_groups.sort(
+        key=lambda item: (
+            -max((_program_sequence_value(row) for row in item[2]), default=0),
+            item[1].casefold(),
+        )
+    )
+    return ordered_groups
+
+
+def _render_single_program_assignment_list(rows: list[dict], state_key_prefix: str) -> None:
+    if not rows:
+        return
+    page_programs, *_ = _slice_student_page(
+        rows,
+        state_key_prefix,
+        page_size=1,
+    )
+    for idx, item in enumerate(page_programs):
+        program = item.get("program") or {}
+        title_raw = str(program.get("title") or t("learning_program"))
+        teacher_name_raw = str(item.get("teacher_name") or t("teacher_role"))
+        subject_display_raw = str(item.get("subject_display") or "—")
+        completed_topics = int(item.get("completed_topics") or 0)
+        total_topics = int(item.get("total_topics") or 0)
+        progress_pct = int(item.get("progress_pct") or 0)
+        sequence_order = _program_sequence_value(item)
+        level_label = str(program.get("level_or_band") or "").strip()
+        start_on = str(item.get("start_on") or "").strip()
+        target_completion_on = str(item.get("target_completion_on") or "").strip()
+        teacher_note = _clean_teacher_feedback_text(item.get("teacher_note"))
+        target_label = (
+            f"{t('assignment_target_completion_on')}: {target_completion_on[:10]}"
+            if target_completion_on
+            else t("start_from_lesson_1")
+        )
+        chips = "".join(
+            [
+                f'<span class="cm-resource-chip">📚 {_html.escape(subject_display_raw)}</span>',
+                f'<span class="cm-resource-chip">📘 {_html.escape(t("learning_program"))}</span>',
+                f'<span class="cm-resource-chip">🏷️ {_html.escape(level_label)}</span>' if level_label else "",
+                f'<span class="cm-resource-chip">🪜 {_html.escape(t("path_step_label", step=sequence_order))}</span>' if sequence_order > 0 else "",
+                f'<span class="cm-resource-chip">📈 {completed_topics}/{total_topics} {_html.escape(t("topics_label").lower())}</span>',
+                f'<span class="cm-resource-chip">🎯 {progress_pct}%</span>',
+            ]
+        )
+        meta_html = (
+            f'<div class="cm-resource-meta">👤 {_html.escape(teacher_name_raw)}</div>'
+            f'<div class="cm-resource-meta">🗓️ {_html.escape(target_label)}</div>'
+        )
+        st.markdown(
+            render_gallery_card_html(
+                kind="program",
+                title=title_raw,
+                chips_html=chips,
+                description=teacher_note or str(program.get("program_overview") or program.get("student_summary") or t("no_description_available")),
+                meta_html=meta_html,
+                image_url=extract_gallery_image_url(program),
+                placeholder_label=t("learning_program"),
+            ),
+            unsafe_allow_html=True,
+        )
+        if start_on or teacher_note:
+            meta_parts = []
+            if start_on:
+                meta_parts.append(f"{t('day')}: {start_on[:10]}")
+            if teacher_note:
+                meta_parts.append(f"{t('teacher_note')}: {teacher_note}")
+            st.caption(" · ".join(meta_parts))
+
+        render_student_program_view(program, assignment_id=int(item.get("id") or 0), interactive=True)
+        if idx < len(page_programs) - 1:
+            st.markdown("<div style='height:.6rem;'></div>", unsafe_allow_html=True)
+    _render_student_pagination(
+        rows,
+        state_key_prefix,
+        page_size=1,
+    )
+
+
 def _normalize_source_record_id(source_record_id):
     text = str(source_record_id or "").strip()
     if not text:
@@ -619,67 +733,21 @@ def render_assigned_learning_programs_section(program_assignments: list[dict], l
 
     if program_assignments:
         inject_resource_gallery_styles()
-        page_programs, *_ = _slice_student_page(
-            program_assignments,
-            "student_assigned_learning_programs_page",
-            page_size=1,
-        )
-        for idx, item in enumerate(page_programs):
-            program = item.get("program") or {}
-            title_raw = str(program.get("title") or t("learning_program"))
-            teacher_name_raw = str(item.get("teacher_name") or t("teacher_role"))
-            subject_display_raw = str(item.get("subject_display") or "—")
-            completed_topics = int(item.get("completed_topics") or 0)
-            total_topics = int(item.get("total_topics") or 0)
-            progress_pct = int(item.get("progress_pct") or 0)
-            start_on = str(item.get("start_on") or "").strip()
-            target_completion_on = str(item.get("target_completion_on") or "").strip()
-            teacher_note = _clean_teacher_feedback_text(item.get("teacher_note"))
-            target_label = (
-                f"{t('assignment_target_completion_on')}: {target_completion_on[:10]}"
-                if target_completion_on
-                else t("start_from_lesson_1")
+        subject_groups = _program_subject_groups(program_assignments)
+        if len(subject_groups) > 1:
+            tabs = st.tabs([f"📚 {label}" for _, label, _rows in subject_groups])
+            for tab, (subject_key, _label, rows) in zip(tabs, subject_groups):
+                with tab:
+                    _render_single_program_assignment_list(
+                        rows,
+                        f"student_assigned_learning_programs_page_{subject_key}",
+                    )
+        else:
+            subject_key, _label, rows = subject_groups[0]
+            _render_single_program_assignment_list(
+                rows,
+                f"student_assigned_learning_programs_page_{subject_key}",
             )
-            chips = "".join(
-                [
-                    f'<span class="cm-resource-chip">📚 {_html.escape(subject_display_raw)}</span>',
-                    f'<span class="cm-resource-chip">📘 {_html.escape(t("learning_program"))}</span>',
-                    f'<span class="cm-resource-chip">📈 {completed_topics}/{total_topics} {_html.escape(t("topics_label").lower())}</span>',
-                    f'<span class="cm-resource-chip">🎯 {progress_pct}%</span>',
-                ]
-            )
-            meta_html = (
-                f'<div class="cm-resource-meta">👤 {_html.escape(teacher_name_raw)}</div>'
-                f'<div class="cm-resource-meta">🗓️ {_html.escape(target_label)}</div>'
-            )
-            st.markdown(
-                render_gallery_card_html(
-                    kind="program",
-                    title=title_raw,
-                    chips_html=chips,
-                    description=teacher_note or str(program.get("program_overview") or program.get("student_summary") or t("no_description_available")),
-                    meta_html=meta_html,
-                    image_url=extract_gallery_image_url(program),
-                    placeholder_label=t("learning_program"),
-                ),
-                unsafe_allow_html=True,
-            )
-            if start_on or teacher_note:
-                meta_parts = []
-                if start_on:
-                    meta_parts.append(f"{t('day')}: {start_on[:10]}")
-                if teacher_note:
-                    meta_parts.append(f"{t('teacher_note')}: {teacher_note}")
-                st.caption(" · ".join(meta_parts))
-
-            render_student_program_view(program, assignment_id=int(item.get("id") or 0), interactive=True)
-            if idx < len(page_programs) - 1:
-                st.markdown("<div style='height:.6rem;'></div>", unsafe_allow_html=True)
-        _render_student_pagination(
-            program_assignments,
-            "student_assigned_learning_programs_page",
-            page_size=1,
-        )
 
     if legacy_topics:
         st.markdown(f"<div class='classio-assigned-program-head'>{t('legacy_topic_tasks')}</div>", unsafe_allow_html=True)

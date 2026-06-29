@@ -29,6 +29,7 @@ from helpers.teacher_student_integration import (
     create_teacher_review_request,
     get_reviewable_teacher_links_for_subject,
     load_assignment_state_map,
+    load_student_teacher_links,
     load_student_review_requests_for_session,
 )
 from helpers.student_recommendations import build_recommended_materials
@@ -741,8 +742,25 @@ def _render_practice_card(
         payload, _answer_key, _row = _resolve_exam_payload(row)
     else:
         payload, _row = _resolve_worksheet_payload(row)
-    hero_image = extract_gallery_image_url(row or payload)
-    language_label = extract_gallery_language_label(row or payload)
+    full_payload = dict(payload or {})
+    combined_payload = {**row, **full_payload}
+    if not extract_gallery_image_url(combined_payload) and row.get("id"):
+        if resource_type == "exam":
+            from helpers.quick_exam_storage import load_exam_record
+
+            full_row = load_exam_record(row.get("id")) or {}
+            combined_payload = {**combined_payload, **full_row}
+            exam_data = full_row.get("exam_data") if isinstance(full_row.get("exam_data"), dict) else {}
+            combined_payload = {**combined_payload, **exam_data}
+        else:
+            from helpers.worksheet_storage import load_worksheet_record
+
+            full_row = load_worksheet_record(row.get("id")) or {}
+            combined_payload = {**combined_payload, **full_row}
+            worksheet_json = full_row.get("worksheet_json") if isinstance(full_row.get("worksheet_json"), dict) else {}
+            combined_payload = {**combined_payload, **worksheet_json}
+    hero_image = extract_gallery_image_url(combined_payload)
+    language_label = extract_gallery_language_label(combined_payload)
 
     chips = ""
     if language_label:
@@ -1127,23 +1145,35 @@ def _render_progress_tab():
         )
         return
 
-    subject_options = ["__all__"]
+    subject_values: set[str] = set()
     if "subject" in progress.columns:
-        for subject in sorted({str(s).strip() for s in progress["subject"].fillna("").tolist() if str(s).strip()}):
-            subject_options.append(subject)
+        subject_values.update(str(s).strip() for s in progress["subject"].fillna("").tolist() if str(s).strip())
+    history = load_practice_history(limit=500)
+    if not history.empty and "subject" in history.columns:
+        subject_values.update(str(s).strip() for s in history["subject"].fillna("").tolist() if str(s).strip())
+    linked_subject_values: set[str] = set()
+    for link in load_student_teacher_links(statuses=["active"]):
+        for subject_row in link.get("active_subjects", []) or []:
+            subject_key = str(subject_row.get("subject_key") or "").strip()
+            if subject_key:
+                linked_subject_values.add(subject_key)
 
-    selected_subject = st.selectbox(
-        t("filter_by_subject"),
-        options=subject_options,
-        format_func=lambda value: (
-            t("all_subjects")
-            if value == "__all__"
-            else (
-                translated if (translated := t(f"subject_{str(value).lower().replace(' ', '_')}")) != f"subject_{str(value).lower().replace(' ', '_')}" else str(value)
-            )
-        ),
-        key="student_progress_subject_filter",
-    )
+    show_subject_filter = len(subject_values) > 1 or len(linked_subject_values) > 1
+    selected_subject = "__all__"
+    if show_subject_filter:
+        subject_options = ["__all__"] + sorted(subject_values)
+        selected_subject = st.selectbox(
+            t("filter_by_subject"),
+            options=subject_options,
+            format_func=lambda value: (
+                t("all_subjects")
+                if value == "__all__"
+                else (
+                    translated if (translated := t(f"subject_{str(value).lower().replace(' ', '_')}")) != f"subject_{str(value).lower().replace(' ', '_')}" else str(value)
+                )
+            ),
+            key="student_progress_subject_filter",
+        )
 
     if selected_subject != "__all__" and "subject" in progress.columns:
         progress = progress[progress["subject"].fillna("").astype(str).str.strip().str.lower() == selected_subject.lower()].reset_index(drop=True)

@@ -12,6 +12,11 @@ from core.i18n import t
 from core.state import get_current_user_id
 from helpers.archive_utils import truthy_flag
 from helpers.lesson_planner import QUICK_SUBJECTS, normalize_subject, subject_label
+from helpers.recommendation_memory import (
+    clear_active_recommendation_context,
+    recommendation_context_for_assignment,
+    record_recommendation_event,
+)
 
 
 def _now_iso() -> str:
@@ -118,6 +123,11 @@ def _slugify_subject(value: str) -> str:
 
 def _rows(result) -> list[dict]:
     return getattr(result, "data", None) or []
+
+
+def _schema_missing_column(exc: Exception, column_name: str) -> bool:
+    text = str(exc or "").strip().lower()
+    return column_name.strip().lower() in text and "column" in text
 
 
 def _profile_label(profile: dict) -> str:
@@ -774,6 +784,11 @@ def create_teacher_assignment(
     teacher_note: str = "",
     due_date: date | None = None,
     source_record_id: int | str | None = None,
+    learning_program_assignment_id: int | None = None,
+    learning_program_topic_id: int | None = None,
+    recommendation_bucket: str = "",
+    recommendation_focus_kind: str = "",
+    recommendation_context: dict | None = None,
 ) -> tuple[bool, str]:
     teacher_id = str(get_current_user_id() or "").strip()
     if not teacher_id:
@@ -824,13 +839,70 @@ def create_teacher_assignment(
             "topic": _clean_display_text(topic),
             "teacher_note": _clean_text(teacher_note),
             "content_snapshot": content_snapshot or {},
+            "learning_program_assignment_id": int(learning_program_assignment_id) if int(learning_program_assignment_id or 0) > 0 else None,
+            "learning_program_topic_id": int(learning_program_topic_id) if int(learning_program_topic_id or 0) > 0 else None,
+            "recommendation_bucket": _clean_text(recommendation_bucket),
+            "recommendation_focus_kind": _clean_text(recommendation_focus_kind),
+            "recommendation_context": recommendation_context or {},
             "status": "assigned",
             "due_at": due_at,
             "assigned_at": now,
             "created_at": now,
             "updated_at": now,
         }
-        get_sb().table("teacher_assignments").insert(payload).execute()
+        try:
+            insert_res = get_sb().table("teacher_assignments").insert(payload).execute()
+        except Exception as exc:
+            # Additive migration safety: allow classic assignment creation to work
+            # even if the recommendation feedback-loop columns are not in the schema yet.
+            if any(
+                _schema_missing_column(exc, name)
+                for name in [
+                    "learning_program_assignment_id",
+                    "learning_program_topic_id",
+                    "recommendation_bucket",
+                    "recommendation_focus_kind",
+                    "recommendation_context",
+                ]
+            ):
+                legacy_payload = {
+                    key: value
+                    for key, value in payload.items()
+                    if key not in {
+                        "learning_program_assignment_id",
+                        "learning_program_topic_id",
+                        "recommendation_bucket",
+                        "recommendation_focus_kind",
+                        "recommendation_context",
+                    }
+                }
+                insert_res = get_sb().table("teacher_assignments").insert(legacy_payload).execute()
+            else:
+                raise
+        assignment_rows = _rows(insert_res)
+        if assignment_rows and (payload["learning_program_assignment_id"] or payload["learning_program_topic_id"]):
+            assignment_id = int(assignment_rows[0].get("id") or 0)
+            record_recommendation_event(
+                event_type="assignment_created",
+                teacher_id=teacher_id,
+                student_id=str(link.get("student_id") or "").strip(),
+                learning_program_assignment_id=payload["learning_program_assignment_id"] or None,
+                learning_program_topic_id=payload["learning_program_topic_id"] or None,
+                program_id=int((recommendation_context or {}).get("program_id") or 0) or None,
+                recommendation_bucket=payload["recommendation_bucket"],
+                recommendation_focus_kind=payload["recommendation_focus_kind"],
+                resource_kind=assignment_type,
+                resource_record_id=int(source_record_id) if str(source_record_id or "").isdigit() else None,
+                teacher_assignment_id=assignment_id or None,
+                event_weight=0.55,
+                metadata={
+                    "assignment_type": assignment_type,
+                    "title": payload["title"],
+                    "topic": payload["topic"],
+                    "source_type": source_type,
+                },
+            )
+            clear_active_recommendation_context()
         clear_app_caches()
         return True, "assignment_created"
     except Exception:
@@ -1013,6 +1085,9 @@ def mark_assignment_started(assignment_id: int) -> None:
         return
     try:
         now = _now_iso()
+        rows = _rows(
+            get_sb().table("teacher_assignments").select("*").eq("id", assignment_id).eq("student_id", uid).limit(1).execute()
+        )
         get_sb().table("teacher_assignments").update(
             {
                 "status": "started",
@@ -1020,6 +1095,24 @@ def mark_assignment_started(assignment_id: int) -> None:
                 "updated_at": now,
             }
         ).eq("id", assignment_id).eq("student_id", uid).in_("status", ["assigned", "overdue"]).execute()
+        assignment = rows[0] if rows else {}
+        if int(assignment.get("learning_program_assignment_id") or 0) > 0 and int(assignment.get("learning_program_topic_id") or 0) > 0:
+            recommendation_context = assignment.get("recommendation_context") or {}
+            record_recommendation_event(
+                event_type="student_started",
+                teacher_id=str(assignment.get("teacher_id") or "").strip(),
+                student_id=uid,
+                learning_program_assignment_id=int(assignment.get("learning_program_assignment_id") or 0) or None,
+                learning_program_topic_id=int(assignment.get("learning_program_topic_id") or 0) or None,
+                program_id=int(recommendation_context.get("program_id") or 0) or None,
+                recommendation_bucket=str(assignment.get("recommendation_bucket") or "").strip(),
+                recommendation_focus_kind=str(assignment.get("recommendation_focus_kind") or "").strip(),
+                resource_kind=str(assignment.get("assignment_type") or "").strip(),
+                resource_record_id=int(assignment.get("source_record_id") or 0) or None,
+                teacher_assignment_id=int(assignment.get("id") or 0) or None,
+                event_weight=0.16,
+                metadata={"title": str(assignment.get("title") or "").strip()},
+            )
         clear_app_caches()
     except Exception:
         pass
@@ -1091,7 +1184,7 @@ def record_assignment_attempt_from_practice(
         existing_attempts = _rows(
             get_sb()
             .table("teacher_assignment_attempts")
-            .select("id")
+            .select("id, score_pct")
             .eq("assignment_id", assignment_id)
             .eq("student_id", uid)
             .execute()
@@ -1113,6 +1206,11 @@ def record_assignment_attempt_from_practice(
                 "source_id": exercise_data.get("source_id"),
                 "title": exercise_data.get("title"),
             },
+            "learning_program_assignment_id": int(assignment.get("learning_program_assignment_id") or 0) or None,
+            "learning_program_topic_id": int(assignment.get("learning_program_topic_id") or 0) or None,
+            "recommendation_bucket": str(assignment.get("recommendation_bucket") or "").strip(),
+            "recommendation_focus_kind": str(assignment.get("recommendation_focus_kind") or "").strip(),
+            "recommendation_context": assignment.get("recommendation_context") or {},
             "started_at": assignment.get("opened_at") or now,
             "submitted_at": now,
             "graded_at": now,
@@ -1120,7 +1218,9 @@ def record_assignment_attempt_from_practice(
             "created_at": now,
             "updated_at": now,
         }
-        get_sb().table("teacher_assignment_attempts").insert(attempt_payload).execute()
+        insert_res = get_sb().table("teacher_assignment_attempts").insert(attempt_payload).execute()
+        attempt_rows = _rows(insert_res)
+        attempt_id = int((attempt_rows[0] if attempt_rows else {}).get("id") or 0)
         get_sb().table("teacher_assignments").update(
             {
                 "status": "graded",
@@ -1133,6 +1233,49 @@ def record_assignment_attempt_from_practice(
                 "updated_at": now,
             }
         ).eq("id", assignment_id).eq("student_id", uid).execute()
+        previous_scores = [
+            float(item.get("score_pct"))
+            for item in existing_attempts
+            if item.get("score_pct") not in (None, "")
+        ]
+        previous_best = max(previous_scores, default=None)
+        improved = previous_best is None or score_pct >= max(previous_best + 8.0, 78.0)
+        linked_program_assignment_id = int(assignment.get("learning_program_assignment_id") or 0)
+        linked_topic_id = int(assignment.get("learning_program_topic_id") or 0)
+        recommendation_bucket = str(assignment.get("recommendation_bucket") or "").strip()
+        recommendation_focus_kind = str(assignment.get("recommendation_focus_kind") or "").strip()
+        recommendation_context = assignment.get("recommendation_context") or {}
+        if linked_program_assignment_id > 0 and linked_topic_id > 0:
+            record_recommendation_event(
+                event_type="student_improved" if improved else "student_completed",
+                teacher_id=str(assignment.get("teacher_id") or "").strip(),
+                student_id=uid,
+                learning_program_assignment_id=linked_program_assignment_id,
+                learning_program_topic_id=linked_topic_id,
+                program_id=int(recommendation_context.get("program_id") or 0) or None,
+                recommendation_bucket=recommendation_bucket,
+                recommendation_focus_kind=recommendation_focus_kind,
+                resource_kind=str(assignment.get("assignment_type") or "").strip(),
+                resource_record_id=int(assignment.get("source_record_id") or 0) or None,
+                teacher_assignment_id=assignment_id,
+                assignment_attempt_id=attempt_id or None,
+                event_weight=0.9 if improved else 0.45,
+                metadata={
+                    "score_pct": score_pct,
+                    "previous_best_score_pct": previous_best,
+                    "attempt_number": attempt_number,
+                },
+            )
+            try:
+                from helpers.learning_programs import set_assignment_topic_progress
+
+                set_assignment_topic_progress(
+                    assignment_id=linked_program_assignment_id,
+                    topic_id=linked_topic_id,
+                    done_by_student=False if improved else True,
+                )
+            except Exception:
+                pass
         clear_app_caches()
     except Exception:
         pass
@@ -1708,6 +1851,13 @@ def submit_teacher_review(
                     }
                 ).eq("id", attempt_rows[0].get("id")).execute()
 
+        try:
+            from helpers.practice_engine import rebuild_practice_progress_for_user
+
+            rebuild_practice_progress_for_user(student_id)
+        except Exception:
+            pass
+
         clear_app_caches()
         return True, "teacher_review_saved"
     except Exception:
@@ -1892,6 +2042,7 @@ def render_assignment_panel_for_worksheet(
         topic=topic,
     )
     duplicate_confirmed = _render_duplicate_assignment_confirmation(prefix, duplicate_count)
+    recommendation_context = recommendation_context_for_assignment(link=link, subject_scope=subject_scope)
     if st.button(t("create_assignment"), key=f"{prefix}_assign_btn", use_container_width=True):
         if duplicate_count > 0 and not duplicate_confirmed:
             st.error(t("assignment_duplicate_confirm_required"))
@@ -1919,6 +2070,11 @@ def render_assignment_panel_for_worksheet(
             teacher_note=teacher_note,
             due_date=due_date,
             content_snapshot=snapshot,
+            learning_program_assignment_id=int(recommendation_context.get("learning_program_assignment_id") or 0) or None,
+            learning_program_topic_id=int(recommendation_context.get("learning_program_topic_id") or 0) or None,
+            recommendation_bucket=str(recommendation_context.get("recommendation_bucket") or "").strip(),
+            recommendation_focus_kind=str(recommendation_context.get("focus_kind") or "").strip(),
+            recommendation_context=recommendation_context,
         )
         if ok:
             st.success(t(key))
@@ -1950,6 +2106,7 @@ def render_assignment_panel_for_exam(
         topic=topic,
     )
     duplicate_confirmed = _render_duplicate_assignment_confirmation(prefix, duplicate_count)
+    recommendation_context = recommendation_context_for_assignment(link=link, subject_scope=subject_scope)
     if st.button(t("create_assignment"), key=f"{prefix}_assign_btn", use_container_width=True):
         if duplicate_count > 0 and not duplicate_confirmed:
             st.error(t("assignment_duplicate_confirm_required"))
@@ -1977,6 +2134,11 @@ def render_assignment_panel_for_exam(
             teacher_note=teacher_note,
             due_date=due_date,
             content_snapshot=snapshot,
+            learning_program_assignment_id=int(recommendation_context.get("learning_program_assignment_id") or 0) or None,
+            learning_program_topic_id=int(recommendation_context.get("learning_program_topic_id") or 0) or None,
+            recommendation_bucket=str(recommendation_context.get("recommendation_bucket") or "").strip(),
+            recommendation_focus_kind=str(recommendation_context.get("focus_kind") or "").strip(),
+            recommendation_context=recommendation_context,
         )
         if ok:
             st.success(t(key))
@@ -2018,6 +2180,7 @@ def render_assignment_panel_for_lesson_plan(
             topic=item["topic_title"],
         )
     duplicate_confirmed = _render_duplicate_assignment_confirmation(prefix, duplicate_count)
+    recommendation_context = recommendation_context_for_assignment(link=link, subject_scope=subject_scope)
     if st.button(t("create_assignment"), key=f"{prefix}_assign_btn", use_container_width=True):
         if not selected_labels:
             st.error(t("select_assigned_topics"))
@@ -2028,6 +2191,13 @@ def render_assignment_panel_for_lesson_plan(
         created = 0
         for label in selected_labels:
             item = topic_options[label]
+            item_recommendation_context = {}
+            if recommendation_context:
+                if _clean_text(recommendation_context.get("topic_title")) == _clean_text(item.get("topic_title")):
+                    item_recommendation_context = {
+                        **recommendation_context,
+                        "topic_title": item["topic_title"],
+                    }
             snapshot = {
                 "topic_title": item["topic_title"],
                 "topic_summary": item.get("topic_summary", ""),
@@ -2048,6 +2218,11 @@ def render_assignment_panel_for_lesson_plan(
                 teacher_note=teacher_note,
                 due_date=due_date,
                 content_snapshot=snapshot,
+                learning_program_assignment_id=int(item_recommendation_context.get("learning_program_assignment_id") or 0) or None,
+                learning_program_topic_id=int(item_recommendation_context.get("learning_program_topic_id") or 0) or None,
+                recommendation_bucket=str(item_recommendation_context.get("recommendation_bucket") or "").strip(),
+                recommendation_focus_kind=str(item_recommendation_context.get("focus_kind") or "").strip(),
+                recommendation_context=item_recommendation_context,
             )
             if ok:
                 created += 1
