@@ -2229,6 +2229,176 @@ def update_practice_progress(
     clear_app_caches()
 
 
+def rebuild_practice_progress_for_user(user_id: str | None = None) -> None:
+    """Recompute practice_progress from completed sessions + answers for one user."""
+    uid = str(user_id or get_current_user_id() or "").strip()
+    if not uid:
+        return
+
+    try:
+        sb = get_sb()
+        session_rows = (
+            sb.table("practice_sessions")
+            .select("id, subject, topic, level, xp_earned, best_streak, completed_at, created_at, status")
+            .eq("user_id", uid)
+            .eq("status", "completed")
+            .order("created_at", desc=False)
+            .execute()
+        ).data or []
+        if not session_rows:
+            try:
+                sb.table("practice_progress").delete().eq("user_id", uid).execute()
+            except Exception:
+                pass
+            clear_app_caches()
+            return
+
+        session_ids = [int(row.get("id") or 0) for row in session_rows if int(row.get("id") or 0) > 0]
+        answer_rows = []
+        if session_ids:
+            answer_rows = (
+                sb.table("practice_answers")
+                .select("session_id, exercise_type, is_correct")
+                .eq("user_id", uid)
+                .in_("session_id", session_ids)
+                .execute()
+            ).data or []
+
+        answers_by_session: dict[int, list[dict]] = {}
+        for row in answer_rows:
+            answers_by_session.setdefault(int(row.get("session_id") or 0), []).append(row)
+
+        aggregate: dict[tuple[str, str, str, str], dict] = {}
+        created_at_by_key: dict[tuple[str, str, str, str], str] = {}
+
+        for session in session_rows:
+            session_id = int(session.get("id") or 0)
+            subject = str(session.get("subject") or "")
+            topic = str(session.get("topic") or "")
+            level = str(session.get("level") or "")
+            session_answers = answers_by_session.get(session_id, [])
+            if not session_answers:
+                continue
+
+            type_stats: dict[str, dict[str, int]] = {}
+            for answer in session_answers:
+                ex_type = str(answer.get("exercise_type") or "unknown")
+                bucket = type_stats.setdefault(ex_type, {"attempted": 0, "correct": 0})
+                bucket["attempted"] += 1
+                if bool(answer.get("is_correct")):
+                    bucket["correct"] += 1
+
+            total_correct = sum(item["correct"] for item in type_stats.values())
+            session_xp = int(session.get("xp_earned") or 0)
+            session_best_streak = int(session.get("best_streak") or 0)
+            last_practiced = str(session.get("completed_at") or session.get("created_at") or "")
+            created_at = str(session.get("created_at") or last_practiced or _dt.now(timezone.utc).isoformat())
+
+            for ex_type, stats in type_stats.items():
+                type_xp = 0
+                if session_xp and total_correct:
+                    type_xp = round(session_xp * stats["correct"] / total_correct)
+                elif session_xp and not total_correct and type_stats:
+                    type_xp = round(session_xp / len(type_stats))
+
+                key = (subject, topic, ex_type, level)
+                bucket = aggregate.setdefault(
+                    key,
+                    {
+                        "user_id": uid,
+                        "subject": subject,
+                        "topic": topic,
+                        "exercise_type": ex_type,
+                        "level": level,
+                        "total_attempted": 0,
+                        "total_correct": 0,
+                        "accuracy_pct": 0.0,
+                        "total_xp": 0,
+                        "best_streak": 0,
+                        "last_practiced": "",
+                        "created_at": created_at,
+                    },
+                )
+                created_at_by_key.setdefault(key, created_at)
+                bucket["total_attempted"] += stats["attempted"]
+                bucket["total_correct"] += stats["correct"]
+                bucket["total_xp"] += type_xp
+                bucket["best_streak"] = max(int(bucket.get("best_streak") or 0), session_best_streak)
+                if last_practiced and str(last_practiced) > str(bucket.get("last_practiced") or ""):
+                    bucket["last_practiced"] = last_practiced
+
+        rows_to_insert = []
+        now = _dt.now(timezone.utc).isoformat()
+        for key, bucket in aggregate.items():
+            attempted = int(bucket.get("total_attempted") or 0)
+            correct = int(bucket.get("total_correct") or 0)
+            bucket["accuracy_pct"] = round((correct / attempted) * 100, 1) if attempted else 0.0
+            bucket["created_at"] = created_at_by_key.get(key) or now
+            rows_to_insert.append(bucket)
+
+        try:
+            sb.table("practice_progress").delete().eq("user_id", uid).execute()
+        except Exception:
+            pass
+        if rows_to_insert:
+            try:
+                sb.table("practice_progress").insert(rows_to_insert).execute()
+            except Exception as exc:
+                retry_rows = []
+                for row in rows_to_insert:
+                    retry_row = dict(row)
+                    err_str = str(exc)
+                    if "owner_id" in err_str:
+                        retry_row.pop("owner_id", None)
+                    if "total_xp" in err_str or "best_streak" in err_str:
+                        retry_row.pop("total_xp", None)
+                        retry_row.pop("best_streak", None)
+                    retry_rows.append(retry_row)
+                try:
+                    sb.table("practice_progress").insert(retry_rows).execute()
+                except Exception:
+                    pass
+        clear_app_caches()
+    except Exception:
+        pass
+
+
+def _latest_reviewed_request_stamp(user_id: str) -> str:
+    uid = str(user_id or "").strip()
+    if not uid:
+        return ""
+    try:
+        rows = (
+            get_sb()
+            .table("teacher_review_requests")
+            .select("reviewed_at")
+            .eq("student_id", uid)
+            .eq("status", "reviewed")
+            .order("reviewed_at", desc=True)
+            .limit(1)
+            .execute()
+        ).data or []
+        return str((rows[0] if rows else {}).get("reviewed_at") or "").strip()
+    except Exception:
+        return ""
+
+
+def _maybe_refresh_practice_progress_from_reviews(user_id: str) -> None:
+    uid = str(user_id or "").strip()
+    if not uid:
+        return
+    latest_reviewed_at = _latest_reviewed_request_stamp(uid)
+    if not latest_reviewed_at:
+        return
+
+    session_key = f"_practice_progress_review_refresh_{uid}"
+    if str(st.session_state.get(session_key) or "") == latest_reviewed_at:
+        return
+
+    rebuild_practice_progress_for_user(uid)
+    st.session_state[session_key] = latest_reviewed_at
+
+
 @st.cache_data(ttl=45, show_spinner=False)
 def _load_practice_history_cached(uid: str, limit: int = 50) -> pd.DataFrame:
     if not uid:
@@ -2364,7 +2534,9 @@ register_cache(_load_practice_progress_cached)
 
 def load_practice_progress() -> pd.DataFrame:
     """Load the current user's practice progress aggregates."""
-    return _load_practice_progress_cached(str(get_current_user_id() or "").strip())
+    uid = str(get_current_user_id() or "").strip()
+    _maybe_refresh_practice_progress_from_reviews(uid)
+    return _load_practice_progress_cached(uid)
 
 
 def get_total_xp() -> int:

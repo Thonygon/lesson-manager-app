@@ -55,6 +55,17 @@ from helpers.planner_storage import load_my_lesson_plans, load_public_lesson_pla
 from helpers.worksheet_storage import load_my_worksheets, load_public_worksheets
 from helpers.quick_exam_storage import load_my_exams, load_public_exams
 from helpers.archive_utils import is_archived_status
+from helpers.resource_gallery import (
+    extract_gallery_image_url,
+    inject_resource_gallery_styles,
+    render_gallery_card_html,
+)
+from helpers.recommendation_memory import (
+    clear_active_recommendation_context,
+    load_recommendation_event_summary,
+    record_recommendation_event,
+    set_active_recommendation_context,
+)
 
 # 12.2) PAGE: STUDENTS
 # =========================
@@ -123,6 +134,80 @@ def _resource_search_blob(row: dict, kind: str) -> str:
         "exam": ["title", "topic", "subject", "learner_stage", "level", "exam_length", "author_name"],
     }
     return _norm_search_text(" ".join(str(row.get(field) or "") for field in fields_by_kind.get(kind, [])))
+
+
+def _recommendation_topic_tokens(*values) -> set[str]:
+    tokens: set[str] = set()
+    for value in values:
+        for raw in re.split(r"[\s/,-]+", str(value or "").casefold()):
+            token = "".join(ch for ch in raw if ch.isalnum())
+            if len(token) >= 3:
+                tokens.add(token)
+    return tokens
+
+
+def _topic_progress_rows(topic: dict, progress_rows: list[dict]) -> list[dict]:
+    topic_title = str(topic.get("title") or topic.get("lesson_focus") or topic.get("subtopic") or "").strip()
+    topic_tokens = _recommendation_topic_tokens(topic_title, topic.get("student_summary"), topic.get("lesson_focus"))
+    if not topic_tokens:
+        return []
+
+    matches: list[dict] = []
+    for row in progress_rows or []:
+        row_topic = str(row.get("topic") or row.get("title") or "").strip()
+        row_tokens = _recommendation_topic_tokens(row_topic)
+        if not row_tokens:
+            continue
+        if row_topic.casefold() == topic_title.casefold() or len(topic_tokens & row_tokens) >= 2:
+            matches.append(row)
+    return matches
+
+
+def _topic_signal_from_rows(rows: list[dict]) -> dict:
+    signal = _build_recommendation_signal(rows)
+    low_score = min(
+        (_assignment_score_value(row) for row in rows if _assignment_score_value(row) is not None),
+        default=None,
+    )
+    latest_attempts = max((int(row.get("attempt_count") or 0) for row in rows), default=0)
+    signal["recent_score"] = low_score
+    signal["attempt_count"] = latest_attempts
+    return signal
+
+
+def _topic_payload(
+    *,
+    row: dict,
+    topic: dict,
+    score: float,
+    focus_kind: str,
+    reasons: list[str],
+    recent_score=None,
+    needs_practice: bool = False,
+) -> dict:
+    program = row.get("program") or {}
+    total_topics = max(int(row.get("total_topics") or 0), 0)
+    completed_topics = max(int(row.get("completed_topics") or 0), 0)
+    progress_pct = int(round((completed_topics / total_topics) * 100)) if total_topics else 0
+    return {
+        "title": str(topic.get("title") or t("assigned_learning_program")).strip(),
+        "subject_key": str(row.get("subject_key") or program.get("subject") or "").strip(),
+        "subject_display": str(row.get("subject_display") or program.get("subject_display") or "—").strip(),
+        "custom_subject_name": str(program.get("custom_subject_name") or "").strip(),
+        "learner_stage": str(row.get("learner_stage") or program.get("learner_stage") or "").strip(),
+        "level_or_band": str(row.get("level_or_band") or program.get("level_or_band") or "").strip(),
+        "program_title": str(program.get("title") or t("learning_program_singular")).strip(),
+        "objective": _topic_objective(topic),
+        "focus_kind": focus_kind,
+        "priority_label": _recommendation_priority_label(score),
+        "focus_label": _recommendation_focus_label(focus_kind),
+        "score": score,
+        "needs_practice": needs_practice,
+        "program_progress": progress_pct,
+        "recent_score": recent_score,
+        "reasons": reasons[:3],
+        "actions": _recommendation_actions(focus_kind),
+    }
 
 
 def _score_resource_for_recommendation(row: dict, kind: str, source: str, item: dict) -> float:
@@ -236,10 +321,27 @@ def _recommended_resource_kind_order(focus_kind: str) -> list[str]:
     return ["worksheet", "plan", "exam"]
 
 
-def _open_recommended_resource(resource: dict, *, assign: bool = False) -> None:
+def _open_recommended_resource(resource: dict, recommendation_item: dict | None = None, *, assign: bool = False) -> None:
     kind = resource.get("kind")
     source = resource.get("source")
     row = resource.get("row") or {}
+    recommendation_item = dict(recommendation_item or {})
+    if recommendation_item:
+        set_active_recommendation_context(recommendation_item)
+        record_recommendation_event(
+            event_type="resource_assigned" if assign else "resource_opened",
+            teacher_id=str(get_current_user_id() or "").strip(),
+            student_id=str(recommendation_item.get("student_id") or "").strip(),
+            learning_program_assignment_id=int(recommendation_item.get("learning_program_assignment_id") or 0) or None,
+            learning_program_topic_id=int(recommendation_item.get("learning_program_topic_id") or 0) or None,
+            program_id=int(recommendation_item.get("program_id") or 0) or None,
+            recommendation_bucket=str(recommendation_item.get("recommendation_bucket") or "").strip(),
+            recommendation_focus_kind=str(recommendation_item.get("focus_kind") or "").strip(),
+            resource_kind=str(kind or ""),
+            resource_record_id=int(row.get("id") or 0) or None,
+            event_weight=0.3 if assign else 0.12,
+            metadata={"source": source, "title": str(row.get("title") or "").strip()},
+        )
 
     if kind == "program":
         program_id = int(row.get("id") or 0)
@@ -304,6 +406,34 @@ def _slice_teacher_page(rows: list, state_key: str, *, page_size: int = _TEACHER
     return list((rows or [])[start_idx:end_idx]), current_page, total_pages, start_idx, end_idx, total_items
 
 
+def _slice_teacher_program_page(rows: list[dict], state_key_prefix: str, *, page_size: int = 1):
+    page_key = f"{state_key_prefix}_page"
+    anchor_key = f"{state_key_prefix}_assignment"
+    rows = list(rows or [])
+    row_ids = [int(row.get("id") or 0) for row in rows]
+    total_items = len(rows)
+    total_pages = max(1, math.ceil(total_items / page_size)) if total_items else 1
+
+    current_page = int(st.session_state.get(page_key, 1) or 1)
+    anchor_assignment_id = int(st.session_state.get(anchor_key, 0) or 0)
+    if anchor_assignment_id > 0 and anchor_assignment_id in row_ids:
+        current_page = (row_ids.index(anchor_assignment_id) // page_size) + 1
+
+    current_page = max(1, min(current_page, total_pages))
+    start_idx = (current_page - 1) * page_size
+    end_idx = min(start_idx + page_size, total_items)
+    page_rows = rows[start_idx:end_idx]
+    current_assignment_id = int((page_rows[0] if page_rows else {}).get("id") or 0)
+
+    st.session_state[page_key] = current_page
+    if current_assignment_id > 0:
+        st.session_state[anchor_key] = current_assignment_id
+    elif anchor_key in st.session_state:
+        st.session_state.pop(anchor_key, None)
+
+    return page_rows, current_page, total_pages, start_idx, end_idx, total_items
+
+
 def _render_teacher_pagination(rows: list, state_key: str, *, page_size: int = _TEACHER_PAGE_SIZE) -> None:
     _, current_page, total_pages, start_idx, end_idx, total_items = _slice_teacher_page(
         rows, state_key, page_size=page_size,
@@ -320,6 +450,38 @@ def _render_teacher_pagination(rows: list, state_key: str, *, page_size: int = _
     with next_col:
         if st.button("→", key=f"{state_key}_next", use_container_width=True, disabled=current_page >= total_pages):
             st.session_state[state_key] = min(total_pages, current_page + 1)
+            st.rerun()
+
+
+def _render_teacher_program_pagination(rows: list[dict], state_key_prefix: str, *, page_size: int = 1) -> None:
+    page_key = f"{state_key_prefix}_page"
+    anchor_key = f"{state_key_prefix}_assignment"
+    _, current_page, total_pages, start_idx, end_idx, total_items = _slice_teacher_program_page(
+        rows,
+        state_key_prefix,
+        page_size=page_size,
+    )
+    if total_items <= page_size:
+        return
+
+    prev_col, info_col, next_col = st.columns([1, 3, 1])
+    with prev_col:
+        if st.button("←", key=f"{state_key_prefix}_prev", use_container_width=True, disabled=current_page <= 1):
+            target_page = max(1, current_page - 1)
+            target_index = (target_page - 1) * page_size
+            target_row = list(rows or [])[target_index] if target_index < len(rows or []) else {}
+            st.session_state[page_key] = target_page
+            st.session_state[anchor_key] = int(target_row.get("id") or 0)
+            st.rerun()
+    with info_col:
+        st.caption(f"{start_idx + 1}-{end_idx} / {total_items} · {current_page}/{total_pages}")
+    with next_col:
+        if st.button("→", key=f"{state_key_prefix}_next", use_container_width=True, disabled=current_page >= total_pages):
+            target_page = min(total_pages, current_page + 1)
+            target_index = (target_page - 1) * page_size
+            target_row = list(rows or [])[target_index] if target_index < len(rows or []) else {}
+            st.session_state[page_key] = target_page
+            st.session_state[anchor_key] = int(target_row.get("id") or 0)
             st.rerun()
 
 
@@ -483,8 +645,175 @@ def _load_teacher_program_rows_for_student(selected_link: dict, selected_student
         row_student_id = str(row_dict.get("student_user_id") or "").strip()
         row_student_name = str(row_dict.get("student_name") or "").strip().casefold()
         if (selected_student_id and row_student_id == selected_student_id) or (selected_student_label and row_student_name == selected_student_label):
+            program_id = int(row_dict.get("program_id") or 0)
+            program = load_learning_program(program_id) if program_id > 0 else {}
+            progress_map = load_assignment_progress_map(int(row_dict.get("id") or 0)) if int(row_dict.get("id") or 0) > 0 else {}
+            total_topics = sum(len(unit.get("topics") or []) for unit in (program.get("units") or []))
+            completed_topics = len([1 for item in progress_map.values() if item.get("teacher_done")])
+            row_dict["program"] = program
+            row_dict["progress_map"] = progress_map
+            row_dict["subject_key"] = str(program.get("subject") or "").strip() or str(row_dict.get("subject_key") or "").strip()
+            row_dict["subject_display"] = str(program.get("subject_display") or row_dict.get("subject_label") or row_dict.get("subject_key") or "—").strip()
+            row_dict["learner_stage"] = str(program.get("learner_stage") or row_dict.get("learner_stage") or "").strip()
+            row_dict["level_or_band"] = str(program.get("level_or_band") or row_dict.get("level_or_band") or "").strip()
+            row_dict["sequence_order"] = int(program.get("sequence_order") or row_dict.get("sequence_order") or 0)
+            row_dict["total_topics"] = total_topics
+            row_dict["completed_topics"] = completed_topics
+            row_dict["progress_pct"] = int(round((completed_topics / total_topics) * 100)) if total_topics else 0
             program_rows.append(row_dict)
-    return program_rows
+    return sorted(program_rows, key=_teacher_program_sort_key, reverse=True)
+
+
+def _teacher_program_sort_key(row: dict) -> tuple[int, str]:
+    sequence_order = int(row.get("sequence_order") or 0)
+    stamp = str(
+        row.get("updated_at")
+        or row.get("assigned_at")
+        or (row.get("program") or {}).get("updated_at")
+        or (row.get("program") or {}).get("created_at")
+        or ""
+    ).strip()
+    return (sequence_order, stamp)
+
+
+def _teacher_program_subject_groups(program_rows: list[dict]) -> list[tuple[str, str, list[dict]]]:
+    grouped: dict[str, dict[str, object]] = {}
+    for row in program_rows or []:
+        subject_key = str(row.get("subject_key") or "").strip() or "other"
+        subject_display = str(row.get("subject_display") or subject_key or "—").strip()
+        bucket = grouped.setdefault(subject_key, {"label": subject_display, "rows": []})
+        bucket["rows"].append(row)
+
+    ordered_groups: list[tuple[str, str, list[dict]]] = []
+    for subject_key, payload in grouped.items():
+        rows = sorted(list(payload.get("rows") or []), key=_teacher_program_sort_key, reverse=True)
+        ordered_groups.append((subject_key, str(payload.get("label") or subject_key), rows))
+    ordered_groups.sort(
+        key=lambda item: (
+            -max((int(row.get("sequence_order") or 0) for row in item[2]), default=0),
+            item[1].casefold(),
+        )
+    )
+    return ordered_groups
+
+
+def _current_teacher_program_rows(program_rows: list[dict], selected_subject: str) -> list[dict]:
+    rows = list(program_rows or [])
+    if selected_subject != "__all__":
+        rows = [row for row in rows if str(row.get("subject_key") or "").strip() == selected_subject]
+    current_by_subject: dict[str, dict] = {}
+    for row in rows:
+        subject_key = str(row.get("subject_key") or "").strip() or "other"
+        current = current_by_subject.get(subject_key)
+        if current is None or _teacher_program_sort_key(row) > _teacher_program_sort_key(current):
+            current_by_subject[subject_key] = row
+    return sorted(current_by_subject.values(), key=_teacher_program_sort_key, reverse=True)
+
+
+def _render_teacher_program_assignment_list(rows: list[dict], state_key_prefix: str) -> None:
+    if not rows:
+        st.info(t("no_assignments"))
+        return
+    inject_resource_gallery_styles()
+    page_rows, *_ = _slice_teacher_program_page(rows, state_key_prefix, page_size=1)
+    for row in page_rows:
+        program = row.get("program") or {}
+        student_name = str(row.get("student_name") or "—").strip()
+        program_title = str(program.get("title") or t("learning_program_singular")).strip()
+        subject_display = str(row.get("subject_display") or "—").strip()
+        level_label = str(row.get("level_or_band") or "").strip()
+        sequence_order = int(row.get("sequence_order") or 0)
+        progress_pct = int(row.get("progress_pct") or 0)
+        completed_topics = int(row.get("completed_topics") or 0)
+        total_topics = int(row.get("total_topics") or 0)
+        teacher_note = _strip_html_fragments(row.get("teacher_note"))
+        target_completion_on = str(row.get("target_completion_on") or "").strip()
+        target_label = (
+            f"{t('assignment_target_completion_on')}: {target_completion_on[:10]}"
+            if target_completion_on
+            else t("start_from_lesson_1")
+        )
+        chips = "".join(
+            [
+                f'<span class="cm-resource-chip">👤 {_html.escape(student_name)}</span>',
+                f'<span class="cm-resource-chip">📚 {_html.escape(subject_display)}</span>',
+                f'<span class="cm-resource-chip">🏷️ {_html.escape(level_label)}</span>' if level_label else "",
+                f'<span class="cm-resource-chip">🪜 {_html.escape(t("path_step_label", step=sequence_order))}</span>' if sequence_order > 0 else "",
+                f'<span class="cm-resource-chip">📈 {completed_topics}/{total_topics} {_html.escape(t("topics_label").lower())}</span>',
+                f'<span class="cm-resource-chip">🎯 {progress_pct}%</span>',
+            ]
+        )
+        meta_html = (
+            f'<div class="cm-resource-meta">📘 {_html.escape(t("assigned_learning_program"))}</div>'
+            f'<div class="cm-resource-meta">🗓️ {_html.escape(target_label)}</div>'
+        )
+        st.markdown(
+            render_gallery_card_html(
+                kind="program",
+                title=program_title,
+                chips_html=chips,
+                description=teacher_note or str(program.get("program_overview") or t("no_description_available")),
+                meta_html=meta_html,
+                image_url=extract_gallery_image_url(program),
+                placeholder_label=t("learning_program"),
+            ),
+            unsafe_allow_html=True,
+        )
+        assignment_id = int(row.get("id") or 0)
+        progress_map = load_assignment_progress_map(assignment_id) if assignment_id else {}
+        for unit in program.get("units") or []:
+            with st.expander(
+                f"{t('unit_title_format', number=unit.get('unit_number'), title=unit.get('title'))}",
+                expanded=int(unit.get("unit_number") or 0) == 1,
+            ):
+                for topic in unit.get("topics") or []:
+                    topic_id = int(topic.get("topic_id") or 0)
+                    done = bool(progress_map.get(topic_id, {}).get("teacher_done"))
+                    topic_cols = st.columns([0.14, 0.86], gap="small")
+                    with topic_cols[0]:
+                        checkbox_key = f"teacher_learning_program_done_{assignment_id}_{topic_id}"
+                        new_done = st.checkbox(
+                            t("done_label"),
+                            value=done,
+                            key=checkbox_key,
+                            label_visibility="collapsed",
+                        )
+                        if new_done != done and topic_id > 0:
+                            saved = set_assignment_topic_progress(
+                                assignment_id=assignment_id,
+                                topic_id=topic_id,
+                                done_by_teacher=new_done,
+                            )
+                            if saved:
+                                st.session_state.pop(checkbox_key, None)
+                                clear_app_caches()
+                                st.rerun()
+                            st.error(t("save_failed"))
+                    with topic_cols[1]:
+                        st.markdown(
+                            f"**{t('topic_title_format', number=topic.get('topic_number'), title=topic.get('title'))}**"
+                        )
+                        topic_summary = (
+                            topic.get("student_summary")
+                            or topic.get("lesson_focus")
+                            or topic.get("subtopic")
+                            or ""
+                        )
+                        if topic_summary:
+                            st.caption(str(topic_summary))
+        action_cols = st.columns([1, 1, 4], gap="small")
+        with action_cols[0]:
+            if st.button(
+                t("delete_assignment"),
+                key=f"archive_program_assignment_{row.get('id')}",
+                use_container_width=True,
+            ):
+                ok, msg = archive_learning_program_assignment(int(row.get("id") or 0))
+                if ok:
+                    st.success(t(msg))
+                    st.rerun()
+                st.error(t(msg) if msg in {"assignment_archived"} else msg)
+    _render_teacher_program_pagination(rows, state_key_prefix, page_size=1)
 
 
 def _recommendation_actions(focus_kind: str) -> list[str]:
@@ -561,6 +890,20 @@ def _prefill_smart_tool_from_recommendation(recommendation: dict, tool_kind: str
     topic = str(recommendation.get("title") or recommendation.get("objective") or "").strip()
     student_label = str(recommendation.get("student_label") or "").strip()
     exam_title = f"{topic} {t('exam_title') if t('exam_title') != 'exam_title' else 'Exam'}".strip()
+    set_active_recommendation_context(recommendation)
+    record_recommendation_event(
+        event_type="prefill",
+        teacher_id=str(get_current_user_id() or "").strip(),
+        student_id=str(recommendation.get("student_id") or "").strip(),
+        learning_program_assignment_id=int(recommendation.get("learning_program_assignment_id") or 0) or None,
+        learning_program_topic_id=int(recommendation.get("learning_program_topic_id") or 0) or None,
+        program_id=int(recommendation.get("program_id") or 0) or None,
+        recommendation_bucket=str(recommendation.get("recommendation_bucket") or "").strip(),
+        recommendation_focus_kind=str(recommendation.get("focus_kind") or "").strip(),
+        resource_kind=tool_kind,
+        event_weight=0.18,
+        metadata={"title": topic},
+    )
 
     if tool_kind == "lesson_plan":
         st.session_state["quick_plan_subject"] = subject_key
@@ -604,105 +947,202 @@ def _build_program_recommendations(
     program_rows: list[dict],
     selected_subject: str,
 ) -> tuple[list[dict], dict]:
+    filtered_progress_rows = [
+        row for row in (progress_rows or [])
+        if selected_subject == "__all__" or str(row.get("subject_key") or "").strip() == selected_subject
+    ]
     rows_by_subject: dict[str, list[dict]] = {}
-    for row in progress_rows:
+    for row in filtered_progress_rows:
         key = str(row.get("subject_key") or "").strip()
         rows_by_subject.setdefault(key, []).append(row)
-    overall_signal = _build_recommendation_signal(progress_rows)
-    weights = _fit_recommendation_weights(progress_rows)
+    overall_signal = _build_recommendation_signal(filtered_progress_rows)
     recommendations: list[dict] = []
+    current_program_rows = _current_teacher_program_rows(program_rows, selected_subject)
+    recommendation_events = load_recommendation_event_summary(
+        tuple(sorted({int(r.get("id") or 0) for r in current_program_rows if int(r.get("id") or 0) > 0})),
+        str((filtered_progress_rows[0] if filtered_progress_rows else {}).get("student_id") or ""),
+    )
 
-    for row in program_rows:
+    for row in current_program_rows:
         assignment_id = int(row.get("id") or 0)
         program_id = int(row.get("program_id") or 0)
         if assignment_id <= 0 or program_id <= 0:
             continue
-        program = load_learning_program(program_id)
+        program = row.get("program") or load_learning_program(program_id)
         if not program:
             continue
         subject_key = str(program.get("subject") or "").strip()
-        if selected_subject != "__all__" and subject_key != selected_subject:
-            continue
-
         progress_map = load_assignment_progress_map(assignment_id)
         total_topics = sum(len(unit.get("topics") or []) for unit in (program.get("units") or []))
         completed_topics = len([1 for item in progress_map.values() if item.get("teacher_done")])
         progress_gap = _clamp(1.0 - ((completed_topics / total_topics) if total_topics else 0.0))
         signal = _build_recommendation_signal(rows_by_subject.get(subject_key, [])) if rows_by_subject.get(subject_key) else overall_signal
 
+        ordered_topics: list[tuple[int, dict, dict]] = []
         topic_position = 0
         for unit in program.get("units") or []:
             for topic in unit.get("topics") or []:
                 topic_position += 1
                 topic_id = int(topic.get("topic_id") or 0)
-                topic_progress = progress_map.get(topic_id, {}) if topic_id else {}
-                teacher_done = bool(topic_progress.get("teacher_done"))
-                needs_practice = bool(topic_progress.get("student_done"))
-                if topic_id and teacher_done and not needs_practice:
-                    continue
+                ordered_topics.append((topic_position, topic, progress_map.get(topic_id, {}) if topic_id else {}))
 
-                model_score = _sigmoid(
-                    weights[0]
-                    + weights[1] * signal.get("score_gap", 0.0)
-                    + weights[2] * signal.get("retry_pressure", 0.0)
-                    + weights[3] * signal.get("status_pressure", 0.0)
-                )
-                sequence_priority = _clamp(1.0 - ((topic_position - 1) / max(total_topics, 4)))
-                score = (
-                    0.58 * model_score
-                    + 0.24 * sequence_priority
-                    + 0.18 * progress_gap
-                )
-                focus_kind = _recommendation_focus_kind(signal, score)
+        completed_positions = [position for position, _topic, topic_progress in ordered_topics if bool(topic_progress.get("teacher_done"))]
+        latest_completed_position = max(completed_positions, default=0)
+        next_topic = None
+        pending_topic = None
+        review_candidates: list[tuple[float, dict, dict, dict]] = []
 
-                reasons = []
-                recent_score = signal.get("recent_score")
+        for position, topic, topic_progress in ordered_topics:
+            teacher_done = bool(topic_progress.get("teacher_done"))
+            needs_practice = bool(topic_progress.get("student_done"))
+            topic_rows = _topic_progress_rows(topic, rows_by_subject.get(subject_key, []))
+            topic_signal = _topic_signal_from_rows(topic_rows)
+            topic_id = int(topic.get("topic_id") or 0)
+            next_event = recommendation_events.get((assignment_id, topic_id, "next_topic"), {})
+            review_event = recommendation_events.get((assignment_id, topic_id, "review"), {})
+            pending_event = recommendation_events.get((assignment_id, topic_id, "pending_gap"), {})
+
+            if not teacher_done and position > latest_completed_position and next_topic is None:
+                next_topic = (topic, topic_signal, next_event)
+            if not teacher_done and latest_completed_position > 0 and position < latest_completed_position and pending_topic is None:
+                pending_topic = (topic, topic_signal, pending_event)
+
+            if teacher_done:
+                review_score = 0.0
                 if needs_practice:
-                    score = max(score, 0.94)
-                    focus_kind = "needs_practice"
-                    reasons.append(t("student_recommendation_reason_needs_practice"))
-                if recent_score is not None and signal.get("score_gap", 0.0) >= 0.38:
-                    reasons.append(t("student_recommendation_reason_low_score", score=int(round(recent_score))))
-                if signal.get("retry_pressure", 0.0) >= 0.34:
-                    reasons.append(t("student_recommendation_reason_retries"))
-                if not needs_practice:
-                    reasons.append(t("student_recommendation_reason_next_topic"))
-                if progress_gap >= 0.4:
-                    reasons.append(t("student_recommendation_reason_program_gap"))
-
-                recommendations.append(
-                    {
-                        "title": str(topic.get("title") or t("assigned_learning_program")).strip(),
-                        "subject_key": subject_key,
-                        "subject_display": str(program.get("subject_display") or row.get("subject_label") or subject_key or "—").strip(),
-                        "custom_subject_name": str(program.get("custom_subject_name") or "").strip(),
-                        "learner_stage": str(program.get("learner_stage") or row.get("learner_stage") or "").strip(),
-                        "level_or_band": str(program.get("level_or_band") or row.get("level_or_band") or "").strip(),
-                        "program_title": str(program.get("title") or t("learning_program_singular")).strip(),
-                        "objective": _topic_objective(topic),
-                        "focus_kind": focus_kind,
-                        "priority_label": _recommendation_priority_label(score),
-                        "focus_label": _recommendation_focus_label(focus_kind),
-                        "score": score,
-                        "needs_practice": needs_practice,
-                        "program_progress": int(round((1.0 - progress_gap) * 100)),
-                        "recent_score": recent_score,
-                        "reasons": reasons[:3],
-                        "actions": _recommendation_actions(focus_kind),
-                    }
+                    review_score = max(review_score, 0.98)
+                if topic_signal.get("recent_score") is not None:
+                    review_score = max(review_score, 0.74 + _clamp((78.0 - float(topic_signal["recent_score"])) / 45.0))
+                review_score = max(
+                    review_score,
+                    0.58
+                    + 0.24 * topic_signal.get("score_gap", 0.0)
+                    + 0.12 * topic_signal.get("retry_pressure", 0.0)
+                    + 0.06 * topic_signal.get("status_pressure", 0.0),
                 )
-                if len(recommendations) >= 6:
+                if review_event.get("last_event_type") in {"teacher_marked_done", "assignment_created"}:
+                    review_score -= 0.12
+                if review_event.get("improved_count", 0) > 0 and not needs_practice:
+                    review_score -= 0.34
+                if needs_practice or topic_signal.get("score_gap", 0.0) >= 0.18 or topic_signal.get("retry_pressure", 0.0) >= 0.34:
+                    review_candidates.append((review_score, topic, topic_signal, topic_progress))
+
+        if next_topic is None:
+            for _position, topic, topic_progress in ordered_topics:
+                if not bool(topic_progress.get("teacher_done")):
+                    topic_id = int(topic.get("topic_id") or 0)
+                    next_topic = (
+                        topic,
+                        _topic_signal_from_rows(_topic_progress_rows(topic, rows_by_subject.get(subject_key, []))),
+                        recommendation_events.get((assignment_id, topic_id, "next_topic"), {}),
+                    )
                     break
-            if len(recommendations) >= 6:
-                break
+
+        if next_topic is not None:
+            topic, topic_signal, next_event = next_topic
+            next_score = 0.62 + 0.18 * progress_gap + 0.12 * signal.get("status_pressure", 0.0) + 0.08 * topic_signal.get("retry_pressure", 0.0)
+            if next_event.get("last_event_type") in {"teacher_marked_done", "assignment_created"}:
+                next_score -= 0.16
+            recommendations.append(
+                _topic_payload(
+                    row=row,
+                    topic=topic,
+                    score=next_score,
+                    focus_kind="stretch" if signal.get("score_gap", 0.0) < 0.26 else "reinforce",
+                    reasons=[
+                        t("student_recommendation_reason_next_topic"),
+                        t("student_recommendation_reason_program_gap") if progress_gap >= 0.2 else t("student_recommendation_reason_active_assignment"),
+                    ],
+                    recent_score=topic_signal.get("recent_score"),
+                )
+            )
+            recommendations[-1]["recommendation_bucket"] = "next_topic"
+            recommendations[-1]["learning_program_assignment_id"] = assignment_id
+            recommendations[-1]["learning_program_topic_id"] = int(topic.get("topic_id") or 0)
+            recommendations[-1]["program_id"] = int(program_id or 0)
+
+        if review_candidates:
+            review_candidates.sort(key=lambda item: item[0], reverse=True)
+            review_score, topic, topic_signal, topic_progress = review_candidates[0]
+            review_topic_id = int(topic.get("topic_id") or 0)
+            review_event = recommendation_events.get((assignment_id, review_topic_id, "review"), {})
+            if (
+                review_event.get("last_event_type") == "teacher_marked_done"
+                and not bool(topic_progress.get("student_done"))
+                and review_event.get("improved_count", 0) <= 0
+            ):
+                review_candidates = []
+            elif review_event.get("improved_count", 0) > 0 and not bool(topic_progress.get("student_done")):
+                review_candidates = []
+
+        if review_candidates:
+            review_score, topic, topic_signal, topic_progress = review_candidates[0]
+            review_reasons = []
+            if bool(topic_progress.get("student_done")):
+                review_reasons.append(t("student_recommendation_reason_needs_practice"))
+            if topic_signal.get("recent_score") is not None:
+                review_reasons.append(t("student_recommendation_reason_low_score", score=int(round(topic_signal["recent_score"]))))
+            if topic_signal.get("retry_pressure", 0.0) >= 0.34:
+                review_reasons.append(t("student_recommendation_reason_retries"))
+            if not review_reasons:
+                review_reasons.append(t("student_recommendation_reason_active_assignment"))
+            recommendations.append(
+                _topic_payload(
+                    row=row,
+                    topic=topic,
+                    score=review_score,
+                    focus_kind="needs_practice" if bool(topic_progress.get("student_done")) else "reteach",
+                    reasons=review_reasons,
+                    recent_score=topic_signal.get("recent_score"),
+                    needs_practice=bool(topic_progress.get("student_done")),
+                )
+            )
+            recommendations[-1]["recommendation_bucket"] = "review"
+            recommendations[-1]["learning_program_assignment_id"] = assignment_id
+            recommendations[-1]["learning_program_topic_id"] = int(topic.get("topic_id") or 0)
+            recommendations[-1]["program_id"] = int(program_id or 0)
+
+        if pending_topic is not None:
+            topic, topic_signal, pending_event = pending_topic
+            pending_score = 0.68 + 0.18 * progress_gap + 0.14 * signal.get("status_pressure", 0.0)
+            if pending_event.get("last_event_type") in {"teacher_marked_done", "assignment_created"}:
+                pending_score -= 0.16
+            pending_reasons = [
+                t("student_recommendation_reason_program_gap"),
+                t("student_recommendation_reason_next_topic"),
+            ]
+            if topic_signal.get("recent_score") is not None:
+                pending_reasons.insert(1, t("student_recommendation_reason_low_score", score=int(round(topic_signal["recent_score"]))))
+            recommendations.append(
+                _topic_payload(
+                    row=row,
+                    topic=topic,
+                    score=pending_score,
+                    focus_kind="reinforce",
+                    reasons=pending_reasons,
+                    recent_score=topic_signal.get("recent_score"),
+                )
+            )
+            recommendations[-1]["recommendation_bucket"] = "pending_gap"
+            recommendations[-1]["learning_program_assignment_id"] = assignment_id
+            recommendations[-1]["learning_program_topic_id"] = int(topic.get("topic_id") or 0)
+            recommendations[-1]["program_id"] = int(program_id or 0)
 
     if recommendations:
-        recommendations.sort(key=lambda item: -_safe_float(item.get("score"), 0.0))
+        deduped: list[dict] = []
+        seen_titles: set[tuple[str, str]] = set()
+        for item in sorted(recommendations, key=lambda rec: -_safe_float(rec.get("score"), 0.0)):
+            key = (str(item.get("subject_key") or ""), str(item.get("title") or "").casefold())
+            if key in seen_titles:
+                continue
+            seen_titles.add(key)
+            deduped.append(item)
+        recommendations = deduped
         return recommendations[:3], overall_signal
 
     fallback_recommendations = []
     weakest_rows = sorted(
-        progress_rows,
+        filtered_progress_rows,
         key=lambda row: (
             -(
                 0.55 * (_clamp((82.0 - (_assignment_score_value(row) if _assignment_score_value(row) is not None else 64.0)) / 42.0))
@@ -1110,10 +1550,10 @@ def _render_recommended_resources_for_item(
                     view_col, assign_col = st.columns(2, gap="small")
                     with view_col:
                         if st.button(t("recommended_resource_preview"), key=f"{button_key}_preview", use_container_width=True):
-                            _open_recommended_resource(resource, assign=False)
+                            _open_recommended_resource(resource, item, assign=False)
                     with assign_col:
                         if st.button(t("recommended_resource_assign"), key=f"{button_key}_assign", use_container_width=True):
-                            _open_recommended_resource(resource, assign=True)
+                            _open_recommended_resource(resource, item, assign=True)
             _render_teacher_pagination(resources, state_key, page_size=_RECOMMENDED_RESOURCE_PAGE_SIZE)
 
 
@@ -1124,6 +1564,20 @@ def _render_recommendations_tab(
     selected_student_name: str,
     selected_link: dict,
 ) -> None:
+    subject_groups = _teacher_program_subject_groups(program_rows)
+    if selected_subject == "__all__" and len(subject_groups) > 1:
+        tabs = st.tabs([f"📚 {label}" for subject_key, label, _rows in subject_groups])
+        for tab, (subject_key, _label, rows) in zip(tabs, subject_groups):
+            with tab:
+                _render_recommendations_tab(
+                    progress_rows,
+                    rows,
+                    subject_key,
+                    selected_student_name,
+                    selected_link,
+                )
+        return
+
     _inject_recommendation_styles()
     recommendations, overall_signal = _build_program_recommendations(
         progress_rows=progress_rows,
@@ -1131,13 +1585,7 @@ def _render_recommendations_tab(
         selected_subject=selected_subject,
     )
     resource_pool = _load_recommendation_resource_pool() if recommendations else []
-    filtered_program_count = len(
-        [
-            row for row in program_rows
-            if selected_subject == "__all__"
-            or str((load_learning_program(int(row.get("program_id") or 0)) or {}).get("subject") or "").strip() == selected_subject
-        ]
-    )
+    filtered_program_count = len(_current_teacher_program_rows(program_rows, selected_subject))
 
     st.markdown(
         f"""
@@ -1231,6 +1679,7 @@ def _render_recommendations_tab(
                 recommendation_payload = {
                     **item,
                     "student_label": student_label,
+                    "student_id": str((selected_link or {}).get("student_id") or "").strip(),
                 }
                 _render_recommended_resources_for_item(
                     item,
@@ -1239,7 +1688,7 @@ def _render_recommendations_tab(
                     assigned_resource_keys=assigned_resource_keys,
                 )
 
-                action_cols = st.columns(3, gap="small")
+                action_cols = st.columns(4, gap="small")
                 with action_cols[0]:
                     if st.button(
                         t("student_recommendation_create_lesson_plan"),
@@ -1261,6 +1710,34 @@ def _render_recommendations_tab(
                         use_container_width=True,
                     ):
                         _prefill_smart_tool_from_recommendation(recommendation_payload, "exam")
+                with action_cols[3]:
+                    if st.button(
+                        t("mark_done"),
+                        key=f"reco_done_{idx}_{offset}_{str(item.get('title') or '')}",
+                        use_container_width=True,
+                    ):
+                        record_recommendation_event(
+                            event_type="teacher_marked_done",
+                            teacher_id=str(get_current_user_id() or "").strip(),
+                            student_id=str(recommendation_payload.get("student_id") or "").strip(),
+                            learning_program_assignment_id=int(recommendation_payload.get("learning_program_assignment_id") or 0) or None,
+                            learning_program_topic_id=int(recommendation_payload.get("learning_program_topic_id") or 0) or None,
+                            program_id=int(recommendation_payload.get("program_id") or 0) or None,
+                            recommendation_bucket=str(recommendation_payload.get("recommendation_bucket") or "").strip(),
+                            recommendation_focus_kind=str(recommendation_payload.get("focus_kind") or "").strip(),
+                            resource_kind="lesson",
+                            event_weight=0.42,
+                            metadata={"title": str(recommendation_payload.get("title") or "").strip()},
+                        )
+                        if str(recommendation_payload.get("recommendation_bucket") or "") in {"next_topic", "pending_gap"}:
+                            set_assignment_topic_progress(
+                                assignment_id=int(recommendation_payload.get("learning_program_assignment_id") or 0),
+                                topic_id=int(recommendation_payload.get("learning_program_topic_id") or 0),
+                                done_by_teacher=True,
+                            )
+                        clear_active_recommendation_context()
+                        clear_app_caches()
+                        st.rerun()
 
 
 def _render_teacher_review_requests(
@@ -2176,20 +2653,33 @@ def render_students():
                     key="assignment_progress_student",
                 )
                 selected_link = student_options[selected_student_name]
-                subject_options = ["__all__"] + [s.get("subject_key", "") for s in selected_link.get("subjects", [])]
-                selected_subject = st.selectbox(
-                    t("subject_filter"),
-                    options=subject_options,
-                    format_func=lambda x: t("all_subjects") if x == "__all__" else next(
-                        (
-                            s.get("subject_label", x)
-                            for s in selected_link.get("subjects", [])
-                            if s.get("subject_key") == x
-                        ),
-                        x,
-                    ),
-                    key="assignment_progress_subject",
+                linked_subjects = [
+                    subject
+                    for subject in (selected_link.get("subjects", []) or [])
+                    if str(subject.get("subject_key") or "").strip()
+                ]
+                unique_subjects = list(
+                    dict.fromkeys(str(subject.get("subject_key") or "").strip() for subject in linked_subjects)
                 )
+                if len(unique_subjects) > 1:
+                    subject_options = ["__all__"] + unique_subjects
+                    selected_subject = st.selectbox(
+                        t("subject_filter"),
+                        options=subject_options,
+                        format_func=lambda x: t("all_subjects") if x == "__all__" else next(
+                            (
+                                s.get("subject_label", x)
+                                for s in linked_subjects
+                                if s.get("subject_key") == x
+                            ),
+                            x,
+                        ),
+                        key="assignment_progress_subject",
+                    )
+                elif unique_subjects:
+                    selected_subject = unique_subjects[0]
+                else:
+                    selected_subject = "__all__"
                 progress_rows = load_teacher_assignment_progress(
                     student_id=str(selected_link.get("student_id") or ""),
                     subject_key=None if selected_subject == "__all__" else selected_subject,
@@ -2199,6 +2689,7 @@ def render_students():
                     subject_key=None if selected_subject == "__all__" else selected_subject,
                 )
                 program_rows = _load_teacher_program_rows_for_student(selected_link, selected_student_name)
+                selected_student_id = str(selected_link.get("student_id") or "").strip() or norm_student(selected_student_name)
 
                 assignments_tab, reviews_tab, programs_tab, recommendations_tab = st.tabs(
                     [
@@ -2317,83 +2808,27 @@ def render_students():
                     if not program_rows:
                         st.info(t("no_assignments"))
                     else:
-                        prog_page, *_ = _slice_teacher_page(program_rows, "teacher_programs_progress_page")
-                        for row in prog_page:
-                            title = _html.escape(str(row.get("student_name") or selected_student_name or "—"))
-                            program_snapshot = load_learning_program(int(row.get("program_id") or 0)) if int(row.get("program_id") or 0) else {}
-                            program_title = _html.escape(str(program_snapshot.get("title") or t("learning_program_singular")))
-                            status_label = _html.escape(t(f"assignment_status_{row.get('status')}")) if str(row.get("status") or "").strip() else "—"
-                            card_col, action_col = st.columns([6, 2], gap="medium")
-                            with card_col:
-                                st.markdown(
-                                    f"""
-                                    <div class="classio-progress-card">
-                                        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
-                                            <div>
-                                                <div class="classio-progress-title">{program_title}</div>
-                                                <div class="classio-progress-meta">{title} · {t('assigned_learning_program')}</div>
-                                            </div>
-                                            <div><span class="classio-inline-chip">📌 {status_label}</span></div>
-                                        </div>
-                                        <div class="classio-progress-stats">
-                                            <div class="classio-progress-stat">
-                                                <div class="classio-progress-stat-label">{_html.escape(t('created_at_label'))}</div>
-                                                <div class="classio-progress-stat-value">{_html.escape(str(row.get('created_at') or '')[:10] or '—')}</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    """,
-                                    unsafe_allow_html=True,
-                                )
-                            with action_col:
-                                if st.button(
-                                    t("delete_assignment"),
-                                    key=f"archive_learning_program_assignment_{row.get('id')}",
-                                    use_container_width=True,
-                                ):
-                                    ok, msg = archive_learning_program_assignment(int(row.get("id") or 0))
-                                    if ok:
-                                        st.success(t(msg))
-                                        st.rerun()
-                                    st.error(msg)
-                            assignment_id = int(row.get("id") or 0)
-                            progress_map = load_assignment_progress_map(assignment_id) if assignment_id else {}
-                            for unit in program_snapshot.get("units") or []:
-                                with st.expander(
-                                    f"{t('unit_title_format', number=unit.get('unit_number'), title=unit.get('title'))}",
-                                    expanded=int(unit.get("unit_number") or 0) == 1,
-                                ):
-                                    for topic in unit.get("topics") or []:
-                                        topic_id = int(topic.get("topic_id") or 0)
-                                        done = bool(progress_map.get(topic_id, {}).get("teacher_done"))
-                                        topic_cols = st.columns([0.14, 0.86], gap="small")
-                                        with topic_cols[0]:
-                                            new_done = st.checkbox(
-                                                t("done_label"),
-                                                value=done,
-                                                key=f"teacher_learning_program_done_{assignment_id}_{topic_id}",
-                                                label_visibility="collapsed",
-                                            )
-                                            if new_done != done and topic_id > 0:
-                                                set_assignment_topic_progress(
-                                                    assignment_id=assignment_id,
-                                                    topic_id=topic_id,
-                                                    done_by_teacher=new_done,
-                                                )
-                                                st.rerun()
-                                        with topic_cols[1]:
-                                            st.markdown(
-                                                f"**{t('topic_title_format', number=topic.get('topic_number'), title=topic.get('title'))}**"
-                                            )
-                                            topic_summary = (
-                                                topic.get("student_summary")
-                                                or topic.get("lesson_focus")
-                                                or topic.get("subtopic")
-                                                or ""
-                                            )
-                                            if topic_summary:
-                                                st.caption(topic_summary)
-                        _render_teacher_pagination(program_rows, "teacher_programs_progress_page")
+                        filtered_rows = [
+                            row for row in program_rows
+                            if selected_subject == "__all__" or str(row.get("subject_key") or "").strip() == selected_subject
+                        ]
+                        subject_groups = _teacher_program_subject_groups(filtered_rows)
+                        if not subject_groups:
+                            st.info(t("no_assignments"))
+                        elif len(subject_groups) > 1:
+                            tabs = st.tabs([f"📚 {label}" for subject_key, label, _rows in subject_groups])
+                            for tab, (subject_key, _label, rows) in zip(tabs, subject_groups):
+                                with tab:
+                                    _render_teacher_program_assignment_list(
+                                        rows,
+                                        f"teacher_programs_progress_page_{selected_student_id}_{subject_key}",
+                                    )
+                        else:
+                            subject_key, _label, rows = subject_groups[0]
+                            _render_teacher_program_assignment_list(
+                                rows,
+                                f"teacher_programs_progress_page_{selected_student_id}_{subject_key}",
+                            )
 
                 with reviews_tab:
                     review_status_options = ["__all__"] + list(

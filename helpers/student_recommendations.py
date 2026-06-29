@@ -121,6 +121,57 @@ def _load_assignment_exclusions() -> dict[str, set]:
     return excluded
 
 
+def _load_assignment_behavior_profile() -> dict[str, Any]:
+    profile = {
+        "kind_success": {},
+        "kind_completion": {},
+        "topic_success": {},
+        "recent_teacher_topics": set(),
+    }
+    kind_map = {
+        "lesson_plan_topic": "plan",
+        "worksheet": "worksheet",
+        "exam": "exam",
+    }
+    for row in load_student_assignments():
+        kind = kind_map.get(str(row.get("assignment_type") or "").strip())
+        if not kind:
+            continue
+        topic = str(row.get("topic") or row.get("title") or "").strip()
+        status = str(row.get("status") or "").strip().lower()
+        score = row.get("score_pct")
+        try:
+            score_value = float(score) if score not in (None, "") else None
+        except Exception:
+            score_value = None
+        if status in {"started", "submitted", "graded", "completed"} and topic:
+            profile["recent_teacher_topics"].update(_topic_tokens(topic))
+        stats = profile["kind_success"].setdefault(kind, {"count": 0.0, "score_total": 0.0})
+        completion_stats = profile["kind_completion"].setdefault(kind, {"assigned": 0.0, "completed": 0.0})
+        completion_stats["assigned"] += 1.0
+        if status in {"graded", "completed"}:
+            completion_stats["completed"] += 1.0
+        if score_value is not None:
+            stats["count"] += 1.0
+            stats["score_total"] += score_value
+        if topic:
+            topic_stats = profile["topic_success"].setdefault(topic.casefold(), {"count": 0.0, "score_total": 0.0})
+            if score_value is not None:
+                topic_stats["count"] += 1.0
+                topic_stats["score_total"] += score_value
+
+    for kind, stats in list(profile["kind_success"].items()):
+        count = stats.get("count") or 0.0
+        profile["kind_success"][kind] = ((stats.get("score_total") or 0.0) / count / 100.0) if count else 0.0
+    for kind, stats in list(profile["kind_completion"].items()):
+        assigned = stats.get("assigned") or 0.0
+        profile["kind_completion"][kind] = ((stats.get("completed") or 0.0) / assigned) if assigned else 0.0
+    for topic_key, stats in list(profile["topic_success"].items()):
+        count = stats.get("count") or 0.0
+        profile["topic_success"][topic_key] = ((stats.get("score_total") or 0.0) / count / 100.0) if count else 0.0
+    return profile
+
+
 def _topic_tokens(*values: Any) -> set[str]:
     tokens: set[str] = set()
     for value in values:
@@ -131,6 +182,13 @@ def _topic_tokens(*values: Any) -> set[str]:
     return tokens
 
 
+def _topic_overlap_score(topic_tokens: set[str], reference_tokens: set[str], *, scale: float = 3.0) -> float:
+    if not topic_tokens or not reference_tokens:
+        return 0.0
+    overlap = len(topic_tokens & reference_tokens)
+    return _clamp(overlap / max(scale, 1.0))
+
+
 def _load_program_signals() -> dict[str, Any]:
     enriched = load_enriched_program_assignments_for_current_student()
     signals = {
@@ -139,10 +197,41 @@ def _load_program_signals() -> dict[str, Any]:
         "subject_stages": {},
         "next_topic_titles": [],
         "topic_tokens": set(),
+        "next_topic_tokens": set(),
+        "pending_topic_tokens": set(),
+        "review_topic_tokens": set(),
         "worksheet_types": set(),
         "exam_types": set(),
     }
+    latest_by_subject: dict[str, dict] = {}
     for assignment in enriched:
+        program = assignment.get("program") or {}
+        subject = normalize_subject(program.get("subject") or assignment.get("subject_key") or "")
+        if not subject:
+            continue
+        raw_sequence = program.get("sequence_order") or assignment.get("sequence_order") or 0
+        try:
+            sequence = int(raw_sequence or 0)
+        except Exception:
+            sequence = 0
+        stamp = str(
+            assignment.get("updated_at")
+            or assignment.get("assigned_at")
+            or program.get("updated_at")
+            or program.get("created_at")
+            or ""
+        ).strip()
+        current = latest_by_subject.get(subject)
+        current_sequence = int((current or {}).get("_sequence_order") or 0)
+        current_stamp = str((current or {}).get("_sort_stamp") or "")
+        if current is None or sequence > current_sequence or (sequence == current_sequence and stamp > current_stamp):
+            latest_by_subject[subject] = {
+                **assignment,
+                "_sequence_order": sequence,
+                "_sort_stamp": stamp,
+            }
+
+    for assignment in latest_by_subject.values():
         program = assignment.get("program") or {}
         subject = normalize_subject(program.get("subject") or assignment.get("subject_key") or "")
         if subject:
@@ -154,24 +243,45 @@ def _load_program_signals() -> dict[str, Any]:
             if stage and subject not in signals["subject_stages"]:
                 signals["subject_stages"][subject] = stage
         progress_map = assignment.get("progress_map") or {}
+        latest_completed_position = 0
+        topic_position = 0
+        ordered_topics: list[tuple[int, dict, dict]] = []
         for unit in program.get("units") or []:
             for topic in unit.get("topics") or []:
+                topic_position += 1
                 topic_id = int(topic.get("topic_id") or 0)
-                if topic_id and bool(progress_map.get(topic_id, {}).get("teacher_done")):
-                    continue
-                title = str(topic.get("title") or "").strip()
-                summary = str(topic.get("student_summary") or topic.get("lesson_focus") or topic.get("subtopic") or "").strip()
-                if title:
-                    signals["next_topic_titles"].append(title)
-                signals["topic_tokens"].update(_topic_tokens(title, summary))
-                for worksheet_type in topic.get("suggested_worksheet_types") or []:
-                    cleaned = str(worksheet_type or "").strip()
-                    if cleaned:
-                        signals["worksheet_types"].add(cleaned)
-                for exam_type in topic.get("suggested_exam_exercise_types") or []:
-                    cleaned = str(exam_type or "").strip()
-                    if cleaned:
-                        signals["exam_types"].add(cleaned)
+                topic_progress = progress_map.get(topic_id, {}) if topic_id else {}
+                if bool(topic_progress.get("teacher_done")):
+                    latest_completed_position = max(latest_completed_position, topic_position)
+                ordered_topics.append((topic_position, topic, topic_progress))
+
+        next_topic_added = False
+        for position, topic, topic_progress in ordered_topics:
+            title = str(topic.get("title") or "").strip()
+            summary = str(topic.get("student_summary") or topic.get("lesson_focus") or topic.get("subtopic") or "").strip()
+            topic_tokens = _topic_tokens(title, summary)
+            if bool(topic_progress.get("teacher_done")) and bool(topic_progress.get("student_done")):
+                signals["review_topic_tokens"].update(topic_tokens)
+            if not bool(topic_progress.get("teacher_done")) and latest_completed_position > 0 and position < latest_completed_position:
+                signals["pending_topic_tokens"].update(topic_tokens)
+            if bool(topic_progress.get("teacher_done")):
+                continue
+            if title:
+                signals["next_topic_titles"].append(title)
+            signals["topic_tokens"].update(topic_tokens)
+            if not next_topic_added:
+                signals["next_topic_tokens"].update(topic_tokens)
+                next_topic_added = True
+            if not title:
+                continue
+            for worksheet_type in topic.get("suggested_worksheet_types") or []:
+                cleaned = str(worksheet_type or "").strip()
+                if cleaned:
+                    signals["worksheet_types"].add(cleaned)
+            for exam_type in topic.get("suggested_exam_exercise_types") or []:
+                cleaned = str(exam_type or "").strip()
+                if cleaned:
+                    signals["exam_types"].add(cleaned)
     return signals
 
 
@@ -333,6 +443,7 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
     target_stage = student_profile.get("subject_stage", {}).get(subject, "") or program_stages.get(subject, "")
     accuracy = _safe_float(student_profile.get("overall_accuracy", {}).get(subject, 0.0))
     program_signals = student_profile.get("program_signals", {}) or {}
+    behavior_profile = student_profile.get("assignment_behavior", {}) or {}
     resource_tokens = _topic_tokens(topic, row.get("title"))
 
     if bootstrap_mode and program_subjects and subject not in program_subjects:
@@ -354,6 +465,9 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
     if resource_tokens and program_signals.get("topic_tokens"):
         overlap = len(resource_tokens & set(program_signals.get("topic_tokens") or set()))
         program_topic_overlap = _clamp(overlap / 3.0)
+    next_topic_overlap = _topic_overlap_score(resource_tokens, set(program_signals.get("next_topic_tokens") or set()))
+    pending_topic_overlap = _topic_overlap_score(resource_tokens, set(program_signals.get("pending_topic_tokens") or set()))
+    review_topic_overlap = _topic_overlap_score(resource_tokens, set(program_signals.get("review_topic_tokens") or set()))
     program_subject_fit = 1.0 if subject and subject in (program_signals.get("subjects") or set()) else 0.0
     program_type_fit = 0.0
     if resource_type == "worksheet" and exercise_type and exercise_type in (program_signals.get("worksheet_types") or set()):
@@ -363,10 +477,18 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
 
     review_boost = 0.0
     stretch_boost = 0.0
+    format_fit = _safe_float((behavior_profile.get("kind_success") or {}).get(resource_type, 0.0))
+    completion_fit = _safe_float((behavior_profile.get("kind_completion") or {}).get(resource_type, 0.0))
+    topic_success = _safe_float((behavior_profile.get("topic_success") or {}).get(topic.casefold(), 0.0)) if topic else 0.0
+    recent_teacher_overlap = _topic_overlap_score(resource_tokens, set(behavior_profile.get("recent_teacher_topics") or set()), scale=2.0)
     if topic_need >= 0.6:
         review_boost = 0.18
+    if review_topic_overlap >= 0.34:
+        review_boost = max(review_boost, 0.16)
     if accuracy >= 0.82 and level_fit >= 0.8 and topic_need < 0.35:
         stretch_boost = 0.1
+    if next_topic_overlap >= 0.34:
+        stretch_boost = max(stretch_boost, 0.12)
 
     score = (
         0.28 * subject_focus
@@ -375,11 +497,21 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
         + 0.14 * level_fit
         + 0.08 * stage_fit
         + 0.08 * program_topic_overlap
+        + 0.08 * next_topic_overlap
+        + 0.06 * review_topic_overlap
+        + 0.04 * pending_topic_overlap
         + 0.04 * program_subject_fit
         + 0.04 * program_type_fit
+        + 0.06 * format_fit
+        + 0.04 * completion_fit
+        + 0.05 * recent_teacher_overlap
         + review_boost
         + stretch_boost
     )
+    if topic_success >= 0.82 and topic_need < 0.28:
+        score -= 0.08
+    elif topic_success <= 0.68 and topic:
+        score += 0.08
 
     reasons: list[str] = []
     if topic_need >= 0.65 and topic:
@@ -388,8 +520,16 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
         reasons.append(t("student_material_reason_subject_support", subject=subject_label(subject)))
     if exercise_need >= 0.58 and exercise_type:
         reasons.append(t("student_material_reason_exercise_support", exercise_type=_format_activity_label(exercise_type)))
-    if program_topic_overlap >= 0.34 and topic:
+    if next_topic_overlap >= 0.34 and topic:
         reasons.append(t("student_material_reason_program_topic", topic=topic))
+    elif review_topic_overlap >= 0.34 and topic:
+        reasons.append(t("student_material_reason_revisit_topic", topic=topic))
+    elif pending_topic_overlap >= 0.34 and topic:
+        reasons.append(t("student_material_reason_program_topic", topic=topic))
+    elif program_topic_overlap >= 0.34 and topic:
+        reasons.append(t("student_material_reason_program_topic", topic=topic))
+    elif recent_teacher_overlap >= 0.34 and topic:
+        reasons.append(t("student_material_reason_subject_support", subject=subject_label(subject)))
     elif program_type_fit >= 1.0 and exercise_type:
         reasons.append(t("student_material_reason_program_style"))
     if level_fit >= 0.95 and level:
@@ -427,6 +567,7 @@ def build_recommended_materials(
     recommendations: list[dict[str, Any]] = []
     student_profile = _build_student_need_profile()
     student_profile["program_signals"] = _load_program_signals()
+    student_profile["assignment_behavior"] = _load_assignment_behavior_profile()
     completed = get_completed_source_ids()
     assigned = _load_assignment_exclusions()
 
