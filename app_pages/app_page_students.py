@@ -66,6 +66,7 @@ from helpers.recommendation_memory import (
     record_recommendation_event,
     set_active_recommendation_context,
 )
+from helpers.recommendation_models import score_teacher_resource_candidate
 
 # 12.2) PAGE: STUDENTS
 # =========================
@@ -250,7 +251,13 @@ def _score_resource_for_recommendation(row: dict, kind: str, source: str, item: 
         score += 2.0
     elif focus_kind == "reinforce" and kind in {"worksheet", "plan"}:
         score += 1.2
-    return score
+    ml_score, _features = score_teacher_resource_candidate(
+        row=row,
+        kind=kind,
+        source=source,
+        recommendation_item=item,
+    )
+    return score + (5.0 * ml_score)
 
 
 def _load_recommendation_resource_pool() -> list[dict]:
@@ -708,6 +715,18 @@ def _current_teacher_program_rows(program_rows: list[dict], selected_subject: st
         if current is None or _teacher_program_sort_key(row) > _teacher_program_sort_key(current):
             current_by_subject[subject_key] = row
     return sorted(current_by_subject.values(), key=_teacher_program_sort_key, reverse=True)
+
+
+def _teacher_program_count(program_rows: list[dict], selected_subject: str) -> int:
+    rows = list(program_rows or [])
+    if selected_subject != "__all__":
+        rows = [row for row in rows if str(row.get("subject_key") or "").strip() == selected_subject]
+    assignment_ids = {
+        int(row.get("id") or 0)
+        for row in rows
+        if int(row.get("id") or 0) > 0
+    }
+    return len(assignment_ids) if assignment_ids else len(rows)
 
 
 def _render_teacher_program_assignment_list(rows: list[dict], state_key_prefix: str) -> None:
@@ -1222,6 +1241,15 @@ def _inject_recommendation_styles() -> None:
             border: 1px solid color-mix(in srgb, var(--border, rgba(148,163,184,.35)) 82%, var(--primary, #2563eb) 18%);
             min-height: 92px;
         }
+        .classio-reco-metric-block {
+            margin-bottom: 1rem;
+        }
+        .classio-reco-summary-gap {
+            height: 1.1rem;
+        }
+        .classio-reco-card-row-gap {
+            height: 1rem;
+        }
         .classio-reco-metric-label {
             font-size: 0.78rem;
             color: var(--muted, #64748b);
@@ -1585,7 +1613,7 @@ def _render_recommendations_tab(
         selected_subject=selected_subject,
     )
     resource_pool = _load_recommendation_resource_pool() if recommendations else []
-    filtered_program_count = len(_current_teacher_program_rows(program_rows, selected_subject))
+    filtered_program_count = _teacher_program_count(program_rows, selected_subject)
 
     st.markdown(
         f"""
@@ -1609,13 +1637,17 @@ def _render_recommendations_tab(
         with col:
             st.markdown(
                 f"""
-                <div class="classio-reco-metric">
-                    <div class="classio-reco-metric-label">{_html.escape(label)}</div>
-                    <div class="classio-reco-metric-value">{_html.escape(value)}</div>
+                <div class="classio-reco-metric-block">
+                    <div class="classio-reco-metric">
+                        <div class="classio-reco-metric-label">{_html.escape(label)}</div>
+                        <div class="classio-reco-metric-value">{_html.escape(value)}</div>
+                    </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
+
+    st.markdown("<div class='classio-reco-summary-gap'></div>", unsafe_allow_html=True)
 
     if not recommendations:
         st.info(t("student_progress_recommendations_empty"))
@@ -1738,6 +1770,8 @@ def _render_recommendations_tab(
                         clear_active_recommendation_context()
                         clear_app_caches()
                         st.rerun()
+        if idx + 2 < len(recommendations):
+            st.markdown("<div class='classio-reco-card-row-gap'></div>", unsafe_allow_html=True)
 
 
 def _render_teacher_review_requests(

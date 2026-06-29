@@ -15,6 +15,14 @@ from core.i18n import t
 from core.state import get_current_user_id
 from core.timezone import DEFAULT_TZ_NAME, today_local
 from helpers.currency import CURRENCIES, CURRENCY_CODES, get_exchange_rate, get_preferred_currency
+from helpers.lesson_planner import normalize_subject
+from helpers.recommendation_models import (
+    humanize_ai_feature_name,
+    humanize_assignment_status,
+    humanize_recommendation_event,
+    humanize_review_status,
+    normalized_subject_label,
+)
 from helpers.ui_components import chart_series
 from services.account_reset_service import (
     RESET_SCOPE_FULL,
@@ -35,6 +43,7 @@ ADMIN_SECTIONS = [
     ("operations", "people-fill", "admin_operations"),
     ("pricing", "cash-coin", "admin_pricing"),
     ("subscriptions", "credit-card-2-front-fill", "admin_plans_subscriptions"),
+    ("intelligence", "cpu-fill", "admin_ai_intelligence"),
     ("business", "graph-up-arrow", "admin_business_analytics"),
     ("audit", "clock-history", "admin_audit_log"),
 ]
@@ -647,6 +656,14 @@ def _merge_profiles_subscriptions(
     return pd.DataFrame(rows)
 
 
+def _is_paid_user_row(row: dict | pd.Series) -> bool:
+    plan_id = str((row.get("current_plan") if hasattr(row, "get") else "") or "").strip().lower()
+    subscription_status = str((row.get("subscription_status") if hasattr(row, "get") else "") or "").strip().lower()
+    if plan_id in {"", "free", "beta_lifetime"}:
+        return False
+    return subscription_status in {"active", "trialing", "past_due"}
+
+
 def _log_admin_override(target_user_id: str, override_type: str, reason: str) -> None:
     try:
         get_sb().table("admin_overrides").insert(
@@ -788,12 +805,13 @@ def _business_metrics(df: pd.DataFrame) -> dict[str, int]:
     today = today_local()
     last_30 = pd.Timestamp(today - timedelta(days=30))
     created_at = pd.to_datetime(df.get("created_at"), errors="coerce", utc=True) if not df.empty and "created_at" in df.columns else pd.Series(dtype="datetime64[ns, UTC]")
+    paid_users = int(sum(_is_paid_user_row(row) for row in df.to_dict("records"))) if not df.empty else 0
     return {
         "total_users": int(len(df)),
         "teachers": int((df.get("role", pd.Series(dtype=str)).astype(str) == "teacher").sum()) if not df.empty else 0,
         "students": int((df.get("role", pd.Series(dtype=str)).astype(str) == "student").sum()) if not df.empty else 0,
         "admins": int((df.get("role", pd.Series(dtype=str)).astype(str) == "admin").sum()) if not df.empty else 0,
-        "paid_users": int(df.get("subscription_status", pd.Series(dtype=str)).astype(str).isin(["active", "trialing"]).sum()) if not df.empty else 0,
+        "paid_users": paid_users,
         "suspended_users": int((df.get("account_status", pd.Series(dtype=str)).astype(str) == "suspended").sum()) if not df.empty else 0,
         "new_last_30": int((created_at >= last_30.tz_localize("UTC")).sum()) if not created_at.empty else 0,
     }
@@ -812,6 +830,677 @@ def _content_metrics() -> dict[str, int]:
         "learning_programs": len(program_rows),
         "ai_events": len(ai_rows),
     }
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_admin_dataset_rows(
+    table: str,
+    columns: str,
+    *,
+    limit: int = 5000,
+    order_column: str = "created_at",
+) -> list[dict]:
+    try:
+        query = get_sb().table(table).select(columns).limit(limit)
+        if order_column:
+            query = query.order(order_column, desc=True)
+        return getattr(query.execute(), "data", None) or []
+    except Exception:
+        return []
+
+
+def _table_frame(
+    table: str,
+    columns: str,
+    *,
+    limit: int = 5000,
+    order_column: str = "created_at",
+) -> pd.DataFrame:
+    rows = _fetch_admin_dataset_rows(table, columns, limit=limit, order_column=order_column)
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def _normalize_datetime_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    if df.empty:
+        return df
+    out = df.copy()
+    for column in columns:
+        if column in out.columns:
+            out[column] = pd.to_datetime(out[column], errors="coerce", utc=True)
+    return out
+
+
+def _safe_ratio(numerator: float, denominator: float) -> float:
+    denominator = float(denominator or 0.0)
+    if denominator <= 0:
+        return 0.0
+    return float(numerator or 0.0) / denominator
+
+
+def _pct_text(value: float) -> str:
+    safe_value = max(0.0, min(1.0, float(value or 0.0)))
+    return f"{int(round(safe_value * 100))}%"
+
+
+def _latest_frame_timestamp(df: pd.DataFrame, candidates: list[str]) -> pd.Timestamp | None:
+    if df.empty:
+        return None
+    latest: pd.Timestamp | None = None
+    for column in candidates:
+        if column not in df.columns:
+            continue
+        series = pd.to_datetime(df[column], errors="coerce", utc=True)
+        if series.dropna().empty:
+            continue
+        current = series.max()
+        if pd.isna(current):
+            continue
+        if latest is None or current > latest:
+            latest = current
+    return latest
+
+
+def _freshness_label(value: pd.Timestamp | None) -> str:
+    if value is None or pd.isna(value):
+        return t("admin_ai_freshness_unknown")
+    now_utc = pd.Timestamp.now(tz="UTC")
+    delta_hours = max(0.0, (now_utc - value).total_seconds() / 3600.0)
+    if delta_hours < 24:
+        return t("admin_ai_freshness_hours", count=int(round(delta_hours)))
+    return t("admin_ai_freshness_days", count=int(round(delta_hours / 24.0)))
+
+
+def _readiness_label(score: float) -> str:
+    if score >= 0.8:
+        return t("admin_ai_readiness_high")
+    if score >= 0.45:
+        return t("admin_ai_readiness_medium")
+    return t("admin_ai_readiness_low")
+
+
+def _render_section_callout(title: str, subtitle: str) -> None:
+    st.markdown(
+        f"<div class='admin-section-card'><div class='admin-card-title'>{_html.escape(title)}</div><div class='admin-card-subtitle'>{_html.escape(subtitle)}</div></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _load_admin_ai_frames() -> dict[str, pd.DataFrame]:
+    frames = {
+        "profiles": _table_frame(
+            "profiles",
+            "user_id,role,current_plan,subscription_status,created_at,last_used_at,can_teach,can_study",
+            limit=5000,
+            order_column="created_at",
+        ),
+        "teacher_student_links": _table_frame(
+            "teacher_student_links",
+            "id,teacher_id,student_id,status,created_at,updated_at",
+            limit=5000,
+            order_column="updated_at",
+        ),
+        "teacher_student_subjects": _table_frame(
+            "teacher_student_subjects",
+            "id,link_id,teacher_id,student_id,subject_key,subject_label,status,created_at,updated_at",
+            limit=5000,
+            order_column="updated_at",
+        ),
+        "learning_programs": _table_frame(
+            "learning_programs",
+            "id,user_id,subject,learner_stage,level_or_band,status,created_at,updated_at",
+            limit=5000,
+            order_column="updated_at",
+        ),
+        "learning_program_topics": _table_frame(
+            "learning_program_topics",
+            "id,program_id,unit_id,title,topic_number,created_at,updated_at",
+            limit=12000,
+            order_column="updated_at",
+        ),
+        "learning_program_assignments": _table_frame(
+            "learning_program_assignments",
+            "id,program_id,teacher_id,student_user_id,status,assigned_at,updated_at",
+            limit=12000,
+            order_column="updated_at",
+        ),
+        "learning_program_progress": _table_frame(
+            "learning_program_progress",
+            "id,assignment_id,topic_id,teacher_done,student_done,is_done,completed_at,created_at,updated_at",
+            limit=25000,
+            order_column="updated_at",
+        ),
+        "teacher_assignments": _table_frame(
+            "teacher_assignments",
+            "id,teacher_id,student_id,assignment_type,status,score_pct,assigned_at,created_at,updated_at,learning_program_assignment_id,learning_program_topic_id,recommendation_bucket,recommendation_focus_kind",
+            limit=20000,
+            order_column="updated_at",
+        ),
+        "teacher_assignment_attempts": _table_frame(
+            "teacher_assignment_attempts",
+            "id,assignment_id,teacher_id,student_id,status,score_pct,created_at,submitted_at,graded_at,completed_at,updated_at,learning_program_assignment_id,learning_program_topic_id,recommendation_bucket,recommendation_focus_kind",
+            limit=20000,
+            order_column="updated_at",
+        ),
+        "learning_program_recommendation_events": _table_frame(
+            "learning_program_recommendation_events",
+            "id,teacher_id,student_id,learning_program_assignment_id,learning_program_topic_id,recommendation_bucket,recommendation_focus_kind,event_type,resource_kind,teacher_assignment_id,assignment_attempt_id,created_at,updated_at",
+            limit=25000,
+            order_column="updated_at",
+        ),
+        "teacher_review_requests": _table_frame(
+            "teacher_review_requests",
+            "id,teacher_id,student_id,status,requested_at,reviewed_at,created_at",
+            limit=12000,
+            order_column="created_at",
+        ),
+        "practice_sessions": _table_frame(
+            "practice_sessions",
+            "id,user_id,source_type,subject,topic,level,score_pct,status,created_at,completed_at",
+            limit=25000,
+            order_column="created_at",
+        ),
+        "practice_progress": _table_frame(
+            "practice_progress",
+            "id,user_id,subject,topic,exercise_type,level,accuracy_pct,last_practiced,created_at",
+            limit=25000,
+            order_column="last_practiced",
+        ),
+        "ai_usage_logs": _table_frame(
+            "ai_usage_logs",
+            "id,user_id,feature_name,status,created_at",
+            limit=25000,
+            order_column="created_at",
+        ),
+        "user_activity_log": _table_frame(
+            "user_activity_log",
+            "id,user_id,activity_type,feature_name,created_at",
+            limit=25000,
+            order_column="created_at",
+        ),
+    }
+    datetime_map = {
+        "profiles": ["created_at", "last_used_at"],
+        "teacher_student_links": ["created_at", "updated_at"],
+        "teacher_student_subjects": ["created_at", "updated_at"],
+        "learning_programs": ["created_at", "updated_at"],
+        "learning_program_topics": ["created_at", "updated_at"],
+        "learning_program_assignments": ["assigned_at", "updated_at"],
+        "learning_program_progress": ["completed_at", "created_at", "updated_at"],
+        "teacher_assignments": ["assigned_at", "created_at", "updated_at"],
+        "teacher_assignment_attempts": ["created_at", "submitted_at", "graded_at", "completed_at", "updated_at"],
+        "learning_program_recommendation_events": ["created_at", "updated_at"],
+        "teacher_review_requests": ["requested_at", "reviewed_at", "created_at"],
+        "practice_sessions": ["created_at", "completed_at"],
+        "practice_progress": ["last_practiced", "created_at"],
+        "ai_usage_logs": ["created_at"],
+        "user_activity_log": ["created_at"],
+    }
+    for key, cols in datetime_map.items():
+        frames[key] = _normalize_datetime_columns(frames[key], cols)
+    return frames
+
+
+def _build_admin_ai_snapshot() -> dict[str, Any]:
+    frames = _load_admin_ai_frames()
+    links_df = frames["teacher_student_links"]
+    subjects_df = frames["teacher_student_subjects"]
+    programs_df = frames["learning_programs"]
+    topics_df = frames["learning_program_topics"]
+    program_assign_df = frames["learning_program_assignments"]
+    progress_df = frames["learning_program_progress"]
+    assignments_df = frames["teacher_assignments"]
+    attempts_df = frames["teacher_assignment_attempts"]
+    recommendation_df = frames["learning_program_recommendation_events"]
+    reviews_df = frames["teacher_review_requests"]
+    practice_df = frames["practice_sessions"]
+    ai_usage_df = frames["ai_usage_logs"]
+    activity_df = frames["user_activity_log"]
+
+    active_links = int((links_df.get("status", pd.Series(dtype=str)).astype(str) == "active").sum()) if not links_df.empty else 0
+    active_subjects = int((subjects_df.get("status", pd.Series(dtype=str)).astype(str) == "active").sum()) if not subjects_df.empty else 0
+    active_program_assignments = int((program_assign_df.get("status", pd.Series(dtype=str)).astype(str) != "archived").sum()) if not program_assign_df.empty else 0
+
+    if not assignments_df.empty:
+        assignments_df = assignments_df.copy()
+        assignments_df["linked_to_program"] = (
+            assignments_df.get("learning_program_assignment_id", pd.Series(dtype=float)).notna()
+            & assignments_df.get("learning_program_topic_id", pd.Series(dtype=float)).notna()
+        )
+    if not attempts_df.empty:
+        attempts_df = attempts_df.copy()
+        attempts_df["linked_to_program"] = (
+            attempts_df.get("learning_program_assignment_id", pd.Series(dtype=float)).notna()
+            & attempts_df.get("learning_program_topic_id", pd.Series(dtype=float)).notna()
+        )
+
+    program_alignment_score = _safe_ratio(
+        float(assignments_df.get("linked_to_program", pd.Series(dtype=bool)).sum()) if not assignments_df.empty else 0.0,
+        float(len(assignments_df)),
+    )
+    review_closure_score = _safe_ratio(
+        float((reviews_df.get("status", pd.Series(dtype=str)).astype(str) == "reviewed").sum()) if not reviews_df.empty else 0.0,
+        float(len(reviews_df)),
+    )
+    ai_success_score = _safe_ratio(
+        float((ai_usage_df.get("status", pd.Series(dtype=str)).astype(str).str.lower() == "success").sum()) if not ai_usage_df.empty else 0.0,
+        float(len(ai_usage_df)),
+    )
+
+    recommendation_event_counts = (
+        recommendation_df.groupby("event_type", as_index=False).size().rename(columns={"size": "count"})
+        if not recommendation_df.empty and "event_type" in recommendation_df.columns
+        else pd.DataFrame(columns=["event_type", "count"])
+    )
+    recommendation_surface = int(
+        recommendation_event_counts.loc[
+            recommendation_event_counts["event_type"].astype(str).isin(["prefill", "resource_opened", "resource_assigned"]),
+            "count",
+        ].sum()
+    ) if not recommendation_event_counts.empty else 0
+    recommendation_actions = int(
+        recommendation_event_counts.loc[
+            recommendation_event_counts["event_type"].astype(str).isin(["assignment_created", "teacher_marked_done"]),
+            "count",
+        ].sum()
+    ) if not recommendation_event_counts.empty else 0
+    recommendation_learning = int(
+        recommendation_event_counts.loc[
+            recommendation_event_counts["event_type"].astype(str).isin(["student_started", "student_completed", "student_improved"]),
+            "count",
+        ].sum()
+    ) if not recommendation_event_counts.empty else 0
+    feedback_loop_score = _safe_ratio(recommendation_learning, recommendation_actions or recommendation_surface)
+
+    program_topic_counts = (
+        topics_df.groupby("program_id", as_index=False).size().rename(columns={"size": "topic_count"})
+        if not topics_df.empty and "program_id" in topics_df.columns
+        else pd.DataFrame(columns=["program_id", "topic_count"])
+    )
+    potential_progress_rows = 0
+    if not program_assign_df.empty and not program_topic_counts.empty:
+        topic_lookup = {int(row["program_id"]): int(row["topic_count"]) for row in program_topic_counts.to_dict("records") if row.get("program_id") is not None}
+        potential_progress_rows = int(
+            sum(topic_lookup.get(int(row.get("program_id") or 0), 0) for row in program_assign_df.to_dict("records"))
+        )
+    progress_tracking_score = _safe_ratio(len(progress_df), potential_progress_rows) if potential_progress_rows else 0.0
+
+    latest_timestamps = [
+        _latest_frame_timestamp(links_df, ["updated_at", "created_at"]),
+        _latest_frame_timestamp(subjects_df, ["updated_at", "created_at"]),
+        _latest_frame_timestamp(program_assign_df, ["updated_at", "assigned_at"]),
+        _latest_frame_timestamp(progress_df, ["updated_at", "completed_at", "created_at"]),
+        _latest_frame_timestamp(assignments_df, ["updated_at", "assigned_at", "created_at"]),
+        _latest_frame_timestamp(attempts_df, ["updated_at", "completed_at", "graded_at", "submitted_at", "created_at"]),
+        _latest_frame_timestamp(recommendation_df, ["updated_at", "created_at"]),
+        _latest_frame_timestamp(reviews_df, ["reviewed_at", "requested_at", "created_at"]),
+        _latest_frame_timestamp(practice_df, ["completed_at", "created_at"]),
+        _latest_frame_timestamp(ai_usage_df, ["created_at"]),
+        _latest_frame_timestamp(activity_df, ["created_at"]),
+    ]
+    latest_timestamps = [stamp for stamp in latest_timestamps if stamp is not None]
+    overall_freshness = max(latest_timestamps) if latest_timestamps else None
+
+    multi_subject_links = 0
+    if not subjects_df.empty and "link_id" in subjects_df.columns:
+        active_subjects_df = subjects_df[subjects_df.get("status", pd.Series(dtype=str)).astype(str) == "active"].copy()
+        if not active_subjects_df.empty:
+            multi_subject_links = int((active_subjects_df.groupby("link_id").size() > 1).sum())
+
+    return {
+        "frames": frames,
+        "metrics": {
+            "active_links": active_links,
+            "active_subjects": active_subjects,
+            "multi_subject_links": multi_subject_links,
+            "program_assignments": active_program_assignments,
+            "recommendation_events": int(len(recommendation_df)),
+            "program_alignment_score": program_alignment_score,
+            "review_closure_score": review_closure_score,
+            "ai_success_score": ai_success_score,
+            "feedback_loop_score": feedback_loop_score,
+            "progress_tracking_score": progress_tracking_score,
+            "freshness": overall_freshness,
+        },
+        "recommendation_counts": recommendation_event_counts,
+    }
+
+
+def _render_admin_ai_intelligence() -> None:
+    _render_section_callout(t("admin_ai_intelligence_title"), t("admin_ai_intelligence_subtitle"))
+    st.markdown("<div class='admin-kpi-stack-gap'></div>", unsafe_allow_html=True)
+    snapshot = _build_admin_ai_snapshot()
+    frames = snapshot["frames"]
+    metrics = snapshot["metrics"]
+
+    top_metrics = [
+        (t("admin_ai_metric_active_links"), str(metrics["active_links"])),
+        (t("admin_ai_metric_program_assignments"), str(metrics["program_assignments"])),
+        (t("admin_ai_metric_recommendation_events"), str(metrics["recommendation_events"])),
+        (t("admin_ai_metric_freshness"), _freshness_label(metrics["freshness"])),
+    ]
+    _render_kpi_row(top_metrics)
+    st.markdown("<div class='admin-kpi-stack-gap'></div>", unsafe_allow_html=True)
+    _render_kpi_row(
+        [
+            (t("admin_ai_metric_program_alignment"), _pct_text(metrics["program_alignment_score"])),
+            (t("admin_ai_metric_review_closure"), _pct_text(metrics["review_closure_score"])),
+            (t("admin_ai_metric_feedback_loop"), _pct_text(metrics["feedback_loop_score"])),
+            (t("admin_ai_metric_ai_success"), _pct_text(metrics["ai_success_score"])),
+        ]
+    )
+    st.markdown("<div class='admin-kpi-stack-gap'></div>", unsafe_allow_html=True)
+
+    map_cols = st.columns(4, gap="medium")
+    map_items = [
+        (t("admin_ai_map_signals_title"), t("admin_ai_map_signals_body")),
+        (t("admin_ai_map_features_title"), t("admin_ai_map_features_body")),
+        (t("admin_ai_map_decisions_title"), t("admin_ai_map_decisions_body")),
+        (t("admin_ai_map_outcomes_title"), t("admin_ai_map_outcomes_body")),
+    ]
+    for col, (title, body) in zip(map_cols, map_items):
+        with col:
+            st.markdown(
+                f"""
+                <div class="admin-kpi-card">
+                    <div class="admin-kpi-label">{_html.escape(title)}</div>
+                    <div style="margin-top:8px;font-size:.86rem;line-height:1.45;color:var(--text);">{_html.escape(body)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    graph_tab, model_tab, data_tab, decision_tab = st.tabs(
+        [
+            f"📈 {t('admin_ai_tab_graphs')}",
+            f"🧠 {t('admin_ai_tab_models')}",
+            f"🗂️ {t('admin_ai_tab_datasets')}",
+            f"🧭 {t('admin_ai_tab_decisions')}",
+        ]
+    )
+
+    with graph_tab:
+        recommendation_df = frames["learning_program_recommendation_events"]
+        assignments_df = frames["teacher_assignments"]
+        reviews_df = frames["teacher_review_requests"]
+        ai_usage_df = frames["ai_usage_logs"]
+        practice_df = frames["practice_sessions"]
+        progress_df = frames["learning_program_progress"]
+
+        left, right = st.columns(2, gap="large")
+        with left:
+            st.markdown(f"### {t('admin_ai_graph_recommendation_funnel')}")
+            if recommendation_df.empty or "event_type" not in recommendation_df.columns:
+                st.info(t("admin_ai_empty_data"))
+            else:
+                funnel = (
+                    recommendation_df.groupby("event_type", as_index=False)
+                    .size()
+                    .rename(columns={"size": "count"})
+                    .sort_values("count", ascending=False)
+                )
+                funnel["event_type"] = funnel["event_type"].astype(str).map(humanize_recommendation_event)
+                funnel_series = chart_series(funnel, "event_type", "count", "admin_chart_index_action", "admin_chart_value_count")
+                if funnel_series is not None:
+                    st.bar_chart(funnel_series)
+        with right:
+            st.markdown(f"### {t('admin_ai_graph_assignment_lifecycle')}")
+            if assignments_df.empty or "status" not in assignments_df.columns:
+                st.info(t("admin_ai_empty_data"))
+            else:
+                status_df = (
+                    assignments_df.groupby("status", as_index=False)
+                    .size()
+                    .rename(columns={"size": "count"})
+                    .sort_values("count", ascending=False)
+                )
+                status_df["status"] = status_df["status"].astype(str).map(humanize_assignment_status)
+                status_series = chart_series(status_df, "status", "count", "admin_chart_index_status", "admin_chart_value_count")
+                if status_series is not None:
+                    st.bar_chart(status_series)
+
+        left, right = st.columns(2, gap="large")
+        with left:
+            st.markdown(f"### {t('admin_ai_graph_review_lifecycle')}")
+            if reviews_df.empty or "status" not in reviews_df.columns:
+                st.info(t("admin_ai_empty_data"))
+            else:
+                review_mix = (
+                    reviews_df.groupby("status", as_index=False)
+                    .size()
+                    .rename(columns={"size": "count"})
+                    .sort_values("count", ascending=False)
+                )
+                review_mix["status"] = review_mix["status"].astype(str).map(humanize_review_status)
+                review_series = chart_series(review_mix, "status", "count", "admin_chart_index_status", "admin_chart_value_count")
+                if review_series is not None:
+                    st.bar_chart(review_series)
+        with right:
+            st.markdown(f"### {t('admin_ai_graph_ai_usage_by_feature')}")
+            if ai_usage_df.empty or "feature_name" not in ai_usage_df.columns:
+                st.info(t("admin_ai_empty_data"))
+            else:
+                success_df = ai_usage_df[ai_usage_df.get("status", pd.Series(dtype=str)).astype(str).str.lower() == "success"].copy()
+                usage_mix = (
+                    success_df.groupby("feature_name", as_index=False)
+                    .size()
+                    .rename(columns={"size": "count"})
+                    .sort_values("count", ascending=False)
+                    .head(10)
+                )
+                usage_mix["feature_name"] = usage_mix["feature_name"].astype(str).map(humanize_ai_feature_name)
+                usage_series = chart_series(usage_mix, "feature_name", "count", "admin_chart_index_metric", "admin_chart_value_count")
+                if usage_series is not None:
+                    st.bar_chart(usage_series)
+
+        left, right = st.columns(2, gap="large")
+        with left:
+            st.markdown(f"### {t('admin_ai_graph_practice_subjects')}")
+            if practice_df.empty or "subject" not in practice_df.columns:
+                st.info(t("admin_ai_empty_data"))
+            else:
+                practice_subjects = (
+                    practice_df.assign(
+                        score_pct=pd.to_numeric(practice_df.get("score_pct"), errors="coerce"),
+                        subject_norm=practice_df.get("subject", pd.Series(dtype=str)).astype(str).map(lambda value: str(value or "")),
+                    )
+                    .assign(subject_norm=lambda df: df["subject_norm"].map(lambda value: normalize_subject(str(value or "").strip()) or "other"))
+                    .groupby("subject_norm", as_index=False)
+                    .agg(sessions=("id", "size"), avg_score=("score_pct", "mean"))
+                    .sort_values("sessions", ascending=False)
+                    .head(10)
+                )
+                practice_subjects["label"] = practice_subjects["subject_norm"].astype(str).map(normalized_subject_label)
+                practice_series = chart_series(practice_subjects, "label", "sessions", "admin_chart_index_metric", "admin_chart_value_count")
+                if practice_series is not None:
+                    st.bar_chart(practice_series)
+        with right:
+            st.markdown(f"### {t('admin_ai_graph_program_progress')}")
+            if progress_df.empty:
+                st.info(t("admin_ai_empty_data"))
+            else:
+                summary_df = pd.DataFrame(
+                    [
+                        {"metric": t("admin_ai_progress_teacher_done"), "count": int(progress_df.get("teacher_done", pd.Series(dtype=bool)).fillna(False).sum())},
+                        {"metric": t("admin_ai_progress_student_done"), "count": int(progress_df.get("student_done", pd.Series(dtype=bool)).fillna(False).sum())},
+                        {"metric": t("admin_ai_progress_fully_done"), "count": int(progress_df.get("is_done", pd.Series(dtype=bool)).fillna(False).sum())},
+                    ]
+                )
+                progress_series = chart_series(summary_df, "metric", "count", "admin_chart_index_metric", "admin_chart_value_count")
+                if progress_series is not None:
+                    st.bar_chart(progress_series)
+
+    with model_tab:
+        st.markdown(f"### {t('admin_ai_models_live_title')}")
+        live_models = [
+            {
+                "name": t("admin_ai_model_teacher_recommendations"),
+                "stage": t("admin_ai_model_stage_live"),
+                "goal": t("admin_ai_model_teacher_recommendations_goal"),
+                "signals": t("admin_ai_model_teacher_recommendations_signals"),
+                "output": t("admin_ai_model_teacher_recommendations_output"),
+            },
+            {
+                "name": t("admin_ai_model_student_recommendations"),
+                "stage": t("admin_ai_model_stage_live"),
+                "goal": t("admin_ai_model_student_recommendations_goal"),
+                "signals": t("admin_ai_model_student_recommendations_signals"),
+                "output": t("admin_ai_model_student_recommendations_output"),
+            },
+            {
+                "name": t("admin_ai_model_practice_progress"),
+                "stage": t("admin_ai_model_stage_live"),
+                "goal": t("admin_ai_model_practice_progress_goal"),
+                "signals": t("admin_ai_model_practice_progress_signals"),
+                "output": t("admin_ai_model_practice_progress_output"),
+            },
+            {
+                "name": t("admin_ai_model_review_sync"),
+                "stage": t("admin_ai_model_stage_live"),
+                "goal": t("admin_ai_model_review_sync_goal"),
+                "signals": t("admin_ai_model_review_sync_signals"),
+                "output": t("admin_ai_model_review_sync_output"),
+            },
+        ]
+        live_df = pd.DataFrame(live_models).rename(
+            columns={
+                "name": t("admin_ai_model_name"),
+                "stage": t("admin_ai_model_stage"),
+                "goal": t("admin_ai_model_goal"),
+                "signals": t("admin_ai_model_signals"),
+                "output": t("admin_ai_model_output"),
+            }
+        )
+        st.dataframe(live_df, use_container_width=True, hide_index=True)
+
+        st.markdown(f"### {t('admin_ai_models_next_title')}")
+        next_models = [
+            {
+                "name": t("admin_ai_model_next_best_action"),
+                "stage": t("admin_ai_model_stage_next"),
+                "goal": t("admin_ai_model_next_best_action_goal"),
+                "signals": t("admin_ai_model_next_best_action_signals"),
+                "output": t("admin_ai_model_next_best_action_output"),
+            },
+            {
+                "name": t("admin_ai_model_student_mastery"),
+                "stage": t("admin_ai_model_stage_next"),
+                "goal": t("admin_ai_model_student_mastery_goal"),
+                "signals": t("admin_ai_model_student_mastery_signals"),
+                "output": t("admin_ai_model_student_mastery_output"),
+            },
+            {
+                "name": t("admin_ai_model_recommendation_acceptance"),
+                "stage": t("admin_ai_model_stage_next"),
+                "goal": t("admin_ai_model_recommendation_acceptance_goal"),
+                "signals": t("admin_ai_model_recommendation_acceptance_signals"),
+                "output": t("admin_ai_model_recommendation_acceptance_output"),
+            },
+            {
+                "name": t("admin_ai_model_resource_matching"),
+                "stage": t("admin_ai_model_stage_next"),
+                "goal": t("admin_ai_model_resource_matching_goal"),
+                "signals": t("admin_ai_model_resource_matching_signals"),
+                "output": t("admin_ai_model_resource_matching_output"),
+            },
+        ]
+        next_df = pd.DataFrame(next_models).rename(
+            columns={
+                "name": t("admin_ai_model_name"),
+                "stage": t("admin_ai_model_stage"),
+                "goal": t("admin_ai_model_goal"),
+                "signals": t("admin_ai_model_signals"),
+                "output": t("admin_ai_model_output"),
+            }
+        )
+        st.dataframe(next_df, use_container_width=True, hide_index=True)
+
+    with data_tab:
+        dataset_rows = []
+        dataset_specs = [
+            ("admin_ai_dataset_accounts", "profiles", t("admin_ai_dataset_accounts_purpose"), t("admin_ai_grain_user"), ["created_at", "last_used_at"], 0.95),
+            ("admin_ai_dataset_links", "teacher_student_links", t("admin_ai_dataset_links_purpose"), t("admin_ai_grain_teacher_student"), ["updated_at", "created_at"], 0.85),
+            ("admin_ai_dataset_program_catalog", "learning_program_topics", t("admin_ai_dataset_program_catalog_purpose"), t("admin_ai_grain_program_topic"), ["updated_at", "created_at"], 0.8),
+            ("admin_ai_dataset_program_progress", "learning_program_progress", t("admin_ai_dataset_program_progress_purpose"), t("admin_ai_grain_assignment_topic"), ["updated_at", "completed_at", "created_at"], metrics["progress_tracking_score"]),
+            ("admin_ai_dataset_assignments", "teacher_assignments", t("admin_ai_dataset_assignments_purpose"), t("admin_ai_grain_assignment"), ["updated_at", "assigned_at", "created_at"], metrics["program_alignment_score"]),
+            ("admin_ai_dataset_attempts", "teacher_assignment_attempts", t("admin_ai_dataset_attempts_purpose"), t("admin_ai_grain_attempt"), ["updated_at", "graded_at", "submitted_at", "created_at"], 0.82),
+            ("admin_ai_dataset_recommendations", "learning_program_recommendation_events", t("admin_ai_dataset_recommendations_purpose"), t("admin_ai_grain_event"), ["updated_at", "created_at"], metrics["feedback_loop_score"]),
+            ("admin_ai_dataset_reviews", "teacher_review_requests", t("admin_ai_dataset_reviews_purpose"), t("admin_ai_grain_request"), ["reviewed_at", "requested_at", "created_at"], metrics["review_closure_score"]),
+            ("admin_ai_dataset_practice", "practice_sessions", t("admin_ai_dataset_practice_purpose"), t("admin_ai_grain_session"), ["completed_at", "created_at"], 0.9),
+            ("admin_ai_dataset_ai_usage", "ai_usage_logs", t("admin_ai_dataset_ai_usage_purpose"), t("admin_ai_grain_activity"), ["created_at"], metrics["ai_success_score"]),
+        ]
+        for name_key, frame_key, purpose, grain, freshness_cols, readiness_score in dataset_specs:
+            frame = frames[frame_key]
+            latest = _latest_frame_timestamp(frame, freshness_cols)
+            dataset_rows.append(
+                {
+                    t("admin_ai_dataset_label"): t(name_key),
+                    t("admin_ai_dataset_purpose"): purpose,
+                    t("admin_ai_dataset_grain"): grain,
+                    t("admin_ai_dataset_rows"): int(len(frame)),
+                    t("admin_ai_dataset_freshness"): _freshness_label(latest),
+                    t("admin_ai_dataset_readiness"): _readiness_label(readiness_score),
+                }
+            )
+        st.dataframe(pd.DataFrame(dataset_rows), use_container_width=True, hide_index=True)
+
+        show_tables = st.toggle(t("admin_ai_show_raw_tables"), key="admin_ai_show_raw_tables")
+        if show_tables:
+            raw_choice = st.selectbox(
+                t("admin_ai_select_dataset"),
+                list(frames.keys()),
+                format_func=lambda value: t({
+                    "profiles": "admin_ai_dataset_accounts",
+                    "teacher_student_links": "admin_ai_dataset_links",
+                    "learning_program_topics": "admin_ai_dataset_program_catalog",
+                    "learning_program_progress": "admin_ai_dataset_program_progress",
+                    "teacher_assignments": "admin_ai_dataset_assignments",
+                    "teacher_assignment_attempts": "admin_ai_dataset_attempts",
+                    "learning_program_recommendation_events": "admin_ai_dataset_recommendations",
+                    "teacher_review_requests": "admin_ai_dataset_reviews",
+                    "practice_sessions": "admin_ai_dataset_practice",
+                    "ai_usage_logs": "admin_ai_dataset_ai_usage",
+                    "teacher_student_subjects": "admin_ai_dataset_subject_scopes",
+                    "learning_program_assignments": "admin_ai_dataset_program_assignments",
+                    "learning_programs": "admin_ai_dataset_programs",
+                    "practice_progress": "admin_ai_dataset_progress_aggregates",
+                    "user_activity_log": "admin_ai_dataset_activity_log",
+                }.get(value, value)),
+            )
+            st.dataframe(frames.get(raw_choice, pd.DataFrame()), use_container_width=True, hide_index=True)
+
+    with decision_tab:
+        decision_rows = []
+        if metrics["program_alignment_score"] >= 0.75:
+            decision_rows.append((t("admin_ai_decision_good"), t("admin_ai_decision_alignment_good")))
+        else:
+            decision_rows.append((t("admin_ai_decision_gap"), t("admin_ai_decision_alignment_gap")))
+
+        if metrics["review_closure_score"] >= 0.65:
+            decision_rows.append((t("admin_ai_decision_good"), t("admin_ai_decision_reviews_good")))
+        else:
+            decision_rows.append((t("admin_ai_decision_risk"), t("admin_ai_decision_reviews_risk")))
+
+        if metrics["feedback_loop_score"] >= 0.45:
+            decision_rows.append((t("admin_ai_decision_good"), t("admin_ai_decision_feedback_good")))
+        else:
+            decision_rows.append((t("admin_ai_decision_gap"), t("admin_ai_decision_feedback_gap")))
+
+        if metrics["ai_success_score"] >= 0.8:
+            decision_rows.append((t("admin_ai_decision_good"), t("admin_ai_decision_ai_good")))
+        else:
+            decision_rows.append((t("admin_ai_decision_risk"), t("admin_ai_decision_ai_risk")))
+
+        decision_rows.append((t("admin_ai_decision_next"), t("admin_ai_decision_next_action")))
+        for title, body in decision_rows:
+            st.markdown(
+                f"""
+                <div class="admin-kpi-card" style="margin-bottom:10px;">
+                    <div class="admin-kpi-label">{_html.escape(title)}</div>
+                    <div style="margin-top:8px;font-size:.9rem;line-height:1.5;color:var(--text);">{_html.escape(body)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 
 def _series_from_rows(rows: list[dict], *, period: str = "M", date_key: str = "created_at") -> pd.DataFrame:
@@ -865,6 +1554,7 @@ def _inject_admin_styles() -> None:
             background:linear-gradient(180deg, color-mix(in srgb, var(--panel) 96%, white 4%), color-mix(in srgb, var(--panel-soft) 94%, var(--primary) 6%));
             border:1px solid var(--border);box-shadow:0 10px 24px rgba(15,23,42,.06);
         }
+        .admin-kpi-stack-gap{height:1rem;}
         .admin-kpi-label{font-size:.78rem;font-weight:900;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
         .admin-kpi-value{margin-top:8px;font-size:1.55rem;font-weight:950;color:var(--text);}
         .admin-section-card{
@@ -1748,6 +2438,7 @@ def render_admin() -> None:
         tab_operations,
         tab_pricing,
         tab_subscriptions,
+        tab_intelligence,
         tab_business,
         tab_audit,
     ) = st.tabs([
@@ -1755,6 +2446,7 @@ def render_admin() -> None:
         f"🛠️ {t('admin_operations')}",
         f"💳 {t('admin_pricing')}",
         f"🧾 {t('admin_plans_subscriptions')}",
+        f"🧠 {t('admin_ai_intelligence')}",
         f"📈 {t('admin_business_analytics')}",
         f"🕒 {t('admin_audit_log')}",
     ])
@@ -1767,6 +2459,8 @@ def render_admin() -> None:
         _render_pricing_and_plans()
     with tab_subscriptions:
         _render_subscriptions(df, events)
+    with tab_intelligence:
+        _render_admin_ai_intelligence()
     with tab_business:
         _render_business_analytics(df, subscriptions)
     with tab_audit:

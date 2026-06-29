@@ -38,6 +38,7 @@ from helpers.resource_gallery import (
     inject_resource_gallery_styles,
     render_gallery_card_html,
 )
+from helpers.recommendation_models import log_teacher_material_open
 from helpers.visual_support import generate_resource_cover_image
 from reportlab.lib.enums import TA_CENTER
 
@@ -857,6 +858,14 @@ def _open_plan_library_record(
     st.session_state["files_selected_plan_id"] = row.get("id")
     st.session_state["files_selected_plan_status"] = str(row.get("status") or "").strip()
     st.session_state["files_selected_plan_assign_expanded"] = bool(expand_assign)
+    current_user_id = str(get_current_user_id() or "").strip()
+    row_owner_id = str(row.get("user_id") or "").strip()
+    log_teacher_material_open(
+        row,
+        "plan",
+        "own" if current_user_id and current_user_id == row_owner_id else "community",
+        surface="home_preview" if open_in_files else "resources",
+    )
 
     if open_in_files:
         go_to("resources")

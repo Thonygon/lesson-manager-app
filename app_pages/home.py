@@ -46,6 +46,7 @@ from helpers.planner_storage import (
     render_quick_lesson_planner_expander,
 )
 from helpers.quick_exam_storage import load_my_exams, load_public_exams, render_exam_library_cards, render_exam_result, render_quick_exam_builder_expander
+from helpers.recommendation_models import log_teacher_material_impressions, rank_teacher_resource_feed
 from helpers.worksheet_builder import normalize_worksheet_output
 from helpers.worksheet_storage import (
     load_my_worksheets,
@@ -128,6 +129,15 @@ def _search_resources(df, query: str, kind: str):
         return df.copy()
     ranked = _rank_search(df, clean_query, _RESOURCE_SEARCH_WEIGHTS.get(kind, {}))
     return ranked.drop(columns=["_score"], errors="ignore")
+
+
+def _rank_teacher_materials(df, kind: str, source: str, *, query: str = ""):
+    if df is None or df.empty:
+        return df
+    ranked = _search_resources(df, query, kind)
+    if str(query or "").strip():
+        return ranked
+    return rank_teacher_resource_feed(ranked, kind, source)
 
 
 def _slice_resource_page(df, state_key: str, *, page_size: int = _RESOURCE_PAGE_SIZE):
@@ -327,23 +337,7 @@ def render_home_teaching_resources_preview():
                 placeholder=t("explore_resource_search_placeholder"),
             ).strip().lower()
 
-            filtered_programs = public_program_df.copy()
-            if program_q:
-                for col in ["title", "subject", "custom_subject_name", "learner_stage", "level_or_band", "program_overview"]:
-                    if col not in filtered_programs.columns:
-                        filtered_programs[col] = ""
-                mask = (
-                    filtered_programs["title"].fillna("").astype(str).str.lower().str.contains(program_q, na=False)
-                    | filtered_programs["subject"].fillna("").astype(str).str.lower().str.contains(program_q, na=False)
-                    | filtered_programs["custom_subject_name"].fillna("").astype(str).str.lower().str.contains(program_q, na=False)
-                    | filtered_programs["learner_stage"].fillna("").astype(str).str.lower().str.contains(program_q, na=False)
-                    | filtered_programs["level_or_band"].fillna("").astype(str).str.lower().str.contains(program_q, na=False)
-                    | filtered_programs["program_overview"].fillna("").astype(str).str.lower().str.contains(program_q, na=False)
-                )
-                filtered_programs = filtered_programs[mask]
-
-            if "updated_at" in filtered_programs.columns:
-                filtered_programs = filtered_programs.sort_values("updated_at", ascending=False)
+            filtered_programs = _rank_teacher_materials(public_program_df.copy(), "program", "community", query=program_q)
 
             programs_to_show = filtered_programs if program_q else filtered_programs.head(3)
 
@@ -354,6 +348,12 @@ def render_home_teaching_resources_preview():
                     st.caption(t("learning_programs_count", count=len(programs_to_show)))
                 else:
                     st.caption(t("explore_latest_resources_note").format(count=4))
+                log_teacher_material_impressions(
+                    programs_to_show.to_dict("records"),
+                    "program",
+                    "community",
+                    surface="home_preview_learning_programs",
+                )
                 render_learning_program_library_cards(
                     programs_to_show,
                     prefix="home_public_learning_programs",
@@ -385,25 +385,7 @@ def render_home_teaching_resources_preview():
                 placeholder=t("explore_resource_search_placeholder"),
             ).strip()
 
-            if plan_q:
-                filtered_plans = _rank_search(
-                    public_df,
-                    plan_q,
-                    weights={
-                        "title": 5,
-                        "topic": 4,
-                        "subject": 3,
-                        "lesson_purpose": 3,
-                        "learner_stage": 2,
-                        "level_or_band": 2,
-                        "author_name": 1,
-                    },
-                )
-            else:
-                filtered_plans = public_df.copy()
-
-            if "created_at" in filtered_plans.columns:
-                filtered_plans = filtered_plans.sort_values("created_at", ascending=False)
+            filtered_plans = _rank_teacher_materials(public_df, "plan", "community", query=plan_q)
 
             plans_to_show = filtered_plans if plan_q else filtered_plans.head(3)
 
@@ -414,6 +396,12 @@ def render_home_teaching_resources_preview():
                     st.caption(f"{len(plans_to_show)} {t('community_plans').lower()}")
                 else:
                     st.caption(t("explore_latest_resources_note").format(count=4))
+                log_teacher_material_impressions(
+                    plans_to_show.to_dict("records"),
+                    "plan",
+                    "community",
+                    surface="home_preview_plans",
+                )
 
                 render_plan_library_cards(
                     plans_to_show,
@@ -446,25 +434,7 @@ def render_home_teaching_resources_preview():
                 placeholder=t("explore_resource_search_placeholder"),
             ).strip()
 
-            if ws_q:
-                filtered_ws = _rank_search(
-                    public_ws_df,
-                    ws_q,
-                    weights={
-                        "title": 5,
-                        "topic": 4,
-                        "subject": 3,
-                        "worksheet_type": 3,
-                        "learner_stage": 2,
-                        "level_or_band": 2,
-                        "author_name": 1,
-                    },
-                )
-            else:
-                filtered_ws = public_ws_df.copy()
-
-            if "created_at" in filtered_ws.columns:
-                filtered_ws = filtered_ws.sort_values("created_at", ascending=False)
+            filtered_ws = _rank_teacher_materials(public_ws_df, "worksheet", "community", query=ws_q)
 
             ws_to_show = filtered_ws if ws_q else filtered_ws.head(3)
 
@@ -475,6 +445,12 @@ def render_home_teaching_resources_preview():
                     st.caption(f"{len(ws_to_show)} {t('community_worksheets').lower()}")
                 else:
                     st.caption(t("explore_latest_resources_note").format(count=4))
+                log_teacher_material_impressions(
+                    ws_to_show.to_dict("records"),
+                    "worksheet",
+                    "community",
+                    surface="home_preview_worksheets",
+                )
 
                 render_worksheet_library_cards(
                     ws_to_show,
@@ -507,24 +483,7 @@ def render_home_teaching_resources_preview():
                 placeholder=t("explore_resource_search_placeholder"),
             ).strip()
 
-            if exam_q:
-                filtered_exams = _rank_search(
-                    public_exam_df,
-                    exam_q,
-                    weights={
-                        "title": 5,
-                        "topic": 4,
-                        "subject": 3,
-                        "learner_stage": 2,
-                        "level": 2,
-                        "author_name": 1,
-                    },
-                )
-            else:
-                filtered_exams = public_exam_df.copy()
-
-            if "created_at" in filtered_exams.columns:
-                filtered_exams = filtered_exams.sort_values("created_at", ascending=False)
+            filtered_exams = _rank_teacher_materials(public_exam_df, "exam", "community", query=exam_q)
 
             exams_to_show = filtered_exams if exam_q else filtered_exams.head(3)
 
@@ -535,6 +494,12 @@ def render_home_teaching_resources_preview():
                     st.caption(f"{len(exams_to_show)} {t('community_exams').lower()}")
                 else:
                     st.caption(t("explore_latest_resources_note").format(count=4))
+                log_teacher_material_impressions(
+                    exams_to_show.to_dict("records"),
+                    "exam",
+                    "community",
+                    surface="home_preview_exams",
+                )
 
                 render_exam_library_cards(
                     exams_to_show,
@@ -978,8 +943,14 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 prog_filtered = _apply_resource_filter(prog_filtered, "subject", prog_subj_filter, normalize=_normalize_subject)
                 prog_filtered = _apply_resource_filter(prog_filtered, "learner_stage", prog_stage_filter)
                 prog_filtered = _apply_resource_filter(prog_filtered, "level_or_band", prog_level_filter)
-                prog_filtered = _search_resources(prog_filtered, prog_q, "program")
+                prog_filtered = _rank_teacher_materials(prog_filtered, "program", "own", query=prog_q)
                 prog_filtered_page_df, *_ = _slice_resource_page(prog_filtered, "my_programs_page")
+                log_teacher_material_impressions(
+                    prog_filtered_page_df.to_dict("records"),
+                    "program",
+                    "own",
+                    surface=f"resources_my_programs_page_{int(st.session_state.get('my_programs_page', 1) or 1)}",
+                )
                 render_learning_program_library_cards(
                     prog_filtered_page_df,
                     prefix="my_learning_programs",
@@ -1037,12 +1008,18 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 filtered = _apply_resource_filter(filtered, "subject", subject_filter, normalize=_normalize_subject)
                 filtered = _apply_resource_filter(filtered, "learner_stage", stage_filter)
                 filtered = _apply_resource_filter(filtered, "level_or_band", level_filter)
-                filtered = _search_resources(filtered, topic_q, "plan")
+                filtered = _rank_teacher_materials(filtered, "plan", "own", query=topic_q)
 
                 if filtered.empty:
                     st.info(t("no_data"))
                 else:
                     filtered_page_df, *_ = _slice_resource_page(filtered, "my_plans_page")
+                    log_teacher_material_impressions(
+                        filtered_page_df.to_dict("records"),
+                        "plan",
+                        "own",
+                        surface=f"resources_my_plans_page_{int(st.session_state.get('my_plans_page', 1) or 1)}",
+                    )
                     render_plan_library_cards(
                         filtered_page_df,
                         prefix="my_plans",
@@ -1098,8 +1075,14 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 ws_filtered = _apply_resource_filter(ws_filtered, "subject", ws_subj_filter, normalize=_normalize_subject)
                 ws_filtered = _apply_resource_filter(ws_filtered, "learner_stage", ws_stage_filter)
                 ws_filtered = _apply_resource_filter(ws_filtered, "level_or_band", ws_level_filter)
-                ws_filtered = _search_resources(ws_filtered, ws_topic_q, "worksheet")
+                ws_filtered = _rank_teacher_materials(ws_filtered, "worksheet", "own", query=ws_topic_q)
                 ws_filtered_page_df, *_ = _slice_resource_page(ws_filtered, "my_ws_page")
+                log_teacher_material_impressions(
+                    ws_filtered_page_df.to_dict("records"),
+                    "worksheet",
+                    "own",
+                    surface=f"resources_my_worksheets_page_{int(st.session_state.get('my_ws_page', 1) or 1)}",
+                )
                 render_worksheet_library_cards(
                     ws_filtered_page_df,
                     prefix="my_ws",
@@ -1155,8 +1138,14 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 exam_filtered = _apply_resource_filter(exam_filtered, "subject", exam_subj_filter, normalize=_normalize_subject)
                 exam_filtered = _apply_resource_filter(exam_filtered, "learner_stage", exam_stage_filter)
                 exam_filtered = _apply_resource_filter(exam_filtered, "level", exam_level_filter)
-                exam_filtered = _search_resources(exam_filtered, exam_topic_q, "exam")
+                exam_filtered = _rank_teacher_materials(exam_filtered, "exam", "own", query=exam_topic_q)
                 exam_filtered_page_df, *_ = _slice_resource_page(exam_filtered, "my_exams_page")
+                log_teacher_material_impressions(
+                    exam_filtered_page_df.to_dict("records"),
+                    "exam",
+                    "own",
+                    surface=f"resources_my_exams_page_{int(st.session_state.get('my_exams_page', 1) or 1)}",
+                )
                 render_exam_library_cards(
                     exam_filtered_page_df,
                     prefix="my_exams",
@@ -1221,13 +1210,19 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     public_program_filtered = _apply_resource_filter(public_program_filtered, "subject", public_program_subj_filter, normalize=_normalize_subject)
                     public_program_filtered = _apply_resource_filter(public_program_filtered, "learner_stage", public_program_stage_filter)
                     public_program_filtered = _apply_resource_filter(public_program_filtered, "level_or_band", public_program_level_filter)
-                    public_program_filtered = _search_resources(public_program_filtered, public_program_q, "program")
+                    public_program_filtered = _rank_teacher_materials(public_program_filtered, "program", "community", query=public_program_q)
 
                     if public_program_filtered.empty:
                         st.info(t("be_the_first_to_share"))
                     else:
                         st.caption(t("learning_programs_count", count=len(public_program_filtered)))
                         public_program_page_df, *_ = _slice_resource_page(public_program_filtered, "community_programs_page")
+                        log_teacher_material_impressions(
+                            public_program_page_df.to_dict("records"),
+                            "program",
+                            "community",
+                            surface=f"resources_community_programs_page_{int(st.session_state.get('community_programs_page', 1) or 1)}",
+                        )
                         render_learning_program_library_cards(public_program_page_df, prefix="public_learning_programs", show_author=True, allow_visibility_toggle=False)
                         _render_resource_pagination_controls(public_program_filtered, "community_programs_page")
 
@@ -1300,13 +1295,19 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     filtered_public = _apply_resource_filter(filtered_public, "level_or_band", level_filter_public)
                     filtered_public = _apply_resource_filter(filtered_public, "lesson_purpose", purpose_filter_public)
                     filtered_public = _apply_resource_filter(filtered_public, "source_type", source_filter_public)
-                    filtered_public = _search_resources(filtered_public, topic_q_public, "plan")
+                    filtered_public = _rank_teacher_materials(filtered_public, "plan", "community", query=topic_q_public)
 
                     if filtered_public.empty:
                         st.info(t("be_the_first_to_share"))
                     else:
                         st.caption(f"{len(filtered_public)} {t('community_plans').lower()}")
                         filtered_public_page_df, *_ = _slice_resource_page(filtered_public, "community_plans_page")
+                        log_teacher_material_impressions(
+                            filtered_public_page_df.to_dict("records"),
+                            "plan",
+                            "community",
+                            surface=f"resources_community_plans_page_{int(st.session_state.get('community_plans_page', 1) or 1)}",
+                        )
                         render_plan_library_cards(filtered_public_page_df, prefix="community_plans", show_author=True)
                         _render_resource_pagination_controls(filtered_public, "community_plans_page")
 
@@ -1380,13 +1381,19 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     pub_ws_filtered = _apply_resource_filter(pub_ws_filtered, "level_or_band", pub_ws_level_filter)
                     pub_ws_filtered = _apply_resource_filter(pub_ws_filtered, "worksheet_type", pub_ws_type_filter)
                     pub_ws_filtered = _apply_resource_filter(pub_ws_filtered, "source_type", pub_ws_src_filter)
-                    pub_ws_filtered = _search_resources(pub_ws_filtered, pub_ws_topic_q, "worksheet")
+                    pub_ws_filtered = _rank_teacher_materials(pub_ws_filtered, "worksheet", "community", query=pub_ws_topic_q)
 
                     if pub_ws_filtered.empty:
                         st.info(t("be_the_first_to_share"))
                     else:
                         st.caption(f"{len(pub_ws_filtered)} {t('community_worksheets').lower()}")
                         pub_ws_filtered_page_df, *_ = _slice_resource_page(pub_ws_filtered, "community_ws_page")
+                        log_teacher_material_impressions(
+                            pub_ws_filtered_page_df.to_dict("records"),
+                            "worksheet",
+                            "community",
+                            surface=f"resources_community_worksheets_page_{int(st.session_state.get('community_ws_page', 1) or 1)}",
+                        )
                         render_worksheet_library_cards(pub_ws_filtered_page_df, prefix="pub_ws", show_author=True)
                         _render_resource_pagination_controls(pub_ws_filtered, "community_ws_page")
 
@@ -1440,13 +1447,19 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     pub_exam_filtered = _apply_resource_filter(pub_exam_filtered, "subject", pub_exam_subj_filter, normalize=_normalize_subject)
                     pub_exam_filtered = _apply_resource_filter(pub_exam_filtered, "learner_stage", pub_exam_stage_filter)
                     pub_exam_filtered = _apply_resource_filter(pub_exam_filtered, "level", pub_exam_level_filter)
-                    pub_exam_filtered = _search_resources(pub_exam_filtered, pub_exam_topic_q, "exam")
+                    pub_exam_filtered = _rank_teacher_materials(pub_exam_filtered, "exam", "community", query=pub_exam_topic_q)
 
                     if pub_exam_filtered.empty:
                         st.info(t("be_the_first_to_share"))
                     else:
                         st.caption(f"{len(pub_exam_filtered)} {t('community_exams').lower()}")
                         pub_exam_filtered_page_df, *_ = _slice_resource_page(pub_exam_filtered, "community_exams_page")
+                        log_teacher_material_impressions(
+                            pub_exam_filtered_page_df.to_dict("records"),
+                            "exam",
+                            "community",
+                            surface=f"resources_community_exams_page_{int(st.session_state.get('community_exams_page', 1) or 1)}",
+                        )
                         render_exam_library_cards(pub_exam_filtered_page_df, prefix="pub_exams", show_author=True)
                         _render_resource_pagination_controls(pub_exam_filtered, "community_exams_page")
 

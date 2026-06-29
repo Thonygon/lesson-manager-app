@@ -11,6 +11,7 @@ from core.i18n import t
 from core.state import get_current_user_id
 from helpers.lesson_planner import normalize_subject, subject_label
 from helpers.practice_engine import get_completed_source_ids, load_practice_progress
+from helpers.recommendation_models import score_student_resource_candidate
 from helpers.teacher_student_integration import load_student_assignments
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student
 
@@ -513,6 +514,27 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
     elif topic_success <= 0.68 and topic:
         score += 0.08
 
+    ml_features = {
+        f"kind_{resource_type}": 1.0,
+        "subject_in_program": 1.0 if subject and subject in (program_signals.get("subjects") or set()) else 0.0,
+        "level_fit": level_fit,
+        "stage_fit": stage_fit,
+        "next_topic_overlap": next_topic_overlap,
+        "review_topic_overlap": review_topic_overlap,
+        "pending_topic_overlap": pending_topic_overlap,
+        "program_subject_fit": program_subject_fit,
+        "program_type_fit": program_type_fit,
+        "topic_need": topic_need,
+        "subject_need": subject_need,
+        "exercise_need": exercise_need,
+        "completion_fit": completion_fit,
+        "format_fit": format_fit,
+        "topic_success_penalty": 1.0 if topic_success >= 0.82 and topic_need < 0.28 else 0.0,
+        "topic_in_program": program_topic_overlap,
+    }
+    ml_score = score_student_resource_candidate(ml_features, student_profile)
+    score += 0.6 * ml_score
+
     reasons: list[str] = []
     if topic_need >= 0.65 and topic:
         reasons.append(t("student_material_reason_revisit_topic", topic=topic))
@@ -536,6 +558,8 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
         reasons.append(t("student_material_reason_level_fit", level=level))
     elif stretch_boost > 0 and level:
         reasons.append(t("student_material_reason_level_stretch", level=level))
+    if ml_score >= 0.72:
+        reasons.append(t("student_material_reason_ml_fit"))
     if not reasons:
         reasons.append(t("student_material_reason_balanced"))
 

@@ -23,6 +23,7 @@ from helpers.resource_gallery import (
     inject_resource_gallery_styles,
     render_gallery_card_html,
 )
+from helpers.recommendation_models import log_teacher_material_open
 from helpers.visual_support import generate_resource_cover_image
 
 AI_PROGRAM_DAILY_LIMIT = 1
@@ -3396,6 +3397,12 @@ def render_learning_program_library_cards(
                 action_cols = st.columns([1, 1, 1, 1] if show_owner_controls else [1, 1])
                 with action_cols[0]:
                     if program_id > 0 and st.button(t("open_program"), key=f"{prefix}_open_{program_id}_{idx}_{col_idx}"):
+                        log_teacher_material_open(
+                            row,
+                            "program",
+                            "own" if str(row.get("user_id") or "").strip() == str(get_current_user_id() or "").strip() else "community",
+                            surface="home_preview" if str(prefix).startswith("home_") else "resources",
+                        )
                         st.session_state[f"{prefix}_selected_program_id"] = program_id
                 with action_cols[1]:
                     if program_id > 0 and is_complete and not is_archived and st.button(t("assign_to_student"), key=f"{prefix}_assign_{program_id}_{idx}_{col_idx}"):
