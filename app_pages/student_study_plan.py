@@ -29,6 +29,12 @@ def _inject_smart_plan_styles() -> None:
         .classio-smart-teacher-grid {
             margin-top: 0.45rem;
         }
+        .classio-smart-teacher-row-gap {
+            height: 1rem;
+        }
+        .classio-smart-teacher-cta-gap {
+            height: 1rem;
+        }
         .classio-smart-teacher-card {
             height: 100%;
             position: relative;
@@ -979,6 +985,8 @@ def _render_smart_plan_teacher_summary() -> None:
                 """,
                 unsafe_allow_html=True,
             )
+    st.markdown("<div class='classio-smart-teacher-row-gap'></div>", unsafe_allow_html=True)
+    st.markdown("<div class='classio-smart-teacher-cta-gap'></div>", unsafe_allow_html=True)
     if st.button(t("view_all_assignments"), key="smart_plan_view_assignments", use_container_width=True):
         go_to("student_assignments")
         st.rerun()
