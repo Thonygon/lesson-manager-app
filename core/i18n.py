@@ -2,8 +2,8 @@ import streamlit as st
 from translations import I18N
 
 
-def t(key: str, **kwargs) -> str:
-    lang = st.session_state.get("ui_lang", "en")
+def t(key: str, lang: str | None = None, **kwargs) -> str:
+    lang = lang or st.session_state.get("ui_lang", "en")
     s = I18N.get(lang, I18N["en"]).get(key, key)
     try:
         return s.format(**kwargs)

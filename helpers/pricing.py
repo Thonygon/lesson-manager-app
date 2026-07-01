@@ -3,6 +3,7 @@ import datetime
 import pandas as pd
 from core.i18n import t
 from core.state import get_current_user_id
+from core.database import get_sb, clear_app_caches
 from core.timezone import now_local
 from core.database import get_sb, load_table, load_students
 from core.database import clear_app_caches
@@ -59,7 +60,7 @@ def load_pricing_items() -> pd.DataFrame:
 
 def upsert_pricing_item(payload: dict) -> None:
     if not isinstance(payload, dict):
-        raise ValueError("payload must be a dict")
+        raise ValueError(t("payload_must_be_a_dict"))
 
     table = "pricing_items"
     item_id = payload.get("id")
@@ -70,18 +71,38 @@ def upsert_pricing_item(payload: dict) -> None:
 
     clean = {k: v for k, v in payload.items() if k != "id"}
 
-    if item_id is not None and str(item_id).strip() != "":
-        q = get_sb().table(table).update(clean).eq("id", int(item_id))
-        if uid:
-            q = q.eq("user_id", uid)
-        resp = q.execute()
-    else:
-        resp = get_sb().table(table).insert(clean).execute()
+    try:
+        if item_id is not None and str(item_id).strip() != "":
+            q = get_sb().table(table).update(clean).eq("id", int(item_id))
+            if uid:
+                q = q.eq("user_id", uid)
+            q.execute()
+        else:
+            get_sb().table(table).insert(clean).execute()
 
-    if getattr(resp, "error", None):
-        raise RuntimeError(resp.error)
-    
-    clear_app_caches()
+        clear_app_caches()
+
+    except Exception as e:
+        err = str(e)
+
+        # Friendly duplicate-package message
+        if (
+            "23505" in err
+            and (
+                "pricing_unique_package" in err
+                or "pricing_unique_package_hours" in err
+            )
+        ):
+            raise ValueError(t("pricing_duplicate_package_error"))
+
+        # Friendly duplicate-hourly message, if it happens
+        if (
+            "23505" in err
+            and "pricing_unique_hourly" in err
+        ):
+            raise ValueError(t("pricing_duplicate_hourly_error"))
+
+        raise
 
 def delete_pricing_item(item_id: int) -> None:
     if item_id is None:
@@ -151,28 +172,50 @@ def _pricing_section(df: pd.DataFrame, modality: str, title_key: str, hourly_def
 
     # Seed hourly if missing
     if hourly.empty:
-        safe_default = pd.to_numeric(hourly_default, errors="coerce")
-        safe_default = 0 if pd.isna(safe_default) else int(safe_default)
+        uid = get_current_user_id()
 
-        upsert_pricing_item(
-            {
-                "modality": modality,
-                "kind": "hourly",
-                "hours": None,
-                "price": safe_default,
-                "currency": get_preferred_currency(),
-                "active": True,
-                "sort_order": 0,
-            }
-        )
-        df = load_pricing_items()
-        df = df[df["active"] == True].copy()
-        hourly = df[(df["modality"] == modality) & (df["kind"] == "hourly")].copy()
+        fresh_rows = []
+        if uid:
+            try:
+                fresh = (
+                    get_sb()
+                    .table("pricing_items")
+                    .select("*")
+                    .eq("user_id", str(uid))
+                    .eq("modality", modality)
+                    .eq("kind", "hourly")
+                    .limit(1)
+                    .execute()
+                )
+                fresh_rows = getattr(fresh, "data", None) or []
+            except Exception:
+                fresh_rows = []
+
+        if fresh_rows:
+            hourly = pd.DataFrame(fresh_rows)
+        else:
+            safe_default = pd.to_numeric(hourly_default, errors="coerce")
+            safe_default = 0 if pd.isna(safe_default) else int(safe_default)
+
+            upsert_pricing_item(
+                {
+                    "modality": modality,
+                    "kind": "hourly",
+                    "hours": None,
+                    "price": safe_default,
+                    "currency": get_preferred_currency(),
+                    "active": True,
+                    "sort_order": 0,
+                }
+            )
+            clear_app_caches()
+            df = load_pricing_items()
+            df = df[df["active"] == True].copy()
+            hourly = df[(df["modality"] == modality) & (df["kind"] == "hourly")].copy()
 
     if hourly.empty:
         st.error(t("pricing_hourly_load_error"))
         return
-
     # If multiple hourly rows exist, use the first by sort_order then id
     hourly = hourly.sort_values(["sort_order", "id"], na_position="last")
     hourly_row = hourly.iloc[0].to_dict()
@@ -254,6 +297,7 @@ def _pricing_section(df: pd.DataFrame, modality: str, title_key: str, hourly_def
 
                 if st.session_state.get(f"edit_price_id_{modality}") == row_id:
                     e1, e2, e3, e4 = st.columns([1, 1, 1, 1])
+
                     with e1:
                         new_hours = st.number_input(
                             t("pricing_hours"),
@@ -262,6 +306,7 @@ def _pricing_section(df: pd.DataFrame, modality: str, title_key: str, hourly_def
                             value=max(1, hours),
                             key=f"pkg_hours_{modality}_{row_id}_{i}",
                         )
+
                     with e2:
                         _edit_cur_idx = CURRENCY_CODES.index(cur) if cur in CURRENCY_CODES else 0
                         new_pkg_cur = st.selectbox(
@@ -271,6 +316,7 @@ def _pricing_section(df: pd.DataFrame, modality: str, title_key: str, hourly_def
                             format_func=lambda c: f"{CURRENCIES[c]['symbol']} {c}",
                             key=f"pkg_cur_{modality}_{row_id}_{i}",
                         )
+
                     with e3:
                         new_price = st.number_input(
                             t("pricing_price_label"),
@@ -279,29 +325,38 @@ def _pricing_section(df: pd.DataFrame, modality: str, title_key: str, hourly_def
                             value=price,
                             key=f"pkg_price_{modality}_{row_id}_{i}",
                         )
+
                     with e4:
                         if st.button(t("pricing_save"), key=f"save_pkg_{modality}_{row_id}_{i}"):
-                            upsert_pricing_item(
-                                {
-                                    "id": row_id,
-                                    "modality": modality,
-                                    "kind": "package",
-                                    "hours": int(new_hours),
-                                    "price": int(new_price),
-                                    "currency": new_pkg_cur,
-                                    "active": True,
-                                    "sort_order": int(row.get("sort_order") or new_hours),
-                                }
-                            )
-                            st.session_state[f"edit_price_id_{modality}"] = None
-                            st.success(t("pricing_package_updated"))
-                            st.rerun()
+                            try:
+                                upsert_pricing_item(
+                                    {
+                                        "id": row_id,
+                                        "modality": modality,
+                                        "kind": "package",
+                                        "hours": int(new_hours),
+                                        "price": int(new_price),
+                                        "currency": new_pkg_cur,
+                                        "active": True,
+                                        "sort_order": int(row.get("sort_order") or new_hours),
+                                    }
+                                )
+                                st.session_state[f"edit_price_id_{modality}"] = None
+                                st.success(t("pricing_package_updated"))
+                                st.rerun()
+                            except ValueError as e:
+                                st.error(str(e))
+                            except Exception as e:
+                                st.error(f"{t('save_failed')}: {e}")
 
                         if st.button(t("pricing_delete"), key=f"del_pkg_{modality}_{row_id}_{i}"):
-                            delete_pricing_item(row_id)
-                            st.session_state[f"edit_price_id_{modality}"] = None
-                            st.success(t("pricing_package_deleted"))
-                            st.rerun()
+                            try:
+                                delete_pricing_item(row_id)
+                                st.session_state[f"edit_price_id_{modality}"] = None
+                                st.success(t("pricing_package_deleted"))
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"{t('delete_failed')}: {e}")
 
     st.divider()
 
@@ -337,19 +392,24 @@ def _pricing_section(df: pd.DataFrame, modality: str, title_key: str, hourly_def
         )
     with n4:
         if st.button(t("pricing_add"), key=f"add_pkg_btn_{modality}"):
-            upsert_pricing_item(
-                {
-                    "modality": modality,
-                    "kind": "package",
-                    "hours": int(add_hours),
-                    "price": int(add_price),
-                    "currency": add_currency,
-                    "active": True,
-                    "sort_order": int(add_hours),
-                }
-            )
-            st.success(t("pricing_package_added"))
-            st.rerun()
+            try:
+                upsert_pricing_item(
+                    {
+                        "modality": modality,
+                        "kind": "package",
+                        "hours": int(add_hours),
+                        "price": int(add_price),
+                        "currency": add_currency,
+                        "active": True,
+                        "sort_order": int(add_hours),
+                    }
+                )
+                st.success(t("pricing_package_added"))
+                st.rerun()
+            except ValueError as e:
+                st.error(str(e))
+            except Exception as e:
+                st.error(f"{t('save_failed')}: {e}")
 
 
 def render_pricing_editor() -> None:

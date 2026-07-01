@@ -1,6 +1,7 @@
 import streamlit as st
 import pycountry
 from zoneinfo import available_timezones
+from helpers.native_language import NATIVE_LANGUAGE_OPTIONS
 
 
 def _user_to_dict(user):
@@ -29,20 +30,60 @@ def with_owner(payload: dict) -> dict:
     return out
 
 
-def _set_logged_in_user(user, profile_name: str = "", profile_username: str = "") -> None:
+def get_current_user_role() -> str:
+    return str(st.session_state.get("user_role") or "teacher")
+
+
+def resolve_active_face(profile_role: str, fallback_role: str = "teacher") -> str:
+    profile_role = str(profile_role or "").strip().lower()
+    fallback_role = str(fallback_role or "teacher").strip().lower()
+    current_role = str(st.session_state.get("user_role") or "").strip().lower()
+    if profile_role == "admin" and current_role in ("teacher", "student", "admin"):
+        return current_role
+    return fallback_role if fallback_role in ("teacher", "student", "admin") else "teacher"
+
+
+def _set_logged_in_user(
+    user,
+    profile_name: str = "",
+    profile_username: str = "",
+    user_id: str = "",
+    user_role: str = "teacher",
+) -> None:
     user_dict = _user_to_dict(user) or {}
     st.session_state["auth_user"] = user_dict
-    st.session_state["user_id"] = user_dict.get("id")
-    st.session_state["user_email"] = user_dict.get("email")
+
+    resolved_user_id = (
+        str(user_id or "").strip()
+        or str(user_dict.get("id") or "").strip()
+        or str(st.session_state.get("user_id") or "").strip()
+    )
+    st.session_state["user_id"] = resolved_user_id or None
+
+    resolved_email = (
+        str(user_dict.get("email") or "").strip()
+        or str(st.session_state.get("user_email") or "").strip()
+    )
+    st.session_state["user_email"] = resolved_email or None
+
     metadata = user_dict.get("user_metadata") or {}
+
     st.session_state["user_name"] = (
-        profile_name
-        or metadata.get("full_name")
-        or metadata.get("name")
-        or user_dict.get("email")
+        str(profile_name or "").strip()
+        or str(metadata.get("full_name") or "").strip()
+        or str(metadata.get("name") or "").strip()
+        or str(metadata.get("display_name") or "").strip()
+        or resolved_email
         or "User"
     )
-    st.session_state["user_username"] = profile_username or ""
+
+    st.session_state["user_username"] = (
+        str(profile_username or "").strip()
+        or str(metadata.get("username") or "").strip()
+        or str(st.session_state.get("user_username") or "").strip()
+    )
+
+    st.session_state["user_role"] = user_role if user_role in ("teacher", "student", "admin") else "teacher"
 
 
 def _clear_logged_in_user() -> None:
@@ -51,18 +92,31 @@ def _clear_logged_in_user() -> None:
     st.session_state["user_email"] = None
     st.session_state["user_name"] = None
     st.session_state["user_username"] = None
+    st.session_state["user_role"] = None
     st.session_state["avatar_url"] = None
     st.session_state["_email_synced_to_profile"] = False
 
 
 # ---- Profile option constants ----
 PROFILE_SUBJECT_OPTIONS = [
-    "English", "Spanish", "Mathematics", "Science", "Music", "Study Skills",
+    "english",
+    "spanish",
+    "mathematics",
+    "science",
+    "music",
+    "study_skills",
+    "other",
 ]
+
 PROFILE_STAGE_OPTIONS = [
-    "early_primary", "upper_primary", "lower_secondary", "upper_secondary", "adult_stage",
+    "early_primary",
+    "upper_primary",
+    "lower_secondary",
+    "upper_secondary",
+    "adult_stage",
 ]
-PROFILE_TEACH_LANG_OPTIONS = ["en", "es"]
+
+PROFILE_TEACH_LANG_OPTIONS = [option for option in NATIVE_LANGUAGE_OPTIONS if option]
 PROFILE_DURATION_OPTIONS = [30, 45, 60, 90]
 PROFILE_TIMEZONE_OPTIONS = sorted(available_timezones())
 PROFILE_COUNTRY_OPTIONS = ["Select..."] + sorted([c.name for c in pycountry.countries])
