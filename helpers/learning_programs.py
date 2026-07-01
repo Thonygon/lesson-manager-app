@@ -24,6 +24,7 @@ from helpers.resource_gallery import (
     render_gallery_card_html,
 )
 from helpers.recommendation_models import log_teacher_material_open
+from helpers.video_library import load_topic_video_links, render_topic_video_manager
 from helpers.visual_support import generate_resource_cover_image
 
 AI_PROGRAM_DAILY_LIMIT = 1
@@ -1969,6 +1970,9 @@ def _merge_program_unit(base_unit: dict, enriched_unit: dict) -> dict:
             merged.update(enriched_topics[idx] or {})
         if not merged:
             continue
+        if idx < len(base_topics):
+            merged["topic_id"] = int((base_topics[idx] or {}).get("topic_id") or merged.get("topic_id") or 0)
+            merged["unit_id"] = int((base_topics[idx] or {}).get("unit_id") or base_unit.get("unit_id") or merged.get("unit_id") or 0)
         merged["topic_number"] = idx + 1
         merged["unit_number"] = int(base_unit.get("unit_number") or enriched_unit.get("unit_number") or 1)
         merged_topics.append(merged)
@@ -1985,6 +1989,7 @@ def _merge_program_unit(base_unit: dict, enriched_unit: dict) -> dict:
 
     merged_unit = dict(base_unit)
     merged_unit.update(enriched_unit or {})
+    merged_unit["unit_id"] = int(base_unit.get("unit_id") or merged_unit.get("unit_id") or 0)
     merged_unit["topics"] = merged_topics
     return merged_unit
 
@@ -2691,20 +2696,32 @@ def update_learning_program(
 
         existing_units = _rows(
             sb.table("learning_program_units")
-            .select("id")
+            .select("id,unit_number")
             .eq("program_id", int(program_id))
             .execute()
         )
         existing_topics = _rows(
             sb.table("learning_program_topics")
-            .select("id,unit_id")
+            .select("id,unit_id,unit_number,topic_number")
             .eq("program_id", int(program_id))
             .execute()
         )
+        unit_lookup_by_number = {
+            int(row.get("unit_number") or 0): int(row.get("id") or 0)
+            for row in existing_units
+            if int(row.get("unit_number") or 0) > 0 and int(row.get("id") or 0) > 0
+        }
+        topic_lookup_by_position = {
+            (int(row.get("unit_number") or 0), int(row.get("topic_number") or 0)): int(row.get("id") or 0)
+            for row in existing_topics
+            if int(row.get("unit_number") or 0) > 0 and int(row.get("topic_number") or 0) > 0 and int(row.get("id") or 0) > 0
+        }
         kept_unit_ids: set[int] = set()
         kept_topic_ids: set[int] = set()
         for unit in units_payload:
             existing_unit_id = int(unit.get("existing_unit_id") or 0)
+            if existing_unit_id <= 0:
+                existing_unit_id = int(unit_lookup_by_number.get(int(unit.get("unit_number") or 0)) or 0)
             unit_payload = {
                 key: value
                 for key, value in unit.items()
@@ -2751,6 +2768,13 @@ def update_learning_program(
             unit_topics = [topic for topic in topics_payload if int(topic["unit_number"]) == unit_number]
             for topic in unit_topics:
                 existing_topic_id = int(topic.get("existing_topic_id") or 0)
+                if existing_topic_id <= 0:
+                    existing_topic_id = int(
+                        topic_lookup_by_position.get(
+                            (int(topic.get("unit_number") or 0), int(topic.get("topic_number") or 0))
+                        )
+                        or 0
+                    )
                 topic_payload = {
                     key: value
                     for key, value in topic.items()
@@ -3632,6 +3656,7 @@ def render_teacher_program_view(program: dict) -> None:
         return
 
     _inject_program_styles()
+    program_id = int(program.get("id") or 0)
     parent_title = ""
     parent_id = int(program.get("parent_program_id") or 0)
     if parent_id > 0:
@@ -3714,6 +3739,8 @@ def render_teacher_program_view(program: dict) -> None:
         for item in program["delivery_design_notes"]:
             st.write(f"- {item}")
 
+    topic_video_map = load_topic_video_links([program_id]) if program_id > 0 else {}
+
     for unit in program.get("units") or []:
         with st.expander(t("unit_title_format", number=unit.get("unit_number"), title=unit.get("title")), expanded=unit.get("unit_number") == 1):
             st.markdown(
@@ -3758,6 +3785,28 @@ def render_teacher_program_view(program: dict) -> None:
                         st.caption(t("suggested_exam_exercises_label", items=", ".join(_localized_exam_type_label(x) for x in topic["suggested_exam_exercise_types"])))
                     if topic.get("suggested_non_classio_activities"):
                         st.caption(t("complementary_activities_label", items=", ".join(topic["suggested_non_classio_activities"])))
+                    if program_id > 0:
+                        render_topic_video_manager(
+                            program_id=program_id,
+                            topic=topic,
+                            subject=str(program.get("subject") or ""),
+                            learner_stage=str(program.get("learner_stage") or ""),
+                            level_or_band=str(program.get("level_or_band") or ""),
+                            prefix=f"teacher_program_{program_id}_topic_videos",
+                        )
+                    linked_videos = topic_video_map.get(int(topic.get("topic_id") or 0), [])
+                    if linked_videos:
+                        st.caption(t("topic_videos_count", count=len(linked_videos)))
+                        for item in linked_videos:
+                            video = item.get("video") or {}
+                            watch_url = str(video.get("watch_url") or video.get("youtube_url") or "")
+                            if watch_url:
+                                st.link_button(
+                                    str(video.get("title") or t("watch_video")),
+                                    watch_url,
+                                    key=f"teacher_program_topic_video_{program.get('id')}_{topic.get('topic_id')}_{item.get('id')}",
+                                    use_container_width=True,
+                                )
 
 
 def render_learning_program_assignment_panel(program: dict, prefix: str = "learning_program_assign") -> None:
@@ -4157,13 +4206,19 @@ def _render_learning_program_unit_editor(
         st.rerun()
 
 
-def render_student_program_view(program: dict, assignment_id: Optional[int] = None, interactive: bool = False) -> None:
+def render_student_program_view(
+    program: dict,
+    assignment_id: Optional[int] = None,
+    interactive: bool = False,
+    key_prefix: str = "student_program",
+) -> None:
     if not program:
         st.info(t("no_program_selected"))
         return
 
     _inject_program_styles()
     progress_map = load_assignment_progress_map(int(assignment_id)) if assignment_id else {}
+    topic_video_map = load_topic_video_links([int(program.get("id") or 0)]) if int(program.get("id") or 0) > 0 else {}
 
     total_topics = 0
     completed_topics = 0
@@ -4248,6 +4303,25 @@ def render_student_program_view(program: dict, assignment_id: Optional[int] = No
                         st.caption(summary)
                     elif extra_bits:
                         st.caption(" · ".join(extra_bits))
+                    linked_videos = topic_video_map.get(topic_id, [])
+                    if linked_videos:
+                        st.caption(t("topic_videos_count", count=len(linked_videos)))
+                        for idx, item in enumerate(linked_videos, start=1):
+                            video = item.get("video") or {}
+                            watch_url = str(video.get("watch_url") or video.get("youtube_url") or "")
+                            if watch_url:
+                                safe_label = html.escape(str(video.get("title") or t("watch_video")))
+                                st.markdown(
+                                    (
+                                        "<div class='cm-resource-meta' style='margin:.2rem 0 .5rem 0;'>"
+                                        f"<a href=\"{html.escape(watch_url)}\" target=\"_blank\" "
+                                        "style=\"display:inline-flex;align-items:center;gap:.4rem;text-decoration:none;"
+                                        "font-weight:700;color:var(--link-color, #2563eb);\">"
+                                        f"🎬 {safe_label}"
+                                        "</a></div>"
+                                    ),
+                                    unsafe_allow_html=True,
+                                )
                     if interactive and assignment_id and topic_id > 0 and done:
                         checkbox_key = f"learning_program_needs_practice_{assignment_id}_{topic_id}"
                         new_needs_practice = st.checkbox(

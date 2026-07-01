@@ -69,6 +69,8 @@ def _normalize_level(value: Any) -> str:
 def _resource_level(row: dict, resource_type: str) -> str:
     if resource_type == "worksheet":
         return _normalize_level(row.get("level_or_band") or row.get("level"))
+    if resource_type == "video":
+        return _normalize_level(row.get("level_or_band") or row.get("level"))
     return _normalize_level(row.get("level") or row.get("level_or_band"))
 
 
@@ -99,6 +101,8 @@ def _dominant_exam_type(row: dict) -> str:
 def _resource_exercise_type(row: dict, resource_type: str) -> str:
     if resource_type == "worksheet":
         return str(row.get("worksheet_type") or "").strip()
+    if resource_type == "video":
+        return "video"
     return _dominant_exam_type(row)
 
 
@@ -113,7 +117,7 @@ def _format_activity_label(value: Any) -> str:
 
 
 def _load_assignment_exclusions() -> dict[str, set]:
-    excluded: dict[str, set] = {"worksheet": set(), "exam": set()}
+    excluded: dict[str, set] = {"worksheet": set(), "exam": set(), "video": set()}
     for row in load_student_assignments():
         assignment_type = str(row.get("assignment_type") or "").strip()
         source_record_id = row.get("source_record_id")
@@ -585,6 +589,7 @@ def _normalize_recommendation_row(row: dict, resource_type: str, score: float, r
 def build_recommended_materials(
     worksheets_df: pd.DataFrame | None = None,
     exams_df: pd.DataFrame | None = None,
+    videos_df: pd.DataFrame | None = None,
     *,
     limit: int = 6,
 ) -> list[dict[str, Any]]:
@@ -617,6 +622,15 @@ def build_recommended_materials(
                 continue
             recommendations.append(_normalize_recommendation_row(row, "exam", score, reasons))
 
+    if videos_df is not None and not videos_df.empty:
+        for row in videos_df.to_dict("records"):
+            if str(row.get("id") or "").strip() in assigned.get("video", set()):
+                continue
+            score, reasons = _resource_feature_score(row, "video", student_profile)
+            if score < 0:
+                continue
+            recommendations.append(_normalize_recommendation_row(row, "video", score, reasons))
+
     recommendations.sort(
         key=lambda item: (
             -_safe_float(item.get("score", 0.0)),
@@ -640,3 +654,42 @@ def build_recommended_materials(
         if len(deduped) >= max(1, limit):
             break
     return deduped
+
+
+def rank_recommended_materials(
+    worksheets_df: pd.DataFrame | None = None,
+    exams_df: pd.DataFrame | None = None,
+    videos_df: pd.DataFrame | None = None,
+) -> list[dict[str, Any]]:
+    student_profile = _build_student_need_profile()
+    student_profile["program_signals"] = _load_program_signals()
+    student_profile["assignment_behavior"] = _load_assignment_behavior_profile()
+    completed = get_completed_source_ids()
+    assigned = _load_assignment_exclusions()
+    ranked: list[dict[str, Any]] = []
+
+    def _append_rows(df: pd.DataFrame | None, resource_type: str) -> None:
+        if df is None or df.empty:
+            return
+        for row in df.to_dict("records"):
+            row_id = row.get("id")
+            if resource_type in completed and row_id in completed.get(resource_type, set()):
+                continue
+            if str(row_id or "").strip() in assigned.get(resource_type, set()):
+                continue
+            score, reasons = _resource_feature_score(row, resource_type, student_profile)
+            if score < 0:
+                continue
+            ranked.append(_normalize_recommendation_row(row, resource_type, score, reasons))
+
+    _append_rows(worksheets_df, "worksheet")
+    _append_rows(exams_df, "exam")
+    _append_rows(videos_df, "video")
+    ranked.sort(
+        key=lambda item: (
+            -_safe_float(item.get("score", 0.0)),
+            str(item.get("topic") or "").casefold(),
+            str(item.get("title") or "").casefold(),
+        )
+    )
+    return ranked

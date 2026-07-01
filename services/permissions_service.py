@@ -10,12 +10,18 @@ FEATURE_ALIASES = {
     "word_exports": "word_export",
 }
 
+FEATURE_DEFAULTS = {
+    "videos_access": True,
+}
+
 
 def user_has_feature(user_id: str | None, feature: str) -> bool:
     plan = get_user_plan(user_id)
     features = plan.get("features_json") or {}
     feature_key = FEATURE_ALIASES.get(str(feature), str(feature))
-    return bool(features.get(feature_key, False))
+    if feature_key in features:
+        return bool(features.get(feature_key, False))
+    return bool(FEATURE_DEFAULTS.get(feature_key, False))
 
 
 def check_usage_limit(user_id: str | None, feature: str) -> bool:

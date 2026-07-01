@@ -19,13 +19,37 @@ from helpers.teacher_student_integration import (
     load_student_teacher_links,
     mark_assignment_started,
     persist_assignment_content_snapshot,
+    record_video_assignment_watch,
     update_topic_assignment_status,
 )
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student, render_student_program_view
 from helpers.empty_states import render_empty_state
 from helpers.resource_gallery import extract_gallery_image_url, inject_resource_gallery_styles, render_gallery_card_html
+from helpers.video_library import load_video_record
 
 _STUDENT_PAGE_SIZE = 6
+
+
+def _log_video_assignment_event(row: dict, event_type: str) -> None:
+    user_id = str(get_current_user_id() or "").strip()
+    if not user_id:
+        return
+    try:
+        get_sb().table("user_activity_log").insert(
+            {
+                "user_id": user_id,
+                "activity_type": event_type,
+                "feature_name": "student_video_assignment",
+                "meta_json": {
+                    "assignment_id": row.get("id"),
+                    "source_record_id": row.get("source_record_id"),
+                    "topic": row.get("topic"),
+                    "subject": row.get("subject_key"),
+                },
+            }
+        ).execute()
+    except Exception:
+        pass
 
 
 def _program_sequence_value(item: dict) -> int:
@@ -132,7 +156,12 @@ def _render_single_program_assignment_list(rows: list[dict], state_key_prefix: s
                 meta_parts.append(f"{t('teacher_note')}: {teacher_note}")
             st.caption(" · ".join(meta_parts))
 
-        render_student_program_view(program, assignment_id=int(item.get("id") or 0), interactive=True)
+        render_student_program_view(
+            program,
+            assignment_id=int(item.get("id") or 0),
+            interactive=True,
+            key_prefix=f"{state_key_prefix}_{int(item.get('id') or idx)}",
+        )
         if idx < len(page_programs) - 1:
             st.markdown("<div style='height:.6rem;'></div>", unsafe_allow_html=True)
     _render_student_pagination(
@@ -194,6 +223,14 @@ def _load_source_exam(source_record_id):
         return dict(rows[0].get("exam_data") or {})
     except Exception:
         return {}
+
+
+def _load_source_video(source_record_id):
+    safe_source_id = _normalize_source_record_id(source_record_id)
+    if safe_source_id in (None, "", 0, "0"):
+        return {}
+    row = load_video_record(safe_source_id)
+    return dict(row or {})
 
 
 def _open_assignment_practice(row: dict) -> None:
@@ -529,6 +566,7 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
     type_class = {
         "worksheet": "classio-assign-card--worksheet",
         "exam": "classio-assign-card--exam",
+        "video": "classio-assign-card--plan",
         "lesson_plan_topic": "classio-assign-card--topic",
     }.get(assignment_type, "")
 
@@ -539,6 +577,40 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
         meta_bits.append(f"{_html.escape(t('created_at_label'))}: {_html.escape(created_at[:10])}")
 
     def _render_assignment_body() -> None:
+        if assignment_type == "video":
+            inject_resource_gallery_styles()
+            snapshot = row.get("content_snapshot") or {}
+            payload = snapshot.get("video") or {}
+            if not payload and row.get("source_record_id"):
+                payload = _load_source_video(row.get("source_record_id"))
+            hero_image = extract_gallery_image_url(payload) or str(payload.get("thumbnail_url") or "")
+            status_label = _safe_ui_label(f"assignment_status_{status}") if status else ""
+            chips = "".join(
+                [
+                    f'<span class="cm-resource-chip">📚 {_html.escape(subject_name_raw)}</span>',
+                    f'<span class="cm-resource-chip">🎬 {_html.escape(t("video_label"))}</span>',
+                    f'<span class="cm-resource-chip">📌 {_html.escape(status_label)}</span>' if status_label else "",
+                ]
+            )
+            meta_html = f'<div class="cm-resource-meta">{" · ".join(meta_bits)}</div>'
+            st.markdown(
+                render_gallery_card_html(
+                    kind="video",
+                    title=title_raw,
+                    chips_html=chips,
+                    description=teacher_note or str(payload.get("description") or row.get("topic") or t("video_default_description")),
+                    meta_html=meta_html,
+                    image_url=hero_image,
+                    placeholder_label=t("video_label"),
+                ),
+                unsafe_allow_html=True,
+            )
+            watch_state_key = f"{key_prefix}_video_player_open"
+            watch_url = str(payload.get("watch_url") or payload.get("youtube_url") or "")
+            if watch_url and st.session_state.get(watch_state_key):
+                st.video(watch_url)
+            return
+
         if assignment_type not in {"worksheet", "exam"}:
             st.markdown(
                 f"""
@@ -608,6 +680,19 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
                 action_text = t("continue_practice") if is_continue else t("open_assignment")
                 if st.button(action_text, key=f"{key_prefix}_open", use_container_width=True, type="primary"):
                     _open_assignment_practice(row)
+        elif assignment_type == "video":
+            attempts_value = int(row.get("attempt_count") or 0)
+            if attempts_value > 0:
+                st.markdown(
+                    f"<div class='classio-assign-action-done'>{_html.escape(t('attempts_label'))}: {attempts_value} · {_html.escape(t('score_label'))}: 100%</div>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
+            if st.button(t("watch_video"), key=f"{key_prefix}_video_watch", use_container_width=True, type="primary"):
+                st.session_state[f"{key_prefix}_video_player_open"] = True
+                record_video_assignment_watch(int(row.get("id") or 0))
+                _log_video_assignment_event(row, "student_video_watched")
+                st.rerun()
         elif assignment_type == "lesson_plan_topic":
             st.markdown(
                 f"<div class='classio-assign-action-label'>{_html.escape(t('assigned_topics'))}</div>",
@@ -622,7 +707,7 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
                 st.rerun()
         st.markdown("<div style='height:0.7rem;'></div>", unsafe_allow_html=True)
 
-    if grid_mode and assignment_type in {"worksheet", "exam"}:
+    if grid_mode and assignment_type in {"worksheet", "exam", "video"}:
         _render_assignment_body()
         if teacher_note:
             st.markdown(
@@ -696,7 +781,7 @@ def _render_assignment_group(title: str, rows: list[dict], group_prefix: str) ->
         return
 
     page_rows, *_ = _slice_student_page(rows, f"{group_prefix}_page")
-    if all(str(row.get("assignment_type") or "").strip() in {"worksheet", "exam"} for row in page_rows):
+    if all(str(row.get("assignment_type") or "").strip() in {"worksheet", "exam", "video"} for row in page_rows):
         inject_resource_gallery_styles()
         for idx in range(0, len(page_rows), 3):
             trio = page_rows[idx:idx + 3]
@@ -879,12 +964,14 @@ def render_student_assignments() -> None:
 
     worksheets = [row for row in assignments if row.get("assignment_type") == "worksheet"]
     exams = [row for row in assignments if row.get("assignment_type") == "exam"]
+    videos = [row for row in assignments if row.get("assignment_type") == "video"]
     topics = [row for row in assignments if row.get("assignment_type") == "lesson_plan_topic"]
 
-    tab_ws, tab_exams, tab_topics = st.tabs(
+    tab_ws, tab_exams, tab_videos, tab_topics = st.tabs(
         [
             f"📋 {t('worksheet_assignments')}",
             f"📝 {t('exam_assignments')}",
+            f"🎬 {t('video_assignments')}",
             f"🧠 {t('assigned_topics')}",
         ]
     )
@@ -893,6 +980,8 @@ def render_student_assignments() -> None:
         _render_assignment_group(t("worksheet_assignments"), worksheets, "student_assignments_ws")
     with tab_exams:
         _render_assignment_group(t("exam_assignments"), exams, "student_assignments_exam")
+    with tab_videos:
+        _render_assignment_group(t("video_assignments"), videos, "student_assignments_videos")
     with tab_topics:
         if not _render_program_assigned_topics(program_assignments):
             _render_assignment_group(t("assigned_topics"), topics, "student_assignments_topics")

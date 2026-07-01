@@ -920,7 +920,7 @@ def _render_smart_plan_recommendations(state: dict) -> None:
 
 
 def _render_smart_plan_teacher_summary() -> None:
-    assignments = get_student_assignment_summary(limit=3)
+    assignments = get_student_assignment_summary(limit=60)
     has_links = has_active_teacher_relationships()
     if not has_links and not assignments:
         render_empty_state(
@@ -952,40 +952,73 @@ def _render_smart_plan_teacher_summary() -> None:
         )
         return
 
-    cols = st.columns(len(assignments))
-    for col, item in zip(cols, assignments):
-        with col:
-            due_text = str(item.get("due_at") or "").strip()
-            status = str(item.get("status") or "").strip()
-            status_map = {
-                "assigned": ("#2563eb", "rgba(37,99,235,.12)"),
-                "started": ("#d97706", "rgba(217,119,6,.12)"),
-                "submitted": ("#7c3aed", "rgba(124,58,237,.12)"),
-                "graded": ("#059669", "rgba(5,150,105,.12)"),
-                "completed": ("#059669", "rgba(5,150,105,.12)"),
-                "overdue": ("#dc2626", "rgba(220,38,38,.12)"),
-                "cancelled": ("#64748b", "rgba(100,116,139,.12)"),
-            }
-            status_color, status_bg = status_map.get(status, ("var(--text)", "rgba(148,163,184,.08)"))
-            st.markdown(
-                f"""
-                <div class="classio-smart-teacher-card">
-                    <div class="classio-smart-teacher-name">{item.get('teacher_name', '—')}</div>
-                    <div class="classio-smart-teacher-title">{item.get('title', '—')}</div>
-                    <div class="classio-smart-teacher-subject">{item.get('subject_display', '—')}</div>
-                    <div class="classio-smart-teacher-meta">
-                        <span class="classio-smart-status-pill" style="color:{status_color};background:{status_bg};border-color:{status_color}22;">
-                            {t(f'assignment_status_{status}')}
-                        </span>
-                        <span class="classio-smart-secondary-pill">
-                            {(_safe_ui_label('due_date', 'assignment_set_due_date') + ': ' + due_text[:10]) if due_text else t('new_from_your_teachers')}
-                        </span>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
+    worksheets = [row for row in assignments if str(row.get("assignment_type") or "").strip() == "worksheet"]
+    exams = [row for row in assignments if str(row.get("assignment_type") or "").strip() == "exam"]
+    videos = [row for row in assignments if str(row.get("assignment_type") or "").strip() == "video"]
+
+    def _render_teacher_assignment_cards(items: list[dict], empty_icon: str) -> None:
+        if not items:
+            render_empty_state(
+                title_key="student_assignments_group_empty_title",
+                body_key="student_assignments_group_empty_body",
+                steps=[
+                    "student_assignments_group_empty_step_teacher",
+                    "student_assignments_group_empty_step_status",
+                    "student_assignments_group_empty_step_practice",
+                ],
+                icon=empty_icon,
             )
-    st.markdown("<div class='classio-smart-teacher-row-gap'></div>", unsafe_allow_html=True)
+            return
+
+        cols = st.columns(min(len(items), 3))
+        for col, item in zip(cols, items[:3]):
+            with col:
+                due_text = str(item.get("due_at") or "").strip()
+                status = str(item.get("status") or "").strip()
+                status_map = {
+                    "assigned": ("#2563eb", "rgba(37,99,235,.12)"),
+                    "started": ("#d97706", "rgba(217,119,6,.12)"),
+                    "submitted": ("#7c3aed", "rgba(124,58,237,.12)"),
+                    "graded": ("#059669", "rgba(5,150,105,.12)"),
+                    "completed": ("#059669", "rgba(5,150,105,.12)"),
+                    "overdue": ("#dc2626", "rgba(220,38,38,.12)"),
+                    "cancelled": ("#64748b", "rgba(100,116,139,.12)"),
+                }
+                status_color, status_bg = status_map.get(status, ("var(--text)", "rgba(148,163,184,.08)"))
+                st.markdown(
+                    f"""
+                    <div class="classio-smart-teacher-card">
+                        <div class="classio-smart-teacher-name">{item.get('teacher_name', '—')}</div>
+                        <div class="classio-smart-teacher-title">{item.get('title', '—')}</div>
+                        <div class="classio-smart-teacher-subject">{item.get('subject_display', '—')}</div>
+                        <div class="classio-smart-teacher-meta">
+                            <span class="classio-smart-status-pill" style="color:{status_color};background:{status_bg};border-color:{status_color}22;">
+                                {t(f'assignment_status_{status}')}
+                            </span>
+                            <span class="classio-smart-secondary-pill">
+                                {(_safe_ui_label('due_date', 'assignment_set_due_date') + ': ' + due_text[:10]) if due_text else t('new_from_your_teachers')}
+                            </span>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+    tab_ws, tab_exams, tab_videos = st.tabs(
+        [
+            f"📋 {t('worksheet_assignments')} ({len(worksheets)})",
+            f"📝 {t('exam_assignments')} ({len(exams)})",
+            f"🎬 {t('video_assignments')} ({len(videos)})",
+        ]
+    )
+
+    with tab_ws:
+        _render_teacher_assignment_cards(worksheets, "📋")
+    with tab_exams:
+        _render_teacher_assignment_cards(exams, "📝")
+    with tab_videos:
+        _render_teacher_assignment_cards(videos, "🎬")
+
     st.markdown("<div class='classio-smart-teacher-cta-gap'></div>", unsafe_allow_html=True)
     if st.button(t("view_all_assignments"), key="smart_plan_view_assignments", use_container_width=True):
         go_to("student_assignments")

@@ -80,6 +80,7 @@ _RECOMMENDED_RESOURCE_ASSIGNMENT_TYPES = {
     "lesson_plan_topic": "plan",
     "worksheet": "worksheet",
     "exam": "exam",
+    "video": "video",
 }
 
 
@@ -104,6 +105,7 @@ def _recommended_resource_kind_label(kind: str) -> str:
         "plan": t("recommended_resource_kind_plan"),
         "worksheet": t("recommended_resource_kind_worksheet"),
         "exam": t("recommended_resource_kind_exam"),
+        "video": t("video_label"),
     }.get(kind, kind.title())
 
 
@@ -125,6 +127,8 @@ def _resource_preview_text(row: dict, kind: str) -> str:
         return str(row.get("topic") or row.get("worksheet_type") or "").strip()
     if kind == "exam":
         return str(row.get("topic") or row.get("exam_length") or "").strip()
+    if kind == "video":
+        return str(row.get("topic") or row.get("description") or "").strip()
     return ""
 
 
@@ -133,6 +137,7 @@ def _resource_search_blob(row: dict, kind: str) -> str:
         "plan": ["title", "topic", "lesson_purpose", "subject", "learner_stage", "level_or_band", "author_name"],
         "worksheet": ["title", "topic", "worksheet_type", "subject", "learner_stage", "level_or_band", "author_name"],
         "exam": ["title", "topic", "subject", "learner_stage", "level", "exam_length", "author_name"],
+        "video": ["title", "topic", "description", "subject", "learner_stage", "level_or_band", "author_name"],
     }
     return _norm_search_text(" ".join(str(row.get(field) or "") for field in fields_by_kind.get(kind, [])))
 
@@ -247,10 +252,16 @@ def _score_resource_for_recommendation(row: dict, kind: str, source: str, item: 
     focus_kind = str(item.get("focus_kind") or "")
     if focus_kind == "needs_practice" and kind == "worksheet":
         score += 2.0
+    elif focus_kind == "needs_practice" and kind == "video":
+        score += 1.1
     elif focus_kind == "reteach" and kind == "plan":
         score += 2.0
+    elif focus_kind == "reteach" and kind == "video":
+        score += 2.4
     elif focus_kind == "reinforce" and kind in {"worksheet", "plan"}:
         score += 1.2
+    elif focus_kind == "reinforce" and kind == "video":
+        score += 1.0
     ml_score, _features = score_teacher_resource_candidate(
         row=row,
         kind=kind,
@@ -265,7 +276,7 @@ def _load_recommendation_resource_pool() -> list[dict]:
 
 
 def _recommended_resources_for_item(item: dict, resource_pool: list[dict]) -> dict[str, list[dict]]:
-    grouped: dict[str, list[dict]] = {"plan": [], "worksheet": [], "exam": []}
+    grouped: dict[str, list[dict]] = {"plan": [], "worksheet": [], "exam": [], "video": []}
     base_kwargs = {
         "subject": item.get("subject_key"),
         "learner_stage": item.get("learner_stage"),
@@ -320,12 +331,12 @@ def _recommended_resource_is_assigned(resource: dict, assigned_resource_keys: se
 
 def _recommended_resource_kind_order(focus_kind: str) -> list[str]:
     if focus_kind == "needs_practice":
-        return ["worksheet", "plan", "exam"]
+        return ["worksheet", "video", "plan", "exam"]
     if focus_kind == "reteach":
-        return ["plan", "worksheet", "exam"]
+        return ["video", "plan", "worksheet", "exam"]
     if focus_kind == "stretch":
-        return ["plan", "exam", "worksheet"]
-    return ["worksheet", "plan", "exam"]
+        return ["plan", "video", "exam", "worksheet"]
+    return ["worksheet", "video", "plan", "exam"]
 
 
 def _open_recommended_resource(resource: dict, recommendation_item: dict | None = None, *, assign: bool = False) -> None:
@@ -368,7 +379,7 @@ def _open_recommended_resource(resource: dict, recommendation_item: dict | None 
         go_to("resources")
         st.rerun()
 
-    if kind in {"plan", "worksheet", "exam"}:
+    if kind in {"plan", "worksheet", "exam", "video"}:
         open_material_recommendation(resource, assign=assign, open_in_files=True)
 
 
@@ -1530,6 +1541,7 @@ def _render_recommended_resources_for_item(
                 "plan": t("recommended_resources_group_plans"),
                 "worksheet": t("recommended_resources_group_practice"),
                 "exam": t("recommended_resources_group_assessment"),
+                "video": t("recommended_resources_group_videos"),
             }.get(kind, _recommended_resource_kind_label(kind))
             state_key = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{key_prefix}_{kind}_page")
             page_resources, *_ = _slice_teacher_page(resources, state_key, page_size=_RECOMMENDED_RESOURCE_PAGE_SIZE)

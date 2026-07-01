@@ -14,6 +14,7 @@ from helpers.notifications import (
 from helpers.empty_states import render_empty_state
 from helpers.quick_exam_storage import load_exam_record, load_public_exams
 from helpers.student_recommendations import build_recommended_materials
+from helpers.video_library import load_public_videos
 from helpers.worksheet_storage import load_public_worksheets, load_worksheet_record
 from helpers.resource_gallery import (
     extract_gallery_language_label,
@@ -21,6 +22,7 @@ from helpers.resource_gallery import (
     inject_resource_gallery_styles,
     render_gallery_card_html,
 )
+from services.permissions_service import user_has_feature
 
 
 def _ui_text(key: str, fallback: str) -> str:
@@ -221,9 +223,11 @@ def render_student_home():
                 go_to(card["key"])
                 st.rerun()
 
+    video_feature_enabled = user_has_feature(user_id, "videos_access")
     recommended = build_recommended_materials(
         load_public_worksheets(),
         load_public_exams(),
+        load_public_videos() if video_feature_enabled else None,
         limit=3,
     )
     if recommended:
@@ -239,9 +243,15 @@ def render_student_home():
         for idx, item in enumerate(recommended[:3]):
             row = item.get("row") or {}
             resource_type = str(item.get("resource_type") or "worksheet")
-            resource_label = _ui_text("worksheet_label", "Worksheet") if resource_type == "worksheet" else _ui_text("exam_label", "Exam")
+            resource_label = (
+                _ui_text("worksheet_label", "Worksheet")
+                if resource_type == "worksheet"
+                else _ui_text("exam_label", "Exam")
+                if resource_type == "exam"
+                else _ui_text("video_label", "Video")
+            )
             payload = dict(row or {})
-            if not extract_gallery_image_url(payload) and row.get("id"):
+            if resource_type in {"worksheet", "exam"} and not extract_gallery_image_url(payload) and row.get("id"):
                 full_row = load_worksheet_record(row.get("id")) if resource_type == "worksheet" else load_exam_record(row.get("id"))
                 payload = full_row or payload
             hero_image = extract_gallery_image_url(payload)
@@ -251,14 +261,14 @@ def render_student_home():
                     f'<span class="cm-resource-chip">{_html.escape(resource_label)}</span>',
                     f'<span class="cm-resource-chip">🌐 {_html.escape(language_label)}</span>' if language_label else "",
                     f'<span class="cm-resource-chip">🏷️ {_html.escape(str(item.get("level") or ""))}</span>' if item.get("level") else "",
-                    f'<span class="cm-resource-chip">⚙️ {_html.escape(t("mode_ai"))}</span>',
+                    f'<span class="cm-resource-chip">⚙️ {_html.escape(t("mode_ai"))}</span>' if resource_type != "video" else "",
                 ]
             )
             meta = f'<div class="cm-resource-meta">✨ {_html.escape((item.get("reasons") or [""])[0])}</div>'
             with rec_cols[idx]:
                 st.markdown(
                     render_gallery_card_html(
-                        kind="exam" if resource_type == "exam" else "worksheet",
+                        kind="video" if resource_type == "video" else "exam" if resource_type == "exam" else "worksheet",
                         title=str(item.get("title") or "—"),
                         chips_html=chips,
                         description=str(item.get("topic") or t("no_description_available")),

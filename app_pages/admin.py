@@ -128,6 +128,7 @@ PLAN_FEATURE_GROUPS = [
             ("analytics_access", "admin_feature_analytics_access"),
             ("resources_access", "admin_feature_resources_access"),
             ("community_access", "admin_feature_community_access"),
+            ("videos_access", "admin_feature_videos_access"),
         ],
     ),
     (
@@ -182,6 +183,7 @@ PREMIUM_TOOL_CANDIDATES = [
     "smart_tools_access",
     "smart_tools_worksheets",
     "smart_tools_exams",
+    "videos_access",
     "smart_tools_lesson_plans",
     "smart_tools_learning_programs",
     "smart_tools_goal_explorer",
@@ -249,6 +251,7 @@ def _infer_plan_feature_default(feature_key: str, features: dict) -> bool:
         "analytics_access": premium,
         "resources_access": True,
         "community_access": True,
+        "videos_access": True,
         "smart_tools_access": ai,
         "smart_tools_worksheets": ai,
         "smart_tools_exams": ai,
@@ -963,6 +966,12 @@ def _load_admin_ai_frames() -> dict[str, pd.DataFrame]:
             limit=12000,
             order_column="updated_at",
         ),
+        "videos": _table_frame(
+            "videos",
+            "id,user_id,subject,learner_stage,level_or_band,is_public,status,created_at,updated_at",
+            limit=12000,
+            order_column="updated_at",
+        ),
         "learning_program_progress": _table_frame(
             "learning_program_progress",
             "id,assignment_id,topic_id,teacher_done,student_done,is_done,completed_at,created_at,updated_at",
@@ -1034,6 +1043,7 @@ def _load_admin_ai_frames() -> dict[str, pd.DataFrame]:
         "practice_progress": ["last_practiced", "created_at"],
         "ai_usage_logs": ["created_at"],
         "user_activity_log": ["created_at"],
+        "videos": ["created_at", "updated_at"],
     }
     for key, cols in datetime_map.items():
         frames[key] = _normalize_datetime_columns(frames[key], cols)
@@ -1045,6 +1055,7 @@ def _build_admin_ai_snapshot() -> dict[str, Any]:
     links_df = frames["teacher_student_links"]
     subjects_df = frames["teacher_student_subjects"]
     programs_df = frames["learning_programs"]
+    videos_df = frames["videos"]
     topics_df = frames["learning_program_topics"]
     program_assign_df = frames["learning_program_assignments"]
     progress_df = frames["learning_program_progress"]
@@ -1128,6 +1139,7 @@ def _build_admin_ai_snapshot() -> dict[str, Any]:
         _latest_frame_timestamp(links_df, ["updated_at", "created_at"]),
         _latest_frame_timestamp(subjects_df, ["updated_at", "created_at"]),
         _latest_frame_timestamp(program_assign_df, ["updated_at", "assigned_at"]),
+        _latest_frame_timestamp(videos_df, ["updated_at", "created_at"]),
         _latest_frame_timestamp(progress_df, ["updated_at", "completed_at", "created_at"]),
         _latest_frame_timestamp(assignments_df, ["updated_at", "assigned_at", "created_at"]),
         _latest_frame_timestamp(attempts_df, ["updated_at", "completed_at", "graded_at", "submitted_at", "created_at"]),
@@ -1153,6 +1165,7 @@ def _build_admin_ai_snapshot() -> dict[str, Any]:
             "active_subjects": active_subjects,
             "multi_subject_links": multi_subject_links,
             "program_assignments": active_program_assignments,
+            "videos": int(len(videos_df)),
             "recommendation_events": int(len(recommendation_df)),
             "program_alignment_score": program_alignment_score,
             "review_closure_score": review_closure_score,
@@ -1175,6 +1188,7 @@ def _render_admin_ai_intelligence() -> None:
     top_metrics = [
         (t("admin_ai_metric_active_links"), str(metrics["active_links"])),
         (t("admin_ai_metric_program_assignments"), str(metrics["program_assignments"])),
+        (t("admin_ai_metric_videos"), str(metrics["videos"])),
         (t("admin_ai_metric_recommendation_events"), str(metrics["recommendation_events"])),
         (t("admin_ai_metric_freshness"), _freshness_label(metrics["freshness"])),
     ]
@@ -1420,6 +1434,7 @@ def _render_admin_ai_intelligence() -> None:
             ("admin_ai_dataset_accounts", "profiles", t("admin_ai_dataset_accounts_purpose"), t("admin_ai_grain_user"), ["created_at", "last_used_at"], 0.95),
             ("admin_ai_dataset_links", "teacher_student_links", t("admin_ai_dataset_links_purpose"), t("admin_ai_grain_teacher_student"), ["updated_at", "created_at"], 0.85),
             ("admin_ai_dataset_program_catalog", "learning_program_topics", t("admin_ai_dataset_program_catalog_purpose"), t("admin_ai_grain_program_topic"), ["updated_at", "created_at"], 0.8),
+            ("admin_ai_dataset_videos", "videos", t("admin_ai_dataset_videos_purpose"), t("admin_ai_grain_video"), ["updated_at", "created_at"], 0.88),
             ("admin_ai_dataset_program_progress", "learning_program_progress", t("admin_ai_dataset_program_progress_purpose"), t("admin_ai_grain_assignment_topic"), ["updated_at", "completed_at", "created_at"], metrics["progress_tracking_score"]),
             ("admin_ai_dataset_assignments", "teacher_assignments", t("admin_ai_dataset_assignments_purpose"), t("admin_ai_grain_assignment"), ["updated_at", "assigned_at", "created_at"], metrics["program_alignment_score"]),
             ("admin_ai_dataset_attempts", "teacher_assignment_attempts", t("admin_ai_dataset_attempts_purpose"), t("admin_ai_grain_attempt"), ["updated_at", "graded_at", "submitted_at", "created_at"], 0.82),
@@ -1452,6 +1467,7 @@ def _render_admin_ai_intelligence() -> None:
                     "profiles": "admin_ai_dataset_accounts",
                     "teacher_student_links": "admin_ai_dataset_links",
                     "learning_program_topics": "admin_ai_dataset_program_catalog",
+                    "videos": "admin_ai_dataset_videos",
                     "learning_program_progress": "admin_ai_dataset_program_progress",
                     "teacher_assignments": "admin_ai_dataset_assignments",
                     "teacher_assignment_attempts": "admin_ai_dataset_attempts",

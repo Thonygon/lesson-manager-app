@@ -1154,6 +1154,115 @@ def update_topic_assignment_status(assignment_id: int, status: str) -> None:
         pass
 
 
+def record_video_assignment_watch(assignment_id: int) -> None:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid or not assignment_id:
+        return
+    try:
+        rows = _rows(
+            get_sb()
+            .table("teacher_assignments")
+            .select("*")
+            .eq("id", int(assignment_id))
+            .eq("student_id", uid)
+            .limit(1)
+            .execute()
+        )
+        if not rows:
+            return
+        assignment = rows[0]
+        now = _now_iso()
+        existing_attempts = _rows(
+            get_sb()
+            .table("teacher_assignment_attempts")
+            .select("id, score_pct")
+            .eq("assignment_id", int(assignment_id))
+            .eq("student_id", uid)
+            .execute()
+        )
+        attempt_number = len(existing_attempts) + 1
+        insert_res = (
+            get_sb()
+            .table("teacher_assignment_attempts")
+            .insert(
+                {
+                    "assignment_id": int(assignment_id),
+                    "teacher_id": str(assignment.get("teacher_id") or "").strip(),
+                    "student_id": uid,
+                    "practice_session_id": None,
+                    "attempt_number": attempt_number,
+                    "status": "completed",
+                    "score_pct": 100.0,
+                    "total_questions": 1,
+                    "correct_count": 1,
+                    "submission_payload": {
+                        "source_type": "video",
+                        "source_id": assignment.get("source_record_id"),
+                        "title": assignment.get("title"),
+                        "watch_event": "student_video_watch",
+                    },
+                    "learning_program_assignment_id": int(assignment.get("learning_program_assignment_id") or 0) or None,
+                    "learning_program_topic_id": int(assignment.get("learning_program_topic_id") or 0) or None,
+                    "recommendation_bucket": str(assignment.get("recommendation_bucket") or "").strip(),
+                    "recommendation_focus_kind": str(assignment.get("recommendation_focus_kind") or "").strip(),
+                    "recommendation_context": assignment.get("recommendation_context") or {},
+                    "started_at": assignment.get("opened_at") or now,
+                    "submitted_at": now,
+                    "graded_at": now,
+                    "completed_at": now,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+            .execute()
+        )
+        attempt_rows = _rows(insert_res)
+        attempt_id = int((attempt_rows[0] if attempt_rows else {}).get("id") or 0)
+        (
+            get_sb()
+            .table("teacher_assignments")
+            .update(
+                {
+                    "status": "completed",
+                    "score_pct": 100.0,
+                    "total_questions": 1,
+                    "correct_count": 1,
+                    "opened_at": assignment.get("opened_at") or now,
+                    "submitted_at": now,
+                    "graded_at": now,
+                    "completed_at": now,
+                    "updated_at": now,
+                }
+            )
+            .eq("id", int(assignment_id))
+            .eq("student_id", uid)
+            .execute()
+        )
+        linked_program_assignment_id = int(assignment.get("learning_program_assignment_id") or 0)
+        linked_topic_id = int(assignment.get("learning_program_topic_id") or 0)
+        recommendation_context = assignment.get("recommendation_context") or {}
+        if linked_program_assignment_id > 0 and linked_topic_id > 0:
+            record_recommendation_event(
+                event_type="student_completed",
+                teacher_id=str(assignment.get("teacher_id") or "").strip(),
+                student_id=uid,
+                learning_program_assignment_id=linked_program_assignment_id,
+                learning_program_topic_id=linked_topic_id,
+                program_id=int(recommendation_context.get("program_id") or 0) or None,
+                recommendation_bucket=str(assignment.get("recommendation_bucket") or "").strip(),
+                recommendation_focus_kind=str(assignment.get("recommendation_focus_kind") or "").strip(),
+                resource_kind="video",
+                resource_record_id=int(assignment.get("source_record_id") or 0) or None,
+                teacher_assignment_id=int(assignment.get("id") or 0) or None,
+                assignment_attempt_id=attempt_id or None,
+                event_weight=0.38 if attempt_number == 1 else 0.18,
+                metadata={"score_pct": 100.0, "attempt_number": attempt_number},
+            )
+        clear_app_caches()
+    except Exception:
+        pass
+
+
 def record_assignment_attempt_from_practice(
     assignment_id: int,
     session_id: int | None,
@@ -2128,6 +2237,77 @@ def render_assignment_panel_for_exam(
             source_type="exam_builder",
             source_record_id=source_record_id,
             title=str(exam_data.get("title") or topic or t("quick_exam_generic_exam_title")),
+            subject_key=str(subject_scope.get("subject_key") or subject or ""),
+            subject_label_text=str(subject_scope.get("subject_label") or subject_label(subject or "")),
+            topic=topic,
+            teacher_note=teacher_note,
+            due_date=due_date,
+            content_snapshot=snapshot,
+            learning_program_assignment_id=int(recommendation_context.get("learning_program_assignment_id") or 0) or None,
+            learning_program_topic_id=int(recommendation_context.get("learning_program_topic_id") or 0) or None,
+            recommendation_bucket=str(recommendation_context.get("recommendation_bucket") or "").strip(),
+            recommendation_focus_kind=str(recommendation_context.get("focus_kind") or "").strip(),
+            recommendation_context=recommendation_context,
+        )
+        if ok:
+            st.success(t(key))
+        else:
+            st.error(t(key))
+
+
+def render_assignment_panel_for_video(
+    *,
+    prefix: str,
+    video: dict,
+    subject: str,
+    topic: str,
+    learner_stage: str,
+    level_or_band: str,
+    source_record_id: int | str | None = None,
+) -> None:
+    st.markdown(f"### {t('assign_to_student')}")
+    links = _assignment_target_options()
+    link, subject_scope, due_date, teacher_note = _render_assignment_target_fields(prefix, links)
+    if not link or not subject_scope:
+        return
+    duplicate_count = _assignment_duplicate_count(
+        link=link,
+        assignment_type="video",
+        source_record_id=source_record_id,
+        title=str(video.get("title") or topic or t("video_default_title")),
+        topic=topic,
+    )
+    duplicate_confirmed = _render_duplicate_assignment_confirmation(prefix, duplicate_count)
+    recommendation_context = recommendation_context_for_assignment(link=link, subject_scope=subject_scope)
+    if st.button(t("create_assignment"), key=f"{prefix}_assign_btn", use_container_width=True):
+        if duplicate_count > 0 and not duplicate_confirmed:
+            st.error(t("assignment_duplicate_confirm_required"))
+            return
+        snapshot = {
+            "video": {
+                "id": video.get("id"),
+                "video_id": video.get("video_id"),
+                "youtube_url": video.get("youtube_url") or video.get("watch_url"),
+                "watch_url": video.get("watch_url") or video.get("youtube_url"),
+                "embed_url": video.get("embed_url"),
+                "thumbnail_url": video.get("thumbnail_url"),
+                "title": video.get("title") or t("video_default_title"),
+                "description": video.get("description") or "",
+            },
+            "meta": {
+                "subject": subject,
+                "topic": topic,
+                "learner_stage": learner_stage,
+                "level_or_band": level_or_band,
+            },
+        }
+        ok, key = create_teacher_assignment(
+            link_id=link["id"],
+            subject_scope_id=subject_scope["id"],
+            assignment_type="video",
+            source_type="video_library",
+            source_record_id=source_record_id,
+            title=str(video.get("title") or topic or t("video_default_title")),
             subject_key=str(subject_scope.get("subject_key") or subject or ""),
             subject_label_text=str(subject_scope.get("subject_label") or subject_label(subject or "")),
             topic=topic,
