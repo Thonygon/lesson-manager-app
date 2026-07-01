@@ -10,6 +10,7 @@ from helpers.lesson_planner import QUICK_SUBJECTS, subject_label as _subject_lab
 from helpers.planner_storage import load_public_lesson_plans,render_plan_library_cards,render_quick_lesson_plan_result
 from helpers.worksheet_storage import load_public_worksheets, render_worksheet_library_cards, render_worksheet_result
 from helpers.quick_exam_storage import load_public_exams, render_exam_library_cards, render_exam_result
+from helpers.video_library import load_public_videos, render_video_detail, render_video_library_cards
 from helpers.learning_programs import (
     load_learning_program,
     load_public_learning_programs,
@@ -368,11 +369,12 @@ def _render_explore_teaching_resources() -> None:
 
     _render_explore_demo_section()
 
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         f"📚 {t('community_learning_programs')}",
         f"📝 {t('community_plans')}",
         f"📋 {t('community_worksheets')}",
         f"🧪 {t('community_exams')}",
+        f"🎬 {t('community_videos')}",
     ])
 
     with tab1:
@@ -605,6 +607,61 @@ def _render_explore_teaching_resources() -> None:
                     require_signup=True,
                 )
 
+    with tab5:
+        public_videos = load_public_videos()
+
+        if public_videos.empty:
+            st.info(t("community_library_empty"))
+        else:
+            video_q = st.text_input(
+                t("explore_resource_search"),
+                key="explore_public_video_q",
+                placeholder=t("explore_resource_search_placeholder"),
+            ).strip()
+
+            searchable_videos = _prepare_searchable_resources(public_videos, kind="video")
+            if video_q:
+                filtered_videos = _rank_search(
+                    searchable_videos,
+                    video_q,
+                    weights={
+                        "title": 5,
+                        "topic": 4,
+                        "description": 3,
+                        "_search_subject": 3,
+                        "_search_stage": 2,
+                        "_search_level": 2,
+                        "author_name": 1,
+                    },
+                )
+            else:
+                filtered_videos = searchable_videos.copy()
+
+            if "created_at" in filtered_videos.columns:
+                filtered_videos = filtered_videos.sort_values("created_at", ascending=False)
+
+            filtered_videos = filtered_videos.drop(
+                columns=[c for c in filtered_videos.columns if c.startswith("_search")],
+                errors="ignore",
+            )
+
+            videos_to_show = filtered_videos if video_q else filtered_videos.head(6)
+
+            if videos_to_show.empty:
+                st.info(t("be_the_first_to_share"))
+            else:
+                if video_q:
+                    st.caption(f"{len(videos_to_show)} {t('community_videos').lower()}")
+                else:
+                    st.caption(t("explore_latest_resources_note").format(count=6))
+                render_video_library_cards(
+                    videos_to_show,
+                    prefix="explore_public_videos",
+                    show_author=True,
+                    open_in_files=False,
+                    require_signup=True,
+                )
+
     selected_program_id = st.session_state.get("explore_public_learning_programs_selected_program_id")
     if selected_program_id:
         selected_program = load_learning_program(int(selected_program_id))
@@ -754,6 +811,29 @@ def _render_explore_teaching_resources() -> None:
             topic=st.session_state.get("files_exam_topic", ""),
             signup_required_actions=True,
             action_key_prefix="explore_selected_exam",
+        )
+
+    selected_video = st.session_state.get("files_selected_video")
+    if selected_video:
+        st.markdown("---")
+        video_det_l, video_det_r = st.columns([6, 1])
+        with video_det_l:
+            st.markdown(f"### {t('video_preview_title')}")
+        with video_det_r:
+            if st.button(t("close"), key="explore_close_selected_video", use_container_width=True):
+                for key in [
+                    "files_selected_video",
+                    "files_selected_video_id",
+                    "files_selected_video_status",
+                    "files_selected_video_assign_expanded",
+                ]:
+                    st.session_state.pop(key, None)
+                st.rerun()
+        render_video_detail(
+            selected_video,
+            action_key_prefix="explore_selected_video",
+            allow_assign=not is_archived_status((selected_video or {}).get("status")),
+            assign_expanded=bool(st.session_state.get("files_selected_video_assign_expanded")),
         )
 
     # ── Teaching Income Goal ──

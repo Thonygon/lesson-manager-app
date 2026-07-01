@@ -3,6 +3,7 @@ import json
 import math
 from core.i18n import t
 from core.navigation import go_to
+from core.state import get_current_user_id
 from helpers.practice_engine import (
     autosave_practice_draft_if_needed,
     worksheet_to_exercises,
@@ -32,7 +33,7 @@ from helpers.teacher_student_integration import (
     load_student_teacher_links,
     load_student_review_requests_for_session,
 )
-from helpers.student_recommendations import build_recommended_materials
+from helpers.student_recommendations import build_recommended_materials, rank_recommended_materials
 from helpers.empty_states import render_empty_state
 from helpers.resource_gallery import (
     extract_gallery_language_label,
@@ -40,6 +41,8 @@ from helpers.resource_gallery import (
     inject_resource_gallery_styles,
     render_gallery_card_html,
 )
+from helpers.video_library import load_public_videos
+from services.permissions_service import user_has_feature
 
 _STUDENT_PRACTICE_PAGE_SIZE = 6
 
@@ -351,6 +354,7 @@ def _inject_student_practice_styles() -> None:
 
 def _render_browse_tab():
     st.caption(t("choose_practice_source"))
+    video_feature_enabled = user_has_feature(get_current_user_id(), "videos_access")
 
     # Supported worksheet types for interactive practice
     _PRACTICE_WS_TYPES = {
@@ -428,6 +432,7 @@ def _render_browse_tab():
     from helpers.quick_exam_storage import load_public_exams
     pub_ws = load_public_worksheets()
     pub_ex = load_public_exams()
+    pub_videos = load_public_videos() if video_feature_enabled else pub_ws.head(0).copy()
 
     if not pub_ws.empty and "worksheet_type" in pub_ws.columns:
         pub_ws = pub_ws[pub_ws["worksheet_type"].isin(_PRACTICE_WS_TYPES)].reset_index(drop=True)
@@ -439,12 +444,18 @@ def _render_browse_tab():
     if not pub_ex.empty and _done["exam"] and "id" in pub_ex.columns:
         pub_ex = pub_ex[~pub_ex["id"].isin(_done["exam"])].reset_index(drop=True)
 
-    _render_recommended_materials(pub_ws, pub_ex)
+    _render_recommended_materials(pub_ws, pub_ex, pub_videos if video_feature_enabled else None)
 
-    src_tab_ws, src_tab_exam = st.tabs([
+    tab_labels = [
         f"📋 {t('community_worksheets')}",
         f"📄 {t('community_exams')}",
-    ])
+    ]
+    if video_feature_enabled:
+        tab_labels.append(f"🎬 {_ui_text('videos_label', 'Videos')}")
+    tabs = st.tabs(tab_labels)
+    src_tab_ws = tabs[0]
+    src_tab_exam = tabs[1]
+    src_tab_videos = tabs[2] if video_feature_enabled and len(tabs) > 2 else None
 
     with src_tab_ws:
         # Apply subject/level/stage filters
@@ -723,6 +734,74 @@ def _render_browse_tab():
                                         st.rerun()
                 _render_practice_pagination(rows, "student_practice_exams_page")
 
+    if src_tab_videos is not None:
+        with src_tab_videos:
+            filtered_videos = pub_videos.copy()
+            if not filtered_videos.empty and _effective_subject and _effective_subject != "__all__" and "subject" in filtered_videos.columns:
+                filtered_videos = filtered_videos[
+                    filtered_videos["subject"].astype(str).str.lower() == _effective_subject.lower()
+                ].reset_index(drop=True)
+            if not filtered_videos.empty and sp_level != "__all__" and "level_or_band" in filtered_videos.columns:
+                filtered_videos = filtered_videos[
+                    filtered_videos["level_or_band"].astype(str) == sp_level
+                ].reset_index(drop=True)
+            if not filtered_videos.empty and sp_stage != "__all__" and "learner_stage" in filtered_videos.columns:
+                filtered_videos = filtered_videos[
+                    filtered_videos["learner_stage"].astype(str) == sp_stage
+                ].reset_index(drop=True)
+            if filtered_videos.empty:
+                render_empty_state(
+                    title_key="student_practice_recommendations_empty_title",
+                    body_key="student_practice_recommendations_empty_body",
+                    steps=[
+                        "student_practice_empty_step_filters",
+                        "student_practice_empty_step_assignments",
+                        "student_practice_empty_step_return",
+                    ],
+                    icon="🎬",
+                )
+            else:
+                video_q = st.text_input(
+                    t("explore_resource_search"),
+                    key="sp_video_search",
+                    placeholder=t("explore_resource_search_placeholder"),
+                ).strip().lower()
+                if video_q:
+                    from helpers.goal_explorer import _rank_search
+
+                    filtered_videos = _rank_search(
+                        filtered_videos,
+                        video_q,
+                        weights={
+                            "title": 5,
+                            "topic": 4,
+                            "subject": 3,
+                            "learner_stage": 2,
+                            "level_or_band": 2,
+                            "author_name": 1,
+                        },
+                    )
+                ranked_videos = rank_recommended_materials(videos_df=filtered_videos)
+                rows = [item.get("row") or {} for item in ranked_videos] if ranked_videos else filtered_videos.head(24).to_dict("records")
+                page_rows, *_ = _slice_practice_page(rows, "student_practice_videos_page")
+                for idx in range(0, len(page_rows), 3):
+                    trio = page_rows[idx:idx + 3]
+                    cols = st.columns(3, gap="medium")
+                    for col_i, row in enumerate(trio):
+                        with cols[col_i]:
+                            _render_practice_card(
+                                title=str(row.get("title") or _ui_text("video_label", "Video")),
+                                subject=str(row.get("subject") or ""),
+                                topic=str(row.get("topic") or ""),
+                                level=str(row.get("level_or_band") or ""),
+                                ws_type=_ui_text("video_label", "Video"),
+                                btn_key=f"sp_video_{row.get('id', idx)}_{idx}_{col_i}",
+                                color="#EF4444",
+                                row=row,
+                                resource_type="video",
+                            )
+                _render_practice_pagination(rows, "student_practice_videos_page")
+
 
 def _render_practice_card(
     title: str, subject: str, topic: str, level: str,
@@ -740,8 +819,11 @@ def _render_practice_card(
     payload = {}
     if resource_type == "exam":
         payload, _answer_key, _row = _resolve_exam_payload(row)
-    else:
+    elif resource_type == "worksheet":
         payload, _row = _resolve_worksheet_payload(row)
+    else:
+        payload = dict(row or {})
+        _row = row
     full_payload = dict(payload or {})
     combined_payload = {**row, **full_payload}
     if not extract_gallery_image_url(combined_payload) and row.get("id"):
@@ -771,7 +853,10 @@ def _render_practice_card(
         chips += f'<span class="cm-resource-chip">🏷️ {_html.escape(level_label)}</span>'
     if type_label:
         chips += f'<span class="cm-resource-chip">🧩 {_html.escape(type_label)}</span>'
-    chips += f'<span class="cm-resource-chip">⚙️ {_html.escape(t("mode_ai"))}</span>'
+    if resource_type != "video":
+        chips += f'<span class="cm-resource-chip">⚙️ {_html.escape(t("mode_ai"))}</span>'
+    else:
+        chips += f'<span class="cm-resource-chip">🎬 {_html.escape(_ui_text("video_label", "Video"))}</span>'
 
     meta_html = ""
     if row.get("author_name"):
@@ -781,22 +866,36 @@ def _render_practice_card(
 
     st.markdown(
         render_gallery_card_html(
-            kind="exam" if resource_type == "exam" else "worksheet",
+            kind="video" if resource_type == "video" else "exam" if resource_type == "exam" else "worksheet",
             title=title,
             chips_html=chips,
             description=topic or t("no_description_available"),
             meta_html=meta_html,
             image_url=hero_image,
-            placeholder_label=t("quick_exam_builder") if resource_type == "exam" else t("worksheet_maker"),
+            placeholder_label=(
+                _ui_text("video_label", "Video")
+                if resource_type == "video"
+                else t("quick_exam_builder") if resource_type == "exam" else t("worksheet_maker")
+            ),
         ),
         unsafe_allow_html=True,
     )
 
-    if st.button(
-        f"▶ {t('start_practice')}",
-        key=btn_key,
-        use_container_width=True,
-    ):
+    if resource_type == "video":
+        if st.button(
+            f"▶ {_ui_text('watch_video', 'Watch video')}",
+            key=btn_key,
+            use_container_width=True,
+        ):
+            st.session_state[f"_start_{btn_key}"] = True
+            st.rerun()
+        if st.session_state.get(f"_start_{btn_key}"):
+            watch_url = str(combined_payload.get("watch_url") or combined_payload.get("youtube_url") or "")
+            if watch_url:
+                st.video(watch_url)
+        return
+
+    if st.button(f"▶ {t('start_practice')}", key=btn_key, use_container_width=True):
         st.session_state[f"_start_{btn_key}"] = True
         st.rerun()
 
@@ -1270,10 +1369,16 @@ def _render_progress_tab():
     _render_practice_pagination(progress_rows, "student_practice_progress_page")
 
 
-def _render_recommended_materials(pub_ws, pub_ex) -> None:
-    recommendations = build_recommended_materials(pub_ws, pub_ex, limit=6)
+def _render_recommended_materials(pub_ws, pub_ex, pub_videos) -> None:
+    recommendations = build_recommended_materials(
+        pub_ws,
+        pub_ex,
+        pub_videos,
+        limit=6,
+    )
     if not recommendations:
-        if pub_ws.empty and pub_ex.empty:
+        videos_empty = pub_videos is None or getattr(pub_videos, "empty", True)
+        if pub_ws.empty and pub_ex.empty and videos_empty:
             return
         render_empty_state(
             title_key="student_practice_recommendations_empty_title",
@@ -1311,9 +1416,9 @@ def _render_recommended_materials(pub_ws, pub_ex) -> None:
                     level=str(item.get("level") or ""),
                     ws_type=str(item.get("exercise_type") or resource_type),
                     btn_key=f"sp_reco_{resource_type}_{row.get('id', idx)}_{idx}_{col_idx}",
-                    color="#22C55E" if resource_type == "worksheet" else "#F59E0B",
+                    color="#22C55E" if resource_type == "worksheet" else "#F59E0B" if resource_type == "exam" else "#EF4444",
                     row=row,
-                    resource_type="exam" if resource_type == "exam" else "worksheet",
+                    resource_type=resource_type,
                 )
                 for reason in item.get("reasons") or []:
                     st.caption(f"- {reason}")

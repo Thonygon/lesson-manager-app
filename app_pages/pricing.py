@@ -66,6 +66,8 @@ def _plan_feature_bullets(plan: dict) -> list[str]:
         bullets.append(f"{_limit(plan, 'word_exports')} {t('pricing_word_exports_label').lower()}")
     bullets.append(f"{_limit(plan, 'students_count')} students")
     bullets.append(f"{_limit(plan, 'classes_count')} classes")
+    if features.get("videos_access"):
+        bullets.append(t("pricing_videos_included"))
     if features.get("premium_tools"):
         bullets.append(t("pricing_premium_tools_included"))
     if features.get("school_admin"):
@@ -89,6 +91,7 @@ def _premium_tool_items(plan: dict) -> list[str]:
         "smart_tools_exams": t("pricing_premium_tool_generic_1"),
         "smart_tools_lesson_plans": t("pricing_premium_tool_generic_2"),
         "smart_tools_learning_programs": t("pricing_premium_tool_learning_programs"),
+        "videos_access": t("pricing_premium_tool_videos"),
         "smart_tools_goal_explorer": t("pricing_premium_tool_goal_explorer"),
         "smart_tools_student_personalization": t("pricing_premium_tool_personalization"),
         "pdf_export": t("pricing_premium_tool_exports"),
@@ -110,6 +113,8 @@ def _premium_tool_items(plan: dict) -> list[str]:
         items.append(t("pricing_premium_tool_recommendations"))
     if features.get("smart_tools_learning_programs"):
         items.append(t("pricing_premium_tool_learning_programs"))
+    if features.get("videos_access"):
+        items.append(t("pricing_premium_tool_videos"))
     if features.get("smart_tools_goal_explorer"):
         items.append(t("pricing_premium_tool_goal_explorer"))
     if features.get("smart_tools_student_personalization"):
@@ -156,6 +161,7 @@ def _render_comparison_matrix(plans: list[dict], preview_currency: str) -> None:
         (t("pricing_ai_limit_label"), lambda p: _limit(p, "ai_generations")),
         (t("pricing_pdf_limit_label"), lambda p: _limit(p, "pdf_exports")),
         (t("pricing_word_export_limit_label"), lambda p: _limit(p, "word_exports")),
+        (t("pricing_videos_label"), lambda p: t("pricing_yes") if (p.get("features_json") or {}).get("videos_access") else t("pricing_no")),
         (t("pricing_students_label"), lambda p: _limit(p, "students_count")),
         (t("pricing_classes_label"), lambda p: _limit(p, "classes_count")),
         (t("pricing_premium_tools_label"), lambda p: t("pricing_included_count", count=len(_premium_tool_items(p))) if (p.get("features_json") or {}).get("premium_tools") else t("pricing_no")),

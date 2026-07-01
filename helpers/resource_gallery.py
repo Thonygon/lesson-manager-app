@@ -34,6 +34,7 @@ def inject_resource_gallery_styles() -> None:
         .cm-resource-exam{--resource-accent:#10b981;}
         .cm-resource-plan{--resource-accent:#f59e0b;}
         .cm-resource-program{--resource-accent:#3b82f6;}
+        .cm-resource-video{--resource-accent:#ef4444;}
         .cm-resource-hero{
           position:relative;
           aspect-ratio:16/9;

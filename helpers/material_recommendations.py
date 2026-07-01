@@ -86,6 +86,8 @@ def _resource_search_text(row: dict, kind: str) -> str:
         fields = ["title", "topic", "lesson_purpose", "subject", "learner_stage", "level_or_band", "author_name"]
     elif kind == "worksheet":
         fields = ["title", "topic", "worksheet_type", "subject", "learner_stage", "level_or_band", "author_name"]
+    elif kind == "video":
+        fields = ["title", "topic", "description", "subject", "learner_stage", "level_or_band", "author_name"]
     else:
         fields = ["title", "topic", "exam_length", "subject", "learner_stage", "level", "author_name"]
     return _normalize_text(" ".join(str(row.get(field) or "") for field in fields))
@@ -95,6 +97,7 @@ def _resource_tokens(row: dict, kind: str) -> set[str]:
     tokens = _tokenize(
         row.get("title"),
         row.get("topic"),
+        row.get("description"),
         row.get("subject"),
         row.get("learner_stage"),
         row.get("level_or_band"),
@@ -122,6 +125,7 @@ def _load_material_pool_cached(uid: str) -> list[dict]:
     from helpers.archive_utils import is_archived_status
     from helpers.planner_storage import load_my_lesson_plans, load_public_lesson_plans
     from helpers.quick_exam_storage import load_my_exams, load_public_exams
+    from helpers.video_library import load_my_videos, load_public_videos
     from helpers.worksheet_storage import load_my_worksheets, load_public_worksheets
 
     pool: list[dict] = []
@@ -132,6 +136,8 @@ def _load_material_pool_cached(uid: str) -> list[dict]:
         ("worksheet", "community", load_public_worksheets),
         ("exam", "own", load_my_exams),
         ("exam", "community", load_public_exams),
+        ("video", "own", load_my_videos),
+        ("video", "community", load_public_videos),
     ]
 
     seen_signatures: set[tuple[str, str, str, str, str]] = set()
@@ -148,7 +154,7 @@ def _load_material_pool_cached(uid: str) -> list[dict]:
                 _normalize_text(row.get("title")),
                 _normalize_text(row.get("topic")),
                 _normalize_text(_resource_level(row, kind)),
-                _normalize_text(row.get("worksheet_type") or row.get("lesson_purpose") or row.get("exam_length")),
+                _normalize_text(row.get("worksheet_type") or row.get("lesson_purpose") or row.get("exam_length") or row.get("description")),
             )
             if signature in seen_signatures:
                 continue
@@ -445,3 +451,8 @@ def open_material_recommendation(resource: dict, *, assign: bool = False, open_i
         from helpers.planner_storage import _open_plan_library_record
 
         _open_plan_library_record(row, open_in_files=open_in_files, expand_assign=assign)
+        return
+    if kind == "video":
+        from helpers.video_library import _open_video_library_record
+
+        _open_video_library_record(row, open_in_files=open_in_files, expand_assign=assign)

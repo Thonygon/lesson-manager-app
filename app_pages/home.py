@@ -47,6 +47,14 @@ from helpers.planner_storage import (
 )
 from helpers.quick_exam_storage import load_my_exams, load_public_exams, render_exam_library_cards, render_exam_result, render_quick_exam_builder_expander
 from helpers.recommendation_models import log_teacher_material_impressions, rank_teacher_resource_feed
+from helpers.video_library import (
+    attach_video_to_topic,
+    load_my_videos,
+    load_public_videos,
+    render_video_detail,
+    render_video_library_cards,
+    save_video_resource,
+)
 from helpers.worksheet_builder import normalize_worksheet_output
 from helpers.worksheet_storage import (
     load_my_worksheets,
@@ -59,6 +67,9 @@ from styles.theme import load_css_home
 
 
 _RESOURCE_PAGE_SIZE = 6
+_VIDEO_SUBJECT_OPTIONS = ["english", "spanish", "mathematics", "science", "music", "study_skills", "other"]
+_LEVEL_SEQUENCE_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
+_ACADEMIC_SEQUENCE_ORDER = ["beginner_band", "intermediate_band", "advanced_band"]
 
 _RESOURCE_SEARCH_WEIGHTS = {
     "program": {
@@ -99,6 +110,14 @@ _RESOURCE_SEARCH_WEIGHTS = {
         "exam_length": 2,
         "author_name": 1,
     },
+    "video": {
+        "title": 6,
+        "topic": 5,
+        "subject": 3,
+        "learner_stage": 2,
+        "level_or_band": 2,
+        "author_name": 1,
+    },
 }
 
 
@@ -111,6 +130,54 @@ def _resource_filter_options(df, column: str, *, normalize=None) -> list[str]:
         if value:
             values.append(value)
     return sorted(set(values))
+
+
+def _video_program_candidates(subject_key: str, custom_subject_name: str = "") -> list[dict]:
+    programs_df = load_my_learning_programs()
+    if programs_df is None or programs_df.empty:
+        return []
+
+    normalized_subject = _normalize_subject(subject_key)
+    rows = []
+    for row in programs_df.to_dict("records"):
+        row_dict = dict(row or {})
+        row_subject = _normalize_subject(str(row_dict.get("subject") or "").strip())
+        if row_subject != normalized_subject:
+            continue
+        if normalized_subject == "other" and custom_subject_name:
+            wanted = str(custom_subject_name or "").strip().casefold()
+            actual = str(row_dict.get("custom_subject_name") or "").strip().casefold()
+            if actual != wanted:
+                continue
+        rows.append(row_dict)
+
+    def _sort_key(row: dict) -> tuple[int, str]:
+        sequence_order = int(row.get("sequence_order") or 0)
+        updated_at = str(row.get("updated_at") or "")
+        return (sequence_order, updated_at)
+
+    rows.sort(key=_sort_key, reverse=True)
+    return rows
+
+
+def _video_program_label(row: dict) -> str:
+    title = str(row.get("title") or t("untitled_learning_program")).strip()
+    level = str(row.get("level_or_band") or "").strip()
+    stage = str(row.get("learner_stage") or "").strip()
+    step = int(row.get("sequence_order") or 0)
+    if step <= 0 and level in _LEVEL_SEQUENCE_ORDER:
+        step = _LEVEL_SEQUENCE_ORDER.index(level) + 1
+    elif step <= 0 and level in _ACADEMIC_SEQUENCE_ORDER:
+        step = _ACADEMIC_SEQUENCE_ORDER.index(level) + 1
+    meta_bits = [part for part in [level, t(stage) if stage else "", t("path_step_label", step=step) if step > 0 else ""] if part]
+    return f"{title} — {' · '.join(meta_bits)}" if meta_bits else title
+
+
+def _video_topic_label(unit_title: str, topic: dict) -> str:
+    topic_title = str(topic.get("title") or topic.get("lesson_focus") or "").strip()
+    if unit_title:
+        return f"{unit_title} · {topic_title}"
+    return topic_title
 
 
 def _apply_resource_filter(df, column: str, selected: str, *, normalize=None):
@@ -313,11 +380,12 @@ def render_home_teaching_resources_preview():
         unsafe_allow_html=True,
     )
 
-    res_tab0, res_tab1, res_tab2, res_tab3 = st.tabs([
+    res_tab0, res_tab1, res_tab2, res_tab3, res_tab4 = st.tabs([
         "📚 Learning Programs",
         f"📝 {t('community_plans')}",
         f"📋 {t('community_worksheets')}",
         f"📄 {t('community_exams')}",
+        f"🎬 {t('community_videos')}",
     ])
 
     with res_tab0:
@@ -509,6 +577,50 @@ def render_home_teaching_resources_preview():
                 )
 
             if st.button(t("see_all_exams"), key="home_see_all_exams", use_container_width=True):
+                go_to("resources")
+                st.rerun()
+
+    with res_tab4:
+        public_video_df = load_public_videos()
+
+        if public_video_df.empty:
+            render_empty_state(
+                title_key="community_resources_empty_title",
+                body_key="community_resources_empty_body",
+                steps=["community_resources_empty_step_create", "community_resources_empty_step_share", "community_resources_empty_step_return"],
+                icon="🎬",
+            )
+        else:
+            video_q = st.text_input(
+                t("explore_resource_search"),
+                key="home_public_video_q",
+                placeholder=t("explore_resource_search_placeholder"),
+            ).strip()
+
+            filtered_videos = _rank_teacher_materials(public_video_df, "video", "community", query=video_q)
+            videos_to_show = filtered_videos if video_q else filtered_videos.head(3)
+
+            if videos_to_show.empty:
+                st.info(t("be_the_first_to_share"))
+            else:
+                if video_q:
+                    st.caption(f"{len(videos_to_show)} {t('community_videos').lower()}")
+                else:
+                    st.caption(t("explore_latest_resources_note").format(count=4))
+                log_teacher_material_impressions(
+                    videos_to_show.to_dict("records"),
+                    "video",
+                    "community",
+                    surface="home_preview_videos",
+                )
+                render_video_library_cards(
+                    videos_to_show,
+                    prefix="home_public_videos",
+                    show_author=True,
+                    open_in_files=True,
+                )
+
+            if st.button(t("see_all_videos"), key="home_see_all_videos", use_container_width=True):
                 go_to("resources")
                 st.rerun()
 
@@ -890,11 +1002,12 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 home_go("home", panel=None)
                 st.rerun()
 
-        tab_prog, tab1, tab2, tab_exams, tab3, tab4, tab_archive = st.tabs([
+        tab_prog, tab1, tab2, tab_exams, tab_videos, tab3, tab4, tab_archive = st.tabs([
             t("my_programs"),
             t("my_plans"),
             t("my_worksheets"),
             t("my_exams"),
+            t("my_videos"),
             t("community_library"),
             t("professional"),
             t("archive_tab"),
@@ -1155,12 +1268,177 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 )
                 _render_resource_pagination_controls(exam_filtered, "my_exams_page")
 
+        with tab_videos:
+            with st.expander(t("add_new_video"), expanded=False):
+                video_subject = st.selectbox(
+                    t("subject_label"),
+                    _VIDEO_SUBJECT_OPTIONS,
+                    format_func=lambda x: _subject_label_fn(x),
+                    key="my_video_subject",
+                )
+                video_custom_subject = ""
+                if video_subject == "other":
+                    video_custom_subject = st.text_input(
+                        t("other_subject_label"),
+                        key="my_video_custom_subject",
+                    ).strip()
+
+                program_candidates = _video_program_candidates(video_subject, video_custom_subject)
+                program_lookup = {int(row.get("id") or 0): row for row in program_candidates if int(row.get("id") or 0) > 0}
+                program_option_ids = [0] + list(program_lookup.keys())
+                selected_program_id = int(
+                    st.selectbox(
+                        t("learning_program"),
+                        program_option_ids,
+                        format_func=lambda pid: (
+                            t("select_learning_program_placeholder")
+                            if int(pid or 0) <= 0
+                            else _video_program_label(program_lookup.get(int(pid), {}))
+                        ),
+                        key="my_video_program_id",
+                    )
+                    or 0
+                )
+                selected_program = load_learning_program(selected_program_id) if selected_program_id > 0 else {}
+
+                topic_option_ids = [0]
+                topic_lookup: dict[int, dict] = {}
+                topic_labels: dict[int, str] = {}
+                for unit in selected_program.get("units") or []:
+                    unit_title = str(unit.get("title") or "").strip()
+                    for topic in unit.get("topics") or []:
+                        topic_id = int(topic.get("topic_id") or 0)
+                        if topic_id <= 0:
+                            continue
+                        topic_lookup[topic_id] = topic
+                        topic_labels[topic_id] = _video_topic_label(unit_title, topic)
+                        topic_option_ids.append(topic_id)
+                selected_topic_id = int(
+                    st.selectbox(
+                        t("topic_label"),
+                        topic_option_ids,
+                        format_func=lambda tid: (
+                            t("select_topic_placeholder")
+                            if int(tid or 0) <= 0
+                            else topic_labels.get(int(tid), "")
+                        ),
+                        key="my_video_topic_id",
+                        disabled=selected_program_id <= 0,
+                    )
+                    or 0
+                )
+                selected_topic = topic_lookup.get(selected_topic_id, {})
+
+                inferred_stage = str(selected_program.get("learner_stage") or "").strip()
+                inferred_level = str(selected_program.get("level_or_band") or "").strip()
+                inferred_topic = str(selected_topic.get("title") or selected_topic.get("lesson_focus") or "").strip()
+
+                video_col1, video_col2 = st.columns(2)
+                with video_col1:
+                    video_url = st.text_input(t("youtube_link_label"), key="my_video_url", placeholder=t("youtube_link_placeholder"))
+                    video_title = st.text_input(
+                        t("video_title_optional"),
+                        key="my_video_title",
+                        value=st.session_state.get("my_video_title", inferred_topic),
+                    )
+                    if selected_program_id <= 0:
+                        video_topic = st.text_input(t("topic_label"), key="my_video_topic")
+                with video_col2:
+                    if selected_program_id > 0:
+                        st.text_input(
+                            t("learner_stage"),
+                            value=t(inferred_stage) if inferred_stage else "",
+                            disabled=True,
+                            key="my_video_stage_locked",
+                        )
+                        st.text_input(
+                            t("level_or_band"),
+                            value=inferred_level,
+                            disabled=True,
+                            key="my_video_level_locked",
+                        )
+                    else:
+                        video_stage = st.text_input(t("learner_stage"), key="my_video_stage")
+                        video_level = st.text_input(t("level_or_band"), key="my_video_level")
+                video_description = st.text_area(t("video_description_optional"), key="my_video_description", height=90)
+                video_public = st.checkbox(t("share_video_with_community"), key="my_video_public")
+                if st.button(t("save_video_button"), key="my_video_save_btn", use_container_width=True):
+                    if selected_program_id > 0 and selected_topic_id <= 0:
+                        st.warning(t("select_topic_placeholder"))
+                        st.stop()
+                    final_topic = inferred_topic if selected_program_id > 0 else st.session_state.get("my_video_topic", "")
+                    final_stage = inferred_stage if selected_program_id > 0 else st.session_state.get("my_video_stage", "")
+                    final_level = inferred_level if selected_program_id > 0 else st.session_state.get("my_video_level", "")
+                    ok, _record_id, key = save_video_resource(
+                        youtube_url=video_url,
+                        title=video_title,
+                        description=video_description,
+                        subject=video_subject,
+                        custom_subject_name=video_custom_subject,
+                        learner_stage=final_stage,
+                        level_or_band=final_level,
+                        topic=final_topic,
+                        is_public=video_public,
+                    )
+                    if ok:
+                        if selected_program_id > 0 and selected_topic_id > 0 and int(_record_id or 0) > 0:
+                            attached, attach_key = attach_video_to_topic(selected_program_id, selected_topic_id, int(_record_id or 0))
+                            if not attached:
+                                st.warning(t(attach_key))
+                        st.success(t(key))
+                        st.rerun()
+                    st.error(t(key))
+
+            video_df = load_my_videos()
+            if video_df.empty:
+                render_empty_state(
+                    title_key="files_empty_videos_title",
+                    body_key="files_empty_videos_body",
+                    steps=["files_empty_step_create", "files_empty_step_save", "files_empty_step_reuse"],
+                    icon="🎬",
+                )
+            else:
+                filter_col1, filter_col2 = st.columns([3, 1])
+                with filter_col1:
+                    video_q = st.text_input(
+                        t("explore_resource_search"),
+                        key="my_video_q",
+                        placeholder=t("explore_resource_search_placeholder"),
+                    ).strip().lower()
+                with filter_col2:
+                    video_subj_opts = _resource_filter_options(video_df, "subject", normalize=_normalize_subject)
+                    video_subj_filter = st.selectbox(
+                        t("subject_label"),
+                        [t("all")] + video_subj_opts,
+                        format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
+                        key="my_video_subject_filter",
+                    )
+                video_filtered = video_df.copy()
+                video_filtered = _apply_resource_filter(video_filtered, "subject", video_subj_filter, normalize=_normalize_subject)
+                video_filtered = _rank_teacher_materials(video_filtered, "video", "own", query=video_q)
+                video_filtered_page_df, *_ = _slice_resource_page(video_filtered, "my_videos_page")
+                log_teacher_material_impressions(
+                    video_filtered_page_df.to_dict("records"),
+                    "video",
+                    "own",
+                    surface=f"resources_my_videos_page_{int(st.session_state.get('my_videos_page', 1) or 1)}",
+                )
+                render_video_library_cards(
+                    video_filtered_page_df,
+                    prefix="my_videos",
+                    show_author=False,
+                    allow_visibility_toggle=True,
+                    allow_archive_toggle=True,
+                )
+                _render_resource_pagination_controls(video_filtered, "my_videos_page")
+
         with tab3:
-            comm_tab_programs, comm_tab_plans, comm_tab_ws, comm_tab_exams = st.tabs([
+            comm_tab_programs, comm_tab_plans, comm_tab_ws, comm_tab_exams, comm_tab_videos = st.tabs([
                 f"📚 {t('learning_programs')}",
                 f"📝 {t('community_plans')}",
                 f"📋 {t('community_worksheets')}",
                 f"📄 {t('community_exams')}",
+                f"🎬 {t('community_videos')}",
             ])
 
             with comm_tab_programs:
@@ -1463,6 +1741,56 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         render_exam_library_cards(pub_exam_filtered_page_df, prefix="pub_exams", show_author=True)
                         _render_resource_pagination_controls(pub_exam_filtered, "community_exams_page")
 
+            with comm_tab_videos:
+                public_video_df = load_public_videos()
+                if public_video_df.empty:
+                    render_empty_state(
+                        title_key="community_resources_empty_title",
+                        body_key="community_resources_empty_body",
+                        steps=["community_resources_empty_step_create", "community_resources_empty_step_share", "community_resources_empty_step_return"],
+                        icon="🎬",
+                    )
+                else:
+                    vf_col1, vf_col2 = st.columns([3, 1])
+                    with vf_col1:
+                        public_video_q = st.text_input(
+                            t("explore_resource_search"),
+                            key="public_video_q",
+                            placeholder=t("explore_resource_search_placeholder"),
+                        ).strip().lower()
+                    with vf_col2:
+                        public_video_subj_opts = _resource_filter_options(public_video_df, "subject", normalize=_normalize_subject)
+                        public_video_subj_filter = st.selectbox(
+                            t("subject_label"),
+                            [t("all")] + public_video_subj_opts,
+                            format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
+                            key="public_video_subject_filter",
+                        )
+
+                    public_video_filtered = public_video_df.copy()
+                    public_video_filtered = _apply_resource_filter(public_video_filtered, "subject", public_video_subj_filter, normalize=_normalize_subject)
+                    public_video_filtered = _rank_teacher_materials(public_video_filtered, "video", "community", query=public_video_q)
+
+                    if public_video_filtered.empty:
+                        st.info(t("be_the_first_to_share"))
+                    else:
+                        st.caption(f"{len(public_video_filtered)} {t('community_videos').lower()}")
+                        public_video_filtered_page_df, *_ = _slice_resource_page(public_video_filtered, "community_videos_page")
+                        log_teacher_material_impressions(
+                            public_video_filtered_page_df.to_dict("records"),
+                            "video",
+                            "community",
+                            surface=f"resources_community_videos_page_{int(st.session_state.get('community_videos_page', 1) or 1)}",
+                        )
+                        render_video_library_cards(
+                            public_video_filtered_page_df,
+                            prefix="pub_videos",
+                            show_author=True,
+                            open_in_files=True,
+                            require_signup=not getattr(st.user, "is_logged_in", False),
+                        )
+                        _render_resource_pagination_controls(public_video_filtered, "community_videos_page")
+
         with tab4:
             pro_tab_cv, pro_tab_cl = st.tabs([
                 f"📄 {t('my_cvs')}",
@@ -1494,11 +1822,12 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     render_cv_library_cards(cl_df, prefix="files_cl", allow_archive_toggle=True)
 
         with tab_archive:
-            arch_prog_tab, arch_plan_tab, arch_ws_tab, arch_exam_tab, arch_prof_tab = st.tabs([
+            arch_prog_tab, arch_plan_tab, arch_ws_tab, arch_exam_tab, arch_video_tab, arch_prof_tab = st.tabs([
                 f"📚 {t('my_programs')}",
                 f"📝 {t('my_plans')}",
                 f"📋 {t('my_worksheets')}",
                 f"📄 {t('my_exams')}",
+                f"🎬 {t('my_videos')}",
                 f"💼 {t('professional')}",
             ])
 
@@ -1562,6 +1891,21 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     )
                     _render_resource_pagination_controls(archived_exam_df, "archived_exams_page")
 
+            with arch_video_tab:
+                archived_video_df = load_my_videos(archived_only=True)
+                if archived_video_df.empty:
+                    st.info(t("archive_empty"))
+                else:
+                    archived_video_page_df, *_ = _slice_resource_page(archived_video_df, "archived_videos_page")
+                    render_video_library_cards(
+                        archived_video_page_df,
+                        prefix="archived_videos",
+                        show_author=False,
+                        allow_visibility_toggle=True,
+                        allow_archive_toggle=True,
+                    )
+                    _render_resource_pagination_controls(archived_video_df, "archived_videos_page")
+
             with arch_prof_tab:
                 arch_cv_tab, arch_cl_tab = st.tabs([
                     f"📄 {t('my_cvs')}",
@@ -1581,6 +1925,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         render_cv_library_cards(archived_cl_df, prefix="files_cl", allow_archive_toggle=True)
 
         selected_plan = st.session_state.get("files_selected_plan")
+        selected_video = st.session_state.get("files_selected_video")
         selected_program_id = (
             st.session_state.get("my_learning_programs_selected_program_id")
             or st.session_state.get("archived_learning_programs_selected_program_id")
@@ -1624,6 +1969,28 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 and st.session_state.get(f"show_assign_learning_program_{selected_program_id}", False)
             ):
                 render_learning_program_assignment_panel(selected_program, prefix=f"learning_program_assign_{selected_program_id}")
+
+        if selected_video:
+            st.markdown("---")
+            detail_l, detail_r = st.columns([6, 1])
+            with detail_l:
+                st.markdown(f"### {t('video_preview_title')}")
+            with detail_r:
+                if st.button(t("close"), key="close_selected_video", use_container_width=True):
+                    for key in [
+                        "files_selected_video",
+                        "files_selected_video_id",
+                        "files_selected_video_status",
+                        "files_selected_video_assign_expanded",
+                    ]:
+                        st.session_state.pop(key, None)
+                    st.rerun()
+            render_video_detail(
+                selected_video,
+                action_key_prefix="selected_video",
+                allow_assign=not is_archived_status((selected_video or {}).get("status")),
+                assign_expanded=bool(st.session_state.get("files_selected_video_assign_expanded")),
+            )
 
         if selected_plan:
             st.markdown("---")
