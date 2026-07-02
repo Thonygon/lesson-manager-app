@@ -232,6 +232,60 @@ def render_student_home():
     )
     if recommended:
         inject_resource_gallery_styles()
+        urgent_review_item = next(
+            (
+                item
+                for item in recommended
+                if item.get("assigned_resource")
+            ),
+            None,
+        )
+        if urgent_review_item:
+            urgent_resource_type = str(urgent_review_item.get("resource_type") or "")
+            urgent_placeholder = (
+                _ui_text("worksheet_label", "Worksheet")
+                if urgent_resource_type == "worksheet"
+                else _ui_text("exam_label", "Exam")
+                if urgent_resource_type == "exam"
+                else _ui_text("video_label", "Video")
+            )
+            urgent_title = str(urgent_review_item.get("title") or urgent_placeholder)
+            urgent_topic = str(urgent_review_item.get("topic") or "")
+            urgent_teacher = str(urgent_review_item.get("assignment_teacher_name") or "")
+            review_reason = (
+                (urgent_review_item.get("reasons") or [])
+                or [_ui_text("student_material_reason_balanced", "A balanced next step based on recent progress")]
+            )[0]
+            teacher_line = f"{urgent_teacher} · " if urgent_teacher else ""
+            st.markdown(
+                f"""
+                <div style="
+                    margin:0 0 18px 0;
+                    padding:18px 20px;
+                    border-radius:20px;
+                    border:1px solid color-mix(in srgb, var(--border) 70%, rgba(239,68,68,.28) 30%);
+                    background:
+                      radial-gradient(circle at top right, rgba(239,68,68,.12), transparent 36%),
+                      linear-gradient(135deg, color-mix(in srgb, var(--panel) 90%, rgba(251,191,36,.08) 10%), color-mix(in srgb, var(--panel) 88%, rgba(239,68,68,.10) 12%));
+                    box-shadow: var(--shadow-md);
+                ">
+                    <div style="font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:800;margin-bottom:8px;">{_ui_text('student_home_review_now_eyebrow', 'Review now')}</div>
+                    <div style="font-size:1.18rem;font-weight:900;line-height:1.25;margin-bottom:6px;">{_html.escape(urgent_title)}</div>
+                    <div style="color:var(--muted);font-size:.96rem;line-height:1.5;">{_html.escape(teacher_line + review_reason)}</div>
+                    <div style="margin-top:8px;color:var(--muted);font-size:.9rem;">{_html.escape(urgent_topic)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            action_col1, action_col2 = st.columns(2)
+            with action_col1:
+                if st.button(_ui_text("student_home_review_now_button", "Open Smart Practice"), key="student_home_review_now_btn", use_container_width=True, type="primary"):
+                    go_to("student_practice")
+                    st.rerun()
+            with action_col2:
+                if st.button(_ui_text("student_home_view_assignments_button", "View my assignments"), key="student_home_view_assignments_btn", use_container_width=True):
+                    go_to("student_assignments")
+                    st.rerun()
         st.markdown(f"### {_ui_text('recommended_materials', 'Recommended for you')}")
         st.caption(
             _ui_text(
@@ -261,6 +315,7 @@ def render_student_home():
                     f'<span class="cm-resource-chip">{_html.escape(resource_label)}</span>',
                     f'<span class="cm-resource-chip">🌐 {_html.escape(language_label)}</span>' if language_label else "",
                     f'<span class="cm-resource-chip">🏷️ {_html.escape(str(item.get("level") or ""))}</span>' if item.get("level") else "",
+                    f'<span class="cm-resource-chip">📌 {_html.escape(t("assignment_status_assigned"))}</span>' if item.get("assigned_resource") else "",
                     f'<span class="cm-resource-chip">⚙️ {_html.escape(t("mode_ai"))}</span>' if resource_type != "video" else "",
                 ]
             )

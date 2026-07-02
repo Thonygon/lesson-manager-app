@@ -49,6 +49,10 @@ def _clean_display_text(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip())
 
 
+def _resource_id_key(value: Any) -> str:
+    return str(value or "").strip()
+
+
 _SUBJECT_NORMALIZE = {
     "english": "english", "ingles": "english", "inglés": "english", "ingilizce": "english",
     "spanish": "spanish", "espanol": "spanish", "español": "spanish", "ispanyolca": "spanish",
@@ -108,6 +112,7 @@ def _fit_linear_model(
         return dict(base_weights or {"bias": 0.0})
 
     feature_names = {"bias"}
+    feature_names.update((base_weights or {}).keys())
     for features, _target in samples:
         feature_names.update(features.keys())
 
@@ -238,6 +243,203 @@ def _weighted_token_score(token_weights: dict[str, float], tokens: set[str], *, 
     return _clamp(total / max(scale, 1.0))
 
 
+def _topic_reference_target(score_pct: Any, status: Any) -> float:
+    normalized_status = _norm_key(status)
+    score_norm = _clamp(_safe_float(score_pct) / 100.0)
+    if normalized_status in {"graded", "completed"}:
+        return 0.38 + (0.62 * score_norm)
+    if normalized_status in {"submitted", "started"}:
+        return 0.44
+    if normalized_status in {"assigned", "overdue"}:
+        return 0.28
+    return 0.18
+
+
+def _pair_signature(kind: Any, resource_id: Any, topic_id: Any) -> tuple[str, str, int]:
+    return (_norm_key(kind), _resource_id_key(resource_id), int(topic_id or 0))
+
+
+@st.cache_data(ttl=90, show_spinner=False)
+def _load_topic_resource_reference_rows(
+    *,
+    teacher_id: str = "",
+    student_id: str = "",
+) -> dict[str, list[dict]]:
+    safe_teacher_id = str(teacher_id or "").strip()
+    safe_student_id = str(student_id or "").strip()
+    payload = {"assignments": [], "events": [], "video_links": []}
+
+    try:
+        query = (
+            get_sb()
+            .table("teacher_assignments")
+            .select("teacher_id,student_id,assignment_type,source_record_id,learning_program_topic_id,score_pct,status,updated_at")
+            .not_.is_("source_record_id", "null")
+            .not_.is_("learning_program_topic_id", "null")
+            .order("updated_at", desc=True)
+            .limit(8000)
+        )
+        if safe_teacher_id:
+            query = query.eq("teacher_id", safe_teacher_id)
+        if safe_student_id:
+            query = query.eq("student_id", safe_student_id)
+        payload["assignments"] = getattr(query.execute(), "data", None) or []
+    except Exception:
+        payload["assignments"] = []
+
+    try:
+        query = (
+            get_sb()
+            .table("learning_program_recommendation_events")
+            .select(
+                "teacher_id,student_id,learning_program_topic_id,resource_kind,resource_record_id,"
+                "event_type,event_weight,created_at"
+            )
+            .not_.is_("resource_record_id", "null")
+            .not_.is_("learning_program_topic_id", "null")
+            .order("created_at", desc=True)
+            .limit(8000)
+        )
+        if safe_teacher_id:
+            query = query.eq("teacher_id", safe_teacher_id)
+        if safe_student_id:
+            query = query.eq("student_id", safe_student_id)
+        payload["events"] = getattr(query.execute(), "data", None) or []
+    except Exception:
+        payload["events"] = []
+
+    try:
+        query = (
+            get_sb()
+            .table("learning_program_topic_videos")
+            .select("teacher_id,program_id,topic_id,video_id,created_at")
+            .order("created_at", desc=True)
+            .limit(12000)
+        )
+        if safe_teacher_id:
+            query = query.eq("teacher_id", safe_teacher_id)
+        payload["video_links"] = getattr(query.execute(), "data", None) or []
+    except Exception:
+        payload["video_links"] = []
+
+    return payload
+
+
+def build_explicit_topic_resource_model(
+    *,
+    teacher_id: str | None = None,
+    student_id: str | None = None,
+) -> dict[str, Any]:
+    reference_rows = _load_topic_resource_reference_rows(
+        teacher_id=str(teacher_id or "").strip(),
+        student_id=str(student_id or "").strip(),
+    )
+    pair_scores: dict[tuple[str, str, int], list[float]] = {}
+    kind_topic_scores: dict[tuple[str, int], list[float]] = {}
+    resource_topics: dict[tuple[str, str], set[int]] = {}
+    direct_pairs: set[tuple[str, str, int]] = set()
+
+    for row in reference_rows.get("assignments") or []:
+        kind = _norm_key(row.get("assignment_type"))
+        if kind == "lesson_plan_topic":
+            kind = "plan"
+        resource_id = _resource_id_key(row.get("source_record_id"))
+        topic_id = int(row.get("learning_program_topic_id") or 0)
+        if not kind or not resource_id or resource_id in {"0", "None", "nan"} or topic_id <= 0:
+            continue
+        target = _topic_reference_target(row.get("score_pct"), row.get("status"))
+        pair_scores.setdefault((kind, resource_id, topic_id), []).append(target)
+        kind_topic_scores.setdefault((kind, topic_id), []).append(target)
+        resource_topics.setdefault((kind, resource_id), set()).add(topic_id)
+
+    for row in reference_rows.get("events") or []:
+        kind = _norm_key(row.get("resource_kind"))
+        resource_id = _resource_id_key(row.get("resource_record_id"))
+        topic_id = int(row.get("learning_program_topic_id") or 0)
+        if not kind or not resource_id or resource_id in {"0", "None", "nan"} or topic_id <= 0:
+            continue
+        target = max(_teacher_event_target(row), _clamp(_safe_float(row.get("event_weight"))))
+        pair_scores.setdefault((kind, resource_id, topic_id), []).append(target)
+        kind_topic_scores.setdefault((kind, topic_id), []).append(target)
+        resource_topics.setdefault((kind, resource_id), set()).add(topic_id)
+
+    for row in reference_rows.get("video_links") or []:
+        topic_id = int(row.get("topic_id") or 0)
+        video_id = int(row.get("video_id") or 0)
+        if topic_id <= 0 or video_id <= 0:
+            continue
+        signature = ("video", str(video_id), topic_id)
+        direct_pairs.add(signature)
+        pair_scores.setdefault(signature, []).append(1.0)
+        kind_topic_scores.setdefault(("video", topic_id), []).append(0.96)
+        resource_topics.setdefault(("video", str(video_id)), set()).add(topic_id)
+
+    return {
+        "pair_prior": {
+            key: sum(values) / max(1, len(values))
+            for key, values in pair_scores.items()
+        },
+        "pair_support": {
+            key: _clamp(len(values) / 4.0)
+            for key, values in pair_scores.items()
+        },
+        "kind_topic_prior": {
+            key: sum(values) / max(1, len(values))
+            for key, values in kind_topic_scores.items()
+        },
+        "resource_topic_span": {
+            key: len(value)
+            for key, value in resource_topics.items()
+        },
+        "direct_pairs": direct_pairs,
+    }
+
+
+def topic_resource_alignment_features(
+    kind: str,
+    resource_id: Any,
+    topic_ids: list[int] | set[int] | tuple[int, ...],
+    *,
+    teacher_id: str | None = None,
+    student_id: str | None = None,
+) -> dict[str, float]:
+    topic_list = [int(item or 0) for item in (topic_ids or []) if int(item or 0) > 0]
+    resource_id_key = _resource_id_key(resource_id)
+    if not kind or not resource_id_key or resource_id_key in {"0", "None", "nan"} or not topic_list:
+        return {
+            "explicit_topic_match": 0.0,
+            "explicit_topic_support": 0.0,
+            "direct_topic_link": 0.0,
+            "topic_kind_prior": 0.0,
+            "topic_match_ambiguity": 0.0,
+    }
+    model = build_explicit_topic_resource_model(teacher_id=teacher_id, student_id=student_id)
+    kind_key = _norm_key(kind)
+    resource_key = (kind_key, resource_id_key)
+
+    explicit_topic_match = 0.0
+    explicit_topic_support = 0.0
+    direct_topic_link = 0.0
+    topic_kind_prior = 0.0
+    for topic_id in topic_list:
+        signature = _pair_signature(kind_key, resource_id_key, topic_id)
+        explicit_topic_match = max(explicit_topic_match, _safe_float((model.get("pair_prior") or {}).get(signature), 0.0))
+        explicit_topic_support = max(explicit_topic_support, _safe_float((model.get("pair_support") or {}).get(signature), 0.0))
+        topic_kind_prior = max(topic_kind_prior, _safe_float((model.get("kind_topic_prior") or {}).get((kind_key, topic_id)), 0.0))
+        if signature in (model.get("direct_pairs") or set()):
+            direct_topic_link = 1.0
+
+    topic_span = int((model.get("resource_topic_span") or {}).get(resource_key, 0))
+    ambiguity = _clamp((max(0, topic_span - 1)) / 4.0) if explicit_topic_match < 0.45 and direct_topic_link < 1.0 else 0.0
+    return {
+        "explicit_topic_match": explicit_topic_match,
+        "explicit_topic_support": explicit_topic_support,
+        "direct_topic_link": direct_topic_link,
+        "topic_kind_prior": topic_kind_prior,
+        "topic_match_ambiguity": ambiguity,
+    }
+
+
 @st.cache_data(ttl=90, show_spinner=False)
 def _load_teacher_material_activity_rows(teacher_id: str) -> list[dict]:
     teacher_id = str(teacher_id or "").strip()
@@ -270,7 +472,7 @@ def _load_teacher_recommendation_events(teacher_id: str) -> list[dict]:
             .table("learning_program_recommendation_events")
             .select(
                 "teacher_id,student_id,recommendation_bucket,recommendation_focus_kind,"
-                "resource_kind,event_type,created_at"
+                "resource_kind,resource_record_id,learning_program_topic_id,event_type,event_weight,created_at"
             )
             .eq("teacher_id", teacher_id)
             .order("created_at", desc=True)
@@ -300,31 +502,43 @@ def _teacher_event_target(row: dict) -> float:
 def build_teacher_recommendation_model(teacher_id: str | None = None) -> dict[str, Any]:
     safe_teacher_id = str(teacher_id or get_current_user_id() or "").strip()
     rows = _load_teacher_recommendation_events(safe_teacher_id)
+    base_weights = {
+        "bias": -0.2,
+        "subject_match": 0.85,
+        "stage_match": 0.36,
+        "level_match": 0.42,
+        "topic_overlap": 0.9,
+        "title_match": 0.75,
+        "objective_match": 0.55,
+        "source_own": 0.18,
+        "kind_plan": 0.22,
+        "kind_worksheet": 0.26,
+        "kind_exam": 0.14,
+        "kind_video": 0.18,
+        "bucket_next_topic": 0.2,
+        "bucket_review": 0.26,
+        "bucket_pending_gap": 0.18,
+        "focus_needs_practice": 0.18,
+        "focus_reteach": 0.16,
+        "focus_reinforce": 0.12,
+        "focus_stretch": 0.08,
+        "topic_reference_present": 0.16,
+        "exact_topic_match": 0.78,
+        "exact_topic_support": 0.32,
+        "direct_topic_link": 0.64,
+        "topic_kind_prior": 0.34,
+        "topic_match_ambiguity": -0.26,
+        "prior_kind_success": 0.24,
+        "prior_bucket_success": 0.3,
+        "prior_focus_success": 0.22,
+    }
     if not rows:
         return {
-            "weights": {
-                "bias": -0.2,
-                "subject_match": 0.85,
-                "stage_match": 0.36,
-                "level_match": 0.42,
-                "topic_overlap": 0.9,
-                "title_match": 0.75,
-                "objective_match": 0.55,
-                "source_own": 0.18,
-                "kind_plan": 0.22,
-                "kind_worksheet": 0.26,
-                "kind_exam": 0.14,
-                "bucket_next_topic": 0.2,
-                "bucket_review": 0.26,
-                "bucket_pending_gap": 0.18,
-                "focus_needs_practice": 0.18,
-                "focus_reteach": 0.16,
-                "focus_reinforce": 0.12,
-                "focus_stretch": 0.08,
-            },
+            "weights": base_weights,
             "priors": {"kind": {}, "bucket": {}, "focus": {}},
         }
 
+    topic_model = build_explicit_topic_resource_model(teacher_id=safe_teacher_id)
     samples: list[tuple[dict[str, float], float]] = []
     kind_scores: dict[str, list[float]] = {}
     bucket_scores: dict[str, list[float]] = {}
@@ -333,11 +547,33 @@ def build_teacher_recommendation_model(teacher_id: str | None = None) -> dict[st
         kind = _norm_key(row.get("resource_kind"))
         bucket = _norm_key(row.get("recommendation_bucket"))
         focus = _norm_key(row.get("recommendation_focus_kind"))
+        topic_id = int(row.get("learning_program_topic_id") or 0)
+        resource_id = int(row.get("resource_record_id") or 0)
         target = _teacher_event_target(row)
+        topic_features = {
+            "exact_topic_match": 0.0,
+            "exact_topic_support": 0.0,
+            "direct_topic_link": 0.0,
+            "topic_kind_prior": 0.0,
+            "topic_match_ambiguity": 0.0,
+        }
+        if topic_id > 0 and resource_id > 0:
+            topic_features = topic_resource_alignment_features(
+                kind,
+                resource_id,
+                [topic_id],
+                teacher_id=safe_teacher_id,
+            )
         features = {
             f"kind_{kind}": 1.0 if kind else 0.0,
             f"bucket_{bucket}": 1.0 if bucket else 0.0,
             f"focus_{focus}": 1.0 if focus else 0.0,
+            "topic_reference_present": 1.0 if topic_id > 0 else 0.0,
+            "exact_topic_match": topic_features["explicit_topic_match"],
+            "exact_topic_support": topic_features["explicit_topic_support"],
+            "direct_topic_link": topic_features["direct_topic_link"],
+            "topic_kind_prior": topic_features["topic_kind_prior"],
+            "topic_match_ambiguity": topic_features["topic_match_ambiguity"],
         }
         samples.append((features, target))
         if kind:
@@ -347,7 +583,7 @@ def build_teacher_recommendation_model(teacher_id: str | None = None) -> dict[st
         if focus:
             focus_scores.setdefault(focus, []).append(target)
 
-    weights = _fit_linear_model(samples)
+    weights = _fit_linear_model(samples, base_weights=base_weights)
     priors = {
         "kind": {key: sum(values) / max(1, len(values)) for key, values in kind_scores.items()},
         "bucket": {key: sum(values) / max(1, len(values)) for key, values in bucket_scores.items()},
@@ -365,6 +601,13 @@ def score_teacher_resource_candidate(
     teacher_id: str | None = None,
 ) -> tuple[float, dict[str, float]]:
     model = build_teacher_recommendation_model(teacher_id)
+    recommendation_topic_id = int(recommendation_item.get("learning_program_topic_id") or 0)
+    topic_features = topic_resource_alignment_features(
+        kind,
+        row.get("id"),
+        [recommendation_topic_id] if recommendation_topic_id > 0 else [],
+        teacher_id=teacher_id,
+    )
     subject_match = 1.0 if normalize_subject(row.get("subject")) == normalize_subject(recommendation_item.get("subject_key")) else 0.0
     stage_match = 1.0 if _norm_key(row.get("learner_stage")) and _norm_key(row.get("learner_stage")) == _norm_key(recommendation_item.get("learner_stage")) else 0.0
     row_level = _norm_key(row.get("level") if kind == "exam" else row.get("level_or_band"))
@@ -390,6 +633,12 @@ def score_teacher_resource_candidate(
         f"kind_{kind_key}": 1.0 if kind_key else 0.0,
         f"bucket_{bucket}": 1.0 if bucket else 0.0,
         f"focus_{focus}": 1.0 if focus else 0.0,
+        "topic_reference_present": 1.0 if recommendation_topic_id > 0 else 0.0,
+        "exact_topic_match": topic_features["explicit_topic_match"],
+        "exact_topic_support": topic_features["explicit_topic_support"],
+        "direct_topic_link": topic_features["direct_topic_link"],
+        "topic_kind_prior": topic_features["topic_kind_prior"],
+        "topic_match_ambiguity": topic_features["topic_match_ambiguity"],
         "prior_kind_success": _safe_float((model.get("priors") or {}).get("kind", {}).get(kind_key), 0.0),
         "prior_bucket_success": _safe_float((model.get("priors") or {}).get("bucket", {}).get(bucket), 0.0),
         "prior_focus_success": _safe_float((model.get("priors") or {}).get("focus", {}).get(focus), 0.0),
@@ -745,7 +994,10 @@ def _load_student_history_rows(student_id: str) -> dict[str, list[dict]]:
         rows["teacher_assignments"] = getattr(
             get_sb()
             .table("teacher_assignments")
-            .select("assignment_type,subject_key,topic,score_pct,status,created_at,updated_at")
+            .select(
+                "assignment_type,subject_key,topic,score_pct,status,created_at,updated_at,"
+                "source_record_id,learning_program_topic_id,recommendation_bucket"
+            )
             .eq("student_id", safe_student_id)
             .neq("status", "archived")
             .order("updated_at", desc=True)
@@ -795,20 +1047,37 @@ def build_student_recommendation_model(
     for row in assignment_rows:
         assignment_type = _norm_key(row.get("assignment_type"))
         kind = "worksheet" if assignment_type == "worksheet" else ("exam" if assignment_type == "exam" else "")
+        if assignment_type == "video":
+            kind = "video"
         if not kind:
             continue
         subject = normalize_subject(row.get("subject_key"))
         score = _safe_float(row.get("score_pct")) / 100.0
         status = _norm_key(row.get("status"))
+        active_topic_ids = set(program_signals.get("active_topic_ids") or set())
+        topic_id = int(row.get("learning_program_topic_id") or 0)
+        explicit_alignment = topic_resource_alignment_features(
+            kind,
+            row.get("source_record_id"),
+            [topic_id] if topic_id > 0 else list(active_topic_ids),
+            student_id=safe_student_id,
+        )
         target = 0.2
         if status in {"graded", "completed"}:
             target = 0.4 + 0.6 * score
         elif status in {"started", "submitted"}:
             target = 0.45
+        elif status in {"assigned", "overdue"} and kind == "video":
+            target = 0.3
         features = {
             f"kind_{kind}": 1.0,
             "subject_in_program": 1.0 if subject and subject in set(program_signals.get("subjects") or set()) else 0.0,
             "topic_in_program": _overlap_score(_tokenize(row.get("topic")), set(program_signals.get("topic_tokens") or set())),
+            "explicit_topic_match": explicit_alignment["explicit_topic_match"],
+            "explicit_topic_support": explicit_alignment["explicit_topic_support"],
+            "direct_topic_link": explicit_alignment["direct_topic_link"],
+            "topic_kind_prior": explicit_alignment["topic_kind_prior"],
+            "topic_match_ambiguity": explicit_alignment["topic_match_ambiguity"],
         }
         samples.append((features, target))
         kind_scores.setdefault(kind, []).append(target)
@@ -830,6 +1099,11 @@ def build_student_recommendation_model(
         "exercise_need": 0.36,
         "completion_fit": 0.28,
         "format_fit": 0.24,
+        "explicit_topic_match": 0.82,
+        "explicit_topic_support": 0.28,
+        "direct_topic_link": 0.54,
+        "topic_kind_prior": 0.34,
+        "topic_match_ambiguity": -0.22,
         "topic_success_penalty": -0.18,
     }
     weights = _fit_linear_model(samples, base_weights=base_weights) if samples else base_weights

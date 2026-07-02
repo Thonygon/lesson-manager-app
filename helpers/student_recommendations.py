@@ -5,13 +5,14 @@ import math
 from typing import Any
 
 import pandas as pd
+import streamlit as st
 
 from core.database import load_profile_row
 from core.i18n import t
 from core.state import get_current_user_id
 from helpers.lesson_planner import normalize_subject, subject_label
 from helpers.practice_engine import get_completed_source_ids, load_practice_progress
-from helpers.recommendation_models import score_student_resource_candidate
+from helpers.recommendation_models import score_student_resource_candidate, topic_resource_alignment_features
 from helpers.teacher_student_integration import load_student_assignments
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student
 
@@ -44,6 +45,80 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except Exception:
         return default
+
+
+def _frame_records(df: pd.DataFrame | None) -> list[dict]:
+    if df is None or df.empty:
+        return []
+    return df.to_dict("records")
+
+
+@st.cache_data(ttl=20, show_spinner=False)
+def _build_recommended_materials_cached(
+    user_id: str,
+    worksheet_rows: list[dict],
+    exam_rows: list[dict],
+    video_rows: list[dict],
+    *,
+    limit: int = 6,
+    ranked_only: bool = False,
+) -> list[dict[str, Any]]:
+    worksheets_df = pd.DataFrame(worksheet_rows) if worksheet_rows else None
+    exams_df = pd.DataFrame(exam_rows) if exam_rows else None
+    videos_df = pd.DataFrame(video_rows) if video_rows else None
+
+    ranked: list[dict[str, Any]] = []
+    student_profile = _build_student_need_profile()
+    student_profile["program_signals"] = _load_program_signals()
+    student_profile["assignment_behavior"] = _load_assignment_behavior_profile()
+    student_profile["assignment_signals"] = _load_assignment_signal_profile()
+    completed = get_completed_source_ids()
+    assigned = _load_assignment_exclusions()
+    assignment_lookup = student_profile.get("assignment_signals", {}).get("resource_assignments", {}) or {}
+
+    def _append_rows(df: pd.DataFrame | None, resource_type: str) -> None:
+        if df is None or df.empty:
+            return
+        for row in df.to_dict("records"):
+            row_id = row.get("id")
+            if resource_type in completed and row_id in completed.get(resource_type, set()):
+                continue
+            if str(row_id or "").strip() in assigned.get(resource_type, set()):
+                continue
+            score, reasons = _resource_feature_score(row, resource_type, student_profile)
+            if score < 0:
+                continue
+            assignment_state = assignment_lookup.get((resource_type, str(row_id or "").strip()))
+            ranked.append(_normalize_recommendation_row(row, resource_type, score, reasons, assignment_state))
+
+    _append_rows(worksheets_df, "worksheet")
+    _append_rows(exams_df, "exam")
+    _append_rows(videos_df, "video")
+    ranked.sort(
+        key=lambda item: (
+            -_safe_float(item.get("score", 0.0)),
+            str(item.get("topic") or "").casefold(),
+            str(item.get("title") or "").casefold(),
+        )
+    )
+    if ranked_only:
+        return ranked
+
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in ranked:
+        key = (
+            str(item.get("resource_type") or ""),
+            str(item.get("topic") or "").casefold(),
+            str(item.get("exercise_type") or "").casefold(),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+        if len(deduped) >= max(1, limit):
+            break
+    return deduped
 
 
 def _now_utc() -> datetime:
@@ -118,12 +193,66 @@ def _format_activity_label(value: Any) -> str:
 
 def _load_assignment_exclusions() -> dict[str, set]:
     excluded: dict[str, set] = {"worksheet": set(), "exam": set(), "video": set()}
+    finalized_statuses = {"submitted", "graded", "completed", "cancelled", "archived"}
     for row in load_student_assignments():
         assignment_type = str(row.get("assignment_type") or "").strip()
         source_record_id = row.get("source_record_id")
-        if assignment_type in excluded and source_record_id not in (None, "", 0, "0"):
+        status = str(row.get("status") or "").strip().lower()
+        if assignment_type in excluded and source_record_id not in (None, "", 0, "0") and status in finalized_statuses:
             excluded[assignment_type].add(str(source_record_id).strip())
     return excluded
+
+
+def _load_assignment_signal_profile() -> dict[str, Any]:
+    profile = {
+        "resource_assignments": {},
+        "active_assigned_topic_tokens": set(),
+        "unseen_video_topic_tokens": set(),
+    }
+    finalized_statuses = {"submitted", "graded", "completed", "cancelled", "archived"}
+
+    for row in load_student_assignments():
+        assignment_type = str(row.get("assignment_type") or "").strip()
+        if assignment_type not in {"worksheet", "exam", "video"}:
+            continue
+        source_record_id = str(row.get("source_record_id") or "").strip()
+        if not source_record_id or source_record_id in {"0", "None", "nan"}:
+            continue
+
+        status = str(row.get("status") or "").strip().lower()
+        attempt_count = _safe_int(row.get("attempt_count"), 0)
+        topic = str(row.get("topic") or row.get("title") or "").strip()
+        title = str(row.get("title") or "").strip()
+        teacher_name = str(row.get("teacher_name") or "").strip()
+        teacher_note = str(row.get("teacher_note") or "").strip()
+        is_completed = status in finalized_statuses or (assignment_type == "video" and attempt_count > 0)
+        is_unseen = assignment_type == "video" and attempt_count <= 0 and status in {"assigned", "started", "overdue"}
+
+        assignment_key = (assignment_type, source_record_id)
+        existing = profile["resource_assignments"].get(assignment_key)
+        current_priority = 0 if not is_completed else 1
+        existing_priority = 99
+        if existing:
+            existing_priority = 0 if not bool(existing.get("is_completed")) else 1
+        if existing is None or current_priority < existing_priority:
+            profile["resource_assignments"][assignment_key] = {
+                "assignment_id": _safe_int(row.get("id"), 0),
+                "status": status,
+                "attempt_count": attempt_count,
+                "teacher_name": teacher_name,
+                "teacher_note": teacher_note,
+                "topic": topic,
+                "title": title,
+                "is_completed": is_completed,
+                "is_unseen": is_unseen,
+            }
+
+        if not is_completed:
+            profile["active_assigned_topic_tokens"].update(_topic_tokens(topic, title, teacher_note))
+        if is_unseen:
+            profile["unseen_video_topic_tokens"].update(_topic_tokens(topic, title, teacher_note))
+
+    return profile
 
 
 def _load_assignment_behavior_profile() -> dict[str, Any]:
@@ -200,6 +329,10 @@ def _load_program_signals() -> dict[str, Any]:
         "subjects": set(),
         "subject_levels": {},
         "subject_stages": {},
+        "active_topic_ids": set(),
+        "next_topic_ids": set(),
+        "pending_topic_ids": set(),
+        "review_topic_ids": set(),
         "next_topic_titles": [],
         "topic_tokens": set(),
         "next_topic_tokens": set(),
@@ -265,17 +398,26 @@ def _load_program_signals() -> dict[str, Any]:
             title = str(topic.get("title") or "").strip()
             summary = str(topic.get("student_summary") or topic.get("lesson_focus") or topic.get("subtopic") or "").strip()
             topic_tokens = _topic_tokens(title, summary)
+            topic_id = int(topic.get("topic_id") or 0)
             if bool(topic_progress.get("teacher_done")) and bool(topic_progress.get("student_done")):
                 signals["review_topic_tokens"].update(topic_tokens)
+                if topic_id > 0:
+                    signals["review_topic_ids"].add(topic_id)
             if not bool(topic_progress.get("teacher_done")) and latest_completed_position > 0 and position < latest_completed_position:
                 signals["pending_topic_tokens"].update(topic_tokens)
+                if topic_id > 0:
+                    signals["pending_topic_ids"].add(topic_id)
             if bool(topic_progress.get("teacher_done")):
                 continue
+            if topic_id > 0:
+                signals["active_topic_ids"].add(topic_id)
             if title:
                 signals["next_topic_titles"].append(title)
             signals["topic_tokens"].update(topic_tokens)
             if not next_topic_added:
                 signals["next_topic_tokens"].update(topic_tokens)
+                if topic_id > 0:
+                    signals["next_topic_ids"].add(topic_id)
                 next_topic_added = True
             if not title:
                 continue
@@ -449,7 +591,25 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
     accuracy = _safe_float(student_profile.get("overall_accuracy", {}).get(subject, 0.0))
     program_signals = student_profile.get("program_signals", {}) or {}
     behavior_profile = student_profile.get("assignment_behavior", {}) or {}
+    assignment_signals = student_profile.get("assignment_signals", {}) or {}
     resource_tokens = _topic_tokens(topic, row.get("title"))
+    resource_assignment = (assignment_signals.get("resource_assignments") or {}).get(
+        (resource_type, str(row.get("id") or "").strip())
+    )
+    assigned_active = bool(resource_assignment) and not bool((resource_assignment or {}).get("is_completed"))
+    assigned_unseen = bool(resource_assignment) and bool((resource_assignment or {}).get("is_unseen"))
+    active_topic_ids = list(program_signals.get("active_topic_ids") or set())
+    priority_topic_ids = list(
+        (program_signals.get("next_topic_ids") or set())
+        | (program_signals.get("pending_topic_ids") or set())
+        | (program_signals.get("review_topic_ids") or set())
+    )
+    topic_alignment = topic_resource_alignment_features(
+        resource_type,
+        row.get("id"),
+        priority_topic_ids or active_topic_ids,
+        student_id=get_current_user_id(),
+    )
 
     if bootstrap_mode and program_subjects and subject not in program_subjects:
         return -1.0, []
@@ -473,6 +633,8 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
     next_topic_overlap = _topic_overlap_score(resource_tokens, set(program_signals.get("next_topic_tokens") or set()))
     pending_topic_overlap = _topic_overlap_score(resource_tokens, set(program_signals.get("pending_topic_tokens") or set()))
     review_topic_overlap = _topic_overlap_score(resource_tokens, set(program_signals.get("review_topic_tokens") or set()))
+    assigned_topic_overlap = _topic_overlap_score(resource_tokens, set(assignment_signals.get("active_assigned_topic_tokens") or set()), scale=2.0)
+    unseen_video_overlap = _topic_overlap_score(resource_tokens, set(assignment_signals.get("unseen_video_topic_tokens") or set()), scale=2.0)
     program_subject_fit = 1.0 if subject and subject in (program_signals.get("subjects") or set()) else 0.0
     program_type_fit = 0.0
     if resource_type == "worksheet" and exercise_type and exercise_type in (program_signals.get("worksheet_types") or set()):
@@ -494,6 +656,24 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
         stretch_boost = 0.1
     if next_topic_overlap >= 0.34:
         stretch_boost = max(stretch_boost, 0.12)
+    assignment_boost = 0.0
+    if assigned_active:
+        assignment_boost += 0.14
+    if assigned_active and assigned_topic_overlap >= 0.34:
+        assignment_boost += 0.08
+    if assigned_unseen:
+        assignment_boost += 0.12
+    if assigned_unseen and resource_type == "video":
+        assignment_boost += 0.08
+    if assigned_unseen and resource_type == "video" and (
+        topic_need >= 0.45
+        or review_topic_overlap >= 0.34
+        or recent_teacher_overlap >= 0.34
+        or unseen_video_overlap >= 0.34
+        or topic_alignment["direct_topic_link"] >= 1.0
+        or topic_alignment["explicit_topic_match"] >= 0.5
+    ):
+        assignment_boost += 0.22
 
     score = (
         0.28 * subject_focus
@@ -510,9 +690,17 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
         + 0.06 * format_fit
         + 0.04 * completion_fit
         + 0.05 * recent_teacher_overlap
+        + 0.05 * assigned_topic_overlap
+        + 0.05 * unseen_video_overlap
+        + 0.08 * topic_alignment["explicit_topic_match"]
+        + 0.04 * topic_alignment["explicit_topic_support"]
+        + 0.06 * topic_alignment["direct_topic_link"]
+        + 0.04 * topic_alignment["topic_kind_prior"]
         + review_boost
         + stretch_boost
+        + assignment_boost
     )
+    score -= 0.04 * topic_alignment["topic_match_ambiguity"]
     if topic_success >= 0.82 and topic_need < 0.28:
         score -= 0.08
     elif topic_success <= 0.68 and topic:
@@ -533,6 +721,15 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
         "exercise_need": exercise_need,
         "completion_fit": completion_fit,
         "format_fit": format_fit,
+        "assigned_active": 1.0 if assigned_active else 0.0,
+        "assigned_unseen": 1.0 if assigned_unseen else 0.0,
+        "assigned_topic_overlap": assigned_topic_overlap,
+        "unseen_video_overlap": unseen_video_overlap,
+        "explicit_topic_match": topic_alignment["explicit_topic_match"],
+        "explicit_topic_support": topic_alignment["explicit_topic_support"],
+        "direct_topic_link": topic_alignment["direct_topic_link"],
+        "topic_kind_prior": topic_alignment["topic_kind_prior"],
+        "topic_match_ambiguity": topic_alignment["topic_match_ambiguity"],
         "topic_success_penalty": 1.0 if topic_success >= 0.82 and topic_need < 0.28 else 0.0,
         "topic_in_program": program_topic_overlap,
     }
@@ -540,6 +737,12 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
     score += 0.6 * ml_score
 
     reasons: list[str] = []
+    if assigned_unseen and resource_type == "video" and topic:
+        reasons.append(t("student_material_reason_teacher_assigned_review", topic=topic))
+    elif assigned_active:
+        reasons.append(t("student_material_reason_teacher_assigned"))
+    if topic_alignment["direct_topic_link"] >= 1.0 and topic:
+        reasons.append(t("student_material_reason_program_topic", topic=topic))
     if topic_need >= 0.65 and topic:
         reasons.append(t("student_material_reason_revisit_topic", topic=topic))
     elif subject_need >= 0.55 and subject:
@@ -570,7 +773,13 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
     return score, reasons[:3]
 
 
-def _normalize_recommendation_row(row: dict, resource_type: str, score: float, reasons: list[str]) -> dict[str, Any]:
+def _normalize_recommendation_row(
+    row: dict,
+    resource_type: str,
+    score: float,
+    reasons: list[str],
+    assignment_state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
         "resource_type": resource_type,
         "id": row.get("id"),
@@ -582,6 +791,11 @@ def _normalize_recommendation_row(row: dict, resource_type: str, score: float, r
         "exercise_type": _resource_exercise_type(row, resource_type),
         "score": round(score, 4),
         "reasons": reasons,
+        "assigned_resource": bool(assignment_state),
+        "assignment_id": _safe_int((assignment_state or {}).get("assignment_id"), 0),
+        "assignment_status": str((assignment_state or {}).get("status") or "").strip(),
+        "assignment_attempt_count": _safe_int((assignment_state or {}).get("attempt_count"), 0),
+        "assignment_teacher_name": str((assignment_state or {}).get("teacher_name") or "").strip(),
         "row": row,
     }
 
@@ -593,67 +807,14 @@ def build_recommended_materials(
     *,
     limit: int = 6,
 ) -> list[dict[str, Any]]:
-    recommendations: list[dict[str, Any]] = []
-    student_profile = _build_student_need_profile()
-    student_profile["program_signals"] = _load_program_signals()
-    student_profile["assignment_behavior"] = _load_assignment_behavior_profile()
-    completed = get_completed_source_ids()
-    assigned = _load_assignment_exclusions()
-
-    if worksheets_df is not None and not worksheets_df.empty:
-        for row in worksheets_df.to_dict("records"):
-            if row.get("id") in completed.get("worksheet", set()):
-                continue
-            if str(row.get("id") or "").strip() in assigned.get("worksheet", set()):
-                continue
-            score, reasons = _resource_feature_score(row, "worksheet", student_profile)
-            if score < 0:
-                continue
-            recommendations.append(_normalize_recommendation_row(row, "worksheet", score, reasons))
-
-    if exams_df is not None and not exams_df.empty:
-        for row in exams_df.to_dict("records"):
-            if row.get("id") in completed.get("exam", set()):
-                continue
-            if str(row.get("id") or "").strip() in assigned.get("exam", set()):
-                continue
-            score, reasons = _resource_feature_score(row, "exam", student_profile)
-            if score < 0:
-                continue
-            recommendations.append(_normalize_recommendation_row(row, "exam", score, reasons))
-
-    if videos_df is not None and not videos_df.empty:
-        for row in videos_df.to_dict("records"):
-            if str(row.get("id") or "").strip() in assigned.get("video", set()):
-                continue
-            score, reasons = _resource_feature_score(row, "video", student_profile)
-            if score < 0:
-                continue
-            recommendations.append(_normalize_recommendation_row(row, "video", score, reasons))
-
-    recommendations.sort(
-        key=lambda item: (
-            -_safe_float(item.get("score", 0.0)),
-            str(item.get("topic") or "").casefold(),
-            str(item.get("title") or "").casefold(),
-        )
+    return _build_recommended_materials_cached(
+        str(get_current_user_id() or ""),
+        _frame_records(worksheets_df),
+        _frame_records(exams_df),
+        _frame_records(videos_df),
+        limit=limit,
+        ranked_only=False,
     )
-
-    deduped: list[dict[str, Any]] = []
-    seen: set[tuple[str, str, str]] = set()
-    for item in recommendations:
-        key = (
-            str(item.get("resource_type") or ""),
-            str(item.get("topic") or "").casefold(),
-            str(item.get("exercise_type") or "").casefold(),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(item)
-        if len(deduped) >= max(1, limit):
-            break
-    return deduped
 
 
 def rank_recommended_materials(
@@ -661,35 +822,10 @@ def rank_recommended_materials(
     exams_df: pd.DataFrame | None = None,
     videos_df: pd.DataFrame | None = None,
 ) -> list[dict[str, Any]]:
-    student_profile = _build_student_need_profile()
-    student_profile["program_signals"] = _load_program_signals()
-    student_profile["assignment_behavior"] = _load_assignment_behavior_profile()
-    completed = get_completed_source_ids()
-    assigned = _load_assignment_exclusions()
-    ranked: list[dict[str, Any]] = []
-
-    def _append_rows(df: pd.DataFrame | None, resource_type: str) -> None:
-        if df is None or df.empty:
-            return
-        for row in df.to_dict("records"):
-            row_id = row.get("id")
-            if resource_type in completed and row_id in completed.get(resource_type, set()):
-                continue
-            if str(row_id or "").strip() in assigned.get(resource_type, set()):
-                continue
-            score, reasons = _resource_feature_score(row, resource_type, student_profile)
-            if score < 0:
-                continue
-            ranked.append(_normalize_recommendation_row(row, resource_type, score, reasons))
-
-    _append_rows(worksheets_df, "worksheet")
-    _append_rows(exams_df, "exam")
-    _append_rows(videos_df, "video")
-    ranked.sort(
-        key=lambda item: (
-            -_safe_float(item.get("score", 0.0)),
-            str(item.get("topic") or "").casefold(),
-            str(item.get("title") or "").casefold(),
-        )
+    return _build_recommended_materials_cached(
+        str(get_current_user_id() or ""),
+        _frame_records(worksheets_df),
+        _frame_records(exams_df),
+        _frame_records(videos_df),
+        ranked_only=True,
     )
-    return ranked
