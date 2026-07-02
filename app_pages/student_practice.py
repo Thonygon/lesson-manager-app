@@ -30,8 +30,10 @@ from helpers.teacher_student_integration import (
     create_teacher_review_request,
     get_reviewable_teacher_links_for_subject,
     load_assignment_state_map,
+    load_student_assignment_by_id,
     load_student_teacher_links,
     load_student_review_requests_for_session,
+    record_video_assignment_watch,
 )
 from helpers.student_recommendations import build_recommended_materials, rank_recommended_materials
 from helpers.empty_states import render_empty_state
@@ -853,6 +855,8 @@ def _render_practice_card(
         chips += f'<span class="cm-resource-chip">🏷️ {_html.escape(level_label)}</span>'
     if type_label:
         chips += f'<span class="cm-resource-chip">🧩 {_html.escape(type_label)}</span>'
+    if row.get("_recommended_assignment_id"):
+        chips += f'<span class="cm-resource-chip">📌 {_html.escape(t("assignment_status_assigned"))}</span>'
     if resource_type != "video":
         chips += f'<span class="cm-resource-chip">⚙️ {_html.escape(t("mode_ai"))}</span>'
     else:
@@ -861,6 +865,8 @@ def _render_practice_card(
     meta_html = ""
     if row.get("author_name"):
         meta_html += f'<div class="cm-resource-meta">👤 {_html.escape(str(row.get("author_name") or ""))}</div>'
+    if row.get("_recommended_assignment_teacher_name"):
+        meta_html += f'<div class="cm-resource-meta">👩‍🏫 {_html.escape(str(row.get("_recommended_assignment_teacher_name") or ""))}</div>'
     if row.get("created_at"):
         meta_html += f'<div class="cm-resource-meta">🕒 {_html.escape(str(row.get("created_at") or "")[:16])}</div>'
 
@@ -887,6 +893,9 @@ def _render_practice_card(
             key=btn_key,
             use_container_width=True,
         ):
+            assignment_id = int(row.get("_recommended_assignment_id") or 0)
+            if assignment_id > 0:
+                record_video_assignment_watch(assignment_id)
             st.session_state[f"_start_{btn_key}"] = True
             st.rerun()
         if st.session_state.get(f"_start_{btn_key}"):
@@ -1406,7 +1415,13 @@ def _render_recommended_materials(pub_ws, pub_ex, pub_videos) -> None:
         pair = recommendations[idx:idx + 3]
         cols = st.columns(3, gap="medium")
         for col_idx, item in enumerate(pair):
-            row = item.get("row") or {}
+            row = {
+                **(item.get("row") or {}),
+                "_recommended_assignment_id": item.get("assignment_id"),
+                "_recommended_assignment_status": item.get("assignment_status"),
+                "_recommended_assignment_attempt_count": item.get("assignment_attempt_count"),
+                "_recommended_assignment_teacher_name": item.get("assignment_teacher_name"),
+            }
             resource_type = str(item.get("resource_type") or "")
             with cols[col_idx]:
                 _render_practice_card(
@@ -1425,6 +1440,14 @@ def _render_recommended_materials(pub_ws, pub_ex, pub_videos) -> None:
 
                 trigger_key = f"_start_sp_reco_{resource_type}_{row.get('id', idx)}_{idx}_{col_idx}"
                 if st.session_state.pop(trigger_key, False):
+                    assignment_id = int(item.get("assignment_id") or 0)
+                    if assignment_id > 0 and resource_type in {"worksheet", "exam"}:
+                        assignment_row = load_student_assignment_by_id(assignment_id)
+                        if assignment_row:
+                            from app_pages.student_assignments import _open_assignment_practice
+
+                            _open_assignment_practice(assignment_row)
+                            st.rerun()
                     if resource_type == "worksheet":
                         ws_json, row = _resolve_worksheet_payload(row)
                         if ws_json:

@@ -64,6 +64,39 @@ def _render_calendar_new_user_setup():
     with st.expander(f"{t('add')} {t('schedule')}", expanded=True):
         st.info(t("calendar_empty_add_schedule_hint"))
 
+
+def _paginate_calendar_table(df: pd.DataFrame, state_key: str, *, page_size: int = 12) -> tuple[pd.DataFrame, int, int, int, int, int]:
+    total_rows = len(df)
+    total_pages = max(1, (total_rows + page_size - 1) // page_size) if total_rows else 1
+    current_page = int(st.session_state.get(state_key, 1) or 1)
+    current_page = max(1, min(current_page, total_pages))
+    st.session_state[state_key] = current_page
+    start_idx = (current_page - 1) * page_size
+    end_idx = min(start_idx + page_size, total_rows)
+    page_df = df.iloc[start_idx:end_idx].copy() if total_rows else df
+    return page_df, current_page, total_pages, start_idx, end_idx, total_rows
+
+
+def _render_calendar_pagination(df: pd.DataFrame, state_key: str, *, page_size: int = 12) -> pd.DataFrame:
+    page_df, current_page, total_pages, start_idx, end_idx, total_rows = _paginate_calendar_table(
+        df,
+        state_key,
+        page_size=page_size,
+    )
+    if total_rows > page_size:
+        prev_col, info_col, next_col = st.columns([1, 3, 1])
+        with prev_col:
+            if st.button("←", key=f"{state_key}_prev", use_container_width=True, disabled=current_page <= 1):
+                st.session_state[state_key] = max(1, current_page - 1)
+                st.rerun()
+        with info_col:
+            st.caption(f"{start_idx + 1}-{end_idx} / {total_rows} · {current_page}/{total_pages}")
+        with next_col:
+            if st.button("→", key=f"{state_key}_next", use_container_width=True, disabled=current_page >= total_pages):
+                st.session_state[state_key] = min(total_pages, current_page + 1)
+                st.rerun()
+    return page_df
+
 def render_calendar():
     page_header(t("calendar"))
     st.caption(t("create_and_manage_your_weekly_program"))
@@ -412,7 +445,8 @@ def render_calendar():
                 ["id", "student", "weekday", "time", "duration_minutes", "active"]
             ].sort_values(["student", "weekday", "time"])
 
-            render_styled_dataframe(translate_df_headers(pretty_df(show)))
+            show_page = _render_calendar_pagination(show, "calendar_current_schedule_page")
+            render_styled_dataframe(translate_df_headers(pretty_df(show_page)))
 
             st.markdown(f"#### {t('delete_scheduled_lesson')}")
             st.caption(t("delete_schedule_warning"))
@@ -610,7 +644,8 @@ def render_calendar():
                 ]
             ].sort_values(["original_date", "student"])
 
-            render_styled_dataframe(translate_df_headers(pretty_df(show)))
+            show_page = _render_calendar_pagination(show, "calendar_previous_changes_page")
+            render_styled_dataframe(translate_df_headers(pretty_df(show_page)))
 
             del_id = st.number_input(
                 t("override_id"),

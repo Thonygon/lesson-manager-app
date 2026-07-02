@@ -211,6 +211,8 @@ def render_student_top_nav(active_page: str):
         ("switch_teacher",       t("switch_to_teacher"),  "arrow-repeat"),
         ("sign_out",             t("sign_out"),           "box-arrow-right"),
     ]
+    if current_user_is_admin():
+        items.insert(-1, ("switch_admin", t("admin"), "shield-lock"))
 
     keys   = [k for k, _, _ in items]
     labels = [label for _, label, _ in items]
@@ -271,6 +273,9 @@ def render_student_top_nav(active_page: str):
         elif selected_key == "switch_teacher":
             st.session_state["student_top_nav_prev"] = active_page
             _switch_role("teacher")
+        elif selected_key == "switch_admin":
+            st.session_state["student_top_nav_prev"] = active_page
+            _switch_role("admin")
         elif selected_key != active_page:
             go_to(selected_key)
             st.rerun()

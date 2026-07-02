@@ -958,6 +958,16 @@ def load_student_assignments(statuses: list[str] | None = None) -> list[dict]:
     return _load_student_assignments_cached(uid, statuses_key)
 
 
+def load_student_assignment_by_id(assignment_id: int) -> dict:
+    safe_assignment_id = int(assignment_id or 0)
+    if safe_assignment_id <= 0:
+        return {}
+    for row in load_student_assignments():
+        if int(row.get("id") or 0) == safe_assignment_id:
+            return row
+    return {}
+
+
 def archive_teacher_assignment_for_teacher(assignment_id: int) -> tuple[bool, str]:
     teacher_id = str(get_current_user_id() or "").strip()
     if not teacher_id or not assignment_id:
@@ -1390,8 +1400,8 @@ def record_assignment_attempt_from_practice(
         pass
 
 
-def load_teacher_assignment_progress(student_id: str | None = None, subject_key: str | None = None) -> list[dict]:
-    teacher_id = str(get_current_user_id() or "").strip()
+@st.cache_data(ttl=30, show_spinner=False)
+def _load_teacher_assignment_progress_cached(teacher_id: str, student_id: str = "", subject_key: str = "") -> list[dict]:
     if not teacher_id:
         return []
     try:
@@ -1448,6 +1458,20 @@ def load_teacher_assignment_progress(student_id: str | None = None, subject_key:
             }
         )
     return enriched
+
+
+register_cache(_load_teacher_assignment_progress_cached)
+
+
+def load_teacher_assignment_progress(student_id: str | None = None, subject_key: str | None = None) -> list[dict]:
+    teacher_id = str(get_current_user_id() or "").strip()
+    if not teacher_id:
+        return []
+    return _load_teacher_assignment_progress_cached(
+        teacher_id,
+        str(student_id or "").strip(),
+        str(subject_key or "").strip(),
+    )
 
 
 def _review_request_status_chip(status: str) -> str:
@@ -1754,8 +1778,8 @@ def load_student_review_requests_for_session(practice_session_id: int) -> list[d
     ]
 
 
-def load_teacher_review_requests(student_id: str | None = None, subject_key: str | None = None) -> list[dict]:
-    teacher_id = str(get_current_user_id() or "").strip()
+@st.cache_data(ttl=30, show_spinner=False)
+def _load_teacher_review_requests_cached(teacher_id: str, student_id: str = "", subject_key: str = "") -> list[dict]:
     if not teacher_id:
         return []
     try:
@@ -1786,6 +1810,20 @@ def load_teacher_review_requests(student_id: str | None = None, subject_key: str
         }
         for row in rows
     ]
+
+
+register_cache(_load_teacher_review_requests_cached)
+
+
+def load_teacher_review_requests(student_id: str | None = None, subject_key: str | None = None) -> list[dict]:
+    teacher_id = str(get_current_user_id() or "").strip()
+    if not teacher_id:
+        return []
+    return _load_teacher_review_requests_cached(
+        teacher_id,
+        str(student_id or "").strip(),
+        str(subject_key or "").strip(),
+    )
 
 
 def load_teacher_review_request_detail(review_id: int) -> dict:

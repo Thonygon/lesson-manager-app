@@ -59,6 +59,24 @@ def _rows(result) -> list[dict]:
     return getattr(result, "data", None) or []
 
 
+def _profile_name_map(user_ids: list[str]) -> dict[str, dict]:
+    ids = [str(item or "").strip() for item in user_ids if str(item or "").strip()]
+    if not ids:
+        return {}
+    try:
+        rows = _rows(
+            get_sb()
+            .table("profiles")
+            .select("user_id,display_name,username,email")
+            .in_("user_id", ids)
+            .limit(max(1, len(ids)))
+            .execute()
+        )
+        return {str(row.get("user_id") or "").strip(): row for row in rows}
+    except Exception:
+        return {}
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -277,9 +295,10 @@ def _load_public_videos_cached(limit: int = 500) -> pd.DataFrame:
         )
     except Exception:
         return pd.DataFrame()
+    profiles = _profile_name_map([str(row.get("user_id") or "") for row in rows])
     normalized_rows = []
     for row in rows:
-        profile = load_profile_row(str(row.get("user_id") or ""))
+        profile = profiles.get(str(row.get("user_id") or "").strip()) or load_profile_row(str(row.get("user_id") or ""))
         normalized_rows.append(
             _normalize_video_row(
                 {

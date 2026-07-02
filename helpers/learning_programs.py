@@ -3183,8 +3183,8 @@ def archive_learning_program_assignment(assignment_id: int) -> tuple[bool, str]:
         return False, str(e)
 
 
-def load_program_assignments_for_teacher(limit: int = 500) -> pd.DataFrame:
-    teacher_id = get_current_user_id()
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_program_assignments_for_teacher_cached(teacher_id: str, limit: int = 500) -> pd.DataFrame:
     if not teacher_id:
         return pd.DataFrame()
     try:
@@ -3204,6 +3204,16 @@ def load_program_assignments_for_teacher(limit: int = 500) -> pd.DataFrame:
         return df.reset_index(drop=True)
     except Exception:
         return pd.DataFrame()
+
+
+register_cache(_load_program_assignments_for_teacher_cached)
+
+
+def load_program_assignments_for_teacher(limit: int = 500) -> pd.DataFrame:
+    teacher_id = get_current_user_id()
+    if not teacher_id:
+        return pd.DataFrame()
+    return _load_program_assignments_for_teacher_cached(str(teacher_id), limit=limit)
 
 
 @st.cache_data(ttl=45, show_spinner=False)

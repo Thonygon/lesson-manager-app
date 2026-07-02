@@ -4,6 +4,7 @@ import secrets
 import html as _html
 import math
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -839,6 +840,7 @@ def _content_metrics() -> dict[str, int]:
 def _fetch_admin_dataset_rows(
     table: str,
     columns: str,
+    cache_bust: str = "",
     *,
     limit: int = 5000,
     order_column: str = "created_at",
@@ -855,11 +857,12 @@ def _fetch_admin_dataset_rows(
 def _table_frame(
     table: str,
     columns: str,
+    cache_bust: str = "",
     *,
     limit: int = 5000,
     order_column: str = "created_at",
 ) -> pd.DataFrame:
-    rows = _fetch_admin_dataset_rows(table, columns, limit=limit, order_column=order_column)
+    rows = _fetch_admin_dataset_rows(table, columns, cache_bust, limit=limit, order_column=order_column)
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
@@ -928,101 +931,223 @@ def _render_section_callout(title: str, subtitle: str) -> None:
     )
 
 
+def _current_ai_code_signal() -> dict[str, Any]:
+    project_root = Path(__file__).resolve().parents[1]
+    candidates: list[Path] = []
+    for folder in ("app_pages", "helpers", "services"):
+        root = project_root / folder
+        if not root.exists():
+            continue
+        candidates.extend(root.rglob("*.py"))
+    if not candidates:
+        return {"latest_change": None, "file_count": 0}
+    latest_change = max((path.stat().st_mtime for path in candidates), default=0.0)
+    latest_ts = pd.to_datetime(latest_change, unit="s", utc=True, errors="coerce")
+    return {
+        "latest_change": latest_ts if not pd.isna(latest_ts) else None,
+        "file_count": len(candidates),
+    }
+
+
+def _admin_ai_decision_rows(metrics: dict[str, Any], code_signal: dict[str, Any]) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+
+    if metrics["topic_linkage_score"] >= 0.6:
+        rows.append(
+            (
+                t("admin_ai_decision_good"),
+                t("admin_ai_decision_topic_linkage_good", pct=_pct_text(metrics["topic_linkage_score"])),
+            )
+        )
+    else:
+        rows.append(
+            (
+                t("admin_ai_decision_gap"),
+                t("admin_ai_decision_topic_linkage_gap", pct=_pct_text(metrics["topic_linkage_score"])),
+            )
+        )
+
+    if metrics["recommendation_acceptance_score"] >= 0.22 and metrics["recommendation_outcome_score"] >= 0.18:
+        rows.append(
+            (
+                t("admin_ai_decision_good"),
+                t(
+                    "admin_ai_decision_acceptance_good",
+                    acceptance=_pct_text(metrics["recommendation_acceptance_score"]),
+                    outcome=_pct_text(metrics["recommendation_outcome_score"]),
+                ),
+            )
+        )
+    else:
+        rows.append(
+            (
+                t("admin_ai_decision_gap"),
+                t(
+                    "admin_ai_decision_acceptance_gap",
+                    acceptance=_pct_text(metrics["recommendation_acceptance_score"]),
+                    outcome=_pct_text(metrics["recommendation_outcome_score"]),
+                ),
+            )
+        )
+
+    if metrics["review_closure_score"] >= 0.65:
+        rows.append((t("admin_ai_decision_good"), t("admin_ai_decision_reviews_good")))
+    else:
+        rows.append((t("admin_ai_decision_risk"), t("admin_ai_decision_reviews_risk")))
+
+    if metrics["ai_success_score"] >= 0.8:
+        rows.append((t("admin_ai_decision_good"), t("admin_ai_decision_ai_good")))
+    else:
+        rows.append((t("admin_ai_decision_risk"), t("admin_ai_decision_ai_risk")))
+
+    latest_code_change = code_signal.get("latest_change")
+    if latest_code_change is not None and not pd.isna(latest_code_change):
+        rows.append(
+            (
+                t("admin_ai_decision_good"),
+                t(
+                    "admin_ai_decision_runtime_live",
+                    freshness=_freshness_label(latest_code_change),
+                    file_count=int(code_signal.get("file_count") or 0),
+                ),
+            )
+        )
+
+    weakest = min(
+        [
+            ("topic_linkage", float(metrics.get("topic_linkage_score") or 0.0)),
+            ("acceptance", float(metrics.get("recommendation_acceptance_score") or 0.0)),
+            ("reviews", float(metrics.get("review_closure_score") or 0.0)),
+            ("ai", float(metrics.get("ai_success_score") or 0.0)),
+            ("progress", float(metrics.get("progress_tracking_score") or 0.0)),
+        ],
+        key=lambda item: item[1],
+    )[0]
+    next_key = {
+        "topic_linkage": "admin_ai_decision_next_topic_linkage",
+        "acceptance": "admin_ai_decision_next_acceptance",
+        "reviews": "admin_ai_decision_next_reviews",
+        "ai": "admin_ai_decision_next_ai",
+        "progress": "admin_ai_decision_next_progress",
+    }.get(weakest, "admin_ai_decision_next_action")
+    rows.append((t("admin_ai_decision_next"), t(next_key)))
+    return rows
+
+
 def _load_admin_ai_frames() -> dict[str, pd.DataFrame]:
+    code_signal = _current_ai_code_signal()
+    latest_change = code_signal.get("latest_change")
+    cache_bust = str(int(latest_change.timestamp())) if latest_change is not None and not pd.isna(latest_change) else ""
     frames = {
         "profiles": _table_frame(
             "profiles",
             "user_id,role,current_plan,subscription_status,created_at,last_used_at,can_teach,can_study",
+            cache_bust,
             limit=5000,
             order_column="created_at",
         ),
         "teacher_student_links": _table_frame(
             "teacher_student_links",
             "id,teacher_id,student_id,status,created_at,updated_at",
+            cache_bust,
             limit=5000,
             order_column="updated_at",
         ),
         "teacher_student_subjects": _table_frame(
             "teacher_student_subjects",
             "id,link_id,teacher_id,student_id,subject_key,subject_label,status,created_at,updated_at",
+            cache_bust,
             limit=5000,
             order_column="updated_at",
         ),
         "learning_programs": _table_frame(
             "learning_programs",
             "id,user_id,subject,learner_stage,level_or_band,status,created_at,updated_at",
+            cache_bust,
             limit=5000,
             order_column="updated_at",
         ),
         "learning_program_topics": _table_frame(
             "learning_program_topics",
             "id,program_id,unit_id,title,topic_number,created_at,updated_at",
+            cache_bust,
             limit=12000,
             order_column="updated_at",
         ),
         "learning_program_assignments": _table_frame(
             "learning_program_assignments",
             "id,program_id,teacher_id,student_user_id,status,assigned_at,updated_at",
+            cache_bust,
             limit=12000,
             order_column="updated_at",
         ),
         "videos": _table_frame(
             "videos",
             "id,user_id,subject,learner_stage,level_or_band,is_public,status,created_at,updated_at",
+            cache_bust,
             limit=12000,
             order_column="updated_at",
         ),
         "learning_program_progress": _table_frame(
             "learning_program_progress",
             "id,assignment_id,topic_id,teacher_done,student_done,is_done,completed_at,created_at,updated_at",
+            cache_bust,
             limit=25000,
             order_column="updated_at",
         ),
         "teacher_assignments": _table_frame(
             "teacher_assignments",
             "id,teacher_id,student_id,assignment_type,status,score_pct,assigned_at,created_at,updated_at,learning_program_assignment_id,learning_program_topic_id,recommendation_bucket,recommendation_focus_kind",
+            cache_bust,
             limit=20000,
             order_column="updated_at",
         ),
         "teacher_assignment_attempts": _table_frame(
             "teacher_assignment_attempts",
             "id,assignment_id,teacher_id,student_id,status,score_pct,created_at,submitted_at,graded_at,completed_at,updated_at,learning_program_assignment_id,learning_program_topic_id,recommendation_bucket,recommendation_focus_kind",
+            cache_bust,
             limit=20000,
             order_column="updated_at",
         ),
         "learning_program_recommendation_events": _table_frame(
             "learning_program_recommendation_events",
             "id,teacher_id,student_id,learning_program_assignment_id,learning_program_topic_id,recommendation_bucket,recommendation_focus_kind,event_type,resource_kind,teacher_assignment_id,assignment_attempt_id,created_at,updated_at",
+            cache_bust,
             limit=25000,
             order_column="updated_at",
         ),
         "teacher_review_requests": _table_frame(
             "teacher_review_requests",
             "id,teacher_id,student_id,status,requested_at,reviewed_at,created_at",
+            cache_bust,
             limit=12000,
             order_column="created_at",
         ),
         "practice_sessions": _table_frame(
             "practice_sessions",
             "id,user_id,source_type,subject,topic,level,score_pct,status,created_at,completed_at",
+            cache_bust,
             limit=25000,
             order_column="created_at",
         ),
         "practice_progress": _table_frame(
             "practice_progress",
             "id,user_id,subject,topic,exercise_type,level,accuracy_pct,last_practiced,created_at",
+            cache_bust,
             limit=25000,
             order_column="last_practiced",
         ),
         "ai_usage_logs": _table_frame(
             "ai_usage_logs",
             "id,user_id,feature_name,status,created_at",
+            cache_bust,
             limit=25000,
             order_column="created_at",
         ),
         "user_activity_log": _table_frame(
             "user_activity_log",
             "id,user_id,activity_type,feature_name,created_at",
+            cache_bust,
             limit=25000,
             order_column="created_at",
         ),
@@ -1052,6 +1177,7 @@ def _load_admin_ai_frames() -> dict[str, pd.DataFrame]:
 
 def _build_admin_ai_snapshot() -> dict[str, Any]:
     frames = _load_admin_ai_frames()
+    code_signal = _current_ai_code_signal()
     links_df = frames["teacher_student_links"]
     subjects_df = frames["teacher_student_subjects"]
     programs_df = frames["learning_programs"]
@@ -1121,6 +1247,21 @@ def _build_admin_ai_snapshot() -> dict[str, Any]:
         ].sum()
     ) if not recommendation_event_counts.empty else 0
     feedback_loop_score = _safe_ratio(recommendation_learning, recommendation_actions or recommendation_surface)
+    recommendation_acceptance_score = _safe_ratio(recommendation_actions, recommendation_surface)
+    recommendation_outcome_score = _safe_ratio(recommendation_learning, recommendation_actions)
+    topic_linked_assignments = int(
+        assignments_df.get("learning_program_topic_id", pd.Series(dtype=float)).notna().sum()
+    ) if not assignments_df.empty else 0
+    topic_linked_attempts = int(
+        attempts_df.get("learning_program_topic_id", pd.Series(dtype=float)).notna().sum()
+    ) if not attempts_df.empty else 0
+    topic_linked_events = int(
+        recommendation_df.get("learning_program_topic_id", pd.Series(dtype=float)).notna().sum()
+    ) if not recommendation_df.empty else 0
+    topic_linkage_score = _safe_ratio(
+        float(topic_linked_assignments + topic_linked_attempts + topic_linked_events),
+        float(len(assignments_df) + len(attempts_df) + len(recommendation_df)),
+    )
 
     program_topic_counts = (
         topics_df.groupby("program_id", as_index=False).size().rename(columns={"size": "topic_count"})
@@ -1168,22 +1309,34 @@ def _build_admin_ai_snapshot() -> dict[str, Any]:
             "videos": int(len(videos_df)),
             "recommendation_events": int(len(recommendation_df)),
             "program_alignment_score": program_alignment_score,
+            "topic_linkage_score": topic_linkage_score,
             "review_closure_score": review_closure_score,
             "ai_success_score": ai_success_score,
             "feedback_loop_score": feedback_loop_score,
+            "recommendation_acceptance_score": recommendation_acceptance_score,
+            "recommendation_outcome_score": recommendation_outcome_score,
             "progress_tracking_score": progress_tracking_score,
             "freshness": overall_freshness,
         },
         "recommendation_counts": recommendation_event_counts,
+        "code_signal": code_signal,
     }
 
 
 def _render_admin_ai_intelligence() -> None:
-    _render_section_callout(t("admin_ai_intelligence_title"), t("admin_ai_intelligence_subtitle"))
+    card_col, refresh_col = st.columns([0.76, 0.24], vertical_alignment="center")
+    with card_col:
+        _render_section_callout(t("admin_ai_intelligence_title"), t("admin_ai_intelligence_subtitle"))
+    with refresh_col:
+        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+        if st.button(t("admin_ai_refresh_now"), key="admin_ai_refresh_now", use_container_width=True):
+            clear_app_caches()
+            st.rerun()
     st.markdown("<div class='admin-kpi-stack-gap'></div>", unsafe_allow_html=True)
     snapshot = _build_admin_ai_snapshot()
     frames = snapshot["frames"]
     metrics = snapshot["metrics"]
+    code_signal = snapshot.get("code_signal") or {}
 
     top_metrics = [
         (t("admin_ai_metric_active_links"), str(metrics["active_links"])),
@@ -1374,6 +1527,20 @@ def _render_admin_ai_intelligence() -> None:
                 "signals": t("admin_ai_model_review_sync_signals"),
                 "output": t("admin_ai_model_review_sync_output"),
             },
+            {
+                "name": t("admin_ai_model_recommendation_acceptance"),
+                "stage": t("admin_ai_model_stage_live"),
+                "goal": t("admin_ai_model_recommendation_acceptance_goal"),
+                "signals": t("admin_ai_model_recommendation_acceptance_signals"),
+                "output": t("admin_ai_model_recommendation_acceptance_output"),
+            },
+            {
+                "name": t("admin_ai_model_resource_matching"),
+                "stage": t("admin_ai_model_stage_live"),
+                "goal": t("admin_ai_model_resource_matching_goal"),
+                "signals": t("admin_ai_model_resource_matching_signals"),
+                "output": t("admin_ai_model_resource_matching_output"),
+            },
         ]
         live_df = pd.DataFrame(live_models).rename(
             columns={
@@ -1402,20 +1569,6 @@ def _render_admin_ai_intelligence() -> None:
                 "signals": t("admin_ai_model_student_mastery_signals"),
                 "output": t("admin_ai_model_student_mastery_output"),
             },
-            {
-                "name": t("admin_ai_model_recommendation_acceptance"),
-                "stage": t("admin_ai_model_stage_next"),
-                "goal": t("admin_ai_model_recommendation_acceptance_goal"),
-                "signals": t("admin_ai_model_recommendation_acceptance_signals"),
-                "output": t("admin_ai_model_recommendation_acceptance_output"),
-            },
-            {
-                "name": t("admin_ai_model_resource_matching"),
-                "stage": t("admin_ai_model_stage_next"),
-                "goal": t("admin_ai_model_resource_matching_goal"),
-                "signals": t("admin_ai_model_resource_matching_signals"),
-                "output": t("admin_ai_model_resource_matching_output"),
-            },
         ]
         next_df = pd.DataFrame(next_models).rename(
             columns={
@@ -1433,12 +1586,12 @@ def _render_admin_ai_intelligence() -> None:
         dataset_specs = [
             ("admin_ai_dataset_accounts", "profiles", t("admin_ai_dataset_accounts_purpose"), t("admin_ai_grain_user"), ["created_at", "last_used_at"], 0.95),
             ("admin_ai_dataset_links", "teacher_student_links", t("admin_ai_dataset_links_purpose"), t("admin_ai_grain_teacher_student"), ["updated_at", "created_at"], 0.85),
-            ("admin_ai_dataset_program_catalog", "learning_program_topics", t("admin_ai_dataset_program_catalog_purpose"), t("admin_ai_grain_program_topic"), ["updated_at", "created_at"], 0.8),
+            ("admin_ai_dataset_program_catalog", "learning_program_topics", t("admin_ai_dataset_program_catalog_purpose"), t("admin_ai_grain_program_topic"), ["updated_at", "created_at"], metrics["topic_linkage_score"]),
             ("admin_ai_dataset_videos", "videos", t("admin_ai_dataset_videos_purpose"), t("admin_ai_grain_video"), ["updated_at", "created_at"], 0.88),
             ("admin_ai_dataset_program_progress", "learning_program_progress", t("admin_ai_dataset_program_progress_purpose"), t("admin_ai_grain_assignment_topic"), ["updated_at", "completed_at", "created_at"], metrics["progress_tracking_score"]),
-            ("admin_ai_dataset_assignments", "teacher_assignments", t("admin_ai_dataset_assignments_purpose"), t("admin_ai_grain_assignment"), ["updated_at", "assigned_at", "created_at"], metrics["program_alignment_score"]),
+            ("admin_ai_dataset_assignments", "teacher_assignments", t("admin_ai_dataset_assignments_purpose"), t("admin_ai_grain_assignment"), ["updated_at", "assigned_at", "created_at"], max(metrics["program_alignment_score"], metrics["topic_linkage_score"])),
             ("admin_ai_dataset_attempts", "teacher_assignment_attempts", t("admin_ai_dataset_attempts_purpose"), t("admin_ai_grain_attempt"), ["updated_at", "graded_at", "submitted_at", "created_at"], 0.82),
-            ("admin_ai_dataset_recommendations", "learning_program_recommendation_events", t("admin_ai_dataset_recommendations_purpose"), t("admin_ai_grain_event"), ["updated_at", "created_at"], metrics["feedback_loop_score"]),
+            ("admin_ai_dataset_recommendations", "learning_program_recommendation_events", t("admin_ai_dataset_recommendations_purpose"), t("admin_ai_grain_event"), ["updated_at", "created_at"], max(metrics["feedback_loop_score"], metrics["recommendation_acceptance_score"])),
             ("admin_ai_dataset_reviews", "teacher_review_requests", t("admin_ai_dataset_reviews_purpose"), t("admin_ai_grain_request"), ["reviewed_at", "requested_at", "created_at"], metrics["review_closure_score"]),
             ("admin_ai_dataset_practice", "practice_sessions", t("admin_ai_dataset_practice_purpose"), t("admin_ai_grain_session"), ["completed_at", "created_at"], 0.9),
             ("admin_ai_dataset_ai_usage", "ai_usage_logs", t("admin_ai_dataset_ai_usage_purpose"), t("admin_ai_grain_activity"), ["created_at"], metrics["ai_success_score"]),
@@ -1485,28 +1638,7 @@ def _render_admin_ai_intelligence() -> None:
             st.dataframe(frames.get(raw_choice, pd.DataFrame()), use_container_width=True, hide_index=True)
 
     with decision_tab:
-        decision_rows = []
-        if metrics["program_alignment_score"] >= 0.75:
-            decision_rows.append((t("admin_ai_decision_good"), t("admin_ai_decision_alignment_good")))
-        else:
-            decision_rows.append((t("admin_ai_decision_gap"), t("admin_ai_decision_alignment_gap")))
-
-        if metrics["review_closure_score"] >= 0.65:
-            decision_rows.append((t("admin_ai_decision_good"), t("admin_ai_decision_reviews_good")))
-        else:
-            decision_rows.append((t("admin_ai_decision_risk"), t("admin_ai_decision_reviews_risk")))
-
-        if metrics["feedback_loop_score"] >= 0.45:
-            decision_rows.append((t("admin_ai_decision_good"), t("admin_ai_decision_feedback_good")))
-        else:
-            decision_rows.append((t("admin_ai_decision_gap"), t("admin_ai_decision_feedback_gap")))
-
-        if metrics["ai_success_score"] >= 0.8:
-            decision_rows.append((t("admin_ai_decision_good"), t("admin_ai_decision_ai_good")))
-        else:
-            decision_rows.append((t("admin_ai_decision_risk"), t("admin_ai_decision_ai_risk")))
-
-        decision_rows.append((t("admin_ai_decision_next"), t("admin_ai_decision_next_action")))
+        decision_rows = _admin_ai_decision_rows(metrics, code_signal)
         for title, body in decision_rows:
             st.markdown(
                 f"""
