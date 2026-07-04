@@ -1,6 +1,298 @@
 import streamlit as st
+import streamlit.components.v1 as components
 
 THEME_MODES = ("auto", "light", "dark")
+
+
+def _inject_live_background() -> None:
+    components.html(
+        """
+        <script>
+        (function () {
+          const hostWindow = window.parent;
+          const hostDoc = hostWindow.document;
+          const root = hostDoc.documentElement;
+          const bgId = "classio-live-bg";
+          const styleId = "classio-live-bg-style";
+          const scriptFlag = "__classioLiveBgMounted";
+
+          if (!hostDoc.getElementById(styleId)) {
+            const style = hostDoc.createElement("style");
+            style.id = styleId;
+            style.textContent = `
+              #${bgId} {
+                position: fixed;
+                inset: 0;
+                z-index: 0;
+                pointer-events: none;
+                overflow: hidden;
+                background:
+                  radial-gradient(circle at 12% 14%, rgba(59,130,246,0.12), transparent 28%),
+                  radial-gradient(circle at 85% 18%, rgba(20,184,166,0.11), transparent 24%),
+                  radial-gradient(circle at 52% 78%, rgba(245,158,11,0.06), transparent 18%),
+                  linear-gradient(180deg, var(--bg-2, #f8faff) 0%, var(--bg-1, #f5f7fb) 100%);
+              }
+              #${bgId}::before {
+                content: "";
+                position: absolute;
+                inset: -10%;
+                background:
+                  radial-gradient(circle at 50% 50%, rgba(255,255,255,0.16), transparent 55%),
+                  linear-gradient(120deg, rgba(255,255,255,0.10), transparent 45%, rgba(255,255,255,0.05) 70%, transparent 100%);
+                opacity: 0.8;
+                filter: blur(32px);
+              }
+              #${bgId}::after {
+                content: "";
+                position: absolute;
+                inset: 0;
+                background:
+                  linear-gradient(180deg, rgba(255,255,255,0.08), transparent 18%, transparent 82%, rgba(15,23,42,0.05)),
+                  radial-gradient(circle at center, transparent 0%, transparent 52%, rgba(15,23,42,0.04) 100%);
+                opacity: 0.65;
+              }
+              #${bgId} canvas {
+                width: 100%;
+                height: 100%;
+                display: block;
+                opacity: 0.95;
+              }
+              .stApp,
+              [data-testid="stAppViewContainer"],
+              section[data-testid="stMain"],
+              section[data-testid="stMain"] > div,
+              .block-container {
+                position: relative;
+                z-index: 1;
+              }
+              @media (max-width: 768px) {
+                #${bgId}::before {
+                  opacity: 0.55;
+                  filter: blur(22px);
+                }
+                #${bgId}::after {
+                  opacity: 0.45;
+                }
+              }
+              @media (prefers-reduced-motion: reduce) {
+                #${bgId} canvas {
+                  opacity: 0.55;
+                }
+              }
+            `;
+            hostDoc.head.appendChild(style);
+          }
+
+          let container = hostDoc.getElementById(bgId);
+          if (!container) {
+            container = hostDoc.createElement("div");
+            container.id = bgId;
+            const canvas = hostDoc.createElement("canvas");
+            canvas.setAttribute("aria-hidden", "true");
+            container.appendChild(canvas);
+            hostDoc.body.prepend(container);
+          }
+
+          if (hostWindow[scriptFlag]) {
+            hostWindow[scriptFlag].refreshTheme?.();
+            return;
+          }
+
+          const canvas = container.querySelector("canvas");
+          const ctx = canvas.getContext("2d", { alpha: true });
+          const state = {
+            particles: [],
+            width: 0,
+            height: 0,
+            dpr: 1,
+            mobile: false,
+            reduceMotion: false,
+            dark: false,
+            frameId: 0,
+            paused: false,
+            theme: null,
+          };
+
+          function rgba(hex, alpha) {
+            const value = String(hex || "").trim();
+            if (!value) return `rgba(59,130,246,${alpha})`;
+            if (value.startsWith("rgba(")) {
+              return value.replace(/rgba\\(([^)]+),[^)]+\\)/, `rgba($1,${alpha})`);
+            }
+            if (value.startsWith("rgb(")) {
+              return value.replace("rgb(", "rgba(").replace(")", `,${alpha})`);
+            }
+            const clean = value.replace("#", "");
+            if (clean.length !== 6) return `rgba(59,130,246,${alpha})`;
+            const num = parseInt(clean, 16);
+            const r = (num >> 16) & 255;
+            const g = (num >> 8) & 255;
+            const b = num & 255;
+            return `rgba(${r},${g},${b},${alpha})`;
+          }
+
+          function getTheme() {
+            const styles = hostWindow.getComputedStyle(root);
+            const prefersDark = hostWindow.matchMedia &&
+              hostWindow.matchMedia("(prefers-color-scheme: dark)").matches;
+            const bg = styles.getPropertyValue("--bg-1").trim() || (prefersDark ? "#0f172a" : "#f5f7fb");
+            const primary = styles.getPropertyValue("--primary").trim() || "#2563EB";
+            const accent = styles.getPropertyValue("--success").trim() || "#10B981";
+            const warm = styles.getPropertyValue("--warning").trim() || "#F59E0B";
+            if (prefersDark) {
+              return {
+                particleA: rgba(primary, 0.70),
+                particleB: rgba(accent, 0.46),
+                lineA: rgba(primary, 0.16),
+                lineB: rgba(accent, 0.10),
+                glow: rgba(warm, 0.12),
+                bg,
+                dark: true,
+                speed: 1.0,
+                nodeShadow: 14,
+                lineBoost: 1.0,
+              };
+            }
+            return {
+              particleA: rgba(primary, 0.54),
+              particleB: rgba(accent, 0.34),
+              lineA: rgba(primary, 0.22),
+              lineB: rgba(accent, 0.14),
+              glow: rgba(warm, 0.10),
+              bg,
+              dark: false,
+              speed: 1.55,
+              nodeShadow: 8,
+              lineBoost: 1.35,
+            };
+          }
+
+          function syncCanvasSize() {
+            state.mobile = hostWindow.innerWidth < 768;
+            state.reduceMotion = !!(hostWindow.matchMedia &&
+              hostWindow.matchMedia("(prefers-reduced-motion: reduce)").matches);
+            state.dpr = Math.min(hostWindow.devicePixelRatio || 1, 1.8);
+            state.width = hostWindow.innerWidth;
+            state.height = hostWindow.innerHeight;
+            canvas.width = Math.round(state.width * state.dpr);
+            canvas.height = Math.round(state.height * state.dpr);
+            ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+            seedParticles();
+          }
+
+          function targetParticleCount() {
+            if (state.reduceMotion) return state.mobile ? 10 : 16;
+            return state.mobile ? 18 : 34;
+          }
+
+          function seedParticles() {
+            const next = [];
+            const count = targetParticleCount();
+            for (let i = 0; i < count; i += 1) {
+              const existing = state.particles[i];
+              next.push(existing || {
+                x: Math.random() * state.width,
+                y: Math.random() * state.height,
+                vx: (Math.random() - 0.5) * (state.mobile ? 0.09 : 0.14),
+                vy: (Math.random() - 0.5) * (state.mobile ? 0.07 : 0.11),
+                radius: Math.random() * (state.mobile ? 1.6 : 2.1) + 0.8,
+                hueShift: Math.random(),
+              });
+            }
+            state.particles = next;
+          }
+
+          function drawBackdrop(theme) {
+            ctx.clearRect(0, 0, state.width, state.height);
+            const wash = ctx.createRadialGradient(
+              state.width * 0.52,
+              state.height * 0.45,
+              0,
+              state.width * 0.52,
+              state.height * 0.45,
+              Math.max(state.width, state.height) * 0.72
+            );
+            wash.addColorStop(0, rgba(theme.bg, theme.dark ? 0.02 : 0.00));
+            wash.addColorStop(1, rgba(theme.bg, theme.dark ? 0.16 : 0.06));
+            ctx.fillStyle = wash;
+            ctx.fillRect(0, 0, state.width, state.height);
+          }
+
+          function animate() {
+            state.frameId = hostWindow.requestAnimationFrame(animate);
+            if (state.paused) return;
+
+            const theme = state.theme = getTheme();
+            drawBackdrop(theme);
+
+            const maxDist = state.mobile ? 120 : 160;
+            const glowDist = state.mobile ? 70 : 96;
+            const speed = theme.speed || 1;
+
+            for (const particle of state.particles) {
+              particle.x += state.reduceMotion ? 0.01 : particle.vx * speed;
+              particle.y += state.reduceMotion ? 0.01 : particle.vy * speed;
+
+              if (particle.x < -20) particle.x = state.width + 20;
+              if (particle.x > state.width + 20) particle.x = -20;
+              if (particle.y < -20) particle.y = state.height + 20;
+              if (particle.y > state.height + 20) particle.y = -20;
+            }
+
+            for (let i = 0; i < state.particles.length; i += 1) {
+              const a = state.particles[i];
+              for (let j = i + 1; j < state.particles.length; j += 1) {
+                const b = state.particles[j];
+                const dx = a.x - b.x;
+                const dy = a.y - b.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist > maxDist) continue;
+                const alpha = 1 - dist / maxDist;
+                ctx.beginPath();
+                ctx.moveTo(a.x, a.y);
+                ctx.lineTo(b.x, b.y);
+                ctx.strokeStyle = a.hueShift > 0.58
+                  ? rgba(theme.dark ? "#67e8f9" : "#14b8a6", alpha * (theme.dark ? 0.10 : 0.12) * theme.lineBoost)
+                  : rgba(theme.dark ? "#93c5fd" : "#2563eb", alpha * (theme.dark ? 0.14 : 0.16) * theme.lineBoost);
+                ctx.lineWidth = dist < glowDist ? (theme.dark ? 1.15 : 1.35) : (theme.dark ? 0.8 : 1.0);
+                ctx.stroke();
+              }
+            }
+
+            for (const particle of state.particles) {
+              ctx.beginPath();
+              ctx.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
+              ctx.fillStyle = particle.hueShift > 0.64 ? theme.particleB : theme.particleA;
+              ctx.shadowBlur = state.reduceMotion ? 0 : theme.nodeShadow;
+              ctx.shadowColor = particle.hueShift > 0.64 ? theme.glow : theme.lineA;
+              ctx.fill();
+            }
+
+            ctx.shadowBlur = 0;
+          }
+
+          function handleVisibility() {
+            state.paused = hostDoc.hidden;
+          }
+
+          function refreshTheme() {
+            state.theme = getTheme();
+          }
+
+          hostWindow.addEventListener("resize", syncCanvasSize, { passive: true });
+          hostDoc.addEventListener("visibilitychange", handleVisibility, { passive: true });
+          hostWindow.matchMedia?.("(prefers-color-scheme: dark)")?.addEventListener?.("change", refreshTheme);
+          hostWindow.matchMedia?.("(prefers-reduced-motion: reduce)")?.addEventListener?.("change", syncCanvasSize);
+
+          hostWindow[scriptFlag] = { refreshTheme };
+          syncCanvasSize();
+          refreshTheme();
+          animate();
+        })();
+        </script>
+        """,
+        height=0,
+    )
 
 def get_theme_mode() -> str:
     mode = str(st.session_state.get("ui_theme_mode", "auto")).strip().lower()
@@ -142,13 +434,10 @@ def _dark_widget_css() -> str:
       html, body,
       .stApp,
       [data-testid="stAppViewContainer"] {
-        background-color: var(--bg-1) !important;
+        background-color: transparent !important;
       }
       .stApp {
-        background:
-          radial-gradient(900px 420px at 0% 0%, rgba(59,130,246,0.10), transparent 55%),
-          radial-gradient(700px 380px at 100% 0%, rgba(52,211,153,0.07), transparent 58%),
-          linear-gradient(180deg, var(--bg-2) 0%, var(--bg-1) 100%) !important;
+        background: transparent !important;
         color: var(--text) !important;
       }
 
@@ -471,6 +760,7 @@ def _resource_cards_css() -> str:
 
 def load_css_home():
     st.markdown(f"<style>{_root_vars()}</style>", unsafe_allow_html=True)
+    _inject_live_background()
     st.markdown(
         """
         <style>
@@ -492,10 +782,7 @@ def load_css_home():
         }
 
         .stApp{
-          background:
-            radial-gradient(900px 420px at 0% 0%, rgba(37,99,235,0.06), transparent 55%),
-            radial-gradient(700px 380px at 100% 0%, rgba(16,185,129,0.05), transparent 58%),
-            linear-gradient(180deg, var(--bg-2) 0%, var(--bg-1) 100%);
+          background: transparent;
           color: var(--text);
           min-height:100vh;
         }
@@ -956,6 +1243,7 @@ def load_css_app(compact: bool = False):
     """ if compact else ""
 
     st.markdown(f"<style>{_root_vars()}</style>", unsafe_allow_html=True)
+    _inject_live_background()
     st.markdown(
         f"""
         <style>
@@ -972,9 +1260,7 @@ def load_css_app(compact: bool = False):
         }}
 
         .stApp {{
-          background:
-            radial-gradient(900px 420px at 0% 0%, rgba(37,99,235,0.06), transparent 55%),
-            linear-gradient(180deg, var(--bg-2) 0%, var(--bg) 100%) !important;
+          background: transparent !important;
           color: var(--text) !important;
         }}
 
