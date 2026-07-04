@@ -14,7 +14,7 @@ import streamlit as st
 from core.database import clear_app_caches, get_sb, load_profile_row, register_cache, show_data_load_error
 from core.i18n import t
 from core.state import get_current_user_id, with_owner
-from helpers.archive_utils import ARCHIVED_STATUS, filter_archived_rows, is_archived_status
+from helpers.archive_utils import ARCHIVED_STATUS, filter_archived_rows, is_archived_status, truthy_flag
 from helpers.generation_guidance import build_expert_panel_prompt_blurb
 from helpers.native_language import NATIVE_LANGUAGE_OPTIONS, is_language_subject, native_language_label, normalize_native_language
 from helpers.resource_gallery import (
@@ -3317,10 +3317,16 @@ def set_assignment_topic_progress(
 
         if existing_rows:
             current = existing_rows[0]
+            current_teacher_done = truthy_flag(current.get("teacher_done"))
             if done_by_teacher is None:
-                payload["teacher_done"] = bool(current.get("teacher_done"))
+                payload["teacher_done"] = truthy_flag(current.get("teacher_done"))
             if done_by_student is None:
-                payload["student_done"] = bool(current.get("student_done"))
+                payload["student_done"] = truthy_flag(current.get("student_done"))
+                # The "request more practice" flag must come from an explicit student action.
+                # When the teacher marks a topic done for the first time, clear any stale legacy
+                # value that may have been inferred from older automatic flows.
+                if done_by_teacher is not None and bool(done_by_teacher) and not current_teacher_done:
+                    payload["student_done"] = False
             payload["is_done"] = bool(payload["teacher_done"])
             payload["completed_at"] = now if payload["is_done"] else None
             sb.table("learning_program_progress").update(payload).eq("id", int(current["id"])).execute()
@@ -4283,8 +4289,8 @@ def render_student_program_view(
                 global_topic_number += 1
                 topic_id = int(topic.get("topic_id") or 0)
                 topic_progress = progress_map.get(topic_id, {})
-                done = bool(topic_progress.get("teacher_done"))
-                needs_practice = bool(topic_progress.get("student_done"))
+                done = truthy_flag(topic_progress.get("teacher_done"))
+                needs_practice = truthy_flag(topic_progress.get("student_done"))
                 cols = st.columns([0.12, 0.88])
                 with cols[0]:
                     st.write("✅" if done else "⬜")

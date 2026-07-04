@@ -10,9 +10,11 @@ import streamlit as st
 from core.database import load_profile_row
 from core.i18n import t
 from core.state import get_current_user_id
+from helpers.archive_utils import truthy_flag
 from helpers.lesson_planner import normalize_subject, subject_label
 from helpers.practice_engine import get_completed_source_ids, load_practice_progress
 from helpers.recommendation_models import score_student_resource_candidate, topic_resource_alignment_features
+from helpers.student_recommendation_ml import student_recommendation_blend_weight
 from helpers.teacher_student_integration import load_student_assignments
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student
 
@@ -85,11 +87,11 @@ def _build_recommended_materials_cached(
                 continue
             if str(row_id or "").strip() in assigned.get(resource_type, set()):
                 continue
-            score, reasons = _resource_feature_score(row, resource_type, student_profile)
+            score, reasons, ml_meta = _resource_feature_score(row, resource_type, student_profile)
             if score < 0:
                 continue
             assignment_state = assignment_lookup.get((resource_type, str(row_id or "").strip()))
-            ranked.append(_normalize_recommendation_row(row, resource_type, score, reasons, assignment_state))
+            ranked.append(_normalize_recommendation_row(row, resource_type, score, reasons, assignment_state, ml_meta))
 
     _append_rows(worksheets_df, "worksheet")
     _append_rows(exams_df, "exam")
@@ -389,7 +391,7 @@ def _load_program_signals() -> dict[str, Any]:
                 topic_position += 1
                 topic_id = int(topic.get("topic_id") or 0)
                 topic_progress = progress_map.get(topic_id, {}) if topic_id else {}
-                if bool(topic_progress.get("teacher_done")):
+                if truthy_flag(topic_progress.get("teacher_done")):
                     latest_completed_position = max(latest_completed_position, topic_position)
                 ordered_topics.append((topic_position, topic, topic_progress))
 
@@ -399,15 +401,15 @@ def _load_program_signals() -> dict[str, Any]:
             summary = str(topic.get("student_summary") or topic.get("lesson_focus") or topic.get("subtopic") or "").strip()
             topic_tokens = _topic_tokens(title, summary)
             topic_id = int(topic.get("topic_id") or 0)
-            if bool(topic_progress.get("teacher_done")) and bool(topic_progress.get("student_done")):
+            if truthy_flag(topic_progress.get("teacher_done")) and truthy_flag(topic_progress.get("student_done")):
                 signals["review_topic_tokens"].update(topic_tokens)
                 if topic_id > 0:
                     signals["review_topic_ids"].add(topic_id)
-            if not bool(topic_progress.get("teacher_done")) and latest_completed_position > 0 and position < latest_completed_position:
+            if not truthy_flag(topic_progress.get("teacher_done")) and latest_completed_position > 0 and position < latest_completed_position:
                 signals["pending_topic_tokens"].update(topic_tokens)
                 if topic_id > 0:
                     signals["pending_topic_ids"].add(topic_id)
-            if bool(topic_progress.get("teacher_done")):
+            if truthy_flag(topic_progress.get("teacher_done")):
                 continue
             if topic_id > 0:
                 signals["active_topic_ids"].add(topic_id)
@@ -570,7 +572,7 @@ def _build_student_need_profile() -> dict[str, Any]:
     return profile
 
 
-def _resource_feature_score(row: dict, resource_type: str, student_profile: dict[str, Any]) -> tuple[float, list[str]]:
+def _resource_feature_score(row: dict, resource_type: str, student_profile: dict[str, Any]) -> tuple[float, list[str], dict[str, float]]:
     subject = _resource_subject(row)
     topic = _resource_topic(row)
     stage = _resource_stage(row)
@@ -612,9 +614,9 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
     )
 
     if bootstrap_mode and program_subjects and subject not in program_subjects:
-        return -1.0, []
+        return -1.0, [], {}
     if bootstrap_mode and target_level and level and _normalize_level(level) != _normalize_level(target_level):
-        return -1.0, []
+        return -1.0, [], {}
 
     subject_focus = 1.0 if subject_need > 0 else (0.8 if subject in primary_subjects else 0.45)
     if program_subjects:
@@ -733,8 +735,10 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
         "topic_success_penalty": 1.0 if topic_success >= 0.82 and topic_need < 0.28 else 0.0,
         "topic_in_program": program_topic_overlap,
     }
-    ml_score = score_student_resource_candidate(ml_features, student_profile)
-    score += 0.6 * ml_score
+    safe_student_id = str(get_current_user_id() or "").strip()
+    ml_score = score_student_resource_candidate(ml_features, student_profile, student_id=safe_student_id)
+    ml_blend_weight = student_recommendation_blend_weight(safe_student_id, student_profile) if safe_student_id else 0.42
+    score += ml_blend_weight * ml_score
 
     reasons: list[str] = []
     if assigned_unseen and resource_type == "video" and topic:
@@ -770,7 +774,7 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
     if not reasons:
         reasons.append(t("student_material_reason_balanced"))
 
-    return score, reasons[:3]
+    return score, reasons[:3], {"ml_score": round(ml_score, 4), "ml_blend_weight": round(ml_blend_weight, 4)}
 
 
 def _normalize_recommendation_row(
@@ -779,6 +783,7 @@ def _normalize_recommendation_row(
     score: float,
     reasons: list[str],
     assignment_state: dict[str, Any] | None = None,
+    ml_meta: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     return {
         "resource_type": resource_type,
@@ -796,6 +801,8 @@ def _normalize_recommendation_row(
         "assignment_status": str((assignment_state or {}).get("status") or "").strip(),
         "assignment_attempt_count": _safe_int((assignment_state or {}).get("attempt_count"), 0),
         "assignment_teacher_name": str((assignment_state or {}).get("teacher_name") or "").strip(),
+        "ml_score": _safe_float((ml_meta or {}).get("ml_score"), 0.0),
+        "ml_blend_weight": _safe_float((ml_meta or {}).get("ml_blend_weight"), 0.0),
         "row": row,
     }
 

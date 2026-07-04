@@ -16,9 +16,11 @@ from core.database import (
     rename_student_everywhere
 )
 from core.state import get_current_user_id
+from helpers.lesson_planner import normalize_subject as _normalize_subject_key, subject_label as _subject_label
 from helpers.student_meta import load_students_df
 from helpers.student_personalization import NATIVE_LANGUAGE_OPTIONS, is_language_subject, native_language_label, normalize_native_language
 from helpers.history import show_student_history
+from helpers.archive_utils import truthy_flag
 from helpers.ui_components import translate_df_headers, render_styled_dataframe
 from helpers.whatsapp import _digits_only, normalize_phone_for_whatsapp, build_whatsapp_url
 from helpers.student_report import (
@@ -67,6 +69,7 @@ from helpers.recommendation_memory import (
     set_active_recommendation_context,
 )
 from helpers.recommendation_models import score_teacher_resource_candidate
+from helpers.teacher_recommendation_ml import score_teacher_recommendation_objective
 
 # 12.2) PAGE: STUDENTS
 # =========================
@@ -214,6 +217,16 @@ def _topic_payload(
         "reasons": reasons[:3],
         "actions": _recommendation_actions(focus_kind),
     }
+
+
+def _localized_subject_display(subject_key, subject_label_text="") -> str:
+    normalized = _normalize_subject_key(subject_key or subject_label_text)
+    if normalized and normalized != "other":
+        try:
+            return str(_subject_label(normalized) or subject_label_text or subject_key or "—").strip()
+        except Exception:
+            pass
+    return str(subject_label_text or subject_key or "—").strip()
 
 
 def _score_resource_for_recommendation(row: dict, kind: str, source: str, item: dict) -> float:
@@ -798,7 +811,7 @@ def _render_teacher_program_assignment_list(rows: list[dict], state_key_prefix: 
             ):
                 for topic in unit.get("topics") or []:
                     topic_id = int(topic.get("topic_id") or 0)
-                    done = bool(progress_map.get(topic_id, {}).get("teacher_done"))
+                    done = truthy_flag(progress_map.get(topic_id, {}).get("teacher_done"))
                     topic_cols = st.columns([0.14, 0.86], gap="small")
                     with topic_cols[0]:
                         checkbox_key = f"teacher_learning_program_done_{assignment_id}_{topic_id}"
@@ -1016,15 +1029,15 @@ def _build_program_recommendations(
                 topic_id = int(topic.get("topic_id") or 0)
                 ordered_topics.append((topic_position, topic, progress_map.get(topic_id, {}) if topic_id else {}))
 
-        completed_positions = [position for position, _topic, topic_progress in ordered_topics if bool(topic_progress.get("teacher_done"))]
+        completed_positions = [position for position, _topic, topic_progress in ordered_topics if truthy_flag(topic_progress.get("teacher_done"))]
         latest_completed_position = max(completed_positions, default=0)
         next_topic = None
         pending_topic = None
         review_candidates: list[tuple[float, dict, dict, dict]] = []
 
         for position, topic, topic_progress in ordered_topics:
-            teacher_done = bool(topic_progress.get("teacher_done"))
-            needs_practice = bool(topic_progress.get("student_done"))
+            teacher_done = truthy_flag(topic_progress.get("teacher_done"))
+            needs_practice = truthy_flag(topic_progress.get("student_done"))
             topic_rows = _topic_progress_rows(topic, rows_by_subject.get(subject_key, []))
             topic_signal = _topic_signal_from_rows(topic_rows)
             topic_id = int(topic.get("topic_id") or 0)
@@ -1059,7 +1072,7 @@ def _build_program_recommendations(
 
         if next_topic is None:
             for _position, topic, topic_progress in ordered_topics:
-                if not bool(topic_progress.get("teacher_done")):
+                if not truthy_flag(topic_progress.get("teacher_done")):
                     topic_id = int(topic.get("topic_id") or 0)
                     next_topic = (
                         topic,
@@ -1073,12 +1086,28 @@ def _build_program_recommendations(
             next_score = 0.62 + 0.18 * progress_gap + 0.12 * signal.get("status_pressure", 0.0) + 0.08 * topic_signal.get("retry_pressure", 0.0)
             if next_event.get("last_event_type") in {"teacher_marked_done", "assignment_created"}:
                 next_score -= 0.16
+            focus_kind = "stretch" if signal.get("score_gap", 0.0) < 0.26 else "reinforce"
+            candidate = {
+                "recommendation_bucket": "next_topic",
+                "progress_gap": progress_gap,
+                "overall_signal": signal,
+                "topic_signal": topic_signal,
+                "needs_practice": False,
+                "teacher_done": False,
+                "student_done": False,
+                "is_after_latest_completed": True,
+                "is_before_latest_completed": False,
+                "is_next_unfinished": True,
+                "event_summary": next_event,
+            }
+            objective_score, _ = score_teacher_recommendation_objective(candidate)
+            blended_score = (0.58 * next_score) + (0.42 * objective_score)
             recommendations.append(
                 _topic_payload(
                     row=row,
                     topic=topic,
-                    score=next_score,
-                    focus_kind="stretch" if signal.get("score_gap", 0.0) < 0.26 else "reinforce",
+                    score=blended_score,
+                    focus_kind=focus_kind,
                     reasons=[
                         t("student_recommendation_reason_next_topic"),
                         t("student_recommendation_reason_program_gap") if progress_gap >= 0.2 else t("student_recommendation_reason_active_assignment"),
@@ -1090,6 +1119,7 @@ def _build_program_recommendations(
             recommendations[-1]["learning_program_assignment_id"] = assignment_id
             recommendations[-1]["learning_program_topic_id"] = int(topic.get("topic_id") or 0)
             recommendations[-1]["program_id"] = int(program_id or 0)
+            recommendations[-1]["objective_score"] = round(objective_score, 4)
 
         if review_candidates:
             review_candidates.sort(key=lambda item: item[0], reverse=True)
@@ -1098,17 +1128,17 @@ def _build_program_recommendations(
             review_event = recommendation_events.get((assignment_id, review_topic_id, "review"), {})
             if (
                 review_event.get("last_event_type") == "teacher_marked_done"
-                and not bool(topic_progress.get("student_done"))
+                and not truthy_flag(topic_progress.get("student_done"))
                 and review_event.get("improved_count", 0) <= 0
             ):
                 review_candidates = []
-            elif review_event.get("improved_count", 0) > 0 and not bool(topic_progress.get("student_done")):
+            elif review_event.get("improved_count", 0) > 0 and not truthy_flag(topic_progress.get("student_done")):
                 review_candidates = []
 
         if review_candidates:
             review_score, topic, topic_signal, topic_progress = review_candidates[0]
             review_reasons = []
-            if bool(topic_progress.get("student_done")):
+            if truthy_flag(topic_progress.get("student_done")):
                 review_reasons.append(t("student_recommendation_reason_needs_practice"))
             if topic_signal.get("recent_score") is not None:
                 review_reasons.append(t("student_recommendation_reason_low_score", score=int(round(topic_signal["recent_score"]))))
@@ -1116,21 +1146,39 @@ def _build_program_recommendations(
                 review_reasons.append(t("student_recommendation_reason_retries"))
             if not review_reasons:
                 review_reasons.append(t("student_recommendation_reason_active_assignment"))
+            focus_kind = "needs_practice" if truthy_flag(topic_progress.get("student_done")) else "reteach"
+            review_event = recommendation_events.get((assignment_id, int(topic.get("topic_id") or 0), "review"), {})
+            candidate = {
+                "recommendation_bucket": "review",
+                "progress_gap": progress_gap,
+                "overall_signal": signal,
+                "topic_signal": topic_signal,
+                "needs_practice": truthy_flag(topic_progress.get("student_done")),
+                "teacher_done": True,
+                "student_done": truthy_flag(topic_progress.get("student_done")),
+                "is_after_latest_completed": False,
+                "is_before_latest_completed": False,
+                "is_next_unfinished": False,
+                "event_summary": review_event,
+            }
+            objective_score, _ = score_teacher_recommendation_objective(candidate)
+            blended_score = (0.58 * review_score) + (0.42 * objective_score)
             recommendations.append(
                 _topic_payload(
                     row=row,
                     topic=topic,
-                    score=review_score,
-                    focus_kind="needs_practice" if bool(topic_progress.get("student_done")) else "reteach",
+                    score=blended_score,
+                    focus_kind=focus_kind,
                     reasons=review_reasons,
                     recent_score=topic_signal.get("recent_score"),
-                    needs_practice=bool(topic_progress.get("student_done")),
+                    needs_practice=truthy_flag(topic_progress.get("student_done")),
                 )
             )
             recommendations[-1]["recommendation_bucket"] = "review"
             recommendations[-1]["learning_program_assignment_id"] = assignment_id
             recommendations[-1]["learning_program_topic_id"] = int(topic.get("topic_id") or 0)
             recommendations[-1]["program_id"] = int(program_id or 0)
+            recommendations[-1]["objective_score"] = round(objective_score, 4)
 
         if pending_topic is not None:
             topic, topic_signal, pending_event = pending_topic
@@ -1143,11 +1191,26 @@ def _build_program_recommendations(
             ]
             if topic_signal.get("recent_score") is not None:
                 pending_reasons.insert(1, t("student_recommendation_reason_low_score", score=int(round(topic_signal["recent_score"]))))
+            candidate = {
+                "recommendation_bucket": "pending_gap",
+                "progress_gap": progress_gap,
+                "overall_signal": signal,
+                "topic_signal": topic_signal,
+                "needs_practice": False,
+                "teacher_done": False,
+                "student_done": False,
+                "is_after_latest_completed": False,
+                "is_before_latest_completed": True,
+                "is_next_unfinished": False,
+                "event_summary": pending_event,
+            }
+            objective_score, _ = score_teacher_recommendation_objective(candidate)
+            blended_score = (0.58 * pending_score) + (0.42 * objective_score)
             recommendations.append(
                 _topic_payload(
                     row=row,
                     topic=topic,
-                    score=pending_score,
+                    score=blended_score,
                     focus_kind="reinforce",
                     reasons=pending_reasons,
                     recent_score=topic_signal.get("recent_score"),
@@ -1157,6 +1220,7 @@ def _build_program_recommendations(
             recommendations[-1]["learning_program_assignment_id"] = assignment_id
             recommendations[-1]["learning_program_topic_id"] = int(topic.get("topic_id") or 0)
             recommendations[-1]["program_id"] = int(program_id or 0)
+            recommendations[-1]["objective_score"] = round(objective_score, 4)
 
     if recommendations:
         deduped: list[dict] = []
@@ -1809,7 +1873,7 @@ def _render_teacher_review_requests(
         title = _html.escape(str(row.get("title") or "—"))
         student_name = _html.escape(str(row.get("student_name") or "—"))
         status_key = f"teacher_review_status_{row.get('status')}"
-        subject_display = _html.escape(str(row.get("subject_label") or row.get("subject_key") or "—"))
+        subject_display = _html.escape(_localized_subject_display(row.get("subject_key"), row.get("subject_display") or row.get("subject_label")))
         request_note_html = _review_note_block("teacher_review_note", row.get("request_note"))
         feedback_html = _review_note_block("teacher_review_feedback", row.get("teacher_feedback"), feedback=True)
         card_col, action_col = st.columns([6, 2], gap="medium")
@@ -2772,7 +2836,7 @@ def render_students():
                             latest = row.get("latest_attempt") or {}
                             score = latest.get("score_pct", row.get("score_pct"))
                             title = _html.escape(str(row.get("title") or "—"))
-                            subject_display = _html.escape(str(row.get("subject_display") or "—"))
+                            subject_display = _html.escape(_localized_subject_display(row.get("subject_key"), row.get("subject_display")))
                             status_label = _html.escape(t(f"assignment_status_{row.get('status')}"))
                             attempts_value = int(row.get("attempt_count") or 0)
                             score_value = f"{score}%" if score not in (None, "") else "—"

@@ -200,12 +200,22 @@ def save_video_resource(
     topic: str = "",
     is_public: bool = False,
 ) -> tuple[bool, int | None, str]:
+    import helpers.lesson_planner as _lp
+
     user_id = str(get_current_user_id() or "").strip()
     if not user_id:
         return False, None, "no_data"
     if not is_supported_youtube_url(youtube_url):
         return False, None, "video_invalid_url"
     video_id = parse_youtube_video_id(youtube_url)
+    normalized_subject = normalize_subject(subject)
+    normalized_stage = _clean_text(learner_stage)
+    if normalized_stage not in _lp.LEARNER_STAGES:
+        normalized_stage = ""
+    level_options = _lp.get_level_options(normalized_subject)
+    normalized_level = _clean_text(level_or_band)
+    if normalized_level not in level_options:
+        normalized_level = _lp.recommend_default_level(normalized_subject, normalized_stage or _lp.LEARNER_STAGES[0])
     payload = {
         "user_id": user_id,
         "video_id": video_id,
@@ -213,10 +223,10 @@ def save_video_resource(
         "thumbnail_url": youtube_thumbnail_url(video_id),
         "title": _clean_display_text(title) or t("video_default_title"),
         "description": _clean_text(description),
-        "subject": normalize_subject(subject),
+        "subject": normalized_subject,
         "custom_subject_name": _clean_display_text(custom_subject_name),
-        "learner_stage": _clean_text(learner_stage),
-        "level_or_band": _clean_text(level_or_band),
+        "learner_stage": normalized_stage,
+        "level_or_band": normalized_level,
         "topic": _clean_display_text(topic),
         "is_public": bool(is_public),
         "status": "active",
