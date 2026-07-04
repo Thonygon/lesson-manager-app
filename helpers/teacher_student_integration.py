@@ -173,6 +173,13 @@ def _subject_scope_dict(subject_key: str, subject_label_text: str = "") -> dict:
     }
 
 
+def _localized_subject_display(subject_key: Any, subject_label_text: Any = "") -> str:
+    normalized = normalize_subject(subject_key or subject_label_text)
+    if normalized in QUICK_SUBJECTS and normalized != "other":
+        return _clean_display_text(subject_label(normalized))
+    return _clean_display_text(subject_label_text or subject_key or "—")
+
+
 def _serialize_subject_scopes(values: list[str]) -> list[dict]:
     scopes: list[dict] = []
     seen: set[tuple[str, str]] = set()
@@ -212,7 +219,7 @@ def _available_subject_scopes_from_profile(profile: dict) -> list[dict]:
 
 
 def _subject_scope_label(scope: dict) -> str:
-    return _clean_display_text(scope.get("subject_label") or subject_label(scope.get("subject_key") or "other"))
+    return _localized_subject_display(scope.get("subject_key"), scope.get("subject_label"))
 
 
 def _first_name(value: Any) -> str:
@@ -943,7 +950,7 @@ def _load_student_assignments_cached(uid: str, statuses_key: tuple[str, ...]) ->
                 "source_archived": truthy_flag(row.get("source_archived")),
                 "teacher_profile": teacher_profile,
                 "teacher_name": _profile_label(teacher_profile),
-                "subject_display": _clean_display_text(row.get("subject_label") or subject_label(row.get("subject_key") or "")),
+                "subject_display": _localized_subject_display(row.get("subject_key"), row.get("subject_label")),
             }
         )
     return grouped_rows
@@ -1388,10 +1395,12 @@ def record_assignment_attempt_from_practice(
             try:
                 from helpers.learning_programs import set_assignment_topic_progress
 
+                # Completing or struggling with an assignment should not silently create a
+                # "request more practice" signal. That flag is reserved for explicit student intent.
                 set_assignment_topic_progress(
                     assignment_id=linked_program_assignment_id,
                     topic_id=linked_topic_id,
-                    done_by_student=False if improved else True,
+                    done_by_student=False,
                 )
             except Exception:
                 pass
@@ -1452,7 +1461,7 @@ def _load_teacher_assignment_progress_cached(teacher_id: str, student_id: str = 
                 **row,
                 "student_profile": student_profile,
                 "student_name": _profile_label(student_profile),
-                "subject_display": _clean_display_text(row.get("subject_label") or subject_label(row.get("subject_key") or "")),
+                "subject_display": _localized_subject_display(row.get("subject_key"), row.get("subject_label")),
                 "attempt_count": len(attempts),
                 "latest_attempt": latest,
             }
@@ -1806,6 +1815,7 @@ def _load_teacher_review_requests_cached(teacher_id: str, student_id: str = "", 
             "request_note": _strip_html_fragments(row.get("request_note")),
             "teacher_feedback": _clean_teacher_feedback_text(row.get("teacher_feedback")),
             "student_name": _profile_label(profiles.get(str(row.get("student_id")), {})),
+            "subject_display": _localized_subject_display(row.get("subject_key"), row.get("subject_label")),
             "status": _review_request_status_chip(row.get("status")),
         }
         for row in rows
@@ -2057,7 +2067,11 @@ def _assignment_target_options() -> list[dict]:
 
 
 def _link_option_label(link: dict) -> str:
-    subjects = ", ".join(_clean_display_text(s.get("subject_label")) for s in link.get("subjects", []) if s.get("subject_label"))
+    subjects = ", ".join(
+        _localized_subject_display(s.get("subject_key"), s.get("subject_label"))
+        for s in link.get("subjects", [])
+        if s.get("subject_key") or s.get("subject_label")
+    )
     if subjects:
         return f"{link.get('student_name', '—')} · {subjects}"
     return link.get("student_name", "—")
@@ -2088,7 +2102,7 @@ def _render_assignment_target_fields(prefix: str, available_links: list[dict]) -
     subject_idx = st.selectbox(
         t("subject_label"),
         options=list(range(len(subject_rows))),
-        format_func=lambda idx: _clean_display_text(subject_rows[idx].get("subject_label")),
+        format_func=lambda idx: _localized_subject_display(subject_rows[idx].get("subject_key"), subject_rows[idx].get("subject_label")),
         key=f"{prefix}_subject_scope_idx",
     )
     subject = subject_rows[subject_idx]

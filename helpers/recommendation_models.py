@@ -11,6 +11,7 @@ import streamlit as st
 from core.database import get_sb
 from core.i18n import t
 from core.state import get_current_user_id, with_owner
+from helpers.archive_utils import truthy_flag
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -721,7 +722,7 @@ def build_teacher_material_feed_profile(teacher_id: str | None = None) -> dict[s
                     topic_position += 1
                     topic_id = int(topic.get("topic_id") or 0)
                     topic_progress = progress_map.get(topic_id, {}) if topic_id else {}
-                    if bool(topic_progress.get("teacher_done")):
+                    if truthy_flag(topic_progress.get("teacher_done")):
                         latest_completed_position = max(latest_completed_position, topic_position)
                     ordered_topics.append((topic_position, topic, topic_progress))
 
@@ -732,14 +733,14 @@ def build_teacher_material_feed_profile(teacher_id: str | None = None) -> dict[s
                 tokens = _tokenize(title, summary)
                 if not tokens:
                     continue
-                if not bool(topic_progress.get("teacher_done")) and not next_topic_recorded:
+                if not truthy_flag(topic_progress.get("teacher_done")) and not next_topic_recorded:
                     for token in tokens:
                         _accumulate_signal(profile["topic_demand"], token, 1.8)
                     next_topic_recorded = True
-                if not bool(topic_progress.get("teacher_done")) and latest_completed_position > 0 and position < latest_completed_position:
+                if not truthy_flag(topic_progress.get("teacher_done")) and latest_completed_position > 0 and position < latest_completed_position:
                     for token in tokens:
                         _accumulate_signal(profile["topic_demand"], token, 1.35)
-                if bool(topic_progress.get("teacher_done")) and bool(topic_progress.get("student_done")):
+                if truthy_flag(topic_progress.get("teacher_done")) and truthy_flag(topic_progress.get("student_done")):
                     for token in tokens:
                         _accumulate_signal(profile["topic_demand"], token, 0.42)
 
@@ -972,9 +973,9 @@ def log_teacher_material_open(
 def _load_student_history_rows(student_id: str) -> dict[str, list[dict]]:
     safe_student_id = str(student_id or "").strip()
     if not safe_student_id:
-        return {"practice_sessions": [], "teacher_assignments": []}
+        return {"practice_sessions": [], "teacher_assignments": [], "recommendation_activity": []}
 
-    rows = {"practice_sessions": [], "teacher_assignments": []}
+    rows = {"practice_sessions": [], "teacher_assignments": [], "recommendation_activity": []}
     try:
         rows["practice_sessions"] = getattr(
             get_sb()
@@ -1009,6 +1010,22 @@ def _load_student_history_rows(student_id: str) -> dict[str, list[dict]]:
     except Exception:
         rows["teacher_assignments"] = []
 
+    try:
+        rows["recommendation_activity"] = getattr(
+            get_sb()
+            .table("user_activity_log")
+            .select("activity_type,meta_json,created_at")
+            .eq("user_id", safe_student_id)
+            .in_("activity_type", ["student_recommendation_impression", "student_recommendation_open"])
+            .order("created_at", desc=True)
+            .limit(4000)
+            .execute(),
+            "data",
+            None,
+        ) or []
+    except Exception:
+        rows["recommendation_activity"] = []
+
     return rows
 
 
@@ -1021,6 +1038,7 @@ def build_student_recommendation_model(
     history = _load_student_history_rows(safe_student_id)
     practice_rows = history.get("practice_sessions") or []
     assignment_rows = history.get("teacher_assignments") or []
+    activity_rows = history.get("recommendation_activity") or []
     program_signals = student_profile.get("program_signals") or {}
 
     samples: list[tuple[dict[str, float], float]] = []
@@ -1078,6 +1096,29 @@ def build_student_recommendation_model(
             "direct_topic_link": explicit_alignment["direct_topic_link"],
             "topic_kind_prior": explicit_alignment["topic_kind_prior"],
             "topic_match_ambiguity": explicit_alignment["topic_match_ambiguity"],
+        }
+        samples.append((features, target))
+        kind_scores.setdefault(kind, []).append(target)
+        if subject:
+            subject_scores.setdefault(subject, []).append(target)
+
+    for row in activity_rows:
+        meta = row.get("meta_json") if isinstance(row.get("meta_json"), dict) else {}
+        activity_type = _norm_key(row.get("activity_type"))
+        kind = _norm_key(meta.get("resource_kind"))
+        subject = normalize_subject(meta.get("subject"))
+        topic = _norm_text(meta.get("topic"))
+        if not kind:
+            continue
+        target = 0.76 if activity_type == "student_recommendation_open" else 0.18
+        features = {
+            f"kind_{kind}": 1.0,
+            "subject_in_program": 1.0 if subject and subject in set(program_signals.get("subjects") or set()) else 0.0,
+            "level_fit": 1.0 if _norm_key(meta.get("level")) and _norm_key(meta.get("level")) == _norm_key((program_signals.get("subject_levels") or {}).get(subject, "")) else 0.0,
+            "topic_in_program": _overlap_score(_tokenize(topic), set(program_signals.get("topic_tokens") or set())),
+            "program_type_fit": 1.0 if bool(meta.get("assigned_resource")) else 0.0,
+            "completion_fit": _safe_float(meta.get("ml_blend_weight"), 0.0),
+            "topic_need": _safe_float(meta.get("ml_score"), 0.0),
         }
         samples.append((features, target))
         kind_scores.setdefault(kind, []).append(target)

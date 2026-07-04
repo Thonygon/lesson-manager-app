@@ -36,6 +36,7 @@ from helpers.teacher_student_integration import (
     record_video_assignment_watch,
 )
 from helpers.student_recommendations import build_recommended_materials, rank_recommended_materials
+from helpers.student_recommendation_ml import log_student_recommendation_impressions, log_student_recommendation_open
 from helpers.empty_states import render_empty_state
 from helpers.resource_gallery import (
     extract_gallery_language_label,
@@ -810,6 +811,7 @@ def _render_practice_card(
     ws_type: str, btn_key: str, color: str = "#A78BFA",
     row: dict | None = None,
     resource_type: str = "worksheet",
+    recommendation_item: dict | None = None,
 ):
     """Render a gallery practice card matching the teacher resource bank."""
     import html as _html
@@ -896,6 +898,8 @@ def _render_practice_card(
             assignment_id = int(row.get("_recommended_assignment_id") or 0)
             if assignment_id > 0:
                 record_video_assignment_watch(assignment_id)
+            if recommendation_item:
+                log_student_recommendation_open(recommendation_item, surface="student_practice")
             st.session_state[f"_start_{btn_key}"] = True
             st.rerun()
         if st.session_state.get(f"_start_{btn_key}"):
@@ -905,6 +909,8 @@ def _render_practice_card(
         return
 
     if st.button(f"▶ {t('start_practice')}", key=btn_key, use_container_width=True):
+        if recommendation_item:
+            log_student_recommendation_open(recommendation_item, surface="student_practice")
         st.session_state[f"_start_{btn_key}"] = True
         st.rerun()
 
@@ -1410,6 +1416,7 @@ def _render_recommended_materials(pub_ws, pub_ex, pub_videos) -> None:
             "Start with these materials to strengthen weak areas, revisit past topics, and keep moving toward the next level.",
         )
     )
+    log_student_recommendation_impressions(recommendations, surface="student_practice")
 
     for idx in range(0, len(recommendations), 3):
         pair = recommendations[idx:idx + 3]
@@ -1434,6 +1441,7 @@ def _render_recommended_materials(pub_ws, pub_ex, pub_videos) -> None:
                     color="#22C55E" if resource_type == "worksheet" else "#F59E0B" if resource_type == "exam" else "#EF4444",
                     row=row,
                     resource_type=resource_type,
+                    recommendation_item=item,
                 )
                 for reason in item.get("reasons") or []:
                     st.caption(f"- {reason}")

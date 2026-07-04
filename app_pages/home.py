@@ -1270,6 +1270,8 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
 
         with tab_videos:
             with st.expander(t("add_new_video"), expanded=False):
+                import helpers.lesson_planner as _lp_video
+
                 video_subject = st.selectbox(
                     t("subject_label"),
                     _VIDEO_SUBJECT_OPTIONS,
@@ -1358,8 +1360,22 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                             key="my_video_level_locked",
                         )
                     else:
-                        video_stage = st.text_input(t("learner_stage"), key="my_video_stage")
-                        video_level = st.text_input(t("level_or_band"), key="my_video_level")
+                        video_stage = st.selectbox(
+                            t("learner_stage"),
+                            _lp_video.LEARNER_STAGES,
+                            format_func=_lp_video._stage_label,
+                            key="my_video_stage",
+                        )
+                        video_level_options = _lp_video.get_level_options(video_subject)
+                        default_video_level = _lp_video.recommend_default_level(video_subject, video_stage)
+                        if st.session_state.get("my_video_level") not in video_level_options:
+                            st.session_state["my_video_level"] = default_video_level
+                        video_level = st.selectbox(
+                            t("level_or_band"),
+                            video_level_options,
+                            format_func=_lp_video._level_label,
+                            key="my_video_level",
+                        )
                 video_description = st.text_area(t("video_description_optional"), key="my_video_description", height=90)
                 video_public = st.checkbox(t("share_video_with_community"), key="my_video_public")
                 if st.button(t("save_video_button"), key="my_video_save_btn", use_container_width=True):

@@ -11,7 +11,7 @@ import pandas as pd
 import streamlit as st
 
 from app_pages.pricing import render_plan_preview_cards
-from core.database import clear_app_caches, get_sb, upsert_profile_row
+from core.database import clear_app_caches, get_sb, load_profile_row, upsert_profile_row
 from core.i18n import t
 from core.state import get_current_user_id
 from core.timezone import DEFAULT_TZ_NAME, today_local
@@ -110,6 +110,44 @@ _PROFILE_FIELD_LABEL_KEYS = {
     "can_study": "admin_can_study_label",
     "last_used_at": "admin_last_logged_in_label",
 }
+
+MODEL_REPORT_SPECS = [
+    {
+        "key": "student_recommendations",
+        "label_key": "admin_model_reports_student_label",
+        "description_key": "admin_model_reports_student_description",
+        "status": "live",
+        "report_dir": "student_recommendation_project",
+    },
+    {
+        "key": "teacher_recommendations",
+        "label_key": "admin_model_reports_teacher_label",
+        "description_key": "admin_model_reports_teacher_description",
+        "status": "live",
+        "report_dir": "teacher_recommendation_project",
+    },
+    {
+        "key": "practice_progress",
+        "label_key": "admin_model_reports_practice_label",
+        "description_key": "admin_model_reports_practice_description",
+        "status": "planned",
+        "report_dir": "practice_progress_project",
+    },
+    {
+        "key": "review_sync",
+        "label_key": "admin_model_reports_review_label",
+        "description_key": "admin_model_reports_review_description",
+        "status": "planned",
+        "report_dir": "review_sync_project",
+    },
+    {
+        "key": "resource_matching",
+        "label_key": "admin_model_reports_resource_label",
+        "description_key": "admin_model_reports_resource_description",
+        "status": "planned",
+        "report_dir": "resource_matching_project",
+    },
+]
 
 PLAN_FEATURE_GROUPS = [
     (
@@ -223,6 +261,53 @@ def _admin_nav_styles() -> dict:
 
 def _active_mode_options(role: str, can_teach: bool, can_study: bool) -> list[str]:
     return ["teacher", "student", "admin"]
+
+
+def _render_report_action_row(
+    *,
+    row_key: str,
+    generate_label: str,
+    download_label: str,
+    generate_action,
+    download_path: Path,
+    comment_text: str,
+    success_text: str,
+    error_text_prefix: str,
+    disabled: bool = False,
+) -> None:
+    generate_col, download_col, comment_col = st.columns(3)
+    with generate_col:
+        if st.button(generate_label, key=f"{row_key}_generate", use_container_width=True, disabled=disabled):
+            try:
+                if disabled:
+                    return
+                generate_action()
+                if success_text:
+                    st.success(success_text)
+            except Exception as exc:
+                if error_text_prefix:
+                    st.error(f"{error_text_prefix}: {exc}")
+    with download_col:
+        if not disabled and download_path.exists():
+            st.download_button(
+                download_label,
+                data=download_path.read_bytes(),
+                file_name=download_path.name,
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key=f"{row_key}_download",
+                use_container_width=True,
+            )
+        else:
+            st.button(download_label, key=f"{row_key}_download_disabled", use_container_width=True, disabled=True)
+    with comment_col:
+        st.caption(comment_text)
+
+
+def _store_model_report_result(report_state: dict, model_key: str, variant_key: str, result: dict) -> None:
+    model_state = report_state.get(model_key) or {}
+    model_state = {**model_state, variant_key: result}
+    updated_state = {**report_state, model_key: model_state}
+    st.session_state["admin_model_reports"] = updated_state
 
 
 def _plan_feature_label_map() -> dict[str, str]:
@@ -825,12 +910,14 @@ def _content_metrics() -> dict[str, int]:
     worksheet_rows = _minimal_rows("worksheets")
     exam_rows = _minimal_rows("quick_exams")
     plan_rows = _minimal_rows("lesson_plans")
+    video_rows = _minimal_rows("videos")
     program_rows = _minimal_rows("learning_programs")
     ai_rows = _minimal_rows("ai_usage_logs")
     return {
         "worksheets": len(worksheet_rows),
         "exams": len(exam_rows),
         "lesson_plans": len(plan_rows),
+        "videos": len(video_rows),
         "learning_programs": len(program_rows),
         "ai_events": len(ai_rows),
     }
@@ -1307,6 +1394,7 @@ def _build_admin_ai_snapshot() -> dict[str, Any]:
             "multi_subject_links": multi_subject_links,
             "program_assignments": active_program_assignments,
             "videos": int(len(videos_df)),
+            "ai_events": int(len(ai_usage_df)),
             "recommendation_events": int(len(recommendation_df)),
             "program_alignment_score": program_alignment_score,
             "topic_linkage_score": topic_linkage_score,
@@ -1341,7 +1429,7 @@ def _render_admin_ai_intelligence() -> None:
     top_metrics = [
         (t("admin_ai_metric_active_links"), str(metrics["active_links"])),
         (t("admin_ai_metric_program_assignments"), str(metrics["program_assignments"])),
-        (t("admin_ai_metric_videos"), str(metrics["videos"])),
+        (t("admin_metric_ai_events"), str(metrics["ai_events"])),
         (t("admin_ai_metric_recommendation_events"), str(metrics["recommendation_events"])),
         (t("admin_ai_metric_freshness"), _freshness_label(metrics["freshness"])),
     ]
@@ -1552,6 +1640,140 @@ def _render_admin_ai_intelligence() -> None:
             }
         )
         st.dataframe(live_df, use_container_width=True, hide_index=True)
+
+        st.markdown(f"### {t('admin_model_reports_title')}")
+        st.caption(t("admin_model_reports_subtitle"))
+        report_state = st.session_state.get("admin_model_reports") or {}
+        admin_profile = load_profile_row(str(get_current_user_id() or "").strip())
+        report_lang = str((admin_profile or {}).get("preferred_ui_language") or st.session_state.get("ui_lang") or "en").strip().lower()
+        if report_lang not in ("en", "es", "tr"):
+            report_lang = "en"
+
+        for spec in MODEL_REPORT_SPECS:
+            expanded = spec["key"] == "student_recommendations"
+            with st.expander(t(spec["label_key"]), expanded=expanded):
+                st.caption(t(spec["description_key"]))
+                report_dir = Path("reports") / str(spec.get("report_dir") or spec["key"])
+                if spec["key"] == "student_recommendations":
+                    student_state = report_state.get("student_recommendations") or {}
+                    single_path = Path(
+                        str(
+                            (student_state.get("single_student") or {}).get("docx_path")
+                            or report_dir / "classio_ml_student_recommendation_report_single_student.docx"
+                        )
+                    )
+                    multi_path = Path(
+                        str(
+                            (student_state.get("multi_student") or {}).get("docx_path")
+                            or report_dir / "classio_ml_student_recommendation_report_multi_student.docx"
+                        )
+                    )
+                    single_state = student_state.get("single_student") or {}
+                    multi_state = student_state.get("multi_student") or {}
+                    single_student = str(single_state.get("student_id") or "")
+                    multi_samples = int(((multi_state.get("diagnostics") or {}).get("sample_count") or 0))
+                    _render_report_action_row(
+                        row_key="admin_student_single_report",
+                        generate_label=t("admin_model_reports_generate_student_single_button"),
+                        download_label=t("admin_model_reports_download_button"),
+                        generate_action=lambda: _store_model_report_result(
+                            report_state,
+                            "student_recommendations",
+                            "single_student",
+                            __import__("scripts.generate_student_recommendation_report", fromlist=["generate_report"]).generate_report(report_dir, scope="single_student", lang=report_lang),
+                        ),
+                        download_path=single_path,
+                        comment_text=t("admin_model_reports_student_single_comment", student_id=single_student if single_student else "n/a"),
+                        success_text=t("admin_model_reports_student_single_success"),
+                        error_text_prefix=t("admin_model_reports_student_single_error"),
+                    )
+                    _render_report_action_row(
+                        row_key="admin_student_multi_report",
+                        generate_label=t("admin_model_reports_generate_student_multi_button"),
+                        download_label=t("admin_model_reports_download_button"),
+                        generate_action=lambda: _store_model_report_result(
+                            report_state,
+                            "student_recommendations",
+                            "multi_student",
+                            __import__("scripts.generate_student_recommendation_report", fromlist=["generate_report"]).generate_report(report_dir, scope="multi_student", lang=report_lang),
+                        ),
+                        download_path=multi_path,
+                        comment_text=t("admin_model_reports_student_multi_comment", samples=multi_samples),
+                        success_text=t("admin_model_reports_student_multi_success"),
+                        error_text_prefix=t("admin_model_reports_student_multi_error"),
+                    )
+                elif spec["key"] == "teacher_recommendations":
+                    teacher_state = report_state.get("teacher_recommendations") or {}
+                    single_path = Path(
+                        str(
+                            (teacher_state.get("single_teacher") or {}).get("docx_path")
+                            or report_dir / "classio_ml_teacher_recommendation_report_single_teacher.docx"
+                        )
+                    )
+                    multi_path = Path(
+                        str(
+                            (teacher_state.get("multi_teacher") or {}).get("docx_path")
+                            or report_dir / "classio_ml_teacher_recommendation_report_multi_teacher.docx"
+                        )
+                    )
+                    single_state = teacher_state.get("single_teacher") or {}
+                    multi_state = teacher_state.get("multi_teacher") or {}
+                    single_teacher = str(single_state.get("teacher_id") or "")
+                    multi_samples = int(((multi_state.get("diagnostics") or {}).get("sample_count") or 0))
+                    _render_report_action_row(
+                        row_key="admin_teacher_single_report",
+                        generate_label=t("admin_model_reports_generate_teacher_single_button"),
+                        download_label=t("admin_model_reports_download_button"),
+                        generate_action=lambda: _store_model_report_result(
+                            report_state,
+                            "teacher_recommendations",
+                            "single_teacher",
+                            __import__("scripts.generate_teacher_recommendation_report", fromlist=["generate_report"]).generate_report(report_dir, scope="single_teacher", lang=report_lang),
+                        ),
+                        download_path=single_path,
+                        comment_text=t("admin_model_reports_teacher_single_comment", teacher_id=single_teacher if single_teacher else "n/a"),
+                        success_text=t("admin_model_reports_teacher_single_success"),
+                        error_text_prefix=t("admin_model_reports_teacher_single_error"),
+                    )
+                    _render_report_action_row(
+                        row_key="admin_teacher_multi_report",
+                        generate_label=t("admin_model_reports_generate_teacher_multi_button"),
+                        download_label=t("admin_model_reports_download_button"),
+                        generate_action=lambda: _store_model_report_result(
+                            report_state,
+                            "teacher_recommendations",
+                            "multi_teacher",
+                            __import__("scripts.generate_teacher_recommendation_report", fromlist=["generate_report"]).generate_report(report_dir, scope="multi_teacher", lang=report_lang),
+                        ),
+                        download_path=multi_path,
+                        comment_text=t("admin_model_reports_teacher_multi_comment", samples=multi_samples),
+                        success_text=t("admin_model_reports_teacher_multi_success"),
+                        error_text_prefix=t("admin_model_reports_teacher_multi_error"),
+                    )
+                else:
+                    st.info(t("admin_model_reports_placeholder_info"))
+                    _render_report_action_row(
+                        row_key=f"admin_placeholder_single_{spec['key']}",
+                        generate_label=t("admin_model_reports_generate_single_button"),
+                        download_label=t("admin_model_reports_download_button"),
+                        generate_action=lambda: None,
+                        download_path=Path("__missing__"),
+                        comment_text=t("admin_model_reports_placeholder_single_comment"),
+                        success_text="",
+                        error_text_prefix="",
+                        disabled=True,
+                    )
+                    _render_report_action_row(
+                        row_key=f"admin_placeholder_multi_{spec['key']}",
+                        generate_label=t("admin_model_reports_generate_aggregate_button"),
+                        download_label=t("admin_model_reports_download_button"),
+                        generate_action=lambda: None,
+                        download_path=Path("__missing__"),
+                        comment_text=t("admin_model_reports_placeholder_multi_comment"),
+                        success_text="",
+                        error_text_prefix="",
+                        disabled=True,
+                    )
 
         st.markdown(f"### {t('admin_ai_models_next_title')}")
         next_models = [
@@ -1778,7 +2000,7 @@ def _render_overview(df: pd.DataFrame, subscriptions: list[dict]) -> None:
             (t("admin_metric_worksheets"), str(content["worksheets"])),
             (t("admin_metric_exams"), str(content["exams"])),
             (t("admin_metric_lesson_plans"), str(content["lesson_plans"])),
-            (t("admin_metric_ai_events"), str(content["ai_events"])),
+            (t("admin_ai_metric_videos"), str(content["videos"])),
         ]
     )
 
