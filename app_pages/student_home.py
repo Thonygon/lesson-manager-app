@@ -5,6 +5,7 @@ from core.i18n import t
 from core.navigation import go_to, STUDENT_PAGES
 from core.state import get_current_user_id
 from core.database import load_profile_row
+from helpers.practice_engine import exam_to_exercises, worksheet_to_exercises
 from helpers.notifications import (
     get_student_notifications,
     render_notification_cloud,
@@ -13,8 +14,11 @@ from helpers.notifications import (
 )
 from helpers.empty_states import render_empty_state
 from helpers.quick_exam_storage import load_exam_record, load_public_exams
+from helpers.student_recommendation_ml import log_student_recommendation_open
 from helpers.student_recommendations import build_recommended_materials
+from helpers.teacher_student_integration import load_student_assignment_by_id, record_video_assignment_watch
 from helpers.video_library import load_public_videos
+from helpers.worksheet_builder import normalize_worksheet_output
 from helpers.worksheet_storage import load_public_worksheets, load_worksheet_record
 from helpers.resource_gallery import (
     extract_gallery_language_label,
@@ -28,6 +32,54 @@ from services.permissions_service import user_has_feature
 def _ui_text(key: str, fallback: str) -> str:
     value = t(key)
     return value if value != key else fallback
+
+
+def _open_home_recommendation_practice(item: dict) -> None:
+    resource_type = str(item.get("resource_type") or "").strip()
+    if resource_type not in {"worksheet", "exam"}:
+        return
+
+    assignment_id = int(item.get("assignment_id") or 0)
+    if assignment_id > 0:
+        assignment_row = load_student_assignment_by_id(assignment_id)
+        if assignment_row:
+            from app_pages.student_assignments import _open_assignment_practice
+
+            log_student_recommendation_open(item, surface="student_home")
+            _open_assignment_practice(assignment_row)
+            return
+
+    row = dict(item.get("row") or {})
+    if resource_type == "worksheet":
+        full_row = load_worksheet_record(row.get("id")) if row.get("id") else row
+        worksheet_json = normalize_worksheet_output(dict((full_row or {}).get("worksheet_json") or {}))
+        exercise_data = worksheet_to_exercises(worksheet_json, row_id=(full_row or row).get("id"))
+    else:
+        full_row = load_exam_record(row.get("id")) if row.get("id") else row
+        exam_data = dict((full_row or {}).get("exam_data") or {})
+        answer_key = dict((full_row or {}).get("answer_key") or {})
+        exercise_data = exam_to_exercises(exam_data, answer_key, row_id=(full_row or row).get("id"))
+
+    if not exercise_data.get("exercises"):
+        st.warning(t("no_exercises_available"))
+        return
+
+    from app_pages.student_practice import _open_practice_item
+
+    opened = _open_practice_item(
+        exercise_data,
+        {
+            "subject": row.get("subject", ""),
+            "topic": row.get("topic", ""),
+            "learner_stage": row.get("learner_stage", ""),
+            "level": row.get("level_or_band", "") or row.get("level", ""),
+        },
+    )
+    if not opened:
+        return
+    log_student_recommendation_open(item, surface="student_home")
+    go_to("student_practice")
+    st.rerun()
 
 
 def render_student_home():
@@ -333,6 +385,25 @@ def render_student_home():
                     ),
                     unsafe_allow_html=True,
                 )
+                action_label = _ui_text("watch_video", "Watch video") if resource_type == "video" else t("start_practice")
+                if st.button(
+                    f"▶ {action_label}",
+                    key=f"student_home_recommend_action_{resource_type}_{item.get('id', idx)}",
+                    use_container_width=True,
+                    type="primary",
+                ):
+                    if resource_type == "video":
+                        if int(item.get("assignment_id") or 0) > 0:
+                            record_video_assignment_watch(int(item.get("assignment_id") or 0))
+                        log_student_recommendation_open(item, surface="student_home")
+                        st.session_state[f"_student_home_watch_video_{item.get('id', idx)}"] = True
+                        st.rerun()
+                    else:
+                        _open_home_recommendation_practice(item)
+                if resource_type == "video" and st.session_state.get(f"_student_home_watch_video_{item.get('id', idx)}"):
+                    watch_url = str(payload.get("watch_url") or payload.get("youtube_url") or row.get("watch_url") or row.get("youtube_url") or "")
+                    if watch_url:
+                        st.video(watch_url)
         if st.button(_ui_text("open_recommended_materials", "Open recommended materials"), key="student_home_open_recommended", use_container_width=True):
             go_to("student_practice")
             st.rerun()
