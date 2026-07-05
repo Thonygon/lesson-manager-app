@@ -17,6 +17,7 @@ from core.state import (
     PROFILE_COUNTRY_OPTIONS,
 )
 from helpers.lesson_planner import subject_label as _profile_subject_label
+from helpers.ui_components import trigger_book_rain
 from helpers.native_language import native_language_label, normalize_native_language
 from core.timezone import DEFAULT_TZ_NAME, _get_qp
 from core.navigation import _set_query
@@ -505,23 +506,21 @@ def require_login():
                 _missing_auth_config_message()
             )
 
-    _from_explore = st.session_state.pop("_explore_go_signup", False)
-    _focus_login = st.session_state.pop("_auth_focus_login", False)
+    st.session_state.pop("_explore_go_signup", False)
+    st.session_state.pop("_auth_focus_login", False)
     _lang_tab_label = "🌐"
     _theme_tab_label = "🌙" if not _dark_login else "☀️"
 
-    if _focus_login:
-        tab_login, tab_signup, tab_explore, tab_lang, tab_theme = st.tabs(
-            [t("sign_in"), t("sign_up"), t("explore_tab"), _lang_tab_label, _theme_tab_label]
-        )
-    elif _from_explore:
-        tab_signup, tab_login, tab_explore, tab_lang, tab_theme = st.tabs(
-            [t("sign_up"), t("sign_in"), t("explore_tab"), _lang_tab_label, _theme_tab_label]
-        )
-    else:
-        tab_explore, tab_login, tab_signup, tab_lang, tab_theme = st.tabs(
-            [t("explore_tab"), t("sign_in"), t("sign_up"), _lang_tab_label, _theme_tab_label]
-        )
+    tab_explore, tab_income_goal, tab_login, tab_signup, tab_lang, tab_theme = st.tabs(
+        [
+            t("explore_tab"),
+            t("set_income_goal"),
+            t("sign_in"),
+            t("sign_up"),
+            _lang_tab_label,
+            _theme_tab_label,
+        ]
+    )
 
     with tab_theme:
         _current_theme_mode = st.session_state.get("ui_theme_mode", "auto")
@@ -597,6 +596,17 @@ def require_login():
         if wants_signup:
             st.session_state["_explore_go_signup"] = True
             st.rerun()
+
+    with tab_income_goal:
+        from helpers.goal_explorer import render_income_goal_explorer
+        wants_signup = render_income_goal_explorer()
+        if wants_signup:
+            st.session_state["_explore_go_signup"] = True
+            st.rerun()
+
+    if not st.session_state.get("_prelogin_book_rain_seen", False):
+        trigger_book_rain(nonce="prelogin-landing")
+        st.session_state["_prelogin_book_rain_seen"] = True
 
     st.stop()
 

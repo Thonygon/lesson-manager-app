@@ -387,9 +387,13 @@ def render_generation_recommendations(
 
     card_html = [
         "<div style='margin:10px 0 14px 0;padding:14px 14px 8px;border-radius:18px;"
-        "border:1px solid rgba(16,185,129,.18);background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(236,253,245,.98));'>"
-        f"<div style='font-weight:900;color:#0f172a;'>{_html.escape(t(title_key))}</div>"
-        f"<div style='margin-top:4px;color:#64748b;font-size:.86rem;line-height:1.45;'>{_html.escape(t(subtitle_key))}</div>"
+        "border:1px solid color-mix(in srgb, var(--success, #10b981) 24%, var(--border, rgba(148,163,184,.18)) 76%);"
+        "background:linear-gradient(180deg,"
+        "color-mix(in srgb, var(--panel, rgba(255,255,255,.96)) 94%, white 6%),"
+        "color-mix(in srgb, var(--panel-soft, rgba(236,253,245,.96)) 82%, var(--success, #10b981) 18%));"
+        "box-shadow:var(--shadow-sm, 0 2px 8px rgba(15,23,42,.06));'>"
+        f"<div style='font-weight:900;color:var(--text, #0f172a);'>{_html.escape(t(title_key))}</div>"
+        f"<div style='margin-top:4px;color:var(--muted, #64748b);font-size:.86rem;line-height:1.45;'>{_html.escape(t(subtitle_key))}</div>"
     ]
     for match in matches:
         row = match.get("row") or {}
@@ -406,11 +410,20 @@ def render_generation_recommendations(
             meta.append(str(row.get("exam_length") or "").strip())
         meta_text = " · ".join(part for part in meta if part)
         card_html.append(
-            "<div style='margin-top:10px;padding:10px 11px;border-radius:14px;border:1px solid rgba(148,163,184,.18);background:rgba(255,255,255,.9);'>"
-            f"<div style='display:flex;justify-content:space-between;gap:8px;align-items:flex-start;'><div style='font-weight:800;color:#0f172a;'>{_html.escape(str(row.get('title') or t('untitled_plan')).strip())}</div>"
-            f"<div style='flex:0 0 auto;border-radius:999px;padding:4px 8px;background:rgba(16,185,129,.12);color:#047857;font-size:.72rem;font-weight:800;'>{_html.escape(_score_label(float(match.get('score') or 0.0)))}</div></div>"
-            f"<div style='margin-top:4px;color:#64748b;font-size:.8rem;line-height:1.35;'>{_html.escape(str(row.get('topic') or '').strip())}</div>"
-            f"<div style='margin-top:6px;color:#475569;font-size:.76rem;'>{_html.escape(meta_text)}</div>"
+            "<div style='margin-top:10px;padding:10px 11px;border-radius:14px;"
+            "border:1px solid var(--border, rgba(148,163,184,.18));"
+            "background:linear-gradient(180deg,"
+            "color-mix(in srgb, var(--panel, rgba(255,255,255,.94)) 96%, white 4%),"
+            "color-mix(in srgb, var(--panel-soft, rgba(248,250,252,.92)) 90%, var(--success, #10b981) 10%));"
+            "box-shadow:var(--shadow-sm, 0 2px 8px rgba(15,23,42,.06));'>"
+            f"<div style='display:flex;justify-content:space-between;gap:8px;align-items:flex-start;'><div style='font-weight:800;color:var(--text, #0f172a);'>{_html.escape(str(row.get('title') or t('untitled_plan')).strip())}</div>"
+            f"<div style='flex:0 0 auto;border-radius:999px;padding:4px 8px;"
+            "background:color-mix(in srgb, var(--success, #10b981) 16%, transparent);"
+            "color:var(--success, #047857);font-size:.72rem;font-weight:800;"
+            "border:1px solid color-mix(in srgb, var(--success, #10b981) 22%, transparent);'>"
+            f"{_html.escape(_score_label(float(match.get('score') or 0.0)))}</div></div>"
+            f"<div style='margin-top:4px;color:var(--muted, #64748b);font-size:.8rem;line-height:1.35;'>{_html.escape(str(row.get('topic') or '').strip())}</div>"
+            f"<div style='margin-top:6px;color:color-mix(in srgb, var(--muted, #64748b) 82%, var(--text, #0f172a) 18%);font-size:.76rem;'>{_html.escape(meta_text)}</div>"
             "</div>"
         )
     card_html.append("</div>")

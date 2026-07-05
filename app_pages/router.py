@@ -7,6 +7,7 @@ from core.navigation import go_to, PAGE_KEYS, _set_query
 from core.state import get_current_user_role, get_current_user_id
 from core.database import enable_profile_mode
 from auth.auth import render_profile_dialog, sign_out_user
+from helpers.ui_components import trigger_book_rain
 from services.auth_service import current_user_is_admin
 
 
@@ -147,12 +148,26 @@ def render_top_nav(active_page: str):
     with more_col:
         if "top_nav_more_open" not in st.session_state:
             st.session_state["top_nav_more_open"] = False
+        if "top_nav_more_book_nonce" not in st.session_state:
+            st.session_state["top_nav_more_book_nonce"] = 0
         more_label = t("more") if t("more") != "more" else "More"
         more_active = active_page in {key for key, _, _ in more_items}
         menu_label = f"⋯ {more_label}" + (" •" if more_active else "")
         if st.button(menu_label, key="top_nav_more_toggle", use_container_width=True):
-            st.session_state["top_nav_more_open"] = not bool(st.session_state.get("top_nav_more_open", False))
+            next_open = not bool(st.session_state.get("top_nav_more_open", False))
+            st.session_state["top_nav_more_open"] = next_open
+            if next_open:
+                st.session_state["top_nav_more_book_nonce"] = int(st.session_state.get("top_nav_more_book_nonce", 0) or 0) + 1
             st.rerun()
+        if int(st.session_state.get("top_nav_more_book_nonce", 0) or 0) > 0:
+            trigger_book_rain(
+                nonce=f"teacher-more-{st.session_state.get('top_nav_more_book_nonce', 0)}",
+                total_books=22,
+                min_font_px=38,
+                max_font_px=60,
+                min_duration_s=2.9,
+                max_duration_s=5.2,
+            )
         if st.session_state.get("top_nav_more_open", False):
             menu_box = st.container(border=True)
             with menu_box:
@@ -200,6 +215,8 @@ def render_student_top_nav(active_page: str):
     current_lang = st.session_state.get("ui_lang", "en")
     if current_lang not in ("en", "es", "tr"):
         current_lang = "en"
+    if "student_assignments_book_nonce" not in st.session_state:
+        st.session_state["student_assignments_book_nonce"] = 0
 
     items = [
         ("student_home",         t("student_home_title"), "house"),
@@ -264,6 +281,16 @@ def render_student_top_nav(active_page: str):
 
     previous_key = st.session_state.get("student_top_nav_prev", active_page)
 
+    if int(st.session_state.get("student_assignments_book_nonce", 0) or 0) > 0:
+        trigger_book_rain(
+            nonce=f"student-assignments-{st.session_state.get('student_assignments_book_nonce', 0)}",
+            total_books=18,
+            min_font_px=36,
+            max_font_px=56,
+            min_duration_s=2.8,
+            max_duration_s=4.8,
+        )
+
     if selected_key != previous_key:
         st.session_state["student_top_nav_prev"] = selected_key
         if selected_key == "sign_out":
@@ -277,6 +304,8 @@ def render_student_top_nav(active_page: str):
             st.session_state["student_top_nav_prev"] = active_page
             _switch_role("admin")
         elif selected_key != active_page:
+            if selected_key == "student_assignments":
+                st.session_state["student_assignments_book_nonce"] = int(st.session_state.get("student_assignments_book_nonce", 0) or 0) + 1
             go_to(selected_key)
             st.rerun()
 

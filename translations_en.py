@@ -13,6 +13,7 @@ EN: Dict[str, str] = {
     "explore_advice_yellow": "A busy schedule, but achievable if you plan your calendar and keep your students engaged.",
     "explore_advice_orange": "This is a heavy schedule. You need a well-structured routine for planning and keeping your students happy.",
     "explore_advice_red": "This is a very high workload. Consider raising your fees, offering group lessons, or adjusting your goal.",
+    "explore_teaching_resources_title": "Teaching & Learning Resources",
     "explore_teaching_resources_subtitle": "Discover community learning programs, lesson plans, worksheets, exams, and videos before you create an account.",
     "already_have_account": "Already have an account?",
     "already_have_account_hint": "Sign in to keep exploring, save resources, and unlock downloads and assignments.",

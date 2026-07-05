@@ -9,9 +9,20 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-from helpers.ui_components import inject_loading_screen
+from helpers.ui_components import inject_loading_screen, trigger_book_rain
 
 inject_loading_screen()
+
+if not getattr(st.user, "is_logged_in", False) and not st.session_state.get("_prelogin_book_rain_seen", False):
+    trigger_book_rain(
+        nonce="prelogin-boot",
+        total_books=30,
+        min_font_px=42,
+        max_font_px=68,
+        min_duration_s=3.2,
+        max_duration_s=5.9,
+    )
+    st.session_state["_prelogin_book_rain_seen"] = True
 
 from styles.theme import remove_streamlit_top_spacing
 from helpers.ui_components import inject_pwa_head
