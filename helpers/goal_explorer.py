@@ -128,7 +128,7 @@ def _open_explore_demo(exercise_data: dict, meta: dict | None = None, *, demo_id
     st.rerun()
 
 
-def _render_explore_demo_section() -> None:
+def _render_explore_demo_section(*, wrap: bool = True) -> None:
     from helpers.practice_test_data import get_demo_activities
     import html as _html
 
@@ -168,7 +168,7 @@ def _render_explore_demo_section() -> None:
         icon = "🏅" if is_done else demo["emoji"]
         medal_html += f'<span style="margin-right:12px;">{icon} {_html.escape(demo["label"])}</span>'
 
-    with st.expander(f"🧪 {t('try_demo')}", expanded=True):
+    def _render_demo_body() -> None:
         st.markdown(
             f"""<div style="
 padding:12px 16px; border-radius:14px;
@@ -218,6 +218,13 @@ padding:10px 0 4px;flex-wrap:wrap;
                         demo.get("meta", {}),
                         demo_id=demo["id"],
                     )
+
+    if wrap:
+        with st.expander(f"🧪 {t('try_demo')}", expanded=False):
+            _render_demo_body()
+    else:
+        st.markdown(f"#### 🧪 {t('try_demo')}")
+        _render_demo_body()
 
 
 def _normalize(text: str) -> str:
@@ -355,19 +362,21 @@ def _blended_range(
 def _render_explore_teaching_resources() -> None:
     st.markdown(
         f"""
-        <div style="text-align:center; padding:12px 0 8px 0;">
-            <h3 style="margin:0 0 4px 0; font-size:1.2rem; font-weight:800; color:var(--text);">
-                📚 {t("teaching_resources")}
-            </h3>
-            <p style="margin:0; color:var(--muted); font-size:0.9rem;">
-                {t("explore_teaching_resources_subtitle")}
-            </p>
+        <div class="classio-explore-section-hero" style="--explore-accent:#F59E0B;">
+            <div class="classio-explore-eyebrow">{_html.escape(t('teaching_resources'))}</div>
+            <div class="classio-explore-title">{_html.escape(t('explore_teaching_resources_title'))}</div>
+            <div class="classio-explore-subtitle">{_html.escape(t('explore_teaching_resources_subtitle'))}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    _render_explore_demo_section()
+    with st.expander(f"📚 {t('teaching_resources')}", expanded=False):
+        _render_explore_teaching_resources_body()
+
+
+def _render_explore_teaching_resources_body() -> None:
+    _render_explore_demo_section(wrap=False)
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         f"📚 {t('community_learning_programs')}",
@@ -680,9 +689,7 @@ def _render_explore_teaching_resources() -> None:
             if st.button(
                 t("assign_to_student"),
                 key=f"explore_program_assign_signup_{selected_program_id}",
-                use_container_width=True,
             ):
-                st.session_state["_explore_go_signup"] = True
                 st.rerun()
 
     selected_plan = st.session_state.get("files_selected_plan")
@@ -836,8 +843,31 @@ def _render_explore_teaching_resources() -> None:
             assign_expanded=bool(st.session_state.get("files_selected_video_assign_expanded")),
         )
 
-    # ── Teaching Income Goal ──
+# ── Pre-login Explore and Income Goal tabs ──
 def render_goal_explorer() -> bool:
+    """
+    Render the clean pre-login Explore page.
+    The conversion-oriented income calculator lives in its own tab.
+    """
+    load_css_home()
+    _inject_explore_premium_styles()
+
+    _render_explore_ai_tools()
+    _render_explore_teaching_resources()
+    _render_feature_showcase()
+
+    st.markdown(
+        """
+        <div class="home-section-line"> 
+          <span>🤖</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    return False
+
+
+def render_income_goal_explorer() -> bool:
     """
     Render the pre-login goal-setting card.
     Returns True when the user clicks the CTA to find students (triggers sign-up).
@@ -845,14 +875,6 @@ def render_goal_explorer() -> bool:
     load_css_home()
     _inject_explore_premium_styles()
 
-    # ── Work Smart Tools ── 
-    _render_explore_ai_tools()  
-
-    # ── Teaching Resources preview ──
-    st.markdown("---")
-    _render_explore_teaching_resources()
-
-    st.markdown("---")
     st.markdown(
         f"""
         <div style="
@@ -1062,10 +1084,6 @@ def render_goal_explorer() -> bool:
         ):
             return True
 
-    # ── Manage Your Students — feature showcase ──
-    st.markdown("---")
-    _render_feature_showcase()
-
     st.markdown(
         """
         <div class="home-section-line"> 
@@ -1111,36 +1129,37 @@ def _render_feature_showcase() -> None:
         unsafe_allow_html=True,
     )
 
-    rows = [_FEATURE_ITEMS[0:2], _FEATURE_ITEMS[2:4], _FEATURE_ITEMS[4:6]]
+    with st.expander(f"👥 {t('explore_features_title')}", expanded=False):
+        rows = [_FEATURE_ITEMS[0:2], _FEATURE_ITEMS[2:4], _FEATURE_ITEMS[4:6]]
 
-    for row in rows:
-        cols = st.columns(len(row), gap="medium")
-        for col, (key, icon, accent, rgb) in zip(cols, row):
-            with col:
-                label = t(key) if key in ("dashboard", "students", "calendar", "analytics") else t(key.replace("add_", ""))
-                desc = t(_FEATURE_DESCRIPTIONS[key])
-                st.markdown(
-                    f"""
-                    <div class="classio-explore-feature-card" style="--card-accent:{accent};--card-rgb:{rgb};">
-                        <div class="classio-explore-card-top">
-                            <div class="classio-explore-card-icon">{_html.escape(icon)}</div>
-                            <div class="classio-explore-card-badge">{_html.escape(t('explore_try_feature'))}</div>
+        for row in rows:
+            cols = st.columns(len(row), gap="medium")
+            for col, (key, icon, accent, rgb) in zip(cols, row):
+                with col:
+                    label = t(key) if key in ("dashboard", "students", "calendar", "analytics") else t(key.replace("add_", ""))
+                    desc = t(_FEATURE_DESCRIPTIONS[key])
+                    st.markdown(
+                        f"""
+                        <div class="classio-explore-feature-card" style="--card-accent:{accent};--card-rgb:{rgb};">
+                            <div class="classio-explore-card-top">
+                                <div class="classio-explore-card-icon">{_html.escape(icon)}</div>
+                                <div class="classio-explore-card-badge">{_html.escape(t('explore_try_feature'))}</div>
+                            </div>
+                            <div class="classio-explore-card-title">{_html.escape(label)}</div>
+                            <div class="classio-explore-card-body">{_html.escape(desc)}</div>
                         </div>
-                        <div class="classio-explore-card-title">{_html.escape(label)}</div>
-                        <div class="classio-explore-card-body">{_html.escape(desc)}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                if st.button(
-                    t("explore_try_feature"),
-                    key=f"explore_feat_{key}",
-                    use_container_width=True,
-                ):
-                    st.session_state["_explore_go_signup"] = True
-                    st.session_state["_after_signup_page"] = key
-                    st.rerun()
-        st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    if st.button(
+                        t("explore_try_feature"),
+                        key=f"explore_feat_{key}",
+                        use_container_width=True,
+                    ):
+                        st.session_state["_explore_go_signup"] = True
+                        st.session_state["_after_signup_page"] = key
+                        st.rerun()
+            st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1496,47 +1515,48 @@ def _render_explore_ai_tools() -> None:
         },
     ]
 
-    # Render cards in 2 rows × 2 columns
-    for row_start in range(0, len(cards), 2):
-        row_cards = cards[row_start:row_start + 2]
-        cols = st.columns(2, gap="medium")
-        for col, card in zip(cols, row_cards):
-            with col:
-                is_active = selected == card["key"]
-                active_class = " is-active" if is_active else ""
+    with st.expander(f"🧰 {t('explore_ai_tools_title')}", expanded=False):
+        # Render cards in 2 rows × 2 columns
+        for row_start in range(0, len(cards), 2):
+            row_cards = cards[row_start:row_start + 2]
+            cols = st.columns(2, gap="medium")
+            for col, card in zip(cols, row_cards):
+                with col:
+                    is_active = selected == card["key"]
+                    active_class = " is-active" if is_active else ""
 
-                st.markdown(
-                    f"""
-                    <div class="classio-explore-tool-card{active_class}" style="--card-accent:{card['accent']};--card-rgb:{card['rgb']};">
-                        <div class="classio-explore-card-top">
-                            <div class="classio-explore-card-icon">{_html.escape(card['icon'])}</div>
-                            <div class="classio-explore-card-badge">{_html.escape(card['badge'])}</div>
+                    st.markdown(
+                        f"""
+                        <div class="classio-explore-tool-card{active_class}" style="--card-accent:{card['accent']};--card-rgb:{card['rgb']};">
+                            <div class="classio-explore-card-top">
+                                <div class="classio-explore-card-icon">{_html.escape(card['icon'])}</div>
+                                <div class="classio-explore-card-badge">{_html.escape(card['badge'])}</div>
+                            </div>
+                            <div class="classio-explore-card-title">{_html.escape(card['title'])}</div>
+                            <div class="classio-explore-card-body">{_html.escape(card['desc'])}</div>
                         </div>
-                        <div class="classio-explore-card-title">{_html.escape(card['title'])}</div>
-                        <div class="classio-explore-card-body">{_html.escape(card['desc'])}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+                        """,
+                        unsafe_allow_html=True,
+                    )
 
-                button_label = t("close") if is_active else t("try_now")
-                if st.button(button_label, key=f"explore_ai_card_{card['key']}", use_container_width=True):
+                    button_label = t("close") if is_active else t("try_now")
+                    if st.button(button_label, key=f"explore_ai_card_{card['key']}", use_container_width=True):
+                        if is_active:
+                            st.session_state["explore_ai_tool_selected"] = ""
+                        else:
+                            st.session_state["explore_ai_tool_selected"] = card["key"]
+                        st.rerun()
+
                     if is_active:
-                        st.session_state["explore_ai_tool_selected"] = ""
-                    else:
-                        st.session_state["explore_ai_tool_selected"] = card["key"]
-                    st.rerun()
-
-                if is_active:
-                    st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
-                    if card["key"] == "planner":
-                        _render_explore_lesson_planner()
-                    elif card["key"] == "worksheet":
-                        _render_explore_worksheet_maker()
-                    elif card["key"] == "exam":
-                        _render_explore_exam_builder()
-                    elif card["key"] == "program":
-                        _render_explore_program_maker()
+                        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+                        if card["key"] == "planner":
+                            _render_explore_lesson_planner()
+                        elif card["key"] == "worksheet":
+                            _render_explore_worksheet_maker()
+                        elif card["key"] == "exam":
+                            _render_explore_exam_builder()
+                        elif card["key"] == "program":
+                            _render_explore_program_maker()
 
 # ─────────────────────────────────────────────────────────────
 # Explore-page worksheet maker (AI-powered, 1-use limit for anon)

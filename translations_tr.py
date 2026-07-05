@@ -13,6 +13,7 @@ TR: Dict[str, str] = {
     "explore_advice_yellow": "Yoğun bir program, ancak takviminizi planlarsanız ve öğrencilerinizi motive ederseniz ulaşılabilir.",
     "explore_advice_orange": "Bu yoğun bir programdır. Planlama ve öğrencilerinizi mutlu tutmak için iyi yapılandırılmış bir rutine ihtiyacınız var.",
     "explore_advice_red": "Bu çok yüksek bir iş yüküdür. Ücretlerinizi artırmayı, grup dersleri sunmayı veya hedefinizi ayarlamayı düşünün.",
+    "explore_teaching_resources_title": "Öğretim ve Öğrenme Kaynakları",
     "explore_teaching_resources_subtitle": "Hesap oluşturmadan önce topluluk öğrenme programlarını, ders planlarını, çalışma kağıtlarını, sınavları ve videoları keşfedin.",
     "already_have_account": "Zaten bir hesabınız var mı?",
     "already_have_account_hint": "Keşfetmeye devam etmek, kaynakları kaydetmek ve indirme ile atama özelliklerini açmak için giriş yapın.",

@@ -284,6 +284,119 @@ def inject_pwa_head():
     )
 
 
+def trigger_book_rain(
+    *,
+    nonce: int | str,
+    total_books: int = 28,
+    min_font_px: int = 42,
+    max_font_px: int = 68,
+    min_duration_s: float = 3.2,
+    max_duration_s: float = 5.9,
+) -> None:
+    safe_nonce = str(nonce)
+    components.html(
+        f"""
+        <script>
+        (function () {{
+          const hostWindow = window.parent;
+          const hostDoc = hostWindow.document;
+          const overlayId = "classio-book-rain-overlay";
+          const styleId = "classio-book-rain-style";
+          const stateKey = "__classioBookRainState";
+          const nonce = {safe_nonce!r};
+          const books = ["📚", "📖", "📘", "📗", "📕", "📙", "📒"];
+
+          if (!hostDoc.getElementById(styleId)) {{
+            const style = hostDoc.createElement("style");
+            style.id = styleId;
+            style.textContent = `
+              #${{overlayId}} {{
+                position: fixed;
+                inset: 0;
+                width: 100vw;
+                height: 100vh;
+                overflow: hidden;
+                pointer-events: none;
+                z-index: 999999;
+              }}
+              #${{overlayId}} .classio-book-rain-item {{
+                position: absolute;
+                top: -120px;
+                opacity: 1;
+                user-select: none;
+                will-change: transform;
+                filter: drop-shadow(0 7px 8px rgba(15,23,42,.28));
+                animation-name: classio-book-rain-fall;
+                animation-timing-function: linear;
+                animation-fill-mode: forwards;
+              }}
+              @keyframes classio-book-rain-fall {{
+                0% {{
+                  transform: translateY(-120px) translateX(0px) rotate(0deg);
+                }}
+                25% {{
+                  transform: translateY(25vh) translateX(-20px) rotate(90deg);
+                }}
+                50% {{
+                  transform: translateY(50vh) translateX(15px) rotate(180deg);
+                }}
+                75% {{
+                  transform: translateY(75vh) translateX(-10px) rotate(270deg);
+                }}
+                100% {{
+                  transform: translateY(calc(100vh + 180px)) translateX(20px) rotate(360deg);
+                }}
+              }}
+              @media (prefers-reduced-motion: reduce) {{
+                #${{overlayId}} .classio-book-rain-item {{
+                  animation-duration: 2.8s !important;
+                }}
+              }}
+            `;
+            hostDoc.head.appendChild(style);
+          }}
+
+          if (!hostWindow[stateKey]) {{
+            hostWindow[stateKey] = {{ lastNonce: null, cleanupTimer: null }};
+          }}
+          const state = hostWindow[stateKey];
+          if (state.lastNonce === nonce) {{
+            return;
+          }}
+          state.lastNonce = nonce;
+
+          const prior = hostDoc.getElementById(overlayId);
+          if (prior) prior.remove();
+
+          const overlay = hostDoc.createElement("div");
+          overlay.id = overlayId;
+
+          for (let i = 0; i < {total_books}; i += 1) {{
+            const book = hostDoc.createElement("div");
+            book.className = "classio-book-rain-item";
+            book.textContent = books[Math.floor(Math.random() * books.length)];
+            book.style.left = (Math.random() * 100) + "vw";
+            book.style.fontSize = ({min_font_px} + Math.random() * ({max_font_px} - {min_font_px})) + "px";
+            book.style.animationDuration = ({min_duration_s} + Math.random() * ({max_duration_s} - {min_duration_s})) + "s";
+            book.style.animationDelay = (Math.random() * 1.2) + "s";
+            overlay.appendChild(book);
+          }}
+
+          hostDoc.body.appendChild(overlay);
+
+          if (state.cleanupTimer) {{
+            hostWindow.clearTimeout(state.cleanupTimer);
+          }}
+          state.cleanupTimer = hostWindow.setTimeout(() => {{
+            overlay.remove();
+          }}, 8000);
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+
 def render_styled_dataframe(df: pd.DataFrame, max_rows: int = 200):
     """Render a DataFrame as a styled HTML table matching the app theme."""
     if df is None or df.empty:
