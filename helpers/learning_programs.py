@@ -3444,12 +3444,17 @@ def render_learning_program_library_cards(
                             surface="home_preview" if str(prefix).startswith("home_") else "resources",
                         )
                         st.session_state[f"{prefix}_selected_program_id"] = program_id
+                        st.session_state["explore_teaching_resources_keep_open"] = True
+                        st.toast(t("scroll_down_to_view"))
+                        st.rerun()
                 with action_cols[1]:
                     if program_id > 0 and is_complete and not is_archived and st.button(t("assign_to_student"), key=f"{prefix}_assign_{program_id}_{idx}_{col_idx}"):
                         if require_signup:
                             st.session_state["_post_signup_open_panel"] = "files"
                             st.session_state["_post_signup_open_tab"] = "community_library"
                             st.session_state["_explore_go_signup"] = True
+                            st.session_state["_show_signup_invite_dialog"] = True
+                            st.session_state["explore_teaching_resources_keep_open"] = True
                             st.rerun()
                         st.session_state[f"{prefix}_selected_program_id"] = program_id
                         st.session_state[f"show_assign_learning_program_{program_id}"] = True
@@ -3817,12 +3822,11 @@ def render_teacher_program_view(program: dict) -> None:
                             video = item.get("video") or {}
                             watch_url = str(video.get("watch_url") or video.get("youtube_url") or "")
                             if watch_url:
-                                st.link_button(
-                                    str(video.get("title") or t("watch_video")),
-                                    watch_url,
-                                    key=f"teacher_program_topic_video_{program.get('id')}_{topic.get('topic_id')}_{item.get('id')}",
-                                    use_container_width=True,
-                                )
+                                video_key = f"teacher_program_topic_video_{program.get('id')}_{topic.get('topic_id')}_{item.get('id')}"
+                                if st.button(str(video.get("title") or t("watch_video")), key=video_key, use_container_width=True):
+                                    st.session_state[video_key] = not bool(st.session_state.get(video_key))
+                                if st.session_state.get(video_key):
+                                    st.video(watch_url)
 
 
 def render_learning_program_assignment_panel(program: dict, prefix: str = "learning_program_assign") -> None:

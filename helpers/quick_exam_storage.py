@@ -440,6 +440,8 @@ def _open_exam_library_record(
         st.session_state["_post_signup_open_panel"] = "files"
         st.session_state["_post_signup_open_tab"] = "community_library"
         st.session_state["_explore_go_signup"] = True
+        st.session_state["_show_signup_invite_dialog"] = True
+        st.session_state["explore_teaching_resources_keep_open"] = True
         st.rerun()
 
     if row.get("id") and (not row.get("exam_data") or not row.get("answer_key")):
@@ -476,6 +478,7 @@ def _open_exam_library_record(
     if open_in_files:
         go_to("resources")
     else:
+        st.session_state["explore_teaching_resources_keep_open"] = True
         st.toast(t("scroll_down_to_view"))
     st.rerun()
 
@@ -1052,6 +1055,9 @@ def render_exam_result(
     allow_free_pdf: bool = True,
     action_key_prefix: str = "exam_result",
     comparison_mode: bool = False,
+    allow_image_generation: bool | None = None,
+    allow_auto_image_generation: bool = True,
+    on_image_update=None,
     **meta,
 ) -> None:
     if not exam_data or not exam_data.get("sections"):
@@ -1064,12 +1070,18 @@ def render_exam_result(
     topic = meta.get("topic", exam_data.get("topic", ""))
     learner_stage = meta.get("learner_stage", exam_data.get("learner_stage", ""))
     level_or_band = meta.get("level_or_band", exam_data.get("level_or_band", ""))
-    image_edit_allowed = not read_only
-    if read_only and resource_record_id not in (None, "", 0, "0"):
-        try:
-            owner_row = load_exam_record(resource_record_id) or {}
-            image_edit_allowed = str(owner_row.get("user_id") or "").strip() == str(get_current_user_id() or "").strip()
-        except Exception:
+    image_controls_locked = bool(exam_data.get("_admin_only_image_controls"))
+    if allow_image_generation is not None:
+        image_edit_allowed = bool(allow_image_generation)
+    else:
+        image_edit_allowed = not read_only
+        if read_only and resource_record_id not in (None, "", 0, "0"):
+            try:
+                owner_row = load_exam_record(resource_record_id) or {}
+                image_edit_allowed = str(owner_row.get("user_id") or "").strip() == str(get_current_user_id() or "").strip()
+            except Exception:
+                image_edit_allowed = False
+        if image_controls_locked:
             image_edit_allowed = False
 
     exam_data = dict(exam_data or {})
@@ -1087,7 +1099,7 @@ def render_exam_result(
     # ── Auto-enrich: generate visuals on first view if missing ──────────
     # Only runs once per exam per session (guarded by session-state flag).
     # Avoids expensive repeated calls on every rerun.
-    if image_edit_allowed and not comparison_mode and not signup_required_actions and exam_eligible_for_visuals(exam_data, subject=subject, learner_stage=learner_stage, topic=topic):
+    if allow_auto_image_generation and image_edit_allowed and not comparison_mode and not signup_required_actions and exam_eligible_for_visuals(exam_data, subject=subject, learner_stage=learner_stage, topic=topic):
         if not exam_has_ready_visuals(exam_data):
             _auto_key = f"_exam_vis_tried_{resource_record_id or action_key_prefix}"
             if not st.session_state.get(_auto_key):
@@ -1174,7 +1186,12 @@ def render_exam_result(
                 if extract_gallery_image_url(exam_updated):
                     # Persist to DB so students also see the images
                     persisted = True
-                    if resource_record_id not in (None, "", 0, "0"):
+                    if on_image_update is not None:
+                        try:
+                            persisted = bool(on_image_update({"exam_data": exam_updated, "answer_key": answer_key}))
+                        except Exception:
+                            persisted = False
+                    elif resource_record_id not in (None, "", 0, "0"):
                         persisted = _persist_saved_exam_visuals(resource_record_id, exam_updated)
                     # Update every session-state reference
                     st.session_state["exam_result"] = exam_updated
@@ -1269,10 +1286,44 @@ def render_exam_result(
     if signup_required_actions:
         st.caption(t("explore_resource_action_signup_note"))
         if st.button(
+            t("explore_save_exam_cta"),
+            key=f"{action_key_prefix}_save_signup",
+            type="primary",
+            use_container_width=True,
+        ):
+            move_id = str(meta.get("move_id") or "").strip()
+            st.session_state["_pending_exam_after_signup"] = {
+                "exam_data": exam_data,
+                "answer_key": answer_key,
+                "meta": {
+                    "subject": subject,
+                    "learner_stage": learner_stage,
+                    "level_or_band": level_or_band,
+                    "topic": topic,
+                    "exam_length": str(meta.get("exam_length") or exam_data.get("exam_length") or "").strip(),
+                    "exercise_types": list(meta.get("exercise_types") or exam_data.get("exercise_types") or []),
+                },
+                "move_id": move_id,
+            }
+            if move_id:
+                st.session_state["_explorer_claim_move_ids"] = [move_id]
+            st.session_state["_explore_go_signup"] = True
+            st.session_state["_show_signup_invite_dialog"] = True
+            if str(action_key_prefix).startswith("explore_selected"):
+                st.session_state["explore_teaching_resources_keep_open"] = True
+            elif str(action_key_prefix).startswith("explore_"):
+                st.session_state["explore_ai_tools_keep_open"] = True
+            st.rerun()
+        if st.button(
             t("assign_to_student"),
             key=f"{action_key_prefix}_assign_signup",
         ):
             st.session_state["_explore_go_signup"] = True
+            st.session_state["_show_signup_invite_dialog"] = True
+            if str(action_key_prefix).startswith("explore_selected"):
+                st.session_state["explore_teaching_resources_keep_open"] = True
+            elif str(action_key_prefix).startswith("explore_"):
+                st.session_state["explore_ai_tools_keep_open"] = True
             st.rerun()
     elif allow_assign:
         safe_assign_title = re.sub(r"[^A-Za-z0-9._-]+", "_", str(exam_data.get("title") or "exam").strip()) or "exam"
@@ -1313,6 +1364,11 @@ def render_exam_result(
                 use_container_width=True,
             ):
                 st.session_state["_explore_go_signup"] = True
+                st.session_state["_show_signup_invite_dialog"] = True
+                if str(action_key_prefix).startswith("explore_selected"):
+                    st.session_state["explore_teaching_resources_keep_open"] = True
+                elif str(action_key_prefix).startswith("explore_"):
+                    st.session_state["explore_ai_tools_keep_open"] = True
                 st.rerun()
         else:
             st.download_button(
@@ -1331,6 +1387,11 @@ def render_exam_result(
                 use_container_width=True,
             ):
                 st.session_state["_explore_go_signup"] = True
+                st.session_state["_show_signup_invite_dialog"] = True
+                if str(action_key_prefix).startswith("explore_selected"):
+                    st.session_state["explore_teaching_resources_keep_open"] = True
+                elif str(action_key_prefix).startswith("explore_"):
+                    st.session_state["explore_ai_tools_keep_open"] = True
                 st.rerun()
         else:
             st.download_button(
@@ -1350,6 +1411,11 @@ def render_exam_result(
                 use_container_width=True,
             ):
                 st.session_state["_explore_go_signup"] = True
+                st.session_state["_show_signup_invite_dialog"] = True
+                if str(action_key_prefix).startswith("explore_selected"):
+                    st.session_state["explore_teaching_resources_keep_open"] = True
+                elif str(action_key_prefix).startswith("explore_"):
+                    st.session_state["explore_ai_tools_keep_open"] = True
                 st.rerun()
         else:
             st.download_button(
@@ -1368,6 +1434,11 @@ def render_exam_result(
                 use_container_width=True,
             ):
                 st.session_state["_explore_go_signup"] = True
+                st.session_state["_show_signup_invite_dialog"] = True
+                if str(action_key_prefix).startswith("explore_selected"):
+                    st.session_state["explore_teaching_resources_keep_open"] = True
+                elif str(action_key_prefix).startswith("explore_"):
+                    st.session_state["explore_ai_tools_keep_open"] = True
                 st.rerun()
         else:
             st.download_button(

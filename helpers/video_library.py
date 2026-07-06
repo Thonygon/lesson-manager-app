@@ -350,6 +350,8 @@ def _open_video_library_record(
         st.session_state["_post_signup_open_panel"] = "files"
         st.session_state["_post_signup_open_tab"] = "my_videos"
         st.session_state["_explore_go_signup"] = True
+        st.session_state["_show_signup_invite_dialog"] = True
+        st.session_state["explore_teaching_resources_keep_open"] = True
         st.rerun()
     row = _normalize_video_row(row)
     st.session_state["files_selected_video"] = row
@@ -367,6 +369,7 @@ def _open_video_library_record(
     if open_in_files:
         go_to("resources")
     else:
+        st.session_state["explore_teaching_resources_keep_open"] = True
         st.toast(t("scroll_down_to_view"))
     st.rerun()
 
@@ -424,7 +427,7 @@ def render_video_library_cards(
                 action_cols = st.columns([1, 1, 1, 1] if show_owner_controls else [1, 1])
                 with action_cols[0]:
                     if st.button(t("watch_video"), key=f"{prefix}_watch_{row_id}_{idx}_{col_idx}", use_container_width=True):
-                        _open_video_library_record(row, open_in_files=open_in_files, require_signup=require_signup, expand_assign=False)
+                        _open_video_library_record(row, open_in_files=open_in_files, require_signup=False, expand_assign=False)
                 with action_cols[1]:
                     if st.button(
                         t("assign_to_student"),
@@ -654,7 +657,9 @@ def render_topic_video_manager(
                 action_cols = st.columns([1, 1], gap="small")
                 with action_cols[0]:
                     if watch_url:
-                        st.link_button(t("watch_video"), watch_url, key=f"{prefix}_watch_{topic_id}_{idx}", use_container_width=True)
+                        watch_key = f"{prefix}_watch_{topic_id}_{idx}"
+                        if st.button(t("watch_video"), key=watch_key, use_container_width=True):
+                            st.session_state[watch_key] = not bool(st.session_state.get(watch_key))
                 with action_cols[1]:
                     if st.button(t("remove_video"), key=f"{prefix}_remove_{topic_id}_{idx}", use_container_width=True):
                         ok, key = detach_video_from_topic(int(item.get("id") or 0))
@@ -662,6 +667,8 @@ def render_topic_video_manager(
                             st.success(t(key))
                             st.rerun()
                         st.error(t(key))
+                if watch_url and st.session_state.get(f"{prefix}_watch_{topic_id}_{idx}"):
+                    st.video(watch_url)
         else:
             st.caption(t("topic_videos_empty"))
 
