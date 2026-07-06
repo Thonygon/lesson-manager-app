@@ -15,6 +15,18 @@ from core.database import clear_app_caches, get_sb, load_profile_row, upsert_pro
 from core.i18n import t
 from core.state import get_current_user_id
 from core.timezone import DEFAULT_TZ_NAME, today_local
+from helpers.explorer_moves import (
+    EXPLORER_MOVE_STATUS_ARCHIVED,
+    EXPLORER_MOVE_STATUS_PENDING,
+    EXPLORER_MOVE_STATUS_PUBLISHED,
+    EXPLORER_MOVE_STATUS_SOLVED,
+    assign_explorer_move_to_profile,
+    archive_explorer_move,
+    explorer_moves_table_available,
+    load_explorer_moves_admin,
+    persist_explorer_move_payload,
+    publish_explorer_move,
+)
 from helpers.currency import CURRENCIES, CURRENCY_CODES, get_exchange_rate, get_preferred_currency
 from helpers.lesson_planner import normalize_subject
 from helpers.recommendation_models import (
@@ -45,6 +57,7 @@ ADMIN_SECTIONS = [
     ("pricing", "cash-coin", "admin_pricing"),
     ("subscriptions", "credit-card-2-front-fill", "admin_plans_subscriptions"),
     ("intelligence", "cpu-fill", "admin_ai_intelligence"),
+    ("explorer_moves", "compass-fill", "admin_explorer_moves"),
     ("business", "graph-up-arrow", "admin_business_analytics"),
     ("audit", "clock-history", "admin_audit_log"),
 ]
@@ -88,6 +101,12 @@ _OVERRIDE_TYPE_LABEL_KEYS = {
     "role_access": "admin_override_type_role_access",
     "user_row_update": "admin_override_type_user_row_update",
     "restart_account": "admin_override_type_restart_account",
+    "explorer_move_preview_open": "admin_override_type_explorer_move_preview_open",
+    "explorer_move_preview_close": "admin_override_type_explorer_move_preview_close",
+    "explorer_move_publish": "admin_override_type_explorer_move_publish",
+    "explorer_move_archive": "admin_override_type_explorer_move_archive",
+    "explorer_move_assign": "admin_override_type_explorer_move_assign",
+    "explorer_move_assign_duplicate": "admin_override_type_explorer_move_assign_duplicate",
 }
 _PROFILE_FIELD_LABEL_KEYS = {
     "user_id": "admin_profile_field_user_id",
@@ -1951,6 +1970,12 @@ def _inject_admin_styles() -> None:
         .admin-user-email{margin-top:2px;color:var(--muted);font-size:.82rem;word-break:break-word;}
         .admin-pill-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
         .admin-pill{display:inline-flex;align-items:center;border-radius:999px;padding:5px 9px;font-size:.72rem;font-weight:800;background:color-mix(in srgb, var(--primary) 12%, var(--panel));color:var(--primary);border:1px solid color-mix(in srgb, var(--primary) 26%, var(--border));}
+        .admin-explorer-status-row{display:flex;justify-content:flex-end;margin-bottom:10px;}
+        .admin-explorer-status-badge{display:inline-flex;align-items:center;border-radius:999px;padding:6px 11px;font-size:.72rem;font-weight:900;letter-spacing:.02em;box-shadow:0 8px 18px rgba(15,23,42,.08);border:1px solid transparent;backdrop-filter:blur(8px);}
+        .admin-explorer-status-badge--pending{background:linear-gradient(180deg, rgba(245,158,11,.18), rgba(245,158,11,.10));color:#b45309;border-color:rgba(245,158,11,.26);}
+        .admin-explorer-status-badge--published{background:linear-gradient(180deg, rgba(59,130,246,.18), rgba(59,130,246,.10));color:#1d4ed8;border-color:rgba(59,130,246,.24);}
+        .admin-explorer-status-badge--solved{background:linear-gradient(180deg, rgba(16,185,129,.18), rgba(16,185,129,.10));color:#047857;border-color:rgba(16,185,129,.24);}
+        .admin-explorer-status-badge--archived{background:linear-gradient(180deg, rgba(100,116,139,.18), rgba(100,116,139,.10));color:#475569;border-color:rgba(100,116,139,.22);}
         .admin-user-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px;}
         .admin-user-stat{border-radius:14px;padding:10px 11px;background:var(--panel);border:1px solid var(--border);}
         .admin-user-stat-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:800;}
@@ -2790,6 +2815,368 @@ def _render_audit_log(overrides: list[dict], events: list[dict]) -> None:
         st.info(t("admin_no_payment_events"))
 
 
+def _explorer_move_status_label(status: str) -> str:
+    mapping = {
+        EXPLORER_MOVE_STATUS_PENDING: t("admin_explorer_moves_pending"),
+        EXPLORER_MOVE_STATUS_PUBLISHED: t("admin_explorer_moves_published"),
+        EXPLORER_MOVE_STATUS_SOLVED: t("admin_explorer_moves_solved"),
+        EXPLORER_MOVE_STATUS_ARCHIVED: t("admin_explorer_moves_archived"),
+    }
+    return mapping.get(str(status or "").strip(), str(status or "").strip())
+
+
+def _explorer_move_resource_label(row: dict) -> str:
+    tool_key = str(row.get("tool_key") or "").strip()
+    if tool_key and t(tool_key) != tool_key:
+        return t(tool_key)
+    resource_type = str(row.get("resource_type") or "").strip()
+    fallback = {
+        "lesson_plan": t("quick_lesson_planner"),
+        "worksheet": t("worksheet_maker"),
+        "exam": t("quick_exam_builder"),
+    }
+    return fallback.get(resource_type, resource_type.replace("_", " ").title())
+
+
+def _format_admin_explorer_dt(value) -> str:
+    try:
+        dt = pd.to_datetime(value, errors="coerce", utc=True)
+        if pd.isna(dt):
+            return ""
+        return dt.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return ""
+
+
+def _explorer_move_status_badge_class(status: str) -> str:
+    status_map = {
+        EXPLORER_MOVE_STATUS_PENDING: "admin-explorer-status-badge--pending",
+        EXPLORER_MOVE_STATUS_PUBLISHED: "admin-explorer-status-badge--published",
+        EXPLORER_MOVE_STATUS_SOLVED: "admin-explorer-status-badge--solved",
+        EXPLORER_MOVE_STATUS_ARCHIVED: "admin-explorer-status-badge--archived",
+    }
+    return status_map.get(str(status or "").strip(), "admin-explorer-status-badge--pending")
+
+
+def _log_explorer_move_action(move: dict, action_type: str, *, target_user_id: str = "", detail: str = "") -> None:
+    move_id = str(move.get("id") or "").strip()
+    title = str(move.get("title") or _explorer_move_resource_label(move) or "").strip()
+    resource_label = _explorer_move_resource_label(move)
+    status = str(move.get("status") or "").strip()
+    visitor_id = str(move.get("anonymous_session_id") or "").strip()
+    reason_parts = [
+        f"move_id={move_id}" if move_id else "",
+        f"resource={resource_label}" if resource_label else "",
+        f"title={title}" if title else "",
+        f"status={status}" if status else "",
+        f"anonymous_session={visitor_id}" if visitor_id else "",
+        f"detail={detail}" if detail else "",
+    ]
+    _log_admin_override(target_user_id, action_type, "; ".join(part for part in reason_parts if part))
+
+
+def _render_explorer_move_preview(move: dict) -> None:
+    resource_type = str(move.get("resource_type") or "").strip()
+    meta = move.get("meta_json") if isinstance(move.get("meta_json"), dict) else {}
+    payload = move.get("payload_json") if isinstance(move.get("payload_json"), dict) else {}
+    move_id = str(move.get("id") or "preview")
+
+    def _save_preview_payload(updated_payload: dict) -> bool:
+        return persist_explorer_move_payload(move, updated_payload)
+
+    if resource_type == "lesson_plan":
+        from helpers.planner_storage import render_quick_lesson_plan_result
+
+        render_quick_lesson_plan_result(
+            payload,
+            subject=str(meta.get("subject") or ""),
+            learner_stage=str(meta.get("learner_stage") or ""),
+            level_or_band=str(meta.get("level_or_band") or ""),
+            lesson_purpose=str(meta.get("lesson_purpose") or ""),
+            topic=str(meta.get("topic") or ""),
+            read_only=True,
+            action_key_prefix=f"admin_explorer_move_{move_id}",
+            allow_image_generation=True,
+            on_image_update=_save_preview_payload,
+        )
+        return
+
+    if resource_type == "worksheet":
+        from helpers.worksheet_storage import render_worksheet_result
+
+        render_worksheet_result(
+            payload,
+            read_only=True,
+            subject=str(meta.get("subject") or ""),
+            learner_stage=str(meta.get("learner_stage") or ""),
+            level_or_band=str(meta.get("level_or_band") or ""),
+            worksheet_type=str(meta.get("worksheet_type") or ""),
+            topic=str(meta.get("topic") or ""),
+            action_key_prefix=f"admin_explorer_move_{move_id}",
+            allow_image_generation=True,
+            allow_auto_image_generation=False,
+            on_image_update=_save_preview_payload,
+        )
+        return
+
+    if resource_type == "exam":
+        from helpers.quick_exam_storage import render_exam_result
+
+        render_exam_result(
+            payload.get("exam_data") or {},
+            payload.get("answer_key") or {},
+            read_only=True,
+            action_key_prefix=f"admin_explorer_move_{move_id}",
+            subject=str(meta.get("subject") or ""),
+            learner_stage=str(meta.get("learner_stage") or ""),
+            level_or_band=str(meta.get("level_or_band") or ""),
+            topic=str(meta.get("topic") or ""),
+            allow_image_generation=True,
+            allow_auto_image_generation=False,
+            on_image_update=_save_preview_payload,
+        )
+        return
+
+    st.info(t("admin_explorer_moves_preview_unavailable"))
+
+
+def _render_admin_explorer_moves(user_df: pd.DataFrame) -> None:
+    card_col, refresh_col = st.columns([0.76, 0.24], vertical_alignment="center")
+    with card_col:
+        _render_section_callout(t("admin_explorer_moves_title"), t("admin_explorer_moves_subtitle"))
+    with refresh_col:
+        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+        if st.button(t("admin_explorer_moves_refresh"), key="admin_explorer_moves_refresh", use_container_width=True):
+            clear_app_caches()
+            st.rerun()
+
+    st.markdown("<div class='admin-kpi-stack-gap'></div>", unsafe_allow_html=True)
+
+    if not explorer_moves_table_available():
+        st.warning(t("admin_explorer_moves_unavailable"))
+        return
+
+    moves_df = load_explorer_moves_admin(limit=500)
+    if moves_df.empty:
+        st.info(t("admin_explorer_moves_empty"))
+        return
+
+    status_series = moves_df.get("status", pd.Series(dtype=str)).astype(str)
+    _render_kpi_row(
+        [
+            (t("admin_explorer_moves_total"), str(int(len(moves_df)))),
+            (t("admin_explorer_moves_pending"), str(int((status_series == EXPLORER_MOVE_STATUS_PENDING).sum()))),
+            (t("admin_explorer_moves_published"), str(int((status_series == EXPLORER_MOVE_STATUS_PUBLISHED).sum()))),
+            (t("admin_explorer_moves_solved"), str(int((status_series == EXPLORER_MOVE_STATUS_SOLVED).sum()))),
+            (t("admin_explorer_moves_archived"), str(int((status_series == EXPLORER_MOVE_STATUS_ARCHIVED).sum()))),
+        ]
+    )
+
+    status_options = {
+        t("admin_explorer_moves_all_statuses"): "all",
+        t("admin_explorer_moves_pending"): EXPLORER_MOVE_STATUS_PENDING,
+        t("admin_explorer_moves_published"): EXPLORER_MOVE_STATUS_PUBLISHED,
+        t("admin_explorer_moves_solved"): EXPLORER_MOVE_STATUS_SOLVED,
+        t("admin_explorer_moves_archived"): EXPLORER_MOVE_STATUS_ARCHIVED,
+    }
+    type_options = {
+        t("admin_explorer_moves_all_types"): "all",
+        t("quick_lesson_planner"): "lesson_plan",
+        t("worksheet_maker"): "worksheet",
+        t("quick_exam_builder"): "exam",
+    }
+    filter_col1, filter_col2 = st.columns(2)
+    with filter_col1:
+        selected_status_label = st.selectbox(
+            t("admin_explorer_moves_status"),
+            options=list(status_options.keys()),
+            key="admin_explorer_moves_status_filter",
+        )
+    with filter_col2:
+        selected_type_label = st.selectbox(
+            t("admin_explorer_moves_resource_type"),
+            options=list(type_options.keys()),
+            key="admin_explorer_moves_type_filter",
+        )
+
+    filtered = moves_df.copy()
+    selected_status = status_options[selected_status_label]
+    selected_type = type_options[selected_type_label]
+    if selected_status != "all":
+        filtered = filtered[filtered["status"].astype(str) == selected_status]
+    if selected_type != "all":
+        filtered = filtered[filtered["resource_type"].astype(str) == selected_type]
+
+    resource_search = st.text_input(
+        t("explore_resource_search"),
+        key="admin_explorer_moves_resource_search",
+        placeholder=t("explore_resource_search_placeholder"),
+    ).strip()
+    if resource_search:
+        search_columns = [
+            filtered.get("title", pd.Series("", index=filtered.index)),
+            filtered.get("subject", pd.Series("", index=filtered.index)),
+            filtered.get("topic", pd.Series("", index=filtered.index)),
+            filtered.get("preview_text", pd.Series("", index=filtered.index)),
+            filtered.get("anonymous_session_id", pd.Series("", index=filtered.index)),
+        ]
+        search_mask = pd.Series(False, index=filtered.index)
+        for column in search_columns:
+            search_mask = search_mask | column.fillna("").astype(str).str.contains(resource_search, case=False, regex=False)
+        filtered = filtered[search_mask].copy()
+
+    if filtered.empty:
+        st.info(t("admin_explorer_moves_search_empty") if resource_search else t("admin_explorer_moves_empty"))
+        return
+
+    assignable_users_df = user_df.copy() if isinstance(user_df, pd.DataFrame) else pd.DataFrame()
+
+    page_size_options = [10, 20, 50]
+    page_control_col1, page_control_col2, page_control_col3 = st.columns([0.28, 0.42, 0.30])
+    with page_control_col1:
+        page_size = st.selectbox(
+            t("admin_explorer_moves_page_size"),
+            options=page_size_options,
+            index=1,
+            key="admin_explorer_moves_page_size_select",
+        )
+
+    total_items = int(len(filtered))
+    total_pages = max(1, (total_items + int(page_size) - 1) // int(page_size))
+    current_page = int(st.session_state.get("admin_explorer_moves_page", 1) or 1)
+    current_page = max(1, min(current_page, total_pages))
+    st.session_state["admin_explorer_moves_page"] = current_page
+
+    with page_control_col2:
+        st.caption(t("admin_explorer_moves_page_status", start=((current_page - 1) * int(page_size)) + 1, end=min(current_page * int(page_size), total_items), total=total_items))
+    with page_control_col3:
+        nav_col1, nav_col2, nav_col3 = st.columns([1, 1.2, 1])
+        with nav_col1:
+            if st.button(t("admin_explorer_moves_previous"), key="admin_explorer_moves_prev_page", use_container_width=True, disabled=current_page <= 1):
+                st.session_state["admin_explorer_moves_page"] = current_page - 1
+                st.rerun()
+        with nav_col2:
+            st.caption(t("admin_explorer_moves_page_indicator", current=current_page, total=total_pages))
+        with nav_col3:
+            if st.button(t("admin_explorer_moves_next"), key="admin_explorer_moves_next_page", use_container_width=True, disabled=current_page >= total_pages):
+                st.session_state["admin_explorer_moves_page"] = current_page + 1
+                st.rerun()
+
+    start_idx = (current_page - 1) * int(page_size)
+    end_idx = start_idx + int(page_size)
+    paged_filtered = filtered.iloc[start_idx:end_idx].copy()
+
+    selected_move_id = str(st.session_state.get("admin_explorer_move_selected") or "")
+    for row in paged_filtered.to_dict("records"):
+        move_id = str(row.get("id") or "")
+        status = str(row.get("status") or "")
+        title = str(row.get("title") or _explorer_move_resource_label(row)).strip()
+        visitor_id = str(row.get("anonymous_session_id") or "").strip()
+        preview_text = str(row.get("preview_text") or "").strip()
+        meta_items = [
+            _explorer_move_resource_label(row),
+            _explorer_move_status_label(status),
+        ]
+        if str(row.get("subject") or "").strip():
+            meta_items.append(str(row.get("subject") or "").strip().replace("_", " ").title())
+        if str(row.get("topic") or "").strip():
+            meta_items.append(str(row.get("topic") or "").strip())
+        created_text = _format_admin_explorer_dt(row.get("created_at"))
+        if created_text:
+            meta_items.append(f"{t('admin_explorer_moves_generated')}: {created_text}")
+        if visitor_id:
+            meta_items.append(f"{t('admin_explorer_moves_anonymous_session')}: {visitor_id[:10]}")
+
+        with st.container(border=True):
+            st.markdown(
+                f"<div class='admin-explorer-status-row'><span class='admin-explorer-status-badge {_explorer_move_status_badge_class(status)}'>{_html.escape(_explorer_move_status_label(status))}</span></div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(f"**{_html.escape(title)}**")
+            st.caption(" · ".join([item for item in meta_items if item]))
+            if preview_text:
+                st.write(preview_text)
+
+            action_col1, action_col2, action_col3 = st.columns(3)
+            with action_col1:
+                preview_label = t("close") if selected_move_id == move_id else t("admin_explorer_moves_preview")
+                if st.button(preview_label, key=f"admin_explorer_move_preview_{move_id}", use_container_width=True):
+                    _log_explorer_move_action(
+                        row,
+                        "explorer_move_preview_close" if selected_move_id == move_id else "explorer_move_preview_open",
+                    )
+                    st.session_state["admin_explorer_move_selected"] = "" if selected_move_id == move_id else move_id
+                    st.rerun()
+            with action_col2:
+                if st.button(
+                    t("admin_explorer_moves_publish"),
+                    key=f"admin_explorer_move_publish_{move_id}",
+                    use_container_width=True,
+                    disabled=status != EXPLORER_MOVE_STATUS_PENDING,
+                ):
+                    ok, msg = publish_explorer_move(row)
+                    if ok:
+                        _log_explorer_move_action(row, "explorer_move_publish")
+                        st.success(t("admin_explorer_moves_publish_success"))
+                        st.session_state["admin_explorer_move_selected"] = move_id
+                        st.rerun()
+                    st.error(t("admin_explorer_moves_publish_failed", error=msg))
+            with action_col3:
+                if st.button(
+                    t("archive_toggle_label"),
+                    key=f"admin_explorer_move_archive_{move_id}",
+                    use_container_width=True,
+                    disabled=status == EXPLORER_MOVE_STATUS_ARCHIVED,
+                ):
+                    ok, msg = archive_explorer_move(row)
+                    if ok:
+                        _log_explorer_move_action(row, "explorer_move_archive")
+                        st.success(t("admin_explorer_moves_archive_success"))
+                        st.session_state["admin_explorer_move_selected"] = move_id
+                        st.rerun()
+                    st.error(t("admin_explorer_moves_archive_failed", error=msg))
+
+            if selected_move_id == move_id:
+                st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+                _render_explorer_move_preview(row)
+                st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+                st.markdown(f"#### {t('admin_explorer_moves_assign_title')}")
+                target_row = _selected_user_row(assignable_users_df, f"admin_explorer_move_assign_target_{move_id}", label_key="admin_explorer_moves_select_profile") if not assignable_users_df.empty else {}
+                if assignable_users_df.empty:
+                    st.info(t("admin_explorer_moves_user_list_empty"))
+                if target_row:
+                    target_name = str(target_row.get("display_name") or target_row.get("email") or t("admin_user_fallback_name")).strip()
+                    target_email = str(target_row.get("email") or "").strip()
+                    st.caption(f"{target_name} · {target_email}")
+                if st.button(
+                    t("admin_explorer_moves_assign_button"),
+                    key=f"admin_explorer_move_assign_btn_{move_id}",
+                    use_container_width=True,
+                    disabled=not bool(target_row),
+                ):
+                    target_user_id = str(target_row.get("user_id") or "").strip()
+                    target_display = str(target_row.get("display_name") or target_row.get("email") or t("unknown")).strip()
+                    ok, _record_id, msg = assign_explorer_move_to_profile(
+                        row,
+                        target_user_id,
+                        target_display,
+                    )
+                    if ok:
+                        _log_explorer_move_action(row, "explorer_move_assign", target_user_id=target_user_id, detail=f"assigned_to={target_display}")
+                        st.success(t("admin_explorer_moves_assign_success"))
+                    elif str(msg or "").startswith("duplicate_assignment::"):
+                        solved_by = str(msg).split("::", 1)[1].strip() or t("unknown")
+                        _log_explorer_move_action(row, "explorer_move_assign_duplicate", target_user_id=target_user_id, detail=f"assigned_to={target_display}; solved_by={solved_by}")
+                        st.warning(
+                            t(
+                                "admin_explorer_moves_assign_duplicate",
+                                admin=solved_by,
+                            )
+                        )
+                    else:
+                        st.error(t("admin_explorer_moves_assign_failed", error=msg))
+
+
 def render_admin() -> None:
     require_admin()
     _inject_admin_styles()
@@ -2809,6 +3196,7 @@ def render_admin() -> None:
         tab_pricing,
         tab_subscriptions,
         tab_intelligence,
+        tab_explorer_moves,
         tab_business,
         tab_audit,
     ) = st.tabs([
@@ -2817,6 +3205,7 @@ def render_admin() -> None:
         f"💳 {t('admin_pricing')}",
         f"🧾 {t('admin_plans_subscriptions')}",
         f"🧠 {t('admin_ai_intelligence')}",
+        f"🧭 {t('admin_explorer_moves')}",
         f"📈 {t('admin_business_analytics')}",
         f"🕒 {t('admin_audit_log')}",
     ])
@@ -2831,6 +3220,8 @@ def render_admin() -> None:
         _render_subscriptions(df, events)
     with tab_intelligence:
         _render_admin_ai_intelligence()
+    with tab_explorer_moves:
+        _render_admin_explorer_moves(df)
     with tab_business:
         _render_business_analytics(df, subscriptions)
     with tab_audit:

@@ -37,6 +37,214 @@ from helpers.currency import CURRENCIES, CURRENCY_CODES
 
 
 _SUPPORTED_UI_LANGS = ("en", "es", "tr")
+_EXPLORER_CLAIM_COOKIE = "classio_explorer_claims"
+
+
+def _normalize_explorer_claim_ids(values) -> list[str]:
+    if isinstance(values, str):
+        items = [part.strip() for part in values.split(",")]
+    elif isinstance(values, (list, tuple, set)):
+        items = [str(part or "").strip() for part in values]
+    else:
+        items = []
+    out: list[str] = []
+    for item in items:
+        if item and item not in out:
+            out.append(item)
+    return out
+
+
+def _pending_explorer_claim_ids_from_session() -> list[str]:
+    ids = _normalize_explorer_claim_ids(st.session_state.get("_explorer_claim_move_ids") or [])
+    for key in (
+        "_pending_plan_after_signup",
+        "_pending_worksheet_after_signup",
+        "_pending_exam_after_signup",
+    ):
+        payload = st.session_state.get(key)
+        if isinstance(payload, dict) and payload.get("move_id"):
+            ids = _normalize_explorer_claim_ids(ids + [payload.get("move_id")])
+    return ids
+
+
+def _sync_explorer_claim_cookie(move_ids: list[str]) -> None:
+    move_ids = _normalize_explorer_claim_ids(move_ids)
+    cookie_value = ",".join(move_ids)
+    max_age = 1800 if cookie_value else 0
+    components.html(
+        f"""
+        <script>
+        (function () {{
+          const value = {cookie_value!r};
+          const cookie = `{_EXPLORER_CLAIM_COOKIE}=${{value}}; path=/; max-age={max_age}; SameSite=Lax`;
+          try {{ document.cookie = cookie; }} catch (e) {{}}
+          try {{ window.parent.document.cookie = cookie; }} catch (e) {{}}
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+
+def _sync_explorer_claim_cookie_from_session() -> None:
+    move_ids = _pending_explorer_claim_ids_from_session()
+    if move_ids:
+        st.session_state["_explorer_claim_move_ids"] = move_ids
+        _sync_explorer_claim_cookie(move_ids)
+
+
+def _clear_explorer_claim_state() -> None:
+    st.session_state.pop("_explorer_claim_move_ids", None)
+    _sync_explorer_claim_cookie([])
+
+
+def _read_explorer_claim_ids() -> list[str]:
+    cookie_ids = []
+    try:
+        cookie_ids = _normalize_explorer_claim_ids(st.context.cookies.get(_EXPLORER_CLAIM_COOKIE, ""))
+    except Exception:
+        cookie_ids = []
+    session_ids = _normalize_explorer_claim_ids(st.session_state.get("_explorer_claim_move_ids") or [])
+    return _normalize_explorer_claim_ids(cookie_ids + session_ids)
+
+
+def _consume_pending_explorer_saves() -> None:
+    user_id = str(get_current_user_id() or "").strip()
+    if not user_id:
+        return
+
+    library_saved = False
+    consumed_move_ids: list[str] = []
+
+    def _load_move_payload(move_id):
+        if not move_id:
+            return {}, {}
+        try:
+            from helpers.explorer_moves import load_explorer_move
+
+            row = load_explorer_move(move_id) or {}
+            payload = row.get("payload_json") if isinstance(row.get("payload_json"), dict) else {}
+            meta = row.get("meta_json") if isinstance(row.get("meta_json"), dict) else {}
+            return payload, meta
+        except Exception:
+            return {}, {}
+
+    pending_plan = st.session_state.pop("_pending_plan_after_signup", None)
+    if isinstance(pending_plan, dict):
+        plan = pending_plan.get("plan") if isinstance(pending_plan.get("plan"), dict) else {}
+        meta = pending_plan.get("meta") if isinstance(pending_plan.get("meta"), dict) else {}
+        if (not plan) and pending_plan.get("move_id"):
+            plan, fallback_meta = _load_move_payload(pending_plan.get("move_id"))
+            meta = meta or fallback_meta
+        if plan:
+            try:
+                from helpers.planner_storage import save_lesson_plan_record
+
+                ok = save_lesson_plan_record(
+                    subject=str(meta.get("subject") or "").strip(),
+                    learner_stage=str(meta.get("learner_stage") or "").strip(),
+                    level_or_band=str(meta.get("level_or_band") or "").strip(),
+                    lesson_purpose=str(meta.get("lesson_purpose") or "").strip(),
+                    topic=str(meta.get("topic") or "").strip(),
+                    mode=str(meta.get("mode") or "ai").strip() or "ai",
+                    plan=plan,
+                )
+                library_saved = library_saved or bool(ok)
+                if ok and pending_plan.get("move_id"):
+                    consumed_move_ids.append(str(pending_plan.get("move_id")))
+            except Exception:
+                pass
+
+    pending_worksheet = st.session_state.pop("_pending_worksheet_after_signup", None)
+    if isinstance(pending_worksheet, dict):
+        worksheet = pending_worksheet.get("worksheet") if isinstance(pending_worksheet.get("worksheet"), dict) else {}
+        meta = pending_worksheet.get("meta") if isinstance(pending_worksheet.get("meta"), dict) else {}
+        if (not worksheet) and pending_worksheet.get("move_id"):
+            worksheet, fallback_meta = _load_move_payload(pending_worksheet.get("move_id"))
+            meta = meta or fallback_meta
+        if worksheet:
+            try:
+                from helpers.worksheet_storage import save_worksheet_record
+
+                ok = save_worksheet_record(
+                    subject=str(meta.get("subject") or "").strip(),
+                    learner_stage=str(meta.get("learner_stage") or "").strip(),
+                    level_or_band=str(meta.get("level_or_band") or "").strip(),
+                    worksheet_type=str(meta.get("worksheet_type") or "").strip(),
+                    topic=str(meta.get("topic") or "").strip(),
+                    worksheet=worksheet,
+                )
+                library_saved = library_saved or bool(ok)
+                if ok and pending_worksheet.get("move_id"):
+                    consumed_move_ids.append(str(pending_worksheet.get("move_id")))
+            except Exception:
+                pass
+
+    pending_cv = st.session_state.pop("_pending_cv_after_signup", None)
+    if isinstance(pending_cv, dict):
+        cv = pending_cv.get("cv") if isinstance(pending_cv.get("cv"), dict) else {}
+        if cv:
+            try:
+                from helpers.cv_storage import save_cv_record
+
+                ok = save_cv_record(
+                    cv_dict=cv,
+                    source_type="ai",
+                    title=str(cv.get("title") or cv.get("full_name") or t("my_cv")).strip(),
+                    ai_prompt="",
+                )
+                library_saved = library_saved or bool(ok)
+            except Exception:
+                pass
+
+    pending_exam = st.session_state.pop("_pending_exam_after_signup", None)
+    if isinstance(pending_exam, dict):
+        exam_data = pending_exam.get("exam_data") if isinstance(pending_exam.get("exam_data"), dict) else {}
+        answer_key = pending_exam.get("answer_key") if isinstance(pending_exam.get("answer_key"), dict) else {}
+        meta = pending_exam.get("meta") if isinstance(pending_exam.get("meta"), dict) else {}
+        if ((not exam_data) or (not answer_key)) and pending_exam.get("move_id"):
+            payload, fallback_meta = _load_move_payload(pending_exam.get("move_id"))
+            exam_data = payload.get("exam_data") if isinstance(payload.get("exam_data"), dict) else exam_data
+            answer_key = payload.get("answer_key") if isinstance(payload.get("answer_key"), dict) else answer_key
+            meta = meta or fallback_meta
+        if exam_data and answer_key:
+            try:
+                from helpers.quick_exam_storage import save_exam_record
+
+                ok = save_exam_record(
+                    subject=str(meta.get("subject") or "").strip(),
+                    learner_stage=str(meta.get("learner_stage") or "").strip(),
+                    level_or_band=str(meta.get("level_or_band") or "").strip(),
+                    topic=str(meta.get("topic") or "").strip(),
+                    exam_length=str(meta.get("exam_length") or "").strip(),
+                    exercise_types=list(meta.get("exercise_types") or []),
+                    exam_data=exam_data,
+                    answer_key=answer_key,
+                )
+                library_saved = library_saved or bool(ok)
+                if ok and pending_exam.get("move_id"):
+                    consumed_move_ids.append(str(pending_exam.get("move_id")))
+            except Exception:
+                pass
+
+    claim_ids = [move_id for move_id in _read_explorer_claim_ids() if move_id not in consumed_move_ids]
+    if claim_ids:
+        try:
+            from helpers.explorer_moves import assign_explorer_move_to_profile, load_explorer_move
+
+            owner_name = str(st.session_state.get("user_name") or "").strip() or t("unknown")
+            for move_id in claim_ids:
+                move = load_explorer_move(move_id) or {}
+                if not move:
+                    continue
+                ok, _record_id, _msg = assign_explorer_move_to_profile(move, user_id, owner_name)
+                library_saved = library_saved or bool(ok)
+        except Exception:
+            pass
+
+    if library_saved:
+        st.session_state["_explore_saved_after_signup"] = True
+    _clear_explorer_claim_state()
 
 
 def _normalize_ui_lang(value, default: str = "") -> str:
@@ -316,6 +524,7 @@ def _try_local_dev_login() -> bool:
     apply_auth_session()
 
     if st.session_state.get("user_id"):
+        _consume_pending_explorer_saves()
         after_page = st.session_state.pop("_after_signup_page", None)
         if after_page:
             st.session_state["page"] = after_page
@@ -334,6 +543,23 @@ def _missing_auth_config_message() -> str:
         "Add an authentication provider to .streamlit/secrets.toml, or set DEV_LOGIN_EMAIL "
         "to an existing profile email for local development."
     )
+
+
+def _render_signup_invite_dialog() -> None:
+    @st.dialog(t("explore_signup_dialog_title"))
+    def _signup_dlg():
+        st.write(t("explore_signup_dialog_body"))
+        render_google_auth_card(
+            title_key="google_signup_title",
+            body_key="account_managed_by_provider",
+            button_key="create_account_google",
+            button_widget_key="btn_google_signup_dialog",
+            show_signup_note=True,
+        )
+        if st.button(t("explore_signup_dialog_keep_exploring"), key="btn_signup_dialog_keep_exploring", use_container_width=True):
+            st.rerun()
+
+    _signup_dlg()
 
 def render_google_auth_card(
     title_key,
@@ -425,6 +651,7 @@ def require_login():
         user_id = _restore_user_from_email()
         if user_id:
             apply_auth_session()
+            _consume_pending_explorer_saves()
             after_page = st.session_state.pop("_after_signup_page", None)
             if after_page:
                 st.session_state["page"] = after_page
@@ -439,6 +666,7 @@ def require_login():
     from styles.theme import _root_vars, _dark_widget_css
 
     _sync_ui_lang_cookie(resolved_ui_lang)
+    _sync_explorer_claim_cookie_from_session()
 
     st.markdown(f"<style>{_root_vars()}</style>", unsafe_allow_html=True)
     _dw = _dark_widget_css()
@@ -506,21 +734,32 @@ def require_login():
                 _missing_auth_config_message()
             )
 
-    st.session_state.pop("_explore_go_signup", False)
-    st.session_state.pop("_auth_focus_login", False)
+    _focus_signup_tab = bool(st.session_state.pop("_explore_go_signup", False))
+    _focus_login_tab = bool(st.session_state.pop("_auth_focus_login", False))
     _lang_tab_label = "🌐"
     _theme_tab_label = "🌙" if not _dark_login else "☀️"
 
-    tab_explore, tab_income_goal, tab_login, tab_signup, tab_lang, tab_theme = st.tabs(
-        [
-            t("explore_tab"),
-            t("set_income_goal"),
-            t("sign_in"),
-            t("sign_up"),
-            _lang_tab_label,
-            _theme_tab_label,
-        ]
-    )
+    _tab_specs = [
+        ("explore", t("explore_tab")),
+        ("income_goal", t("set_income_goal")),
+        ("login", t("sign_in")),
+        ("signup", t("sign_up")),
+        ("lang", _lang_tab_label),
+        ("theme", _theme_tab_label),
+    ]
+    if _focus_signup_tab:
+        _tab_specs = [spec for spec in _tab_specs if spec[0] == "signup"] + [spec for spec in _tab_specs if spec[0] != "signup"]
+    elif _focus_login_tab:
+        _tab_specs = [spec for spec in _tab_specs if spec[0] == "login"] + [spec for spec in _tab_specs if spec[0] != "login"]
+
+    _tabs = st.tabs([label for _, label in _tab_specs])
+    _tab_by_key = {key: tab for (key, _), tab in zip(_tab_specs, _tabs)}
+    tab_explore = _tab_by_key["explore"]
+    tab_income_goal = _tab_by_key["income_goal"]
+    tab_login = _tab_by_key["login"]
+    tab_signup = _tab_by_key["signup"]
+    tab_lang = _tab_by_key["lang"]
+    tab_theme = _tab_by_key["theme"]
 
     with tab_theme:
         _current_theme_mode = st.session_state.get("ui_theme_mode", "auto")
@@ -595,6 +834,7 @@ def require_login():
         wants_signup = render_goal_explorer()
         if wants_signup:
             st.session_state["_explore_go_signup"] = True
+            st.session_state["_show_signup_invite_dialog"] = True
             st.rerun()
 
     with tab_income_goal:
@@ -602,7 +842,11 @@ def require_login():
         wants_signup = render_income_goal_explorer()
         if wants_signup:
             st.session_state["_explore_go_signup"] = True
+            st.session_state["_show_signup_invite_dialog"] = True
             st.rerun()
+
+    if st.session_state.pop("_show_signup_invite_dialog", False):
+        _render_signup_invite_dialog()
 
     if not st.session_state.get("_prelogin_book_rain_seen", False):
         trigger_book_rain(nonce="prelogin-landing")

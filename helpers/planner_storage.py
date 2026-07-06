@@ -838,6 +838,8 @@ def _open_plan_library_record(
         st.session_state["_post_signup_open_panel"] = "files"
         st.session_state["_post_signup_open_tab"] = "community_library"
         st.session_state["_explore_go_signup"] = True
+        st.session_state["_show_signup_invite_dialog"] = True
+        st.session_state["explore_teaching_resources_keep_open"] = True
         st.rerun()
 
     if row.get("id") and not row.get("plan_json"):
@@ -870,6 +872,7 @@ def _open_plan_library_record(
     if open_in_files:
         go_to("resources")
     else:
+        st.session_state["explore_teaching_resources_keep_open"] = True
         st.toast(t("scroll_down_to_view"))
     st.rerun()
 
@@ -1156,6 +1159,8 @@ def render_quick_lesson_plan_result(
     action_key_prefix: str = "quick_plan",
     signup_required_actions: bool = False,
     comparison_mode: bool = False,
+    allow_image_generation: bool | None = None,
+    on_image_update=None,
 ) -> None:
     _inject_planner_result_css()
     plan = _clean_plan_data(plan)
@@ -1179,12 +1184,18 @@ def render_quick_lesson_plan_result(
         mode_label=mode_label,
         material_language=str(plan.get("student_material_language") or "").upper(),
     )
-    cover_allowed = not read_only
-    if read_only and resource_record_id not in (None, "", 0, "0"):
-        try:
-            cover_row = load_lesson_plan_record(resource_record_id)
-            cover_allowed = str(cover_row.get("user_id") or "") == str(get_current_user_id() or "")
-        except Exception:
+    cover_controls_locked = bool(plan.get("_admin_only_image_controls"))
+    if allow_image_generation is not None:
+        cover_allowed = bool(allow_image_generation)
+    else:
+        cover_allowed = not read_only
+        if read_only and resource_record_id not in (None, "", 0, "0"):
+            try:
+                cover_row = load_lesson_plan_record(resource_record_id)
+                cover_allowed = str(cover_row.get("user_id") or "") == str(get_current_user_id() or "")
+            except Exception:
+                cover_allowed = False
+        if cover_controls_locked:
             cover_allowed = False
     if cover_allowed and not comparison_mode and not signup_required_actions:
         cover_url = extract_gallery_image_url(plan.get("cover_image") or plan)
@@ -1218,10 +1229,17 @@ def render_quick_lesson_plan_result(
             if not new_cover_url:
                 st.warning(t("resource_cover_generation_failed"))
                 return
-            if resource_record_id not in (None, "", 0, "0"):
-                if not _persist_lesson_plan_cover(resource_record_id, updated_plan):
-                    st.warning(t("resource_cover_save_failed"))
-                    return
+            persisted = True
+            if on_image_update is not None:
+                try:
+                    persisted = bool(on_image_update(updated_plan))
+                except Exception:
+                    persisted = False
+            elif resource_record_id not in (None, "", 0, "0"):
+                persisted = _persist_lesson_plan_cover(resource_record_id, updated_plan)
+            if not persisted:
+                st.warning(t("resource_cover_save_failed"))
+                return
             st.session_state["quick_lesson_plan_result"] = updated_plan
             if st.session_state.get("files_selected_plan") is not None:
                 st.session_state["files_selected_plan"] = updated_plan
@@ -1321,6 +1339,11 @@ def render_quick_lesson_plan_result(
                     use_container_width=True,
                 ):
                     st.session_state["_explore_go_signup"] = True
+                    st.session_state["_show_signup_invite_dialog"] = True
+                    if str(action_key_prefix).startswith("explore_selected"):
+                        st.session_state["explore_teaching_resources_keep_open"] = True
+                    elif str(action_key_prefix).startswith("explore_"):
+                        st.session_state["explore_ai_tools_keep_open"] = True
                     st.rerun()
             else:
                 st.download_button(
@@ -1338,6 +1361,11 @@ def render_quick_lesson_plan_result(
                 key=f"{action_key_prefix}_assign_signup",
             ):
                 st.session_state["_explore_go_signup"] = True
+                st.session_state["_show_signup_invite_dialog"] = True
+                if str(action_key_prefix).startswith("explore_selected"):
+                    st.session_state["explore_teaching_resources_keep_open"] = True
+                elif str(action_key_prefix).startswith("explore_"):
+                    st.session_state["explore_ai_tools_keep_open"] = True
                 st.rerun()
         elif allow_assign:
             with st.expander(t("assign_to_student"), expanded=assign_expanded):

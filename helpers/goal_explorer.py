@@ -17,6 +17,7 @@ from helpers.learning_programs import (
     render_learning_program_library_cards,
     render_teacher_program_view,
 )
+from helpers.explorer_moves import stage_explorer_move
 from helpers.archive_utils import is_archived_status
 from helpers.practice_engine import normalize_exercise_data_for_web, render_practice_session
 from styles.theme import load_css_home
@@ -359,7 +360,32 @@ def _blended_range(
     off = _range_in_currency(subject, "offline", currency, audience, education)
     return (min(on[0], off[0]), round((on[1] + off[1]) / 2), max(on[2], off[2]))
 
-def _render_explore_teaching_resources() -> None:
+
+def _explore_teaching_resource_is_open() -> bool:
+    return _explore_section_is_open(
+        "explore_teaching_resources_keep_open",
+        [
+            "explore_public_learning_programs_selected_program_id",
+            "files_selected_plan",
+            "files_selected_worksheet",
+            "files_selected_exam",
+            "files_selected_video",
+        ],
+    )
+
+
+def _explore_section_is_open(keep_open_key: str, state_keys: list[str] | None = None) -> bool:
+    return any(
+        bool(st.session_state.get(key))
+        for key in [keep_open_key, *(state_keys or [])]
+    )
+
+
+def _keep_explore_section_open(keep_open_key: str) -> None:
+    st.session_state[keep_open_key] = True
+
+
+def _render_explore_teaching_resources() -> bool:
     st.markdown(
         f"""
         <div class="classio-explore-section-hero" style="--explore-accent:#F59E0B;">
@@ -371,11 +397,13 @@ def _render_explore_teaching_resources() -> None:
         unsafe_allow_html=True,
     )
 
-    with st.expander(f"📚 {t('teaching_resources')}", expanded=False):
-        _render_explore_teaching_resources_body()
+    with st.expander(f"📚 {t('teaching_resources')}", expanded=_explore_teaching_resource_is_open()):
+        return _render_explore_teaching_resources_body()
+
+    return False
 
 
-def _render_explore_teaching_resources_body() -> None:
+def _render_explore_teaching_resources_body() -> bool:
     _render_explore_demo_section(wrap=False)
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -690,7 +718,8 @@ def _render_explore_teaching_resources_body() -> None:
                 t("assign_to_student"),
                 key=f"explore_program_assign_signup_{selected_program_id}",
             ):
-                st.rerun()
+                _keep_explore_section_open("explore_teaching_resources_keep_open")
+                return True
 
     selected_plan = st.session_state.get("files_selected_plan")
     if selected_plan:
@@ -843,6 +872,11 @@ def _render_explore_teaching_resources_body() -> None:
             assign_expanded=bool(st.session_state.get("files_selected_video_assign_expanded")),
         )
 
+    if st.session_state.get("_explore_go_signup"):
+        return True
+
+    return False
+
 # ── Pre-login Explore and Income Goal tabs ──
 def render_goal_explorer() -> bool:
     """
@@ -852,9 +886,11 @@ def render_goal_explorer() -> bool:
     load_css_home()
     _inject_explore_premium_styles()
 
-    _render_explore_ai_tools()
-    _render_explore_teaching_resources()
-    _render_feature_showcase()
+    _render_explore_loading(t("explore_ai_tools_title"), _render_explore_ai_tools)
+    if _render_explore_loading(t("explore_teaching_resources_title"), _render_explore_teaching_resources):
+        return True
+    if _render_explore_loading(t("explore_features_title"), _render_feature_showcase):
+        return True
 
     st.markdown(
         """
@@ -1117,7 +1153,7 @@ _FEATURE_DESCRIPTIONS = {
 }
 
 
-def _render_feature_showcase() -> None:
+def _render_feature_showcase() -> bool:
     st.markdown(
         f"""
         <div class="classio-explore-section-hero" style="--explore-accent:#059669;">
@@ -1129,37 +1165,45 @@ def _render_feature_showcase() -> None:
         unsafe_allow_html=True,
     )
 
-    with st.expander(f"👥 {t('explore_features_title')}", expanded=False):
-        rows = [_FEATURE_ITEMS[0:2], _FEATURE_ITEMS[2:4], _FEATURE_ITEMS[4:6]]
+    with st.expander(f"👥 {t('explore_features_title')}", expanded=_explore_section_is_open("explore_manage_students_keep_open")):
+        return _render_feature_cards()
 
-        for row in rows:
-            cols = st.columns(len(row), gap="medium")
-            for col, (key, icon, accent, rgb) in zip(cols, row):
-                with col:
-                    label = t(key) if key in ("dashboard", "students", "calendar", "analytics") else t(key.replace("add_", ""))
-                    desc = t(_FEATURE_DESCRIPTIONS[key])
-                    st.markdown(
-                        f"""
-                        <div class="classio-explore-feature-card" style="--card-accent:{accent};--card-rgb:{rgb};">
-                            <div class="classio-explore-card-top">
-                                <div class="classio-explore-card-icon">{_html.escape(icon)}</div>
-                                <div class="classio-explore-card-badge">{_html.escape(t('explore_try_feature'))}</div>
-                            </div>
-                            <div class="classio-explore-card-title">{_html.escape(label)}</div>
-                            <div class="classio-explore-card-body">{_html.escape(desc)}</div>
+    return False
+
+
+def _render_feature_cards() -> bool:
+    rows = [_FEATURE_ITEMS[0:2], _FEATURE_ITEMS[2:4], _FEATURE_ITEMS[4:6]]
+
+    for row in rows:
+        cols = st.columns(len(row), gap="medium")
+        for col, (key, icon, accent, rgb) in zip(cols, row):
+            with col:
+                label = t(key) if key in ("dashboard", "students", "calendar", "analytics") else t(key.replace("add_", ""))
+                desc = t(_FEATURE_DESCRIPTIONS[key])
+                st.markdown(
+                    f"""
+                    <div class="classio-explore-feature-card" style="--card-accent:{accent};--card-rgb:{rgb};">
+                        <div class="classio-explore-card-top">
+                            <div class="classio-explore-card-icon">{_html.escape(icon)}</div>
+                            <div class="classio-explore-card-badge">{_html.escape(t('explore_try_feature'))}</div>
                         </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    if st.button(
-                        t("explore_try_feature"),
-                        key=f"explore_feat_{key}",
-                        use_container_width=True,
-                    ):
-                        st.session_state["_explore_go_signup"] = True
-                        st.session_state["_after_signup_page"] = key
-                        st.rerun()
-            st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+                        <div class="classio-explore-card-title">{_html.escape(label)}</div>
+                        <div class="classio-explore-card-body">{_html.escape(desc)}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if st.button(
+                    t("explore_try_feature"),
+                    key=f"explore_feat_{key}",
+                    use_container_width=True,
+                ):
+                    _keep_explore_section_open("explore_manage_students_keep_open")
+                    st.session_state["_after_signup_page"] = key
+                    return True
+        st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+
+    return False
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1299,6 +1343,7 @@ def _render_explore_cv_builder() -> None:
                     "cv": cv,
                     "meta": cv_meta,
                 }
+                _keep_explore_section_open("explore_ai_tools_keep_open")
                 st.session_state["_explore_go_signup"] = True
                 st.rerun()
 
@@ -1307,6 +1352,18 @@ def _render_explore_cv_builder() -> None:
 # Explore-page AI Tools (functional for anonymous users)
 # ─────────────────────────────────────────────────────────────
 _EXPLORE_AI_LIMIT = 1  # anonymous users: 1 AI use per tool
+
+
+def _render_explore_loading(label: str, render_fn):
+    loading_slot = st.empty()
+    progress = loading_slot.progress(0.12, text=t("section_loading_start", section=label))
+    progress.progress(0.42, text=t("section_loading_data", section=label))
+    try:
+        result = render_fn()
+        progress.progress(1.0, text=t("section_loading_ready", section=label))
+        return result
+    finally:
+        loading_slot.empty()
 
 
 def _inject_explore_premium_styles() -> None:
@@ -1515,7 +1572,10 @@ def _render_explore_ai_tools() -> None:
         },
     ]
 
-    with st.expander(f"🧰 {t('explore_ai_tools_title')}", expanded=False):
+    with st.expander(
+        f"🧰 {t('explore_ai_tools_title')}",
+        expanded=_explore_section_is_open("explore_ai_tools_keep_open", ["explore_ai_tool_selected"]),
+    ):
         # Render cards in 2 rows × 2 columns
         for row_start in range(0, len(cards), 2):
             row_cards = cards[row_start:row_start + 2]
@@ -1541,6 +1601,7 @@ def _render_explore_ai_tools() -> None:
 
                     button_label = t("close") if is_active else t("try_now")
                     if st.button(button_label, key=f"explore_ai_card_{card['key']}", use_container_width=True):
+                        _keep_explore_section_open("explore_ai_tools_keep_open")
                         if is_active:
                             st.session_state["explore_ai_tool_selected"] = ""
                         else:
@@ -1657,6 +1718,13 @@ def _render_explore_worksheet_maker() -> None:
                         "worksheet_type": worksheet_type,
                         "topic": topic.strip(),
                     }
+                    move_id = stage_explorer_move(
+                        resource_type="worksheet",
+                        tool_key="worksheet_maker",
+                        payload=ws,
+                        meta=st.session_state["explore_generated_worksheet_meta"],
+                    )
+                    st.session_state["explore_generated_worksheet_move_id"] = move_id
                     st.session_state["_explore_ws_ai_used"] = ai_used + 1
                 except Exception:
                     st.error(t("ai_unavailable_fallback"))
@@ -1680,10 +1748,15 @@ def _render_explore_worksheet_maker() -> None:
             use_container_width=True,
             key="btn_explore_save_ws",
         ):
+            move_id = st.session_state.get("explore_generated_worksheet_move_id")
             st.session_state["_pending_worksheet_after_signup"] = {
                 "worksheet": ws,
                 "meta": ws_meta,
+                "move_id": move_id,
             }
+            if move_id:
+                st.session_state["_explorer_claim_move_ids"] = [str(move_id)]
+            _keep_explore_section_open("explore_ai_tools_keep_open")
             st.session_state["_explore_go_signup"] = True
             st.rerun()
 
@@ -1804,8 +1877,17 @@ def _render_explore_exam_builder() -> None:
                         "subject": effective_subject,
                         "learner_stage": learner_stage,
                         "level_or_band": level_or_band,
+                        "exam_length": exam_length,
+                        "exercise_types": exercise_types,
                         "topic": topic.strip(),
                     }
+                    move_id = stage_explorer_move(
+                        resource_type="exam",
+                        tool_key="quick_exam_builder",
+                        payload={"exam_data": exam_data, "answer_key": answer_key},
+                        meta=st.session_state["explore_generated_exam_meta"],
+                    )
+                    st.session_state["explore_generated_exam_move_id"] = move_id
                     st.session_state["_explore_exam_ai_used"] = ai_used + 1
                 except Exception:
                     st.error(t("ai_unavailable_fallback"))
@@ -1824,6 +1906,9 @@ def _render_explore_exam_builder() -> None:
             learner_stage=exam_meta.get("learner_stage", ""),
             level_or_band=exam_meta.get("level_or_band", ""),
             topic=exam_meta.get("topic", ""),
+            exam_length=exam_meta.get("exam_length", ""),
+            exercise_types=exam_meta.get("exercise_types", []),
+            move_id=st.session_state.get("explore_generated_exam_move_id"),
         )
 
 
@@ -1920,6 +2005,7 @@ def _render_explore_program_maker() -> None:
             "additional_notes": additional_notes.strip(),
             "custom_subject_name": other_subject_name,
         }
+        _keep_explore_section_open("explore_ai_tools_keep_open")
         st.session_state["_explore_go_signup"] = True
         st.rerun()
 
@@ -2023,6 +2109,13 @@ def _render_explore_lesson_planner() -> None:
                         "topic": topic.strip(),
                         "mode": "ai",
                     }
+                    move_id = stage_explorer_move(
+                        resource_type="lesson_plan",
+                        tool_key="quick_lesson_planner",
+                        payload=plan,
+                        meta=st.session_state["explore_generated_plan_meta"],
+                    )
+                    st.session_state["explore_generated_plan_move_id"] = move_id
                     st.session_state["explore_plan_warning"] = None
                 except Exception:
                     st.error(t("ai_unavailable_fallback"))
@@ -2053,10 +2146,15 @@ def _render_explore_lesson_planner() -> None:
             use_container_width=True,
             key="btn_explore_save_plan",
         ):
+            move_id = st.session_state.get("explore_generated_plan_move_id")
             st.session_state["_pending_plan_after_signup"] = {
                 "plan": plan,
                 "meta": meta,
+                "move_id": move_id,
             }
+            if move_id:
+                st.session_state["_explorer_claim_move_ids"] = [str(move_id)]
+            _keep_explore_section_open("explore_ai_tools_keep_open")
             st.session_state["_explore_go_signup"] = True
             st.rerun()
 

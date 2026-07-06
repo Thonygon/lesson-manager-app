@@ -379,56 +379,61 @@ def _render_browse_tab():
             return t("all_subjects")
         return _subject_label(x)
 
-    # ── Subject / Level / Stage filters (above tabs) ─────────────
-    f_col1, f_col2, f_col3 = st.columns(3)
-    with f_col1:
-        sp_subject = st.selectbox(
-            t("filter_by_subject"),
-            options=_sp_options,
-            format_func=_format_subject,
-            key="sp_filter_subject",
-        )
+    def _render_resource_controls(panel_key: str) -> tuple[str, str, str, str]:
+        search_query = st.text_input(
+            t("explore_resource_search"),
+            key=f"sp_resource_search_{panel_key}",
+            placeholder=t("explore_resource_search_placeholder"),
+        ).strip().lower()
+        st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
 
-    # "Other" → text input for custom subject name
-    sp_other_subject = ""
-    if sp_subject == "other":
-        sp_other_subject = st.text_input(
-            t("other_subject_label"),
-            key="sp_other_subject",
-        ).strip()
+        f_col1, f_col2, f_col3 = st.columns(3)
+        with f_col1:
+            sp_subject_local = st.selectbox(
+                t("filter_by_subject"),
+                options=_sp_options,
+                format_func=_format_subject,
+                key=f"sp_filter_subject_{panel_key}",
+            )
 
-    # Level options depend on subject (CEFR for languages, academic bands for others)
-    if sp_subject in ("__all__", "other"):
-        _all_levels = sorted(set(LANGUAGE_LEVELS + ACADEMIC_BANDS), key=lambda x: (LANGUAGE_LEVELS + ACADEMIC_BANDS).index(x))
-    else:
-        _all_levels = get_level_options(sp_subject)
+        sp_other_subject_local = ""
+        if sp_subject_local == "other":
+            sp_other_subject_local = st.text_input(
+                t("other_subject_label"),
+                key=f"sp_other_subject_{panel_key}",
+            ).strip()
 
-    def _format_level(x):
-        if x == "__all__":
-            return t("all_levels")
-        translated = t(x)
-        return translated if translated != x else x
+        if sp_subject_local in ("__all__", "other"):
+            _all_levels = sorted(set(LANGUAGE_LEVELS + ACADEMIC_BANDS), key=lambda x: (LANGUAGE_LEVELS + ACADEMIC_BANDS).index(x))
+        else:
+            _all_levels = get_level_options(sp_subject_local)
 
-    with f_col2:
-        sp_level = st.selectbox(
-            t("level_cefr"),
-            options=["__all__"] + _all_levels,
-            format_func=_format_level,
-            key="sp_filter_level",
-        )
+        def _format_level(x):
+            if x == "__all__":
+                return t("all_levels")
+            translated = t(x)
+            return translated if translated != x else x
 
-    _stage_options = ["__all__"] + LEARNER_STAGES
+        with f_col2:
+            sp_level_local = st.selectbox(
+                t("level_cefr"),
+                options=["__all__"] + _all_levels,
+                format_func=_format_level,
+                key=f"sp_filter_level_{panel_key}",
+            )
 
-    with f_col3:
-        sp_stage = st.selectbox(
-            t("learner_stage"),
-            options=_stage_options,
-            format_func=lambda x: t("all_stages") if x == "__all__" else t(x),
-            key="sp_filter_stage",
-        )
+        _stage_options = ["__all__"] + LEARNER_STAGES
+        with f_col3:
+            sp_stage_local = st.selectbox(
+                t("learner_stage"),
+                options=_stage_options,
+                format_func=lambda x: t("all_stages") if x == "__all__" else t(x),
+                key=f"sp_filter_stage_{panel_key}",
+            )
 
-    # Resolve effective subject for filtering
-    _effective_subject = sp_other_subject if sp_subject == "other" else sp_subject
+        effective_subject_local = sp_other_subject_local if sp_subject_local == "other" else sp_subject_local
+        st.markdown("<div style='height:0.35rem;'></div>", unsafe_allow_html=True)
+        return search_query, effective_subject_local, sp_level_local, sp_stage_local
 
     # ── Pre-load data ────────────────────────────────────────────
     from helpers.worksheet_storage import load_public_worksheets
@@ -461,6 +466,8 @@ def _render_browse_tab():
     src_tab_videos = tabs[2] if video_feature_enabled and len(tabs) > 2 else None
 
     with src_tab_ws:
+        practice_search_query, _effective_subject, sp_level, sp_stage = _render_resource_controls("ws")
+
         # Apply subject/level/stage filters
         if not pub_ws.empty and _effective_subject and _effective_subject != "__all__" and "subject" in pub_ws.columns:
             pub_ws = pub_ws[pub_ws["subject"].str.lower() == _effective_subject.lower()].reset_index(drop=True)
@@ -480,12 +487,6 @@ def _render_browse_tab():
                 icon="📋",
             )
         else:
-            ws_q = st.text_input(
-                t("explore_resource_search"),
-                key="sp_ws_search",
-                placeholder=t("explore_resource_search_placeholder"),
-            ).strip().lower()
-
             # ── Neon category filter cards ───────────────────────
             _CATEGORY_CARDS = [
                 ("__all__",                  "🎯", t("all"),                    "59,130,246"),   # blue
@@ -505,9 +506,9 @@ def _render_browse_tab():
 
             # Pre-filter worksheets once
             _ws_base = pub_ws.copy()
-            if ws_q and not _ws_base.empty:
+            if practice_search_query and not _ws_base.empty:
                 from helpers.goal_explorer import _rank_search
-                _ws_base = _rank_search(_ws_base, ws_q, weights={
+                _ws_base = _rank_search(_ws_base, practice_search_query, weights={
                     "title": 5, "topic": 4, "subject": 3,
                     "worksheet_type": 3, "learner_stage": 2,
                     "level_or_band": 2, "author_name": 1,
@@ -515,7 +516,7 @@ def _render_browse_tab():
             else:
                 _ws_base = _ws_base.head(24)
 
-            if ws_q:
+            if practice_search_query:
                 st.caption(t("search_results"))
                 ws_search_rows = _ws_base.reset_index(drop=True).to_dict("records")
                 ws_search_page_rows, *_ = _slice_practice_page(ws_search_rows, "student_practice_ws_search_page")
@@ -665,6 +666,8 @@ def _render_browse_tab():
                                 st.rerun()
 
     with src_tab_exam:
+        practice_search_query, _effective_subject, sp_level, sp_stage = _render_resource_controls("exam")
+
         # Apply subject/level/stage filters
         if not pub_ex.empty and _effective_subject and _effective_subject != "__all__" and "subject" in pub_ex.columns:
             pub_ex = pub_ex[pub_ex["subject"].str.lower() == _effective_subject.lower()].reset_index(drop=True)
@@ -684,15 +687,10 @@ def _render_browse_tab():
                 icon="📄",
             )
         else:
-            ex_q = st.text_input(
-                t("explore_resource_search"),
-                key="sp_exam_search",
-                placeholder=t("explore_resource_search_placeholder"),
-            ).strip().lower()
             filtered = pub_ex.copy()
-            if ex_q:
+            if practice_search_query:
                 from helpers.goal_explorer import _rank_search
-                filtered = _rank_search(filtered, ex_q, weights={
+                filtered = _rank_search(filtered, practice_search_query, weights={
                     "title": 5, "topic": 4, "subject": 3,
                     "learner_stage": 2, "level": 2, "author_name": 1,
                 })
@@ -739,6 +737,8 @@ def _render_browse_tab():
 
     if src_tab_videos is not None:
         with src_tab_videos:
+            practice_search_query, _effective_subject, sp_level, sp_stage = _render_resource_controls("videos")
+
             filtered_videos = pub_videos.copy()
             if not filtered_videos.empty and _effective_subject and _effective_subject != "__all__" and "subject" in filtered_videos.columns:
                 filtered_videos = filtered_videos[
@@ -764,17 +764,12 @@ def _render_browse_tab():
                     icon="🎬",
                 )
             else:
-                video_q = st.text_input(
-                    t("explore_resource_search"),
-                    key="sp_video_search",
-                    placeholder=t("explore_resource_search_placeholder"),
-                ).strip().lower()
-                if video_q:
+                if practice_search_query:
                     from helpers.goal_explorer import _rank_search
 
                     filtered_videos = _rank_search(
                         filtered_videos,
-                        video_q,
+                        practice_search_query,
                         weights={
                             "title": 5,
                             "topic": 4,
