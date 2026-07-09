@@ -4,8 +4,10 @@ import os
 import re
 import html as _html
 import logging
+import json
+import math
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 from supabase import create_client
 
 from core.i18n import t
@@ -84,6 +86,84 @@ def clear_app_caches() -> None:
             fn.clear()
         except Exception:
             pass
+
+
+def json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [json_safe(item) for item in value]
+    if isinstance(value, (datetime, pd.Timestamp)):
+        try:
+            return value.isoformat()
+        except Exception:
+            return str(value)
+    try:
+        json.dumps(value)
+        return value
+    except Exception:
+        return str(value)
+
+
+def insert_row_with_retries(
+    table_name: str,
+    payload: dict,
+    *,
+    clear_cache: bool = False,
+    context: Optional[dict] = None,
+):
+    base_payload = dict(payload or {})
+    attempts: list[tuple[str, dict]] = [("primary", base_payload)]
+
+    if "status" in base_payload:
+        legacy_payload = dict(base_payload)
+        legacy_payload.pop("status", None)
+        attempts.append(("legacy_status", legacy_payload))
+
+    safe_payload = json_safe(base_payload)
+    if safe_payload != base_payload:
+        attempts.append(("json_safe_retry", safe_payload))
+        if "status" in safe_payload:
+            safe_legacy_payload = dict(safe_payload)
+            safe_legacy_payload.pop("status", None)
+            attempts.append(("json_safe_legacy_status", safe_legacy_payload))
+
+    last_error = None
+    for attempt_name, attempt_payload in attempts:
+        try:
+            response = get_sb().table(table_name).insert(attempt_payload).execute()
+            if clear_cache:
+                clear_app_caches()
+            return response
+        except Exception as exc:
+            last_error = exc
+            logger.exception(
+                "Failed to insert table row",
+                extra={
+                    "table_name": str(table_name or "").strip(),
+                    "attempt": attempt_name,
+                    "context": json_safe(context or {}),
+                    "user_id": str((attempt_payload or {}).get("user_id") or get_current_user_id() or "").strip(),
+                    "title": str((attempt_payload or {}).get("title") or "").strip(),
+                },
+            )
+
+    failures = st.session_state.setdefault("_resource_save_failures", [])
+    failures.append(
+        {
+            "table_name": str(table_name or "").strip(),
+            "context": json_safe(context or {}),
+            "payload_title": str(base_payload.get("title") or "").strip(),
+            "user_id": str(base_payload.get("user_id") or get_current_user_id() or "").strip(),
+            "error": str(last_error or "insert_failed"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    return None
 
 
 _TIMEOUT_ERROR_PATTERNS = (

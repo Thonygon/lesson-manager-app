@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import secrets
 from datetime import datetime as _dt, timezone
 from typing import Any, Optional
@@ -31,6 +32,27 @@ def _now_iso() -> str:
 
 def _clean_text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (_dt, pd.Timestamp)):
+        try:
+            return value.isoformat()
+        except Exception:
+            return str(value)
+    try:
+        json.dumps(value)
+        return value
+    except Exception:
+        return str(value)
 
 
 def _current_admin_name() -> str:
@@ -127,8 +149,8 @@ def stage_explorer_move(
     if get_current_user_id():
         return None
 
-    meta = dict(meta or {})
-    payload = dict(payload or {})
+    meta = _json_safe(dict(meta or {}))
+    payload = _json_safe(dict(payload or {}))
     visitor_id = ensure_explorer_visitor_id()
     resource_type = _clean_text(resource_type)
     if resource_type not in EXPLORER_MOVE_RESOURCE_TYPES:
@@ -152,18 +174,63 @@ def stage_explorer_move(
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
     }
-    try:
-        response = get_sb().table(EXPLORER_MOVES_TABLE).insert(row).execute()
-        clear_app_caches()
+    attempts: list[tuple[str, dict[str, Any]]] = [("primary", row)]
+
+    fallback_row = dict(row)
+    fallback_row["payload_json"] = _json_safe(row.get("payload_json") or {})
+    fallback_row["meta_json"] = _json_safe(row.get("meta_json") or {})
+    attempts.append(("json_safe_retry", fallback_row))
+
+    last_error: Exception | None = None
+    for attempt_name, attempt_row in attempts:
         try:
-            _load_explorer_moves_cached.clear()
-        except Exception:
-            pass
-        rows = getattr(response, "data", None) or []
-        return _clean_text(rows[0].get("id")) if rows else None
-    except Exception:
-        logger.exception("Failed to stage explorer move")
-        return None
+            response = get_sb().table(EXPLORER_MOVES_TABLE).insert(attempt_row).execute()
+            clear_app_caches()
+            try:
+                _load_explorer_moves_cached.clear()
+            except Exception:
+                pass
+            rows = getattr(response, "data", None) or []
+            move_id = _clean_text(rows[0].get("id")) if rows else None
+            if move_id:
+                return move_id
+            logger.warning(
+                "Explorer move staging returned no row id",
+                extra={
+                    "resource_type": resource_type,
+                    "tool_key": _clean_text(tool_key),
+                    "attempt": attempt_name,
+                    "visitor_id": visitor_id,
+                },
+            )
+        except Exception as exc:
+            last_error = exc
+            logger.exception(
+                "Failed to stage explorer move",
+                extra={
+                    "resource_type": resource_type,
+                    "tool_key": _clean_text(tool_key),
+                    "attempt": attempt_name,
+                    "visitor_id": visitor_id,
+                    "title": _clean_text(attempt_row.get("title")),
+                    "subject": _clean_text(attempt_row.get("subject")),
+                    "topic": _clean_text(attempt_row.get("topic")),
+                },
+            )
+
+    if last_error is not None:
+        st.session_state.setdefault("_explorer_stage_failures", []).append(
+            {
+                "resource_type": resource_type,
+                "tool_key": _clean_text(tool_key),
+                "topic": _clean_text(row.get("topic")),
+                "title": _clean_text(row.get("title")),
+                "visitor_id": visitor_id,
+                "error": str(last_error),
+                "created_at": _now_iso(),
+            }
+        )
+    return None
 
 
 @st.cache_data(ttl=45, show_spinner=False)

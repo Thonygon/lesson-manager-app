@@ -2091,7 +2091,6 @@ def _render_explore_exam_builder() -> None:
     from helpers.quick_exam_builder import (
         EXAM_LENGTHS,
         generate_ai_exam,
-        normalize_exam_output,
         get_plan_language,
         get_student_material_language,
         get_recommended_exercise_types,
@@ -2190,7 +2189,6 @@ def _render_explore_exam_builder() -> None:
                         plan_language=get_plan_language(),
                         student_material_language=get_student_material_language(effective_subject),
                     )
-                    exam_data, answer_key = normalize_exam_output(exam_data)
                     st.session_state["explore_generated_exam"] = exam_data
                     st.session_state["explore_generated_exam_ak"] = answer_key
                     st.session_state["explore_generated_exam_meta"] = {
