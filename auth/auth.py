@@ -1,6 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import os
+from urllib.parse import quote
 from streamlit.errors import StreamlitAuthError
 from core.i18n import t
 from core.state import (
@@ -570,7 +571,7 @@ def render_google_auth_card(
 ):
 
     google_svg = """
-    <svg width="24" height="24" viewBox="0 0 48 48">
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 48 48">
     <path fill="#EA4335" d="M24 9.5c3.3 0 6.3 1.1 8.6 3.3l6.4-6.4C34.9 2.6 29.8 0 24 0 14.7 0 6.7 5.4 2.7 13.3l7.9 6.1C12.7 13.2 17.9 9.5 24 9.5z"/>
     <path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.2-.4-4.7H24v9h12.5c-.5 2.7-2.1 5-4.5 6.6l7 5.4c4.1-3.8 6.5-9.3 6.5-16.3z"/>
     <path fill="#FBBC05" d="M10.6 28.4c-.6-1.7-.9-3.5-.9-5.4s.3-3.7.9-5.4l-7.9-6.1C1 15.1 0 19.4 0 24s1 8.9 2.7 12.5l7.9-6.1z"/>
@@ -578,54 +579,186 @@ def render_google_auth_card(
     </svg>
     """
 
-    body_html = ""
-    if body_key:
-        body_html = f'<div class="classio-auth-body">{t(body_key)}</div>'
-
-    html = f"""
-    <style>
-    .classio-auth-card {{
-        border-radius:18px;
-        padding:18px;
-        border:1px solid rgba(127,127,127,0.18);
-    }}
-
-    .classio-auth-head {{
-        display:flex;
-        align-items:center;
-        gap:12px;
-    }}
-
-    .classio-auth-icon {{
-        width:42px;
-        height:42px;
-    }}
-
-    .classio-auth-title {{
-        font-weight:700;
-        font-size:1rem;
-    }}
-
-    .classio-auth-body {{
-        margin-top:6px;
-        opacity:0.85;
-    }}
-    </style>
-
-    <div class="classio-auth-card">
-        <div class="classio-auth-head">
-            <div class="classio-auth-icon">{google_svg}</div>
-            <div class="classio-auth-title">{t(title_key)}</div>
-        </div>
-        {body_html}
-    </div>
-    """
-
-    st.markdown(html, unsafe_allow_html=True)
-
     auth_provider_configured = _has_configured_auth_provider()
+    wrapper_class = f"st-key-{button_widget_key}"
+    google_svg_data = quote(google_svg.strip())
+    button_cta = t(button_key)
+    body_text = t(body_key) if body_key else ""
+    eyebrow_text = t("sign_in") if not show_signup_note else t("sign_up")
+    st.markdown(
+        f"""
+        <style>
+        .{wrapper_class} {{
+            --auth-google-border: color-mix(in srgb, var(--border-strong, rgba(17,24,39,.12)) 74%, rgba(66,133,244,.26) 26%);
+            --auth-google-shadow: 0 22px 52px rgba(15,23,42,.10), inset 0 1px 0 rgba(255,255,255,.82);
+        }}
+        .{wrapper_class} div[data-testid="stButton"] {{
+            margin-top: 0 !important;
+            margin-bottom: 0.35rem !important;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button {{
+            position: relative;
+            overflow: hidden;
+            min-height: 224px;
+            margin: 0 !important;
+            padding: 24px 24px 78px !important;
+            border-radius: 24px !important;
+            border: 1px solid var(--auth-google-border) !important;
+            background:
+                radial-gradient(circle at 100% 2%, rgba(66,133,244,.08), transparent 28%),
+                linear-gradient(135deg, color-mix(in srgb, rgba(66,133,244,.12) 72%, transparent 28%), rgba(20,184,166,.05)),
+                linear-gradient(180deg, color-mix(in srgb, var(--panel, #fff) 94%, white 6%), color-mix(in srgb, var(--panel-2, #f8fafc) 88%, rgba(66,133,244,.08) 12%)) !important;
+            box-shadow: var(--auth-google-shadow) !important;
+            color: var(--text, #0f172a) !important;
+            text-align: left !important;
+            white-space: normal !important;
+            transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease !important;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button:hover,
+        .{wrapper_class} div[data-testid="stButton"] > button:focus {{
+            transform: translateY(-2px);
+            border-color: color-mix(in srgb, rgba(66,133,244,.48) 42%, var(--border-strong, rgba(17,24,39,.12)) 58%) !important;
+            box-shadow: 0 26px 58px rgba(15,23,42,.12), inset 0 1px 0 rgba(255,255,255,.88) !important;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button:disabled {{
+            opacity: .72;
+            cursor: not-allowed;
+            transform: none !important;
+            box-shadow: 0 12px 30px rgba(15,23,42,.06), inset 0 1px 0 rgba(255,255,255,.72) !important;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button::before {{
+            content: {eyebrow_text.upper()!r};
+            position: absolute;
+            top: 20px;
+            left: 24px;
+            font-size: .74rem;
+            font-weight: 900;
+            color: #4285F4;
+            letter-spacing: 0;
+            z-index: 2;
+            pointer-events: none;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button::after {{
+            content: {button_cta!r};
+            position: absolute;
+            left: 24px;
+            bottom: 22px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 40px;
+            padding: 0 16px;
+            border-radius: 999px;
+            background: linear-gradient(180deg, rgba(255,255,255,.86), rgba(255,255,255,.62));
+            border: 1px solid color-mix(in srgb, rgba(66,133,244,.28) 34%, var(--border-strong, rgba(17,24,39,.12)) 66%);
+            color: var(--text, #0f172a);
+            font-size: .92rem;
+            font-weight: 820;
+            box-shadow: 0 10px 24px rgba(15,23,42,.08);
+            pointer-events: none;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button > div {{
+            position: relative;
+            z-index: 1;
+            display: block !important;
+            width: 100% !important;
+            text-align: left !important;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button > div::before {{
+            content: "";
+            position: absolute;
+            top: 20px;
+            right: 0;
+            width: 62px;
+            height: 62px;
+            border-radius: 20px;
+            background:
+                linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.72));
+            background-image: url("data:image/svg+xml;utf8,{google_svg_data}");
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: 38px 38px;
+            border: 1px solid color-mix(in srgb, var(--border-strong, rgba(17,24,39,.12)) 78%, rgba(66,133,244,.22) 22%);
+            box-shadow: 0 14px 28px rgba(15,23,42,.10);
+            pointer-events: none;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button > div::after {{
+            content: "";
+            position: absolute;
+            left: 18px;
+            right: 18px;
+            top: 0;
+            height: 4px;
+            border-radius: 0 0 999px 999px;
+            background: linear-gradient(90deg, transparent, rgba(66,133,244,.72), transparent);
+            opacity: .8;
+            pointer-events: none;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button p {{
+            position: relative;
+            z-index: 1;
+            display: block;
+            width: min(760px, calc(100% - 96px));
+            max-width: min(760px, calc(100% - 96px));
+            margin: 78px 0 0;
+            white-space: pre-line !important;
+            text-align: left !important;
+            color: var(--muted, #475569) !important;
+            font-size: 1rem;
+            line-height: 1.52;
+            font-weight: 620;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button p strong {{
+            display: block;
+            margin: 0 0 10px;
+            color: var(--text, #0f172a) !important;
+            font-size: 1.45rem;
+            line-height: 1.16;
+            font-weight: 950;
+        }}
+        @media (max-width: 768px) {{
+            .{wrapper_class} div[data-testid="stButton"] > button {{
+                min-height: 204px;
+                padding: 22px 20px 72px !important;
+                border-radius: 22px !important;
+            }}
+            .{wrapper_class} div[data-testid="stButton"] > button::before {{
+                top: 18px;
+                left: 20px;
+            }}
+            .{wrapper_class} div[data-testid="stButton"] > button > div::before {{
+                top: 18px;
+                right: 0;
+                width: 56px;
+                height: 56px;
+                border-radius: 18px;
+                background-size: 34px 34px;
+            }}
+            .{wrapper_class} div[data-testid="stButton"] > button::after {{
+                left: 20px;
+                bottom: 18px;
+                min-height: 38px;
+                padding: 0 14px;
+                font-size: .88rem;
+            }}
+            .{wrapper_class} div[data-testid="stButton"] > button p {{
+                width: calc(100% - 84px);
+                max-width: calc(100% - 84px);
+                margin-top: 70px;
+                font-size: .96rem;
+                line-height: 1.48;
+            }}
+            .{wrapper_class} div[data-testid="stButton"] > button p strong {{
+                margin-bottom: 10px;
+                font-size: 1.32rem;
+            }}
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     if st.button(
-        t(button_key),
+        f"**{t(title_key)}**  \n{body_text}",
         use_container_width=True,
         key=button_widget_key,
         disabled=not auth_provider_configured,
@@ -751,6 +884,24 @@ def require_login():
         _tab_specs = [spec for spec in _tab_specs if spec[0] == "signup"] + [spec for spec in _tab_specs if spec[0] != "signup"]
     elif _focus_login_tab:
         _tab_specs = [spec for spec in _tab_specs if spec[0] == "login"] + [spec for spec in _tab_specs if spec[0] != "login"]
+
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stTabs"] > div:first-child {
+            margin-bottom: 0.25rem !important;
+        }
+        div[data-testid="stTabs"] div[role="tabpanel"] {
+            padding-top: 0.15rem !important;
+            margin-top: 0 !important;
+        }
+        div[data-testid="stTabs"] div[role="tabpanel"] > div[data-testid="stVerticalBlock"] {
+            gap: 0.45rem !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     _tabs = st.tabs([label for _, label in _tab_specs])
     _tab_by_key = {key: tab for (key, _), tab in zip(_tab_specs, _tabs)}

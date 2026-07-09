@@ -11,6 +11,57 @@ from helpers.ui_components import trigger_book_rain
 from services.auth_service import current_user_is_admin
 
 
+def _inject_scrollable_top_nav_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        .classio-top-nav-scroll-anchor,
+        .classio-student-top-nav-scroll-anchor,
+        .classio-admin-top-nav-scroll-anchor {
+            display: none;
+        }
+        div[data-testid="stVerticalBlock"]:has(.classio-top-nav-scroll-anchor) ul,
+        div[data-testid="stVerticalBlock"]:has(.classio-student-top-nav-scroll-anchor) ul,
+        div[data-testid="stVerticalBlock"]:has(.classio-admin-top-nav-scroll-anchor) ul {
+            display: flex !important;
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+            scrollbar-width: thin;
+            -webkit-overflow-scrolling: touch;
+            gap: 0.2rem;
+        }
+        div[data-testid="stVerticalBlock"]:has(.classio-top-nav-scroll-anchor) ul::-webkit-scrollbar,
+        div[data-testid="stVerticalBlock"]:has(.classio-student-top-nav-scroll-anchor) ul::-webkit-scrollbar,
+        div[data-testid="stVerticalBlock"]:has(.classio-admin-top-nav-scroll-anchor) ul::-webkit-scrollbar {
+            height: 6px;
+        }
+        div[data-testid="stVerticalBlock"]:has(.classio-top-nav-scroll-anchor) li,
+        div[data-testid="stVerticalBlock"]:has(.classio-student-top-nav-scroll-anchor) li,
+        div[data-testid="stVerticalBlock"]:has(.classio-admin-top-nav-scroll-anchor) li {
+            flex: 0 0 auto !important;
+            width: auto !important;
+        }
+        div[data-testid="stVerticalBlock"]:has(.classio-top-nav-scroll-anchor) a,
+        div[data-testid="stVerticalBlock"]:has(.classio-student-top-nav-scroll-anchor) a,
+        div[data-testid="stVerticalBlock"]:has(.classio-admin-top-nav-scroll-anchor) a {
+            white-space: nowrap !important;
+            min-width: max-content !important;
+        }
+        @media (max-width: 768px) {
+            div[data-testid="stVerticalBlock"]:has(.classio-top-nav-scroll-anchor) a,
+            div[data-testid="stVerticalBlock"]:has(.classio-student-top-nav-scroll-anchor) a,
+            div[data-testid="stVerticalBlock"]:has(.classio-admin-top-nav-scroll-anchor) a {
+                padding: 8px 10px !important;
+                font-size: 13px !important;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _render_profile_dialog_if_requested() -> None:
     if not st.session_state.get("show_profile_dialog"):
         return
@@ -59,6 +110,7 @@ def _render_page_with_loading(page_key: str, render_fn: Callable[[], None]) -> N
 
 
 def render_top_nav(active_page: str):
+    _inject_scrollable_top_nav_styles()
     current_lang = st.session_state.get("ui_lang", "en")
     if current_lang not in ("en", "es", "tr"):
         current_lang = "en"
@@ -104,6 +156,40 @@ def render_top_nav(active_page: str):
           .home-hero{ padding: 18px 14px; }
           .home-menu-wrap{ padding: 12px; }
         }
+                .teacher-more-floating-anchor{display:none;}
+                div[data-testid="stVerticalBlockBorderWrapper"]:has(.teacher-more-floating-anchor){
+                    position:fixed;
+                    top:78px;
+                    right:0.95rem;
+                    width:min(280px, 92vw);
+                    margin:0;
+                    padding:12px;
+                    border-radius:20px;
+                    border:1px solid color-mix(in srgb, var(--border) 72%, var(--primary) 28%);
+                    background:linear-gradient(180deg, color-mix(in srgb, var(--panel) 97%, white 3%), color-mix(in srgb, var(--panel-soft) 94%, var(--primary) 6%));
+                    box-shadow:0 20px 44px rgba(15,23,42,.14);
+                    backdrop-filter:blur(18px);
+                    z-index:50;
+                }
+                div[data-testid="stVerticalBlockBorderWrapper"]:has(.teacher-more-floating-anchor) button[kind="secondary"]{
+                    justify-content:flex-start;
+                    border-radius:16px;
+                    border:1px solid color-mix(in srgb, var(--border) 78%, transparent);
+                    background:linear-gradient(180deg, rgba(255,255,255,.86), rgba(255,255,255,.64));
+                    box-shadow:0 10px 22px rgba(15,23,42,.06);
+                    font-weight:700;
+                }
+                div[data-testid="stVerticalBlockBorderWrapper"]:has(.teacher-more-floating-anchor) button[kind="secondary"]:hover{
+                    border-color:color-mix(in srgb, var(--primary) 26%, var(--border));
+                    background:linear-gradient(180deg, rgba(255,255,255,.96), rgba(255,255,255,.78));
+                }
+                @media (max-width: 768px){
+                    div[data-testid="stVerticalBlockBorderWrapper"]:has(.teacher-more-floating-anchor){
+                        top:72px;
+                        right:0.75rem;
+                        width:min(260px, calc(100vw - 1.5rem));
+                    }
+                }
         </style>
         """,
         unsafe_allow_html=True,
@@ -111,6 +197,7 @@ def render_top_nav(active_page: str):
 
     nav_col, more_col = st.columns([12, 1.75], vertical_alignment="center")
     with nav_col:
+        st.markdown("<div class='classio-top-nav-scroll-anchor'></div>", unsafe_allow_html=True)
         selected_label = option_menu(
             menu_title=None,
             options=labels,
@@ -148,52 +235,35 @@ def render_top_nav(active_page: str):
     with more_col:
         if "top_nav_more_open" not in st.session_state:
             st.session_state["top_nav_more_open"] = False
-        if "top_nav_more_book_nonce" not in st.session_state:
-            st.session_state["top_nav_more_book_nonce"] = 0
         more_label = t("more") if t("more") != "more" else "More"
         more_active = active_page in {key for key, _, _ in more_items}
-        menu_label = f"⋯ {more_label}" + (" •" if more_active else "")
-        if st.button(menu_label, key="top_nav_more_toggle", use_container_width=True):
-            next_open = not bool(st.session_state.get("top_nav_more_open", False))
-            st.session_state["top_nav_more_open"] = next_open
-            if next_open:
-                st.session_state["top_nav_more_book_nonce"] = int(st.session_state.get("top_nav_more_book_nonce", 0) or 0) + 1
-            st.rerun()
-        if int(st.session_state.get("top_nav_more_book_nonce", 0) or 0) > 0:
-            trigger_book_rain(
-                nonce=f"teacher-more-{st.session_state.get('top_nav_more_book_nonce', 0)}",
-                total_books=22,
-                min_font_px=38,
-                max_font_px=60,
-                min_duration_s=2.9,
-                max_duration_s=5.2,
-            )
         if st.session_state.get("top_nav_more_open", False):
-            menu_box = st.container(border=True)
-            with menu_box:
-                st.markdown(
-                    """
-                    <style>
-                    div[data-testid="stVerticalBlockBorderWrapper"] button[kind="secondary"]{
-                      justify-content: flex-start;
-                    }
-                    </style>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                for idx, (key, label, _icon) in enumerate(more_items):
-                    if st.button(label, key=f"more_nav_{key}", use_container_width=True):
-                        st.session_state["top_nav_more_open"] = False
-                        if key == "sign_out":
-                            sign_out_user()
-                        elif key == "profile":
-                            st.session_state["show_profile_dialog"] = True
-                            st.rerun()
-                        else:
-                            go_to(key)
-                            st.rerun()
-                    if idx == len(more_items) - 2:
-                        st.markdown("---")
+            if st.button(t("close"), key="top_nav_more_toggle_close", use_container_width=True):
+                st.session_state["top_nav_more_open"] = False
+                st.rerun()
+        else:
+            menu_label = f"⋯ {more_label}" + (" •" if more_active else "")
+            if st.button(menu_label, key="top_nav_more_toggle_open", use_container_width=True):
+                st.session_state["top_nav_more_open"] = True
+                st.rerun()
+
+    if st.session_state.get("top_nav_more_open", False):
+        menu_box = st.container(border=True)
+        with menu_box:
+            st.markdown("<div class='teacher-more-floating-anchor'></div>", unsafe_allow_html=True)
+            for idx, (key, label, _icon) in enumerate(more_items):
+                if st.button(label, key=f"more_nav_{key}", use_container_width=True):
+                    st.session_state["top_nav_more_open"] = False
+                    if key == "sign_out":
+                        sign_out_user()
+                    elif key == "profile":
+                        st.session_state["show_profile_dialog"] = True
+                        st.rerun()
+                    else:
+                        go_to(key)
+                        st.rerun()
+                if idx == len(more_items) - 2:
+                    st.markdown("---")
 
     selected_key = active_page
     for key, label, _ in primary_items:
@@ -212,6 +282,7 @@ def render_top_nav(active_page: str):
 
 
 def render_student_top_nav(active_page: str):
+    _inject_scrollable_top_nav_styles()
     current_lang = st.session_state.get("ui_lang", "en")
     if current_lang not in ("en", "es", "tr"):
         current_lang = "en"
@@ -240,6 +311,7 @@ def render_student_top_nav(active_page: str):
     except ValueError:
         default_index = 0
 
+    st.markdown("<div class='classio-student-top-nav-scroll-anchor'></div>", unsafe_allow_html=True)
     selected_label = option_menu(
         menu_title=None,
         options=labels,
@@ -254,6 +326,8 @@ def render_student_top_nav(active_page: str):
                 "background": "var(--panel)",
                 "border": "1px solid var(--border)",
                 "border-radius": "14px",
+                "overflow-x": "auto",
+                "overflow-y": "hidden",
             },
             "nav-link": {
                 "font-size": "14px",
@@ -311,6 +385,7 @@ def render_student_top_nav(active_page: str):
 
 
 def render_admin_top_nav(active_page: str):
+    _inject_scrollable_top_nav_styles()
     items = [
         ("admin", t("admin"), "shield-lock"),
         ("switch_teacher", t("switch_to_teacher"), "arrow-left-right"),
@@ -328,6 +403,7 @@ def render_admin_top_nav(active_page: str):
     except ValueError:
         default_index = 0
 
+    st.markdown("<div class='classio-admin-top-nav-scroll-anchor'></div>", unsafe_allow_html=True)
     selected_label = option_menu(
         menu_title=None,
         options=labels,
@@ -342,6 +418,8 @@ def render_admin_top_nav(active_page: str):
                 "background": "var(--panel)",
                 "border": "1px solid var(--border)",
                 "border-radius": "14px",
+                "overflow-x": "auto",
+                "overflow-y": "hidden",
             },
             "nav-link": {
                 "font-size": "14px",

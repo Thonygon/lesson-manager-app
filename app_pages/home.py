@@ -1,5 +1,6 @@
 import datetime
 import html as _html
+import json
 import math
 
 import streamlit as st
@@ -219,6 +220,111 @@ def _slice_resource_page(df, state_key: str, *, page_size: int = _RESOURCE_PAGE_
     end_idx = min(start_idx + page_size, total_items)
     page_df = df.iloc[start_idx:end_idx].copy() if total_items else df
     return page_df, current_page, total_pages, start_idx, end_idx, total_items
+
+
+def _render_teacher_home_menu_card(
+    *,
+    button_key: str,
+    icon: str,
+    label: str,
+    desc: str,
+    accent: str,
+    rgb: str,
+) -> bool:
+    wrapper_class = f"st-key-{button_key}"
+    st.markdown(
+        f"""
+        <style>
+        .{wrapper_class} {{
+            --teacher-accent: {accent};
+            --teacher-rgb: {rgb};
+            height: 100%;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button {{
+            position: relative;
+            overflow: hidden;
+            min-height: 188px;
+            height: 188px;
+            padding: 20px 16px 16px !important;
+            border-radius: 24px !important;
+            border: 1px solid color-mix(in srgb, var(--border-strong, rgba(15,23,42,.16)) 72%, var(--teacher-accent) 28%) !important;
+            background:
+                radial-gradient(circle at 50% -18%, rgba(var(--teacher-rgb), .24), transparent 42%),
+                linear-gradient(180deg, color-mix(in srgb, var(--panel, #fff) 90%, white 10%), color-mix(in srgb, var(--panel-2, #f8fafc) 82%, var(--teacher-accent) 18%)) !important;
+            box-shadow:
+                0 24px 58px rgba(15,23,42,.12),
+                inset 0 1px 0 rgba(255,255,255,.78) !important;
+            text-align: center;
+            color: var(--text, #0f172a) !important;
+            white-space: normal !important;
+            transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease !important;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button:hover,
+        .{wrapper_class} div[data-testid="stButton"] > button:focus {{
+            transform: translateY(-3px);
+            border-color: color-mix(in srgb, var(--teacher-accent) 48%, rgba(255,255,255,.44)) !important;
+            box-shadow:
+                0 30px 68px rgba(15,23,42,.16),
+                inset 0 1px 0 rgba(255,255,255,.82) !important;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button::before {{
+            content: {json.dumps(icon, ensure_ascii=False)};
+            position: absolute;
+            top: 18px;
+            left: 50%;
+            width: 56px;
+            height: 56px;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 18px;
+            background:
+                linear-gradient(180deg, rgba(255,255,255,.74), rgba(255,255,255,.28)),
+                color-mix(in srgb, var(--teacher-accent) 15%, transparent);
+            border: 1px solid color-mix(in srgb, var(--teacher-accent) 28%, rgba(255,255,255,.72));
+            box-shadow: 0 14px 28px rgba(var(--teacher-rgb), .16);
+            font-size: 1.8rem;
+            pointer-events: none;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button::after {{
+            content: "";
+            position: absolute;
+            left: 18px;
+            right: 18px;
+            top: 0;
+            height: 4px;
+            border-radius: 0 0 999px 999px;
+            background: linear-gradient(90deg, transparent, var(--teacher-accent), transparent);
+            opacity: .72;
+            pointer-events: none;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button p {{
+            position: relative;
+            z-index: 1;
+            display: block;
+            max-width: 230px;
+            margin: 66px auto 0;
+            white-space: pre-line !important;
+            text-align: center;
+            font-size: .86rem;
+            line-height: 1.42;
+            font-weight: 650;
+            color: var(--muted, #64748b) !important;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button p strong {{
+            display: block;
+            margin: 0 0 8px;
+            font-size: 1.08rem;
+            line-height: 1.14;
+            font-weight: 900;
+            color: var(--text, #0f172a) !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    return st.button(f"**{label}**  \n{desc}", key=button_key, use_container_width=True)
 
 
 def _render_resource_pagination_controls(df, state_key: str, *, page_size: int = _RESOURCE_PAGE_SIZE):
@@ -788,29 +894,112 @@ def _render_smart_tools_hub():
         ("open_income_goal_expander", "🎯", "#EF4444", "income_goal_calculator", "smart_tools_goal_body", "smart_tools_badge_business"),
     ]
 
+    def _render_smart_tool_open_card(flag: str, icon: str, accent: str, title_key: str, body_key: str, badge_key: str) -> bool:
+        button_key = f"smart_tool_open_{flag}"
+        wrapper_class = f"st-key-{button_key}"
+        st.markdown(
+            f"""
+            <style>
+            .{wrapper_class} {{
+                --tool-accent: {accent};
+                height: 100%;
+            }}
+            .{wrapper_class} div[data-testid="stButton"] > button {{
+                position: relative;
+                overflow: hidden;
+                min-height: 182px;
+                height: 182px;
+                margin-bottom: 8px;
+                padding: 16px !important;
+                border-radius: 18px !important;
+                border: 1px solid var(--border-strong, rgba(17,24,39,.12)) !important;
+                background:
+                    linear-gradient(180deg, var(--panel, rgba(255,255,255,.94)), var(--panel-2, rgba(248,250,252,.82))) !important;
+                box-shadow: var(--shadow-md, 0 12px 28px rgba(15,23,42,.08)) !important;
+                text-align: left;
+                white-space: normal !important;
+                color: var(--text, #0f172a) !important;
+                transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease !important;
+            }}
+            .{wrapper_class} div[data-testid="stButton"] > button:hover,
+            .{wrapper_class} div[data-testid="stButton"] > button:focus {{
+                transform: translateY(-2px);
+                border-color: color-mix(in srgb, var(--tool-accent) 36%, var(--border-strong, rgba(17,24,39,.12)) 64%) !important;
+                box-shadow: 0 16px 34px rgba(15,23,42,.13), inset 0 1px 0 rgba(255,255,255,.82) !important;
+            }}
+            .{wrapper_class} div[data-testid="stButton"] > button::before {{
+                content: {json.dumps(icon, ensure_ascii=False)};
+                position: absolute;
+                top: 16px;
+                left: 16px;
+                width: 42px;
+                height: 42px;
+                border-radius: 14px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 1.3rem;
+                background: color-mix(in srgb, var(--tool-accent) 16%, transparent);
+                border: 1px solid color-mix(in srgb, var(--tool-accent) 28%, transparent);
+                pointer-events: none;
+            }}
+            .{wrapper_class} div[data-testid="stButton"] > button::after {{
+                content: {json.dumps(t(badge_key), ensure_ascii=False)};
+                position: absolute;
+                top: 16px;
+                right: 16px;
+                padding: 4px 8px;
+                border-radius: 999px;
+                font-size: .72rem;
+                font-weight: 850;
+                color: var(--tool-accent);
+                background: color-mix(in srgb, var(--tool-accent) 12%, transparent);
+                border: 1px solid color-mix(in srgb, var(--tool-accent) 22%, transparent);
+                white-space: nowrap;
+                pointer-events: none;
+            }}
+            .{wrapper_class} div[data-testid="stButton"] > button p {{
+                position: relative;
+                z-index: 1;
+                display: block;
+                margin: 42px 0 0;
+                white-space: pre-line !important;
+                text-align: left;
+                color: var(--muted, #475569) !important;
+                font-size: .84rem;
+                line-height: 1.4;
+                font-weight: 400;
+            }}
+            .{wrapper_class} div[data-testid="stButton"] > button p strong {{
+                display: block;
+                margin: 0 0 7px;
+                color: var(--text, #0f172a) !important;
+                font-size: 1rem;
+                line-height: 1.2;
+                font-weight: 900;
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        return st.button(f"**{t(title_key)}**  \n{t(body_key)}", key=button_key, use_container_width=True)
+
     for row_start in range(0, len(tool_specs), 3):
         cols = st.columns(3, gap="medium")
         for col, (flag, icon, accent, title_key, body_key, badge_key) in zip(cols, tool_specs[row_start:row_start + 3]):
             with col:
-                st.markdown(
-                    f"""
-                    <div class="smart-tool-card" style="--tool-accent:{accent};">
-                      <div class="smart-tool-card-top">
-                        <div class="smart-tool-icon">{icon}</div>
-                        <div class="smart-tool-badge">{t(badge_key)}</div>
-                      </div>
-                      <div class="smart-tool-title">{t(title_key)}</div>
-                      <div class="smart-tool-body">{t(body_key)}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                if st.button(t("smart_tools_open_tool"), key=f"smart_tool_open_{flag}", use_container_width=True):
-                    st.session_state[flag] = True
-                    st.toast(t("scroll_down_to_view"))
+                if _render_smart_tool_open_card(flag, icon, accent, title_key, body_key, badge_key):
+                    current_selected = str(st.session_state.get("home_smart_tool_selected") or "")
+                    if current_selected == flag:
+                        st.session_state["home_smart_tool_selected"] = ""
+                    else:
+                        st.session_state["home_smart_tool_selected"] = flag
+                        st.session_state[flag] = True
+                        st.session_state["_home_smart_tool_scroll_toast"] = True
                     st.rerun()
 
-    st.markdown(f"<div class='smart-tools-section-label'>{t('smart_tools_workspace_title')}</div>", unsafe_allow_html=True)
+    if st.session_state.get("home_smart_tool_selected"):
+        st.markdown(f"<div class='smart-tools-section-label'>{t('smart_tools_workspace_title')}</div>", unsafe_allow_html=True)
 
 # 10) HOME SCREEN UI (DARK)
 # =========================
@@ -2490,12 +2679,42 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
 
         _render_smart_tools_hub()
 
-        render_quick_learning_program_builder_expander()
-        render_quick_lesson_planner_expander()
-        render_quick_worksheet_maker_expander()
-        render_quick_exam_builder_expander()
-        render_quick_cv_builder_expander()
-        render_income_goal_calculator()
+        selected_tool = str(st.session_state.get("home_smart_tool_selected") or "")
+        tool_renderers = {
+            "open_quick_learning_program_expander": render_quick_learning_program_builder_expander,
+            "open_quick_plan_expander": render_quick_lesson_planner_expander,
+            "open_quick_ws_expander": render_quick_worksheet_maker_expander,
+            "open_quick_exam_expander": render_quick_exam_builder_expander,
+            "open_quick_cv_expander": render_quick_cv_builder_expander,
+            "open_income_goal_expander": render_income_goal_calculator,
+        }
+        if selected_tool in tool_renderers:
+            if st.session_state.pop("_home_smart_tool_scroll_toast", False):
+                st.toast(t("scroll_down_to_view"))
+            st.markdown(
+                """
+                <style>
+                div[data-testid="stExpander"] {
+                    border: none !important;
+                    background: transparent !important;
+                    box-shadow: none !important;
+                    margin-bottom: 0 !important;
+                }
+                div[data-testid="stExpander"] summary {
+                    display: none !important;
+                }
+                div[data-testid="stExpander"] details {
+                    border: none !important;
+                    background: transparent !important;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.session_state[selected_tool] = True
+            tool_renderers[selected_tool]()
+
+        st.markdown('<div class="home-bottom-space"></div>', unsafe_allow_html=True)
 
         return
 
@@ -2519,93 +2738,6 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
     st.markdown(
         """
         <style>
-        .classio-teacher-home-card {
-            position: relative;
-            overflow: hidden;
-            min-height: 148px;
-            padding: 18px 18px 16px;
-            border-radius: 22px;
-            border: 1px solid color-mix(in srgb, var(--border-strong, rgba(15,23,42,.16)) 72%, var(--teacher-accent) 28%);
-            background:
-                radial-gradient(circle at 82% -22%, rgba(var(--teacher-rgb), .24), transparent 42%),
-                radial-gradient(circle at 10% 112%, rgba(var(--teacher-rgb), .12), transparent 36%),
-                linear-gradient(180deg, color-mix(in srgb, var(--panel, #fff) 90%, white 10%), color-mix(in srgb, var(--panel-2, #f8fafc) 82%, var(--teacher-accent) 18%));
-            box-shadow:
-                0 22px 54px rgba(15,23,42,.12),
-                inset 0 1px 0 rgba(255,255,255,.78);
-            color: var(--text, #0f172a);
-        }
-        .classio-teacher-home-card::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(135deg, rgba(255,255,255,.58), transparent 44%);
-            pointer-events: none;
-        }
-        .classio-teacher-home-card::after {
-            content: "";
-            position: absolute;
-            left: 18px;
-            right: 18px;
-            top: 0;
-            height: 4px;
-            border-radius: 0 0 999px 999px;
-            background: linear-gradient(90deg, transparent, var(--teacher-accent), transparent);
-            opacity: .76;
-        }
-        .classio-teacher-home-card-inner {
-            position: relative;
-            z-index: 1;
-            display: grid;
-            grid-template-columns: auto 1fr;
-            gap: 14px;
-            align-items: center;
-            min-height: 112px;
-        }
-        .classio-teacher-home-card-icon {
-            width: 58px;
-            height: 58px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 19px;
-            background:
-                linear-gradient(180deg, rgba(255,255,255,.76), rgba(255,255,255,.28)),
-                color-mix(in srgb, var(--teacher-accent) 15%, transparent);
-            border: 1px solid color-mix(in srgb, var(--teacher-accent) 30%, rgba(255,255,255,.72));
-            box-shadow: 0 14px 28px rgba(var(--teacher-rgb), .17);
-            font-size: 1.85rem;
-            flex: 0 0 auto;
-        }
-        .classio-teacher-home-card-title {
-            margin: 0;
-            font-size: 1.05rem;
-            line-height: 1.18;
-            font-weight: 920;
-            color: var(--text, #0f172a);
-        }
-        .classio-teacher-home-card-desc {
-            margin: 8px 0 0;
-            color: var(--muted, #64748b);
-            font-size: .84rem;
-            line-height: 1.4;
-            font-weight: 650;
-        }
-        div[data-testid="stButton"] > button {
-            border-radius: 17px !important;
-            min-height: 3rem !important;
-            font-weight: 850 !important;
-            border: 1px solid color-mix(in srgb, var(--border-strong, rgba(15,23,42,.16)) 74%, rgba(37,99,235,.24) 26%) !important;
-            background:
-                linear-gradient(180deg, color-mix(in srgb, var(--panel, #fff) 92%, white 8%), color-mix(in srgb, var(--panel-2, #f8fafc) 86%, rgba(37,99,235,.08) 14%)) !important;
-            box-shadow: 0 12px 26px rgba(15,23,42,.09), inset 0 1px 0 rgba(255,255,255,.72) !important;
-            color: var(--text, #0f172a) !important;
-        }
-        div[data-testid="stButton"] > button:hover {
-            transform: translateY(-1px);
-            border-color: color-mix(in srgb, var(--primary, #2563eb) 45%, var(--border-strong, rgba(15,23,42,.16)) 55%) !important;
-            box-shadow: 0 16px 34px rgba(15,23,42,.13), inset 0 1px 0 rgba(255,255,255,.82) !important;
-        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -2623,40 +2755,32 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
     ]
 
     menu_rows = [
-        menu_items[0:2],
-        menu_items[2:4],
-        menu_items[4:6],
-        menu_items[6:8],
+        menu_items[0:4],
+        menu_items[4:8],
     ]
 
     for row in menu_rows:
         cols = st.columns(len(row), gap="medium")
         for col, (key, icon, label, accent, rgb, desc) in zip(cols, row):
             with col:
-                st.markdown(
-                    f"""
-                    <div class="classio-teacher-home-card" style="--teacher-accent:{accent};--teacher-rgb:{rgb};">
-                        <div class="classio-teacher-home-card-inner">
-                            <div class="classio-teacher-home-card-icon">{_html.escape(icon)}</div>
-                            <div>
-                                <div class="classio-teacher-home-card-title">{_html.escape(label)}</div>
-                                <div class="classio-teacher-home-card-desc">{_html.escape(desc)}</div>
-                            </div>
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
+                clicked = _render_teacher_home_menu_card(
+                    button_key=f"home_menu_{key}",
+                    icon=icon,
+                    label=label,
+                    desc=desc,
+                    accent=accent,
+                    rgb=rgb,
                 )
                 if key == "ai_tools":
-                    if st.button(label, key="home_menu_ai_tools", use_container_width=True):
+                    if clicked:
                         home_go("home", panel="ai_tools")
                         st.rerun()
                 elif key == "community":
-                    if st.button(label, key="home_menu_community", use_container_width=True):
+                    if clicked:
                         home_go("home", panel="community")
                         st.rerun()
                 else:
-                    if st.button(label, key=f"home_menu_{key}", use_container_width=True):
+                    if clicked:
                         go_to(key)
                         st.rerun()
         st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
