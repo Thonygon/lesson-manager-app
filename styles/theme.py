@@ -1445,6 +1445,53 @@ def load_css_app(compact: bool = False):
           -webkit-text-fill-color: var(--text) !important;
         }}
 
+        /* ---------- Section divider ---------- */
+        .home-section-line{{
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          gap:14px;
+          margin: 20px 0 14px 0;
+          width:100%;
+        }}
+
+        .home-section-line::before,
+        .home-section-line::after{{
+          content:"";
+          flex:1 1 auto;
+          height:1px;
+          border-radius:999px;
+        }}
+
+        .home-section-line::before{{
+          background: linear-gradient(
+            90deg,
+            rgba(255,255,255,0.00) 0%,
+            rgba(255,255,255,0.16) 20%,
+            rgba(96,165,250,0.30) 100%
+          );
+        }}
+
+        .home-section-line::after{{
+          background: linear-gradient(
+            90deg,
+            rgba(96,165,250,0.30) 0%,
+            rgba(255,255,255,0.16) 80%,
+            rgba(255,255,255,0.00) 100%
+          );
+        }}
+
+        .home-section-line span{{
+          flex:0 0 auto;
+          text-align:center;
+          font-size: 0.95rem;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--muted);
+          white-space: nowrap;
+        }}
+
         div[data-testid="stDataFrame"] {{
           border-radius: 18px !important;
           overflow: hidden !important;

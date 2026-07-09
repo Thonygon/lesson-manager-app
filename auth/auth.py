@@ -957,6 +957,14 @@ def require_login():
             button_key="continue_with_google",
             button_widget_key="btn_google_signin",
         )
+        st.markdown(
+            """
+            <div class="home-section-line"> 
+              <span>🤖</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     with tab_signup:
         render_google_auth_card(
