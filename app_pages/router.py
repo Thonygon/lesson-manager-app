@@ -71,6 +71,17 @@ def _render_profile_dialog_if_requested() -> None:
         render_profile_dialog(uid)
 
 
+def _render_global_page_divider() -> None:
+    st.markdown(
+        """
+        <div class="home-section-line">
+          <span>🤖</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _page_loading_label(page_key: str) -> str:
     label_keys = {
         "home": "home",
@@ -506,6 +517,7 @@ def route_app_pages(page: str):
     if page == "home":
         load_css_home()
         _render_page_with_loading("home", render_home)
+        _render_global_page_divider()
         st.stop()
 
     if page == "resources":
@@ -516,6 +528,7 @@ def route_app_pages(page: str):
             "resources",
             lambda: render_home(panel_override="files", show_home_actions=False),
         )
+        _render_global_page_divider()
         st.stop()
 
     if page == "smart_tools":
@@ -526,6 +539,7 @@ def route_app_pages(page: str):
             "smart_tools",
             lambda: render_home(panel_override="ai_tools", show_home_actions=False),
         )
+        _render_global_page_divider()
         st.stop()
 
     if page == "community":
@@ -536,6 +550,7 @@ def route_app_pages(page: str):
             "community",
             lambda: render_home(panel_override="community", show_home_actions=False),
         )
+        _render_global_page_divider()
         st.stop()
 
     load_css_app(compact=bool(st.session_state.get("compact_mode", False)))
@@ -570,6 +585,8 @@ def route_app_pages(page: str):
         go_to("home")
         st.rerun()
 
+    _render_global_page_divider()
+
 
 def _route_student_pages(page: str):
     from app_pages.student_home import render_student_home
@@ -601,6 +618,8 @@ def _route_student_pages(page: str):
         go_to("student_home")
         st.rerun()
 
+    _render_global_page_divider()
+
 
 def _route_admin_pages(page: str):
     from app_pages.admin import render_admin
@@ -613,3 +632,4 @@ def _route_admin_pages(page: str):
     render_admin_top_nav(page)
     _render_profile_dialog_if_requested()
     _render_page_with_loading("admin", render_admin)
+    _render_global_page_divider()
