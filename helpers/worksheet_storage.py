@@ -10,7 +10,7 @@ from io import BytesIO
 from core.i18n import t
 from core.state import get_current_user_id, with_owner
 from core.timezone import now_local, today_local, get_app_tz
-from core.database import get_sb, load_table, clear_app_caches, register_cache, show_data_load_error
+from core.database import get_sb, load_table, clear_app_caches, insert_row_with_retries, register_cache, show_data_load_error
 import math
 import html
 import textwrap
@@ -860,17 +860,21 @@ def save_worksheet_record(
             "status": ACTIVE_STATUS,
             "created_at": _dt.now(timezone.utc).isoformat(),
         })
-        try:
-            get_sb().table("worksheets").insert(payload).execute()
-        except Exception as inner_exc:
-            if "status" not in str(inner_exc).lower():
-                raise
-            legacy_payload = dict(payload)
-            legacy_payload.pop("status", None)
-            get_sb().table("worksheets").insert(legacy_payload).execute()
-        return True
-    except Exception as e:
-        st.warning(f"Could not save worksheet: {e}")
+        response = insert_row_with_retries(
+            "worksheets",
+            payload,
+            clear_cache=True,
+            context={
+                "resource_type": "worksheet",
+                "subject": str(subject).strip(),
+                "topic": _clean_display_text(topic),
+                "learner_stage": str(learner_stage).strip(),
+                "level_or_band": str(level_or_band).strip(),
+                "worksheet_type": str(worksheet_type).strip(),
+            },
+        )
+        return response is not None
+    except Exception:
         return False
 
 

@@ -11,7 +11,7 @@ from core.i18n import t
 from core.navigation import go_to
 from core.state import get_current_user_id, with_owner
 from core.timezone import now_local, today_local, get_app_tz
-from core.database import get_sb, load_table, clear_app_caches, register_cache, show_data_load_error
+from core.database import get_sb, load_table, clear_app_caches, insert_row_with_retries, register_cache, show_data_load_error
 from xml.sax.saxutils import escape as xml_escape
 import unicodedata
 from styles.pdf_styles import (
@@ -221,20 +221,27 @@ def save_exam_record(
             "status": ACTIVE_STATUS,
             "created_at": _dt.now(timezone.utc).isoformat(),
         })
-        try:
-            resp = get_sb().table("quick_exams").insert(payload).execute()
-        except Exception as inner_exc:
-            if "status" not in str(inner_exc).lower():
-                raise
-            legacy_payload = dict(payload)
-            legacy_payload.pop("status", None)
-            resp = get_sb().table("quick_exams").insert(legacy_payload).execute()
+        resp = insert_row_with_retries(
+            "quick_exams",
+            payload,
+            clear_cache=True,
+            context={
+                "resource_type": "exam",
+                "subject": str(subject).strip(),
+                "topic": str(topic).strip(),
+                "learner_stage": str(learner_stage).strip(),
+                "level_or_band": str(level_or_band).strip(),
+                "exam_length": str(exam_length).strip(),
+                "exercise_types": list(exercise_types or []),
+            },
+        )
+        if resp is None:
+            return None
         rows = getattr(resp, "data", None) or []
         if rows and isinstance(rows, list) and rows[0].get("id"):
             return rows[0]["id"]
         return None
-    except Exception as e:
-        st.warning(t("quick_exam_save_failed", error=e))
+    except Exception:
         return None
 
 

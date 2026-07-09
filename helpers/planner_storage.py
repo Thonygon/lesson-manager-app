@@ -10,7 +10,7 @@ from typing import Optional
 
 import pandas as pd
 import streamlit as st
-from core.database import clear_app_caches, get_sb, load_table, register_cache, show_data_load_error
+from core.database import clear_app_caches, get_sb, insert_row_with_retries, load_table, register_cache, show_data_load_error
 from core.i18n import t
 from core.navigation import go_to
 from core.state import get_current_user_id, with_owner
@@ -584,17 +584,22 @@ def save_lesson_plan_record(
             mode=mode,
             plan=plan,
         )
-        try:
-            get_sb().table("lesson_plans").insert(payload).execute()
-        except Exception as inner_exc:
-            if "status" not in str(inner_exc).lower():
-                raise
-            legacy_payload = dict(payload)
-            legacy_payload.pop("status", None)
-            get_sb().table("lesson_plans").insert(legacy_payload).execute()
-        return True
-    except Exception as e:
-        st.warning(f"{t('could_not_save_lesson_plan')}: {e}")
+        response = insert_row_with_retries(
+            "lesson_plans",
+            payload,
+            clear_cache=True,
+            context={
+                "resource_type": "lesson_plan",
+                "subject": str(subject).strip(),
+                "topic": _clean_display_text(topic),
+                "learner_stage": str(learner_stage).strip(),
+                "level_or_band": str(level_or_band).strip(),
+                "lesson_purpose": str(lesson_purpose).strip(),
+                "mode": str(mode).strip(),
+            },
+        )
+        return response is not None
+    except Exception:
         return False
 
 

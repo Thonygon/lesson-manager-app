@@ -13,7 +13,7 @@ from core.state import get_current_user_id, with_owner, PROFILE_SUBJECT_OPTIONS,
 from helpers.lesson_planner import subject_label as _subject_label
 from helpers.native_language import native_language_label, normalize_native_language
 from core.timezone import today_local, get_app_tz
-from core.database import get_sb, load_table, clear_app_caches
+from core.database import get_sb, insert_row_with_retries, load_table
 from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
 
 AI_CV_DAILY_LIMIT = 3
@@ -162,18 +162,19 @@ def save_cv_record(cv_dict: dict, source_type: str, title: str, ai_prompt: str =
             "status": ACTIVE_STATUS,
             "created_at": _dt.now(timezone.utc).isoformat(),
         })
-        try:
-            get_sb().table("professional_profiles").insert(payload).execute()
-        except Exception as inner_exc:
-            if "status" not in str(inner_exc).lower():
-                raise
-            legacy_payload = dict(payload)
-            legacy_payload.pop("status", None)
-            get_sb().table("professional_profiles").insert(legacy_payload).execute()
-        clear_app_caches()
-        return True
-    except Exception as e:
-        st.warning(f"{t('cv_save_failed')}: {e}")
+        response = insert_row_with_retries(
+            "professional_profiles",
+            payload,
+            clear_cache=True,
+            context={
+                "resource_type": "cv",
+                "doc_type": "cv",
+                "source_type": str(source_type or "").strip(),
+                "title": str(title or "").strip(),
+            },
+        )
+        return response is not None
+    except Exception:
         return False
 
 
@@ -194,18 +195,19 @@ def save_cover_letter_record(
             "status": ACTIVE_STATUS,
             "created_at": _dt.now(timezone.utc).isoformat(),
         })
-        try:
-            get_sb().table("professional_profiles").insert(payload).execute()
-        except Exception as inner_exc:
-            if "status" not in str(inner_exc).lower():
-                raise
-            legacy_payload = dict(payload)
-            legacy_payload.pop("status", None)
-            get_sb().table("professional_profiles").insert(legacy_payload).execute()
-        clear_app_caches()
-        return True
-    except Exception as e:
-        st.warning(f"{t('cover_letter_save_failed')}: {e}")
+        response = insert_row_with_retries(
+            "professional_profiles",
+            payload,
+            clear_cache=True,
+            context={
+                "resource_type": "cover_letter",
+                "doc_type": "cover_letter",
+                "title": str(title or "").strip(),
+                "target_employer": str(target_employer or "").strip(),
+            },
+        )
+        return response is not None
+    except Exception:
         return False
 
 
