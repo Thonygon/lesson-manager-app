@@ -255,6 +255,108 @@ def _inject_student_practice_styles() -> None:
     st.markdown(
         """
         <style>
+                div[class*="st-key-sp_cat_"] {
+                        height: 100%;
+                }
+                div[class*="st-key-sp_cat_"] div[data-testid="stButton"] > button {
+                        position: relative;
+                        overflow: hidden;
+                        min-height: 98px;
+                        height: 98px;
+                        padding: 14px 12px 12px !important;
+                        border-radius: 18px !important;
+                        border: 1px solid color-mix(in srgb, var(--border-strong, rgba(17,24,39,.08)) 68%, rgba(var(--practice-cat-rgb), .42) 32%) !important;
+                        background:
+                            radial-gradient(circle at 50% -12%, rgba(var(--practice-cat-rgb), .16), transparent 42%),
+                            linear-gradient(180deg, var(--panel, rgba(255,255,255,0.92)), var(--panel-2, rgba(248,250,255,0.85))) !important;
+                        box-shadow:
+                            0 8px 24px rgba(var(--practice-cat-rgb), .26),
+                            0 0 14px rgba(var(--practice-cat-rgb), .18),
+                            inset 0 1px 0 rgba(255,255,255,.78) !important;
+                        color: var(--text, #0f172a) !important;
+                        text-align: center;
+                        transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease !important;
+                        white-space: normal !important;
+                }
+                div[class*="st-key-sp_cat_"] div[data-testid="stButton"] > button:hover,
+                div[class*="st-key-sp_cat_"] div[data-testid="stButton"] > button:focus {
+                        transform: translateY(-2px);
+                        border-color: rgba(var(--practice-cat-rgb), .72) !important;
+                        box-shadow:
+                            0 12px 28px rgba(var(--practice-cat-rgb), .34),
+                            0 0 18px rgba(var(--practice-cat-rgb), .24),
+                            inset 0 1px 0 rgba(255,255,255,.84) !important;
+                }
+                div[class*="st-key-sp_cat_"] div[data-testid="stButton"] > button::before {
+                        position: absolute;
+                        top: 14px;
+                        left: 50%;
+                        width: 30px;
+                        height: 30px;
+                        transform: translateX(-50%);
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        border-radius: 999px;
+                        background: rgba(255,255,255,.86);
+                        border: 1px solid rgba(var(--practice-cat-rgb), .34);
+                        box-shadow: 0 10px 18px rgba(var(--practice-cat-rgb), .18);
+                        font-size: 1rem;
+                        pointer-events: none;
+                }
+                div[class*="st-key-sp_cat_"] div[data-testid="stButton"] > button p {
+                        position: relative;
+                        z-index: 1;
+                        margin: 38px auto 0;
+                        max-width: 240px;
+                        text-align: center;
+                        white-space: pre-line !important;
+                }
+                div[class*="st-key-sp_cat_"] div[data-testid="stButton"] > button p strong {
+                        display: block;
+                        font-size: .96rem;
+                        line-height: 1.2;
+                        font-weight: 800;
+                        color: var(--text, #0f172a) !important;
+                }
+                div[class*="st-key-sp_cat_active_"] div[data-testid="stButton"] > button {
+                        border: 2px solid rgba(234,179,8,.85) !important;
+                        background:
+                            radial-gradient(circle at 50% -10%, rgba(var(--practice-cat-rgb), .20), transparent 42%),
+                            linear-gradient(180deg, rgba(var(--practice-cat-rgb), .10), rgba(var(--practice-cat-rgb), .04)) !important;
+                        box-shadow:
+                            0 12px 30px rgba(var(--practice-cat-rgb), .34),
+                            0 0 18px rgba(var(--practice-cat-rgb), .22),
+                            0 0 0 1px rgba(234,179,8,.24),
+                            inset 0 1px 0 rgba(255,255,255,.78) !important;
+                }
+                .st-key-sp_cat___all__, .st-key-sp_cat_active___all__ { --practice-cat-rgb: 59,130,246; }
+                .st-key-sp_cat_multiple_choice, .st-key-sp_cat_active_multiple_choice { --practice-cat-rgb: 168,85,247; }
+                .st-key-sp_cat_true_false, .st-key-sp_cat_active_true_false { --practice-cat-rgb: 16,185,129; }
+                .st-key-sp_cat_fill_in_the_blanks, .st-key-sp_cat_active_fill_in_the_blanks { --practice-cat-rgb: 245,158,11; }
+                .st-key-sp_cat_short_answer, .st-key-sp_cat_active_short_answer { --practice-cat-rgb: 239,68,68; }
+                .st-key-sp_cat_matching, .st-key-sp_cat_active_matching { --practice-cat-rgb: 6,182,212; }
+                .st-key-sp_cat_reading_comprehension, .st-key-sp_cat_active_reading_comprehension { --practice-cat-rgb: 234,179,8; }
+                .st-key-sp_cat_error_correction, .st-key-sp_cat_active_error_correction { --practice-cat-rgb: 20,184,166; }
+                .st-key-sp_cat_word_search_vocab, .st-key-sp_cat_active_word_search_vocab { --practice-cat-rgb: 99,102,241; }
+                .st-key-sp_cat___all__ div[data-testid="stButton"] > button::before,
+                .st-key-sp_cat_active___all__ div[data-testid="stButton"] > button::before { content: "🎯"; }
+                .st-key-sp_cat_multiple_choice div[data-testid="stButton"] > button::before,
+                .st-key-sp_cat_active_multiple_choice div[data-testid="stButton"] > button::before { content: "🔘"; }
+                .st-key-sp_cat_true_false div[data-testid="stButton"] > button::before,
+                .st-key-sp_cat_active_true_false div[data-testid="stButton"] > button::before { content: "✅"; }
+                .st-key-sp_cat_fill_in_the_blanks div[data-testid="stButton"] > button::before,
+                .st-key-sp_cat_active_fill_in_the_blanks div[data-testid="stButton"] > button::before { content: "✏️"; }
+                .st-key-sp_cat_short_answer div[data-testid="stButton"] > button::before,
+                .st-key-sp_cat_active_short_answer div[data-testid="stButton"] > button::before { content: "📝"; }
+                .st-key-sp_cat_matching div[data-testid="stButton"] > button::before,
+                .st-key-sp_cat_active_matching div[data-testid="stButton"] > button::before { content: "🔗"; }
+                .st-key-sp_cat_reading_comprehension div[data-testid="stButton"] > button::before,
+                .st-key-sp_cat_active_reading_comprehension div[data-testid="stButton"] > button::before { content: "📖"; }
+                .st-key-sp_cat_error_correction div[data-testid="stButton"] > button::before,
+                .st-key-sp_cat_active_error_correction div[data-testid="stButton"] > button::before { content: "🔍"; }
+                .st-key-sp_cat_word_search_vocab div[data-testid="stButton"] > button::before,
+                .st-key-sp_cat_active_word_search_vocab div[data-testid="stButton"] > button::before { content: "🔠"; }
         .classio-practice-card {
             position: relative;
             overflow: hidden;
@@ -502,8 +604,6 @@ def _render_browse_tab():
 
             active_cat = st.session_state.get("sp_filter_ws_type")
 
-            import html as _html_cat
-
             # Pre-filter worksheets once
             _ws_base = pub_ws.copy()
             if practice_search_query and not _ws_base.empty:
@@ -556,37 +656,16 @@ def _render_browse_tab():
                 return
 
             # Expander-like behaviour:
-            # - No category open → show all category cards in a 2-col grid
-            # - Category open → show only that card + its worksheets below
+            # - No category open -> show all category cards in a 2-col grid
+            # - Category open -> show only that card + its worksheets below
             if active_cat is not None:
                 # ── Expanded: show active category + worksheets ──
                 _active_info = next(
                     (c for c in _CATEGORY_CARDS if c[0] == active_cat),
                     _CATEGORY_CARDS[0],
                 )
-                cat_key, emoji, label, rgb = _active_info
-                glow = f"rgba({rgb},0.55)"
-                shadow = (
-                    f"box-shadow: 0 4px 18px {glow}, "
-                    f"0 0 10px {glow}, "
-                    f"0 0 22px rgba({rgb},0.22);"
-                )
-                st.markdown(
-                    f'<div style="'
-                    f'background: linear-gradient(180deg, rgba({rgb},0.10), rgba({rgb},0.04)); '
-                    f'border: 2.5px solid rgba(234,179,8,0.85); border-radius:16px; '
-                    f'padding:12px 10px 8px 10px; text-align:center; '
-                    f'min-height:70px; color:var(--text); margin-bottom:2px; {shadow}">'
-                    f'<div style="font-size:1.3rem;margin-bottom:2px;">{emoji}</div>'
-                    f'<div style="font-weight:700;font-size:0.82rem;color:var(--text,#0f172a);">'
-                    f'{_html_cat.escape(label)}</div></div>',
-                    unsafe_allow_html=True,
-                )
-                if st.button(
-                    f"✦ {t('close')}",
-                    key=f"sp_cat_{cat_key}",
-                    use_container_width=True,
-                ):
+                cat_key, _emoji, label, _rgb = _active_info
+                if st.button(f"**{label}**", key=f"sp_cat_active_{cat_key}", use_container_width=True):
                     st.session_state["sp_filter_ws_type"] = None
                     st.rerun()
 
@@ -633,35 +712,13 @@ def _render_browse_tab():
                                             st.rerun()
                     _render_practice_pagination(_ws_rows, f"student_practice_ws_cat_{active_cat}")
             else:
-                # ── Collapsed: show all category cards in 2-col grid ─
-                for row_start in range(0, len(_CATEGORY_CARDS), 2):
-                    pair = _CATEGORY_CARDS[row_start:row_start + 2]
-                    _cat_cols = st.columns(2, gap="medium")
-                    for ci, (cat_key, emoji, label, rgb) in enumerate(pair):
+                # ── Collapsed: show all category cards in 3-col grid ─
+                for row_start in range(0, len(_CATEGORY_CARDS), 3):
+                    pair = _CATEGORY_CARDS[row_start:row_start + 3]
+                    _cat_cols = st.columns(3, gap="medium")
+                    for ci, (cat_key, _emoji, label, _rgb) in enumerate(pair):
                         with _cat_cols[ci]:
-                            glow = f"rgba({rgb},0.55)"
-                            shadow = (
-                                f"box-shadow: 0 4px 18px {glow}, "
-                                f"0 0 10px {glow}, "
-                                f"0 0 22px rgba({rgb},0.22);"
-                            )
-                            st.markdown(
-                                f'<div style="'
-                                f'background: linear-gradient(180deg, var(--panel, rgba(255,255,255,0.92)), '
-                                f'var(--panel-2, rgba(248,250,255,0.85))); '
-                                f'border: 1px solid var(--border-strong, rgba(17,24,39,0.08)); '
-                                f'border-radius:16px; padding:12px 10px 8px 10px; text-align:center; '
-                                f'min-height:70px; color:var(--text); margin-bottom:2px; {shadow}">'
-                                f'<div style="font-size:1.3rem;margin-bottom:2px;">{emoji}</div>'
-                                f'<div style="font-weight:700;font-size:0.82rem;color:var(--text,#0f172a);">'
-                                f'{_html_cat.escape(label)}</div></div>',
-                                unsafe_allow_html=True,
-                            )
-                            if st.button(
-                                label,
-                                key=f"sp_cat_{cat_key}",
-                                use_container_width=True,
-                            ):
+                            if st.button(f"**{label}**", key=f"sp_cat_{cat_key}", use_container_width=True):
                                 st.session_state["sp_filter_ws_type"] = cat_key
                                 st.rerun()
 

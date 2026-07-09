@@ -374,7 +374,13 @@ def _explore_teaching_resource_is_open() -> bool:
     )
 
 
+def _explore_section_force_closed_key(keep_open_key: str) -> str:
+    return f"_{keep_open_key}_force_closed"
+
+
 def _explore_section_is_open(keep_open_key: str, state_keys: list[str] | None = None) -> bool:
+    if st.session_state.get(_explore_section_force_closed_key(keep_open_key)):
+        return False
     return any(
         bool(st.session_state.get(key))
         for key in [keep_open_key, *(state_keys or [])]
@@ -383,19 +389,198 @@ def _explore_section_is_open(keep_open_key: str, state_keys: list[str] | None = 
 
 def _keep_explore_section_open(keep_open_key: str) -> None:
     st.session_state[keep_open_key] = True
+    st.session_state.pop(_explore_section_force_closed_key(keep_open_key), None)
 
 
-def _render_explore_teaching_resources() -> bool:
+def _close_explore_section(keep_open_key: str) -> None:
+    st.session_state[keep_open_key] = False
+    st.session_state[_explore_section_force_closed_key(keep_open_key)] = True
+
+
+def _toggle_explore_section_open(keep_open_key: str, state_keys: list[str] | None = None) -> bool:
+    if _explore_section_is_open(keep_open_key, state_keys):
+        _close_explore_section(keep_open_key)
+        return False
+    _keep_explore_section_open(keep_open_key)
+    return True
+
+
+def _queue_explore_scroll_toast() -> None:
+    st.session_state["_explore_scroll_toast"] = True
+
+
+def _render_explore_scroll_toast_if_needed() -> None:
+    if st.session_state.pop("_explore_scroll_toast", False):
+        st.toast(t("scroll_down_to_view"))
+
+
+def _render_explore_section_hero_button(
+    *,
+    button_key: str,
+    eyebrow: str,
+    emoji: str,
+    title: str,
+    subtitle: str,
+    accent: str,
+    rgb: str,
+) -> bool:
+    wrapper_class = f"st-key-{button_key}"
     st.markdown(
         f"""
-        <div class="classio-explore-section-hero" style="--explore-accent:#F59E0B;">
-            <div class="classio-explore-eyebrow">{_html.escape(t('teaching_resources'))}</div>
-            <div class="classio-explore-title">{_html.escape(t('explore_teaching_resources_title'))}</div>
-            <div class="classio-explore-subtitle">{_html.escape(t('explore_teaching_resources_subtitle'))}</div>
-        </div>
+        <style>
+        .{wrapper_class} {{
+            --hero-accent: {accent};
+            --hero-rgb: {rgb};
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button {{
+            position: relative;
+            overflow: hidden;
+            min-height: 144px;
+            margin: 8px 0 16px;
+            padding: 24px 22px 22px !important;
+            border-radius: 22px !important;
+            border: 1px solid var(--border-strong, rgba(17,24,39,.12)) !important;
+            background:
+                linear-gradient(135deg, color-mix(in srgb, var(--hero-accent, #2563eb) 16%, transparent), rgba(20,184,166,.08)),
+                linear-gradient(180deg, var(--panel, rgba(255,255,255,.94)), var(--panel-2, rgba(248,250,252,.84))) !important;
+            box-shadow: var(--shadow-lg, 0 22px 55px rgba(15,23,42,.10)) !important;
+            color: var(--text, #0f172a) !important;
+            text-align: left;
+            white-space: normal !important;
+            transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease !important;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button:hover,
+        .{wrapper_class} div[data-testid="stButton"] > button:focus {{
+            transform: translateY(-2px);
+            border-color: color-mix(in srgb, var(--hero-accent, #2563eb) 40%, var(--border-strong, rgba(17,24,39,.12)) 60%) !important;
+            box-shadow: 0 24px 58px rgba(var(--hero-rgb, 37,99,235), .14) !important;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button::before {{
+            content: {json.dumps(eyebrow.upper(), ensure_ascii=False)};
+            position: absolute;
+            top: 22px;
+            left: 22px;
+            font-size: .74rem;
+            font-weight: 900;
+            color: var(--hero-accent, #2563eb);
+            letter-spacing: 0;
+            pointer-events: none;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button > div {{
+            position: relative;
+            z-index: 1;
+            display: block !important;
+            width: 100% !important;
+            text-align: left !important;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button > div::before {{
+            content: {json.dumps(emoji, ensure_ascii=False)};
+            position: absolute;
+            right: 18px;
+            top: 6px;
+            width: 58px;
+            height: 58px;
+            border-radius: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+            background:
+                linear-gradient(180deg, rgba(255,255,255,.76), rgba(255,255,255,.34)),
+                color-mix(in srgb, var(--hero-accent, #2563eb) 14%, transparent);
+            border: 1px solid color-mix(in srgb, var(--hero-accent, #2563eb) 26%, rgba(255,255,255,.72));
+            box-shadow: 0 14px 28px rgba(var(--hero-rgb, 37,99,235), .14);
+            pointer-events: none;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button::after {{
+            content: "";
+            position: absolute;
+            right: -76px;
+            top: -92px;
+            width: 210px;
+            height: 210px;
+            border-radius: 50%;
+            border: 32px solid color-mix(in srgb, var(--hero-accent, #2563eb) 10%, transparent);
+            pointer-events: none;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button p {{
+            position: relative;
+            z-index: 1;
+            display: block;
+            width: min(760px, calc(100% - 106px));
+            max-width: min(760px, calc(100% - 106px));
+            margin: 42px 92px 0 0;
+            white-space: pre-line !important;
+            color: var(--muted, #475569) !important;
+            font-size: .94rem;
+            line-height: 1.5;
+            font-weight: 620;
+            text-align: left !important;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button p strong {{
+            display: block;
+            margin: 0 0 8px;
+            color: var(--text, #0f172a) !important;
+            font-size: 1.45rem;
+            line-height: 1.16;
+            font-weight: 950;
+            text-align: left !important;
+        }}
+        @media (max-width: 768px) {{
+            .{wrapper_class} div[data-testid="stButton"] > button {{
+                min-height: 132px;
+                padding: 22px 18px 18px !important;
+                border-radius: 18px !important;
+            }}
+            .{wrapper_class} div[data-testid="stButton"] > button > div::before {{
+                right: 14px;
+                top: 8px;
+                width: 50px;
+                height: 50px;
+                border-radius: 16px;
+                font-size: 1.5rem;
+            }}
+            .{wrapper_class} div[data-testid="stButton"] > button p {{
+                width: calc(100% - 84px);
+                max-width: calc(100% - 84px);
+                margin: 38px 72px 0 0;
+                font-size: .9rem;
+                line-height: 1.42;
+            }}
+            .{wrapper_class} div[data-testid="stButton"] > button p strong {{
+                font-size: 1.22rem;
+            }}
+        }}
+        </style>
         """,
         unsafe_allow_html=True,
     )
+    return st.button(f"**{title}**  \n{subtitle}", key=button_key, use_container_width=True)
+
+
+def _render_explore_teaching_resources() -> bool:
+    if _render_explore_section_hero_button(
+        button_key="explore_section_teaching_resources",
+        eyebrow=t("teaching_resources"),
+        emoji="📚",
+        title=t("explore_teaching_resources_title"),
+        subtitle=t("explore_teaching_resources_subtitle"),
+        accent="#F59E0B",
+        rgb="245,158,11",
+    ):
+        section_is_open = _toggle_explore_section_open(
+            "explore_teaching_resources_keep_open",
+            [
+                "explore_public_learning_programs_selected_program_id",
+                "files_selected_plan",
+                "files_selected_worksheet",
+                "files_selected_exam",
+                "files_selected_video",
+            ],
+        )
+        if section_is_open:
+            _queue_explore_scroll_toast()
+        st.rerun()
 
     with st.expander(f"📚 {t('teaching_resources')}", expanded=_explore_teaching_resource_is_open()):
         return _render_explore_teaching_resources_body()
@@ -885,6 +1070,7 @@ def render_goal_explorer() -> bool:
     """
     load_css_home()
     _inject_explore_premium_styles()
+    _render_explore_scroll_toast_if_needed()
 
     _render_explore_loading(t("explore_ai_tools_title"), _render_explore_ai_tools)
     if _render_explore_loading(t("explore_teaching_resources_title"), _render_explore_teaching_resources):
@@ -1154,16 +1340,19 @@ _FEATURE_DESCRIPTIONS = {
 
 
 def _render_feature_showcase() -> bool:
-    st.markdown(
-        f"""
-        <div class="classio-explore-section-hero" style="--explore-accent:#059669;">
-            <div class="classio-explore-eyebrow">{_html.escape(t('manage_students'))}</div>
-            <div class="classio-explore-title">{_html.escape(t('explore_features_title'))}</div>
-            <div class="classio-explore-subtitle">{_html.escape(t('explore_features_subtitle'))}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    if _render_explore_section_hero_button(
+        button_key="explore_section_manage_students",
+        eyebrow=t("manage_students"),
+        emoji="👥",
+        title=t("explore_features_title"),
+        subtitle=t("explore_features_subtitle"),
+        accent="#059669",
+        rgb="5,150,105",
+    ):
+        section_is_open = _toggle_explore_section_open("explore_manage_students_keep_open")
+        if section_is_open:
+            _queue_explore_scroll_toast()
+        st.rerun()
 
     with st.expander(f"👥 {t('explore_features_title')}", expanded=_explore_section_is_open("explore_manage_students_keep_open")):
         return _render_feature_cards()
@@ -1171,8 +1360,150 @@ def _render_feature_showcase() -> bool:
     return False
 
 
+def _render_explore_native_card_button(
+    *,
+    button_key: str,
+    title: str,
+    desc: str,
+    icon: str,
+    badge: str,
+    accent: str,
+    rgb: str,
+    active: bool = False,
+) -> bool:
+    wrapper_class = f"st-key-{button_key}"
+    is_tool_card = button_key.startswith("explore_ai_card_")
+    active_border = (
+        "color-mix(in srgb, var(--card-accent, #2563eb) 64%, var(--border-strong, rgba(17,24,39,.12)) 36%)"
+        if active
+        else "color-mix(in srgb, var(--border-strong, rgba(17,24,39,.12)) 72%, var(--card-accent, #2563eb) 28%)"
+    )
+    active_shadow = (
+        "0 22px 52px rgba(var(--card-rgb, 37,99,235), .18), inset 0 1px 0 rgba(255,255,255,.82)"
+        if active
+        else "0 18px 42px rgba(15,23,42,.10), inset 0 1px 0 rgba(255,255,255,.72)"
+    )
+    body_margin_top = "96px" if is_tool_card else "78px"
+    title_desc_gap = "4px" if is_tool_card else "10px"
+    card_height = "220px" if is_tool_card else "210px"
+    card_padding = "22px 18px 16px" if is_tool_card else "22px 18px 18px"
+    body_font_size = ".86rem" if is_tool_card else ".9rem"
+    body_line_height = "1.34" if is_tool_card else "1.45"
+    title_font_size = "1.08rem" if is_tool_card else "1.16rem"
+    title_line_height = "1.08" if is_tool_card else "1.16"
+    st.markdown(
+        f"""
+        <style>
+        .{wrapper_class} {{
+            --card-accent: {accent};
+            --card-rgb: {rgb};
+            height: 100%;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button {{
+            position: relative;
+            overflow: hidden;
+            min-height: {card_height};
+            height: {card_height};
+            margin-bottom: 8px;
+            padding: {card_padding} !important;
+            border-radius: 24px !important;
+            border: 1px solid {active_border} !important;
+            background:
+                radial-gradient(circle at 50% -18%, rgba(var(--card-rgb, 37,99,235), .24), transparent 42%),
+                linear-gradient(180deg, color-mix(in srgb, var(--panel, #fff) 90%, white 10%), color-mix(in srgb, var(--panel-2, #f8fafc) 82%, var(--card-accent, #2563eb) 18%)) !important;
+            box-shadow: {active_shadow} !important;
+            color: var(--text, #0f172a) !important;
+            text-align: center;
+            white-space: normal !important;
+            transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease !important;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button:hover,
+        .{wrapper_class} div[data-testid="stButton"] > button:focus {{
+            transform: translateY(-2px);
+            border-color: color-mix(in srgb, var(--card-accent, #2563eb) 64%, var(--border-strong, rgba(17,24,39,.12)) 36%) !important;
+            box-shadow: 0 22px 52px rgba(var(--card-rgb, 37,99,235), .18), inset 0 1px 0 rgba(255,255,255,.82) !important;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button::before {{
+            content: {json.dumps(icon, ensure_ascii=False)};
+            position: absolute;
+            top: 22px;
+            left: 50%;
+            width: 62px;
+            height: 62px;
+            transform: translateX(-50%);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            background:
+                linear-gradient(180deg, rgba(255,255,255,.74), rgba(255,255,255,.28)),
+                color-mix(in srgb, var(--card-accent, #2563eb) 15%, transparent);
+            border: 1px solid color-mix(in srgb, var(--card-accent, #2563eb) 28%, rgba(255,255,255,.72));
+            box-shadow: 0 14px 28px rgba(var(--card-rgb, 37,99,235), .16);
+            pointer-events: none;
+            z-index: 1;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button::after {{
+            content: {json.dumps(badge, ensure_ascii=False)};
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            max-width: 42%;
+            border-radius: 999px;
+            padding: 4px 9px;
+            font-size: .68rem;
+            font-weight: 850;
+            color: var(--card-accent, #2563eb);
+            background: color-mix(in srgb, var(--card-accent, #2563eb) 12%, transparent);
+            border: 1px solid color-mix(in srgb, var(--card-accent, #2563eb) 22%, transparent);
+            white-space: normal;
+            text-align: right;
+            pointer-events: none;
+            z-index: 1;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button p {{
+            position: relative;
+            z-index: 1;
+            display: block;
+            max-width: 250px;
+            margin: {body_margin_top} auto 0;
+            white-space: pre-line !important;
+            text-align: center;
+            color: var(--muted, #64748b) !important;
+            font-size: {body_font_size};
+            line-height: {body_line_height};
+            font-weight: 650;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button p strong {{
+            display: block;
+            margin: 0 0 {title_desc_gap};
+            color: var(--text, #0f172a) !important;
+            font-size: {title_font_size};
+            line-height: {title_line_height};
+            font-weight: 920;
+        }}
+        .{wrapper_class} div[data-testid="stButton"] > button > div::before {{
+            content: "";
+            position: absolute;
+            left: 18px;
+            right: 18px;
+            top: 0;
+            height: 4px;
+            border-radius: 0 0 999px 999px;
+            background: linear-gradient(90deg, transparent, var(--card-accent, #2563eb), transparent);
+            opacity: .76;
+            pointer-events: none;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    return st.button(f"**{title}**  \n{desc}", key=button_key, use_container_width=True)
+
+
 def _render_feature_cards() -> bool:
-    rows = [_FEATURE_ITEMS[0:2], _FEATURE_ITEMS[2:4], _FEATURE_ITEMS[4:6]]
+    rows = [_FEATURE_ITEMS[0:3], _FEATURE_ITEMS[3:6]]
 
     for row in rows:
         cols = st.columns(len(row), gap="medium")
@@ -1180,23 +1511,14 @@ def _render_feature_cards() -> bool:
             with col:
                 label = t(key) if key in ("dashboard", "students", "calendar", "analytics") else t(key.replace("add_", ""))
                 desc = t(_FEATURE_DESCRIPTIONS[key])
-                st.markdown(
-                    f"""
-                    <div class="classio-explore-feature-card" style="--card-accent:{accent};--card-rgb:{rgb};">
-                        <div class="classio-explore-card-top">
-                            <div class="classio-explore-card-icon">{_html.escape(icon)}</div>
-                            <div class="classio-explore-card-badge">{_html.escape(t('explore_try_feature'))}</div>
-                        </div>
-                        <div class="classio-explore-card-title">{_html.escape(label)}</div>
-                        <div class="classio-explore-card-body">{_html.escape(desc)}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                if st.button(
-                    t("explore_try_feature"),
-                    key=f"explore_feat_{key}",
-                    use_container_width=True,
+                if _render_explore_native_card_button(
+                    button_key=f"explore_feat_{key}",
+                    title=label,
+                    desc=desc,
+                    icon=icon,
+                    badge=t("explore_try_feature"),
+                    accent=accent,
+                    rgb=rgb,
                 ):
                     _keep_explore_section_open("explore_manage_students_keep_open")
                     st.session_state["_after_signup_page"] = key
@@ -1520,16 +1842,24 @@ def _inject_explore_premium_styles() -> None:
 
 def _render_explore_ai_tools() -> None:
     """AI Tools section for the explore page: Lesson Planner + Worksheet Maker."""
-    st.markdown(
-        f"""
-        <div class="classio-explore-section-hero" style="--explore-accent:#2563EB;">
-            <div class="classio-explore-eyebrow">{_html.escape(t('smart_tools_eyebrow'))}</div>
-            <div class="classio-explore-title">{_html.escape(t('explore_ai_tools_title'))}</div>
-            <div class="classio-explore-subtitle">{_html.escape(t('explore_ai_tools_subtitle'))}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    if _render_explore_section_hero_button(
+        button_key="explore_section_ai_tools",
+        eyebrow=t("smart_tools_eyebrow"),
+        emoji="🧰",
+        title=t("explore_ai_tools_title"),
+        subtitle=t("explore_ai_tools_subtitle"),
+        accent="#2563EB",
+        rgb="37,99,235",
+    ):
+        section_is_open = _toggle_explore_section_open(
+            "explore_ai_tools_keep_open",
+            ["explore_ai_tool_selected"],
+        )
+        if section_is_open:
+            _queue_explore_scroll_toast()
+        if not section_is_open:
+            st.session_state["explore_ai_tool_selected"] = ""
+        st.rerun()
 
     selected = st.session_state.get("explore_ai_tool_selected", "")
 
@@ -1576,48 +1906,38 @@ def _render_explore_ai_tools() -> None:
         f"🧰 {t('explore_ai_tools_title')}",
         expanded=_explore_section_is_open("explore_ai_tools_keep_open", ["explore_ai_tool_selected"]),
     ):
-        # Render cards in 2 rows × 2 columns
-        for row_start in range(0, len(cards), 2):
-            row_cards = cards[row_start:row_start + 2]
-            cols = st.columns(2, gap="medium")
-            for col, card in zip(cols, row_cards):
-                with col:
-                    is_active = selected == card["key"]
-                    active_class = " is-active" if is_active else ""
-
-                    st.markdown(
-                        f"""
-                        <div class="classio-explore-tool-card{active_class}" style="--card-accent:{card['accent']};--card-rgb:{card['rgb']};">
-                            <div class="classio-explore-card-top">
-                                <div class="classio-explore-card-icon">{_html.escape(card['icon'])}</div>
-                                <div class="classio-explore-card-badge">{_html.escape(card['badge'])}</div>
-                            </div>
-                            <div class="classio-explore-card-title">{_html.escape(card['title'])}</div>
-                            <div class="classio-explore-card-body">{_html.escape(card['desc'])}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
-                    button_label = t("close") if is_active else t("try_now")
-                    if st.button(button_label, key=f"explore_ai_card_{card['key']}", use_container_width=True):
-                        _keep_explore_section_open("explore_ai_tools_keep_open")
-                        if is_active:
-                            st.session_state["explore_ai_tool_selected"] = ""
-                        else:
-                            st.session_state["explore_ai_tool_selected"] = card["key"]
-                        st.rerun()
-
+        cols = st.columns(4, gap="medium")
+        for col, card in zip(cols, cards):
+            with col:
+                is_active = selected == card["key"]
+                if _render_explore_native_card_button(
+                    button_key=f"explore_ai_card_{card['key']}",
+                    title=card["title"],
+                    desc=card["desc"],
+                    icon=card["icon"],
+                    badge=t("close") if is_active else card["badge"],
+                    accent=card["accent"],
+                    rgb=card["rgb"],
+                    active=is_active,
+                ):
+                    _keep_explore_section_open("explore_ai_tools_keep_open")
                     if is_active:
-                        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
-                        if card["key"] == "planner":
-                            _render_explore_lesson_planner()
-                        elif card["key"] == "worksheet":
-                            _render_explore_worksheet_maker()
-                        elif card["key"] == "exam":
-                            _render_explore_exam_builder()
-                        elif card["key"] == "program":
-                            _render_explore_program_maker()
+                        st.session_state["explore_ai_tool_selected"] = ""
+                    else:
+                        st.session_state["explore_ai_tool_selected"] = card["key"]
+                        _queue_explore_scroll_toast()
+                    st.rerun()
+
+        if selected:
+            st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+            if selected == "planner":
+                _render_explore_lesson_planner()
+            elif selected == "worksheet":
+                _render_explore_worksheet_maker()
+            elif selected == "exam":
+                _render_explore_exam_builder()
+            elif selected == "program":
+                _render_explore_program_maker()
 
 # ─────────────────────────────────────────────────────────────
 # Explore-page worksheet maker (AI-powered, 1-use limit for anon)

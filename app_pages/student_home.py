@@ -34,6 +34,12 @@ def _ui_text(key: str, fallback: str) -> str:
     return value if value != key else fallback
 
 
+def _render_student_nav_card(card: dict) -> None:
+    label = f"**{card['title']}**  \n{card['desc']}"
+    clicked = st.button(label, key=f"student_card_{card['key']}", use_container_width=True)
+    if clicked: go_to(str(card.get("key") or "student_home")); st.rerun()
+
+
 def _open_home_recommendation_practice(item: dict) -> None:
     resource_type = str(item.get("resource_type") or "").strip()
     if resource_type not in {"worksheet", "exam"}:
@@ -122,32 +128,74 @@ def render_student_home():
     st.markdown(
         """
         <style>
-        .classio-student-home-grid-card {
+        .st-key-student_card_student_practice,
+        .st-key-student_card_student_study_plan,
+        .st-key-student_card_student_assignments,
+        .st-key-student_card_student_find_teacher {
+            height: 100%;
+        }
+        .st-key-student_card_student_practice div[data-testid="stButton"] > button,
+        .st-key-student_card_student_study_plan div[data-testid="stButton"] > button,
+        .st-key-student_card_student_assignments div[data-testid="stButton"] > button,
+        .st-key-student_card_student_find_teacher div[data-testid="stButton"] > button {
             position: relative;
             overflow: hidden;
-            min-height: 228px;
-            padding: 24px 20px 22px;
-            border-radius: 24px;
-            border: 1px solid color-mix(in srgb, var(--border-strong, rgba(15,23,42,.16)) 72%, var(--student-accent) 28%);
+            min-height: 210px;
+            height: 210px;
+            padding: 22px 18px 18px !important;
+            border-radius: 24px !important;
+            border: 1px solid color-mix(in srgb, var(--border-strong, rgba(15,23,42,.16)) 72%, var(--student-accent) 28%) !important;
             background:
                 radial-gradient(circle at 50% -18%, rgba(var(--student-rgb), .24), transparent 42%),
-                linear-gradient(180deg, color-mix(in srgb, var(--panel, #fff) 90%, white 10%), color-mix(in srgb, var(--panel-2, #f8fafc) 82%, var(--student-accent) 18%));
+                linear-gradient(180deg, color-mix(in srgb, var(--panel, #fff) 90%, white 10%), color-mix(in srgb, var(--panel-2, #f8fafc) 82%, var(--student-accent) 18%)) !important;
             box-shadow:
                 0 24px 58px rgba(15,23,42,.12),
-                inset 0 1px 0 rgba(255,255,255,.78);
+                inset 0 1px 0 rgba(255,255,255,.78) !important;
             text-align: center;
-            color: var(--text, #0f172a);
+            color: var(--text, #0f172a) !important;
+            transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease !important;
+            white-space: normal !important;
         }
-        .classio-student-home-grid-card::before {
-            content: "";
+        .st-key-student_card_student_practice div[data-testid="stButton"] > button:hover,
+        .st-key-student_card_student_practice div[data-testid="stButton"] > button:focus,
+        .st-key-student_card_student_study_plan div[data-testid="stButton"] > button:hover,
+        .st-key-student_card_student_study_plan div[data-testid="stButton"] > button:focus,
+        .st-key-student_card_student_assignments div[data-testid="stButton"] > button:hover,
+        .st-key-student_card_student_assignments div[data-testid="stButton"] > button:focus,
+        .st-key-student_card_student_find_teacher div[data-testid="stButton"] > button:hover,
+        .st-key-student_card_student_find_teacher div[data-testid="stButton"] > button:focus {
+            transform: translateY(-3px);
+            border-color: color-mix(in srgb, var(--student-accent) 48%, rgba(255,255,255,.44)) !important;
+            box-shadow:
+                0 30px 68px rgba(15,23,42,.16),
+                inset 0 1px 0 rgba(255,255,255,.82) !important;
+        }
+        .st-key-student_card_student_practice div[data-testid="stButton"] > button::before,
+        .st-key-student_card_student_study_plan div[data-testid="stButton"] > button::before,
+        .st-key-student_card_student_assignments div[data-testid="stButton"] > button::before,
+        .st-key-student_card_student_find_teacher div[data-testid="stButton"] > button::before {
             position: absolute;
-            inset: 0;
+            top: 22px;
+            left: 50%;
+            width: 62px;
+            height: 62px;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 20px;
             background:
-                linear-gradient(135deg, rgba(255,255,255,.55), transparent 42%),
-                radial-gradient(circle at 18% 86%, rgba(var(--student-rgb), .14), transparent 34%);
+                linear-gradient(180deg, rgba(255,255,255,.74), rgba(255,255,255,.28)),
+                color-mix(in srgb, var(--student-accent) 15%, transparent);
+            border: 1px solid color-mix(in srgb, var(--student-accent) 28%, rgba(255,255,255,.72));
+            box-shadow: 0 14px 28px rgba(var(--student-rgb), .16);
+            font-size: 2rem;
             pointer-events: none;
         }
-        .classio-student-home-grid-card::after {
+        .st-key-student_card_student_practice div[data-testid="stButton"] > button::after,
+        .st-key-student_card_student_study_plan div[data-testid="stButton"] > button::after,
+        .st-key-student_card_student_assignments div[data-testid="stButton"] > button::after,
+        .st-key-student_card_student_find_teacher div[data-testid="stButton"] > button::after {
             content: "";
             position: absolute;
             left: 18px;
@@ -158,44 +206,66 @@ def render_student_home():
             background: linear-gradient(90deg, transparent, var(--student-accent), transparent);
             opacity: .72;
         }
-        .classio-student-home-card-inner {
+        .st-key-student_card_student_practice div[data-testid="stButton"] > button p,
+        .st-key-student_card_student_study_plan div[data-testid="stButton"] > button p,
+        .st-key-student_card_student_assignments div[data-testid="stButton"] > button p,
+        .st-key-student_card_student_find_teacher div[data-testid="stButton"] > button p {
             position: relative;
             z-index: 1;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-        .classio-student-home-card-icon {
-            width: 62px;
-            height: 62px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 16px;
-            border-radius: 20px;
-            background:
-                linear-gradient(180deg, rgba(255,255,255,.74), rgba(255,255,255,.28)),
-                color-mix(in srgb, var(--student-accent) 15%, transparent);
-            border: 1px solid color-mix(in srgb, var(--student-accent) 28%, rgba(255,255,255,.72));
-            box-shadow: 0 14px 28px rgba(var(--student-rgb), .16);
-            font-size: 2rem;
-        }
-        .classio-student-home-card-title {
-            margin: 0;
-            font-size: 1.1rem;
-            line-height: 1.18;
-            font-weight: 900;
-            color: var(--text, #0f172a);
-        }
-        .classio-student-home-card-desc {
-            margin: 12px auto 0;
-            max-width: 260px;
-            color: var(--muted, #64748b);
-            font-size: .88rem;
-            line-height: 1.48;
+            display: block;
+            max-width: 250px;
+            margin: 78px auto 0;
+            white-space: pre-line !important;
+            text-align: center;
+            font-size: .9rem;
+            line-height: 1.45;
             font-weight: 650;
+            color: var(--muted, #64748b) !important;
+        }
+        .st-key-student_card_student_practice div[data-testid="stButton"] > button p strong,
+        .st-key-student_card_student_study_plan div[data-testid="stButton"] > button p strong,
+        .st-key-student_card_student_assignments div[data-testid="stButton"] > button p strong,
+        .st-key-student_card_student_find_teacher div[data-testid="stButton"] > button p strong {
+            display: block;
+            margin: 0 0 10px;
+            font-size: 1.16rem;
+            line-height: 1.16;
+            font-weight: 900;
+            color: var(--text, #0f172a) !important;
+        }
+        .st-key-student_card_student_practice div[data-testid="stButton"] > button p:first-child,
+        .st-key-student_card_student_study_plan div[data-testid="stButton"] > button p:first-child,
+        .st-key-student_card_student_assignments div[data-testid="stButton"] > button p:first-child,
+        .st-key-student_card_student_find_teacher div[data-testid="stButton"] > button p:first-child {
+            margin-inline: auto;
+        }
+        .st-key-student_card_student_practice div[data-testid="stButton"] > button::before {
+            content: "🧠";
+        }
+        .st-key-student_card_student_study_plan div[data-testid="stButton"] > button::before {
+            content: "📚";
+        }
+        .st-key-student_card_student_assignments div[data-testid="stButton"] > button::before {
+            content: "🗂️";
+        }
+        .st-key-student_card_student_find_teacher div[data-testid="stButton"] > button::before {
+            content: "🔍";
+        }
+        .st-key-student_card_student_practice {
+            --student-accent: #2563EB;
+            --student-rgb: 37,99,235;
+        }
+        .st-key-student_card_student_study_plan {
+            --student-accent: #059669;
+            --student-rgb: 5,150,105;
+        }
+        .st-key-student_card_student_assignments {
+            --student-accent: #D97706;
+            --student-rgb: 217,119,6;
+        }
+        .st-key-student_card_student_find_teacher {
+            --student-accent: #7C3AED;
+            --student-rgb: 124,58,237;
         }
         div[data-testid="stButton"] > button {
             border-radius: 18px !important;
@@ -255,25 +325,7 @@ def render_student_home():
     cols = st.columns(len(cards))
     for col, card in zip(cols, cards):
         with col:
-            st.markdown(
-                f"""
-                <div class="classio-student-home-grid-card" style="--student-accent:{card['accent']};--student-rgb:{card['rgb']};">
-                    <div class="classio-student-home-card-inner">
-                        <div class="classio-student-home-card-icon">{_html.escape(card['icon'])}</div>
-                        <h4 class="classio-student-home-card-title">{_html.escape(card['title'])}</h4>
-                        <p class="classio-student-home-card-desc">{_html.escape(card['desc'])}</p>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            if st.button(
-                card["title"],
-                key=f"student_card_{card['key']}",
-                use_container_width=True,
-            ):
-                go_to(card["key"])
-                st.rerun()
+            _render_student_nav_card(card)
 
     video_feature_enabled = user_has_feature(user_id, "videos_access")
     recommended = build_recommended_materials(
