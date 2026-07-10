@@ -14,7 +14,7 @@ import streamlit as st
 from core.database import clear_app_caches, get_sb, load_profile_row, register_cache, show_data_load_error
 from core.i18n import t
 from core.state import get_current_user_id, with_owner
-from helpers.archive_utils import ARCHIVED_STATUS, filter_archived_rows, is_archived_status, truthy_flag
+from helpers.archive_utils import ARCHIVED_STATUS, DELETED_STATUS, filter_archived_rows, is_archived_status, truthy_flag
 from helpers.generation_guidance import build_expert_panel_prompt_blurb
 from helpers.native_language import NATIVE_LANGUAGE_OPTIONS, is_language_subject, native_language_label, normalize_native_language
 from helpers.resource_gallery import (
@@ -3166,6 +3166,136 @@ def update_learning_program_archive(program_id: int, archived: bool) -> tuple[bo
         return False, str(e)
 
 
+def _learning_program_assignment_summary(program_id: int) -> dict[str, int]:
+    teacher_id = str(get_current_user_id() or "").strip()
+    if not teacher_id or int(program_id or 0) <= 0:
+        return {"assignment_count": 0, "student_count": 0}
+    try:
+        rows = _rows(
+            get_sb()
+            .table("learning_program_assignments")
+            .select("id,student_user_id,status")
+            .eq("teacher_id", teacher_id)
+            .eq("program_id", int(program_id))
+            .execute()
+        )
+    except Exception:
+        rows = []
+    student_ids = {str(row.get("student_user_id") or "").strip() for row in rows if str(row.get("student_user_id") or "").strip()}
+    return {"assignment_count": len(rows), "student_count": len(student_ids)}
+
+
+def _delete_archived_learning_program(row: dict) -> tuple[bool, str, dict[str, int]]:
+    teacher_id = str(get_current_user_id() or "").strip()
+    program_id = int((row or {}).get("id") or 0)
+    if not teacher_id:
+        return False, "auth_required", {}
+    if program_id <= 0:
+        return False, "invalid_id", {}
+    if str((row or {}).get("user_id") or "").strip() != teacher_id:
+        return False, "not_owner", {}
+    if not is_archived_status((row or {}).get("status")):
+        return False, "resource_delete_requires_archive", {}
+    if bool((row or {}).get("is_public")):
+        return False, "resource_delete_requires_private", {}
+
+    summary = _learning_program_assignment_summary(program_id)
+    if int(summary.get("assignment_count") or 0) > 0:
+        try:
+            get_sb().table("learning_programs").update(
+                {
+                    "status": DELETED_STATUS,
+                    "visibility": "private",
+                    "is_public": False,
+                    "updated_at": _now_iso(),
+                }
+            ).eq("id", program_id).eq("user_id", teacher_id).execute()
+            clear_app_caches()
+            return True, "ok", summary
+        except Exception as exc:
+            return False, str(exc), summary
+
+    try:
+        get_sb().table("learning_program_topic_videos").delete().eq("program_id", program_id).eq("teacher_id", teacher_id).execute()
+    except Exception:
+        pass
+    try:
+        get_sb().table("learning_program_topics").delete().eq("program_id", program_id).execute()
+        get_sb().table("learning_program_units").delete().eq("program_id", program_id).execute()
+        get_sb().table("learning_programs").delete().eq("id", program_id).eq("user_id", teacher_id).execute()
+        clear_app_caches()
+        return True, "ok", summary
+    except Exception as exc:
+        return False, str(exc), summary
+
+
+def _learning_program_delete_keys(key_prefix: str) -> tuple[str, str, str]:
+    return (
+        f"{key_prefix}_delete_pending",
+        f"{key_prefix}_delete_confirm",
+        f"{key_prefix}_delete_summary",
+    )
+
+
+def _render_learning_program_delete_button(row: dict, *, key_prefix: str) -> None:
+    program_id = int((row or {}).get("id") or 0)
+    if program_id <= 0:
+        return
+    pending_key, _confirm_key, summary_key = _learning_program_delete_keys(key_prefix)
+
+    if st.button(t("delete"), key=f"{key_prefix}_delete_btn", use_container_width=True):
+        st.session_state[summary_key] = _learning_program_assignment_summary(program_id)
+        st.session_state[pending_key] = True
+
+
+def _render_learning_program_delete_confirmation(row: dict, *, key_prefix: str) -> None:
+    program_id = int((row or {}).get("id") or 0)
+    if program_id <= 0:
+        return
+    pending_key, confirm_key, summary_key = _learning_program_delete_keys(key_prefix)
+    if not st.session_state.get(pending_key):
+        return
+
+    summary = st.session_state.get(summary_key)
+    if not isinstance(summary, dict):
+        summary = _learning_program_assignment_summary(program_id)
+        st.session_state[summary_key] = summary
+    assigned_count = int(summary.get("student_count") or summary.get("assignment_count") or 0)
+
+    if assigned_count > 0:
+        warning_text = t("resource_delete_assigned_warning", count=assigned_count)
+        checkbox_label = t("resource_delete_assigned_confirm")
+    else:
+        warning_text = t("resource_delete_unassigned_warning")
+        checkbox_label = t("resource_delete_unassigned_confirm")
+
+    with st.container(border=True):
+        st.markdown(f"**{t('delete')}**")
+        st.caption(warning_text)
+        confirmed = st.checkbox(checkbox_label, key=confirm_key)
+        action_cols = st.columns([1, 1, 3], gap="small")
+        with action_cols[0]:
+            if st.button(t("cancel"), key=f"{key_prefix}_delete_cancel", use_container_width=True):
+                st.session_state.pop(pending_key, None)
+                st.session_state.pop(confirm_key, None)
+                st.session_state.pop(summary_key, None)
+                st.rerun()
+        with action_cols[1]:
+            if st.button(t("delete"), key=f"{key_prefix}_delete_confirm_btn", use_container_width=True, disabled=not confirmed):
+                ok, msg, result_summary = _delete_archived_learning_program(row)
+                if ok:
+                    st.session_state.pop(pending_key, None)
+                    st.session_state.pop(confirm_key, None)
+                    st.session_state.pop(summary_key, None)
+                    st.session_state.pop(f"{key_prefix}_selected_program_id", None)
+                    if int(result_summary.get("assignment_count") or 0) > 0:
+                        st.success(t("resource_delete_library_only_success"))
+                    else:
+                        st.success(t("resource_delete_success"))
+                    st.rerun()
+                st.error(t("resource_delete_failed", error=msg))
+
+
 def archive_learning_program_assignment(assignment_id: int) -> tuple[bool, str]:
     teacher_id = str(get_current_user_id() or "").strip()
     if not teacher_id or not assignment_id:
@@ -3434,7 +3564,8 @@ def render_learning_program_library_cards(
                 st.markdown(card_html, unsafe_allow_html=True)
 
                 show_owner_controls = allow_visibility_toggle or allow_archive_toggle
-                action_cols = st.columns([1, 1, 1, 1] if show_owner_controls else [1, 1])
+                show_delete_control = bool(show_owner_controls and is_owner and is_archived and not bool(row.get("is_public")))
+                action_cols = st.columns([1, 1, 1, 1, 1] if show_delete_control else ([1, 1, 1, 1] if show_owner_controls else [1, 1]))
                 with action_cols[0]:
                     if program_id > 0 and st.button(t("open_program"), key=f"{prefix}_open_{program_id}_{idx}_{col_idx}"):
                         log_teacher_material_open(
@@ -3495,6 +3626,17 @@ def render_learning_program_library_cards(
                                     )
                                     st.rerun()
                                 st.error(t("resource_archive_update_failed", error=msg))
+                    if show_delete_control:
+                        with action_cols[4]:
+                            delete_key_prefix = f"{prefix}_program_{program_id}_{idx}_{col_idx}"
+                            _render_learning_program_delete_button(
+                                row,
+                                key_prefix=delete_key_prefix,
+                            )
+                        _render_learning_program_delete_confirmation(
+                            row,
+                            key_prefix=delete_key_prefix,
+                        )
 
 
 def _inject_program_styles() -> None:

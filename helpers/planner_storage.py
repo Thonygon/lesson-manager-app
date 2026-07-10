@@ -38,6 +38,7 @@ from helpers.resource_gallery import (
     inject_resource_gallery_styles,
     render_gallery_card_html,
 )
+from helpers.resource_deletion import render_archive_delete_button, render_archive_delete_confirmation
 from helpers.recommendation_models import log_teacher_material_open
 from helpers.visual_support import generate_resource_cover_image
 from reportlab.lib.enums import TA_CENTER
@@ -573,7 +574,7 @@ def save_lesson_plan_record(
     topic: str,
     mode: str,
     plan: dict,
-) -> bool:
+) -> int | str | bool:
     try:
         payload = planner_payload_from_inputs(
             subject=subject,
@@ -598,6 +599,9 @@ def save_lesson_plan_record(
                 "mode": str(mode).strip(),
             },
         )
+        rows = getattr(response, "data", None) or [] if response is not None else []
+        if rows and isinstance(rows, list) and rows[0].get("id"):
+            return rows[0]["id"]
         return response is not None
     except Exception:
         return False
@@ -728,6 +732,38 @@ def _persist_lesson_plan_cover(plan_id: int | str, plan: dict) -> bool:
         saved_image = extract_gallery_image_url(saved_row)
         new_image = extract_gallery_image_url(clean_plan)
         return bool(saved_image and new_image and saved_image == new_image)
+    except Exception:
+        return False
+
+
+def _persist_lesson_plan_resource(plan_id: int | str, plan: dict) -> bool:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid or plan_id in (None, "", 0, "0"):
+        return False
+    safe_id = int(str(plan_id).strip()) if str(plan_id).strip().isdigit() else plan_id
+    clean_plan = _clean_plan_data(plan)
+    try:
+        try:
+            get_sb().table("lesson_plans").update(
+                {
+                    "plan_json": clean_plan,
+                    "title": _clean_display_text(clean_plan.get("title") or ""),
+                    "updated_at": _dt.now(timezone.utc).isoformat(),
+                }
+            ).eq("id", safe_id).eq("user_id", uid).execute()
+        except Exception:
+            get_sb().table("lesson_plans").update(
+                {
+                    "plan_json": clean_plan,
+                    "title": _clean_display_text(clean_plan.get("title") or ""),
+                }
+            ).eq("id", safe_id).eq("user_id", uid).execute()
+        clear_app_caches()
+        try:
+            load_lesson_plan_record.clear()
+        except Exception:
+            pass
+        return True
     except Exception:
         return False
 
@@ -973,7 +1009,8 @@ def render_plan_library_cards(
                 st.markdown(card_html, unsafe_allow_html=True)
                 is_owner = str(row.get("user_id") or "").strip() == str(get_current_user_id() or "").strip()
                 show_owner_controls = allow_visibility_toggle or allow_archive_toggle
-                action_cols = st.columns([1, 1, 1, 1] if show_owner_controls else [1, 1])
+                show_delete_control = bool(show_owner_controls and is_owner and is_archived and not _is_public_value(row.get("is_public")))
+                action_cols = st.columns([1, 1, 1, 1, 1] if show_delete_control else ([1, 1, 1, 1] if show_owner_controls else [1, 1]))
                 with action_cols[0]:
                     if st.button(
                         t("view_plan"),
@@ -1037,6 +1074,23 @@ def render_plan_library_cards(
                                     )
                                     st.rerun()
                                 st.error(t("resource_archive_update_failed", error=msg))
+                    if show_delete_control:
+                        with action_cols[4]:
+                            delete_key_prefix = f"{prefix}_plan_{row_id}_{idx}_{col_idx}"
+                            render_archive_delete_button(
+                                row=row,
+                                key_prefix=delete_key_prefix,
+                                assignment_type="lesson_plan_topic",
+                                source_type="lesson_plan_builder",
+                            )
+                        render_archive_delete_confirmation(
+                            table_name="lesson_plans",
+                            row=row,
+                            key_prefix=delete_key_prefix,
+                            assignment_type="lesson_plan_topic",
+                            source_type="lesson_plan_builder",
+                            on_deleted=lambda: st.session_state.pop("files_selected_plan", None),
+                        )
 
 
 # ============================================================
@@ -1325,6 +1379,22 @@ def render_quick_lesson_plan_result(
     if comparison_mode:
         return
 
+    edit_record_id = resource_record_id or st.session_state.get("quick_lesson_plan_record_id")
+    edit_allowed = (
+        not signup_required_actions
+        and edit_record_id not in (None, "", 0, "0")
+        and not plan.get("_admin_only_image_controls")
+    )
+
+    def _apply_plan_edit(updated_plan: dict) -> bool:
+        updated_plan = _clean_plan_data(updated_plan)
+        if not _persist_lesson_plan_resource(edit_record_id, updated_plan):
+            return False
+        st.session_state["quick_lesson_plan_result"] = updated_plan
+        if st.session_state.get("files_selected_plan") is not None:
+            st.session_state["files_selected_plan"] = updated_plan
+        return True
+
     if read_only:
         dc1, dc2 = st.columns(2)
         with dc1:
@@ -1384,6 +1454,17 @@ def render_quick_lesson_plan_result(
                     lesson_purpose=lesson_purpose,
                     source_record_id=resource_record_id,
                 )
+            if edit_allowed:
+                from helpers.resource_editor import render_resource_editor
+
+                render_resource_editor(
+                    resource_label="lesson_plan",
+                    payload=plan,
+                    action_key_prefix=f"{action_key_prefix}_edit",
+                    on_apply=_apply_plan_edit,
+                    normalize_payload=_clean_plan_data,
+                    context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
+                )
         return
 
     if resolved_mode == "template":
@@ -1400,6 +1481,8 @@ def render_quick_lesson_plan_result(
                     plan=plan,
                 )
                 if ok:
+                    if ok is not True:
+                        st.session_state["quick_lesson_plan_record_id"] = ok
                     st.session_state["quick_lesson_plan_kept"] = True
                     log_user_activity(
                         activity_type="planner_save",
@@ -1439,6 +1522,17 @@ def render_quick_lesson_plan_result(
                 lesson_purpose=lesson_purpose,
                 source_record_id=resource_record_id,
             )
+        if edit_allowed:
+            from helpers.resource_editor import render_resource_editor
+
+            render_resource_editor(
+                resource_label="lesson_plan",
+                payload=plan,
+                action_key_prefix=f"{action_key_prefix}_edit",
+                on_apply=_apply_plan_edit,
+                normalize_payload=_clean_plan_data,
+                context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
+            )
     else:
         a1, a2 = st.columns(2)
         with a1:
@@ -1469,6 +1563,17 @@ def render_quick_lesson_plan_result(
                 topic=topic,
                 lesson_purpose=lesson_purpose,
                 source_record_id=resource_record_id,
+            )
+        if edit_allowed:
+            from helpers.resource_editor import render_resource_editor
+
+            render_resource_editor(
+                resource_label="lesson_plan",
+                payload=plan,
+                action_key_prefix=f"{action_key_prefix}_edit",
+                on_apply=_apply_plan_edit,
+                normalize_payload=_clean_plan_data,
+                context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
             )
         if st.button(t("close"), key="btn_close_quick_plan", use_container_width=True):
             _lp().reset_quick_lesson_planner_state()
@@ -2093,7 +2198,7 @@ def render_quick_lesson_planner_expander() -> None:
                 st.session_state["quick_lesson_plan_warning"] = warning_msg
 
                 if resolved_mode == "ai":
-                    save_lesson_plan_record(
+                    _saved_plan_id = save_lesson_plan_record(
                         subject=effective_subject,
                         learner_stage=learner_stage,
                         level_or_band=level_or_band,
@@ -2102,6 +2207,8 @@ def render_quick_lesson_planner_expander() -> None:
                         mode="ai",
                         plan=plan,
                     )
+                    if _saved_plan_id and _saved_plan_id is not True:
+                        st.session_state["quick_lesson_plan_record_id"] = _saved_plan_id
 
                 log_user_activity(
                     activity_type="planner_generate",
@@ -2141,6 +2248,7 @@ def render_quick_lesson_planner_expander() -> None:
                 level_or_band=level_or_band,
                 lesson_purpose=lesson_purpose,
                 topic=st.session_state.get("quick_plan_effective_topic") or topic,
+                resource_record_id=st.session_state.get("quick_lesson_plan_record_id"),
             )
 
         compare_payload = st.session_state.get("quick_plan_ab_debug_compare") or {}

@@ -13,8 +13,9 @@ from core.state import get_current_user_id, with_owner, PROFILE_SUBJECT_OPTIONS,
 from helpers.lesson_planner import subject_label as _subject_label
 from helpers.native_language import native_language_label, normalize_native_language
 from core.timezone import today_local, get_app_tz
-from core.database import get_sb, insert_row_with_retries, load_table
+from core.database import clear_app_caches, get_sb, insert_row_with_retries, load_table
 from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
+from helpers.resource_deletion import render_archive_delete_button, render_archive_delete_confirmation
 
 AI_CV_DAILY_LIMIT = 3
 AI_CV_COOLDOWN_SECONDS = 30
@@ -151,7 +152,7 @@ def _normalize_country_value(raw: str) -> str:
 # SUPABASE CRUD
 # -----------------------------------------------------------------------
 
-def save_cv_record(cv_dict: dict, source_type: str, title: str, ai_prompt: str = "") -> bool:
+def save_cv_record(cv_dict: dict, source_type: str, title: str, ai_prompt: str = "") -> int | str | bool:
     try:
         payload = with_owner({
             "doc_type": "cv",
@@ -173,6 +174,9 @@ def save_cv_record(cv_dict: dict, source_type: str, title: str, ai_prompt: str =
                 "title": str(title or "").strip(),
             },
         )
+        rows = getattr(response, "data", None) or [] if response is not None else []
+        if rows and isinstance(rows, list) and rows[0].get("id"):
+            return rows[0]["id"]
         return response is not None
     except Exception:
         return False
@@ -505,6 +509,7 @@ def render_cv_result(
     source_type: str = "template",
     ai_prompt: str = "",
     title: str = "",
+    resource_record_id: int | str | None = None,
 ) -> None:
     if not read_only:
         st.success(t("cv_ready"))
@@ -602,6 +607,31 @@ def render_cv_result(
         use_container_width=True,
     )
 
+    edit_record_id = resource_record_id or st.session_state.get("quick_cv_record_id")
+    edit_allowed = edit_record_id not in (None, "", 0, "0")
+
+    def _apply_cv_edit(updated_cv: dict) -> bool:
+        if not update_cv_record_payload(edit_record_id, updated_cv, title=title or str(updated_cv.get("title") or updated_cv.get("full_name") or t("my_cv"))):
+            return False
+        st.session_state["quick_cv_result"] = updated_cv
+        if st.session_state.get("files_cv_selected") is not None:
+            selected = dict(st.session_state.get("files_cv_selected") or {})
+            selected["cv_json"] = updated_cv
+            selected["title"] = title or str(updated_cv.get("title") or updated_cv.get("full_name") or selected.get("title") or t("my_cv"))
+            st.session_state["files_cv_selected"] = selected
+        return True
+
+    if edit_allowed:
+        from helpers.resource_editor import render_resource_editor
+
+        render_resource_editor(
+            resource_label="cv",
+            payload=cv,
+            action_key_prefix=f"cv_{edit_record_id}_edit",
+            on_apply=_apply_cv_edit,
+            context={"source_type": source_type, "title": title},
+        )
+
     if not read_only:
         _cv_auto_saved = st.session_state.get("_quick_cv_auto_saved")
         if _cv_auto_saved:
@@ -616,13 +646,15 @@ def render_cv_result(
                     ai_prompt=ai_prompt,
                 )
                 if ok:
+                    if ok is not True:
+                        st.session_state["quick_cv_record_id"] = ok
                     st.success(t("cv_saved"))
-                    for k in ("quick_cv_result", "quick_cv_title", "quick_cv_source_type", "quick_cv_ai_prompt", "_quick_cv_auto_saved"):
+                    for k in ("quick_cv_result", "quick_cv_title", "quick_cv_source_type", "quick_cv_ai_prompt", "_quick_cv_auto_saved", "quick_cv_record_id"):
                         st.session_state.pop(k, None)
                     st.rerun()
         with c2:
             if st.button(t("discard_cv"), key="btn_discard_cv", use_container_width=True):
-                for k in ("quick_cv_result", "quick_cv_title", "quick_cv_source_type", "quick_cv_ai_prompt", "_quick_cv_auto_saved"):
+                for k in ("quick_cv_result", "quick_cv_title", "quick_cv_source_type", "quick_cv_ai_prompt", "_quick_cv_auto_saved", "quick_cv_record_id"):
                     st.session_state.pop(k, None)
                 st.rerun()
 
@@ -667,6 +699,46 @@ def update_professional_profile_archive(record_id: str, archived: bool) -> tuple
         return False, str(e)
 
 
+def update_cv_record_payload(record_id: int | str, cv_dict: dict, *, title: str = "") -> bool:
+    uid = str(get_current_user_id() or "").strip()
+    record_id = str(record_id or "").strip()
+    if not uid or not record_id:
+        return False
+    safe_id = int(record_id) if record_id.isdigit() else record_id
+    resolved_title = str(title or cv_dict.get("title") or cv_dict.get("full_name") or t("my_cv")).strip()
+    try:
+        try:
+            (
+                get_sb()
+                .table("professional_profiles")
+                .update(
+                    {
+                        "cv_json": dict(cv_dict or {}),
+                        "title": resolved_title,
+                        "updated_at": _dt.now(timezone.utc).isoformat(),
+                    }
+                )
+                .eq("id", safe_id)
+                .eq("user_id", uid)
+                .eq("doc_type", "cv")
+                .execute()
+            )
+        except Exception:
+            (
+                get_sb()
+                .table("professional_profiles")
+                .update({"cv_json": dict(cv_dict or {}), "title": resolved_title})
+                .eq("id", safe_id)
+                .eq("user_id", uid)
+                .eq("doc_type", "cv")
+                .execute()
+            )
+        clear_app_caches()
+        return True
+    except Exception:
+        return False
+
+
 def render_cv_library_cards(df: pd.DataFrame, prefix: str, *, allow_archive_toggle: bool = False) -> None:
     if df is None or df.empty:
         return
@@ -695,7 +767,8 @@ def render_cv_library_cards(df: pd.DataFrame, prefix: str, *, allow_archive_togg
                 if meta:
                     st.caption(" · ".join(meta))
             with top_r:
-                _btn_col1, _btn_col2 = st.columns(2)
+                action_cols = st.columns(3 if allow_archive_toggle and is_archived else 2)
+                _btn_col1, _btn_col2 = action_cols[0], action_cols[1]
                 with _btn_col1:
                     if st.button(t("view"), key=f"{prefix}_view_{row_id}_{i}", use_container_width=True):
                         st.session_state[f"{prefix}_selected"] = row.to_dict()
@@ -720,6 +793,19 @@ def render_cv_library_cards(df: pd.DataFrame, prefix: str, *, allow_archive_togg
                                 st.session_state.pop(f"{prefix}_selected", None)
                                 st.rerun()
                             st.error(t("resource_archive_update_failed", error=msg))
+                if allow_archive_toggle and is_archived:
+                    with action_cols[2]:
+                        delete_key_prefix = f"{prefix}_profile_{row_id}_{i}"
+                        render_archive_delete_button(
+                            row=row.to_dict(),
+                            key_prefix=delete_key_prefix,
+                        )
+                    render_archive_delete_confirmation(
+                        table_name="professional_profiles",
+                        row=row.to_dict(),
+                        key_prefix=delete_key_prefix,
+                        on_deleted=lambda: st.session_state.pop(f"{prefix}_selected", None),
+                    )
 
 
 # -----------------------------------------------------------------------
@@ -1209,6 +1295,8 @@ def render_quick_cv_builder_expander() -> None:
                                 ai_prompt=cv_ai_prompt,
                             )
                             if _auto_ok:
+                                if _auto_ok is not True:
+                                    st.session_state["quick_cv_record_id"] = _auto_ok
                                 st.session_state["_quick_cv_auto_saved"] = True
                         except Exception:
                             pass  # non-blocking: user can still save manually
@@ -1257,6 +1345,7 @@ def render_quick_cv_builder_expander() -> None:
                 source_type=st.session_state.get("quick_cv_source_type", "template"),
                 ai_prompt=st.session_state.get("quick_cv_ai_prompt", ""),
                 title=st.session_state.get("quick_cv_title", ""),
+                resource_record_id=st.session_state.get("quick_cv_record_id"),
             )
 
         # ── Display cover letter result ──────────────────────────────────

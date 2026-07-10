@@ -2884,8 +2884,27 @@ def _render_explorer_move_preview(move: dict) -> None:
     def _save_preview_payload(updated_payload: dict) -> bool:
         return persist_explorer_move_payload(move, updated_payload)
 
+    def _render_admin_payload_editor(updated_payload: dict, *, resource_label: str, normalize_payload=None) -> None:
+        from helpers.resource_editor import render_resource_editor
+
+        render_resource_editor(
+            resource_label=resource_label,
+            payload=updated_payload,
+            action_key_prefix=f"admin_explorer_move_{move_id}_{resource_label}_edit",
+            on_apply=_save_preview_payload,
+            normalize_payload=normalize_payload,
+            context={
+                "source": "explorer_moves_admin",
+                "move_id": move_id,
+                "subject": str(meta.get("subject") or ""),
+                "topic": str(meta.get("topic") or ""),
+                "learner_stage": str(meta.get("learner_stage") or ""),
+                "level_or_band": str(meta.get("level_or_band") or ""),
+            },
+        )
+
     if resource_type == "lesson_plan":
-        from helpers.planner_storage import render_quick_lesson_plan_result
+        from helpers.planner_storage import _clean_plan_data, render_quick_lesson_plan_result
 
         render_quick_lesson_plan_result(
             payload,
@@ -2899,10 +2918,14 @@ def _render_explorer_move_preview(move: dict) -> None:
             allow_image_generation=True,
             on_image_update=_save_preview_payload,
         )
+        _render_admin_payload_editor(payload, resource_label="lesson_plan", normalize_payload=_clean_plan_data)
         return
 
     if resource_type == "worksheet":
-        from helpers.worksheet_storage import render_worksheet_result
+        from helpers.worksheet_storage import _clean_worksheet_data, _normalize_worksheet_unicode, render_worksheet_result
+
+        def _normalize_admin_worksheet(updated_payload: dict) -> dict:
+            return _clean_worksheet_data(_normalize_worksheet_unicode(dict(updated_payload or {})))
 
         render_worksheet_result(
             payload,
@@ -2917,10 +2940,19 @@ def _render_explorer_move_preview(move: dict) -> None:
             allow_auto_image_generation=False,
             on_image_update=_save_preview_payload,
         )
+        _render_admin_payload_editor(payload, resource_label="worksheet", normalize_payload=_normalize_admin_worksheet)
         return
 
     if resource_type == "exam":
         from helpers.quick_exam_storage import render_exam_result
+
+        def _normalize_admin_exam(updated_payload: dict) -> dict:
+            import helpers.quick_exam_builder as eb
+
+            exam_data = dict(updated_payload.get("exam_data") if isinstance(updated_payload.get("exam_data"), dict) else {})
+            answer_key = updated_payload.get("answer_key") if isinstance(updated_payload.get("answer_key"), dict) else {}
+            exam_data, answer_key = eb.repair_exam_answer_key(exam_data, answer_key)
+            return {"exam_data": exam_data, "answer_key": answer_key}
 
         render_exam_result(
             payload.get("exam_data") or {},
@@ -2934,6 +2966,11 @@ def _render_explorer_move_preview(move: dict) -> None:
             allow_image_generation=True,
             allow_auto_image_generation=False,
             on_image_update=_save_preview_payload,
+        )
+        _render_admin_payload_editor(
+            {"exam_data": payload.get("exam_data") or {}, "answer_key": payload.get("answer_key") or {}},
+            resource_label="exam",
+            normalize_payload=_normalize_admin_exam,
         )
         return
 
