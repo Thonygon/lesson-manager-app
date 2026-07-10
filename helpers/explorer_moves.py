@@ -400,7 +400,6 @@ def _insert_exam_for_user(move: dict, user_id: str, owner_name: str) -> Any:
         "exercise_types": meta.get("exercise_types") or [],
         "exam_data": exam_data,
         "answer_key": answer_key,
-        "author_name": owner_name,
         "is_public": False,
         "status": ACTIVE_STATUS,
         "created_at": _now_iso(),
@@ -585,20 +584,21 @@ def persist_explorer_move_payload(move: dict, payload: dict) -> bool:
     if published_table and published_record_id not in (None, "", 0, "0"):
         try:
             if resource_type == "lesson_plan" and published_table == "lesson_plans":
-                from helpers.planner_storage import _persist_lesson_plan_cover
+                from helpers.planner_storage import _persist_lesson_plan_resource
 
-                if not _persist_lesson_plan_cover(published_record_id, payload):
+                if not _persist_lesson_plan_resource(published_record_id, payload):
                     return False
             elif resource_type == "worksheet" and published_table == "worksheets":
-                from helpers.worksheet_storage import _persist_saved_worksheet_visuals
+                from helpers.worksheet_storage import _persist_saved_worksheet_resource
 
-                if not _persist_saved_worksheet_visuals(published_record_id, payload):
+                if not _persist_saved_worksheet_resource(published_record_id, payload):
                     return False
             elif resource_type == "exam" and published_table == "quick_exams":
-                from helpers.quick_exam_storage import _persist_saved_exam_visuals
+                from helpers.quick_exam_storage import _persist_saved_exam_resource
 
                 exam_data = payload.get("exam_data") if isinstance(payload.get("exam_data"), dict) else {}
-                if not _persist_saved_exam_visuals(published_record_id, exam_data):
+                answer_key = payload.get("answer_key") if isinstance(payload.get("answer_key"), dict) else {}
+                if not _persist_saved_exam_resource(published_record_id, exam_data, answer_key):
                     return False
         except Exception:
             logger.exception("Failed to sync explorer move payload to published record")

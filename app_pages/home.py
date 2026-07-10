@@ -2361,6 +2361,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     read_only=True,
                     source_type=str(selected_cv.get("source_type") or "template"),
                     title=str(selected_cv.get("title") or ""),
+                    resource_record_id=selected_cv.get("id"),
                 )
 
         # ── Selected cover letter detail ─────────────────────────────────

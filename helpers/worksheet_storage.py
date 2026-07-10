@@ -39,6 +39,7 @@ from helpers.visual_support import (
 )
 from helpers.answer_key_utils import normalize_answer_key_text, split_answer_key_items
 from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
+from helpers.resource_deletion import render_archive_delete_button, render_archive_delete_confirmation
 from helpers.student_personalization import (
     NATIVE_LANGUAGE_OPTIONS,
     apply_native_language_context,
@@ -836,7 +837,7 @@ def save_worksheet_record(
     worksheet_type: str,
     topic: str,
     worksheet: dict,
-) -> bool:
+) -> int | str | bool:
     try:
         worksheet = _normalize_worksheet_unicode(worksheet)
 
@@ -873,6 +874,9 @@ def save_worksheet_record(
                 "worksheet_type": str(worksheet_type).strip(),
             },
         )
+        rows = getattr(response, "data", None) or [] if response is not None else []
+        if rows and isinstance(rows, list) and rows[0].get("id"):
+            return rows[0]["id"]
         return response is not None
     except Exception:
         return False
@@ -1292,7 +1296,8 @@ def render_worksheet_library_cards(
                 st.markdown(card_html, unsafe_allow_html=True)
                 is_owner = str(row.get("user_id") or "").strip() == str(get_current_user_id() or "").strip()
                 show_owner_controls = allow_visibility_toggle or allow_archive_toggle
-                action_cols = st.columns([1, 1, 1, 1] if show_owner_controls else [1, 1])
+                show_delete_control = bool(show_owner_controls and is_owner and is_archived and not _is_public_value(row.get("is_public")))
+                action_cols = st.columns([1, 1, 1, 1, 1] if show_delete_control else ([1, 1, 1, 1] if show_owner_controls else [1, 1]))
                 with action_cols[0]:
                     if st.button(
                         t("view_worksheet"),
@@ -1356,6 +1361,23 @@ def render_worksheet_library_cards(
                                     )
                                     st.rerun()
                                 st.error(t("resource_archive_update_failed", error=msg))
+                    if show_delete_control:
+                        with action_cols[4]:
+                            delete_key_prefix = f"{prefix}_worksheet_{row_id}_{idx}_{col_idx}"
+                            render_archive_delete_button(
+                                row=row,
+                                key_prefix=delete_key_prefix,
+                                assignment_type="worksheet",
+                                source_type="worksheet_builder",
+                            )
+                        render_archive_delete_confirmation(
+                            table_name="worksheets",
+                            row=row,
+                            key_prefix=delete_key_prefix,
+                            assignment_type="worksheet",
+                            source_type="worksheet_builder",
+                            on_deleted=lambda: st.session_state.pop("files_selected_worksheet", None),
+                        )
 
 
 # ── Render worksheet result ──────────────────────────────────────────
@@ -1569,6 +1591,27 @@ def render_worksheet_result(
     if comparison_mode:
         return
 
+    edit_record_id = resource_record_id or st.session_state.get("worksheet_record_id")
+    edit_allowed = (
+        not signup_required_actions
+        and edit_record_id not in (None, "", 0, "0")
+        and not ws.get("_admin_only_image_controls")
+    )
+
+    def _normalize_worksheet_edit(updated_ws: dict) -> dict:
+        updated_ws = normalize_worksheet_output(updated_ws, include_visuals=not comparison_mode)
+        updated_ws = _normalize_worksheet_unicode(updated_ws)
+        return _clean_worksheet_data(updated_ws)
+
+    def _apply_worksheet_edit(updated_ws: dict) -> bool:
+        updated_ws = _normalize_worksheet_edit(updated_ws)
+        if not _persist_saved_worksheet_resource(edit_record_id, updated_ws):
+            return False
+        st.session_state["worksheet_result"] = updated_ws
+        if st.session_state.get("files_selected_worksheet") is not None:
+            st.session_state["files_selected_worksheet"] = updated_ws
+        return True
+
     if not read_only:
         # Debug hook kept intentionally for future developer troubleshooting.
         # Re-enable when needed:
@@ -1600,6 +1643,17 @@ def render_worksheet_result(
                 learner_stage=learner_stage,
                 level_or_band=level_or_band,
                 source_record_id=resource_record_id,
+            )
+        if edit_allowed:
+            from helpers.resource_editor import render_resource_editor
+
+            render_resource_editor(
+                resource_label="worksheet",
+                payload=ws,
+                action_key_prefix=f"{action_key_prefix}_edit",
+                on_apply=_apply_worksheet_edit,
+                normalize_payload=_normalize_worksheet_edit,
+                context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
             )
 
     _pdf_kwargs = dict(
@@ -1745,6 +1799,17 @@ def render_worksheet_result(
                 level_or_band=level_or_band,
                 source_record_id=resource_record_id,
             )
+        if edit_allowed:
+            from helpers.resource_editor import render_resource_editor
+
+            render_resource_editor(
+                resource_label="worksheet",
+                payload=ws,
+                action_key_prefix=f"{action_key_prefix}_edit",
+                on_apply=_apply_worksheet_edit,
+                normalize_payload=_normalize_worksheet_edit,
+                context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
+            )
 
 
 def _persist_saved_worksheet_visuals(worksheet_id: int | str, worksheet: dict) -> bool:
@@ -1792,6 +1857,57 @@ def _persist_saved_worksheet_visuals(worksheet_id: int | str, worksheet: dict) -
         saved_image = extract_gallery_image_url(saved_payload)
         new_image = extract_gallery_image_url(worksheet)
         return bool(saved_image and new_image and saved_image == new_image)
+    except Exception:
+        return False
+
+
+def _persist_saved_worksheet_resource(worksheet_id: int | str, worksheet: dict) -> bool:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid or worksheet_id in (None, "", 0, "0"):
+        return False
+    safe_id = worksheet_id
+    if isinstance(worksheet_id, str):
+        stripped = worksheet_id.strip()
+        if not stripped:
+            return False
+        safe_id = int(stripped) if stripped.isdigit() else stripped
+    worksheet = _clean_worksheet_data(_normalize_worksheet_unicode(dict(worksheet or {})))
+    try:
+        try:
+            (
+                get_sb()
+                .table("worksheets")
+                .update(
+                    {
+                        "worksheet_json": worksheet,
+                        "title": _clean_display_text(worksheet.get("title") or ""),
+                        "updated_at": _dt.now(timezone.utc).isoformat(),
+                    }
+                )
+                .eq("id", safe_id)
+                .eq("user_id", uid)
+                .execute()
+            )
+        except Exception:
+            (
+                get_sb()
+                .table("worksheets")
+                .update(
+                    {
+                        "worksheet_json": worksheet,
+                        "title": _clean_display_text(worksheet.get("title") or ""),
+                    }
+                )
+                .eq("id", safe_id)
+                .eq("user_id", uid)
+                .execute()
+            )
+        clear_app_caches()
+        try:
+            load_worksheet_record.clear()
+        except Exception:
+            pass
+        return True
     except Exception:
         return False
 
@@ -2616,7 +2732,7 @@ def render_quick_worksheet_maker_expander() -> None:
                     st.session_state["worksheet_kept"] = False
                     st.session_state["worksheet_warning"] = warning
 
-                    save_worksheet_record(
+                    _saved_ws_id = save_worksheet_record(
                         subject=effective_subject,
                         learner_stage=learner_stage,
                         level_or_band=level_or_band,
@@ -2624,6 +2740,8 @@ def render_quick_worksheet_maker_expander() -> None:
                         topic=effective_topic,
                         worksheet=ws,
                     )
+                    if _saved_ws_id and _saved_ws_id is not True:
+                        st.session_state["worksheet_record_id"] = _saved_ws_id
 
                     if ab_debug_enabled and selected_student:
                         st.session_state["worksheet_ab_debug_compare"] = {
@@ -2649,6 +2767,7 @@ def render_quick_worksheet_maker_expander() -> None:
                 level_or_band=level_or_band,
                 worksheet_type=worksheet_type,
                 topic=st.session_state.get("ws_effective_topic") or topic,
+                resource_record_id=st.session_state.get("worksheet_record_id"),
             )
 
         compare_payload = st.session_state.get("worksheet_ab_debug_compare") or {}

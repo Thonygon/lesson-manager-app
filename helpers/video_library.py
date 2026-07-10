@@ -13,6 +13,7 @@ from core.i18n import t
 from core.navigation import go_to
 from core.state import get_current_user_id
 from helpers.archive_utils import filter_archived_rows, is_archived_status
+from helpers.resource_deletion import render_archive_delete_button, render_archive_delete_confirmation
 from helpers.recommendation_models import log_teacher_material_open
 from helpers.resource_gallery import inject_resource_gallery_styles, render_gallery_card_html
 
@@ -391,7 +392,21 @@ def update_video_archive(video_id: int, archived: bool) -> tuple[bool, str]:
     if not uid or video_id <= 0:
         return False, "save_failed"
     try:
-        get_sb().table("videos").update({"status": "archived" if archived else "active", "updated_at": _now_iso()}).eq("id", int(video_id)).eq("user_id", uid).execute()
+        payload = {"status": "archived" if archived else "active", "updated_at": _now_iso()}
+        if archived:
+            payload["is_public"] = False
+        get_sb().table("videos").update(payload).eq("id", int(video_id)).eq("user_id", uid).execute()
+        try:
+            from helpers.teacher_student_integration import update_assignment_source_archive_state
+
+            update_assignment_source_archive_state(
+                assignment_type="video",
+                source_type="video_library",
+                source_record_id=int(video_id),
+                archived=archived,
+            )
+        except Exception:
+            pass
         clear_app_caches()
         return True, "video_archive_updated"
     except Exception:
@@ -424,7 +439,8 @@ def render_video_library_cards(
                 st.markdown(_video_row_to_card(display_row), unsafe_allow_html=True)
                 is_owner = str(row.get("user_id") or "").strip() == str(get_current_user_id() or "").strip()
                 show_owner_controls = is_owner and (allow_visibility_toggle or allow_archive_toggle)
-                action_cols = st.columns([1, 1, 1, 1] if show_owner_controls else [1, 1])
+                show_delete_control = bool(show_owner_controls and is_archived_status(row.get("status")) and not bool(row.get("is_public")))
+                action_cols = st.columns([1, 1, 1, 1, 1] if show_delete_control else ([1, 1, 1, 1] if show_owner_controls else [1, 1]))
                 with action_cols[0]:
                     if st.button(t("watch_video"), key=f"{prefix}_watch_{row_id}_{idx}_{col_idx}", use_container_width=True):
                         _open_video_library_record(row, open_in_files=open_in_files, require_signup=False, expand_assign=False)
@@ -477,6 +493,23 @@ def render_video_library_cards(
                                     )
                                     st.rerun()
                                 st.error(t("resource_archive_update_failed", error=key))
+                    if show_delete_control:
+                        with action_cols[4]:
+                            delete_key_prefix = f"{prefix}_video_{row_id}_{idx}_{col_idx}"
+                            render_archive_delete_button(
+                                row=row,
+                                key_prefix=delete_key_prefix,
+                                assignment_type="video",
+                                source_type="video_library",
+                            )
+                        render_archive_delete_confirmation(
+                            table_name="videos",
+                            row=row,
+                            key_prefix=delete_key_prefix,
+                            assignment_type="video",
+                            source_type="video_library",
+                            on_deleted=lambda: st.session_state.pop("files_selected_video", None),
+                        )
 
 
 def render_video_detail(

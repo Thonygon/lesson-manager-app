@@ -3,6 +3,7 @@ import pandas as pd
 
 ARCHIVED_STATUS = "archived"
 ACTIVE_STATUS = "active"
+DELETED_STATUS = "deleted"
 
 
 def normalize_status(value, default: str = ACTIVE_STATUS) -> str:
@@ -41,6 +42,8 @@ def filter_archived_rows(
     out = ensure_status_column(df, status_col=status_col, default=default)
     if archived_only:
         out = out[out[status_col] == ARCHIVED_STATUS].copy()
+    elif include_archived:
+        out = out[out[status_col] != DELETED_STATUS].copy()
     elif not include_archived:
-        out = out[out[status_col] != ARCHIVED_STATUS].copy()
+        out = out[~out[status_col].isin({ARCHIVED_STATUS, DELETED_STATUS})].copy()
     return out.reset_index(drop=True)
