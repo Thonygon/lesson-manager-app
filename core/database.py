@@ -6,6 +6,7 @@ import html as _html
 import logging
 import json
 import math
+import time
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 from supabase import create_client
@@ -86,6 +87,55 @@ def clear_app_caches() -> None:
             fn.clear()
         except Exception:
             pass
+
+
+def _db_diagnostics_enabled() -> bool:
+    raw_value = st.secrets.get("CLASSIO_DB_DIAGNOSTICS", None) or os.getenv("CLASSIO_DB_DIAGNOSTICS", "")
+    return str(raw_value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _freeze_filter_value(value: Any) -> Any:
+    if isinstance(value, (list, tuple, set)):
+        return tuple(_freeze_filter_value(item) for item in value)
+    if isinstance(value, dict):
+        return tuple(sorted((str(key), _freeze_filter_value(item)) for key, item in value.items()))
+    return value
+
+
+def _apply_query_filter(query, operator: str, column_name: str, value: Any):
+    op = str(operator or "eq").strip().lower()
+    if op == "eq":
+        return query.eq(column_name, value)
+    if op == "neq":
+        return query.neq(column_name, value)
+    if op == "gte":
+        return query.gte(column_name, value)
+    if op == "lte":
+        return query.lte(column_name, value)
+    if op == "gt":
+        return query.gt(column_name, value)
+    if op == "lt":
+        return query.lt(column_name, value)
+    if op == "in":
+        return query.in_(column_name, list(value) if isinstance(value, tuple) else value)
+    raise ValueError(f"unsupported_filter_operator:{operator}")
+
+
+def _execute_query_with_diagnostics(query, *, function_name: str, source_name: str):
+    started_at = time.perf_counter()
+    result = query.execute()
+    if _db_diagnostics_enabled():
+        rows = getattr(result, "data", None)
+        row_count = len(rows) if isinstance(rows, list) else (1 if rows else 0)
+        elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+        logger.info(
+            "Classio DB function=%s source=%s duration_ms=%.1f rows=%s",
+            function_name,
+            source_name,
+            elapsed_ms,
+            row_count,
+        )
+    return result
 
 
 def json_safe(value: Any) -> Any:
@@ -364,7 +414,16 @@ def is_username_taken(username: str) -> bool:
 
 # ---- Data access ----
 @st.cache_data(ttl=45, show_spinner=False)
-def _load_table_cached(name: str, uid: str, limit: int = 10000, page_size: int = 1000) -> pd.DataFrame:
+def _load_table_cached(
+    name: str,
+    uid: str,
+    columns: str = "*",
+    limit: int = 10000,
+    page_size: int = 1000,
+    filters: tuple[tuple[str, str, Any], ...] = (),
+    order_by: str = "",
+    order_desc: bool = False,
+) -> pd.DataFrame:
     all_rows = []
     owner_scoped_tables = {
         "students",
@@ -391,12 +450,20 @@ def _load_table_cached(name: str, uid: str, limit: int = 10000, page_size: int =
         sb = get_sb()
         offset = 0
         while offset < limit:
-            q = sb.table(name).select("*")
+            q = sb.table(name).select(columns or "*")
             if name in owner_scoped_tables:
                 if not uid:
                     return pd.DataFrame(columns=[])
                 q = q.eq("user_id", uid)
-            resp = q.range(offset, min(offset + page_size - 1, limit - 1)).execute()
+            for operator, column_name, value in filters or ():
+                q = _apply_query_filter(q, operator, column_name, value)
+            if order_by:
+                q = q.order(order_by, desc=order_desc)
+            resp = _execute_query_with_diagnostics(
+                q.range(offset, min(offset + page_size - 1, limit - 1)),
+                function_name="_load_table_cached",
+                source_name=name,
+            )
             batch = resp.data or []
             all_rows.extend(batch)
             if len(batch) < page_size:
@@ -414,7 +481,25 @@ register_cache(_load_table_cached)
 
 def load_table(name: str, limit: int = 10000, page_size: int = 1000) -> pd.DataFrame:
     uid = get_current_user_id()
-    return _load_table_cached(name, uid, limit, page_size)
+    return _load_table_cached(name, uid, "*", limit, page_size, (), "", False)
+
+
+def load_table_filtered(
+    name: str,
+    *,
+    columns: str = "*",
+    limit: int = 10000,
+    page_size: int = 1000,
+    filters: list[tuple[str, str, Any]] | tuple[tuple[str, str, Any], ...] | None = None,
+    order_by: str = "",
+    order_desc: bool = False,
+) -> pd.DataFrame:
+    uid = get_current_user_id()
+    frozen_filters = tuple(
+        (str(operator), str(column_name), _freeze_filter_value(value))
+        for operator, column_name, value in (filters or ())
+    )
+    return _load_table_cached(name, uid, columns, limit, page_size, frozen_filters, order_by, order_desc)
 
 
 def norm_student(x: str) -> str:

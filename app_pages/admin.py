@@ -431,9 +431,16 @@ def _fetch_profiles(search: str = "") -> list[dict]:
 
 
 @st.cache_data(ttl=45, show_spinner=False)
-def _fetch_subscriptions() -> list[dict]:
+def _fetch_subscriptions(user_ids: tuple[str, ...] = ()) -> list[dict]:
     try:
-        return getattr(get_sb().table("user_subscriptions").select("*").limit(500).execute(), "data", None) or []
+        query = get_sb().table("user_subscriptions").select(
+            "user_id,plan_id,subscription_status,provider_customer_id,manual_override,updated_at"
+        )
+        safe_user_ids = [str(user_id or "").strip() for user_id in user_ids if str(user_id or "").strip()]
+        if safe_user_ids:
+            query = query.in_("user_id", safe_user_ids)
+        limit = max(500, len(safe_user_ids)) if safe_user_ids else 500
+        return getattr(query.limit(limit).execute(), "data", None) or []
     except Exception:
         return []
 
@@ -498,8 +505,11 @@ def _fetch_auth_user_activity() -> dict[str, dict[str, str]]:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def _fetch_recent_app_activity() -> dict[str, str]:
+def _fetch_recent_app_activity(user_ids: tuple[str, ...] = ()) -> dict[str, str]:
     usage: dict[str, str] = {}
+    safe_user_ids = [str(user_id or "").strip() for user_id in user_ids if str(user_id or "").strip()]
+    if not safe_user_ids:
+        return usage
 
     def _remember(user_id: Any, *timestamps: Any) -> None:
         safe_user_id = str(user_id or "").strip()
@@ -509,7 +519,7 @@ def _fetch_recent_app_activity() -> dict[str, str]:
 
     try:
         profile_rows = getattr(
-            get_sb().table("profiles").select("user_id,last_used_at").limit(500).execute(),
+            get_sb().table("profiles").select("user_id,last_used_at").in_("user_id", safe_user_ids).limit(len(safe_user_ids)).execute(),
             "data",
             None,
         ) or []
@@ -528,7 +538,7 @@ def _fetch_recent_app_activity() -> dict[str, str]:
         select_columns = ",".join([user_column, *timestamp_columns])
         try:
             rows = getattr(
-                get_sb().table(table_name).select(select_columns).limit(5000).execute(),
+                get_sb().table(table_name).select(select_columns).in_(user_column, safe_user_ids).limit(5000).execute(),
                 "data",
                 None,
             ) or []
@@ -3219,11 +3229,16 @@ def render_admin() -> None:
     _inject_admin_styles()
 
     profiles = _fetch_profiles("")
-    subscriptions = _fetch_subscriptions()
+    visible_user_ids = tuple(
+        str(profile.get("user_id") or "").strip()
+        for profile in profiles
+        if str(profile.get("user_id") or "").strip()
+    )
+    subscriptions = _fetch_subscriptions(visible_user_ids)
     events = _fetch_events()
     overrides = _fetch_overrides()
     auth_activity = _fetch_auth_user_activity()
-    app_activity = _fetch_recent_app_activity()
+    app_activity = _fetch_recent_app_activity(visible_user_ids)
     df = _merge_profiles_subscriptions(profiles, subscriptions, auth_activity, app_activity)
     _render_admin_hero(df)
 

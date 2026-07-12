@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 import math
+import os
 from typing import Any
 
 import pandas as pd
 
-from core.database import get_sb
+from core.database import _execute_query_with_diagnostics, get_sb
 from core.state import get_current_user_id
 from helpers.archive_utils import truthy_flag
 from helpers.learning_programs import _load_program_assignments_for_teacher_cached, load_assignment_progress_map, load_learning_program
@@ -129,25 +131,49 @@ def _topic_signal_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return signal
 
 
+def _history_window_days() -> int:
+    raw_value = os.getenv("RECOMMENDATION_HISTORY_DAYS", "180")
+    try:
+        return max(30, min(int(raw_value), 3650))
+    except Exception:
+        return 180
+
+
+def _history_cutoff_iso() -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=_history_window_days())).isoformat()
+
+
+def _objective_event_limit() -> int:
+    raw_value = os.getenv("RECOMMENDATION_TEACHER_OBJECTIVE_EVENT_LIMIT", "1500")
+    try:
+        return max(50, min(int(raw_value), 10000))
+    except Exception:
+        return 1500
+
+
 def _load_teacher_objective_events(teacher_id: str) -> list[dict[str, Any]]:
     safe_teacher_id = str(teacher_id or "").strip()
     if not safe_teacher_id:
         return []
     try:
-        return (
-            get_sb()
-            .table("learning_program_recommendation_events")
-            .select(
-                "teacher_id,student_id,learning_program_assignment_id,learning_program_topic_id,"
-                "recommendation_bucket,recommendation_focus_kind,event_type,event_weight,created_at,metadata"
-            )
-            .eq("teacher_id", safe_teacher_id)
-            .order("created_at", desc=True)
-            .limit(4000)
-            .execute()
-            .data
-            or []
-        )
+        return getattr(
+            _execute_query_with_diagnostics(
+                get_sb()
+                .table("learning_program_recommendation_events")
+                .select(
+                    "teacher_id,student_id,learning_program_assignment_id,learning_program_topic_id,"
+                    "recommendation_bucket,recommendation_focus_kind,event_type,event_weight,created_at,metadata"
+                )
+                .eq("teacher_id", safe_teacher_id)
+                .gte("created_at", _history_cutoff_iso())
+                .order("created_at", desc=True)
+                .limit(_objective_event_limit()),
+                function_name="_load_teacher_objective_events",
+                source_name="learning_program_recommendation_events",
+            ),
+            "data",
+            None,
+        ) or []
     except Exception:
         return []
 

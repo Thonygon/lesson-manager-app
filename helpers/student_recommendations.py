@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import math
+import os
 from typing import Any
 
 import pandas as pd
 import streamlit as st
 
-from core.database import load_profile_row
+from core.database import _execute_query_with_diagnostics, get_sb, load_profile_row, register_cache
 from core.i18n import t
 from core.state import get_current_user_id
 from helpers.archive_utils import truthy_flag
@@ -15,7 +16,6 @@ from helpers.lesson_planner import normalize_subject, subject_label
 from helpers.practice_engine import get_completed_source_ids, load_practice_progress
 from helpers.recommendation_models import score_student_resource_candidate, topic_resource_alignment_features
 from helpers.student_recommendation_ml import student_recommendation_blend_weight
-from helpers.teacher_student_integration import load_student_assignments
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student
 
 
@@ -123,8 +123,23 @@ def _build_recommended_materials_cached(
     return deduped
 
 
+register_cache(_build_recommended_materials_cached)
+
+
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _history_window_days() -> int:
+    raw_value = os.getenv("RECOMMENDATION_HISTORY_DAYS", "180")
+    try:
+        return max(30, min(int(raw_value), 3650))
+    except Exception:
+        return 180
+
+
+def _history_cutoff_iso() -> str:
+    return (_now_utc() - pd.Timedelta(days=_history_window_days())).isoformat()
 
 
 def _days_since(value: Any) -> float:
@@ -193,10 +208,73 @@ def _format_activity_label(value: Any) -> str:
     return key.replace("_", " ").title()
 
 
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_student_assignment_signal_rows(student_id: str) -> list[dict[str, Any]]:
+    safe_student_id = str(student_id or "").strip()
+    if not safe_student_id:
+        return []
+    try:
+        assignment_rows = getattr(
+            _execute_query_with_diagnostics(
+                get_sb()
+                .table("teacher_assignments")
+                .select("id,teacher_id,assignment_type,source_record_id,status,topic,title,teacher_note,score_pct,updated_at")
+                .eq("student_id", safe_student_id)
+                .neq("status", "archived")
+                .gte("updated_at", _history_cutoff_iso())
+                .order("updated_at", desc=True)
+                .limit(800),
+                function_name="_load_student_assignment_signal_rows",
+                source_name="teacher_assignments",
+            ),
+            "data",
+            None,
+        ) or []
+    except Exception:
+        return []
+
+    teacher_ids = sorted({str(row.get("teacher_id") or "").strip() for row in assignment_rows if str(row.get("teacher_id") or "").strip()})
+    teacher_names: dict[str, str] = {}
+    if teacher_ids:
+        try:
+            profile_rows = getattr(
+                _execute_query_with_diagnostics(
+                    get_sb()
+                    .table("profiles")
+                    .select("user_id,display_name,username,email")
+                    .in_("user_id", teacher_ids),
+                    function_name="_load_student_assignment_signal_rows",
+                    source_name="profiles",
+                ),
+                "data",
+                None,
+            ) or []
+        except Exception:
+            profile_rows = []
+        for row in profile_rows:
+            teacher_id = str(row.get("user_id") or "").strip()
+            if not teacher_id:
+                continue
+            teacher_names[teacher_id] = str(
+                row.get("display_name") or row.get("username") or row.get("email") or ""
+            ).strip()
+
+    return [
+        {
+            **row,
+            "teacher_name": teacher_names.get(str(row.get("teacher_id") or "").strip(), ""),
+        }
+        for row in assignment_rows
+    ]
+
+
+register_cache(_load_student_assignment_signal_rows)
+
+
 def _load_assignment_exclusions() -> dict[str, set]:
     excluded: dict[str, set] = {"worksheet": set(), "exam": set(), "video": set()}
     finalized_statuses = {"submitted", "graded", "completed", "cancelled", "archived"}
-    for row in load_student_assignments():
+    for row in _load_student_assignment_signal_rows(str(get_current_user_id() or "")):
         assignment_type = str(row.get("assignment_type") or "").strip()
         source_record_id = row.get("source_record_id")
         status = str(row.get("status") or "").strip().lower()
@@ -213,7 +291,7 @@ def _load_assignment_signal_profile() -> dict[str, Any]:
     }
     finalized_statuses = {"submitted", "graded", "completed", "cancelled", "archived"}
 
-    for row in load_student_assignments():
+    for row in _load_student_assignment_signal_rows(str(get_current_user_id() or "")):
         assignment_type = str(row.get("assignment_type") or "").strip()
         if assignment_type not in {"worksheet", "exam", "video"}:
             continue
@@ -269,7 +347,7 @@ def _load_assignment_behavior_profile() -> dict[str, Any]:
         "worksheet": "worksheet",
         "exam": "exam",
     }
-    for row in load_student_assignments():
+    for row in _load_student_assignment_signal_rows(str(get_current_user_id() or "")):
         kind = kind_map.get(str(row.get("assignment_type") or "").strip())
         if not kind:
             continue

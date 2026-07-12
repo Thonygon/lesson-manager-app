@@ -6,8 +6,11 @@ from core.i18n import t
 from core.state import get_current_user_id
 from helpers.lesson_planner import subject_label as _subject_label_fn
 from core.timezone import now_local
-from core.database import load_table
+from core.database import load_table_filtered
 from helpers.ui_components import to_dt_naive, ts_today_naive
+
+
+_PAYMENT_ANALYTICS_COLUMNS = "student,payment_date,paid_amount,number_of_lesson,modality,subject"
 
 def money_fmt(value, symbol=""):
     try:
@@ -168,6 +171,11 @@ def _build_income_analytics_from_payments(payments: pd.DataFrame | None, group: 
 
 @st.cache_data(ttl=45, show_spinner=False)
 def build_income_analytics(group: str = "monthly"):
-    payments = load_table("payments")
+    payments = load_table_filtered(
+        "payments",
+        columns=_PAYMENT_ANALYTICS_COLUMNS,
+        order_by="payment_date",
+        order_desc=True,
+    )
     return _build_income_analytics_from_payments(payments, group=group)
 # =========================

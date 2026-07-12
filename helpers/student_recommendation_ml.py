@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from core.database import load_profile_row
-from core.database import clear_app_caches, get_sb
+from core.database import get_sb, register_cache
 from core.state import get_current_user_id, with_owner
 from helpers.recommendation_models import (
     _fit_linear_model,
@@ -19,6 +19,7 @@ from helpers.recommendation_models import (
     _safe_float,
     _score_linear_model,
     _tokenize,
+    clear_recommendation_model_caches,
     normalize_subject,
     topic_resource_alignment_features,
 )
@@ -392,6 +393,9 @@ def student_recommendation_blend_weight(student_id: str, profile_snapshot: dict[
     return float(diagnostics.get("blend_weight") or 0.42)
 
 
+register_cache(evaluate_student_recommendation_pipeline)
+
+
 def _student_reco_meta(item: dict[str, Any], surface: str) -> dict[str, Any]:
     row = item.get("row") or {}
     return {
@@ -440,13 +444,18 @@ def log_student_recommendation_impressions(rows: list[dict[str, Any]], *, surfac
     st.session_state["_student_reco_impressions_seen"] = list(seen)
     try:
         get_sb().table("user_activity_log").insert(payloads).execute()
-        clear_app_caches()
+        _load_student_history_rows.clear()
+        evaluate_student_recommendation_pipeline.clear()
     except Exception:
         pass
 
 
 def log_student_recommendation_open(item: dict[str, Any], *, surface: str) -> None:
     if not isinstance(item, dict) or item.get("id") in (None, "", 0, "0"):
+        return
+    seen = set(st.session_state.get("_student_reco_open_seen") or [])
+    signature = f"{surface}:{item.get('resource_type')}:{item.get('id')}"
+    if signature in seen:
         return
     try:
         get_sb().table("user_activity_log").insert(
@@ -459,6 +468,9 @@ def log_student_recommendation_open(item: dict[str, Any], *, surface: str) -> No
                 }
             )
         ).execute()
-        clear_app_caches()
+        seen.add(signature)
+        st.session_state["_student_reco_open_seen"] = list(seen)
+        clear_recommendation_model_caches()
+        evaluate_student_recommendation_pipeline.clear()
     except Exception:
         pass

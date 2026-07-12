@@ -3,6 +3,7 @@ import datetime
 from datetime import datetime as _dt, date, time, timedelta
 import pandas as pd
 from core.i18n import t
+from core.state import get_current_user_id
 from core.timezone import today_local, get_app_tz, get_app_tz_name
 from core.navigation import go_to, page_header
 from core.database import load_students, get_sb, clear_app_caches
@@ -234,11 +235,17 @@ def render_calendar():
                             if gcal_eid:
                                 # Update the override with the gcal event ID
                                 try:
-                                    get_sb().table("calendar_overrides").update(
-                                        {"gcal_event_id": gcal_eid}
-                                    ).eq("student", sch_student).eq(
-                                        "original_date", sch_one_time_date.isoformat()
-                                    ).order("id", desc=True).limit(1).execute()
+                                    update_query = (
+                                        get_sb().table("calendar_overrides").update(
+                                            {"gcal_event_id": gcal_eid}
+                                        ).eq("student", sch_student).eq(
+                                            "original_date", sch_one_time_date.isoformat()
+                                        )
+                                    )
+                                    current_user_id = str(get_current_user_id() or "").strip()
+                                    if current_user_id:
+                                        update_query = update_query.eq("user_id", current_user_id)
+                                    update_query.order("id", desc=True).limit(1).execute()
                                 except Exception:
                                     pass
 
@@ -569,11 +576,17 @@ def render_calendar():
                             gcal_eid = create_gcal_event(ov_student, combined_dt, duration, ov_note)
                             if gcal_eid:
                                 try:
-                                    get_sb().table("calendar_overrides").update(
-                                        {"gcal_event_id": gcal_eid}
-                                    ).eq("student", ov_student).eq(
-                                        "original_date", ov_original_date.isoformat()
-                                    ).order("id", desc=True).limit(1).execute()
+                                    update_query = (
+                                        get_sb().table("calendar_overrides").update(
+                                            {"gcal_event_id": gcal_eid}
+                                        ).eq("student", ov_student).eq(
+                                            "original_date", ov_original_date.isoformat()
+                                        )
+                                    )
+                                    current_user_id = str(get_current_user_id() or "").strip()
+                                    if current_user_id:
+                                        update_query = update_query.eq("user_id", current_user_id)
+                                    update_query.order("id", desc=True).limit(1).execute()
                                 except Exception:
                                     pass
 
