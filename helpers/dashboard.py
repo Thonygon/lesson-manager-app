@@ -4,11 +4,19 @@ import pandas as pd
 from core.i18n import t
 from core.state import get_current_user_id
 from core.timezone import now_local, today_local
-from core.database import load_table, load_students
+from core.database import load_students, load_table_filtered
 import numpy as np
 from helpers.ui_components import to_dt_naive, ts_today_naive
 from helpers.language import translate_status, translate_modality_value, translate_language_value
 from helpers.package_lang_lookups import _is_free_note, _units_multiplier
+
+
+_DASHBOARD_CLASS_COLUMNS = "id,student,number_of_lesson,lesson_date,modality,note,subject"
+_DASHBOARD_PAYMENT_COLUMNS = (
+    "id,student,number_of_lesson,payment_date,paid_amount,modality,subject,"
+    "package_start_date,package_expiry_date,lesson_adjustment_units,package_normalized,"
+    "normalized_note,normalized_at"
+)
 
 # 07.13) DASHBOARD (PACKAGE STATUS) ✅ + chart-translation helper
 # =========================
@@ -332,8 +340,8 @@ def _rebuild_dashboard_from_frames(
 
 @st.cache_data(ttl=45, show_spinner=False)
 def rebuild_dashboard(active_window_days: int = 183, expiry_days: int = 365, grace_days: int = 0) -> pd.DataFrame:
-    classes = load_table("classes")
-    payments = load_table("payments")
+    classes = load_table_filtered("classes", columns=_DASHBOARD_CLASS_COLUMNS, order_by="lesson_date", order_desc=True)
+    payments = load_table_filtered("payments", columns=_DASHBOARD_PAYMENT_COLUMNS, order_by="payment_date", order_desc=True)
     return _rebuild_dashboard_from_frames(
         classes,
         payments,

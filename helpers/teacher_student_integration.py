@@ -139,6 +139,70 @@ def _profile_label(profile: dict) -> str:
     )
 
 
+@st.cache_data(ttl=90, show_spinner=False)
+def _load_active_linked_students_for_teacher_cached(uid: str) -> list[dict]:
+    if not uid:
+        return []
+    try:
+        rows = _rows(
+            get_sb()
+            .table("teacher_student_links")
+            .select(
+                "id,teacher_id,student_id,requested_by,requested_subjects,request_note,status,"
+                "responded_at,responded_by,archived_at,created_at,updated_at"
+            )
+            .eq("teacher_id", uid)
+            .eq("status", "active")
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception:
+        return []
+
+    if not rows:
+        return []
+
+    link_ids = [row.get("id") for row in rows if row.get("id") is not None]
+    student_ids = [str(row.get("student_id")) for row in rows if row.get("student_id")]
+
+    subjects_by_link: dict[int, list[dict]] = {}
+    if link_ids:
+        try:
+            subj_rows = _rows(
+                get_sb()
+                .table("teacher_student_subjects")
+                .select(
+                    "id,link_id,teacher_id,student_id,subject_key,subject_label,status,"
+                    "activated_at,deactivated_at,created_at,updated_at"
+                )
+                .in_("link_id", link_ids)
+                .eq("status", "active")
+                .order("subject_label")
+                .execute()
+            )
+            for item in subj_rows:
+                subjects_by_link.setdefault(item.get("link_id"), []).append(item)
+        except Exception:
+            pass
+
+    profiles = _load_profiles_map(student_ids)
+    linked = []
+    for row in rows:
+        student_profile = profiles.get(str(row.get("student_id")), {})
+        linked.append(
+            {
+                **row,
+                "student_profile": student_profile,
+                "student_name": _profile_label(student_profile),
+                "subjects": subjects_by_link.get(row.get("id"), []),
+            }
+        )
+    return linked
+
+
+register_cache(_load_active_linked_students_for_teacher_cached)
+
+
 def _load_profiles_map(user_ids: list[str]) -> dict[str, dict]:
     user_ids = [str(uid).strip() for uid in user_ids if str(uid).strip()]
     if not user_ids:
@@ -539,55 +603,7 @@ def load_active_linked_students_for_teacher() -> list[dict]:
     uid = get_current_user_id()
     if not uid:
         return []
-    try:
-        rows = _rows(
-            get_sb()
-            .table("teacher_student_links")
-            .select("*")
-            .eq("teacher_id", uid)
-            .eq("status", "active")
-            .order("created_at", desc=True)
-            .execute()
-        )
-    except Exception:
-        return []
-
-    if not rows:
-        return []
-
-    link_ids = [row.get("id") for row in rows if row.get("id") is not None]
-    student_ids = [str(row.get("student_id")) for row in rows if row.get("student_id")]
-
-    subjects_by_link: dict[int, list[dict]] = {}
-    if link_ids:
-        try:
-            subj_rows = _rows(
-                get_sb()
-                .table("teacher_student_subjects")
-                .select("*")
-                .in_("link_id", link_ids)
-                .eq("status", "active")
-                .order("subject_label")
-                .execute()
-            )
-            for item in subj_rows:
-                subjects_by_link.setdefault(item.get("link_id"), []).append(item)
-        except Exception:
-            pass
-
-    profiles = _load_profiles_map(student_ids)
-    linked = []
-    for row in rows:
-        student_profile = profiles.get(str(row.get("student_id")), {})
-        linked.append(
-            {
-                **row,
-                "student_profile": student_profile,
-                "student_name": _profile_label(student_profile),
-                "subjects": subjects_by_link.get(row.get("id"), []),
-            }
-        )
-    return linked
+    return _load_active_linked_students_for_teacher_cached(str(uid).strip())
 
 
 def create_teacher_request(teacher_id: str, requested_subjects: list[str], note: str = "") -> tuple[bool, str]:

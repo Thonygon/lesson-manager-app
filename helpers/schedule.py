@@ -4,7 +4,7 @@ import re as _re
 from core.i18n import t
 from core.state import get_current_user_id
 from core.timezone import now_local, get_app_tz
-from core.database import get_sb, load_table, register_cache, load_profile_row
+from core.database import get_sb, load_table_filtered, register_cache, load_profile_row
 from typing import Optional
 import pandas as pd
 from datetime import date
@@ -24,6 +24,8 @@ def _validate_hhmm(value: str) -> str:
 # 07.9) SCHEDULE / OVERRIDES HELPERS
 # =========================
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+_SCHEDULE_COLUMNS = "id,student,weekday,time,duration_minutes,active,timezone"
+_OVERRIDE_COLUMNS = "id,student,original_date,new_datetime,duration_minutes,status,note,gcal_event_id"
 
 
 def _schedule_creation_tz_name() -> str:
@@ -46,7 +48,7 @@ def _legacy_schedule_fallback_tz_name() -> str:
 
 @st.cache_data(ttl=45, show_spinner=False)
 def _load_schedules_cached(uid: str) -> pd.DataFrame:
-    df = load_table("schedules")
+    df = load_table_filtered("schedules", columns=_SCHEDULE_COLUMNS, order_by="id", order_desc=True)
     if df.empty:
         return pd.DataFrame(columns=["id", "student", "weekday", "time", "duration_minutes", "active", "timezone"])
 
@@ -113,7 +115,7 @@ def delete_schedule(schedule_id: int) -> None:
 
 @st.cache_data(ttl=45, show_spinner=False)
 def _load_overrides_cached(uid: str, tz_name: str) -> pd.DataFrame:
-    df = load_table("calendar_overrides")
+    df = load_table_filtered("calendar_overrides", columns=_OVERRIDE_COLUMNS, order_by="id", order_desc=True)
     if df.empty:
         return pd.DataFrame(columns=["id", "student", "original_date", "new_datetime", "duration_minutes", "status", "note", "gcal_event_id"])
 

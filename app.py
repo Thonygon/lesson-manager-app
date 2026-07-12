@@ -86,6 +86,7 @@ if _gcal_code and _gcal_state == "gcal_connect":
 _post_login_action = st.session_state.pop("_post_login_action", None)
 if _post_login_action:
     from core.database import get_current_user_id as _gcuid
+    _deferred_explore_save = bool(st.session_state.get("_explore_save_deferred_after_signup"))
     if _post_login_action == "choose_username":
         st.session_state["show_choose_username_dialog"] = True
         st.session_state["page"] = "home"
@@ -100,11 +101,13 @@ if _post_login_action:
         st.session_state["page"] = "home"
     elif _post_login_action == "dashboard":
         _role = get_current_user_role()
-        _dash_page = "student_home" if _role == "student" else "dashboard"
+        _dash_page = "student_home" if _role == "student" else ("home" if _deferred_explore_save else "dashboard")
         st.session_state["page"] = _dash_page
         _set_query(page=_dash_page, lang=st.session_state.get("ui_lang", "en"))
     elif _post_login_action.startswith("page:"):
         _target = _post_login_action[5:]
+        if _target == "dashboard" and _deferred_explore_save:
+            _target = "home"
         if _target in PAGE_KEYS:
             st.session_state["page"] = _target
             _set_query(page=_target, lang=st.session_state.get("ui_lang", "en"))

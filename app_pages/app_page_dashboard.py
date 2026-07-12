@@ -6,7 +6,7 @@ import pandas as pd
 from core.i18n import t
 from core.timezone import today_local, now_local, get_app_tz_name
 from core.navigation import page_header, go_to
-from core.database import norm_student, update_payment_row, clear_app_caches, load_table
+from core.database import norm_student, update_payment_row, clear_app_caches, load_table_filtered
 from helpers.dashboard import _rebuild_dashboard_from_frames
 from helpers.empty_states import render_empty_state
 from helpers.student_meta import student_meta_maps
@@ -36,6 +36,14 @@ from helpers.notifications import (
 )
 import re as _re
 import html as _html
+
+
+_DASHBOARD_CLASS_COLUMNS = "id,student,number_of_lesson,lesson_date,modality,note,subject"
+_DASHBOARD_PAYMENT_COLUMNS = (
+    "id,student,number_of_lesson,payment_date,paid_amount,modality,subject,"
+    "package_start_date,package_expiry_date,lesson_adjustment_units,package_normalized,"
+    "normalized_note,normalized_at"
+)
 
 # 12.1) PAGE: DASHBOARD
 # =========================
@@ -428,9 +436,9 @@ def render_dashboard():
 
     load_slot = st.empty()
     load_progress = load_slot.progress(0.06, text=t("dashboard_loading_start"))
-    classes_df = load_table("classes")
+    classes_df = load_table_filtered("classes", columns=_DASHBOARD_CLASS_COLUMNS, order_by="lesson_date", order_desc=True)
     load_progress.progress(0.22, text=t("dashboard_loading_lessons"))
-    payments_df = load_table("payments")
+    payments_df = load_table_filtered("payments", columns=_DASHBOARD_PAYMENT_COLUMNS, order_by="payment_date", order_desc=True)
     load_progress.progress(0.38, text=t("dashboard_loading_payments"))
     dash = _rebuild_dashboard_from_frames(
         classes_df,

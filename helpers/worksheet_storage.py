@@ -980,6 +980,51 @@ def load_worksheet_record(worksheet_id) -> dict:
 register_cache(load_worksheet_record)
 
 
+def _worksheet_download_access_allowed(row: dict) -> bool:
+    if not isinstance(row, dict) or not row:
+        return False
+    current_user_id = str(get_current_user_id() or "").strip()
+    owner_id = str(row.get("user_id") or "").strip()
+    if current_user_id and owner_id and current_user_id == owner_id:
+        return True
+    return bool(row.get("is_public"))
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def _build_worksheet_card_download_payload(worksheet_id) -> dict[str, object]:
+    row = load_worksheet_record(worksheet_id)
+    if not _worksheet_download_access_allowed(row):
+        return {}
+
+    worksheet_json = row.get("worksheet_json") or {}
+    if isinstance(worksheet_json, str):
+        try:
+            worksheet_json = json.loads(worksheet_json)
+        except Exception:
+            worksheet_json = {}
+    if not isinstance(worksheet_json, dict) or not worksheet_json:
+        return {}
+
+    safe_title = re.sub(r"[^A-Za-z0-9._-]+", "_", str(worksheet_json.get("title") or row.get("title") or "worksheet").strip()) or "worksheet"
+    pdf_bytes = build_worksheet_pdf_bytes(
+        worksheet_json,
+        student_only=True,
+        subject=str(row.get("subject") or "").strip(),
+        topic=str(row.get("topic") or "").strip(),
+        ws_type=str(row.get("worksheet_type") or "").strip(),
+        learner_stage=str(row.get("learner_stage") or "").strip(),
+        level_or_band=str(row.get("level_or_band") or "").strip(),
+    )
+    return {
+        "data": pdf_bytes,
+        "file_name": f"{safe_title}_student.pdf",
+        "mime": "application/pdf",
+    }
+
+
+register_cache(_build_worksheet_card_download_payload)
+
+
 # ── AI usage tracking ────────────────────────────────────────────────
 def update_worksheet_visibility(worksheet_id, is_public: bool) -> tuple[bool, str]:
     uid = str(get_current_user_id() or "").strip()
@@ -1297,7 +1342,7 @@ def render_worksheet_library_cards(
                 is_owner = str(row.get("user_id") or "").strip() == str(get_current_user_id() or "").strip()
                 show_owner_controls = allow_visibility_toggle or allow_archive_toggle
                 show_delete_control = bool(show_owner_controls and is_owner and is_archived and not _is_public_value(row.get("is_public")))
-                action_cols = st.columns([1, 1, 1, 1, 1] if show_delete_control else ([1, 1, 1, 1] if show_owner_controls else [1, 1]))
+                action_cols = st.columns([1, 1, 1, 1, 1, 1] if show_delete_control else ([1, 1, 1, 1, 1] if show_owner_controls else [1, 1, 1]))
                 with action_cols[0]:
                     if st.button(
                         t("view_worksheet"),
@@ -1321,8 +1366,20 @@ def render_worksheet_library_cards(
                                 require_signup=require_signup,
                                 expand_assign=True,
                             )
+                with action_cols[2]:
+                    download_payload = _build_worksheet_card_download_payload(worksheet_id) if worksheet_id not in (None, "", 0, "0") else {}
+                    st.download_button(
+                        label=t("admin_model_reports_download_button"),
+                        data=download_payload.get("data") or b"",
+                        file_name=str(download_payload.get("file_name") or "worksheet_student.pdf"),
+                        mime=str(download_payload.get("mime") or "application/pdf"),
+                        key=f"{prefix}_download_{worksheet_id}",
+                        use_container_width=True,
+                        disabled=not bool(download_payload),
+                        on_click="ignore",
+                    )
                 if show_owner_controls:
-                    with action_cols[2]:
+                    with action_cols[3]:
                         if allow_visibility_toggle and is_owner and str(worksheet_id or "").strip() and not is_archived:
                             current_public = _is_public_value(row.get("is_public"))
                             toggle_key = re.sub(r"[^A-Za-z0-9._-]+", "_", str(worksheet_id or "").strip()) or f"{idx}_{col_idx}"
@@ -1342,7 +1399,7 @@ def render_worksheet_library_cards(
                                     )
                                     st.rerun()
                                 st.error(t("resource_visibility_update_failed", error=msg))
-                    with action_cols[3]:
+                    with action_cols[4]:
                         if allow_archive_toggle and is_owner and str(worksheet_id or "").strip():
                             toggle_key = re.sub(r"[^A-Za-z0-9._-]+", "_", str(worksheet_id or "").strip()) or f"{idx}_{col_idx}"
                             new_archived = st.toggle(
@@ -1362,7 +1419,7 @@ def render_worksheet_library_cards(
                                     st.rerun()
                                 st.error(t("resource_archive_update_failed", error=msg))
                     if show_delete_control:
-                        with action_cols[4]:
+                        with action_cols[5]:
                             delete_key_prefix = f"{prefix}_worksheet_{row_id}_{idx}_{col_idx}"
                             render_archive_delete_button(
                                 row=row,

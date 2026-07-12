@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import math
+import os
 import re
 from typing import Any
 
 import pandas as pd
 import streamlit as st
 
-from core.database import get_sb
+from core.database import _execute_query_with_diagnostics, get_sb, register_cache
 from core.i18n import t
 from core.state import get_current_user_id, with_owner
 from helpers.archive_utils import truthy_flag
@@ -93,6 +94,30 @@ def _tokenize(*values: Any) -> set[str]:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _history_window_days() -> int:
+    raw_value = os.getenv("RECOMMENDATION_HISTORY_DAYS", "180")
+    try:
+        return max(30, min(int(raw_value), 3650))
+    except Exception:
+        return 180
+
+
+def _history_cutoff_iso() -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=_history_window_days())).isoformat()
+
+
+def _history_row_limit(env_name: str, default: int) -> int:
+    raw_value = os.getenv(env_name, str(default))
+    try:
+        return max(50, min(int(raw_value), 20000))
+    except Exception:
+        return default
+
+
+def _execute_recommendation_query(query, *, function_name: str, source_name: str):
+    return _execute_query_with_diagnostics(query, function_name=function_name, source_name=source_name)
 
 
 def _overlap_score(left: set[str], right: set[str], *, scale: float = 3.0) -> float:
@@ -260,6 +285,22 @@ def _pair_signature(kind: Any, resource_id: Any, topic_id: Any) -> tuple[str, st
     return (_norm_key(kind), _resource_id_key(resource_id), int(topic_id or 0))
 
 
+def clear_recommendation_model_caches() -> None:
+    for fn in (
+        _load_topic_resource_reference_rows,
+        build_explicit_topic_resource_model,
+        _load_teacher_material_activity_rows,
+        _load_teacher_recommendation_events,
+        build_teacher_recommendation_model,
+        build_teacher_material_feed_profile,
+        _load_student_history_rows,
+    ):
+        try:
+            fn.clear()
+        except Exception:
+            pass
+
+
 @st.cache_data(ttl=90, show_spinner=False)
 def _load_topic_resource_reference_rows(
     *,
@@ -269,6 +310,13 @@ def _load_topic_resource_reference_rows(
     safe_teacher_id = str(teacher_id or "").strip()
     safe_student_id = str(student_id or "").strip()
     payload = {"assignments": [], "events": [], "video_links": []}
+    if not safe_teacher_id and not safe_student_id:
+        return payload
+
+    cutoff_iso = _history_cutoff_iso()
+    assignment_limit = _history_row_limit("RECOMMENDATION_REFERENCE_ASSIGNMENT_LIMIT", 1200)
+    event_limit = _history_row_limit("RECOMMENDATION_REFERENCE_EVENT_LIMIT", 1200)
+    video_limit = _history_row_limit("RECOMMENDATION_REFERENCE_VIDEO_LIMIT", 2000)
 
     try:
         query = (
@@ -277,14 +325,24 @@ def _load_topic_resource_reference_rows(
             .select("teacher_id,student_id,assignment_type,source_record_id,learning_program_topic_id,score_pct,status,updated_at")
             .not_.is_("source_record_id", "null")
             .not_.is_("learning_program_topic_id", "null")
+            .neq("status", "archived")
+            .gte("updated_at", cutoff_iso)
             .order("updated_at", desc=True)
-            .limit(8000)
+            .limit(assignment_limit)
         )
         if safe_teacher_id:
             query = query.eq("teacher_id", safe_teacher_id)
         if safe_student_id:
             query = query.eq("student_id", safe_student_id)
-        payload["assignments"] = getattr(query.execute(), "data", None) or []
+        payload["assignments"] = getattr(
+            _execute_recommendation_query(
+                query,
+                function_name="_load_topic_resource_reference_rows",
+                source_name="teacher_assignments",
+            ),
+            "data",
+            None,
+        ) or []
     except Exception:
         payload["assignments"] = []
 
@@ -298,34 +356,72 @@ def _load_topic_resource_reference_rows(
             )
             .not_.is_("resource_record_id", "null")
             .not_.is_("learning_program_topic_id", "null")
+            .gte("created_at", cutoff_iso)
             .order("created_at", desc=True)
-            .limit(8000)
+            .limit(event_limit)
         )
         if safe_teacher_id:
             query = query.eq("teacher_id", safe_teacher_id)
         if safe_student_id:
             query = query.eq("student_id", safe_student_id)
-        payload["events"] = getattr(query.execute(), "data", None) or []
+        payload["events"] = getattr(
+            _execute_recommendation_query(
+                query,
+                function_name="_load_topic_resource_reference_rows",
+                source_name="learning_program_recommendation_events",
+            ),
+            "data",
+            None,
+        ) or []
     except Exception:
         payload["events"] = []
 
+    scoped_teacher_ids = {safe_teacher_id} if safe_teacher_id else set()
+    if not scoped_teacher_ids:
+        scoped_teacher_ids.update(
+            str(row.get("teacher_id") or "").strip()
+            for row in payload["assignments"]
+            if str(row.get("teacher_id") or "").strip()
+        )
+        scoped_teacher_ids.update(
+            str(row.get("teacher_id") or "").strip()
+            for row in payload["events"]
+            if str(row.get("teacher_id") or "").strip()
+        )
+
     try:
+        if not safe_teacher_id and not scoped_teacher_ids:
+            return payload
         query = (
             get_sb()
             .table("learning_program_topic_videos")
             .select("teacher_id,program_id,topic_id,video_id,created_at")
             .order("created_at", desc=True)
-            .limit(12000)
+            .limit(video_limit)
         )
         if safe_teacher_id:
             query = query.eq("teacher_id", safe_teacher_id)
-        payload["video_links"] = getattr(query.execute(), "data", None) or []
+        elif scoped_teacher_ids:
+            query = query.in_("teacher_id", sorted(scoped_teacher_ids))
+        payload["video_links"] = getattr(
+            _execute_recommendation_query(
+                query,
+                function_name="_load_topic_resource_reference_rows",
+                source_name="learning_program_topic_videos",
+            ),
+            "data",
+            None,
+        ) or []
     except Exception:
         payload["video_links"] = []
 
     return payload
 
 
+register_cache(_load_topic_resource_reference_rows)
+
+
+@st.cache_data(ttl=90, show_spinner=False)
 def build_explicit_topic_resource_model(
     *,
     teacher_id: str | None = None,
@@ -396,6 +492,9 @@ def build_explicit_topic_resource_model(
     }
 
 
+register_cache(build_explicit_topic_resource_model)
+
+
 def topic_resource_alignment_features(
     kind: str,
     resource_id: Any,
@@ -446,6 +545,7 @@ def _load_teacher_material_activity_rows(teacher_id: str) -> list[dict]:
     teacher_id = str(teacher_id or "").strip()
     if not teacher_id:
         return []
+    cutoff_iso = _history_cutoff_iso()
     try:
         res = (
             get_sb()
@@ -453,13 +553,24 @@ def _load_teacher_material_activity_rows(teacher_id: str) -> list[dict]:
             .select("user_id,activity_type,feature_name,meta_json,created_at")
             .eq("user_id", teacher_id)
             .in_("activity_type", ["teacher_material_impression", "teacher_material_open"])
+            .gte("created_at", cutoff_iso)
             .order("created_at", desc=True)
-            .limit(5000)
-            .execute()
+            .limit(_history_row_limit("RECOMMENDATION_TEACHER_ACTIVITY_LIMIT", 1200))
         )
-        return getattr(res, "data", None) or []
+        return getattr(
+            _execute_recommendation_query(
+                res,
+                function_name="_load_teacher_material_activity_rows",
+                source_name="user_activity_log",
+            ),
+            "data",
+            None,
+        ) or []
     except Exception:
         return []
+
+
+register_cache(_load_teacher_material_activity_rows)
 
 
 @st.cache_data(ttl=90, show_spinner=False)
@@ -467,6 +578,7 @@ def _load_teacher_recommendation_events(teacher_id: str) -> list[dict]:
     teacher_id = str(teacher_id or "").strip()
     if not teacher_id:
         return []
+    cutoff_iso = _history_cutoff_iso()
     try:
         res = (
             get_sb()
@@ -476,13 +588,24 @@ def _load_teacher_recommendation_events(teacher_id: str) -> list[dict]:
                 "resource_kind,resource_record_id,learning_program_topic_id,event_type,event_weight,created_at"
             )
             .eq("teacher_id", teacher_id)
+            .gte("created_at", cutoff_iso)
             .order("created_at", desc=True)
-            .limit(4000)
-            .execute()
+            .limit(_history_row_limit("RECOMMENDATION_TEACHER_EVENT_LIMIT", 1500))
         )
-        return getattr(res, "data", None) or []
+        return getattr(
+            _execute_recommendation_query(
+                res,
+                function_name="_load_teacher_recommendation_events",
+                source_name="learning_program_recommendation_events",
+            ),
+            "data",
+            None,
+        ) or []
     except Exception:
         return []
+
+
+register_cache(_load_teacher_recommendation_events)
 
 
 def _teacher_event_target(row: dict) -> float:
@@ -500,6 +623,7 @@ def _teacher_event_target(row: dict) -> float:
     return score_map.get(event_type, 0.1)
 
 
+@st.cache_data(ttl=90, show_spinner=False)
 def build_teacher_recommendation_model(teacher_id: str | None = None) -> dict[str, Any]:
     safe_teacher_id = str(teacher_id or get_current_user_id() or "").strip()
     rows = _load_teacher_recommendation_events(safe_teacher_id)
@@ -591,6 +715,9 @@ def build_teacher_recommendation_model(teacher_id: str | None = None) -> dict[st
         "focus": {key: sum(values) / max(1, len(values)) for key, values in focus_scores.items()},
     }
     return {"weights": weights, "priors": priors}
+
+
+register_cache(build_teacher_recommendation_model)
 
 
 def score_teacher_resource_candidate(
@@ -823,6 +950,9 @@ def build_teacher_material_feed_profile(teacher_id: str | None = None) -> dict[s
     return profile
 
 
+register_cache(build_teacher_material_feed_profile)
+
+
 def score_teacher_feed_resource(
     row: dict,
     kind: str,
@@ -941,6 +1071,11 @@ def log_teacher_material_impressions(
     st.session_state["_teacher_material_impression_seen"] = list(seen)
     try:
         get_sb().table("user_activity_log").insert(payloads).execute()
+        for fn in (_load_teacher_material_activity_rows, build_teacher_material_feed_profile):
+            try:
+                fn.clear()
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -954,6 +1089,10 @@ def log_teacher_material_open(
 ) -> None:
     if not isinstance(row, dict) or row.get("id") in (None, "", 0, "0"):
         return
+    seen = set(st.session_state.get("_teacher_material_open_seen") or [])
+    signature = f"{surface}:{kind}:{source}:{row.get('id')}"
+    if signature in seen:
+        return
     try:
         get_sb().table("user_activity_log").insert(
             with_owner(
@@ -965,6 +1104,13 @@ def log_teacher_material_open(
                 }
             )
         ).execute()
+        seen.add(signature)
+        st.session_state["_teacher_material_open_seen"] = list(seen)
+        for fn in (_load_teacher_material_activity_rows, build_teacher_material_feed_profile):
+            try:
+                fn.clear()
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -976,15 +1122,20 @@ def _load_student_history_rows(student_id: str) -> dict[str, list[dict]]:
         return {"practice_sessions": [], "teacher_assignments": [], "recommendation_activity": []}
 
     rows = {"practice_sessions": [], "teacher_assignments": [], "recommendation_activity": []}
+    cutoff_iso = _history_cutoff_iso()
     try:
         rows["practice_sessions"] = getattr(
-            get_sb()
-            .table("practice_sessions")
-            .select("source_type,subject,topic,level,score_pct,status,created_at,completed_at")
-            .eq("user_id", safe_student_id)
-            .order("created_at", desc=True)
-            .limit(4000)
-            .execute(),
+            _execute_recommendation_query(
+                get_sb()
+                .table("practice_sessions")
+                .select("source_type,subject,topic,level,score_pct,status,created_at,completed_at")
+                .eq("user_id", safe_student_id)
+                .gte("created_at", cutoff_iso)
+                .order("created_at", desc=True)
+                .limit(_history_row_limit("RECOMMENDATION_STUDENT_PRACTICE_LIMIT", 800)),
+                function_name="_load_student_history_rows",
+                source_name="practice_sessions",
+            ),
             "data",
             None,
         ) or []
@@ -993,17 +1144,21 @@ def _load_student_history_rows(student_id: str) -> dict[str, list[dict]]:
 
     try:
         rows["teacher_assignments"] = getattr(
-            get_sb()
-            .table("teacher_assignments")
-            .select(
-                "assignment_type,subject_key,topic,score_pct,status,created_at,updated_at,"
-                "source_record_id,learning_program_topic_id,recommendation_bucket"
-            )
-            .eq("student_id", safe_student_id)
-            .neq("status", "archived")
-            .order("updated_at", desc=True)
-            .limit(4000)
-            .execute(),
+            _execute_recommendation_query(
+                get_sb()
+                .table("teacher_assignments")
+                .select(
+                    "assignment_type,subject_key,topic,score_pct,status,created_at,updated_at,"
+                    "source_record_id,learning_program_topic_id,recommendation_bucket"
+                )
+                .eq("student_id", safe_student_id)
+                .neq("status", "archived")
+                .gte("updated_at", cutoff_iso)
+                .order("updated_at", desc=True)
+                .limit(_history_row_limit("RECOMMENDATION_STUDENT_ASSIGNMENT_LIMIT", 800)),
+                function_name="_load_student_history_rows",
+                source_name="teacher_assignments",
+            ),
             "data",
             None,
         ) or []
@@ -1012,14 +1167,18 @@ def _load_student_history_rows(student_id: str) -> dict[str, list[dict]]:
 
     try:
         rows["recommendation_activity"] = getattr(
-            get_sb()
-            .table("user_activity_log")
-            .select("activity_type,meta_json,created_at")
-            .eq("user_id", safe_student_id)
-            .in_("activity_type", ["student_recommendation_impression", "student_recommendation_open"])
-            .order("created_at", desc=True)
-            .limit(4000)
-            .execute(),
+            _execute_recommendation_query(
+                get_sb()
+                .table("user_activity_log")
+                .select("activity_type,meta_json,created_at")
+                .eq("user_id", safe_student_id)
+                .in_("activity_type", ["student_recommendation_impression", "student_recommendation_open"])
+                .gte("created_at", cutoff_iso)
+                .order("created_at", desc=True)
+                .limit(_history_row_limit("RECOMMENDATION_STUDENT_ACTIVITY_LIMIT", 800)),
+                function_name="_load_student_history_rows",
+                source_name="user_activity_log",
+            ),
             "data",
             None,
         ) or []
@@ -1027,6 +1186,9 @@ def _load_student_history_rows(student_id: str) -> dict[str, list[dict]]:
         rows["recommendation_activity"] = []
 
     return rows
+
+
+register_cache(_load_student_history_rows)
 
 
 def build_student_recommendation_model(
