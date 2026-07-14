@@ -137,24 +137,44 @@ def render_student_home():
     ).strip()
     first_name = display_name.split()[0] if display_name else t("student_role")
 
-    # ── Hero section ──
+    # ── Welcome intro ──
     st.markdown(
         f"""
         <div style="
             position:relative;
-            overflow:hidden;
-            background:
-              radial-gradient(circle at top right, rgba(34,197,94,0.18), transparent 36%),
-              linear-gradient(135deg, color-mix(in srgb, var(--panel) 88%, rgba(59,130,246,0.18) 12%), color-mix(in srgb, var(--panel) 88%, rgba(20,184,166,0.14) 12%));
-            border-radius: 22px;
-            padding: 30px 26px 22px;
-            margin-bottom: 24px;
-            border: 1px solid color-mix(in srgb, var(--border) 76%, rgba(59,130,246,.26) 24%);
-            box-shadow: var(--shadow-md);
+            max-width: 760px;
+            margin: 4px 0 22px 0;
+            padding: 2px 0 0 0;
         ">
-            <div style="font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:800;margin-bottom:8px;">{t('student_home_command_center')}</div>
-            <h2 style="margin:0 0 6px 0;font-size:1.8rem;line-height:1.18;">👋 {t("student_welcome_title").format(name=first_name)}</h2>
-            <p style="margin:0; color:var(--muted); font-size:1.03rem;max-width:680px;">{t("student_welcome_subtitle")}</p>
+            <div style="
+                display:inline-flex;
+                align-items:center;
+                gap:8px;
+                padding:0;
+                margin-bottom:10px;
+                font-size:.8rem;
+                letter-spacing:.08em;
+                text-transform:uppercase;
+                color:var(--muted);
+                font-weight:900;
+            ">
+                {t('student_home_command_center')}
+            </div>
+            <h2 style="
+                margin:0 0 8px 0;
+                font-size:2rem;
+                line-height:1.08;
+                font-weight:950;
+                color:var(--text, #0f172a);
+                text-wrap:balance;
+            ">👋 {t("student_welcome_title").format(name=first_name)}</h2>
+            <p style="
+                margin:0;
+                color:var(--muted);
+                font-size:1.02rem;
+                line-height:1.55;
+                max-width:620px;
+            ">{t("student_welcome_subtitle")}</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -318,6 +338,49 @@ def render_student_home():
             border-color: color-mix(in srgb, var(--primary, #2563eb) 45%, var(--border-strong, rgba(15,23,42,.16)) 55%) !important;
             box-shadow: 0 16px 34px rgba(15,23,42,.13), inset 0 1px 0 rgba(255,255,255,.82) !important;
         }
+        .st-key-student_home_review_now_card {
+            margin: 8px 0 18px;
+        }
+        .st-key-student_home_review_now_card div[data-testid="stButton"] > button {
+            position: relative;
+            overflow: hidden;
+            min-height: 128px !important;
+            height: auto !important;
+            padding: 16px 22px !important;
+            border-radius: 20px !important;
+            border: 1px solid color-mix(in srgb, var(--border) 70%, rgba(239,68,68,.28) 30%) !important;
+            background:
+              radial-gradient(circle at top right, rgba(239,68,68,.12), transparent 36%),
+              linear-gradient(135deg, color-mix(in srgb, var(--panel) 90%, rgba(251,191,36,.08) 10%), color-mix(in srgb, var(--panel) 88%, rgba(239,68,68,.10) 12%)) !important;
+            box-shadow: var(--shadow-md) !important;
+            text-align: left !important;
+            white-space: normal !important;
+            justify-content: flex-start !important;
+            align-items: flex-start !important;
+        }
+        .st-key-student_home_review_now_card div[data-testid="stButton"] > button p {
+            margin: 0 !important;
+            white-space: pre-line !important;
+            text-align: left !important;
+            line-height: 1.28 !important;
+            font-size: .98rem !important;
+            font-weight: 500 !important;
+            color: var(--muted, #475569) !important;
+        }
+        .st-key-student_home_review_now_card div[data-testid="stButton"] > button strong {
+            display: block !important;
+            margin: 0 0 2px 0 !important;
+            font-size: 1.16rem !important;
+            line-height: 1.12 !important;
+            font-weight: 900 !important;
+            color: var(--text, #0f172a) !important;
+        }
+        .st-key-student_home_review_now_card div[data-testid="stButton"] > button:hover,
+        .st-key-student_home_review_now_card div[data-testid="stButton"] > button:focus {
+            transform: translateY(-2px) !important;
+            border-color: color-mix(in srgb, rgba(239,68,68,.36) 56%, var(--border) 44%) !important;
+            box-shadow: 0 18px 36px rgba(15,23,42,.12), inset 0 1px 0 rgba(255,255,255,.82) !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -391,35 +454,19 @@ def render_student_home():
                 or [_ui_text("student_material_reason_balanced", "A balanced next step based on recent progress")]
             )[0]
             teacher_line = f"{urgent_teacher} · " if urgent_teacher else ""
-            st.markdown(
-                f"""
-                <div style="
-                    margin:0 0 18px 0;
-                    padding:18px 20px;
-                    border-radius:20px;
-                    border:1px solid color-mix(in srgb, var(--border) 70%, rgba(239,68,68,.28) 30%);
-                    background:
-                      radial-gradient(circle at top right, rgba(239,68,68,.12), transparent 36%),
-                      linear-gradient(135deg, color-mix(in srgb, var(--panel) 90%, rgba(251,191,36,.08) 10%), color-mix(in srgb, var(--panel) 88%, rgba(239,68,68,.10) 12%));
-                    box-shadow: var(--shadow-md);
-                ">
-                    <div style="font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:800;margin-bottom:8px;">{_ui_text('student_home_review_now_eyebrow', 'Review now')}</div>
-                    <div style="font-size:1.18rem;font-weight:900;line-height:1.25;margin-bottom:6px;">{_html.escape(urgent_title)}</div>
-                    <div style="color:var(--muted);font-size:.96rem;line-height:1.5;">{_html.escape(teacher_line + review_reason)}</div>
-                    <div style="margin-top:8px;color:var(--muted);font-size:.9rem;">{_html.escape(urgent_topic)}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
+            review_now_label = (
+                f"{_ui_text('student_home_review_now_eyebrow', 'Review now').upper()}\n"
+                f"**{urgent_title}**\n"
+                f"{teacher_line + review_reason}\n"
+                f"{urgent_topic}"
             )
-            action_col1, action_col2 = st.columns(2)
-            with action_col1:
-                if st.button(_ui_text("student_home_review_now_button", "Open Smart Practice"), key="student_home_review_now_btn", use_container_width=True, type="primary"):
-                    go_to("student_practice")
-                    st.rerun()
-            with action_col2:
-                if st.button(_ui_text("student_home_view_assignments_button", "View my assignments"), key="student_home_view_assignments_btn", use_container_width=True):
-                    go_to("student_assignments")
-                    st.rerun()
+            if st.button(
+                review_now_label,
+                key="student_home_review_now_card",
+                use_container_width=True,
+            ):
+                go_to("student_assignments")
+                st.rerun()
         st.markdown(f"### {_ui_text('recommended_materials', 'Recommended for you')}")
         st.caption(
             _ui_text(
