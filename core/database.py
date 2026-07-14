@@ -89,6 +89,16 @@ def clear_app_caches() -> None:
             pass
 
 
+def clear_specific_caches(*funcs) -> None:
+    for fn in funcs:
+        if fn is None:
+            continue
+        try:
+            fn.clear()
+        except Exception:
+            pass
+
+
 def _db_diagnostics_enabled() -> bool:
     raw_value = st.secrets.get("CLASSIO_DB_DIAGNOSTICS", None) or os.getenv("CLASSIO_DB_DIAGNOSTICS", "")
     return str(raw_value or "").strip().lower() in {"1", "true", "yes", "on"}

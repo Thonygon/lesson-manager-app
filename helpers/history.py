@@ -4,7 +4,7 @@ import pandas as pd
 from core.i18n import t
 from core.state import get_current_user_id
 from core.timezone import now_local
-from core.database import LESSON_NOTE_DEFAULT_TOKEN, load_table
+from core.database import LESSON_NOTE_DEFAULT_TOKEN, load_table_filtered
 from typing import Tuple
 from helpers.ui_components import to_dt_naive
 from helpers.language import translate_modality_value, translate_language_value
@@ -21,8 +21,28 @@ def _display_lesson_note_for_table(value) -> str:
 def show_student_history(student: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     student = str(student).strip()
 
-    classes = load_table("classes")
-    payments = load_table("payments")
+    classes = load_table_filtered(
+        "classes",
+        columns="id,student,number_of_lesson,lesson_date,modality,note,subject",
+        filters=[("eq", "student", student)],
+        limit=2000,
+        page_size=500,
+        order_by="lesson_date",
+        order_desc=True,
+    )
+    payments = load_table_filtered(
+        "payments",
+        columns=(
+            "id,student,number_of_lesson,payment_date,paid_amount,modality,subject,"
+            "package_start_date,package_expiry_date,lesson_adjustment_units,"
+            "package_normalized,normalized_note,normalized_at"
+        ),
+        filters=[("eq", "student", student)],
+        limit=2000,
+        page_size=500,
+        order_by="payment_date",
+        order_desc=True,
+    )
 
     if classes.empty:
         classes = pd.DataFrame(columns=["id", "student", "number_of_lesson", "lesson_date", "modality", "note", "subject"])

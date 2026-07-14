@@ -5,7 +5,7 @@ import io
 from core.i18n import t
 from core.state import get_current_user_id
 from core.timezone import now_local
-from core.database import get_sb, load_table, load_students
+from core.database import clear_specific_caches, get_sb, load_students, load_table_filtered
 import pandas as pd
 import re
 from io import BytesIO
@@ -73,7 +73,14 @@ def _parse_float_loose(v, default=0.0) -> float:
 @st.cache_data(ttl=45, show_spinner=False)
 def _load_app_settings_map_cached(uid: str) -> dict:
     try:
-        df = load_table("app_settings")
+        df = load_table_filtered(
+            "app_settings",
+            columns="key,value",
+            limit=200,
+            page_size=200,
+            order_by="id",
+            order_desc=True,
+        )
     except Exception:
         return {}
 
@@ -137,7 +144,7 @@ def save_app_setting(key: str, value, key_fallbacks: list[str] | None = None) ->
             payload,
             on_conflict="user_id,key"
         ).execute()
-        clear_app_caches()
+        clear_specific_caches(_load_app_settings_map_cached)
         return True
     except Exception as e:
         st.error(t("error_save_app_setting").format(key=key, error=e))
@@ -158,7 +165,15 @@ def get_year_goal_progress_snapshot(year: int | None = None, goal_key: str = "ye
     # YTD income from payments
     ytd = 0.0
     try:
-        p = load_table("payments")
+        p = load_table_filtered(
+            "payments",
+            columns="payment_date,paid_amount",
+            filters=[("gte", "payment_date", f"{yr}-01-01")],
+            limit=5000,
+            page_size=1000,
+            order_by="payment_date",
+            order_desc=True,
+        )
         if p is not None and not p.empty:
             if "payment_date" not in p.columns:
                 p["payment_date"] = None

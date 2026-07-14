@@ -91,6 +91,9 @@ _SUBSCRIPTION_STATUS_LABEL_KEYS = {
     "cancelled": "admin_subscription_status_value_cancelled",
     "free": "admin_subscription_status_value_free",
 }
+_ADMIN_OVERRIDE_COLUMNS = (
+    "id,user_id,override_type,old_value,new_value,note,admin_user_id,admin_email,created_at"
+)
 _OVERRIDE_TYPE_LABEL_KEYS = {
     "account_create": "admin_override_type_account_create",
     "plan_update": "admin_override_type_plan_update",
@@ -468,7 +471,7 @@ def _fetch_overrides() -> list[dict]:
         return getattr(
             get_sb()
             .table("admin_overrides")
-            .select("*")
+            .select(_ADMIN_OVERRIDE_COLUMNS)
             .order("created_at", desc=True)
             .limit(100)
             .execute(),

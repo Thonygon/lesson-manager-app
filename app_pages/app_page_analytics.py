@@ -7,12 +7,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 from core.i18n import t
 from core.navigation import go_to, page_header
-from core.database import load_table_filtered
 import matplotlib.pyplot as plt
 from helpers.analytics import build_income_analytics, money_fmt, _build_income_analytics_from_payments
 from helpers.ui_components import ts_today_naive, to_dt_naive, pretty_df, translate_df_headers, chart_series, render_styled_dataframe
 from helpers.language import translate_modality_value
-from helpers.dashboard import rebuild_dashboard, _rebuild_dashboard_from_frames
+from helpers.dashboard import _rebuild_dashboard_from_frames, load_dashboard_source_frames
 from helpers.forecast import build_forecast_table
 from helpers.goal_optimizer import build_goal_optimization
 from helpers.business_strategy import build_business_recommendations
@@ -20,22 +19,13 @@ from helpers.year_goals import get_year_goal, set_year_goal
 from helpers.goals import YEAR_GOAL_SCOPE
 from helpers.currency import CURRENCIES, INFLATION_COUNTRIES, get_exchange_rate, fetch_cpi_data, inflate, get_preferred_currency
 
-
-_ANALYTICS_CLASS_COLUMNS = "id,student,number_of_lesson,lesson_date,modality,note,subject"
-_ANALYTICS_PAYMENT_COLUMNS = (
-    "id,student,number_of_lesson,payment_date,paid_amount,modality,subject,"
-    "package_start_date,package_expiry_date,lesson_adjustment_units,package_normalized,"
-    "normalized_note,normalized_at"
-)
-
 # 12.6) PAGE: ANALYTICS
 # =========================
 def render_analytics():
     page_header(t("analytics"))
     st.caption(t("view_your_income_and_business_indicators"))
 
-    payments_all = load_table_filtered("payments", columns=_ANALYTICS_PAYMENT_COLUMNS, order_by="payment_date", order_desc=True)
-    classes_all = load_table_filtered("classes", columns=_ANALYTICS_CLASS_COLUMNS, order_by="lesson_date", order_desc=True)
+    classes_all, payments_all = load_dashboard_source_frames()
     dashboard_all = _rebuild_dashboard_from_frames(
         classes_all,
         payments_all,

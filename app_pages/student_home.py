@@ -1,4 +1,5 @@
 import html as _html
+import logging
 
 import streamlit as st
 from core.i18n import t
@@ -8,9 +9,7 @@ from core.database import load_profile_row
 from helpers.practice_engine import exam_to_exercises, worksheet_to_exercises
 from helpers.notifications import (
     get_student_notifications,
-    render_notification_cloud,
-    render_notification_heading,
-    render_notification_panel,
+    render_lazy_notification_panel,
 )
 from helpers.empty_states import render_empty_state
 from helpers.quick_exam_storage import load_exam_record, load_public_exams
@@ -27,6 +26,8 @@ from helpers.resource_gallery import (
     render_gallery_card_html,
 )
 from services.permissions_service import user_has_feature
+
+logger = logging.getLogger(__name__)
 
 
 def _ui_text(key: str, fallback: str) -> str:
@@ -88,6 +89,44 @@ def _open_home_recommendation_practice(item: dict) -> None:
     st.rerun()
 
 
+def _load_student_home_recommendations(user_id: str) -> list[dict]:
+    safe_user_id = str(user_id or "").strip()
+    try:
+        video_feature_enabled = user_has_feature(safe_user_id, "videos_access")
+    except Exception:
+        logger.exception("Failed to resolve student video feature access", extra={"user_id": safe_user_id})
+        video_feature_enabled = False
+
+    try:
+        worksheets_df = load_public_worksheets(show_errors=False)
+    except Exception:
+        logger.exception("Failed to load public worksheets for student home", extra={"user_id": safe_user_id})
+        worksheets_df = None
+
+    try:
+        exams_df = load_public_exams(show_errors=False)
+    except Exception:
+        logger.exception("Failed to load public exams for student home", extra={"user_id": safe_user_id})
+        exams_df = None
+
+    try:
+        videos_df = load_public_videos() if video_feature_enabled else None
+    except Exception:
+        logger.exception("Failed to load public videos for student home", extra={"user_id": safe_user_id})
+        videos_df = None
+
+    try:
+        return build_recommended_materials(
+            worksheets_df,
+            exams_df,
+            videos_df,
+            limit=3,
+        )
+    except Exception:
+        logger.exception("Failed to build student home recommendations", extra={"user_id": safe_user_id})
+        return []
+
+
 def render_student_home():
     user_id = get_current_user_id()
     profile = load_profile_row(user_id) if user_id else {}
@@ -120,9 +159,6 @@ def render_student_home():
         """,
         unsafe_allow_html=True,
     )
-
-    student_notifications = get_student_notifications()
-    render_notification_cloud(student_notifications, scope="student")
 
     # ── Feature cards ──
     st.markdown(
@@ -327,13 +363,7 @@ def render_student_home():
         with col:
             _render_student_nav_card(card)
 
-    video_feature_enabled = user_has_feature(user_id, "videos_access")
-    recommended = build_recommended_materials(
-        load_public_worksheets(),
-        load_public_exams(),
-        load_public_videos() if video_feature_enabled else None,
-        limit=3,
-    )
+    recommended = _load_student_home_recommendations(str(user_id or ""))
     if recommended:
         inject_resource_gallery_styles()
         urgent_review_item = next(
@@ -480,9 +510,9 @@ def render_student_home():
                 go_to("student_find_teacher")
                 st.rerun()
 
-    render_notification_heading(student_notifications, scope="student", title_text=t("notifications"))
-    render_notification_panel(
-        student_notifications,
+    render_lazy_notification_panel(
         scope="student",
         toggle_key="student_home_notifications_toggle",
+        loader=get_student_notifications,
+        title_text=t("notifications"),
     )

@@ -6,8 +6,8 @@ import pandas as pd
 from core.i18n import t
 from core.timezone import today_local, now_local, get_app_tz_name
 from core.navigation import page_header, go_to
-from core.database import norm_student, update_payment_row, clear_app_caches, load_table_filtered
-from helpers.dashboard import _rebuild_dashboard_from_frames
+from core.database import norm_student, update_payment_row, clear_app_caches
+from helpers.dashboard import _rebuild_dashboard_from_frames, load_dashboard_source_frames
 from helpers.empty_states import render_empty_state
 from helpers.student_meta import student_meta_maps
 from helpers.goals import render_home_indicator, YEAR_GOAL_SCOPE
@@ -28,22 +28,11 @@ from helpers.student_report import (
     build_report_email_url,
 )
 from helpers.notifications import (
-    get_teacher_notifications,
     get_teacher_notifications_from_context,
-    render_notification_cloud,
-    render_notification_heading,
-    render_notification_panel,
+    render_lazy_notification_panel,
 )
 import re as _re
 import html as _html
-
-
-_DASHBOARD_CLASS_COLUMNS = "id,student,number_of_lesson,lesson_date,modality,note,subject"
-_DASHBOARD_PAYMENT_COLUMNS = (
-    "id,student,number_of_lesson,payment_date,paid_amount,modality,subject,"
-    "package_start_date,package_expiry_date,lesson_adjustment_units,package_normalized,"
-    "normalized_note,normalized_at"
-)
 
 # 12.1) PAGE: DASHBOARD
 # =========================
@@ -436,9 +425,8 @@ def render_dashboard():
 
     load_slot = st.empty()
     load_progress = load_slot.progress(0.06, text=t("dashboard_loading_start"))
-    classes_df = load_table_filtered("classes", columns=_DASHBOARD_CLASS_COLUMNS, order_by="lesson_date", order_desc=True)
-    load_progress.progress(0.22, text=t("dashboard_loading_lessons"))
-    payments_df = load_table_filtered("payments", columns=_DASHBOARD_PAYMENT_COLUMNS, order_by="payment_date", order_desc=True)
+    classes_df, payments_df = load_dashboard_source_frames()
+    load_progress.progress(0.30, text=t("dashboard_loading_lessons"))
     load_progress.progress(0.38, text=t("dashboard_loading_payments"))
     dash = _rebuild_dashboard_from_frames(
         classes_df,
@@ -463,16 +451,8 @@ def render_dashboard():
         future_events_14 = future_events_14[
             future_events_14["Date"].astype(str).between(today_iso, future_cutoff)
         ].copy()
-    teacher_notifications = get_teacher_notifications_from_context(
-        dashboard_df=dash,
-        today_events_df=today_events,
-        future_events_df=future_events_14,
-        payments_df=payments_df,
-        classes_df=classes_df,
-    )
     load_progress.progress(1.0, text=t("dashboard_loading_ready"))
     load_slot.empty()
-    render_notification_cloud(teacher_notifications, scope="teacher")
 
     if dash is None or dash.empty:
         render_empty_state(
@@ -888,11 +868,17 @@ def render_dashboard():
             except Exception as e:
                 st.error(f"{t('normalize_failed')}\n\n{e}")
 
-    render_notification_heading(teacher_notifications, scope="teacher", title_text=t("notifications"))
-    render_notification_panel(
-        teacher_notifications,
+    render_lazy_notification_panel(
         scope="teacher",
         toggle_key="teacher_dashboard_notifications_toggle",
+        loader=lambda: get_teacher_notifications_from_context(
+            dashboard_df=dash,
+            today_events_df=today_events,
+            future_events_df=future_events_14,
+            payments_df=payments_df,
+            classes_df=classes_df,
+        ),
+        title_text=t("notifications"),
     )
 
 # =========================
