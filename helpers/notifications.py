@@ -1207,7 +1207,6 @@ def render_lazy_notification_panel(
     except Exception:
         logger.exception("Notification panel loader failed", extra={"scope": scope, "toggle_key": toggle_key})
         notifications = []
-    render_notification_heading(notifications, scope=scope, title_text=title_text)
     render_notification_panel(
         notifications,
         scope=scope,
