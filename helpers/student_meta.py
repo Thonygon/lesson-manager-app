@@ -1,12 +1,103 @@
 import streamlit as st
-from core.database import load_table
+from core.database import _execute_query_with_diagnostics, get_sb, load_table_filtered
 import pandas as pd
 from core.database import norm_student, register_cache
+import re
 
 # 07.10) STUDENT META
 # =========================
+_STUDENT_META_COLUMNS = (
+    "student,email,zoom_link,notes,color,phone,address,native_language,"
+    "linked_student_user_id,teacher_student_link_id,student_source,linked_at"
+)
+_STUDENT_META_COLUMN_LIST = [column.strip() for column in _STUDENT_META_COLUMNS.split(",") if column.strip()]
+
+
+def _is_missing_student_column_error(exc: Exception | str | None, column_name: str) -> bool:
+    text = str(exc or "").strip().lower()
+    target = str(column_name or "").strip().lower()
+    if not text or not target:
+        return False
+    target_patterns = [
+        re.escape(f".{target}"),
+        re.escape(f"'{target}'"),
+        re.escape(f'"{target}"'),
+        re.escape(f" {target} "),
+        re.escape(f"({target})"),
+        re.escape(f",{target}"),
+    ]
+    target_match = any(re.search(pattern, text) for pattern in target_patterns)
+    return target_match and any(
+        marker in text
+        for marker in (
+            "column",
+            "schema cache",
+            "could not find",
+            "does not exist",
+            "not found",
+        )
+    )
+
+
+def _extract_missing_student_column(exc: Exception | str | None, requested_columns: list[str]) -> str:
+    for column_name in requested_columns:
+        if _is_missing_student_column_error(exc, column_name):
+            return column_name
+    return ""
+
+
+def _load_student_meta_rows(uid: str, columns: str) -> list[dict]:
+    safe_uid = str(uid or "").strip()
+    if not safe_uid:
+        return []
+    query = (
+        get_sb()
+        .table("students")
+        .select(columns)
+        .eq("user_id", safe_uid)
+        .order("student", desc=False)
+        .limit(5000)
+    )
+    result = _execute_query_with_diagnostics(
+        query,
+        function_name="load_students_df",
+        source_name="students",
+    )
+    return list(getattr(result, "data", None) or [])
+
+
+def _load_student_meta_rows_with_fallback(uid: str) -> pd.DataFrame:
+    remaining_columns = list(_STUDENT_META_COLUMN_LIST)
+    while remaining_columns:
+        try:
+            return pd.DataFrame(_load_student_meta_rows(uid, ",".join(remaining_columns)))
+        except Exception as exc:
+            missing_column = _extract_missing_student_column(exc, remaining_columns)
+            if not missing_column:
+                raise
+            remaining_columns = [column for column in remaining_columns if column != missing_column]
+    return pd.DataFrame()
+
+
+@st.cache_data(ttl=45, show_spinner=False)
 def load_students_df() -> pd.DataFrame:
-    df = load_table("students")
+    uid = str(st.session_state.get("user_id") or "").strip()
+    if not uid:
+        from core.state import get_current_user_id
+
+        uid = str(get_current_user_id() or "").strip()
+    try:
+        df = _load_student_meta_rows_with_fallback(uid)
+    except Exception:
+        df = load_table_filtered(
+            "students",
+            columns=_STUDENT_META_COLUMNS,
+            limit=5000,
+            page_size=500,
+            order_by="student",
+            order_desc=False,
+        )
+
     if df.empty:
         return pd.DataFrame(columns=["student", "email", "zoom_link", "notes", "color", "phone", "address", "native_language", "linked_student_user_id", "teacher_student_link_id", "student_source", "linked_at"])
 
@@ -29,6 +120,9 @@ def load_students_df() -> pd.DataFrame:
     df["student_source"] = df["student_source"].fillna("manual").astype(str).str.strip()
 
     return df
+
+
+register_cache(load_students_df)
 
 def student_meta_maps():
     s = load_students_df()

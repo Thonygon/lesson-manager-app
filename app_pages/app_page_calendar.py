@@ -261,8 +261,10 @@ def render_calendar():
     # ---------------------------------------
     today_d = today_local()
 
-    start_day = today_d - timedelta(days=365)
-    end_day = today_d + timedelta(days=365)
+    # Keep the calendar responsive on reruns by generating only the recent and
+    # upcoming window that users actively browse most often.
+    start_day = today_d - timedelta(days=90)
+    end_day = today_d + timedelta(days=180)
 
     events = build_calendar_events(start_day, end_day, get_app_tz_name())
 

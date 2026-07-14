@@ -4,7 +4,13 @@ import re as _re
 from core.i18n import t
 from core.state import get_current_user_id
 from core.timezone import now_local, get_app_tz
-from core.database import get_sb, load_table_filtered, register_cache, load_profile_row
+from core.database import (
+    _execute_query_with_diagnostics,
+    get_sb,
+    register_cache,
+    load_profile_row,
+    show_data_load_error,
+)
 from typing import Optional
 import pandas as pd
 from datetime import date
@@ -26,6 +32,12 @@ def _validate_hhmm(value: str) -> str:
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _SCHEDULE_COLUMNS = "id,student,weekday,time,duration_minutes,active,timezone"
 _OVERRIDE_COLUMNS = "id,student,original_date,new_datetime,duration_minutes,status,note,gcal_event_id"
+_SCHEDULE_COLUMNS_LEGACY = "id,student,weekday,time,duration_minutes,active"
+_OVERRIDE_COLUMNS_LEGACY = "id,student,original_date,new_datetime,duration_minutes,status,note"
+_FREEZE_COLUMNS = "id,student,start_date,end_date,reason,note,active,created_at"
+_SCHEDULE_ROW_LIMIT = 1000
+_OVERRIDE_ROW_LIMIT = 2000
+_FREEZE_ROW_LIMIT = 500
 
 
 def _schedule_creation_tz_name() -> str:
@@ -46,9 +58,70 @@ def _legacy_schedule_fallback_tz_name() -> str:
     # default timezone. Do not rebind them to a mutable profile timezone.
     return DEFAULT_TZ_NAME
 
+
+def _is_missing_column_error(exc: Exception | str | None, column_name: str) -> bool:
+    text = str(exc or "").strip().lower()
+    if not text:
+        return False
+    target = str(column_name or "").strip().lower()
+    return target in text and any(
+        marker in text
+        for marker in (
+            "column",
+            "schema cache",
+            "could not find",
+            "does not exist",
+            "not found",
+        )
+    )
+
+
+def _load_owned_rows(
+    table_name: str,
+    *,
+    columns: str,
+    limit: int,
+    order_by: str = "id",
+    order_desc: bool = True,
+) -> list[dict]:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid:
+        return []
+    query = (
+        get_sb()
+        .table(table_name)
+        .select(columns)
+        .eq("user_id", uid)
+        .order(order_by, desc=order_desc)
+        .limit(limit)
+    )
+    result = _execute_query_with_diagnostics(
+        query,
+        function_name="_load_owned_rows",
+        source_name=table_name,
+    )
+    return list(getattr(result, "data", None) or [])
+
 @st.cache_data(ttl=45, show_spinner=False)
 def _load_schedules_cached(uid: str) -> pd.DataFrame:
-    df = load_table_filtered("schedules", columns=_SCHEDULE_COLUMNS, order_by="id", order_desc=True)
+    if not uid:
+        return pd.DataFrame(columns=["id", "student", "weekday", "time", "duration_minutes", "active", "timezone"])
+    try:
+        rows = _load_owned_rows(
+            "schedules",
+            columns=_SCHEDULE_COLUMNS,
+            limit=_SCHEDULE_ROW_LIMIT,
+        )
+    except Exception as exc:
+        if not _is_missing_column_error(exc, "timezone"):
+            show_data_load_error(exc)
+            return pd.DataFrame(columns=["id", "student", "weekday", "time", "duration_minutes", "active", "timezone"])
+        rows = _load_owned_rows(
+            "schedules",
+            columns=_SCHEDULE_COLUMNS_LEGACY,
+            limit=_SCHEDULE_ROW_LIMIT,
+        )
+    df = pd.DataFrame(rows)
     if df.empty:
         return pd.DataFrame(columns=["id", "student", "weekday", "time", "duration_minutes", "active", "timezone"])
 
@@ -115,7 +188,24 @@ def delete_schedule(schedule_id: int) -> None:
 
 @st.cache_data(ttl=45, show_spinner=False)
 def _load_overrides_cached(uid: str, tz_name: str) -> pd.DataFrame:
-    df = load_table_filtered("calendar_overrides", columns=_OVERRIDE_COLUMNS, order_by="id", order_desc=True)
+    if not uid:
+        return pd.DataFrame(columns=["id", "student", "original_date", "new_datetime", "duration_minutes", "status", "note", "gcal_event_id"])
+    try:
+        rows = _load_owned_rows(
+            "calendar_overrides",
+            columns=_OVERRIDE_COLUMNS,
+            limit=_OVERRIDE_ROW_LIMIT,
+        )
+    except Exception as exc:
+        if not _is_missing_column_error(exc, "gcal_event_id"):
+            show_data_load_error(exc)
+            return pd.DataFrame(columns=["id", "student", "original_date", "new_datetime", "duration_minutes", "status", "note", "gcal_event_id"])
+        rows = _load_owned_rows(
+            "calendar_overrides",
+            columns=_OVERRIDE_COLUMNS_LEGACY,
+            limit=_OVERRIDE_ROW_LIMIT,
+        )
+    df = pd.DataFrame(rows)
     if df.empty:
         return pd.DataFrame(columns=["id", "student", "original_date", "new_datetime", "duration_minutes", "status", "note", "gcal_event_id"])
 
@@ -147,17 +237,19 @@ def _load_schedule_freezes_cached(uid: str) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame(columns=["id", "student", "start_date", "end_date", "reason", "note", "active", "created_at"])
     try:
-        rows = (
+        rows = _execute_query_with_diagnostics(
             get_sb()
             .table("student_schedule_freezes")
-            .select("*")
+            .select(_FREEZE_COLUMNS)
             .eq("user_id", uid)
             .order("created_at", desc=True)
-            .limit(500)
-            .execute()
+            .limit(_FREEZE_ROW_LIMIT),
+            function_name="_load_schedule_freezes_cached",
+            source_name="student_schedule_freezes",
         )
         df = pd.DataFrame(getattr(rows, "data", None) or [])
-    except Exception:
+    except Exception as exc:
+        show_data_load_error(exc)
         return pd.DataFrame(columns=["id", "student", "start_date", "end_date", "reason", "note", "active", "created_at"])
     if df.empty:
         return pd.DataFrame(columns=["id", "student", "start_date", "end_date", "reason", "note", "active", "created_at"])

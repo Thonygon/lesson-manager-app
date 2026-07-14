@@ -19,6 +19,50 @@ from helpers.recommendation_memory import (
 )
 
 
+_TEACHER_STUDENT_LINK_COLUMNS = (
+    "id,teacher_id,student_id,requested_by,requested_subjects,request_note,status,"
+    "responded_at,responded_by,archived_at,created_at,updated_at"
+)
+_TEACHER_STUDENT_SUBJECT_COLUMNS = (
+    "id,link_id,teacher_id,student_id,subject_key,subject_label,status,"
+    "activated_at,deactivated_at,created_at,updated_at"
+)
+_STUDENT_RECORD_COLUMNS = (
+    "id,user_id,student,email,zoom_link,notes,color,phone,address,"
+    "linked_student_user_id,teacher_student_link_id,student_source,linked_at"
+)
+_STUDENT_RECORD_COLUMN_LIST = [column.strip() for column in _STUDENT_RECORD_COLUMNS.split(",") if column.strip()]
+_ASSIGNMENT_LIST_COLUMNS = (
+    "id,teacher_id,student_id,link_id,assignment_type,source_type,source_record_id,title,topic,"
+    "subject_key,subject_label,status,due_at,score_pct,total_questions,correct_count,"
+    "teacher_note,source_archived,source_archived_at,created_at,updated_at,opened_at,"
+    "submitted_at,graded_at,completed_at,learning_program_assignment_id,learning_program_topic_id,"
+    "recommendation_bucket,recommendation_focus_kind,recommendation_context"
+)
+_ASSIGNMENT_EVENT_COLUMNS = (
+    "id,teacher_id,student_id,assignment_type,source_record_id,title,status,opened_at,"
+    "learning_program_assignment_id,learning_program_topic_id,recommendation_bucket,"
+    "recommendation_focus_kind,recommendation_context"
+)
+_ATTEMPT_LIST_COLUMNS = (
+    "id,assignment_id,student_id,practice_session_id,attempt_number,status,score_pct,"
+    "total_questions,correct_count,teacher_feedback,created_at,updated_at,graded_at"
+)
+_ATTEMPT_EVENT_COLUMNS = "id,score_pct"
+_REVIEW_REQUEST_COLUMNS = (
+    "id,teacher_id,student_id,assignment_id,practice_session_id,subject_key,subject_label,"
+    "source_type,title,status,request_note,teacher_feedback,review_payload,override_score_pct,"
+    "requested_at,reviewed_at,created_at,updated_at"
+)
+_PRACTICE_SESSION_COLUMNS = (
+    "id,user_id,exercise_data,completed_at,correct_count,score_pct,created_at,updated_at"
+)
+_PRACTICE_ANSWER_COLUMNS = (
+    "id,session_id,user_id,exercise_idx,question_idx,student_answer,correct_answer,"
+    "is_correct,created_at,updated_at"
+)
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -127,7 +171,33 @@ def _rows(result) -> list[dict]:
 
 def _schema_missing_column(exc: Exception, column_name: str) -> bool:
     text = str(exc or "").strip().lower()
-    return column_name.strip().lower() in text and "column" in text
+    target = column_name.strip().lower()
+    target_patterns = [
+        re.escape(f".{target}"),
+        re.escape(f"'{target}'"),
+        re.escape(f'"{target}"'),
+        re.escape(f" {target} "),
+        re.escape(f"({target})"),
+        re.escape(f",{target}"),
+    ]
+    target_match = any(re.search(pattern, text) for pattern in target_patterns)
+    return target_match and any(
+        marker in text
+        for marker in (
+            "column",
+            "schema cache",
+            "could not find",
+            "does not exist",
+            "not found",
+        )
+    )
+
+
+def _extract_missing_student_record_column(exc: Exception | str | None, requested_columns: list[str]) -> str:
+    for column_name in requested_columns:
+        if _schema_missing_column(exc, column_name):
+            return column_name
+    return ""
 
 
 def _profile_label(profile: dict) -> str:
@@ -297,17 +367,24 @@ def _load_teacher_student_rows(teacher_id: str) -> list[dict]:
     teacher_id = str(teacher_id or "").strip()
     if not teacher_id:
         return []
-    try:
-        rows = _rows(
-            get_sb()
-            .table("students")
-            .select("*")
-            .eq("user_id", teacher_id)
-            .order("student")
-            .execute()
-        )
-    except Exception:
-        return []
+    remaining_columns = list(_STUDENT_RECORD_COLUMN_LIST)
+    rows: list[dict] = []
+    while remaining_columns:
+        try:
+            rows = _rows(
+                get_sb()
+                .table("students")
+                .select(",".join(remaining_columns))
+                .eq("user_id", teacher_id)
+                .order("student")
+                .execute()
+            )
+            break
+        except Exception as exc:
+            missing_column = _extract_missing_student_record_column(exc, remaining_columns)
+            if not missing_column:
+                return []
+            remaining_columns = [column for column in remaining_columns if column != missing_column]
 
     cleaned = []
     for row in rows:
@@ -415,7 +492,7 @@ def get_teacher_request_resolution(link_id: int) -> dict:
         rows = _rows(
             get_sb()
             .table("teacher_student_links")
-            .select("*")
+            .select(_TEACHER_STUDENT_LINK_COLUMNS)
             .eq("id", link_id)
             .eq("teacher_id", teacher_id)
             .limit(1)
@@ -510,7 +587,7 @@ def _load_student_teacher_links_cached(uid: str, statuses_key: tuple[str, ...]) 
         query = (
             get_sb()
             .table("teacher_student_links")
-            .select("*")
+            .select(_TEACHER_STUDENT_LINK_COLUMNS)
             .eq("student_id", uid)
             .order("created_at", desc=True)
         )
@@ -532,7 +609,7 @@ def _load_student_teacher_links_cached(uid: str, statuses_key: tuple[str, ...]) 
             subj_rows = _rows(
                 get_sb()
                 .table("teacher_student_subjects")
-                .select("*")
+                .select(_TEACHER_STUDENT_SUBJECT_COLUMNS)
                 .in_("link_id", link_ids)
                 .order("subject_label")
                 .execute()
@@ -575,7 +652,7 @@ def load_incoming_teacher_requests() -> list[dict]:
         rows = _rows(
             get_sb()
             .table("teacher_student_links")
-            .select("*")
+            .select(_TEACHER_STUDENT_LINK_COLUMNS)
             .eq("teacher_id", uid)
             .eq("status", "pending")
             .order("created_at", desc=True)
@@ -622,7 +699,7 @@ def create_teacher_request(teacher_id: str, requested_subjects: list[str], note:
     try:
         existing_rows = _rows(
             sb.table("teacher_student_links")
-            .select("*")
+            .select(_TEACHER_STUDENT_LINK_COLUMNS)
             .eq("teacher_id", teacher_id)
             .eq("student_id", student_id)
             .limit(1)
@@ -670,7 +747,7 @@ def respond_to_teacher_request(
     try:
         rows = _rows(
             sb.table("teacher_student_links")
-            .select("*")
+            .select(_TEACHER_STUDENT_LINK_COLUMNS)
             .eq("id", link_id)
             .eq("teacher_id", teacher_id)
             .limit(1)
@@ -709,7 +786,7 @@ def respond_to_teacher_request(
         ).eq("id", link_id).execute()
 
         existing_subject_rows = _rows(
-            sb.table("teacher_student_subjects").select("*").eq("link_id", link_id).execute()
+            sb.table("teacher_student_subjects").select(_TEACHER_STUDENT_SUBJECT_COLUMNS).eq("link_id", link_id).execute()
         )
         existing_by_key = {
             str(row.get("subject_key") or ""): row
@@ -770,7 +847,7 @@ def archive_teacher_student_link(link_id: int) -> tuple[bool, str]:
         rows = _rows(
             get_sb()
             .table("teacher_student_links")
-            .select("*")
+            .select(_TEACHER_STUDENT_LINK_COLUMNS)
             .eq("id", link_id)
             .limit(1)
             .execute()
@@ -820,7 +897,7 @@ def create_teacher_assignment(
         link_rows = _rows(
             get_sb()
             .table("teacher_student_links")
-            .select("*")
+            .select(_TEACHER_STUDENT_LINK_COLUMNS)
             .eq("id", link_id)
             .eq("teacher_id", teacher_id)
             .eq("status", "active")
@@ -833,7 +910,7 @@ def create_teacher_assignment(
         scope_rows = _rows(
             get_sb()
             .table("teacher_student_subjects")
-            .select("*")
+            .select(_TEACHER_STUDENT_SUBJECT_COLUMNS)
             .eq("id", subject_scope_id)
             .eq("link_id", link_id)
             .eq("teacher_id", teacher_id)
@@ -940,7 +1017,7 @@ def _load_student_assignments_cached(uid: str, statuses_key: tuple[str, ...]) ->
         query = (
             get_sb()
             .table("teacher_assignments")
-            .select("*")
+            .select(_ASSIGNMENT_LIST_COLUMNS)
             .eq("student_id", uid)
             .order("created_at", desc=True)
         )
@@ -1119,7 +1196,13 @@ def mark_assignment_started(assignment_id: int) -> None:
     try:
         now = _now_iso()
         rows = _rows(
-            get_sb().table("teacher_assignments").select("*").eq("id", assignment_id).eq("student_id", uid).limit(1).execute()
+            get_sb()
+            .table("teacher_assignments")
+            .select(_ASSIGNMENT_EVENT_COLUMNS)
+            .eq("id", assignment_id)
+            .eq("student_id", uid)
+            .limit(1)
+            .execute()
         )
         get_sb().table("teacher_assignments").update(
             {
@@ -1195,7 +1278,7 @@ def record_video_assignment_watch(assignment_id: int) -> None:
         rows = _rows(
             get_sb()
             .table("teacher_assignments")
-            .select("*")
+            .select(_ASSIGNMENT_EVENT_COLUMNS)
             .eq("id", int(assignment_id))
             .eq("student_id", uid)
             .limit(1)
@@ -1208,7 +1291,7 @@ def record_video_assignment_watch(assignment_id: int) -> None:
         existing_attempts = _rows(
             get_sb()
             .table("teacher_assignment_attempts")
-            .select("id, score_pct")
+            .select(_ATTEMPT_EVENT_COLUMNS)
             .eq("assignment_id", int(assignment_id))
             .eq("student_id", uid)
             .execute()
@@ -1309,7 +1392,7 @@ def record_assignment_attempt_from_practice(
         rows = _rows(
             get_sb()
             .table("teacher_assignments")
-            .select("*")
+            .select(_ASSIGNMENT_EVENT_COLUMNS)
             .eq("id", assignment_id)
             .eq("student_id", uid)
             .limit(1)
@@ -1326,7 +1409,7 @@ def record_assignment_attempt_from_practice(
         existing_attempts = _rows(
             get_sb()
             .table("teacher_assignment_attempts")
-            .select("id, score_pct")
+            .select(_ATTEMPT_EVENT_COLUMNS)
             .eq("assignment_id", assignment_id)
             .eq("student_id", uid)
             .execute()
@@ -1433,7 +1516,7 @@ def _load_teacher_assignment_progress_cached(teacher_id: str, student_id: str = 
         query = (
             get_sb()
             .table("teacher_assignments")
-            .select("*")
+            .select(_ASSIGNMENT_LIST_COLUMNS)
             .eq("teacher_id", teacher_id)
             .neq("status", "archived")
             .order("created_at", desc=True)
@@ -1456,7 +1539,7 @@ def _load_teacher_assignment_progress_cached(teacher_id: str, student_id: str = 
             attempts = _rows(
                 get_sb()
                 .table("teacher_assignment_attempts")
-                .select("*")
+                .select(_ATTEMPT_LIST_COLUMNS)
                 .in_("assignment_id", assignment_ids)
                 .order("created_at", desc=True)
                 .execute()
@@ -1529,7 +1612,7 @@ def _practice_session_row(session_id: int, uid: str | None = None) -> dict:
         rows = _rows(
             get_sb()
             .table("practice_sessions")
-            .select("*")
+            .select(_PRACTICE_SESSION_COLUMNS)
             .eq("id", session_id)
             .eq("user_id", uid)
             .limit(1)
@@ -1568,7 +1651,7 @@ def _load_practice_answers_map(session_id: int, user_id: str) -> dict[tuple[int,
         rows = _rows(
             get_sb()
             .table("practice_answers")
-            .select("*")
+            .select(_PRACTICE_ANSWER_COLUMNS)
             .eq("session_id", session_id)
             .eq("user_id", user_id)
             .order("exercise_idx")
@@ -1783,7 +1866,7 @@ def load_student_review_requests_for_session(practice_session_id: int) -> list[d
         rows = _rows(
             get_sb()
             .table("teacher_review_requests")
-            .select("*")
+            .select(_REVIEW_REQUEST_COLUMNS)
             .eq("student_id", student_id)
             .eq("practice_session_id", int(practice_session_id))
             .order("created_at", desc=True)
@@ -1811,7 +1894,7 @@ def _load_teacher_review_requests_cached(teacher_id: str, student_id: str = "", 
         query = (
             get_sb()
             .table("teacher_review_requests")
-            .select("*")
+            .select(_REVIEW_REQUEST_COLUMNS)
             .eq("teacher_id", teacher_id)
             .order("requested_at", desc=True)
         )
@@ -1860,7 +1943,7 @@ def load_teacher_review_request_detail(review_id: int) -> dict:
         rows = _rows(
             get_sb()
             .table("teacher_review_requests")
-            .select("*")
+            .select(_REVIEW_REQUEST_COLUMNS)
             .eq("id", int(review_id))
             .eq("teacher_id", teacher_id)
             .limit(1)
@@ -1876,7 +1959,7 @@ def load_teacher_review_request_detail(review_id: int) -> dict:
         session_rows = _rows(
             get_sb()
             .table("practice_sessions")
-            .select("*")
+            .select(_PRACTICE_SESSION_COLUMNS)
             .eq("id", int(review.get("practice_session_id") or 0))
             .eq("user_id", student_id)
             .limit(1)

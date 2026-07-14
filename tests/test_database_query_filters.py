@@ -38,6 +38,22 @@ class _FakeQuery:
 
 
 class DatabaseQueryFilterTests(unittest.TestCase):
+    def test_clear_specific_caches_only_clears_requested_functions(self):
+        class _Cache:
+            def __init__(self):
+                self.cleared = 0
+
+            def clear(self):
+                self.cleared += 1
+
+        cache_a = _Cache()
+        cache_b = _Cache()
+
+        database.clear_specific_caches(cache_a, None, cache_b)
+
+        self.assertEqual(1, cache_a.cleared)
+        self.assertEqual(1, cache_b.cleared)
+
     def test_apply_query_filter_dispatches_supported_operators(self):
         query = _FakeQuery()
 

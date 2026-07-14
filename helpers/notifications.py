@@ -3,12 +3,13 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import timedelta
 import html
+import logging
 import re
 
 import pandas as pd
 import streamlit as st
 
-from core.database import get_sb, load_profile_row, load_table
+from core.database import get_sb, load_profile_row, load_table_filtered, register_cache
 from core.i18n import t
 from core.state import get_current_user_id
 from core.timezone import now_local, today_local, get_app_tz_name
@@ -26,6 +27,8 @@ from helpers.teacher_student_integration import (
     load_teacher_assignment_progress,
 )
 from helpers.learning_programs import load_learning_program, load_program_assignments_for_teacher
+
+logger = logging.getLogger(__name__)
 
 
 def _uid() -> str:
@@ -197,6 +200,42 @@ def _today_events_df():
     return _today_events_df_from_events(events)
 
 
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_notification_classes_frame(uid: str, start_date_iso: str) -> pd.DataFrame:
+    if not uid:
+        return pd.DataFrame(columns=["lesson_date"])
+    return load_table_filtered(
+        "classes",
+        columns="lesson_date",
+        filters=[("gte", "lesson_date", start_date_iso)],
+        limit=5000,
+        page_size=500,
+        order_by="lesson_date",
+        order_desc=True,
+    )
+
+
+register_cache(_load_notification_classes_frame)
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_notification_payments_frame(uid: str, start_date_iso: str) -> pd.DataFrame:
+    if not uid:
+        return pd.DataFrame(columns=["payment_date", "paid_amount"])
+    return load_table_filtered(
+        "payments",
+        columns="payment_date,paid_amount",
+        filters=[("gte", "payment_date", start_date_iso)],
+        limit=5000,
+        page_size=500,
+        order_by="payment_date",
+        order_desc=True,
+    )
+
+
+register_cache(_load_notification_payments_frame)
+
+
 def _future_events_students_from_events(events: pd.DataFrame | None) -> set[str]:
     if events is None or events.empty:
         return set()
@@ -224,7 +263,8 @@ def _today_classes_logged_count_from_classes(classes: pd.DataFrame | None) -> in
 
 
 def _today_classes_logged_count() -> int:
-    classes = load_table("classes")
+    today = today_local()
+    classes = _load_notification_classes_frame(_uid(), today.isoformat())
     return _today_classes_logged_count_from_classes(classes)
 
 
@@ -242,7 +282,9 @@ def _payments_this_month_from_frame(payments: pd.DataFrame | None) -> pd.DataFra
 
 
 def _payments_this_month() -> pd.DataFrame:
-    payments = load_table("payments")
+    today = today_local()
+    month_start = today.replace(day=1).isoformat()
+    payments = _load_notification_payments_frame(_uid(), month_start)
     return _payments_this_month_from_frame(payments)
 
 
@@ -257,7 +299,9 @@ def _payments_this_year_from_frame(payments: pd.DataFrame | None) -> pd.DataFram
 
 
 def _payments_this_year() -> pd.DataFrame:
-    payments = load_table("payments")
+    today = today_local()
+    year_start = f"{today.year}-01-01"
+    payments = _load_notification_payments_frame(_uid(), year_start)
     return _payments_this_year_from_frame(payments)
 
 
@@ -274,7 +318,9 @@ def _classes_this_week_count_from_frame(classes: pd.DataFrame | None) -> int:
 
 
 def _classes_this_week_count() -> int:
-    classes = load_table("classes")
+    today = pd.Timestamp(today_local())
+    week_start = (today - pd.Timedelta(days=today.weekday())).date().isoformat()
+    classes = _load_notification_classes_frame(_uid(), week_start)
     return _classes_this_week_count_from_frame(classes)
 
 
@@ -1054,6 +1100,7 @@ def render_notification_panel(
     *,
     scope: str,
     toggle_key: str,
+    show_all_override: bool | None = None,
 ) -> None:
     _inject_notification_styles()
     if not notifications:
@@ -1063,18 +1110,22 @@ def render_notification_panel(
     unseen = [n for n in notifications if n.get("signature") not in seen]
     unseen_count = len(unseen)
 
-    toggle_col, spacer_col = st.columns([3, 9], gap="small")
-    with toggle_col:
-        show_all = st.toggle(
-            t("notification_show_all"),
-            value=False,
-            key=toggle_key,
-        )
+    if show_all_override is None:
+        toggle_col, spacer_col = st.columns([3, 9], gap="small")
+        with toggle_col:
+            show_all = st.toggle(
+                t("notification_show_all"),
+                value=False,
+                key=toggle_key,
+            )
+        with spacer_col:
+            st.markdown("", unsafe_allow_html=True)
+    else:
+        show_all = bool(show_all_override)
+
     if show_all and unseen_count > 0:
         _mark_seen(scope, [n["signature"] for n in unseen])
         unseen_count = 0
-    with spacer_col:
-        st.markdown("", unsafe_allow_html=True)
 
     if not show_all:
         return
@@ -1120,4 +1171,45 @@ def render_notification_heading(
             + "</div>"
         ),
         unsafe_allow_html=True,
+    )
+
+
+def render_lazy_notification_panel(
+    *,
+    scope: str,
+    toggle_key: str,
+    loader,
+    title_text: str | None = None,
+) -> None:
+    _inject_notification_styles()
+    if title_text is None:
+        title_text = t("notifications")
+
+    st.markdown(
+        (
+            "<div class='classio-notification-panel-heading'>"
+            f"<div class='classio-notification-panel-heading-text'>{html.escape(title_text)}</div>"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+    show_all = st.toggle(
+        t("notification_show_all"),
+        value=False,
+        key=toggle_key,
+    )
+
+    if not show_all:
+        return
+
+    try:
+        notifications = loader() or []
+    except Exception:
+        logger.exception("Notification panel loader failed", extra={"scope": scope, "toggle_key": toggle_key})
+        notifications = []
+    render_notification_panel(
+        notifications,
+        scope=scope,
+        toggle_key=toggle_key,
+        show_all_override=True,
     )

@@ -307,11 +307,12 @@ def _load_public_exams_cached(limit: int = 500) -> pd.DataFrame:
 register_cache(_load_public_exams_cached)
 
 
-def load_public_exams() -> pd.DataFrame:
+def load_public_exams(*, show_errors: bool = True) -> pd.DataFrame:
     try:
         return filter_archived_rows(_load_public_exams_cached())
     except Exception as exc:
-        show_data_load_error(exc)
+        if show_errors:
+            show_data_load_error(exc)
         return pd.DataFrame()
 
 
@@ -342,49 +343,6 @@ def load_exam_record(exam_id) -> dict:
 
 
 register_cache(load_exam_record)
-
-
-def _exam_download_access_allowed(row: dict) -> bool:
-    if not isinstance(row, dict) or not row:
-        return False
-    current_user_id = str(get_current_user_id() or "").strip()
-    owner_id = str(row.get("user_id") or "").strip()
-    if current_user_id and owner_id and current_user_id == owner_id:
-        return True
-    return bool(row.get("is_public"))
-
-
-@st.cache_data(ttl=45, show_spinner=False)
-def _build_exam_card_download_payload(exam_id) -> dict[str, object]:
-    row = load_exam_record(exam_id)
-    if not _exam_download_access_allowed(row):
-        return {}
-
-    exam_data = row.get("exam_data") or {}
-    if isinstance(exam_data, str):
-        try:
-            exam_data = json.loads(exam_data)
-        except Exception:
-            exam_data = {}
-    if not isinstance(exam_data, dict) or not exam_data:
-        return {}
-
-    safe_title = re.sub(r"[^A-Za-z0-9._-]+", "_", str(exam_data.get("title") or row.get("title") or "exam").strip()) or "exam"
-    pdf_bytes = build_exam_pdf_bytes(
-        exam_data,
-        subject=str(row.get("subject") or "").strip(),
-        topic=str(row.get("topic") or "").strip(),
-        learner_stage=str(row.get("learner_stage") or "").strip(),
-        level_or_band=str(row.get("level") or "").strip(),
-    )
-    return {
-        "data": pdf_bytes,
-        "file_name": f"{safe_title}_student.pdf",
-        "mime": "application/pdf",
-    }
-
-
-register_cache(_build_exam_card_download_payload)
 
 
 def _format_exam_dt(value) -> str:
@@ -618,7 +576,7 @@ def render_exam_library_cards(
                 is_owner = str(row.get("user_id") or "").strip() == str(get_current_user_id() or "").strip()
                 show_owner_controls = allow_visibility_toggle or allow_archive_toggle
                 show_delete_control = bool(show_owner_controls and is_owner and is_archived and not _is_public_value(row.get("is_public")))
-                action_cols = st.columns([1, 1, 1, 1, 1, 1] if show_delete_control else ([1, 1, 1, 1, 1] if show_owner_controls else [1, 1, 1]))
+                action_cols = st.columns([1, 1, 1, 1, 1] if show_delete_control else ([1, 1, 1, 1] if show_owner_controls else [1, 1]))
                 with action_cols[0]:
                     if st.button(
                         t("view_exam"),
@@ -642,20 +600,8 @@ def render_exam_library_cards(
                                 require_signup=require_signup,
                                 expand_assign=True,
                             )
-                with action_cols[2]:
-                    download_payload = _build_exam_card_download_payload(exam_id) if exam_id not in (None, "", 0, "0") else {}
-                    st.download_button(
-                        label=t("admin_model_reports_download_button"),
-                        data=download_payload.get("data") or b"",
-                        file_name=str(download_payload.get("file_name") or "exam_student.pdf"),
-                        mime=str(download_payload.get("mime") or "application/pdf"),
-                        key=f"{prefix}_download_{exam_id}",
-                        use_container_width=True,
-                        disabled=not bool(download_payload),
-                        on_click="ignore",
-                    )
                 if show_owner_controls:
-                    with action_cols[3]:
+                    with action_cols[2]:
                         if allow_visibility_toggle and is_owner and str(exam_id or "").strip() and not is_archived:
                             current_public = _is_public_value(row.get("is_public"))
                             toggle_key = re.sub(r"[^A-Za-z0-9._-]+", "_", str(exam_id or "").strip()) or f"{idx}_{col_idx}"
@@ -675,7 +621,7 @@ def render_exam_library_cards(
                                     )
                                     st.rerun()
                                 st.error(t("resource_visibility_update_failed", error=msg))
-                    with action_cols[4]:
+                    with action_cols[3]:
                         if allow_archive_toggle and is_owner and str(exam_id or "").strip():
                             toggle_key = re.sub(r"[^A-Za-z0-9._-]+", "_", str(exam_id or "").strip()) or f"{idx}_{col_idx}"
                             new_archived = st.toggle(
@@ -695,7 +641,7 @@ def render_exam_library_cards(
                                     st.rerun()
                                 st.error(t("resource_archive_update_failed", error=msg))
                     if show_delete_control:
-                        with action_cols[5]:
+                        with action_cols[4]:
                             delete_key_prefix = f"{prefix}_exam_{row_id}_{idx}_{col_idx}"
                             render_archive_delete_button(
                                 row=row,
