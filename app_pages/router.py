@@ -1,3 +1,5 @@
+import logging
+
 import streamlit as st
 from streamlit_option_menu import option_menu
 from typing import Callable
@@ -9,6 +11,8 @@ from core.database import enable_profile_mode
 from auth.auth import render_profile_dialog, sign_out_user
 from helpers.ui_components import trigger_book_rain
 from services.auth_service import current_user_is_admin
+
+logger = logging.getLogger(__name__)
 
 
 def _inject_scrollable_top_nav_styles() -> None:
@@ -108,6 +112,35 @@ def _page_loading_label(page_key: str) -> str:
     return label if label != label_key else page_key.replace("_", " ").title()
 
 
+def _page_render_error_copy() -> tuple[str, str, str]:
+    lang = str(st.session_state.get("ui_lang") or "en").strip().lower()
+    if lang == "es":
+        return (
+            "No pudimos abrir esta sección ahora.",
+            "Inténtalo de nuevo en un momento. Si el problema continúa, vuelve al inicio y entra otra vez.",
+            "Reintentar",
+        )
+    if lang == "tr":
+        return (
+            "Bu bolumu simdi acamadik.",
+            "Lutfen biraz sonra tekrar deneyin. Sorun devam ederse ana sayfaya donup yeniden girin.",
+            "Tekrar dene",
+        )
+    return (
+        "We couldn't open this section right now.",
+        "Please try again in a moment. If the issue continues, return to the home page and open it again.",
+        "Try again",
+    )
+
+
+def _render_page_error_fallback(page_key: str) -> None:
+    title, body, retry_label = _page_render_error_copy()
+    st.error(title)
+    st.caption(body)
+    if st.button(retry_label, key=f"{page_key}_render_retry", use_container_width=False):
+        st.rerun()
+
+
 def _render_page_with_loading(page_key: str, render_fn: Callable[[], None]) -> None:
     label = _page_loading_label(page_key)
     loading_slot = st.empty()
@@ -116,6 +149,16 @@ def _render_page_with_loading(page_key: str, render_fn: Callable[[], None]) -> N
     try:
         render_fn()
         progress.progress(1.0, text=t("section_loading_ready", section=label))
+    except Exception:
+        logger.exception(
+            "Page render failed",
+            extra={
+                "page_key": page_key,
+                "role": str(get_current_user_role() or ""),
+                "user_id": str(get_current_user_id() or ""),
+            },
+        )
+        _render_page_error_fallback(page_key)
     finally:
         loading_slot.empty()
 

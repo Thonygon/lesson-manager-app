@@ -1012,6 +1012,63 @@ def _practice_answers_fingerprint(student_answers: dict[str, str]) -> str:
     return json.dumps(normalized, sort_keys=True, separators=(",", ":"))
 
 
+def _allowed_practice_answer_values(ex_type: str, question, *, extra: dict | None = None) -> Optional[set[str]]:
+    if ex_type == "multiple_choice":
+        options = question.get("options", []) if isinstance(question, dict) else []
+        return {str(option) for option in options if str(option).strip()}
+
+    if ex_type == "true_false":
+        return {"true", "false"}
+
+    if ex_type == "matching":
+        choices = (extra or {}).get("shuffled_options") or _matching_choices_from_questions([question])
+        return {str(choice) for choice in choices if str(choice).strip()}
+
+    if ex_type == "vocabulary" and isinstance(question, dict) and question.get("options"):
+        return {str(option) for option in (question.get("options") or []) if str(option).strip()}
+
+    return None
+
+
+def _sanitize_practice_answer_value(
+    ex_type: str,
+    question,
+    saved_value,
+    *,
+    extra: dict | None = None,
+) -> str:
+    if saved_value is None:
+        return ""
+
+    text_value = str(saved_value)
+    allowed_values = _allowed_practice_answer_values(ex_type, question, extra=extra)
+    if allowed_values is None:
+        return text_value
+    return text_value if text_value in allowed_values else ""
+
+
+def _sanitize_practice_widget_state(
+    ex_type: str,
+    question,
+    q_key: str,
+    *,
+    extra: dict | None = None,
+) -> None:
+    if q_key not in st.session_state:
+        return
+
+    sanitized_value = _sanitize_practice_answer_value(
+        ex_type,
+        question,
+        st.session_state.get(q_key),
+        extra=extra,
+    )
+    if sanitized_value:
+        st.session_state[q_key] = sanitized_value
+    else:
+        st.session_state.pop(q_key, None)
+
+
 def _restore_practice_widget_state_from_answers(
     exercise_data: dict,
     student_answers: dict[str, str],
@@ -1036,7 +1093,15 @@ def _restore_practice_widget_state_from_answers(
         for q_idx in range(len(questions)):
             q_key = f"{session_key}_{ex_idx}_{q_idx}"
             if q_key in student_answers:
-                st.session_state[q_key] = student_answers[q_key]
+                sanitized_value = _sanitize_practice_answer_value(
+                    ex_type,
+                    questions[q_idx] if q_idx < len(questions) else {},
+                    student_answers[q_key],
+                )
+                if sanitized_value:
+                    st.session_state[q_key] = sanitized_value
+                else:
+                    st.session_state.pop(q_key, None)
 
 
 def autosave_practice_draft_if_needed(
@@ -1217,6 +1282,7 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
             correct = correct_answers[q_idx] if q_idx < len(correct_answers) else ""
             total_q += 1
 
+            _sanitize_practice_widget_state(ex_type, question, q_key, extra=extra)
             student_ans = _render_single_question(
                 ex_type, question, correct, q_key, q_idx, is_submitted,
                 extra=extra,
