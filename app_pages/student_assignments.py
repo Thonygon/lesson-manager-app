@@ -11,6 +11,7 @@ from core.state import get_current_user_id
 from helpers.practice_engine import exam_to_exercises, worksheet_to_exercises
 from helpers.practice_engine import load_in_progress_practice_session, load_practice_draft_answers, normalize_exercise_data_for_web
 from helpers.visual_support import enrich_exam_with_visuals, enrich_worksheet_with_visuals, exam_has_ready_visuals, worksheet_has_ready_visuals
+from helpers.quick_exam_storage import load_exam_record
 from helpers.teacher_student_integration import (
     _clean_teacher_feedback_text,
     group_assignments_by_teacher_subject,
@@ -26,6 +27,8 @@ from helpers.learning_programs import load_enriched_program_assignments_for_curr
 from helpers.empty_states import render_empty_state
 from helpers.resource_gallery import extract_gallery_image_url, inject_resource_gallery_styles, render_gallery_card_html
 from helpers.video_library import load_video_record
+from helpers.worksheet_builder import normalize_worksheet_output
+from helpers.worksheet_storage import load_worksheet_record
 
 _STUDENT_PAGE_SIZE = 6
 
@@ -225,6 +228,14 @@ def _load_source_exam(source_record_id):
         return {}
 
 
+def _load_source_exam_bundle(source_record_id) -> tuple[dict, dict]:
+    safe_source_id = _normalize_source_record_id(source_record_id)
+    if safe_source_id in (None, "", 0, "0"):
+        return {}, {}
+    row = load_exam_record(safe_source_id) or {}
+    return dict(row.get("exam_data") or {}), dict(row.get("answer_key") or {})
+
+
 def _load_source_video(source_record_id):
     safe_source_id = _normalize_source_record_id(source_record_id)
     if safe_source_id in (None, "", 0, "0"):
@@ -247,15 +258,23 @@ def _open_assignment_practice(row: dict) -> None:
 
     exercise_data = {}
     if assignment_type == "worksheet":
-        worksheet = dict(snapshot.get("worksheet") or {})
+        worksheet = normalize_worksheet_output(dict(snapshot.get("worksheet") or {}))
         if not worksheet_has_ready_visuals(worksheet):
             source_worksheet = _load_source_worksheet(source_record_id)
             if worksheet_has_ready_visuals(source_worksheet):
-                worksheet = source_worksheet
+                worksheet = normalize_worksheet_output(source_worksheet)
                 snapshot["worksheet"] = worksheet
                 persist_assignment_content_snapshot(int(assignment_id), snapshot)
         # Visuals are generated once at creation time; no re-enrichment here
         exercise_data = worksheet_to_exercises(worksheet, row_id=assignment_id)
+        if not exercise_data.get("exercises") and source_record_id:
+            source_row = load_worksheet_record(source_record_id) or {}
+            source_worksheet = normalize_worksheet_output(dict(source_row.get("worksheet_json") or {}))
+            if source_worksheet:
+                exercise_data = worksheet_to_exercises(source_worksheet, row_id=assignment_id)
+                if exercise_data.get("exercises"):
+                    snapshot["worksheet"] = source_worksheet
+                    persist_assignment_content_snapshot(int(assignment_id), snapshot)
     elif assignment_type == "exam":
         exam_data = dict(snapshot.get("exam_data") or {})
         if not exam_has_ready_visuals(exam_data):
@@ -265,8 +284,16 @@ def _open_assignment_practice(row: dict) -> None:
                 snapshot["exam_data"] = exam_data
                 persist_assignment_content_snapshot(int(assignment_id), snapshot)
         # Visuals are generated once at creation time; no re-enrichment here
-        answer_key = snapshot.get("answer_key") or {}
+        answer_key = dict(snapshot.get("answer_key") or {})
         exercise_data = exam_to_exercises(exam_data, answer_key, row_id=assignment_id)
+        if not exercise_data.get("exercises") and source_record_id:
+            source_exam_data, source_answer_key = _load_source_exam_bundle(source_record_id)
+            if source_exam_data:
+                exercise_data = exam_to_exercises(source_exam_data, source_answer_key, row_id=assignment_id)
+                if exercise_data.get("exercises"):
+                    snapshot["exam_data"] = source_exam_data
+                    snapshot["answer_key"] = source_answer_key
+                    persist_assignment_content_snapshot(int(assignment_id), snapshot)
 
     if not exercise_data.get("exercises"):
         st.warning(t("no_exercises_available"))
