@@ -1,5 +1,65 @@
 import unittest
 from unittest.mock import patch
+import sys
+import types
+
+if "streamlit" not in sys.modules:
+    def _cache_data(*args, **kwargs):
+        def decorator(fn):
+            fn.clear = lambda: None
+            return fn
+        return decorator
+
+    sys.modules["streamlit"] = types.SimpleNamespace(
+        session_state={},
+        secrets={},
+        cache_data=_cache_data,
+        cache_resource=_cache_data,
+        error=lambda *args, **kwargs: None,
+        stop=lambda: (_ for _ in ()).throw(RuntimeError("streamlit.stop")),
+        markdown=lambda *args, **kwargs: None,
+        caption=lambda *args, **kwargs: None,
+        columns=lambda *args, **kwargs: [],
+        button=lambda *args, **kwargs: False,
+        selectbox=lambda *args, **kwargs: "",
+        dataframe=lambda *args, **kwargs: None,
+        info=lambda *args, **kwargs: None,
+        success=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        toggle=lambda *args, **kwargs: False,
+        checkbox=lambda *args, **kwargs: False,
+        text_input=lambda *args, **kwargs: "",
+        text_area=lambda *args, **kwargs: "",
+        form=lambda *args, **kwargs: types.SimpleNamespace(__enter__=lambda self: self, __exit__=lambda self, exc_type, exc, tb: False),
+        form_submit_button=lambda *args, **kwargs: False,
+        rerun=lambda: None,
+        query_params={},
+    )
+else:
+    streamlit_mod = sys.modules["streamlit"]
+    if not isinstance(streamlit_mod, types.ModuleType):
+        module = types.ModuleType("streamlit")
+        for name in dir(streamlit_mod):
+            if name.startswith("__"):
+                continue
+            setattr(module, name, getattr(streamlit_mod, name))
+        sys.modules["streamlit"] = module
+        streamlit_mod = module
+    if not hasattr(streamlit_mod, "cache_resource"):
+        def _cache_data(*args, **kwargs):
+            def decorator(fn):
+                fn.clear = lambda: None
+                return fn
+            return decorator
+        setattr(streamlit_mod, "cache_resource", _cache_data)
+
+if "streamlit.components" not in sys.modules:
+    components_v1 = types.SimpleNamespace(html=lambda *args, **kwargs: None)
+    sys.modules["streamlit.components"] = types.SimpleNamespace(v1=components_v1)
+    sys.modules["streamlit.components.v1"] = components_v1
+
+if "openai" not in sys.modules:
+    sys.modules["openai"] = types.SimpleNamespace(OpenAI=object)
 
 from app_pages import admin
 from helpers import dashboard

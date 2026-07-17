@@ -1,0 +1,140 @@
+{
+  "dataset": {
+    "data_fingerprint": "2e2973e26148420c255bec1a2f49e6d66a73ed1a33fc40acd5734843458b10cf",
+    "date_range": {
+      "assigned_at_max": "2026-07-12T13:51:10.714517+00:00",
+      "assigned_at_min": "2026-04-10T11:54:00.263328+00:00"
+    },
+    "excluded_row_count": 2,
+    "exclusion_reasons": {
+      "included": 125,
+      "observation_window_open": 2
+    },
+    "extracted_at": "2026-07-17T15:00:00.138842+00:00",
+    "feature_schema_version": "assigned_resource_open_7d.v1",
+    "frozen_dataset_path": "reports/ml_architecture/assigned_resource_open_7d/runs/866777f1db54/assigned_resource_open_7d_dataset_frozen.csv",
+    "included_row_count": 125,
+    "negative_count": 53,
+    "positive_count": 72,
+    "resource_count": 60,
+    "run_id": "866777f1db54",
+    "source_row_count": 127,
+    "student_count": 15,
+    "teacher_count": 1
+  },
+  "evaluation": {
+    "best_precision_recall_ranking": "RandomForestClassifier",
+    "best_thresholded_classifier": "RandomForestClassifier",
+    "calibration_leader": "RandomForestClassifier",
+    "cutoff_timestamp": "2026-06-30T17:56:21.615697+00:00",
+    "development_count": 100,
+    "development_negative_count": 40,
+    "development_positive_count": 60,
+    "feature_names": [
+      "assignment_type",
+      "source_type",
+      "subject_key",
+      "topic",
+      "assignment_weekday",
+      "assignment_hour_bucket",
+      "resource_topic",
+      "resource_type",
+      "resource_learner_stage",
+      "resource_level",
+      "resource_language",
+      "recommendation_bucket",
+      "recommendation_focus_kind",
+      "assignment_hour",
+      "assignment_is_weekend",
+      "is_program_assignment",
+      "student_stage_known",
+      "student_level_known",
+      "resource_title_length",
+      "resource_public_flag",
+      "prior_student_mature_assignment_count",
+      "prior_student_assignment_open_rate",
+      "prior_student_completion_rate",
+      "prior_student_practice_session_count",
+      "prior_student_avg_practice_score",
+      "prior_days_since_student_activity",
+      "prior_teacher_mature_assignment_count",
+      "prior_teacher_assignment_open_rate",
+      "prior_resource_mature_assignment_count",
+      "prior_resource_open_rate"
+    ],
+    "holdout_count": 25,
+    "holdout_negative_count": 13,
+    "holdout_positive_count": 12,
+    "limitations": [
+      "Only one teacher is represented in the mature labelled dataset, so cross-teacher generalization cannot be established.",
+      "The mature labelled sample is small, so all comparisons should be treated as exploratory with high variance."
+    ],
+    "maturity_verdict": "EXPLORATORY_ONLY",
+    "overall_evidence_strength": "insufficient_to_establish_clear_winner",
+    "primary_metric_leader": "RandomForestClassifier",
+    "sklearn_available": true,
+    "sklearn_error": "",
+    "status": "ok",
+    "threshold_analysis_post_hoc_exploratory": true,
+    "winner": "NO_ROBUST_WINNER"
+  },
+  "feature_schema_version": "assigned_resource_open_7d.v1",
+  "generated_at": "2026-07-17T15:00:00.138842+00:00",
+  "review": {
+    "all_artifacts_share_data_fingerprint": true,
+    "all_artifacts_share_run_id": true,
+    "feature_health": [
+      {
+        "development_missing_percentage": 40.0,
+        "excluded_from_logistic_regression_reduced": false,
+        "feature": "prior_student_assignment_open_rate",
+        "first_available_assigned_at": "2026-04-17T15:52:01.581766+00:00",
+        "holdout_missing_percentage": 0.0,
+        "missingness_explanation": "No identifier mismatch was found. Missing values are produced by the feature-construction rule that only uses strictly earlier mature history. For early assignments there is no mature prior history yet; resource-level sparsity is especially severe for prior_resource_open_rate.",
+        "overall_missing_percentage": 31.5,
+        "was_imputed": true
+      },
+      {
+        "development_missing_percentage": 28.0,
+        "excluded_from_logistic_regression_reduced": false,
+        "feature": "prior_teacher_assignment_open_rate",
+        "first_available_assigned_at": "2026-04-17T15:52:01.581766+00:00",
+        "holdout_missing_percentage": 0.0,
+        "missingness_explanation": "No identifier mismatch was found. Missing values are produced by the feature-construction rule that only uses strictly earlier mature history. For early assignments there is no mature prior history yet; resource-level sparsity is especially severe for prior_resource_open_rate.",
+        "overall_missing_percentage": 22.05,
+        "was_imputed": true
+      },
+      {
+        "development_missing_percentage": 70.0,
+        "excluded_from_logistic_regression_reduced": false,
+        "feature": "prior_resource_open_rate",
+        "first_available_assigned_at": "2026-04-20T15:45:51.168634+00:00",
+        "holdout_missing_percentage": 84.0,
+        "missingness_explanation": "No identifier mismatch was found. Missing values are produced by the feature-construction rule that only uses strictly earlier mature history. For early assignments there is no mature prior history yet; resource-level sparsity is especially severe for prior_resource_open_rate.",
+        "overall_missing_percentage": 73.23,
+        "was_imputed": true
+      }
+    ],
+    "final_verdict": "VALIDATED_NO_ROBUST_WINNER",
+    "label_reconciliation": {
+      "audit_documented_counts": {
+        "negative": 53,
+        "positive": 61,
+        "unknown": 13
+      },
+      "exact_row_level_reconciliation_available": true,
+      "legacy_audit_reconciliation_applicable": false,
+      "likely_difference_explanation": "This run was generated by the current Phase 3.6 pipeline, so historical Phase 3.5 audit-count reconciliation is not required for validation.",
+      "phase3_counts": {
+        "negative": 53,
+        "positive": 72,
+        "unknown": 2
+      },
+      "reproduced_with_current_snapshot": false,
+      "reproduced_with_maturity_only_rule": false,
+      "view_only_positive_count": 0
+    },
+    "no_production_decision_recommendation": true
+  },
+  "run_id": "866777f1db54"
+}

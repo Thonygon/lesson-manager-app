@@ -10,6 +10,11 @@ import streamlit as st
 from core.database import load_profile_row
 from core.database import get_sb, register_cache
 from core.state import get_current_user_id, with_owner
+from helpers.exposure_telemetry import (
+    attach_student_recommendation_exposures,
+    lookup_active_exposure_id,
+    record_exposure_event,
+)
 from helpers.recommendation_models import (
     _fit_linear_model,
     _load_student_history_rows,
@@ -422,13 +427,15 @@ def log_student_recommendation_impressions(rows: list[dict[str, Any]], *, surfac
     user_id = str(get_current_user_id() or "").strip()
     if not user_id:
         return
+    annotated_rows = attach_student_recommendation_exposures(safe_rows, surface=surface)
     seen = set(st.session_state.get("_student_reco_impressions_seen") or [])
     payloads = []
-    for item in safe_rows[:12]:
+    for source_item, item in zip(safe_rows[:12], annotated_rows[:12]):
         signature = f"{surface}:{item.get('resource_type')}:{item.get('id')}"
         if item.get("id") in (None, "", 0, "0") or signature in seen:
             continue
         seen.add(signature)
+        source_item["_telemetry_exposure_id"] = item.get("_telemetry_exposure_id")
         payloads.append(
             with_owner(
                 {
@@ -458,6 +465,18 @@ def log_student_recommendation_open(item: dict[str, Any], *, surface: str) -> No
     if signature in seen:
         return
     try:
+        exposure_id = str(item.get("_telemetry_exposure_id") or "").strip()
+        if not exposure_id:
+            exposure_id = lookup_active_exposure_id(
+                f"student_reco:{surface}:{item.get('resource_type')}:{item.get('id')}"
+            )
+        if exposure_id:
+            record_exposure_event(
+                exposure_id=exposure_id,
+                event_type="opened",
+                student_id=str(get_current_user_id() or "").strip(),
+                viewer_user_id=str(get_current_user_id() or "").strip(),
+            )
         get_sb().table("user_activity_log").insert(
             with_owner(
                 {

@@ -17,6 +17,11 @@ from helpers.recommendation_memory import (
     recommendation_context_for_assignment,
     record_recommendation_event,
 )
+from helpers.exposure_telemetry import (
+    ensure_assignment_exposure_for_assignment_id,
+    record_assignment_exposure_from_assignment_row,
+    record_exposure_event,
+)
 
 
 _TEACHER_STUDENT_LINK_COLUMNS = (
@@ -37,12 +42,12 @@ _ASSIGNMENT_LIST_COLUMNS = (
     "subject_key,subject_label,status,due_at,score_pct,total_questions,correct_count,"
     "teacher_note,source_archived,source_archived_at,created_at,updated_at,opened_at,"
     "submitted_at,graded_at,completed_at,learning_program_assignment_id,learning_program_topic_id,"
-    "recommendation_bucket,recommendation_focus_kind,recommendation_context"
+    "recommendation_bucket,recommendation_focus_kind,recommendation_context,resource_exposure_id"
 )
 _ASSIGNMENT_EVENT_COLUMNS = (
     "id,teacher_id,student_id,assignment_type,source_record_id,title,status,opened_at,"
     "learning_program_assignment_id,learning_program_topic_id,recommendation_bucket,"
-    "recommendation_focus_kind,recommendation_context"
+    "recommendation_focus_kind,recommendation_context,resource_exposure_id"
 )
 _ATTEMPT_LIST_COLUMNS = (
     "id,assignment_id,student_id,practice_session_id,attempt_number,status,score_pct,"
@@ -1003,6 +1008,9 @@ def create_teacher_assignment(
                 },
             )
             clear_active_recommendation_context()
+        if assignment_rows:
+            created_row = {**payload, **assignment_rows[0]}
+            record_assignment_exposure_from_assignment_row(created_row)
         clear_app_caches()
         return True, "assignment_created"
     except Exception:
@@ -1212,6 +1220,16 @@ def mark_assignment_started(assignment_id: int) -> None:
             }
         ).eq("id", assignment_id).eq("student_id", uid).in_("status", ["assigned", "overdue"]).execute()
         assignment = rows[0] if rows else {}
+        exposure_id = str(assignment.get("resource_exposure_id") or "").strip() or ensure_assignment_exposure_for_assignment_id(assignment_id)
+        if exposure_id:
+            record_exposure_event(
+                exposure_id=exposure_id,
+                event_type="started",
+                event_at=now,
+                teacher_id=str(assignment.get("teacher_id") or "").strip(),
+                student_id=uid,
+                viewer_user_id=uid,
+            )
         if int(assignment.get("learning_program_assignment_id") or 0) > 0 and int(assignment.get("learning_program_topic_id") or 0) > 0:
             recommendation_context = assignment.get("recommendation_context") or {}
             record_recommendation_event(
@@ -1354,6 +1372,26 @@ def record_video_assignment_watch(assignment_id: int) -> None:
             .eq("student_id", uid)
             .execute()
         )
+        exposure_id = str(assignment.get("resource_exposure_id") or "").strip() or ensure_assignment_exposure_for_assignment_id(assignment_id)
+        if exposure_id:
+            record_exposure_event(
+                exposure_id=exposure_id,
+                event_type="completed",
+                event_at=now,
+                score_pct=100.0,
+                teacher_id=str(assignment.get("teacher_id") or "").strip(),
+                student_id=uid,
+                viewer_user_id=uid,
+            )
+            record_exposure_event(
+                exposure_id=exposure_id,
+                event_type="scored",
+                event_at=now,
+                score_pct=100.0,
+                teacher_id=str(assignment.get("teacher_id") or "").strip(),
+                student_id=uid,
+                viewer_user_id=uid,
+            )
         linked_program_assignment_id = int(assignment.get("learning_program_assignment_id") or 0)
         linked_topic_id = int(assignment.get("learning_program_topic_id") or 0)
         recommendation_context = assignment.get("recommendation_context") or {}
@@ -1465,6 +1503,36 @@ def record_assignment_attempt_from_practice(
         ]
         previous_best = max(previous_scores, default=None)
         improved = previous_best is None or score_pct >= max(previous_best + 8.0, 78.0)
+        exposure_id = str(assignment.get("resource_exposure_id") or "").strip() or ensure_assignment_exposure_for_assignment_id(assignment_id)
+        if exposure_id:
+            record_exposure_event(
+                exposure_id=exposure_id,
+                event_type="completed",
+                event_at=now,
+                score_pct=score_pct,
+                teacher_id=str(assignment.get("teacher_id") or "").strip(),
+                student_id=uid,
+                viewer_user_id=uid,
+            )
+            record_exposure_event(
+                exposure_id=exposure_id,
+                event_type="scored",
+                event_at=now,
+                score_pct=score_pct,
+                teacher_id=str(assignment.get("teacher_id") or "").strip(),
+                student_id=uid,
+                viewer_user_id=uid,
+            )
+            if improved:
+                record_exposure_event(
+                    exposure_id=exposure_id,
+                    event_type="student_improved",
+                    event_at=now,
+                    score_pct=score_pct,
+                    teacher_id=str(assignment.get("teacher_id") or "").strip(),
+                    student_id=uid,
+                    viewer_user_id=uid,
+                )
         linked_program_assignment_id = int(assignment.get("learning_program_assignment_id") or 0)
         linked_topic_id = int(assignment.get("learning_program_topic_id") or 0)
         recommendation_bucket = str(assignment.get("recommendation_bucket") or "").strip()

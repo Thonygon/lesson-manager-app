@@ -35,6 +35,7 @@ from helpers.teacher_student_integration import (
     load_student_review_requests_for_session,
     record_video_assignment_watch,
 )
+from helpers.exposure_telemetry import attach_student_recommendation_exposures
 from helpers.student_recommendations import build_recommended_materials, rank_recommended_materials
 from helpers.student_recommendation_ml import log_student_recommendation_impressions, log_student_recommendation_open
 from helpers.empty_states import render_empty_state
@@ -1468,6 +1469,7 @@ def _render_recommended_materials(pub_ws, pub_ex, pub_videos) -> None:
             "Start with these materials to strengthen weak areas, revisit past topics, and keep moving toward the next level.",
         )
     )
+    recommendations = attach_student_recommendation_exposures(recommendations, surface="student_practice")
     log_student_recommendation_impressions(recommendations, surface="student_practice")
 
     for idx in range(0, len(recommendations), 3):

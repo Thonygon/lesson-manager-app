@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import secrets
 import html as _html
 import math
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ import streamlit as st
 from app_pages.pricing import render_plan_preview_cards
 from core.database import clear_app_caches, get_sb, load_profile_row, upsert_profile_row
 from core.i18n import t
+from core.navigation import go_to
 from core.state import get_current_user_id
 from core.timezone import DEFAULT_TZ_NAME, today_local
 from helpers.explorer_moves import (
@@ -37,6 +39,27 @@ from helpers.recommendation_models import (
     normalized_subject_label,
 )
 from helpers.ui_components import chart_series
+from services.authorization_service import (
+    CAPABILITY_VIEW_TECHNICAL_ARTIFACTS,
+    current_user_can_access_developer_workspace,
+    has_capability,
+)
+from services import eic_service
+from services.eic_display_service import (
+    get_business_action_display,
+    get_component_display_name,
+    get_component_type_display,
+    get_evidence_display,
+    get_experiment_display_name,
+    get_integrity_status_display,
+    get_legacy_report_status_display,
+    get_model_comparison_column_display,
+    get_model_comparison_value_display,
+    get_maturity_display,
+    get_run_status_display,
+    get_staff_role_display,
+)
+from services.eic_report_service import get_or_create_validated_report, list_available_eic_reports
 from services.account_reset_service import (
     RESET_SCOPE_FULL,
     RESET_SCOPE_STUDENT,
@@ -45,6 +68,14 @@ from services.account_reset_service import (
     execute_user_reset,
 )
 from services.auth_service import require_admin
+from services.ml_experiment_service import get_latest_validated_run_summary, list_experiment_catalog
+from services.staff_roles_service import (
+    assign_staff_role,
+    list_staff_role_assignments,
+    recent_staff_role_changes,
+    revoke_staff_role,
+    search_profiles_for_staff_access,
+)
 from services.subscription_service import list_active_plans, list_plan_catalog, reset_usage, update_user_plan
 
 
@@ -56,7 +87,7 @@ ADMIN_SECTIONS = [
     ("operations", "people-fill", "admin_operations"),
     ("pricing", "cash-coin", "admin_pricing"),
     ("subscriptions", "credit-card-2-front-fill", "admin_plans_subscriptions"),
-    ("intelligence", "cpu-fill", "admin_ai_intelligence"),
+    ("ai_intelligence", "cpu-fill", "admin_ai_intelligence"),
     ("explorer_moves", "compass-fill", "admin_explorer_moves"),
     ("business", "graph-up-arrow", "admin_business_analytics"),
     ("audit", "clock-history", "admin_audit_log"),
@@ -65,6 +96,7 @@ ADMIN_SECTIONS = [
 OPERATIONS_TABS = [
     ("accounts", "person-plus-fill", "admin_accounts"),
     ("users", "people-fill", "admin_users"),
+    ("staff_access", "person-lock", "admin_staff_access_title"),
 ]
 _ADMIN_USERS_PAGE_SIZE = 4
 _DEFAULT_PLAN_LABEL_KEYS = {
@@ -330,6 +362,13 @@ def _store_model_report_result(report_state: dict, model_key: str, variant_key: 
     model_state = {**model_state, variant_key: result}
     updated_state = {**report_state, model_key: model_state}
     st.session_state["admin_model_reports"] = updated_state
+
+
+def _load_json_artifact(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 
 
 def _plan_feature_label_map() -> dict[str, str]:
@@ -1443,7 +1482,7 @@ def _build_admin_ai_snapshot() -> dict[str, Any]:
     }
 
 
-def _render_admin_ai_intelligence() -> None:
+def _render_admin_eic() -> None:
     card_col, refresh_col = st.columns([0.76, 0.24], vertical_alignment="center")
     with card_col:
         _render_section_callout(t("admin_ai_intelligence_title"), t("admin_ai_intelligence_subtitle"))
@@ -1618,63 +1657,11 @@ def _render_admin_ai_intelligence() -> None:
 
     with model_tab:
         st.markdown(f"### {t('admin_ai_models_live_title')}")
-        live_models = [
-            {
-                "name": t("admin_ai_model_teacher_recommendations"),
-                "stage": t("admin_ai_model_stage_live"),
-                "goal": t("admin_ai_model_teacher_recommendations_goal"),
-                "signals": t("admin_ai_model_teacher_recommendations_signals"),
-                "output": t("admin_ai_model_teacher_recommendations_output"),
-            },
-            {
-                "name": t("admin_ai_model_student_recommendations"),
-                "stage": t("admin_ai_model_stage_live"),
-                "goal": t("admin_ai_model_student_recommendations_goal"),
-                "signals": t("admin_ai_model_student_recommendations_signals"),
-                "output": t("admin_ai_model_student_recommendations_output"),
-            },
-            {
-                "name": t("admin_ai_model_practice_progress"),
-                "stage": t("admin_ai_model_stage_live"),
-                "goal": t("admin_ai_model_practice_progress_goal"),
-                "signals": t("admin_ai_model_practice_progress_signals"),
-                "output": t("admin_ai_model_practice_progress_output"),
-            },
-            {
-                "name": t("admin_ai_model_review_sync"),
-                "stage": t("admin_ai_model_stage_live"),
-                "goal": t("admin_ai_model_review_sync_goal"),
-                "signals": t("admin_ai_model_review_sync_signals"),
-                "output": t("admin_ai_model_review_sync_output"),
-            },
-            {
-                "name": t("admin_ai_model_recommendation_acceptance"),
-                "stage": t("admin_ai_model_stage_live"),
-                "goal": t("admin_ai_model_recommendation_acceptance_goal"),
-                "signals": t("admin_ai_model_recommendation_acceptance_signals"),
-                "output": t("admin_ai_model_recommendation_acceptance_output"),
-            },
-            {
-                "name": t("admin_ai_model_resource_matching"),
-                "stage": t("admin_ai_model_stage_live"),
-                "goal": t("admin_ai_model_resource_matching_goal"),
-                "signals": t("admin_ai_model_resource_matching_signals"),
-                "output": t("admin_ai_model_resource_matching_output"),
-            },
-        ]
-        live_df = pd.DataFrame(live_models).rename(
-            columns={
-                "name": t("admin_ai_model_name"),
-                "stage": t("admin_ai_model_stage"),
-                "goal": t("admin_ai_model_goal"),
-                "signals": t("admin_ai_model_signals"),
-                "output": t("admin_ai_model_output"),
-            }
-        )
-        st.dataframe(live_df, use_container_width=True, hide_index=True)
+        st.caption("Browse the live intelligence systems running in Classio today. Use the component picker to inspect the current mechanism, product role, evidence maturity, and recommended next action.")
+        _render_admin_intelligence_systems_browser()
 
-        st.markdown(f"### {t('admin_model_reports_title')}")
-        st.caption(t("admin_model_reports_subtitle"))
+        st.markdown(f"### {t('admin_eic_legacy_diagnostics_title')}")
+        st.caption(t("admin_eic_legacy_diagnostics_caption"))
         report_state = st.session_state.get("admin_model_reports") or {}
         admin_profile = load_profile_row(str(get_current_user_id() or "").strip())
         report_lang = str((admin_profile or {}).get("preferred_ui_language") or st.session_state.get("ui_lang") or "en").strip().lower()
@@ -1806,6 +1793,10 @@ def _render_admin_ai_intelligence() -> None:
                         error_text_prefix="",
                         disabled=True,
                     )
+
+        st.markdown("### Validated Supervised Experiment Status")
+        st.caption("The approved assigned-resource experiment now lives in the separate Developer Workspace. Normal Admin keeps only the latest validated summary.")
+        _render_admin_validated_experiment_summary()
 
         st.markdown(f"### {t('admin_ai_models_next_title')}")
         next_models = [
@@ -1993,6 +1984,42 @@ def _inject_admin_styles() -> None:
         .admin-user-stat{border-radius:14px;padding:10px 11px;background:var(--panel);border:1px solid var(--border);}
         .admin-user-stat-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:800;}
         .admin-user-stat-value{margin-top:4px;font-size:.92rem;font-weight:900;color:var(--text);}
+        .admin-eic-header-card{
+            border-radius:24px;padding:22px 22px 18px;margin-top:10px;
+            background:
+              radial-gradient(circle at top right, color-mix(in srgb, var(--primary) 18%, transparent), transparent 36%),
+              radial-gradient(circle at bottom left, rgba(16,185,129,.14), transparent 34%),
+              linear-gradient(180deg, color-mix(in srgb, var(--panel) 96%, white 4%), var(--panel-soft));
+            border:1px solid color-mix(in srgb, var(--border) 84%, var(--primary) 16%);
+            box-shadow:0 14px 32px rgba(15,23,42,.07);
+        }
+        .admin-eic-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
+        .admin-eic-badge{
+            display:inline-flex;align-items:center;border-radius:999px;padding:6px 10px;font-size:.74rem;font-weight:900;
+            border:1px solid color-mix(in srgb, var(--border) 70%, var(--primary) 30%);
+            background:color-mix(in srgb, var(--panel) 88%, white 12%);color:var(--text);
+        }
+        .admin-eic-badge--healthy{background:rgba(16,185,129,.14);color:#047857;border-color:rgba(16,185,129,.28);}
+        .admin-eic-badge--attention{background:rgba(245,158,11,.16);color:#b45309;border-color:rgba(245,158,11,.28);}
+        .admin-eic-badge--collecting{background:rgba(59,130,246,.14);color:#1d4ed8;border-color:rgba(59,130,246,.24);}
+        .admin-eic-badge--restricted{background:rgba(100,116,139,.14);color:#475569;border-color:rgba(100,116,139,.24);}
+        .admin-eic-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:12px;}
+        .admin-eic-card{
+            border-radius:20px;padding:16px 16px 14px;background:linear-gradient(180deg, color-mix(in srgb, var(--panel) 96%, white 4%), var(--panel-soft));
+            border:1px solid var(--border);box-shadow:0 10px 24px rgba(15,23,42,.05);
+        }
+        .admin-eic-card-title{font-size:1rem;font-weight:900;color:var(--text);line-height:1.3;}
+        .admin-eic-card-subtitle{margin-top:6px;color:var(--muted);font-size:.84rem;line-height:1.45;}
+        .admin-eic-card-copy{margin-top:10px;color:var(--text);font-size:.9rem;line-height:1.5;}
+        .admin-eic-card-list{margin:10px 0 0 18px;color:var(--text);font-size:.9rem;line-height:1.55;}
+        .admin-eic-card-list li{margin-bottom:4px;}
+        .admin-eic-card-foot{margin-top:12px;padding-top:10px;border-top:1px solid var(--border);color:var(--muted);font-size:.82rem;line-height:1.45;}
+        .admin-eic-report-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:10px;}
+        .admin-eic-report-note{margin-top:10px;color:var(--muted);font-size:.83rem;line-height:1.45;}
+        .admin-eic-empty{
+            border-radius:18px;padding:14px 16px;background:linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 95%, white 5%), var(--panel));
+            border:1px dashed var(--border);color:var(--muted);
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -2357,6 +2384,877 @@ def _render_users(df: pd.DataFrame) -> None:
                         st.error(msg)
 
 
+def _render_staff_access() -> None:
+    st.markdown(
+        "<div class='admin-section-card'><div class='admin-card-title'>Staff Access</div><div class='admin-card-subtitle'>Assign or revoke technical staff roles without changing the user’s product role.</div></div>",
+        unsafe_allow_html=True,
+    )
+    search_value = st.text_input("Search users", key="admin_staff_access_search", placeholder="Name, email, or user id")
+    users = search_profiles_for_staff_access(search_value, limit=40, cache_bust=str(st.session_state.get("admin_staff_access_refresh_nonce") or 0))
+    if not users:
+        st.info("No matching users found.")
+        return
+
+    options = [
+        f"{str(row.get('display_name') or row.get('email') or 'User').strip()} | {str(row.get('email') or '').strip()} | {str(row.get('user_id') or '').strip()}"
+        for row in users
+    ]
+    picked = st.selectbox("User", options, key="admin_staff_access_user")
+    picked_user_id = picked.rsplit("|", 1)[-1].strip()
+    selected_user = next((row for row in users if str(row.get("user_id") or "").strip() == picked_user_id), {})
+    assignments = list_staff_role_assignments(user_id=picked_user_id, cache_bust=str(st.session_state.get("admin_staff_access_refresh_nonce") or 0))
+    active_assignments = [row for row in assignments if bool(row.get("is_active"))]
+    active_roles = [str(row.get("role_key") or "") for row in active_assignments]
+
+    summary_cols = st.columns(4, gap="small")
+    summary_cards = [
+        ("Product Role", _role_display_label(str(selected_user.get("role") or "teacher"))),
+        ("Primary Role", _role_display_label(str(selected_user.get("primary_role") or str(selected_user.get("role") or "teacher")))),
+        ("Active Staff Roles", ", ".join(active_roles) if active_roles else "None"),
+        ("User ID", picked_user_id or "n/a"),
+    ]
+    for col, (label, value) in zip(summary_cols, summary_cards):
+        with col:
+            st.markdown(
+                f"""
+                <div class="admin-kpi-card">
+                    <div class="admin-kpi-label">{_html.escape(label)}</div>
+                    <div class="admin-kpi-value" style="font-size:1rem;">{_html.escape(value)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.caption("Technical staff roles are additive. They do not replace teacher, student, admin, or school roles.")
+    st.markdown("#### Active Technical Roles")
+    if active_assignments:
+        st.dataframe(
+            pd.DataFrame(active_assignments)[["role_key", "assigned_at", "assigned_by", "assignment_reason"]],
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.info("This user has no active technical staff roles.")
+
+    assign_col, revoke_col = st.columns(2, gap="large")
+    with assign_col:
+        st.markdown("##### Assign Role")
+        with st.form("admin_staff_access_assign_form"):
+            role_key = st.selectbox("Staff role", ["developer", "data_scientist"], key="admin_staff_access_assign_role")
+            reason = st.text_area("Assignment reason", key="admin_staff_access_assign_reason")
+            confirm = st.checkbox("I confirm that I want to assign this technical staff role.", key="admin_staff_access_assign_confirm")
+            submitted = st.form_submit_button("Assign technical role", type="primary")
+            if submitted:
+                if not confirm:
+                    st.error("Explicit confirmation is required before assigning a staff role.")
+                else:
+                    ok, message = assign_staff_role(target_user_id=picked_user_id, role_key=role_key, assignment_reason=reason)
+                    if ok:
+                        st.success(message)
+                        st.session_state["admin_staff_access_refresh_nonce"] = int(st.session_state.get("admin_staff_access_refresh_nonce") or 0) + 1
+                        st.rerun()
+                    else:
+                        st.error(message)
+    with revoke_col:
+        st.markdown("##### Revoke Role")
+        revoke_options = {
+            f"{str(row.get('role_key') or '')} | assigned {str(row.get('assigned_at') or '')}": row
+            for row in active_assignments
+        }
+        with st.form("admin_staff_access_revoke_form"):
+            revoke_label = st.selectbox("Active assignment", list(revoke_options.keys()) or ["No active role"], key="admin_staff_access_revoke_role")
+            reason = st.text_area("Revocation reason", key="admin_staff_access_revoke_reason")
+            confirm = st.checkbox("I confirm that I want to revoke this active technical staff role.", key="admin_staff_access_revoke_confirm")
+            submitted = st.form_submit_button("Revoke technical role", type="secondary", disabled=not bool(revoke_options))
+            if submitted:
+                if not confirm:
+                    st.error("Explicit confirmation is required before revoking a staff role.")
+                else:
+                    target_row = revoke_options.get(revoke_label) or {}
+                    ok, message = revoke_staff_role(
+                        assignment_id=target_row.get("id"),
+                        target_user_id=picked_user_id,
+                        role_key=str(target_row.get("role_key") or ""),
+                        revoke_reason=reason,
+                    )
+                    if ok:
+                        st.success(message)
+                        st.session_state["admin_staff_access_refresh_nonce"] = int(st.session_state.get("admin_staff_access_refresh_nonce") or 0) + 1
+                        st.rerun()
+                    else:
+                        st.error(message)
+
+    st.markdown("#### Recent Staff Role Changes")
+    changes = recent_staff_role_changes(limit=25)
+    if changes:
+        st.dataframe(
+            pd.DataFrame(changes)[["user_id", "role_key", "is_active", "assigned_at", "assigned_by", "revoked_at", "revoked_by", "assignment_reason"]],
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.info("No staff-role changes have been recorded yet.")
+
+
+def _render_admin_validated_experiment_summary() -> None:
+    validated = get_latest_validated_run_summary(cache_bust=str(st.session_state.get("admin_ai_validated_refresh_nonce") or 0))
+    cards = st.columns(4, gap="small")
+    values = [
+        ("Validated Run", str(validated.get("run_id") or "No validated run yet")),
+        ("Run Status", str(validated.get("run_status") or "No validated run yet")),
+        ("Integrity", str(validated.get("integrity_status") or "n/a")),
+        ("Primary Leader", str(validated.get("primary_metric_leader") or "n/a")),
+    ]
+    for col, (label, value) in zip(cards, values):
+        with col:
+            st.markdown(
+                f"""
+                <div class="admin-kpi-card">
+                    <div class="admin-kpi-label">{_html.escape(label)}</div>
+                    <div class="admin-kpi-value" style="font-size:1rem;">{_html.escape(value)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+    if validated:
+        st.caption(
+            "Latest validated summary: "
+            f"{int(validated.get('included_row_count') or 0)} mature labels, "
+            f"{int(validated.get('positive_label_count') or 0)} positives, "
+            f"{int(validated.get('negative_label_count') or 0)} negatives."
+        )
+    else:
+        st.info("No validated run yet.")
+    if current_user_can_access_developer_workspace():
+        if st.button("Open Developer Workspace", key="admin_open_developer_workspace", use_container_width=False):
+            go_to("developer_workspace")
+            st.rerun()
+
+
+def _admin_clean_text(value: Any) -> str:
+    return " ".join(str(value or "").split()).strip()
+
+
+def _translate_eic_value(value: str) -> str:
+    safe_value = _admin_clean_text(value)
+    key = f"admin_eic_value_{safe_value.lower()}"
+    translated = t(key)
+    return translated if translated != key else safe_value
+
+
+def _decision_action_key(action: str) -> str:
+    mapping = {
+        "Continue collecting data": "admin_eic_action_continue_collecting_data",
+        "Reevaluate later": "admin_eic_action_reevaluate_later",
+        "Maintain current logic": "admin_eic_action_maintain_current_logic",
+        "Improve exposure matching": "admin_eic_action_improve_exposure_matching",
+        "continue_collecting_data": "admin_eic_action_continue_collecting_data",
+        "reevaluate_later": "admin_eic_action_reevaluate_later",
+        "maintain_current_logic": "admin_eic_action_maintain_current_logic",
+        "improve_exposure_matching": "admin_eic_action_improve_exposure_matching",
+        "expand_teacher_coverage": "admin_eic_action_expand_teacher_coverage",
+        "Continue telemetry collection before supervised training.": "admin_eic_action_continue_collecting_data",
+        "Keep as heuristic-plus-affinity ranker.": "admin_eic_action_maintain_current_logic",
+        "Keep as feature engineering, not as a standalone ML claim.": "admin_eic_action_maintain_current_logic",
+        "Retire the acceptance framing until real labels exist.": "admin_eic_action_continue_collecting_data",
+        "Expand teacher coverage and continue collecting labels.": "admin_eic_action_expand_teacher_coverage",
+        "Maintain current logic and monitor data quality.": "admin_eic_action_maintain_current_logic",
+        "Maintain deterministic logic.": "admin_eic_action_maintain_current_logic",
+        "Improve exposure matching and grow real usage.": "admin_eic_action_improve_exposure_matching",
+        "Maintain and monitor.": "admin_eic_action_maintain_current_logic",
+    }
+    return mapping.get(_admin_clean_text(action), "admin_eic_action_reevaluate_later")
+
+
+def _telemetry_percent(value: Any) -> str:
+    try:
+        return f"{round(float(value or 0.0) * 100.0, 1)}%"
+    except Exception:
+        return "0.0%"
+
+
+def _legacy_report_rows() -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for spec in MODEL_REPORT_SPECS:
+        report_dir = Path("reports") / str(spec.get("report_dir") or spec["key"])
+        rows.append(
+            {
+                t("admin_eic_legacy_name"): t(spec["label_key"]),
+                t("admin_eic_legacy_status"): get_legacy_report_status_display("live" if report_dir.exists() else "planned"),
+                t("admin_eic_legacy_note"): t("admin_eic_legacy_diagnostic_warning"),
+            }
+        )
+    return rows
+
+
+def _render_staff_access() -> None:
+    st.markdown(
+        f"<div class='admin-section-card'><div class='admin-card-title'>{_html.escape(t('admin_staff_access_title'))}</div><div class='admin-card-subtitle'>{_html.escape(t('admin_staff_access_subtitle'))}</div></div>",
+        unsafe_allow_html=True,
+    )
+    search_value = st.text_input(
+        t("admin_staff_access_search_users"),
+        key="admin_staff_access_search",
+        placeholder=t("admin_staff_access_search_placeholder"),
+    )
+    users = search_profiles_for_staff_access(search_value, limit=40, cache_bust=str(st.session_state.get("admin_staff_access_refresh_nonce") or 0))
+    if not users:
+        st.info(t("admin_staff_access_no_matching_users"))
+        return
+
+    options = [
+        f"{str(row.get('display_name') or row.get('email') or t('admin_staff_access_user_fallback')).strip()} | {str(row.get('email') or '').strip()} | {str(row.get('user_id') or '').strip()}"
+        for row in users
+    ]
+    picked = st.selectbox(t("admin_staff_access_user_label"), options, key="admin_staff_access_user")
+    picked_user_id = picked.rsplit("|", 1)[-1].strip()
+    selected_user = next((row for row in users if str(row.get("user_id") or "").strip() == picked_user_id), {})
+    assignments = list_staff_role_assignments(user_id=picked_user_id, cache_bust=str(st.session_state.get("admin_staff_access_refresh_nonce") or 0))
+    active_assignments = [row for row in assignments if bool(row.get("is_active"))]
+    active_roles = [get_staff_role_display(str(row.get("role_key") or "")) for row in active_assignments]
+
+    summary_cols = st.columns(4, gap="small")
+    summary_cards = [
+        (t("admin_staff_access_product_role"), _role_display_label(str(selected_user.get("role") or "teacher"))),
+        (t("admin_staff_access_primary_role"), _role_display_label(str(selected_user.get("primary_role") or str(selected_user.get("role") or "teacher")))),
+        (t("admin_staff_access_active_roles"), ", ".join(active_roles) if active_roles else t("admin_staff_access_none")),
+        (t("admin_staff_access_user_id"), picked_user_id or "n/a"),
+    ]
+    for col, (label, value) in zip(summary_cols, summary_cards):
+        with col:
+            st.markdown(
+                f"""
+                <div class="admin-kpi-card">
+                    <div class="admin-kpi-label">{_html.escape(label)}</div>
+                    <div class="admin-kpi-value" style="font-size:1rem;">{_html.escape(value)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.caption(t("admin_staff_access_additive_caption"))
+    st.markdown(f"#### {t('admin_staff_access_active_roles_heading')}")
+    if active_assignments:
+        active_df = pd.DataFrame(active_assignments)[["role_key", "assigned_at", "assigned_by", "assignment_reason"]].copy()
+        active_df["role_key"] = active_df["role_key"].astype(str).map(get_staff_role_display)
+        active_df = active_df.rename(
+            columns={
+                "role_key": t("admin_staff_access_role_label"),
+                "assigned_at": t("admin_assigned_at_label"),
+                "assigned_by": t("admin_assigned_by_label"),
+                "assignment_reason": t("admin_staff_access_assignment_reason"),
+            }
+        )
+        st.dataframe(active_df, use_container_width=True, hide_index=True)
+    else:
+        st.info(t("admin_staff_access_no_active_roles"))
+
+    assign_col, revoke_col = st.columns(2, gap="large")
+    with assign_col:
+        st.markdown(f"##### {t('admin_staff_access_assign_heading')}")
+        with st.form("admin_staff_access_assign_form"):
+            staff_role_options = ["developer", "data_scientist"]
+            role_key = st.selectbox(
+                t("admin_staff_access_role_label"),
+                staff_role_options,
+                key="admin_staff_access_assign_role",
+                format_func=get_staff_role_display,
+            )
+            reason = st.text_area(t("admin_staff_access_assignment_reason"), key="admin_staff_access_assign_reason")
+            confirm = st.checkbox(t("admin_staff_access_assign_confirm"), key="admin_staff_access_assign_confirm")
+            submitted = st.form_submit_button(t("admin_staff_access_assign_button"), type="primary")
+            if submitted:
+                if not confirm:
+                    st.error(t("admin_staff_access_assign_confirm_error"))
+                else:
+                    ok, message = assign_staff_role(target_user_id=picked_user_id, role_key=role_key, assignment_reason=reason)
+                    if ok:
+                        st.success(message)
+                        st.session_state["admin_staff_access_refresh_nonce"] = int(st.session_state.get("admin_staff_access_refresh_nonce") or 0) + 1
+                        st.rerun()
+                    st.error(message)
+    with revoke_col:
+        st.markdown(f"##### {t('admin_staff_access_revoke_heading')}")
+        revoke_options = {
+            f"{get_staff_role_display(str(row.get('role_key') or ''))} | {str(row.get('assigned_at') or '')}": row
+            for row in active_assignments
+        }
+        with st.form("admin_staff_access_revoke_form"):
+            revoke_label = st.selectbox(
+                t("admin_staff_access_active_assignment_label"),
+                list(revoke_options.keys()) or [t("admin_staff_access_no_active_role_option")],
+                key="admin_staff_access_revoke_role",
+            )
+            reason = st.text_area(t("admin_staff_access_revocation_reason"), key="admin_staff_access_revoke_reason")
+            confirm = st.checkbox(t("admin_staff_access_revoke_confirm"), key="admin_staff_access_revoke_confirm")
+            submitted = st.form_submit_button(t("admin_staff_access_revoke_button"), type="secondary", disabled=not bool(revoke_options))
+            if submitted:
+                if not confirm:
+                    st.error(t("admin_staff_access_revoke_confirm_error"))
+                else:
+                    target_row = revoke_options.get(revoke_label) or {}
+                    ok, message = revoke_staff_role(
+                        assignment_id=target_row.get("id"),
+                        target_user_id=picked_user_id,
+                        role_key=str(target_row.get("role_key") or ""),
+                        revoke_reason=reason,
+                    )
+                    if ok:
+                        st.success(message)
+                        st.session_state["admin_staff_access_refresh_nonce"] = int(st.session_state.get("admin_staff_access_refresh_nonce") or 0) + 1
+                        st.rerun()
+                    st.error(message)
+
+    st.markdown(f"#### {t('admin_staff_access_recent_changes_heading')}")
+    changes = recent_staff_role_changes(limit=25)
+    if changes:
+        change_df = pd.DataFrame(changes)[["user_id", "role_key", "is_active", "assigned_at", "assigned_by", "revoked_at", "revoked_by", "assignment_reason"]].copy()
+        change_df["role_key"] = change_df["role_key"].astype(str).map(get_staff_role_display)
+        change_df = change_df.rename(
+            columns={
+                "user_id": t("admin_staff_access_user_id"),
+                "role_key": t("admin_staff_access_role_label"),
+                "is_active": t("admin_status_label"),
+                "assigned_at": t("admin_assigned_at_label"),
+                "assigned_by": t("admin_assigned_by_label"),
+                "revoked_at": t("admin_revoked_at_label"),
+                "revoked_by": t("admin_revoked_by_label"),
+                "assignment_reason": t("admin_staff_access_assignment_reason"),
+            }
+        )
+        st.dataframe(change_df, use_container_width=True, hide_index=True)
+    else:
+        st.info(t("admin_staff_access_no_changes"))
+
+
+def _render_admin_validated_experiment_summary() -> None:
+    cache_bust = str(st.session_state.get("admin_eic_refresh_nonce") or 0)
+    catalog = list_experiment_catalog(cache_bust=cache_bust)
+    rows = []
+    validated_options: list[dict[str, str]] = []
+    for item in catalog:
+        validated = dict(item.get("latest_validated_run") or {})
+        experiment_id = str(item.get("experiment_id") or "")
+        experiment_label = str(item.get("display_label") or item.get("name") or "")
+        run_id = str(validated.get("run_id") or "")
+        rows.append(
+            {
+                "Experiment": experiment_label,
+                t("admin_eic_validated_run"): run_id or t("admin_eic_value_none"),
+                t("admin_eic_run_status"): get_run_status_display(str(validated.get("run_status") or "not_available")),
+                t("admin_eic_integrity_status"): get_integrity_status_display(str(validated.get("integrity_status") or "not_run")),
+                t("admin_eic_primary_leader"): str(validated.get("primary_metric_leader") or "n/a"),
+                "Validated Runs": int(item.get("validated_run_count") or 0),
+            }
+        )
+        if experiment_id and run_id:
+            validated_options.append(
+                {
+                    "experiment_id": experiment_id,
+                    "experiment_label": experiment_label,
+                    "run_id": run_id,
+                }
+            )
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    else:
+        st.info(t("admin_eic_empty_no_validated_run"))
+        return
+
+    if not validated_options:
+        return
+
+    st.markdown(
+        f"<div class='admin-section-card' style='margin-top:12px;'><div class='admin-card-title'>{_html.escape(t('admin_eic_summary_reports_title'))}</div><div class='admin-card-subtitle'>{_html.escape(t('admin_eic_summary_reports_caption'))}</div></div>",
+        unsafe_allow_html=True,
+    )
+    selected_experiment_id = st.selectbox(
+        t("admin_eic_summary_reports_experiment_label"),
+        [row["experiment_id"] for row in validated_options],
+        format_func=lambda value: next(
+            (row["experiment_label"] for row in validated_options if row["experiment_id"] == value),
+            value,
+        ),
+        key="admin_eic_summary_report_experiment_id",
+    )
+    selected_option = next((row for row in validated_options if row["experiment_id"] == selected_experiment_id), validated_options[0])
+    selected_run_id = str(selected_option.get("run_id") or "")
+    st.caption(
+        t(
+            "admin_eic_summary_reports_run_caption",
+            experiment=str(selected_option.get("experiment_label") or ""),
+            run_id=selected_run_id or t("admin_eic_value_none"),
+        )
+    )
+    capabilities = {CAPABILITY_VIEW_TECHNICAL_ARTIFACTS} if has_capability(CAPABILITY_VIEW_TECHNICAL_ARTIFACTS) else set()
+    report_rows = list_available_eic_reports(selected_run_id, capabilities, language=_eic_lang())
+    if not report_rows:
+        st.info(t("admin_eic_report_unavailable_no_validated_run"))
+        return
+
+    for start in range(0, len(report_rows), 3):
+        cols = st.columns(3, gap="medium")
+        for col, report in zip(cols, report_rows[start : start + 3]):
+            report_type = str(report.get("report_type") or "")
+            report_status = str(report.get("status") or "not_available")
+            with col:
+                st.markdown(
+                    f"""
+                    <div class="admin-eic-card">
+                        <div class="admin-eic-card-title">{_html.escape(str(report.get('title') or ''))}</div>
+                        <div class="admin-eic-card-subtitle">{_html.escape(str(report.get('description') or ''))}</div>
+                        <div class="admin-eic-meta">{_eic_badge(_eic_report_state_label(report_status), report_status)}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if report_status == "available" and not bool(report.get("download_ready")):
+                    if st.button(
+                        t("admin_eic_report_generate_button"),
+                        key=f"admin_eic_summary_generate_{selected_run_id}_{report_type}",
+                        use_container_width=True,
+                    ):
+                        result = get_or_create_validated_report(selected_run_id, report_type, _eic_lang())
+                        if result.get("ok"):
+                            st.session_state.pop(f"admin_eic_summary_report_error_{selected_run_id}_{report_type}", None)
+                            st.rerun()
+                        st.session_state[f"admin_eic_summary_report_error_{selected_run_id}_{report_type}"] = str(
+                            result.get("message") or t("admin_eic_report_generation_failed")
+                        )
+                        st.rerun()
+                elif report_status == "available" and bool(report.get("download_ready")):
+                    report_path = Path(str(report.get("path") or ""))
+                    st.download_button(
+                        label=t("admin_eic_report_download_button"),
+                        data=report_path.read_bytes(),
+                        file_name=report_path.name,
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True,
+                        key=f"admin_eic_summary_download_{selected_run_id}_{report_type}",
+                    )
+                report_error = st.session_state.get(f"admin_eic_summary_report_error_{selected_run_id}_{report_type}")
+                if report_error:
+                    st.caption(f"{t('admin_eic_report_generation_failed_label')}: {report_error}")
+                elif report_status != "available":
+                    st.caption(f"{t('admin_eic_report_availability_label')}: {_eic_report_state_label(report_status)}")
+
+
+def _eic_lang() -> str:
+    return str(st.session_state.get("ui_lang") or "en")
+
+
+def _eic_status_variant(status: str) -> str:
+    safe = _admin_clean_text(status).lower()
+    if safe in {"healthy", "validated", "production", "direct_observed_data", "validated_evidence_ready"}:
+        return "healthy"
+    if safe in {"collecting_data", "collecting_labels", "experimental", "exploratory", "limited", "partial", "feature_source", "proxy_only", "offline_evaluation"}:
+        return "collecting"
+    if safe in {"restricted", "no_validated_run", "not_available"}:
+        return "restricted"
+    return "attention"
+
+
+def _eic_badge(label: str, status: str) -> str:
+    variant = _eic_status_variant(status)
+    return f"<span class='admin-eic-badge admin-eic-badge--{variant}'>{_html.escape(label)}</span>"
+
+
+def _eic_now_text() -> str:
+    lang = _eic_lang()
+    stamp = datetime.now()
+    if lang == "es":
+        return stamp.strftime("%d/%m/%Y %H:%M")
+    if lang == "tr":
+        return stamp.strftime("%d.%m.%Y %H:%M")
+    return stamp.strftime("%Y-%m-%d %H:%M")
+
+
+def _eic_report_state_label(state: str) -> str:
+    return t(f"admin_eic_report_state_{_admin_clean_text(state).lower() or 'not_available'}")
+
+
+def _render_admin_intelligence_systems_browser(*, cache_bust: str = "", lang: str | None = None, select_key: str = "admin_ai_component_picker") -> None:
+    lang = lang or _eic_lang()
+    portfolio = eic_service.get_intelligence_component_portfolio(cache_bust=cache_bust)
+    component_ids = [str(row.get("component_id") or "") for row in portfolio if str(row.get("component_id") or "").strip()]
+    if not component_ids:
+        st.info(t("admin_ai_empty_data"))
+        return
+
+    selected_component_id = st.selectbox(
+        t("admin_eic_component_picker"),
+        component_ids,
+        format_func=lambda value: get_component_display_name(value, lang=lang),
+        key=select_key,
+    )
+    selected_component = eic_service.get_component_business_detail(selected_component_id, cache_bust=cache_bust)
+    if not selected_component:
+        st.info(t("admin_ai_empty_data"))
+        return
+
+    selected_name = get_component_display_name(selected_component_id, lang=lang)
+    selected_badges = "".join(
+        [
+            _eic_badge(
+                get_component_type_display(str(selected_component.get("component_type") or ""), lang=lang),
+                str(selected_component.get("component_type") or ""),
+            ),
+            _eic_badge(
+                t(f"admin_eic_status_{str(selected_component.get('operational_status') or 'not_available').lower()}"),
+                str(selected_component.get("operational_status") or ""),
+            ),
+            _eic_badge(
+                t(f"admin_eic_status_{str(selected_component.get('data_maturity') or 'not_available').lower()}"),
+                str(selected_component.get("data_maturity") or ""),
+            ),
+            _eic_badge(
+                get_evidence_display(str(selected_component.get("evidence_maturity") or "not_available"), lang=lang),
+                str(selected_component.get("evidence_maturity") or ""),
+            ),
+        ]
+    )
+    st.markdown(
+        f"""
+        <div class='admin-section-card'>
+            <div class='admin-card-title'>{_html.escape(selected_name)}</div>
+            <div class='admin-card-subtitle'>{_html.escape(t('admin_eic_system_detail_subtitle'))}</div>
+            <div class="admin-eic-card" style="margin-top:12px;">
+                <div class="admin-eic-card-title">{_html.escape(selected_name)}</div>
+                <div class="admin-eic-card-subtitle">{_html.escape(str(selected_component.get('business_question') or ''))}</div>
+                <div class="admin-eic-meta">{selected_badges}</div>
+                <div class="admin-eic-card-copy">{_html.escape(str(selected_component.get('production_use') or ''))}</div>
+                <div class="admin-eic-card-foot">
+                    <strong>{_html.escape(t('admin_eic_component_next_action'))}:</strong>
+                    {_html.escape(get_business_action_display(str(selected_component.get('recommended_next_action') or ''), lang=lang))}
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    detail_rows = [
+        (t("admin_eic_component_business_question"), str(selected_component.get("business_question") or "")),
+        (t("admin_eic_component_decision_supported"), str(selected_component.get("decision_supported") or "")),
+        (t("admin_eic_component_operating_mechanism"), get_component_type_display(str(selected_component.get("component_type") or ""), lang=lang)),
+        (t("admin_eic_component_product_surface"), str(selected_component.get("product_surface") or "")),
+        (t("admin_eic_component_educational_value"), str(selected_component.get("educational_value") or "")),
+        (t("admin_eic_component_current_limitation"), str(selected_component.get("limitation") or "")),
+        (t("admin_eic_component_next_action"), get_business_action_display(str(selected_component.get("recommended_next_action") or ""), lang=lang)),
+    ]
+    st.dataframe(pd.DataFrame(detail_rows, columns=[t("admin_field_label"), t("admin_value_label")]), use_container_width=True, hide_index=True)
+    st.caption(
+        t(
+            "admin_eic_component_data_health_caption",
+            rows=str(selected_component.get("relevant_rows") or 0),
+            coverage=str(selected_component.get("date_coverage") or t("admin_eic_status_not_available")),
+            teachers=str(selected_component.get("teachers_represented") or 0),
+            students=str(selected_component.get("students_represented") or 0),
+            resources=str(selected_component.get("resources_represented") or 0),
+        )
+    )
+    st.caption(f"{t('admin_eic_component_outcomes')}: {selected_component.get('outcome_metric') or t('admin_eic_status_not_available')}")
+
+
+def _render_admin_ai_intelligence() -> None:
+    refresh_nonce = int(st.session_state.get("admin_eic_refresh_nonce") or 0)
+    cache_bust = str(refresh_nonce)
+    lang = _eic_lang()
+    summary = eic_service.get_intelligence_business_summary(cache_bust=cache_bust)
+    portfolio = eic_service.get_intelligence_component_portfolio(cache_bust=cache_bust)
+    validated_runs = eic_service.list_validated_experiment_summaries(limit=10, cache_bust=cache_bust)
+    telemetry = eic_service.get_business_telemetry_health(cache_bust=cache_bust)
+    decisions = eic_service.get_prioritized_intelligence_decisions(cache_bust=cache_bust)
+    trend = eic_service.get_evidence_trend(cache_bust=cache_bust)
+    latest_validated = summary.get("latest_validated_run") or {}
+    evidence_label = get_evidence_display(
+        str((latest_validated or {}).get("evidence_level") or (latest_validated or {}).get("evidence_verdict") or "not_available"),
+        lang=lang,
+    )
+    evidence_source_status = str((latest_validated or {}).get("evidence_level") or (latest_validated or {}).get("evidence_verdict") or "not_available")
+    status_badges = [
+        _eic_badge(t("admin_eic_last_refreshed", value=_eic_now_text()), "healthy"),
+        _eic_badge(t("admin_eic_header_validated_badge", value=evidence_label), evidence_source_status),
+    ]
+    if latest_validated.get("run_id"):
+        status_badges.append(
+            _eic_badge(
+                t("admin_eic_header_run_badge", value=get_run_status_display(str(latest_validated.get("run_status") or "not_available"), lang=lang)),
+                str(latest_validated.get("run_status") or "not_available"),
+            )
+        )
+    st.markdown(
+        f"""
+            <div class="admin-eic-header-card">
+            <div class="admin-card-title">{_html.escape(t('admin_eic_title'))}</div>
+            <div class="admin-card-subtitle">{_html.escape(t('admin_eic_subtitle'))}</div>
+            <div class="admin-eic-meta">{''.join(status_badges)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    action_cols = st.columns([0.28, 0.28, 0.44], gap="small")
+    with action_cols[0]:
+        if st.button(t("admin_eic_refresh"), key="admin_eic_refresh", use_container_width=True):
+            clear_app_caches()
+            st.session_state["admin_eic_refresh_nonce"] = refresh_nonce + 1
+            st.rerun()
+    with action_cols[1]:
+        if current_user_can_access_developer_workspace():
+            if st.button(t("admin_eic_open_developer_workspace"), key="admin_eic_open_developer_workspace", use_container_width=True):
+                go_to("developer_workspace")
+                st.rerun()
+        else:
+            st.markdown("", unsafe_allow_html=True)
+
+    overview_tab, systems_tab, evidence_tab, health_tab, decisions_tab, reports_tab = st.tabs(
+        [
+            t("admin_eic_tab_overview"),
+            t("admin_eic_tab_systems"),
+            t("admin_eic_tab_evidence"),
+            t("admin_eic_tab_data_health"),
+            t("admin_eic_tab_decisions"),
+            t("admin_eic_tab_reports"),
+        ]
+    )
+
+    with overview_tab:
+        cards = summary.get("cards") or []
+        if cards:
+            top_rows = []
+            for card in cards[:4]:
+                raw_value = str(card.get("value") or "")
+                if card.get("label") == "evidence_level":
+                    display_value = get_evidence_display(raw_value, lang=lang)
+                elif card.get("label") == "recommended_business_action":
+                    display_value = get_business_action_display(raw_value, lang=lang)
+                else:
+                    display_value = _translate_eic_value(raw_value)
+                top_rows.append((t(f"admin_eic_card_{card['label']}"), display_value))
+            _render_kpi_row(top_rows)
+            st.markdown("<div class='admin-kpi-stack-gap'></div>", unsafe_allow_html=True)
+            lower_rows = []
+            for card in cards[4:8]:
+                raw_value = str(card.get("value") or "")
+                if card.get("label") == "evidence_level":
+                    display_value = get_evidence_display(raw_value, lang=lang)
+                elif card.get("label") == "recommended_business_action":
+                    display_value = get_business_action_display(raw_value, lang=lang)
+                else:
+                    display_value = _translate_eic_value(raw_value)
+                lower_rows.append((t(f"admin_eic_card_{card['label']}"), display_value))
+            _render_kpi_row(lower_rows)
+            st.markdown("<div class='admin-kpi-stack-gap'></div>", unsafe_allow_html=True)
+            with st.expander(t("admin_eic_overview_metric_guide_title"), expanded=False):
+                for card in cards:
+                    label_key = str(card.get("label") or "")
+                    status_key = str(card.get("status") or "not_available")
+                    st.caption(
+                        f"{t(f'admin_eic_card_{label_key}_help')} "
+                        f"({_html.unescape(get_evidence_display(status_key, lang=lang) if label_key == 'evidence_level' else t(f'admin_eic_status_{status_key}'))})"
+                    )
+        top_decision = summary.get("top_decision") or {}
+        if top_decision:
+            st.info(
+                f"{t('admin_eic_current_recommended_action')}: "
+                f"{get_business_action_display(str(top_decision.get('recommended_action') or ''), lang=lang)}"
+            )
+        st.caption(
+            t(
+                "admin_eic_diagnostics_caption",
+                duration=str((summary.get("diagnostics") or {}).get("query_duration_ms") or 0),
+                rows=str((summary.get("diagnostics") or {}).get("rows_fetched") or 0),
+            )
+        )
+
+    with systems_tab:
+        _render_admin_intelligence_systems_browser(cache_bust=cache_bust, lang=lang, select_key="admin_eic_component_picker")
+
+    with evidence_tab:
+        latest_validated = summary.get("latest_validated_run") or {}
+        if latest_validated:
+            _render_admin_validated_experiment_summary()
+            business_detail = eic_service.get_experiment_business_detail(str(latest_validated.get("run_id") or ""), cache_bust=cache_bust)
+            if business_detail:
+                result_rows = [
+                    (t("admin_eic_model_primary_metric_leader"), _admin_clean_text((business_detail.get("model_results") or {}).get("primary_metric_leader")) or "—"),
+                    (t("admin_eic_model_best_thresholded_classifier"), _admin_clean_text((business_detail.get("model_results") or {}).get("best_thresholded_classifier")) or "—"),
+                    (t("admin_eic_model_precision_recall_leader"), _admin_clean_text((business_detail.get("model_results") or {}).get("precision_recall_leader")) or "—"),
+                    (t("admin_eic_model_calibration_leader"), _admin_clean_text((business_detail.get("model_results") or {}).get("calibration_leader")) or "—"),
+                    (
+                        t("admin_eic_model_overall_conclusion"),
+                        get_evidence_display(_admin_clean_text((business_detail.get("model_results") or {}).get("overall_evidence_conclusion")) or "not_available", lang=lang) or "—",
+                    ),
+                    (t("admin_eic_model_robust_winner"), t(f"admin_eic_boolean_{str((business_detail.get('model_results') or {}).get('robust_winner') or 'no')}")),
+                ]
+                st.dataframe(pd.DataFrame(result_rows, columns=[t("admin_field_label"), t("admin_value_label")]), use_container_width=True, hide_index=True)
+                model_rows = (business_detail.get("model_results") or {}).get("models_compared") or []
+                if model_rows:
+                    model_df = pd.DataFrame(model_rows)
+                    for column_name in list(model_df.columns):
+                        model_df[column_name] = model_df[column_name].apply(
+                            lambda value, name=column_name: get_model_comparison_value_display(name, value, lang=lang)
+                        )
+                    model_df = model_df.rename(
+                        columns={column_name: get_model_comparison_column_display(column_name, lang=lang) for column_name in model_df.columns}
+                    )
+                    st.dataframe(model_df, use_container_width=True, hide_index=True)
+        else:
+            st.info(t("admin_eic_empty_no_validated_run"))
+        st.markdown(f"### {t('admin_eic_validated_registry_title')}")
+        if validated_runs:
+            registry_df = pd.DataFrame(
+                [
+                    {
+                        t("admin_eic_registry_run_date"): _format_admin_datetime(row.get("created_at")),
+                        t("admin_eic_registry_experiment"): get_experiment_display_name(str(row.get("experiment_id") or "assigned_resource_open_within_7d"), lang=lang),
+                        t("admin_eic_registry_dataset_size"): int(row.get("included_row_count") or 0),
+                        t("admin_eic_registry_positive_labels"): int(row.get("positive_label_count") or 0),
+                        t("admin_eic_registry_negative_labels"): int(row.get("negative_label_count") or 0),
+                        t("admin_eic_registry_teachers"): int(row.get("teachers_represented") or 0),
+                        t("admin_eic_registry_students"): int(row.get("students_represented") or 0),
+                        t("admin_eic_registry_resources"): int(row.get("resources_represented") or 0),
+                        t("admin_eic_registry_evidence_verdict"): get_evidence_display(str(row.get("evidence_level") or ""), lang=lang),
+                        t("admin_eic_registry_integrity"): get_integrity_status_display(str(row.get("integrity_status") or "not_run"), lang=lang),
+                        t("admin_eic_registry_maturity"): get_maturity_display(str(row.get("maturity_verdict") or ""), lang=lang),
+                        t("admin_eic_registry_leader"): str(row.get("primary_metric_leader") or "—"),
+                        t("admin_eic_registry_action"): get_business_action_display(str(row.get("recommended_business_action") or ""), lang=lang),
+                    }
+                    for row in validated_runs
+                ]
+            )
+            st.dataframe(registry_df, use_container_width=True, hide_index=True)
+        else:
+            st.info(t("admin_eic_empty_no_validated_run"))
+        st.caption(t("admin_eic_trend_available", labels=str((trend.get("observed_differences") or {}).get("mature_label_growth") or 0), teachers=str((trend.get("observed_differences") or {}).get("teacher_coverage_change") or 0)) if trend.get("available") else t("admin_eic_trend_unavailable"))
+
+    with health_tab:
+        telemetry_summary = telemetry.get("summary") or {}
+        _render_kpi_row(
+            [
+                (t("admin_eic_health_total_exposures"), str(telemetry_summary.get("total_canonical_exposures") or 0)),
+                (t("admin_eic_health_matched_open_coverage"), _telemetry_percent(telemetry_summary.get("matched_open_coverage"))),
+                (t("admin_eic_health_unmatched_opens"), str(telemetry_summary.get("unmatched_opens") or 0)),
+                (t("admin_eic_health_downstream_coverage"), _telemetry_percent(telemetry_summary.get("downstream_outcome_coverage"))),
+            ]
+        )
+        st.markdown("<div class='admin-kpi-stack-gap'></div>", unsafe_allow_html=True)
+        _render_kpi_row(
+            [
+                (t("admin_eic_health_mature_outcomes"), str(telemetry_summary.get("mature_outcomes_7d") or 0)),
+                (t("admin_eic_health_represented_teachers"), str(telemetry_summary.get("represented_teachers") or 0)),
+                (t("admin_eic_health_represented_students"), str(telemetry_summary.get("represented_students") or 0)),
+                (t("admin_eic_health_represented_resources"), str(telemetry_summary.get("represented_resources") or 0)),
+            ]
+        )
+        by_surface = telemetry.get("by_surface") or []
+        if by_surface:
+            surface_df = pd.DataFrame(
+                [
+                    {
+                        t("admin_eic_health_surface"): str(row.get("surface") or "—"),
+                        t("admin_eic_health_exposure_type"): str(row.get("exposure_type") or "—"),
+                        t("admin_eic_health_exposures"): int(row.get("exposures") or 0),
+                        t("admin_eic_health_status"): t(f"admin_eic_status_{str(row.get('status') or 'not_available').lower()}"),
+                        t("admin_eic_health_matched_opens"): int(row.get("matched_opens") or 0),
+                        t("admin_eic_health_unmatched_opens"): int(row.get("unmatched_opens") or 0),
+                        t("admin_eic_health_downstream_coverage"): _telemetry_percent(row.get("downstream_outcome_coverage")),
+                    }
+                    for row in by_surface
+                ]
+            )
+            st.dataframe(surface_df, use_container_width=True, hide_index=True)
+        st.caption(
+            t(
+                "admin_eic_health_diagnostics_caption",
+                duration=str((telemetry.get("diagnostics") or {}).get("query_duration_ms") or 0),
+                rows=str((telemetry.get("diagnostics") or {}).get("rows_fetched") or 0),
+            )
+        )
+
+    with decisions_tab:
+        for decision in decisions:
+            st.markdown(
+                f"""
+                <div class="admin-eic-card" style="margin-bottom:12px;">
+                    <div class="admin-eic-card-title">{_html.escape(get_component_display_name(str(decision.get('component_id') or ''), lang=lang))}</div>
+                    <div class="admin-eic-meta">
+                        {_eic_badge(get_business_action_display(str(decision.get('recommended_action') or ''), lang=lang), str(decision.get('recommended_action') or ''))}
+                    </div>
+                    <div class="admin-eic-card-copy"><strong>{_html.escape(str(decision.get('issue') or ''))}</strong></div>
+                    <div class="admin-eic-card-subtitle">{_html.escape(str(decision.get('evidence') or ''))}</div>
+                    <div class="admin-eic-card-foot">{_html.escape(str(decision.get('business_impact') or ''))}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    with reports_tab:
+        if latest_validated:
+            run_id = str(latest_validated.get("run_id") or "")
+            academic = eic_service.get_academic_evidence_summary(run_id, cache_bust=cache_bust)
+            if academic.get("is_final"):
+                academic_rows = [
+                    (t("admin_eic_academic_run_id"), str(academic.get("run_id") or "")),
+                    (t("admin_eic_academic_dataset_fingerprint"), str(academic.get("dataset_fingerprint") or "")),
+                    (t("admin_eic_academic_dataset_size"), str(academic.get("dataset_size") or 0)),
+                    (t("admin_eic_academic_class_balance"), _telemetry_percent(academic.get("class_balance"))),
+                    (t("admin_eic_academic_selected_metric_leader"), str(academic.get("selected_metric_leader") or "—")),
+                    (t("admin_eic_academic_production_readiness"), get_maturity_display(str(academic.get("production_readiness_decision") or ""), lang=lang) or "—"),
+                ]
+                st.dataframe(pd.DataFrame(academic_rows, columns=[t("admin_field_label"), t("admin_value_label")]), use_container_width=True, hide_index=True)
+            capabilities = {CAPABILITY_VIEW_TECHNICAL_ARTIFACTS} if has_capability(CAPABILITY_VIEW_TECHNICAL_ARTIFACTS) else set()
+            report_rows = list_available_eic_reports(run_id, capabilities, language=lang)
+            st.markdown(
+                f"<div class='admin-section-card'><div class='admin-card-title'>{_html.escape(t('admin_eic_reports_title'))}</div><div class='admin-card-subtitle'>{_html.escape(t('admin_eic_reports_subtitle'))}</div></div>",
+                unsafe_allow_html=True,
+            )
+            for start in range(0, len(report_rows), 3):
+                cols = st.columns(3, gap="medium")
+                for col, report in zip(cols, report_rows[start : start + 3]):
+                    report_type = str(report.get("report_type") or "")
+                    report_status = str(report.get("status") or "not_available")
+                    with col:
+                        st.markdown(
+                            f"""
+                            <div class="admin-eic-card">
+                                <div class="admin-eic-card-title">{_html.escape(str(report.get('title') or ''))}</div>
+                                <div class="admin-eic-card-subtitle">{_html.escape(str(report.get('description') or ''))}</div>
+                                <div class="admin-eic-meta">{_eic_badge(_eic_report_state_label(report_status), report_status)}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                        if report_status == "available" and not bool(report.get("download_ready")):
+                            if st.button(t("admin_eic_report_generate_button"), key=f"admin_eic_generate_{run_id}_{report_type}", use_container_width=True):
+                                result = get_or_create_validated_report(run_id, report_type, lang)
+                                if result.get("ok"):
+                                    st.session_state.pop(f"admin_eic_report_error_{report_type}", None)
+                                    st.rerun()
+                                st.session_state[f"admin_eic_report_error_{report_type}"] = str(result.get("message") or t("admin_eic_report_generation_failed"))
+                                st.rerun()
+                        elif report_status == "available" and bool(report.get("download_ready")):
+                            report_path = Path(str(report.get("path") or ""))
+                            st.download_button(
+                                label=t("admin_eic_report_download_button"),
+                                data=report_path.read_bytes(),
+                                file_name=report_path.name,
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                use_container_width=True,
+                                key=f"admin_eic_download_docx_{run_id}_{report_type}",
+                            )
+                        report_error = st.session_state.get(f"admin_eic_report_error_{report_type}")
+                        if report_error:
+                            st.caption(f"{t('admin_eic_report_generation_failed_label')}: {report_error}")
+                        elif report_status != "available":
+                            st.caption(f"{t('admin_eic_report_availability_label')}: {_eic_report_state_label(report_status)}")
+            st.caption(t("admin_eic_report_download_note"))
+        else:
+            st.markdown(f"<div class='admin-eic-empty'>{_html.escape(t('admin_eic_report_unavailable_no_validated_run'))}</div>", unsafe_allow_html=True)
+        with st.expander(t("admin_eic_legacy_diagnostics_title"), expanded=False):
+            st.caption(t("admin_eic_legacy_diagnostics_caption"))
+            st.dataframe(pd.DataFrame(_legacy_report_rows()), use_container_width=True, hide_index=True)
+
+
 def _render_accounts(df: pd.DataFrame) -> None:
     st.markdown(
         f"<div class='admin-section-card'><div class='admin-card-title'>{_html.escape(t('admin_create_account_title'))}</div><div class='admin-card-subtitle'>{_html.escape(t('admin_create_account_subtitle'))}</div></div>",
@@ -2618,14 +3516,17 @@ def _render_operations(df: pd.DataFrame) -> None:
         f"<div class='admin-section-card'><div class='admin-card-title'>{_html.escape(t('admin_operations'))}</div><div class='admin-card-subtitle'>{_html.escape(t('admin_operations_subtitle'))}</div></div>",
         unsafe_allow_html=True,
     )
-    tab_accounts, tab_users = st.tabs([
+    tab_accounts, tab_users, tab_staff_access = st.tabs([
         f"🆕 {t('admin_accounts')}",
         f"👥 {t('admin_users')}",
+        f"🔐 {t('admin_staff_access_title')}",
     ])
     with tab_accounts:
         _render_accounts(df)
     with tab_users:
         _render_users(df)
+    with tab_staff_access:
+        _render_staff_access()
 
 
 def _render_subscriptions(df: pd.DataFrame, events: list[dict]) -> None:
@@ -3250,7 +4151,7 @@ def render_admin() -> None:
         tab_operations,
         tab_pricing,
         tab_subscriptions,
-        tab_intelligence,
+        tab_ai_intelligence,
         tab_explorer_moves,
         tab_business,
         tab_audit,
@@ -3259,7 +4160,7 @@ def render_admin() -> None:
         f"🛠️ {t('admin_operations')}",
         f"💳 {t('admin_pricing')}",
         f"🧾 {t('admin_plans_subscriptions')}",
-        f"🧠 {t('admin_ai_intelligence')}",
+        f"🤖 {t('admin_ai_intelligence')}",
         f"🧭 {t('admin_explorer_moves')}",
         f"📈 {t('admin_business_analytics')}",
         f"🕒 {t('admin_audit_log')}",
@@ -3273,8 +4174,8 @@ def render_admin() -> None:
         _render_pricing_and_plans()
     with tab_subscriptions:
         _render_subscriptions(df, events)
-    with tab_intelligence:
-        _render_admin_ai_intelligence()
+    with tab_ai_intelligence:
+        _render_admin_eic()
     with tab_explorer_moves:
         _render_admin_explorer_moves(df)
     with tab_business:
