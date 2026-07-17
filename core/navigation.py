@@ -14,6 +14,7 @@ PAGES = [
     ("pricing", "pricing", "💎"),
     ("account", "account", "👤"),
     ("admin", "admin", "🛡️"),
+    ("developer_workspace", "Developer Workspace", "🧪"),
 ]
 
 STUDENT_PAGES = [

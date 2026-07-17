@@ -68,6 +68,11 @@ from helpers.recommendation_memory import (
     record_recommendation_event,
     set_active_recommendation_context,
 )
+from helpers.exposure_telemetry import (
+    attach_teacher_objective_exposures,
+    attach_teacher_resource_recommendation_exposures,
+    record_exposure_event,
+)
 from helpers.recommendation_models import score_teacher_resource_candidate
 from helpers.teacher_recommendation_ml import score_teacher_recommendation_objective
 
@@ -359,6 +364,15 @@ def _open_recommended_resource(resource: dict, recommendation_item: dict | None 
     recommendation_item = dict(recommendation_item or {})
     if recommendation_item:
         set_active_recommendation_context(recommendation_item)
+        exposure_id = str(resource.get("_telemetry_exposure_id") or "").strip()
+        if exposure_id:
+            record_exposure_event(
+                exposure_id=exposure_id,
+                event_type="assigned" if assign else "opened",
+                teacher_id=str(get_current_user_id() or "").strip(),
+                student_id=str(recommendation_item.get("student_id") or "").strip(),
+                viewer_user_id=str(get_current_user_id() or "").strip(),
+            )
         record_recommendation_event(
             event_type="resource_assigned" if assign else "resource_opened",
             teacher_id=str(get_current_user_id() or "").strip(),
@@ -1601,6 +1615,11 @@ def _render_recommended_resources_for_item(
             resources = grouped_resources.get(kind) or []
             if not resources:
                 continue
+            resources = attach_teacher_resource_recommendation_exposures(
+                resources,
+                recommendation_item=item,
+                surface=f"{key_prefix}:{kind}",
+            )
             group_label = {
                 "plan": t("recommended_resources_group_plans"),
                 "worksheet": t("recommended_resources_group_practice"),
@@ -1687,6 +1706,10 @@ def _render_recommendations_tab(
         progress_rows=progress_rows,
         program_rows=program_rows,
         selected_subject=selected_subject,
+    )
+    recommendations = attach_teacher_objective_exposures(
+        recommendations,
+        surface=f"teacher_recommendations:{selected_subject or '__all__'}",
     )
     resource_pool = _load_recommendation_resource_pool() if recommendations else []
     filtered_program_count = _teacher_program_count(program_rows, selected_subject)
@@ -1803,6 +1826,15 @@ def _render_recommendations_tab(
                         key=f"reco_plan_{idx}_{offset}_{str(item.get('title') or '')}",
                         use_container_width=True,
                     ):
+                        exposure_id = str(recommendation_payload.get("_telemetry_exposure_id") or "").strip()
+                        if exposure_id:
+                            record_exposure_event(
+                                exposure_id=exposure_id,
+                                event_type="accepted",
+                                teacher_id=str(get_current_user_id() or "").strip(),
+                                student_id=str(recommendation_payload.get("student_id") or "").strip(),
+                                viewer_user_id=str(get_current_user_id() or "").strip(),
+                            )
                         _prefill_smart_tool_from_recommendation(recommendation_payload, "lesson_plan")
                 with action_cols[1]:
                     if st.button(
@@ -1810,6 +1842,15 @@ def _render_recommendations_tab(
                         key=f"reco_ws_{idx}_{offset}_{str(item.get('title') or '')}",
                         use_container_width=True,
                     ):
+                        exposure_id = str(recommendation_payload.get("_telemetry_exposure_id") or "").strip()
+                        if exposure_id:
+                            record_exposure_event(
+                                exposure_id=exposure_id,
+                                event_type="accepted",
+                                teacher_id=str(get_current_user_id() or "").strip(),
+                                student_id=str(recommendation_payload.get("student_id") or "").strip(),
+                                viewer_user_id=str(get_current_user_id() or "").strip(),
+                            )
                         _prefill_smart_tool_from_recommendation(recommendation_payload, "worksheet")
                 with action_cols[2]:
                     if st.button(
@@ -1817,6 +1858,15 @@ def _render_recommendations_tab(
                         key=f"reco_exam_{idx}_{offset}_{str(item.get('title') or '')}",
                         use_container_width=True,
                     ):
+                        exposure_id = str(recommendation_payload.get("_telemetry_exposure_id") or "").strip()
+                        if exposure_id:
+                            record_exposure_event(
+                                exposure_id=exposure_id,
+                                event_type="accepted",
+                                teacher_id=str(get_current_user_id() or "").strip(),
+                                student_id=str(recommendation_payload.get("student_id") or "").strip(),
+                                viewer_user_id=str(get_current_user_id() or "").strip(),
+                            )
                         _prefill_smart_tool_from_recommendation(recommendation_payload, "exam")
                 with action_cols[3]:
                     if st.button(
@@ -1824,6 +1874,15 @@ def _render_recommendations_tab(
                         key=f"reco_done_{idx}_{offset}_{str(item.get('title') or '')}",
                         use_container_width=True,
                     ):
+                        exposure_id = str(recommendation_payload.get("_telemetry_exposure_id") or "").strip()
+                        if exposure_id:
+                            record_exposure_event(
+                                exposure_id=exposure_id,
+                                event_type="completed",
+                                teacher_id=str(get_current_user_id() or "").strip(),
+                                student_id=str(recommendation_payload.get("student_id") or "").strip(),
+                                viewer_user_id=str(get_current_user_id() or "").strip(),
+                            )
                         record_recommendation_event(
                             event_type="teacher_marked_done",
                             teacher_id=str(get_current_user_id() or "").strip(),

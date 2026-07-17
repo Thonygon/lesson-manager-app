@@ -13,6 +13,11 @@ from core.database import _execute_query_with_diagnostics, get_sb, register_cach
 from core.i18n import t
 from core.state import get_current_user_id, with_owner
 from helpers.archive_utils import truthy_flag
+from helpers.exposure_telemetry import (
+    attach_teacher_material_feed_exposures,
+    lookup_active_exposure_id,
+    record_exposure_event,
+)
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -1048,14 +1053,21 @@ def log_teacher_material_impressions(
     safe_rows = [row for row in (rows or []) if isinstance(row, dict)]
     if not safe_rows:
         return
+    annotated_rows = attach_teacher_material_feed_exposures(
+        safe_rows,
+        kind=kind,
+        source=source,
+        surface=surface,
+    )
     seen = set(st.session_state.get("_teacher_material_impression_seen") or [])
     payloads = []
-    for row in safe_rows[:12]:
+    for source_row, row in zip(safe_rows[:12], annotated_rows[:12]):
         row_id = row.get("id")
         signature = f"{surface}:{kind}:{source}:{row_id}"
         if row_id in (None, "", 0, "0") or signature in seen:
             continue
         seen.add(signature)
+        source_row["_telemetry_exposure_id"] = row.get("_telemetry_exposure_id")
         payloads.append(
             with_owner(
                 {
@@ -1094,6 +1106,18 @@ def log_teacher_material_open(
     if signature in seen:
         return
     try:
+        exposure_id = str(row.get("_telemetry_exposure_id") or "").strip()
+        if not exposure_id:
+            exposure_id = lookup_active_exposure_id(
+                f"teacher_material:{surface}:{kind}:{source}:{row.get('id')}"
+            )
+        if exposure_id:
+            record_exposure_event(
+                exposure_id=exposure_id,
+                event_type="opened",
+                teacher_id=str(get_current_user_id() or "").strip(),
+                viewer_user_id=str(get_current_user_id() or "").strip(),
+            )
         get_sb().table("user_activity_log").insert(
             with_owner(
                 {

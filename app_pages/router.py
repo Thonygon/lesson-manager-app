@@ -11,6 +11,7 @@ from core.database import enable_profile_mode
 from auth.auth import render_profile_dialog, sign_out_user
 from helpers.ui_components import trigger_book_rain
 from services.auth_service import current_user_is_admin
+from services.authorization_service import current_user_can_access_developer_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +184,8 @@ def render_top_nav(active_page: str):
         ("profile",   t("profile"),   "person-circle"),
         ("analytics", t("analytics"), "graph-up"),
     ]
+    if current_user_can_access_developer_workspace():
+        more_items.append(("developer_workspace", "Developer Workspace", "cpu"))
     if current_user_is_admin():
         more_items.append(("pricing", t("pricing"), "gem"))
         more_items.append(("account", t("account"), "person-badge"))
@@ -355,6 +358,8 @@ def render_student_top_nav(active_page: str):
     ]
     if current_user_is_admin():
         items.insert(-1, ("switch_admin", t("admin"), "shield-lock"))
+    if current_user_can_access_developer_workspace():
+        items.insert(-1, ("developer_workspace", "Developer Workspace", "cpu"))
 
     keys   = [k for k, _, _ in items]
     labels = [label for _, label, _ in items]
@@ -431,6 +436,9 @@ def render_student_top_nav(active_page: str):
         elif selected_key == "switch_admin":
             st.session_state["student_top_nav_prev"] = active_page
             _switch_role("admin")
+        elif selected_key == "developer_workspace":
+            go_to("developer_workspace")
+            st.rerun()
         elif selected_key != active_page:
             if selected_key == "student_assignments":
                 st.session_state["student_assignments_book_nonce"] = int(st.session_state.get("student_assignments_book_nonce", 0) or 0) + 1
@@ -447,6 +455,8 @@ def render_admin_top_nav(active_page: str):
         ("profile", t("profile"), "person-circle"),
         ("sign_out", t("sign_out"), "box-arrow-right"),
     ]
+    if current_user_can_access_developer_workspace():
+        items.insert(1, ("developer_workspace", "Developer Workspace", "cpu"))
 
     keys = [k for k, _, _ in items]
     labels = [label for _, label, _ in items]
@@ -510,6 +520,9 @@ def render_admin_top_nav(active_page: str):
             _switch_role("teacher")
         elif selected_key == "switch_student":
             _switch_role("student")
+        elif selected_key == "developer_workspace":
+            go_to("developer_workspace")
+            st.rerun()
         elif selected_key != active_page:
             go_to(selected_key)
             st.rerun()
@@ -535,6 +548,10 @@ def _switch_role(target_role: str):
 
 def route_app_pages(page: str):
     role = get_current_user_role()
+
+    if page == "developer_workspace":
+        _route_developer_workspace(page)
+        return
 
     if role == "admin" or page == "admin":
         _route_admin_pages(page)
@@ -675,4 +692,23 @@ def _route_admin_pages(page: str):
     render_admin_top_nav(page)
     _render_profile_dialog_if_requested()
     _render_page_with_loading("admin", render_admin)
+    _render_global_page_divider()
+
+
+def _route_developer_workspace(page: str):
+    from app_pages.developer_workspace import render_developer_workspace
+    from styles.theme import load_css_app
+
+    if page != "developer_workspace":
+        page = "developer_workspace"
+
+    load_css_app(compact=bool(st.session_state.get("compact_mode", False)))
+    if get_current_user_role() == "student":
+        render_student_top_nav(page)
+    elif current_user_is_admin():
+        render_admin_top_nav(page)
+    else:
+        render_top_nav(page)
+    _render_profile_dialog_if_requested()
+    _render_page_with_loading("developer_workspace", render_developer_workspace)
     _render_global_page_divider()

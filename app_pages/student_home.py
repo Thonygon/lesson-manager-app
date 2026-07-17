@@ -12,8 +12,9 @@ from helpers.notifications import (
     render_lazy_notification_panel,
 )
 from helpers.empty_states import render_empty_state
+from helpers.exposure_telemetry import attach_student_recommendation_exposures
 from helpers.quick_exam_storage import load_exam_record, load_public_exams
-from helpers.student_recommendation_ml import log_student_recommendation_open
+from helpers.student_recommendation_ml import log_student_recommendation_impressions, log_student_recommendation_open
 from helpers.student_recommendations import build_recommended_materials
 from helpers.teacher_student_integration import load_student_assignment_by_id, record_video_assignment_watch
 from helpers.video_library import load_public_videos
@@ -428,6 +429,8 @@ def render_student_home():
 
     recommended = _load_student_home_recommendations(str(user_id or ""))
     if recommended:
+        recommended = attach_student_recommendation_exposures(recommended, surface="student_home")
+        log_student_recommendation_impressions(recommended, surface="student_home")
         inject_resource_gallery_styles()
         urgent_review_item = next(
             (
