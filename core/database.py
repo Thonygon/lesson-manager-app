@@ -684,10 +684,40 @@ def profile_can_study(profile: dict) -> bool:
     return get_profile_primary_role(profile) == "student"
 
 
+def profile_can_access_developer_workspace(profile: dict) -> bool:
+    if profile is None:
+        return False
+    role = str((profile or {}).get("role") or "").strip().lower()
+    if role == "admin":
+        return True
+    user_id = str((profile or {}).get("user_id") or "").strip()
+    if not user_id:
+        return False
+    try:
+        rows = (
+            get_sb()
+            .table("user_staff_roles")
+            .select("role_key,is_active")
+            .eq("user_id", user_id)
+            .eq("is_active", True)
+            .execute()
+        ).data or []
+    except Exception:
+        rows = []
+    active_roles = {
+        str(row.get("role_key") or "").strip().lower()
+        for row in rows
+        if bool(row.get("is_active", True))
+    }
+    return bool(active_roles.intersection({"developer", "data_scientist"}))
+
+
 def resolve_active_mode(profile: dict) -> str:
     desired = str((profile or {}).get("last_active_mode") or "").strip().lower()
     if desired == "admin" and str((profile or {}).get("role") or "").strip().lower() == "admin":
         return "admin"
+    if desired == "developer_workspace" and profile_can_access_developer_workspace(profile):
+        return "developer_workspace"
     if desired == "student" and profile_can_study(profile):
         return "student"
     if desired == "teacher" and profile_can_teach(profile):

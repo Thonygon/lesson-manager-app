@@ -3,7 +3,7 @@ import html as _html
 import math
 from core.i18n import t
 from core.state import get_current_user_id, PROFILE_TEACH_LANG_OPTIONS
-from core.database import load_community_profiles, profile_can_teach, profile_can_study
+from core.database import load_community_profiles, load_profile_row, profile_can_teach, profile_can_study, upsert_profile_row
 from helpers.lesson_planner import QUICK_SUBJECTS, subject_label as _subject_label
 from helpers.native_language import native_language_flag_label, native_language_label, normalize_native_language
 from helpers.teacher_student_integration import archive_teacher_student_link, create_teacher_request, load_student_teacher_links
@@ -148,6 +148,38 @@ def _inject_find_teacher_styles() -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def _render_become_teacher_section() -> None:
+    user_id = str(get_current_user_id() or "").strip()
+    profile = load_profile_row(user_id) if user_id else {}
+    if not user_id or profile_can_teach(profile):
+        return
+
+    with st.container(border=True):
+        st.markdown(f"### {t('find_teacher_become_teacher_title')}")
+        st.write(t("find_teacher_become_teacher_body"))
+        action_col, spacer_col = st.columns([1.3, 4], gap="small")
+        with action_col:
+            if st.button(
+                t("find_teacher_become_teacher_cta"),
+                key="find_teacher_become_teacher_cta",
+                use_container_width=True,
+                type="primary",
+            ):
+                ok = upsert_profile_row(
+                    user_id,
+                    {
+                        "can_teach": True,
+                        "can_study": True,
+                    },
+                )
+                if ok:
+                    st.session_state["find_teacher_become_teacher_success"] = True
+                    st.rerun()
+                st.error(t("find_teacher_become_teacher_save_failed"))
+        with spacer_col:
+            st.caption(t("find_teacher_become_teacher_caption"))
 
 
 def render_community_member_cards(profiles: list, role_filter: str = "teacher"):
@@ -445,3 +477,7 @@ def render_student_find_teacher():
             ]
 
     render_community_member_cards(teachers, role_filter="teacher")
+
+    if st.session_state.pop("find_teacher_become_teacher_success", False):
+        st.success(t("find_teacher_become_teacher_success"))
+    _render_become_teacher_section()

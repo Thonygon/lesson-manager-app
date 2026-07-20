@@ -6,6 +6,7 @@ import ast
 import streamlit as st
 import json, os, re
 from core.i18n import t
+from services.ai_usage_service import with_provider_chain
 from translations import I18N
 from helpers.answer_key_utils import normalize_answer_key_text, split_answer_key_items
 from helpers.generation_guidance import (
@@ -948,6 +949,8 @@ def generate_ai_worksheet(
             quality_issues = _worksheet_quality_issues(normalized)
             if quality_issues:
                 raise ValueError("; ".join(quality_issues))
+            if isinstance(normalized, dict):
+                normalized["_ai_provider"] = p
             return normalized
         except Exception as e:
             errors.append(f"{p}: {e}")
@@ -975,11 +978,15 @@ def generate_worksheet_with_limit(
     if not usage["cooldown_ok"]:
         return {}, f"AI cooldown active. Please wait {usage['seconds_left']} seconds."
 
+    provider_order = _lp().get_ai_provider_order()
     try:
         log_ai_usage(
             request_kind="quick_worksheet_ai",
             status="requested",
-            meta={"subject": subject, "topic": topic, "worksheet_type": worksheet_type},
+            meta=with_provider_chain(
+                {"subject": subject, "topic": topic, "worksheet_type": worksheet_type},
+                provider_order,
+            ),
         )
 
         ws = generate_ai_worksheet(
@@ -992,12 +999,13 @@ def generate_worksheet_with_limit(
             student_material_language=get_student_material_language(subject),
             student_profile=student_profile or {},
         )
+        provider = str(ws.pop("_ai_provider", "") or "") if isinstance(ws, dict) else ""
         ws = normalize_worksheet_output(ws)
 
         log_ai_usage(
             request_kind="quick_worksheet_ai",
             status="success",
-            meta={"subject": subject, "topic": topic, "worksheet_type": worksheet_type},
+            meta={"subject": subject, "topic": topic, "worksheet_type": worksheet_type, "provider": provider},
         )
         return ws, None
 
@@ -1005,7 +1013,10 @@ def generate_worksheet_with_limit(
         log_ai_usage(
             request_kind="quick_worksheet_ai",
             status="failed",
-            meta={"subject": subject, "topic": topic, "error": str(e)},
+            meta=with_provider_chain(
+                {"subject": subject, "topic": topic, "worksheet_type": worksheet_type, "error": str(e)},
+                provider_order,
+            ),
         )
         return {}, t("ai_unavailable_fallback")
 

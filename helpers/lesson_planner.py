@@ -16,6 +16,7 @@ from helpers.generation_guidance import (
     infer_subject_family,
 )
 from helpers.student_personalization import build_student_profile_prompt_block
+from services.ai_usage_service import with_provider_chain
 
 # ============================================================
 # Planner constants
@@ -2325,6 +2326,8 @@ def generate_ai_lesson_plan(
             )
             if quality_issues:
                 raise ValueError("; ".join(quality_issues))
+            if isinstance(normalized, dict):
+                normalized["_ai_provider"] = p
             return normalized
         except Exception as e:
             errors.append(f"{p}: {e}")
@@ -2351,27 +2354,47 @@ def generate_quick_lesson_plan_with_fallback(
         )
     )
 
+    template_meta = {
+        "subject": subject,
+        "topic": topic,
+        "lesson_purpose": lesson_purpose,
+        "used_ai": False,
+        "generation_mode": "template_only",
+    }
     if str(mode).strip().lower() != "ai":
+        try:
+            from helpers.planner_storage import log_ai_usage
+
+            log_ai_usage("quick_lesson_ai", "success", template_meta)
+        except Exception:
+            pass
         return template_plan, "template", None
 
     from helpers.planner_storage import get_ai_planner_usage_status, log_ai_usage
     from services.permissions_service import can_use_ai_tool, increment_usage
 
     if not can_use_ai_tool():
+        log_ai_usage("quick_lesson_ai", "success", {**template_meta, "reason": "permission_blocked"})
         return template_plan, "template", t("ai_limit_reached")
 
     usage = get_ai_planner_usage_status()
     if usage["used_today"] >= AI_DAILY_LIMIT:
+        log_ai_usage("quick_lesson_ai", "success", {**template_meta, "reason": "daily_limit_reached"})
         return template_plan, "template", t("ai_limit_reached")
 
     if not usage["cooldown_ok"]:
+        log_ai_usage("quick_lesson_ai", "success", {**template_meta, "reason": "cooldown_active"})
         return template_plan, "template", t("ai_cooldown_active", seconds=usage["seconds_left"])
 
+    provider_order = get_ai_provider_order()
     try:
         log_ai_usage(
             request_kind="quick_lesson_ai",
             status="requested",
-            meta={"subject": subject, "topic": topic, "lesson_purpose": lesson_purpose},
+            meta=with_provider_chain(
+                {"subject": subject, "topic": topic, "lesson_purpose": lesson_purpose},
+                provider_order,
+            ),
         )
 
         ai_plan = generate_ai_lesson_plan(
@@ -2384,12 +2407,13 @@ def generate_quick_lesson_plan_with_fallback(
             student_material_language=get_student_material_language(subject),
             student_profile=student_profile or {},
         )
+        provider = str(ai_plan.pop("_ai_provider", "") or "") if isinstance(ai_plan, dict) else ""
         ai_plan = normalize_planner_output(ai_plan)
 
         log_ai_usage(
             request_kind="quick_lesson_ai",
             status="success",
-            meta={"subject": subject, "topic": topic, "lesson_purpose": lesson_purpose},
+            meta={"subject": subject, "topic": topic, "lesson_purpose": lesson_purpose, "provider": provider},
         )
         increment_usage(None, "ai_generations")
         return ai_plan, "ai", None
@@ -2398,8 +2422,12 @@ def generate_quick_lesson_plan_with_fallback(
         log_ai_usage(
             request_kind="quick_lesson_ai",
             status="failed",
-            meta={"subject": subject, "topic": topic, "lesson_purpose": lesson_purpose, "error": str(e)},
+            meta=with_provider_chain(
+                {"subject": subject, "topic": topic, "lesson_purpose": lesson_purpose, "error": str(e)},
+                provider_order,
+            ),
         )
+        log_ai_usage("quick_lesson_ai", "success", {**template_meta, "reason": "ai_fallback_after_failure"})
         return template_plan, "template", t("ai_unavailable_fallback")
 
 

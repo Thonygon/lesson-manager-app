@@ -8,6 +8,7 @@ import re
 from collections import OrderedDict
 
 from core.i18n import t
+from services.ai_usage_service import with_provider_chain
 from translations import I18N
 from helpers.answer_key_utils import clean_answer_key_item, split_answer_key_items
 from helpers.generation_guidance import (
@@ -1202,6 +1203,8 @@ def generate_ai_exam(
                     learner_stage=learner_stage,
                     topic=topic,
                 )
+            if isinstance(exam_data, dict):
+                exam_data["_ai_provider"] = p
             return exam_data, answer_key
         except Exception as e:
             errors.append(f"{p}: {e}")
@@ -1240,8 +1243,12 @@ def generate_exam_with_limit(
     if not usage["cooldown_ok"]:
         return {}, {}, f"{t('ai_cooldown_active')} ({usage['seconds_left']}s)"
 
+    provider_order = _lp().get_ai_provider_order()
     try:
-        log_exam_ai_usage("requested", {"subject": subject, "topic": topic})
+        log_exam_ai_usage(
+            "requested",
+            with_provider_chain({"subject": subject, "topic": topic}, provider_order),
+        )
 
         exam_data, answer_key = generate_ai_exam(
             subject=subject,
@@ -1256,13 +1263,17 @@ def generate_exam_with_limit(
             student_material_language=get_student_material_language(subject),
             student_profile=student_profile or {},
         )
+        provider = str(exam_data.pop("_ai_provider", "") or "") if isinstance(exam_data, dict) else ""
 
-        log_exam_ai_usage("success", {"subject": subject, "topic": topic})
+        log_exam_ai_usage("success", {"subject": subject, "topic": topic, "provider": provider})
         increment_usage(None, "ai_generations")
         return exam_data, answer_key, None
 
     except Exception as e:
-        log_exam_ai_usage("failed", {"subject": subject, "topic": topic, "error": str(e)})
+        log_exam_ai_usage(
+            "failed",
+            with_provider_chain({"subject": subject, "topic": topic, "error": str(e)}, provider_order),
+        )
         return {}, {}, t("ai_unavailable_fallback")
 
 
@@ -1564,6 +1575,7 @@ def render_quick_exam_builder_expander() -> None:
                     st.session_state["exam_answer_key"] = answer_key
                     st.session_state["exam_kept"] = False
                     st.session_state["exam_warning"] = warning
+                    st.session_state["exam_assign_expanded"] = True
 
                     from helpers.quick_exam_storage import save_exam_record
                     _saved_id = save_exam_record(
@@ -1601,6 +1613,7 @@ def render_quick_exam_builder_expander() -> None:
                 result,
                 ak,
                 allow_assign=True,
+                assign_expanded=bool(st.session_state.get("exam_assign_expanded", False)),
                 resource_record_id=st.session_state.get("exam_record_id"),
                 subject=effective_subject,
                 topic=st.session_state.get("quick_exam_effective_topic") or topic,

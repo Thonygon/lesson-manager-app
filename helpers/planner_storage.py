@@ -15,6 +15,7 @@ from core.i18n import t
 from core.navigation import go_to
 from core.state import get_current_user_id, with_owner
 from core.timezone import get_app_tz, today_local
+from services.ai_usage_service import log_ai_usage_event
 from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
 from helpers.student_personalization import (
     NATIVE_LANGUAGE_OPTIONS,
@@ -1123,16 +1124,7 @@ def log_ai_usage(
     meta: Optional[dict] = None,
 ) -> None:
     try:
-        payload = with_owner(
-            {
-                "feature_name": str(request_kind).strip(),
-                "status": str(status).strip(),
-                "meta_json": meta or {},
-                "created_at": _dt.now(timezone.utc).isoformat(),
-            }
-        )
-        get_sb().table("ai_usage_logs").insert(payload).execute()
-        clear_app_caches()
+        log_ai_usage_event(str(request_kind).strip(), str(status).strip(), meta or {})
     except Exception as e:
         st.warning(f"ai_usage_logs insert failed: {e}")
 
@@ -2196,6 +2188,7 @@ def render_quick_lesson_planner_expander() -> None:
                 st.session_state["quick_lesson_plan_kept"] = False
                 st.session_state["quick_lesson_plan_mode_used"] = resolved_mode
                 st.session_state["quick_lesson_plan_warning"] = warning_msg
+                st.session_state["quick_lesson_plan_assign_expanded"] = True
 
                 if resolved_mode == "ai":
                     _saved_plan_id = save_lesson_plan_record(
@@ -2248,6 +2241,7 @@ def render_quick_lesson_planner_expander() -> None:
                 level_or_band=level_or_band,
                 lesson_purpose=lesson_purpose,
                 topic=st.session_state.get("quick_plan_effective_topic") or topic,
+                assign_expanded=bool(st.session_state.get("quick_lesson_plan_assign_expanded", False)),
                 resource_record_id=st.session_state.get("quick_lesson_plan_record_id"),
             )
 

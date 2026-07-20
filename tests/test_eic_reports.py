@@ -136,6 +136,26 @@ class EICReportServiceTests(unittest.TestCase):
                 "target_version": "opened_within_7d_v1",
                 "feature_schema_version": "phase3_6_v1",
             },
+            "report_context": {
+                "business_problem": "Classio needs to decide whether supervised assignment-follow-through evidence is strong enough to influence future product decisions.",
+                "decision_supported": "Whether to keep the current heuristic workflow or plan a broader supervised follow-up.",
+                "expected_value": "Better prioritization of assignment follow-through interventions.",
+                "product_impact": "Could influence future assignment support prompts in the product.",
+                "success_definition": "Evidence strong enough for a broader controlled follow-up.",
+                "minimum_evidence_required": "More teacher coverage and stable holdout discrimination.",
+                "risks": "Overfitting to one teacher and one slice of behavior.",
+                "next_review_trigger": "Review after broader teacher coverage is reached.",
+                "next_review_date": "2026-08-15",
+                "responsible_person_or_team": "Classio data science and product",
+                "meeting_notes": "Use this report in the next internal ML review.",
+                "created_by": "admin-user",
+                "updated_at": "2026-07-19T10:00:00+00:00",
+            },
+            "report_context_completion": {
+                "completed_fields": 9,
+                "total_fields": 9,
+                "complete": True,
+            },
             "lang": "en",
         }
 
@@ -185,6 +205,11 @@ class EICReportServiceTests(unittest.TestCase):
                 technical_result = eic_report_service.build_technical_report_docx("run-1", "en")
                 experiment_xml = self._document_xml(Path(experiment_result["path"]))
                 self.assertIn("Technical Data Science Report", experiment_xml)
+                self.assertIn("Decision Summary", experiment_xml)
+                self.assertIn("Business readiness scorecard", experiment_xml)
+                self.assertIn("Action plan", experiment_xml)
+                self.assertIn("Meeting Notes and Decision Record", experiment_xml)
+                self.assertIn("What the evidence says", experiment_xml)
                 self.assertIn("Feature schema and feature health", experiment_xml)
                 self.assertIn("Threshold analysis", experiment_xml)
                 self.assertIn("Precision-recall analysis", experiment_xml)
@@ -210,11 +235,30 @@ class EICReportServiceTests(unittest.TestCase):
                     self.assertIn(model_name, academic_xml)
 
                 technical_xml = self._document_xml(Path(technical_result["path"]))
+                self.assertIn("Decision Summary", technical_xml)
+                self.assertIn("Business and educational context", technical_xml)
+                self.assertIn("Business readiness scorecard", technical_xml)
+                self.assertIn("Action plan", technical_xml)
+                self.assertIn("Meeting Notes and Decision Record", technical_xml)
                 self.assertIn("Feature schema and feature health", technical_xml)
                 self.assertIn("Threshold analysis", technical_xml)
                 self.assertIn("ROC analysis", technical_xml)
                 self.assertIn("Precision-recall analysis", technical_xml)
                 self.assertIn("Artifact manifest", technical_xml)
+
+    def test_technical_report_uses_editable_placeholders_when_report_context_is_missing(self):
+        context = self._base_context()
+        context["report_context"] = {}
+        context["report_context_completion"] = {"completed_fields": 0, "total_fields": 9, "complete": False}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with (
+                patch.object(eic_report_service, "REPORT_ROOT", Path(tmpdir)),
+                patch.object(eic_report_service, "_report_base_context", return_value=context),
+                patch.object(eic_report_service, "_artifact_path_map", return_value={}),
+            ):
+                result = eic_report_service.build_technical_report_docx("run-1", "en")
+                xml_text = self._document_xml(Path(result["path"]))
+                self.assertIn("[To be completed by the responsible Classio reviewer.]", xml_text)
 
     def test_technical_report_deduplicates_confusion_matrix_when_roles_share_same_model(self):
         with tempfile.TemporaryDirectory() as tmpdir:

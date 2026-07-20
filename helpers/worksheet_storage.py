@@ -11,6 +11,7 @@ from core.i18n import t
 from core.state import get_current_user_id, with_owner
 from core.timezone import now_local, today_local, get_app_tz
 from core.database import get_sb, load_table, clear_app_caches, insert_row_with_retries, register_cache, show_data_load_error
+from services.ai_usage_service import log_ai_usage_event
 import math
 import html
 import textwrap
@@ -1116,17 +1117,7 @@ def _open_worksheet_library_record(
 
 
 def log_ai_usage(request_kind: str, status: str, meta: Optional[dict] = None) -> None:
-    try:
-        payload = with_owner({
-            "feature_name": str(request_kind).strip(),
-            "status": str(status).strip(),
-            "meta_json": meta or {},
-            "created_at": _dt.now(timezone.utc).isoformat(),
-        })
-        get_sb().table("ai_usage_logs").insert(payload).execute()
-        clear_app_caches()
-    except Exception:
-        pass
+    log_ai_usage_event(str(request_kind).strip(), str(status).strip(), meta or {})
 
 
 def _safe_ai_logs_df() -> pd.DataFrame:
@@ -2732,6 +2723,7 @@ def render_quick_worksheet_maker_expander() -> None:
                     st.session_state["worksheet_result"] = ws
                     st.session_state["worksheet_kept"] = False
                     st.session_state["worksheet_warning"] = warning
+                    st.session_state["worksheet_assign_expanded"] = True
 
                     _saved_ws_id = save_worksheet_record(
                         subject=effective_subject,
@@ -2768,6 +2760,7 @@ def render_quick_worksheet_maker_expander() -> None:
                 level_or_band=level_or_band,
                 worksheet_type=worksheet_type,
                 topic=st.session_state.get("ws_effective_topic") or topic,
+                assign_expanded=bool(st.session_state.get("worksheet_assign_expanded", False)),
                 resource_record_id=st.session_state.get("worksheet_record_id"),
             )
 

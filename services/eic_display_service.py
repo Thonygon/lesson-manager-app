@@ -22,11 +22,120 @@ COMPONENT_NAME_KEYS = {
 
 EXPERIMENT_NAME_KEYS = {
     "assigned_resource_open_within_7d": "admin_eic_experiment_name_assigned_resource_open_within_7d",
+    "student_recommendation_open_within_7d": "admin_eic_experiment_name_student_recommendation_open_within_7d",
+}
+
+EXPERIMENT_STATUS_KEYS = {
+    "integrated": "developer_workspace_experiment_status_integrated",
+    "discovered": "developer_workspace_experiment_status_discovered",
+}
+
+COMPONENT_TEXT_KEYS = {
+    "teacher_recommendation_objective_selector": {
+        "business_question": "admin_eic_component_text_teacher_recommendation_objective_selector_business_question",
+        "decision_supported": "admin_eic_component_text_teacher_recommendation_objective_selector_decision_supported",
+        "production_use": "admin_eic_component_text_teacher_recommendation_objective_selector_production_use",
+        "limitation": "admin_eic_component_text_teacher_recommendation_objective_selector_limitation",
+        "product_surface": "admin_eic_component_text_teacher_recommendation_objective_selector_product_surface",
+        "educational_value": "admin_eic_component_text_teacher_recommendation_objective_selector_educational_value",
+        "outcome_metric": "admin_eic_component_text_teacher_recommendation_objective_selector_outcome_metric",
+    },
+    "teacher_recommendation_resource_ranker": {
+        "business_question": "admin_eic_component_text_teacher_recommendation_resource_ranker_business_question",
+        "decision_supported": "admin_eic_component_text_teacher_recommendation_resource_ranker_decision_supported",
+        "production_use": "admin_eic_component_text_teacher_recommendation_resource_ranker_production_use",
+        "limitation": "admin_eic_component_text_teacher_recommendation_resource_ranker_limitation",
+        "product_surface": "admin_eic_component_text_teacher_recommendation_resource_ranker_product_surface",
+        "educational_value": "admin_eic_component_text_teacher_recommendation_resource_ranker_educational_value",
+        "outcome_metric": "admin_eic_component_text_teacher_recommendation_resource_ranker_outcome_metric",
+    },
+    "teacher_material_feed_ranker": {
+        "business_question": "admin_eic_component_text_teacher_material_feed_ranker_business_question",
+        "decision_supported": "admin_eic_component_text_teacher_material_feed_ranker_decision_supported",
+        "production_use": "admin_eic_component_text_teacher_material_feed_ranker_production_use",
+        "limitation": "admin_eic_component_text_teacher_material_feed_ranker_limitation",
+        "product_surface": "admin_eic_component_text_teacher_material_feed_ranker_product_surface",
+        "educational_value": "admin_eic_component_text_teacher_material_feed_ranker_educational_value",
+        "outcome_metric": "admin_eic_component_text_teacher_material_feed_ranker_outcome_metric",
+    },
+    "student_recommendation_ranker": {
+        "business_question": "admin_eic_component_text_student_recommendation_ranker_business_question",
+        "decision_supported": "admin_eic_component_text_student_recommendation_ranker_decision_supported",
+        "production_use": "admin_eic_component_text_student_recommendation_ranker_production_use",
+        "limitation": "admin_eic_component_text_student_recommendation_ranker_limitation",
+        "product_surface": "admin_eic_component_text_student_recommendation_ranker_product_surface",
+        "educational_value": "admin_eic_component_text_student_recommendation_ranker_educational_value",
+        "outcome_metric": "admin_eic_component_text_student_recommendation_ranker_outcome_metric",
+    },
+    "student_recommendation_acceptance_blend_model": {
+        "business_question": "admin_eic_component_text_student_recommendation_acceptance_blend_model_business_question",
+        "decision_supported": "admin_eic_component_text_student_recommendation_acceptance_blend_model_decision_supported",
+        "production_use": "admin_eic_component_text_student_recommendation_acceptance_blend_model_production_use",
+        "limitation": "admin_eic_component_text_student_recommendation_acceptance_blend_model_limitation",
+        "product_surface": "admin_eic_component_text_student_recommendation_acceptance_blend_model_product_surface",
+        "educational_value": "admin_eic_component_text_student_recommendation_acceptance_blend_model_educational_value",
+        "outcome_metric": "admin_eic_component_text_student_recommendation_acceptance_blend_model_outcome_metric",
+    },
+    "explicit_topic_resource_matching": {
+        "business_question": "admin_eic_component_text_explicit_topic_resource_matching_business_question",
+        "decision_supported": "admin_eic_component_text_explicit_topic_resource_matching_decision_supported",
+        "production_use": "admin_eic_component_text_explicit_topic_resource_matching_production_use",
+        "limitation": "admin_eic_component_text_explicit_topic_resource_matching_limitation",
+        "product_surface": "admin_eic_component_text_explicit_topic_resource_matching_product_surface",
+        "educational_value": "admin_eic_component_text_explicit_topic_resource_matching_educational_value",
+        "outcome_metric": "admin_eic_component_text_explicit_topic_resource_matching_outcome_metric",
+    },
+    "practice_mastery_aggregator": {
+        "business_question": "admin_eic_component_text_practice_mastery_aggregator_business_question",
+        "decision_supported": "admin_eic_component_text_practice_mastery_aggregator_decision_supported",
+        "production_use": "admin_eic_component_text_practice_mastery_aggregator_production_use",
+        "limitation": "admin_eic_component_text_practice_mastery_aggregator_limitation",
+        "product_surface": "admin_eic_component_text_practice_mastery_aggregator_product_surface",
+        "educational_value": "admin_eic_component_text_practice_mastery_aggregator_educational_value",
+        "outcome_metric": "admin_eic_component_text_practice_mastery_aggregator_outcome_metric",
+    },
+    "review_synchronization_loop": {
+        "business_question": "admin_eic_component_text_review_synchronization_loop_business_question",
+        "decision_supported": "admin_eic_component_text_review_synchronization_loop_decision_supported",
+        "production_use": "admin_eic_component_text_review_synchronization_loop_production_use",
+        "limitation": "admin_eic_component_text_review_synchronization_loop_limitation",
+        "product_surface": "admin_eic_component_text_review_synchronization_loop_product_surface",
+        "educational_value": "admin_eic_component_text_review_synchronization_loop_educational_value",
+        "outcome_metric": "admin_eic_component_text_review_synchronization_loop_outcome_metric",
+    },
+    "material_reuse_similarity_retriever": {
+        "business_question": "admin_eic_component_text_material_reuse_similarity_retriever_business_question",
+        "decision_supported": "admin_eic_component_text_material_reuse_similarity_retriever_decision_supported",
+        "production_use": "admin_eic_component_text_material_reuse_similarity_retriever_production_use",
+        "limitation": "admin_eic_component_text_material_reuse_similarity_retriever_limitation",
+        "product_surface": "admin_eic_component_text_material_reuse_similarity_retriever_product_surface",
+        "educational_value": "admin_eic_component_text_material_reuse_similarity_retriever_educational_value",
+        "outcome_metric": "admin_eic_component_text_material_reuse_similarity_retriever_outcome_metric",
+    },
+    "recommendation_event_feedback_loop": {
+        "business_question": "admin_eic_component_text_recommendation_event_feedback_loop_business_question",
+        "decision_supported": "admin_eic_component_text_recommendation_event_feedback_loop_decision_supported",
+        "production_use": "admin_eic_component_text_recommendation_event_feedback_loop_production_use",
+        "limitation": "admin_eic_component_text_recommendation_event_feedback_loop_limitation",
+        "product_surface": "admin_eic_component_text_recommendation_event_feedback_loop_product_surface",
+        "educational_value": "admin_eic_component_text_recommendation_event_feedback_loop_educational_value",
+        "outcome_metric": "admin_eic_component_text_recommendation_event_feedback_loop_outcome_metric",
+    },
+    "assigned_resource_open_within_7d": {
+        "business_question": "admin_eic_component_text_assigned_resource_open_within_7d_business_question",
+        "decision_supported": "admin_eic_component_text_assigned_resource_open_within_7d_decision_supported",
+        "production_use": "admin_eic_component_text_assigned_resource_open_within_7d_production_use",
+        "limitation": "admin_eic_component_text_assigned_resource_open_within_7d_limitation",
+        "product_surface": "admin_eic_component_text_assigned_resource_open_within_7d_product_surface",
+        "educational_value": "admin_eic_component_text_assigned_resource_open_within_7d_educational_value",
+        "outcome_metric": "admin_eic_component_text_assigned_resource_open_within_7d_outcome_metric",
+    },
 }
 
 RUN_STATUS_KEYS = {
     "VALIDATED_EXPLORATORY_RUN": "admin_eic_run_status_validated_exploratory_run",
     "VALIDATED_NO_ROBUST_WINNER": "admin_eic_run_status_validated_no_robust_winner",
+    "NOT_AVAILABLE": "admin_eic_run_status_not_available",
     "REQUIRES_RERUN": "admin_eic_run_status_requires_rerun",
     "FAILED": "admin_eic_run_status_failed",
     "SUPERSEDED": "admin_eic_run_status_superseded",
@@ -44,6 +153,8 @@ INTEGRITY_STATUS_KEYS = {
     "RUNNING": "admin_eic_integrity_running",
     "FAILED": "admin_eic_integrity_failed",
     "PASSED": "admin_eic_integrity_passed",
+    "PASSED_NO_ROBUST_WINNER": "admin_eic_integrity_passed_no_robust_winner",
+    "PASSED_EXPLORATORY": "admin_eic_integrity_passed_exploratory",
     "REQUIRES_RERUN": "admin_eic_integrity_requires_rerun",
 }
 
@@ -62,7 +173,8 @@ EVIDENCE_KEYS = {
     "feature_source": "admin_eic_evidence_feature_source",
     "direct_observed_data": "admin_eic_evidence_direct_observed_data",
     "validated_evidence_ready": "admin_eic_evidence_validated_evidence_ready",
-    "Exploratory evidence": "admin_eic_evidence_exploratory",
+    "exploratory_evidence": "admin_eic_evidence_exploratory",
+    "insufficient_to_establish_clear_winner": "admin_eic_evidence_insufficient_clear_winner",
 }
 
 COMPONENT_TYPE_KEYS = {
@@ -168,6 +280,40 @@ MODEL_RESULT_STATUS_KEYS = {
     "success": "admin_eic_model_status_success",
     "failed": "admin_eic_model_status_failed",
     "not_applicable": "admin_eic_model_status_not_applicable",
+    "completed": "developer_workspace_job_status_completed",
+    "queued": "developer_workspace_job_status_queued",
+    "running": "developer_workspace_job_status_running",
+    "cancelled": "developer_workspace_job_status_cancelled",
+    "stale": "developer_workspace_job_status_stale",
+    "integrated": "developer_workspace_experiment_status_integrated",
+    "discovered": "developer_workspace_experiment_status_discovered",
+}
+
+JOB_TYPE_KEYS = {
+    "experiment_evaluation": "developer_workspace_job_type_experiment_evaluation",
+    "integrity_review": "developer_workspace_job_type_integrity_review",
+}
+
+JOB_STAGE_KEYS = {
+    "queued": "developer_workspace_job_stage_queued",
+    "completed": "developer_workspace_job_stage_completed",
+    "failed": "developer_workspace_job_stage_failed",
+    "stale": "developer_workspace_job_stage_stale",
+    "running": "developer_workspace_job_stage_running",
+}
+
+ACTION_TYPE_KEYS = {
+    "experiment_launched": "developer_workspace_audit_action_experiment_launched",
+    "experiment_eligibility_check": "developer_workspace_audit_action_experiment_eligibility_check",
+    "integrity_review_completed": "developer_workspace_audit_action_integrity_review_completed",
+    "run_marked_validated": "developer_workspace_audit_action_run_marked_validated",
+    "run_superseded": "developer_workspace_audit_action_run_superseded",
+    "experiment_failed": "developer_workspace_audit_action_experiment_failed",
+}
+
+ENTITY_TYPE_KEYS = {
+    "ml_experiment": "developer_workspace_entity_ml_experiment",
+    "ml_experiment_run": "developer_workspace_entity_ml_experiment_run",
 }
 
 MODEL_NAME_KEYS = {
@@ -185,6 +331,10 @@ MODEL_NAME_KEYS = {
 
 def _clean_text(value: Any) -> str:
     return " ".join(str(value or "").split()).strip()
+
+
+def _normalized_token(value: Any) -> str:
+    return _clean_text(value).replace("-", "_").replace(" ", "_")
 
 
 def _fallback_display(value: str) -> str:
@@ -219,14 +369,20 @@ def get_experiment_display_name(experiment_id: str, lang: str | None = None) -> 
     return _translate_key(key, lang=lang) if key else _fallback_display(safe_id)
 
 
+def get_experiment_status_display(status: str, lang: str | None = None) -> str:
+    safe_status = _clean_text(status).lower()
+    key = EXPERIMENT_STATUS_KEYS.get(safe_status)
+    return _translate_key(key, lang=lang) if key else _fallback_display(safe_status)
+
+
 def get_run_status_display(status: str, lang: str | None = None) -> str:
-    safe_status = _clean_text(status).upper()
+    safe_status = _normalized_token(status).upper()
     key = RUN_STATUS_KEYS.get(safe_status)
     return _translate_key(key, lang=lang) if key else _fallback_display(safe_status)
 
 
 def get_integrity_status_display(status: str, lang: str | None = None) -> str:
-    safe_status = _clean_text(status).upper()
+    safe_status = _normalized_token(status).upper()
     key = INTEGRITY_STATUS_KEYS.get(safe_status)
     return _translate_key(key, lang=lang) if key else _fallback_display(safe_status)
 
@@ -238,7 +394,7 @@ def get_maturity_display(verdict: str, lang: str | None = None) -> str:
 
 
 def get_evidence_display(verdict: str, lang: str | None = None) -> str:
-    safe_verdict = _clean_text(verdict)
+    safe_verdict = _normalized_token(verdict).lower()
     key = EVIDENCE_KEYS.get(safe_verdict)
     return _translate_key(key, lang=lang) if key else _fallback_display(safe_verdict)
 
@@ -253,6 +409,16 @@ def get_business_action_display(action_key: str, lang: str | None = None) -> str
     safe_action = _clean_text(action_key)
     key = BUSINESS_ACTION_KEYS.get(safe_action)
     return _translate_key(key, lang=lang) if key else _fallback_display(safe_action)
+
+
+def get_component_text_display(component_id: str, field_name: str, fallback: Any, lang: str | None = None) -> str:
+    safe_component = _clean_text(component_id)
+    safe_field = _clean_text(field_name)
+    key = (COMPONENT_TEXT_KEYS.get(safe_component) or {}).get(safe_field)
+    translated = _translate_key(key, lang=lang) if key else ""
+    if translated:
+        return translated
+    return _clean_text(fallback)
 
 
 def get_staff_role_display(role_key: str, lang: str | None = None) -> str:
@@ -295,6 +461,30 @@ def get_model_result_status_display(status: str, lang: str | None = None) -> str
     safe_status = _clean_text(status).lower()
     key = MODEL_RESULT_STATUS_KEYS.get(safe_status)
     return _translate_key(key, lang=lang) if key else _fallback_display(safe_status)
+
+
+def get_job_type_display(job_type: str, lang: str | None = None) -> str:
+    safe_job_type = _clean_text(job_type).lower()
+    key = JOB_TYPE_KEYS.get(safe_job_type)
+    return _translate_key(key, lang=lang) if key else _fallback_display(safe_job_type)
+
+
+def get_job_stage_display(stage: str, lang: str | None = None) -> str:
+    safe_stage = _clean_text(stage).lower()
+    key = JOB_STAGE_KEYS.get(safe_stage)
+    return _translate_key(key, lang=lang) if key else _fallback_display(safe_stage)
+
+
+def get_action_type_display(action_type: str, lang: str | None = None) -> str:
+    safe_action = _clean_text(action_type).lower().replace(" ", "_")
+    key = ACTION_TYPE_KEYS.get(safe_action)
+    return _translate_key(key, lang=lang) if key else _fallback_display(safe_action)
+
+
+def get_entity_type_display(entity_type: str, lang: str | None = None) -> str:
+    safe_entity = _clean_text(entity_type).lower()
+    key = ENTITY_TYPE_KEYS.get(safe_entity)
+    return _translate_key(key, lang=lang) if key else _fallback_display(safe_entity)
 
 
 def get_model_comparison_value_display(column_name: str, value: Any, lang: str | None = None) -> Any:

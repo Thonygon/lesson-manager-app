@@ -101,7 +101,12 @@ if _post_login_action:
         st.session_state["page"] = "home"
     elif _post_login_action == "dashboard":
         _role = get_current_user_role()
-        _dash_page = "student_home" if _role == "student" else ("home" if _deferred_explore_save else "dashboard")
+        if _role == "student":
+            _dash_page = "student_home"
+        elif _role == "developer_workspace":
+            _dash_page = "developer_workspace"
+        else:
+            _dash_page = "home" if _deferred_explore_save else "dashboard"
         st.session_state["page"] = _dash_page
         _set_query(page=_dash_page, lang=st.session_state.get("ui_lang", "en"))
     elif _post_login_action.startswith("page:"):

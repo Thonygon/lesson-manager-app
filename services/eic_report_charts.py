@@ -43,6 +43,22 @@ def _copy(lang: str, key: str) -> str:
             "seconds": "Seconds",
             "probability_axis": "Predicted probability",
             "timeline_axis": "Assigned at",
+            "positive": "Positive",
+            "negative": "Negative",
+            "predicted_negative": "Predicted negative",
+            "predicted_positive": "Predicted positive",
+            "actual_negative": "Actual negative",
+            "actual_positive": "Actual positive",
+            "false_positive_rate": "False positive rate",
+            "true_positive_rate": "True positive rate",
+            "precision": "Precision",
+            "recall": "Recall",
+            "mean_predicted_value": "Mean predicted value",
+            "fraction_of_positives": "Fraction of positives",
+            "cutoff": "Cutoff",
+            "no_data": "No data",
+            "no_stored_curve_data": "No stored curve data",
+            "stored_cutoff": "Stored cutoff",
         },
         "es": {
             "label_balance": "Balance de etiquetas",
@@ -67,6 +83,22 @@ def _copy(lang: str, key: str) -> str:
             "seconds": "Segundos",
             "probability_axis": "Probabilidad predicha",
             "timeline_axis": "Fecha de asignación",
+            "positive": "Positiva",
+            "negative": "Negativa",
+            "predicted_negative": "Predicción negativa",
+            "predicted_positive": "Predicción positiva",
+            "actual_negative": "Real negativa",
+            "actual_positive": "Real positiva",
+            "false_positive_rate": "Tasa de falsos positivos",
+            "true_positive_rate": "Tasa de verdaderos positivos",
+            "precision": "Precisión",
+            "recall": "Cobertura",
+            "mean_predicted_value": "Valor medio predicho",
+            "fraction_of_positives": "Fracción de positivos",
+            "cutoff": "Corte",
+            "no_data": "Sin datos",
+            "no_stored_curve_data": "No hay datos de curva almacenados",
+            "stored_cutoff": "Corte almacenado",
         },
         "tr": {
             "label_balance": "Etiket dengesi",
@@ -91,6 +123,22 @@ def _copy(lang: str, key: str) -> str:
             "seconds": "Saniye",
             "probability_axis": "Tahmin olasılığı",
             "timeline_axis": "Atama zamanı",
+            "positive": "Pozitif",
+            "negative": "Negatif",
+            "predicted_negative": "Tahmin negatif",
+            "predicted_positive": "Tahmin pozitif",
+            "actual_negative": "Gerçek negatif",
+            "actual_positive": "Gerçek pozitif",
+            "false_positive_rate": "Yanlış pozitif oranı",
+            "true_positive_rate": "Doğru pozitif oranı",
+            "precision": "Kesinlik",
+            "recall": "Duyarlılık",
+            "mean_predicted_value": "Ortalama tahmin değeri",
+            "fraction_of_positives": "Pozitiflerin oranı",
+            "cutoff": "Kesim",
+            "no_data": "Veri yok",
+            "no_stored_curve_data": "Saklanan eğri verisi yok",
+            "stored_cutoff": "Saklanan kesim",
         },
     }
     return strings[_lang(lang)].get(key, key)
@@ -172,7 +220,7 @@ def _placeholder_chart(path: Path, title: str, rows: list[str]) -> None:
     image.save(path)
 
 
-def _draw_pil_bar_chart(path: Path, title: str, labels: list[str], values: list[float], *, horizontal: bool = False, ylabel: str = "") -> None:
+def _draw_pil_bar_chart(path: Path, title: str, labels: list[str], values: list[float], *, horizontal: bool = False, ylabel: str = "", lang: str = "en") -> None:
     width, height = 1400, 900
     image = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(image)
@@ -183,7 +231,7 @@ def _draw_pil_bar_chart(path: Path, title: str, labels: list[str], values: list[
     left, top, right, bottom = 120, 150, width - 90, height - 120
     draw.rectangle((left, top, right, bottom), outline="#D9E2EC", width=2)
     if not labels or not values:
-        _placeholder_chart(path, title, ["No data"])
+        _placeholder_chart(path, title, [_copy(lang, "no_data")])
         return
     max_value = max(max(values), 1.0)
     if horizontal:
@@ -205,7 +253,7 @@ def _draw_pil_bar_chart(path: Path, title: str, labels: list[str], values: list[
     image.save(path)
 
 
-def _draw_pil_curve_chart(path: Path, title: str, curve_rows: list[tuple[str, list[float], list[float]]], *, diagonal: bool = False) -> None:
+def _draw_pil_curve_chart(path: Path, title: str, curve_rows: list[tuple[str, list[float], list[float]]], *, diagonal: bool = False, lang: str = "en") -> None:
     width, height = 1400, 900
     image = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(image)
@@ -216,7 +264,7 @@ def _draw_pil_curve_chart(path: Path, title: str, curve_rows: list[tuple[str, li
         draw.line((left, bottom, right, top), fill="#9FB3C8", width=2)
     palette = list(_build_palette().values())
     if not curve_rows:
-        _placeholder_chart(path, title, ["No stored curve data"])
+        _placeholder_chart(path, title, [_copy(lang, "no_stored_curve_data")])
         return
     for idx, (label, xs, ys) in enumerate(curve_rows):
         points = []
@@ -230,7 +278,7 @@ def _draw_pil_curve_chart(path: Path, title: str, curve_rows: list[tuple[str, li
     image.save(path)
 
 
-def _draw_pil_confusion_chart(path: Path, title: str, matrix: list[list[int]]) -> None:
+def _draw_pil_confusion_chart(path: Path, title: str, matrix: list[list[int]], *, lang: str = "en") -> None:
     width, height = 900, 900
     image = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(image)
@@ -249,14 +297,14 @@ def _draw_pil_confusion_chart(path: Path, title: str, matrix: list[list[int]]) -
             draw.rectangle((x1, y1, x1 + size, y1 + size), fill=colors[min(intensity, 3)], outline="#486581", width=3)
             draw.text((x1 + 90, y1 + 100), str(value), fill="#102A43")
             idx += 1
-    draw.text((left + 75, top - 40), "Pred 0", fill="#243B53")
-    draw.text((left + size + 75, top - 40), "Pred 1", fill="#243B53")
-    draw.text((left - 80, top + 100), "Actual 0", fill="#243B53")
-    draw.text((left - 80, top + size + 100), "Actual 1", fill="#243B53")
+    draw.text((left + 35, top - 40), _copy(lang, "predicted_negative"), fill="#243B53")
+    draw.text((left + size + 25, top - 40), _copy(lang, "predicted_positive"), fill="#243B53")
+    draw.text((left - 120, top + 100), _copy(lang, "actual_negative"), fill="#243B53")
+    draw.text((left - 120, top + size + 100), _copy(lang, "actual_positive"), fill="#243B53")
     image.save(path)
 
 
-def _draw_pil_timeline_chart(path: Path, title: str, labels: list[str], cutoff: str) -> None:
+def _draw_pil_timeline_chart(path: Path, title: str, labels: list[str], cutoff: str, *, lang: str = "en") -> None:
     width, height = 1400, 520
     image = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(image)
@@ -270,12 +318,12 @@ def _draw_pil_timeline_chart(path: Path, title: str, labels: list[str], cutoff: 
             draw.ellipse((x - 10, y - 10, x + 10, y + 10), fill="#2E74B5")
         cutoff_x = left + ((right - left) * 0.6)
         draw.line((cutoff_x, y - 80, cutoff_x, y + 80), fill="#C53030", width=4)
-        draw.text((cutoff_x - 30, y - 110), "Cutoff", fill="#C53030")
-    draw.text((70, 420), f"Stored cutoff: {cutoff}", fill="#486581")
+        draw.text((cutoff_x - 30, y - 110), _copy(lang, "cutoff"), fill="#C53030")
+    draw.text((70, 420), f"{_copy(lang, 'stored_cutoff')}: {cutoff}", fill="#486581")
     image.save(path)
 
 
-def _draw_pil_histogram(path: Path, title: str, rows: list[tuple[str, list[float]]], xlabel: str) -> None:
+def _draw_pil_histogram(path: Path, title: str, rows: list[tuple[str, list[float]]], xlabel: str, *, lang: str = "en") -> None:
     width, height = 1400, 900
     image = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(image)
@@ -285,7 +333,7 @@ def _draw_pil_histogram(path: Path, title: str, rows: list[tuple[str, list[float
     left, top, right, bottom = 120, 160, width - 120, height - 140
     draw.rectangle((left, top, right, bottom), outline="#D9E2EC", width=2)
     if not rows:
-        _placeholder_chart(path, title, ["No stored scores"])
+        _placeholder_chart(path, title, [_copy(lang, "no_stored_curve_data")])
         return
     bar_width = 36
     gap = 10
@@ -314,10 +362,10 @@ def _save_current(path: Path) -> None:
     plt.close()
 
 
-def _plot_bar(path: Path, title: str, labels: list[str], values: list[float], *, horizontal: bool = False, ylabel: str = "") -> None:
+def _plot_bar(path: Path, title: str, labels: list[str], values: list[float], *, horizontal: bool = False, ylabel: str = "", lang: str = "en") -> None:
     plt = _get_plt()
     if plt is None:
-        _draw_pil_bar_chart(path, title, labels, values, horizontal=horizontal, ylabel=ylabel)
+        _draw_pil_bar_chart(path, title, labels, values, horizontal=horizontal, ylabel=ylabel, lang="en")
         return
     colors = list(_build_palette().values())
     plt.figure(figsize=(7.2, 4.4))
@@ -332,16 +380,16 @@ def _plot_bar(path: Path, title: str, labels: list[str], values: list[float], *,
     _save_current(path)
 
 
-def _plot_timeline(path: Path, title: str, assigned_at: pd.Series, cutoff: str, *, ylabel: str) -> None:
+def _plot_timeline(path: Path, title: str, assigned_at: pd.Series, cutoff: str, *, ylabel: str, lang: str = "en") -> None:
     plt = _get_plt()
     if plt is None:
         labels = assigned_at.dropna().astype(str).head(20).tolist()
-        _draw_pil_timeline_chart(path, title, labels, cutoff)
+        _draw_pil_timeline_chart(path, title, labels, cutoff, lang=lang)
         return
     dates = pd.to_datetime(assigned_at, errors="coerce", utc=True).dropna().sort_values()
     plt.figure(figsize=(7.4, 2.6))
     if dates.empty:
-        plt.text(0.5, 0.5, "No stored timeline data", ha="center", va="center")
+        plt.text(0.5, 0.5, _copy(lang, "no_stored_curve_data"), ha="center", va="center")
         plt.axis("off")
         _save_current(path)
         return
@@ -356,33 +404,33 @@ def _plot_timeline(path: Path, title: str, assigned_at: pd.Series, cutoff: str, 
     _save_current(path)
 
 
-def _plot_confusion(path: Path, title: str, matrix: list[list[int]]) -> None:
+def _plot_confusion(path: Path, title: str, matrix: list[list[int]], *, lang: str = "en") -> None:
     plt = _get_plt()
     if plt is None:
-        _draw_pil_confusion_chart(path, title, matrix)
+        _draw_pil_confusion_chart(path, title, matrix, lang=lang)
         return
     plt.figure(figsize=(4.3, 4.0))
     plt.imshow(matrix, cmap="Blues")
     plt.title(title, fontsize=12, pad=10)
-    plt.xticks([0, 1], ["Pred 0", "Pred 1"])
-    plt.yticks([0, 1], ["Actual 0", "Actual 1"])
+    plt.xticks([0, 1], [_copy(lang, "predicted_negative"), _copy(lang, "predicted_positive")])
+    plt.yticks([0, 1], [_copy(lang, "actual_negative"), _copy(lang, "actual_positive")])
     for row_idx, row in enumerate(matrix):
         for col_idx, value in enumerate(row):
             plt.text(col_idx, row_idx, str(int(value)), ha="center", va="center", color="black")
     _save_current(path)
 
 
-def _plot_curve(path: Path, title: str, curve_rows: list[tuple[str, list[float], list[float]]], *, xlabel: str, ylabel: str, diagonal: bool = False) -> None:
+def _plot_curve(path: Path, title: str, curve_rows: list[tuple[str, list[float], list[float]]], *, xlabel: str, ylabel: str, diagonal: bool = False, lang: str = "en") -> None:
     plt = _get_plt()
     if plt is None:
-        _draw_pil_curve_chart(path, title, curve_rows, diagonal=diagonal)
+        _draw_pil_curve_chart(path, title, curve_rows, diagonal=diagonal, lang=lang)
         return
     plt.figure(figsize=(6.8, 4.5))
     if diagonal:
         plt.plot([0, 1], [0, 1], linestyle="--", color=_build_palette()["gray"], linewidth=1)
     if not curve_rows:
         plt.text(0.5, 0.5, title, ha="center", va="center")
-        plt.text(0.5, 0.42, "No stored curve data", ha="center", va="center", color=_build_palette()["gray"])
+        plt.text(0.5, 0.42, _copy(lang, "no_stored_curve_data"), ha="center", va="center", color=_build_palette()["gray"])
         plt.axis("off")
         _save_current(path)
         return
@@ -396,10 +444,10 @@ def _plot_curve(path: Path, title: str, curve_rows: list[tuple[str, list[float],
     _save_current(path)
 
 
-def _plot_probability_distribution(path: Path, title: str, rows: list[tuple[str, list[float]]], xlabel: str) -> None:
+def _plot_probability_distribution(path: Path, title: str, rows: list[tuple[str, list[float]]], xlabel: str, *, lang: str = "en") -> None:
     plt = _get_plt()
     if plt is None:
-        _draw_pil_histogram(path, title, rows, xlabel)
+        _draw_pil_histogram(path, title, rows, xlabel, lang=lang)
         return
     plt.figure(figsize=(6.8, 4.4))
     if not rows:
@@ -413,7 +461,7 @@ def _plot_probability_distribution(path: Path, title: str, rows: list[tuple[str,
         plt.hist(values, bins=10, alpha=0.5, label=label, color=list(_build_palette().values())[idx % 6])
     plt.title(title, fontsize=12, pad=10)
     plt.xlabel(xlabel)
-    plt.ylabel(_copy("en", "count"))
+    plt.ylabel(_copy(lang, "count"))
     plt.legend(fontsize=8, frameon=False)
     plt.grid(axis="y", alpha=0.2, linestyle="--")
     _save_current(path)
@@ -488,7 +536,7 @@ def build_report_charts(
         if not path.exists():
             positive = int((run_summary.get("dataset") or dataset_summary).get("positive_count") or context.get("detail", {}).get("positive_label_count") or 0)
             negative = int((run_summary.get("dataset") or dataset_summary).get("negative_count") or context.get("detail", {}).get("negative_label_count") or 0)
-            _plot_bar(path, _copy(lang, "label_balance"), ["Positive", "Negative"], [positive, negative], ylabel=_copy(lang, "count"))
+            _plot_bar(path, _copy(lang, "label_balance"), [_copy(lang, "positive"), _copy(lang, "negative")], [positive, negative], ylabel=_copy(lang, "count"), lang=lang)
         charts["label_balance"] = path
 
     if report_type == "executive_docx":
@@ -498,15 +546,15 @@ def build_report_charts(
             for row in context.get("portfolio") or []:
                 label = _clean_text(row.get("data_maturity") or "unknown").replace("_", " ").title()
                 counts[label] = counts.get(label, 0) + 1
-            _plot_bar(path, _copy(lang, "component_maturity"), list(counts.keys()) or ["No data"], list(counts.values()) or [0], ylabel=_copy(lang, "count"))
+            _plot_bar(path, _copy(lang, "component_maturity"), list(counts.keys()) or [_copy(lang, "no_data")], list(counts.values()) or [0], ylabel=_copy(lang, "count"), lang=lang)
         charts["component_maturity"] = path
 
         path = _chart_path(output_dir, "telemetry_surface", checksum)
         if not path.exists():
             surfaces = telemetry.get("by_surface") or []
-            labels = [_humanize_identifier(row.get("surface") or "unknown") for row in surfaces] or ["No data"]
+            labels = [_humanize_identifier(row.get("surface") or "unknown") for row in surfaces] or [_copy(lang, "no_data")]
             values = [round(_float(row.get("matched_opens")) / max(_float(row.get("exposures")), 1.0), 3) for row in surfaces] or [0.0]
-            _plot_bar(path, _copy(lang, "telemetry_surface"), labels, values, ylabel=_copy(lang, "rate"))
+            _plot_bar(path, _copy(lang, "telemetry_surface"), labels, values, ylabel=_copy(lang, "rate"), lang=lang)
         charts["telemetry_surface"] = path
 
         path = _chart_path(output_dir, "decision_urgency", checksum)
@@ -515,7 +563,7 @@ def build_report_charts(
             for row in context.get("decisions") or []:
                 urgency = _clean_text(row.get("urgency") or "unknown").title()
                 urgency_counts[urgency] = urgency_counts.get(urgency, 0) + 1
-            _plot_bar(path, _copy(lang, "decision_urgency"), list(urgency_counts.keys()) or ["No data"], list(urgency_counts.values()) or [0], ylabel=_copy(lang, "count"))
+            _plot_bar(path, _copy(lang, "decision_urgency"), list(urgency_counts.keys()) or [_copy(lang, "no_data")], list(urgency_counts.values()) or [0], ylabel=_copy(lang, "count"), lang=lang)
         charts["decision_urgency"] = path
 
     if report_type in {"academic_docx", "technical_docx"}:
@@ -528,6 +576,7 @@ def build_report_charts(
                 assigned,
                 _clean_text(evaluation.get("cutoff_timestamp") or context.get("academic", {}).get("train_holdout_split", {}).get("chronological_cutoff")),
                 ylabel=_copy(lang, "timeline_axis"),
+                lang=lang,
             )
         charts["split_timeline"] = path
 
@@ -535,23 +584,23 @@ def build_report_charts(
         if not path.exists():
             labels = [str(row.get("model_name") or "model") for row in model_rows[:8]]
             values = [_float(row.get("roc_auc")) for row in model_rows[:8]]
-            _plot_bar(path, _copy(lang, "model_metrics"), labels or ["No data"], values or [0], horizontal=True, ylabel=_copy(lang, "score"))
+            _plot_bar(path, _copy(lang, "model_metrics"), labels or [_copy(lang, "no_data")], values or [0], horizontal=True, ylabel=_copy(lang, "score"), lang=lang)
         charts["model_metrics"] = path
 
     if report_type == "technical_docx":
         path = _chart_path(output_dir, "feature_missingness", checksum)
         if not path.exists():
             top_missing = feature_df.sort_values("missing_percentage", ascending=False).head(10) if not feature_df.empty else pd.DataFrame()
-            labels = top_missing.get("feature", pd.Series(dtype=str)).astype(str).tolist() or ["No data"]
+            labels = top_missing.get("feature", pd.Series(dtype=str)).astype(str).tolist() or [_copy(lang, "no_data")]
             values = top_missing.get("missing_percentage", pd.Series(dtype=float)).astype(float).tolist() or [0.0]
-            _plot_bar(path, _copy(lang, "feature_missingness"), labels, values, horizontal=True, ylabel="%")
+            _plot_bar(path, _copy(lang, "feature_missingness"), labels, values, horizontal=True, ylabel="%", lang=lang)
         charts["feature_missingness"] = path
 
         path = _chart_path(output_dir, "runtime", checksum)
         if not path.exists():
             labels = [str(row.get("model_name") or "model") for row in model_rows[:8]]
             values = [_float(row.get("train_duration_seconds")) for row in model_rows[:8]]
-            _plot_bar(path, _copy(lang, "runtime"), labels or ["No data"], values or [0], horizontal=True, ylabel=_copy(lang, "seconds"))
+            _plot_bar(path, _copy(lang, "runtime"), labels or [_copy(lang, "no_data")], values or [0], horizontal=True, ylabel=_copy(lang, "seconds"), lang=lang)
         charts["runtime"] = path
 
     if report_type in {"academic_docx", "technical_docx"} and not predictions.empty:
@@ -595,22 +644,22 @@ def build_report_charts(
 
         path = _chart_path(output_dir, "roc_curves", checksum)
         if not path.exists():
-            _plot_curve(path, _copy(lang, "roc"), roc_rows, xlabel="False positive rate", ylabel="True positive rate", diagonal=True)
+            _plot_curve(path, _copy(lang, "roc"), roc_rows, xlabel=_copy(lang, "false_positive_rate"), ylabel=_copy(lang, "true_positive_rate"), diagonal=True, lang=lang)
         charts["roc_curves"] = path
 
         path = _chart_path(output_dir, "pr_curves", checksum)
         if not path.exists():
-            _plot_curve(path, _copy(lang, "pr"), pr_rows, xlabel="Recall", ylabel="Precision")
+            _plot_curve(path, _copy(lang, "pr"), pr_rows, xlabel=_copy(lang, "recall"), ylabel=_copy(lang, "precision"), lang=lang)
         charts["pr_curves"] = path
 
         path = _chart_path(output_dir, "calibration_curves", checksum)
         if not path.exists():
-            _plot_curve(path, _copy(lang, "calibration"), calibration_rows, xlabel="Mean predicted value", ylabel="Fraction of positives", diagonal=True)
+            _plot_curve(path, _copy(lang, "calibration"), calibration_rows, xlabel=_copy(lang, "mean_predicted_value"), ylabel=_copy(lang, "fraction_of_positives"), diagonal=True, lang=lang)
         charts["calibration_curves"] = path
 
         path = _chart_path(output_dir, "probability_distribution", checksum)
         if not path.exists():
-            _plot_probability_distribution(path, _copy(lang, "probability"), probability_rows, _copy(lang, "probability_axis"))
+            _plot_probability_distribution(path, _copy(lang, "probability"), probability_rows, _copy(lang, "probability_axis"), lang=lang)
         charts["probability_distribution"] = path
 
         confusion_targets = {
@@ -622,7 +671,7 @@ def build_report_charts(
             row = next((item for item in model_rows if _clean_text(item.get("model_name")) == model_name), {})
             path = _chart_path(output_dir, chart_key, checksum)
             if not path.exists():
-                _plot_confusion(path, f"{_copy(lang, 'confusion')}: {model_name or 'model'}", _parse_confusion(row.get("confusion_matrix")))
+                _plot_confusion(path, f"{_copy(lang, 'confusion')}: {model_name or 'model'}", _parse_confusion(row.get("confusion_matrix")), lang=lang)
             charts[chart_key] = path
 
     return charts
