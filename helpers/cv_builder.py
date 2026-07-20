@@ -18,7 +18,7 @@ def _lp():
     return lp
 
 
-def _call_ai(system_prompt: str, user_prompt: str) -> str:
+def _call_ai(system_prompt: str, user_prompt: str) -> tuple[str, str]:
     """Route through the same provider chain used by the lesson planner."""
     lp = _lp()
     order = lp.get_ai_provider_order()
@@ -27,10 +27,10 @@ def _call_ai(system_prompt: str, user_prompt: str) -> str:
     for p in order:
         try:
             if p == "gemini":
-                return lp._generate_with_gemini(system_prompt, user_prompt)
+                return lp._generate_with_gemini(system_prompt, user_prompt), p
             if p == "openrouter":
-                return lp._generate_with_openrouter(system_prompt, user_prompt)
-            return lp._generate_with_openai(system_prompt, user_prompt)
+                return lp._generate_with_openrouter(system_prompt, user_prompt), p
+            return lp._generate_with_openai(system_prompt, user_prompt), p
         except Exception as e:
             errors.append(f"{p}: {e}")
 
@@ -202,7 +202,7 @@ def build_ai_cv(
 User customisation / instructions:
 {user_prompt or t("cv_ai_default_prompt")}"""
 
-    raw = _call_ai(_CV_SYSTEM_PROMPT, user_msg)
+    raw, provider = _call_ai(_CV_SYSTEM_PROMPT, user_msg)
 
     raw = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`").strip()
     try:
@@ -216,6 +216,7 @@ User customisation / instructions:
 
     cv["source_type"] = "ai"
     cv["avatar_url"] = str(avatar_url or "").strip()
+    cv["_ai_provider"] = provider
     return cv
 
 
@@ -232,7 +233,7 @@ _CL_SYSTEM_PROMPT = (
 )
 
 
-def build_ai_cover_letter(cv: dict, user_prompt: str) -> str:
+def build_ai_cover_letter(cv: dict, user_prompt: str) -> tuple[str, str]:
     full_name    = str(cv.get("full_name") or "").strip()
     email        = str(cv.get("email") or "").strip()
     role         = str(cv.get("role") or "teacher").strip().lower()
@@ -295,7 +296,7 @@ _IMPORT_SYSTEM_PROMPT = (
 def extract_cv_from_pdf_text(pdf_text: str) -> dict:
     """Send raw PDF text to AI and get back a structured CV dict."""
     user_msg = f"Extract all CV information from the following text:\n\n{pdf_text[:6000]}"
-    raw = _call_ai(_IMPORT_SYSTEM_PROMPT, user_msg)
+    raw, _provider = _call_ai(_IMPORT_SYSTEM_PROMPT, user_msg)
     raw = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`").strip()
     try:
         return json.loads(raw)

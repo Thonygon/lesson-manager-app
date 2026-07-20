@@ -49,6 +49,7 @@ from helpers.teacher_recommendation_ml import (  # noqa: E402
     build_teacher_report_profile_snapshot,
     summarize_teacher_recommendation_samples,
 )
+from services.ai_usage_service import log_ai_usage_event  # noqa: E402
 from scripts.generate_student_recommendation_report import _clamp  # noqa: E402
 
 
@@ -347,45 +348,81 @@ def _report_meta() -> dict[str, object]:
 def generate_report(output_dir: str | Path, teacher_id: str = "", scope: str = "single_teacher", lang: str = "") -> dict[str, object]:
     resolved_output_dir = Path(output_dir).resolve()
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
-    data = _load_project_data(teacher_id, scope=scope)
-    report_lang = resolve_report_language(preferred=lang)
-    scope_key = str(data.get("scope") or "single_teacher")
-    charts_dir = resolved_output_dir / f"assets_{scope_key}"
-    charts = build_report_charts(data, charts_dir, report_lang)
-    docx_path = resolved_output_dir / f"classio_ml_teacher_recommendation_report_{scope_key}.docx"
-    summary_path = resolved_output_dir / f"classio_ml_teacher_recommendation_summary_{scope_key}.txt"
-    write_classio_ml_report(docx_path, data, charts, _report_meta(), lang=report_lang)
-
-    diagnostics = data["diagnostics"]
-    metrics = diagnostics["metrics"]
-    summary_path.write_text(
-        "\n".join(
-            [
-                f"mode={data['mode']}",
-                f"scope={scope_key}",
-                f"teacher_id={data['teacher_id']}",
-                f"samples={diagnostics['sample_count']}",
-                f"train={diagnostics['train_count']}",
-                f"test={diagnostics['test_count']}",
-                f"accuracy={metrics.get('accuracy', 0.0):.4f}",
-                f"precision={metrics.get('precision', 0.0):.4f}",
-                f"recall={metrics.get('recall', 0.0):.4f}",
-                f"f1={metrics.get('f1', 0.0):.4f}",
-                f"roc_auc={metrics.get('roc_auc', 0.0):.4f}",
-                f"blend_weight={diagnostics.get('blend_weight', 0.0):.4f}",
-            ]
-        ),
-        encoding="utf-8",
+    requested_scope = str(scope or "single_teacher").strip().lower() or "single_teacher"
+    log_ai_usage_event(
+        "teacher_diagnostic_report_ai",
+        "requested",
+        {
+            "scope": requested_scope,
+            "used_ai": False,
+            "generation_mode": "template_only",
+            "report_family": "live_diagnostics",
+        },
     )
-    return {
-        "docx_path": str(docx_path),
-        "summary_path": str(summary_path),
-        "charts_dir": str(charts_dir),
-        "mode": str(data["mode"]),
-        "teacher_id": str(data["teacher_id"]),
-        "lang": report_lang,
-        "diagnostics": diagnostics,
-    }
+    try:
+        data = _load_project_data(teacher_id, scope=scope)
+        report_lang = resolve_report_language(preferred=lang)
+        scope_key = str(data.get("scope") or "single_teacher")
+        charts_dir = resolved_output_dir / f"assets_{scope_key}"
+        charts = build_report_charts(data, charts_dir, report_lang)
+        docx_path = resolved_output_dir / f"classio_ml_teacher_recommendation_report_{scope_key}.docx"
+        summary_path = resolved_output_dir / f"classio_ml_teacher_recommendation_summary_{scope_key}.txt"
+        write_classio_ml_report(docx_path, data, charts, _report_meta(), lang=report_lang)
+
+        diagnostics = data["diagnostics"]
+        metrics = diagnostics["metrics"]
+        summary_path.write_text(
+            "\n".join(
+                [
+                    f"mode={data['mode']}",
+                    f"scope={scope_key}",
+                    f"teacher_id={data['teacher_id']}",
+                    f"samples={diagnostics['sample_count']}",
+                    f"train={diagnostics['train_count']}",
+                    f"test={diagnostics['test_count']}",
+                    f"accuracy={metrics.get('accuracy', 0.0):.4f}",
+                    f"precision={metrics.get('precision', 0.0):.4f}",
+                    f"recall={metrics.get('recall', 0.0):.4f}",
+                    f"f1={metrics.get('f1', 0.0):.4f}",
+                    f"roc_auc={metrics.get('roc_auc', 0.0):.4f}",
+                    f"blend_weight={diagnostics.get('blend_weight', 0.0):.4f}",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        log_ai_usage_event(
+            "teacher_diagnostic_report_ai",
+            "success",
+            {
+                "scope": scope_key,
+                "language": report_lang,
+                "used_ai": False,
+                "generation_mode": "template_only",
+                "report_family": "live_diagnostics",
+            },
+        )
+        return {
+            "docx_path": str(docx_path),
+            "summary_path": str(summary_path),
+            "charts_dir": str(charts_dir),
+            "mode": str(data["mode"]),
+            "teacher_id": str(data["teacher_id"]),
+            "lang": report_lang,
+            "diagnostics": diagnostics,
+        }
+    except Exception as exc:
+        log_ai_usage_event(
+            "teacher_diagnostic_report_ai",
+            "failed",
+            {
+                "scope": requested_scope,
+                "used_ai": False,
+                "generation_mode": "template_only",
+                "report_family": "live_diagnostics",
+                "error": str(exc),
+            },
+        )
+        raise
 
 
 def main() -> None:

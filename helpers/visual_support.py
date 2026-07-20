@@ -12,6 +12,7 @@ from PIL import Image
 
 from core.i18n import t
 from helpers.ai_retry import run_with_ai_retries
+from services.ai_usage_service import log_ai_usage_event, with_provider_chain
 
 
 logger = logging.getLogger(__name__)
@@ -776,8 +777,10 @@ def _generate_with_openai(prompt: str) -> str:
 
 @st.cache_data(show_spinner=False, ttl=60 * 60 * 24 * 7, max_entries=128)
 def _generate_ai_image_data_url(prompt: str) -> str:
+    provider_order = _get_image_provider_order()
+    log_ai_usage_event("visual_support_ai", "requested", with_provider_chain({"kind": "image_support"}, provider_order))
     last_errors = []
-    for provider in _get_image_provider_order():
+    for provider in provider_order:
         try:
             if provider == "openrouter":
                 result = _generate_with_openrouter(prompt)
@@ -786,10 +789,12 @@ def _generate_ai_image_data_url(prompt: str) -> str:
             else:
                 result = _generate_with_openai(prompt)
             if result:
+                log_ai_usage_event("visual_support_ai", "success", {"kind": "image_support", "provider": provider})
                 return result
         except Exception as exc:
             last_errors.append(f"{provider}: {exc}")
             continue
+    log_ai_usage_event("visual_support_ai", "failed", with_provider_chain({"kind": "image_support", "errors": last_errors}, provider_order))
     return ""
 
 

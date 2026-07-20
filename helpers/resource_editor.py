@@ -8,6 +8,7 @@ from typing import Any, Callable
 import streamlit as st
 
 from core.i18n import t
+from services.ai_usage_service import log_ai_usage_event, with_provider_chain
 
 
 logger = logging.getLogger(__name__)
@@ -324,8 +325,14 @@ def _refine_full_payload_with_classio(
         indent=2,
     )
 
+    provider_order = lp.get_ai_provider_order()
+    log_ai_usage_event(
+        "resource_editor_ai",
+        "requested",
+        with_provider_chain({"mode": "full_resource_refine", "resource_type": resource_label}, provider_order),
+    )
     errors = []
-    for provider in lp.get_ai_provider_order():
+    for provider in provider_order:
         try:
             if provider == "gemini":
                 raw = lp._generate_with_gemini(system_prompt, user_prompt)
@@ -336,10 +343,16 @@ def _refine_full_payload_with_classio(
             parsed = _parse_ai_json(raw)
             updated_payload = _payload_from_parsed_response(parsed)
             if isinstance(updated_payload, dict) and updated_payload:
+                log_ai_usage_event("resource_editor_ai", "success", {"mode": "full_resource_refine", "resource_type": resource_label, "provider": provider})
                 return _restore_noneditable_keys(payload or {}, updated_payload)
             raise ValueError("AI response did not include a usable updated resource.")
         except Exception as exc:
             errors.append(f"{provider}: {exc}")
+    log_ai_usage_event(
+        "resource_editor_ai",
+        "failed",
+        with_provider_chain({"mode": "full_resource_refine", "resource_type": resource_label, "errors": errors}, provider_order),
+    )
     logger.warning("Full resource refinement failed: %s", " | ".join(errors))
     return None
 
@@ -463,8 +476,10 @@ def _refine_exam_answer_key_with_classio(*, payload: dict, prompt: str, context:
         indent=2,
     )
 
+    provider_order = lp.get_ai_provider_order()
+    log_ai_usage_event("resource_editor_ai", "requested", with_provider_chain({"mode": "exam_answer_key"}, provider_order))
     errors = []
-    for provider in lp.get_ai_provider_order():
+    for provider in provider_order:
         try:
             if provider == "gemini":
                 raw = lp._generate_with_gemini(system_prompt, user_prompt)
@@ -475,10 +490,12 @@ def _refine_exam_answer_key_with_classio(*, payload: dict, prompt: str, context:
             parsed = _parse_ai_json(raw)
             updated_payload = _merge_answer_key_payload(payload, _answer_key_from_parsed(parsed))
             if updated_payload:
+                log_ai_usage_event("resource_editor_ai", "success", {"mode": "exam_answer_key", "provider": provider})
                 return updated_payload
             raise ValueError("AI response did not contain usable exam answer-key sections.")
         except Exception as exc:
             errors.append(f"{provider}: {exc}")
+    log_ai_usage_event("resource_editor_ai", "failed", with_provider_chain({"mode": "exam_answer_key", "errors": errors}, provider_order))
     logger.warning("Exam answer-key refinement failed: %s", " | ".join(errors))
     return None
 
@@ -512,8 +529,14 @@ def _refine_payload_with_classio(
         indent=2,
     )
 
+    provider_order = lp.get_ai_provider_order()
+    log_ai_usage_event(
+        "resource_editor_ai",
+        "requested",
+        with_provider_chain({"mode": "resource_refine", "resource_type": resource_label}, provider_order),
+    )
     errors = []
-    for provider in lp.get_ai_provider_order():
+    for provider in provider_order:
         try:
             if provider == "gemini":
                 raw = lp._generate_with_gemini(system_prompt, user_prompt)
@@ -525,9 +548,15 @@ def _refine_payload_with_classio(
             cleaned = _updates_from_parsed_response(parsed, fields)
             if not cleaned:
                 raise ValueError("AI response did not include usable field updates.")
+            log_ai_usage_event("resource_editor_ai", "success", {"mode": "resource_refine", "resource_type": resource_label, "provider": provider})
             return cleaned
         except Exception as exc:
             errors.append(f"{provider}: {exc}")
+    log_ai_usage_event(
+        "resource_editor_ai",
+        "failed",
+        with_provider_chain({"mode": "resource_refine", "resource_type": resource_label, "errors": errors}, provider_order),
+    )
     raise RuntimeError(" | ".join(errors))
 
 

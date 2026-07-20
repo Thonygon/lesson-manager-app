@@ -38,6 +38,25 @@ def _lp():
     return lp
 
 
+def _log_learning_program_template_result(log_ai_usage, *, subject: str, learner_stage: str, level_or_band: str, stage: str, reason: str = "") -> None:
+    try:
+        log_ai_usage(
+            request_kind="learning_program_ai",
+            status="success",
+            meta={
+                "subject": subject,
+                "learner_stage": learner_stage,
+                "level_or_band": level_or_band,
+                "stage": stage,
+                "used_ai": False,
+                "generation_mode": "template_only",
+                "reason": reason,
+            },
+        )
+    except Exception:
+        pass
+
+
 def _wb():
     import helpers.worksheet_builder as wb
 
@@ -2050,6 +2069,11 @@ def generate_ai_learning_program_skeleton(
         )
         from helpers.planner_storage import log_ai_usage
     except Exception:
+        try:
+            from helpers.planner_storage import log_ai_usage
+            _log_learning_program_template_result(log_ai_usage, subject=subject, learner_stage=learner_stage, level_or_band=level_or_band, stage="skeleton", reason="ai_import_unavailable")
+        except Exception:
+            pass
         return fallback, "template", t("ai_unavailable_fallback"), payload
 
     skeleton_system_prompt, skeleton_user_prompt = _build_program_skeleton_prompts(payload)
@@ -2099,6 +2123,7 @@ def generate_ai_learning_program_skeleton(
         except Exception:
             pass
         warning = t("ai_unavailable_fallback")
+        _log_learning_program_template_result(log_ai_usage, subject=subject, learner_stage=learner_stage, level_or_band=level_or_band, stage="skeleton", reason="ai_fallback_after_failure")
         return fallback, "template", warning, payload
 
 
@@ -2160,6 +2185,11 @@ def generate_ai_learning_program_unit(
         merged = _merge_program_unit(target_unit, fallback_unit)
         updated = dict(program)
         updated["units"] = [merged if idx == target_idx else unit for idx, unit in enumerate(program.get("units") or [])]
+        try:
+            from helpers.planner_storage import log_ai_usage
+            _log_learning_program_template_result(log_ai_usage, subject=subject, learner_stage=learner_stage, level_or_band=level_or_band, stage="unit_enrichment", reason="ai_import_unavailable")
+        except Exception:
+            pass
         return updated, "template", t("ai_unavailable_fallback")
 
     unit_context = dict(target_unit)
@@ -2192,6 +2222,7 @@ def generate_ai_learning_program_unit(
         merged = _merge_program_unit(target_unit, fallback_unit)
         updated = dict(program)
         updated["units"] = [merged if idx == target_idx else unit for idx, unit in enumerate(program.get("units") or [])]
+        _log_learning_program_template_result(log_ai_usage, subject=subject, learner_stage=learner_stage, level_or_band=level_or_band, stage="unit_enrichment", reason="ai_fallback_after_failure")
         return updated, "template", t("ai_unavailable_fallback")
 
 
@@ -2228,13 +2259,20 @@ def generate_ai_learning_program(
         )
         from helpers.planner_storage import get_ai_planner_usage_status, log_ai_usage
     except Exception:
+        try:
+            from helpers.planner_storage import log_ai_usage
+            _log_learning_program_template_result(log_ai_usage, subject=subject, learner_stage=learner_stage, level_or_band=level_or_band, stage="program", reason="ai_import_unavailable")
+        except Exception:
+            pass
         return fallback, "template", t("ai_unavailable_fallback")
 
     usage = get_ai_learning_program_usage_status()
     if AI_PROGRAM_LIMITS_ENABLED and usage["used_today"] >= AI_PROGRAM_DAILY_LIMIT:
+        _log_learning_program_template_result(log_ai_usage, subject=subject, learner_stage=learner_stage, level_or_band=level_or_band, stage="program", reason="daily_limit_reached")
         return fallback, "template", t("ai_limit_reached")
 
     if AI_PROGRAM_LIMITS_ENABLED and not usage["cooldown_ok"]:
+        _log_learning_program_template_result(log_ai_usage, subject=subject, learner_stage=learner_stage, level_or_band=level_or_band, stage="program", reason="cooldown_active")
         return fallback, "template", t("ai_cooldown_active", seconds=usage["seconds_left"])
 
     try:
@@ -2300,6 +2338,7 @@ def generate_ai_learning_program(
         except Exception:
             pass
         warning = t("ai_unavailable_fallback")
+        _log_learning_program_template_result(log_ai_usage, subject=subject, learner_stage=learner_stage, level_or_band=level_or_band, stage="program", reason="ai_fallback_after_failure")
         return fallback, "template", warning
 
     provider_priority = [skeleton_provider] + [p for p in provider_order if p != skeleton_provider]

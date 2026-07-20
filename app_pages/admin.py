@@ -9,10 +9,11 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 
 from app_pages.pricing import render_plan_preview_cards
-from core.database import clear_app_caches, get_sb, load_profile_row, upsert_profile_row
+from core.database import clear_app_caches, get_sb, load_profile_row, profile_can_access_developer_workspace, upsert_profile_row
 from core.i18n import t
 from core.navigation import go_to
 from core.state import get_current_user_id
@@ -31,6 +32,7 @@ from helpers.explorer_moves import (
 )
 from helpers.currency import CURRENCIES, CURRENCY_CODES, get_exchange_rate, get_preferred_currency
 from helpers.lesson_planner import normalize_subject
+from helpers.report_context_ui import render_report_context_summary
 from helpers.recommendation_models import (
     humanize_ai_feature_name,
     humanize_assignment_status,
@@ -48,6 +50,7 @@ from services import eic_service
 from services.eic_display_service import (
     get_business_action_display,
     get_component_display_name,
+    get_component_text_display,
     get_component_type_display,
     get_evidence_display,
     get_experiment_display_name,
@@ -313,8 +316,17 @@ def _admin_nav_styles() -> dict:
     }
 
 
-def _active_mode_options(role: str, can_teach: bool, can_study: bool) -> list[str]:
-    return ["teacher", "student", "admin"]
+def _active_mode_options(role: str, can_teach: bool, can_study: bool, *, developer_workspace_allowed: bool = False) -> list[str]:
+    options: list[str] = []
+    if can_teach:
+        options.append("teacher")
+    if can_study:
+        options.append("student")
+    if developer_workspace_allowed:
+        options.append("developer_workspace")
+    if str(role or "").strip().lower() == "admin":
+        options.append("admin")
+    return options or ["teacher"]
 
 
 def _render_report_action_row(
@@ -335,7 +347,8 @@ def _render_report_action_row(
             try:
                 if disabled:
                     return
-                generate_action()
+                with st.spinner(t("generating")):
+                    generate_action()
                 if success_text:
                     st.success(success_text)
             except Exception as exc:
@@ -671,6 +684,14 @@ def _mode_display_label(mode: str) -> str:
     return translated if translated != raw else _fallback_label(raw)
 
 
+def get_staff_role_display(role_key: str) -> str:
+    safe_role_key = str(role_key or "").strip().lower()
+    if not safe_role_key:
+        return t("admin_staff_role_none")
+    translated = t(f"admin_staff_role_{safe_role_key}")
+    return translated if translated != f"admin_staff_role_{safe_role_key}" else _fallback_label(safe_role_key)
+
+
 def _bool_display_label(value: Any) -> str:
     return t("yes_label") if bool(value) else t("no_label")
 
@@ -870,6 +891,7 @@ def _create_account(
     can_study: bool,
     active_mode: str,
     subscription_status: str,
+    staff_role_key: str = "",
 ) -> tuple[bool, str]:
     email = str(email or "").strip().lower()
     role = str(role or "teacher").strip().lower()
@@ -897,8 +919,16 @@ def _create_account(
 
     can_teach = bool(can_teach)
     can_study = bool(can_study)
+    staff_role_key = str(staff_role_key or "").strip().lower()
+    if staff_role_key not in {"", "developer", "data_scientist"}:
+        staff_role_key = ""
     primary_role = "teacher" if can_teach else "student"
-    active_mode_options = _active_mode_options(role, can_teach, can_study)
+    active_mode_options = _active_mode_options(
+        role,
+        can_teach,
+        can_study,
+        developer_workspace_allowed=bool(role == "admin" or staff_role_key in {"developer", "data_scientist"}),
+    )
     active_mode = str(active_mode or "").strip().lower()
     if active_mode not in active_mode_options:
         active_mode = active_mode_options[0]
@@ -932,6 +962,15 @@ def _create_account(
     )
     if not ok:
         return False, t("admin_error_profile_save_failed")
+
+    if staff_role_key:
+        staff_role_ok, staff_role_msg = assign_staff_role(
+            target_user_id=user_id,
+            role_key=staff_role_key,
+            assignment_reason=t("admin_create_account_staff_access_reason"),
+        )
+        if not staff_role_ok:
+            return False, f"{t('admin_account_created_staff_role_failed_prefix', user_id=user_id)} {staff_role_msg}"
 
     update_user_plan(user_id, str(plan_id or "free"), status=subscription_status, manual_override=True)
     _log_admin_override(user_id, "account_create", f"Created account with role={role}, plan={plan_id}. {notes}".strip())
@@ -1297,7 +1336,7 @@ def _load_admin_ai_frames() -> dict[str, pd.DataFrame]:
         ),
         "ai_usage_logs": _table_frame(
             "ai_usage_logs",
-            "id,user_id,feature_name,status,created_at",
+            "id,user_id,feature_name,status,meta_json,created_at",
             cache_bust,
             limit=25000,
             order_column="created_at",
@@ -1376,9 +1415,13 @@ def _build_admin_ai_snapshot() -> dict[str, Any]:
         float((reviews_df.get("status", pd.Series(dtype=str)).astype(str) == "reviewed").sum()) if not reviews_df.empty else 0.0,
         float(len(reviews_df)),
     )
+    actual_ai_df = pd.DataFrame(columns=ai_usage_df.columns)
+    if not ai_usage_df.empty:
+        actual_ai_mask = ai_usage_df.get("meta_json", pd.Series(dtype=object)).map(_ai_usage_is_actual_ai)
+        actual_ai_df = ai_usage_df.loc[actual_ai_mask].copy()
     ai_success_score = _safe_ratio(
-        float((ai_usage_df.get("status", pd.Series(dtype=str)).astype(str).str.lower() == "success").sum()) if not ai_usage_df.empty else 0.0,
-        float(len(ai_usage_df)),
+        float((actual_ai_df.get("status", pd.Series(dtype=str)).astype(str).str.lower() == "success").sum()) if not actual_ai_df.empty else 0.0,
+        float(len(actual_ai_df)),
     )
 
     recommendation_event_counts = (
@@ -1465,7 +1508,7 @@ def _build_admin_ai_snapshot() -> dict[str, Any]:
             "multi_subject_links": multi_subject_links,
             "program_assignments": active_program_assignments,
             "videos": int(len(videos_df)),
-            "ai_events": int(len(ai_usage_df)),
+            "ai_events": int(len(actual_ai_df)),
             "recommendation_events": int(len(recommendation_df)),
             "program_alignment_score": program_alignment_score,
             "topic_linkage_score": topic_linkage_score,
@@ -1551,113 +1594,138 @@ def _render_admin_eic() -> None:
         ai_usage_df = frames["ai_usage_logs"]
         practice_df = frames["practice_sessions"]
         progress_df = frames["learning_program_progress"]
+        with st.expander(t("admin_ai_events_inspector_title"), expanded=False):
+            _render_ai_events_inspector(ai_usage_df)
 
-        left, right = st.columns(2, gap="large")
-        with left:
-            st.markdown(f"### {t('admin_ai_graph_recommendation_funnel')}")
-            if recommendation_df.empty or "event_type" not in recommendation_df.columns:
-                st.info(t("admin_ai_empty_data"))
-            else:
-                funnel = (
-                    recommendation_df.groupby("event_type", as_index=False)
-                    .size()
-                    .rename(columns={"size": "count"})
-                    .sort_values("count", ascending=False)
-                )
-                funnel["event_type"] = funnel["event_type"].astype(str).map(humanize_recommendation_event)
-                funnel_series = chart_series(funnel, "event_type", "count", "admin_chart_index_action", "admin_chart_value_count")
-                if funnel_series is not None:
-                    st.bar_chart(funnel_series)
-        with right:
-            st.markdown(f"### {t('admin_ai_graph_assignment_lifecycle')}")
-            if assignments_df.empty or "status" not in assignments_df.columns:
-                st.info(t("admin_ai_empty_data"))
-            else:
-                status_df = (
-                    assignments_df.groupby("status", as_index=False)
-                    .size()
-                    .rename(columns={"size": "count"})
-                    .sort_values("count", ascending=False)
-                )
-                status_df["status"] = status_df["status"].astype(str).map(humanize_assignment_status)
-                status_series = chart_series(status_df, "status", "count", "admin_chart_index_status", "admin_chart_value_count")
-                if status_series is not None:
-                    st.bar_chart(status_series)
-
-        left, right = st.columns(2, gap="large")
-        with left:
-            st.markdown(f"### {t('admin_ai_graph_review_lifecycle')}")
-            if reviews_df.empty or "status" not in reviews_df.columns:
-                st.info(t("admin_ai_empty_data"))
-            else:
-                review_mix = (
-                    reviews_df.groupby("status", as_index=False)
-                    .size()
-                    .rename(columns={"size": "count"})
-                    .sort_values("count", ascending=False)
-                )
-                review_mix["status"] = review_mix["status"].astype(str).map(humanize_review_status)
-                review_series = chart_series(review_mix, "status", "count", "admin_chart_index_status", "admin_chart_value_count")
-                if review_series is not None:
-                    st.bar_chart(review_series)
-        with right:
-            st.markdown(f"### {t('admin_ai_graph_ai_usage_by_feature')}")
-            if ai_usage_df.empty or "feature_name" not in ai_usage_df.columns:
-                st.info(t("admin_ai_empty_data"))
-            else:
-                success_df = ai_usage_df[ai_usage_df.get("status", pd.Series(dtype=str)).astype(str).str.lower() == "success"].copy()
-                usage_mix = (
-                    success_df.groupby("feature_name", as_index=False)
-                    .size()
-                    .rename(columns={"size": "count"})
-                    .sort_values("count", ascending=False)
-                    .head(10)
-                )
-                usage_mix["feature_name"] = usage_mix["feature_name"].astype(str).map(humanize_ai_feature_name)
-                usage_series = chart_series(usage_mix, "feature_name", "count", "admin_chart_index_metric", "admin_chart_value_count")
-                if usage_series is not None:
-                    st.bar_chart(usage_series)
-
-        left, right = st.columns(2, gap="large")
-        with left:
-            st.markdown(f"### {t('admin_ai_graph_practice_subjects')}")
-            if practice_df.empty or "subject" not in practice_df.columns:
-                st.info(t("admin_ai_empty_data"))
-            else:
-                practice_subjects = (
-                    practice_df.assign(
-                        score_pct=pd.to_numeric(practice_df.get("score_pct"), errors="coerce"),
-                        subject_norm=practice_df.get("subject", pd.Series(dtype=str)).astype(str).map(lambda value: str(value or "")),
+        with st.expander(t("admin_ai_graphs_library_title"), expanded=True):
+            left, right = st.columns(2, gap="large")
+            with left:
+                st.markdown(f"### {t('admin_ai_graph_recommendation_funnel')}")
+                if recommendation_df.empty or "event_type" not in recommendation_df.columns:
+                    st.info(t("admin_ai_empty_data"))
+                else:
+                    funnel = (
+                        recommendation_df.groupby("event_type", as_index=False)
+                        .size()
+                        .rename(columns={"size": "count"})
+                        .sort_values("count", ascending=False)
                     )
-                    .assign(subject_norm=lambda df: df["subject_norm"].map(lambda value: normalize_subject(str(value or "").strip()) or "other"))
-                    .groupby("subject_norm", as_index=False)
-                    .agg(sessions=("id", "size"), avg_score=("score_pct", "mean"))
-                    .sort_values("sessions", ascending=False)
-                    .head(10)
-                )
-                practice_subjects["label"] = practice_subjects["subject_norm"].astype(str).map(normalized_subject_label)
-                practice_series = chart_series(practice_subjects, "label", "sessions", "admin_chart_index_metric", "admin_chart_value_count")
-                if practice_series is not None:
-                    st.bar_chart(practice_series)
-        with right:
-            st.markdown(f"### {t('admin_ai_graph_program_progress')}")
-            if progress_df.empty:
-                st.info(t("admin_ai_empty_data"))
-            else:
-                summary_df = pd.DataFrame(
-                    [
-                        {"metric": t("admin_ai_progress_teacher_done"), "count": int(progress_df.get("teacher_done", pd.Series(dtype=bool)).fillna(False).sum())},
-                        {"metric": t("admin_ai_progress_student_done"), "count": int(progress_df.get("student_done", pd.Series(dtype=bool)).fillna(False).sum())},
-                        {"metric": t("admin_ai_progress_fully_done"), "count": int(progress_df.get("is_done", pd.Series(dtype=bool)).fillna(False).sum())},
-                    ]
-                )
-                progress_series = chart_series(summary_df, "metric", "count", "admin_chart_index_metric", "admin_chart_value_count")
-                if progress_series is not None:
-                    st.bar_chart(progress_series)
+                    funnel["event_type"] = funnel["event_type"].astype(str).map(humanize_recommendation_event)
+                    funnel_series = chart_series(funnel, "event_type", "count", "admin_chart_index_action", "admin_chart_value_count")
+                    if funnel_series is not None:
+                        st.bar_chart(funnel_series)
+            with right:
+                st.markdown(f"### {t('admin_ai_graph_assignment_lifecycle')}")
+                if assignments_df.empty or "status" not in assignments_df.columns:
+                    st.info(t("admin_ai_empty_data"))
+                else:
+                    status_df = (
+                        assignments_df.groupby("status", as_index=False)
+                        .size()
+                        .rename(columns={"size": "count"})
+                        .sort_values("count", ascending=False)
+                    )
+                    status_df["status"] = status_df["status"].astype(str).map(humanize_assignment_status)
+                    status_series = chart_series(status_df, "status", "count", "admin_chart_index_status", "admin_chart_value_count")
+                    if status_series is not None:
+                        st.bar_chart(status_series)
+
+            left, right = st.columns(2, gap="large")
+            with left:
+                st.markdown(f"### {t('admin_ai_graph_review_lifecycle')}")
+                if reviews_df.empty or "status" not in reviews_df.columns:
+                    st.info(t("admin_ai_empty_data"))
+                else:
+                    review_mix = (
+                        reviews_df.groupby("status", as_index=False)
+                        .size()
+                        .rename(columns={"size": "count"})
+                        .sort_values("count", ascending=False)
+                    )
+                    review_mix["status"] = review_mix["status"].astype(str).map(humanize_review_status)
+                    review_series = chart_series(review_mix, "status", "count", "admin_chart_index_status", "admin_chart_value_count")
+                    if review_series is not None:
+                        st.bar_chart(review_series)
+            with right:
+                st.markdown(f"### {t('admin_ai_graph_ai_usage_by_feature')}")
+                if ai_usage_df.empty or "feature_name" not in ai_usage_df.columns:
+                    st.info(t("admin_ai_empty_data"))
+                else:
+                    usage_df = _ai_usage_inspection_frame(ai_usage_df)
+                    usage_mix = (
+                        usage_df.groupby(["feature_label", "feature_scope"], as_index=False)
+                        .size()
+                        .rename(columns={"size": "count"})
+                        .sort_values("count", ascending=False)
+                    )
+                    if usage_mix.empty:
+                        st.info(t("admin_ai_empty_data"))
+                    else:
+                        fig = px.bar(
+                            usage_mix,
+                            x="feature_label",
+                            y="count",
+                            color="feature_scope",
+                            color_discrete_map={
+                                t("admin_ai_scope_teacher"): "#1f77d0",
+                                t("admin_ai_scope_admin_developer"): "#f59e0b",
+                            },
+                            labels={
+                                "feature_label": t("admin_ai_events_feature_col"),
+                                "count": t("admin_ai_events_count_col"),
+                                "feature_scope": t("admin_ai_events_scope_col"),
+                            },
+                        )
+                        fig.update_layout(
+                            showlegend=True,
+                            legend_title_text=t("admin_ai_events_scope_col"),
+                            xaxis_title=None,
+                            yaxis_title=t("admin_ai_events_count_col"),
+                            margin=dict(l=10, r=10, t=10, b=10),
+                        )
+                        fig.update_xaxes(tickangle=-90)
+                        st.plotly_chart(fig, use_container_width=True)
+
+            left, right = st.columns(2, gap="large")
+            with left:
+                st.markdown(f"### {t('admin_ai_graph_practice_subjects')}")
+                if practice_df.empty or "subject" not in practice_df.columns:
+                    st.info(t("admin_ai_empty_data"))
+                else:
+                    practice_subjects = (
+                        practice_df.assign(
+                            score_pct=pd.to_numeric(practice_df.get("score_pct"), errors="coerce"),
+                            subject_norm=practice_df.get("subject", pd.Series(dtype=str)).astype(str).map(lambda value: str(value or "")),
+                        )
+                        .assign(subject_norm=lambda df: df["subject_norm"].map(lambda value: normalize_subject(str(value or "").strip()) or "other"))
+                        .groupby("subject_norm", as_index=False)
+                        .agg(sessions=("id", "size"), avg_score=("score_pct", "mean"))
+                        .sort_values("sessions", ascending=False)
+                        .head(10)
+                    )
+                    practice_subjects["label"] = practice_subjects["subject_norm"].astype(str).map(normalized_subject_label)
+                    practice_series = chart_series(practice_subjects, "label", "sessions", "admin_chart_index_metric", "admin_chart_value_count")
+                    if practice_series is not None:
+                        st.bar_chart(practice_series)
+            with right:
+                st.markdown(f"### {t('admin_ai_graph_program_progress')}")
+                if progress_df.empty:
+                    st.info(t("admin_ai_empty_data"))
+                else:
+                    summary_df = pd.DataFrame(
+                        [
+                            {"metric": t("admin_ai_progress_teacher_done"), "count": int(progress_df.get("teacher_done", pd.Series(dtype=bool)).fillna(False).sum())},
+                            {"metric": t("admin_ai_progress_student_done"), "count": int(progress_df.get("student_done", pd.Series(dtype=bool)).fillna(False).sum())},
+                            {"metric": t("admin_ai_progress_fully_done"), "count": int(progress_df.get("is_done", pd.Series(dtype=bool)).fillna(False).sum())},
+                        ]
+                    )
+                    progress_series = chart_series(summary_df, "metric", "count", "admin_chart_index_metric", "admin_chart_value_count")
+                    if progress_series is not None:
+                        st.bar_chart(progress_series)
 
     with model_tab:
         st.markdown(f"### {t('admin_ai_models_live_title')}")
-        st.caption("Browse the live intelligence systems running in Classio today. Use the component picker to inspect the current mechanism, product role, evidence maturity, and recommended next action.")
+        st.caption(t("admin_ai_models_live_caption"))
         _render_admin_intelligence_systems_browser()
 
         st.markdown(f"### {t('admin_eic_legacy_diagnostics_title')}")
@@ -1794,8 +1862,8 @@ def _render_admin_eic() -> None:
                         disabled=True,
                     )
 
-        st.markdown("### Validated Supervised Experiment Status")
-        st.caption("The approved assigned-resource experiment now lives in the separate Developer Workspace. Normal Admin keeps only the latest validated summary.")
+        st.markdown(f"### {t('admin_eic_validated_status_title')}")
+        st.caption(t("admin_eic_validated_status_caption"))
         _render_admin_validated_experiment_summary()
 
         st.markdown(f"### {t('admin_ai_models_next_title')}")
@@ -1908,6 +1976,174 @@ def _series_from_rows(rows: list[dict], *, period: str = "M", date_key: str = "c
         return pd.DataFrame(columns=["period", "count"])
     df["period"] = df[date_key].dt.to_period(period).astype(str)
     return df.groupby("period", as_index=False).size().rename(columns={"size": "count"})
+
+
+def _safe_meta_json(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _ai_provider_label(value: Any) -> str:
+    safe = str(value or "").strip().lower()
+    if safe == "gemini":
+        return "Gemini"
+    if safe == "openai":
+        return "OpenAI"
+    if safe == "openrouter":
+        return "OpenRouter"
+    return t("admin_ai_provider_unknown")
+
+
+def _ai_provider_display(meta: dict[str, Any]) -> str:
+    if meta.get("used_ai") is False:
+        return t("admin_ai_provider_template_only")
+    provider = _ai_provider_label(meta.get("provider") or meta.get("supplier") or meta.get("vendor"))
+    if provider != t("admin_ai_provider_unknown"):
+        return provider
+    provider_chain = str(meta.get("provider_chain") or "").strip()
+    if provider_chain:
+        return f"{t('admin_ai_provider_chain')}: {provider_chain}"
+    return provider
+
+
+def _ai_feature_scope(value: Any) -> str:
+    key = str(value or "").strip().lower()
+    if key in {"experiment_report_ai", "resource_editor_ai", "teacher_diagnostic_report_ai", "student_diagnostic_report_ai"}:
+        return "admin_developer"
+    return "teacher_workspace"
+
+
+def _ai_feature_scope_label(value: Any) -> str:
+    return t("admin_ai_scope_admin_developer") if _ai_feature_scope(value) == "admin_developer" else t("admin_ai_scope_teacher")
+
+
+def _ai_usage_is_actual_ai(meta: Any) -> bool:
+    safe_meta = _safe_meta_json(meta)
+    return safe_meta.get("used_ai") is not False
+
+
+def _ai_usage_inspection_frame(ai_usage_df: pd.DataFrame) -> pd.DataFrame:
+    if ai_usage_df.empty:
+        return pd.DataFrame()
+    inspection = ai_usage_df.copy()
+    if "meta_json" not in inspection.columns:
+        inspection["meta_json"] = [{} for _ in range(len(inspection))]
+    inspection["meta_json"] = inspection["meta_json"].map(_safe_meta_json)
+    inspection["provider"] = inspection["meta_json"].map(_ai_provider_display)
+    inspection["feature_label"] = inspection.get("feature_name", pd.Series(dtype=str)).astype(str).map(humanize_ai_feature_name)
+    inspection["feature_scope"] = inspection.get("feature_name", pd.Series(dtype=str)).astype(str).map(_ai_feature_scope_label)
+    inspection["status_label"] = inspection.get("status", pd.Series(dtype=str)).astype(str).str.strip().str.lower().map(
+        lambda value: {"requested": t("admin_ai_status_requested"), "success": t("admin_ai_status_success"), "failed": t("admin_ai_status_failed")}.get(value, value or "—")
+    )
+    inspection["meta_summary"] = inspection["meta_json"].map(
+        lambda meta: ", ".join(
+            f"{str(key).replace('_', ' ').title()}: {value}"
+            for key, value in meta.items()
+            if key not in {"provider", "supplier", "vendor", "provider_chain"} and value not in (None, "", [], {})
+        )[:220]
+        or "—"
+    )
+    return inspection
+
+
+def _render_ai_events_inspector(ai_usage_df: pd.DataFrame) -> None:
+    st.caption(t("admin_ai_events_inspector_caption"))
+    inspection = _ai_usage_inspection_frame(ai_usage_df)
+    if inspection.empty:
+        st.info(t("admin_ai_empty_data"))
+        return
+
+    left, middle, right = st.columns(3, gap="medium")
+    with left:
+        top_features = (
+            inspection.groupby("feature_label", as_index=False)
+            .size()
+            .rename(columns={"size": "count"})
+            .sort_values("count", ascending=False)
+            .head(10)
+        )
+        st.markdown(f"#### {t('admin_ai_events_top_features_title')}")
+        feature_series = chart_series(top_features, "feature_label", "count", "admin_chart_index_metric", "admin_chart_value_count")
+        if feature_series is not None:
+            st.bar_chart(feature_series)
+    with middle:
+        provider_mix = (
+            inspection.groupby("provider", as_index=False)
+            .size()
+            .rename(columns={"size": "count"})
+            .sort_values("count", ascending=False)
+        )
+        st.markdown(f"#### {t('admin_ai_events_provider_mix_title')}")
+        provider_series = chart_series(provider_mix, "provider", "count", "admin_chart_index_metric", "admin_chart_value_count")
+        if provider_series is not None:
+            st.bar_chart(provider_series)
+    with right:
+        status_mix = (
+            inspection.groupby("status_label", as_index=False)
+            .size()
+            .rename(columns={"size": "count"})
+            .sort_values("count", ascending=False)
+        )
+        st.markdown(f"#### {t('admin_ai_events_status_mix_title')}")
+        status_series = chart_series(status_mix, "status_label", "count", "admin_chart_index_status", "admin_chart_value_count")
+        if status_series is not None:
+            st.bar_chart(status_series)
+
+    matrix = (
+        inspection.groupby(["feature_label", "provider"], as_index=False)
+        .size()
+        .rename(columns={"size": "count"})
+        .sort_values(["count", "feature_label"], ascending=[False, True])
+    )
+    st.markdown(f"#### {t('admin_ai_events_feature_provider_matrix_title')}")
+    st.dataframe(
+        matrix.rename(
+            columns={
+                "feature_label": t("admin_ai_events_feature_col"),
+                "provider": t("admin_ai_events_provider_col"),
+                "count": t("admin_ai_events_count_col"),
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    detail_df = inspection.copy()
+    detail_df["created_at_label"] = detail_df.get("created_at", pd.Series(dtype="datetime64[ns, UTC]")).map(
+        lambda value: value.strftime("%Y-%m-%d %H:%M") if hasattr(value, "strftime") and not pd.isna(value) else "—"
+    )
+    detail_df = detail_df.rename(
+        columns={
+            "created_at_label": t("admin_ai_events_time_col"),
+            "feature_label": t("admin_ai_events_feature_col"),
+            "status_label": t("admin_ai_events_status_col"),
+            "provider": t("admin_ai_events_provider_col"),
+            "user_id": t("admin_ai_events_user_col"),
+            "meta_summary": t("admin_ai_events_meta_col"),
+        }
+    )
+    st.markdown(f"#### {t('admin_ai_events_detail_table_title')}")
+    st.dataframe(
+        detail_df[
+            [
+                t("admin_ai_events_time_col"),
+                t("admin_ai_events_feature_col"),
+                t("admin_ai_events_status_col"),
+                t("admin_ai_events_provider_col"),
+                t("admin_ai_events_user_col"),
+                t("admin_ai_events_meta_col"),
+            ]
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
 
 
 def _render_kpi_row(items: list[tuple[str, str]]) -> None:
@@ -2260,7 +2496,18 @@ def _render_users(df: pd.DataFrame) -> None:
             role = st.selectbox(t("admin_role_label"), ADMIN_ROLE_OPTIONS, index=ADMIN_ROLE_OPTIONS.index(str(row.get("role") or "teacher")) if str(row.get("role") or "teacher") in ADMIN_ROLE_OPTIONS else 0, format_func=_role_display_label)
             can_teach = st.checkbox(t("admin_can_teach_label"), value=bool(row.get("can_teach", role in {"teacher", "school_admin", "admin"})))
             can_study = st.checkbox(t("admin_can_study_label"), value=bool(row.get("can_study", role == "student")))
-            active_mode_options = _active_mode_options(role, can_teach, can_study)
+            developer_workspace_allowed = profile_can_access_developer_workspace(
+                {
+                    "user_id": str(row.get("user_id") or ""),
+                    "role": role,
+                }
+            )
+            active_mode_options = _active_mode_options(
+                role,
+                can_teach,
+                can_study,
+                developer_workspace_allowed=developer_workspace_allowed,
+            )
             current_active_mode = str(row.get("last_active_mode") or active_mode_options[0])
             active_mode = st.selectbox(
                 t("admin_default_active_mode_label"),
@@ -2386,20 +2633,20 @@ def _render_users(df: pd.DataFrame) -> None:
 
 def _render_staff_access() -> None:
     st.markdown(
-        "<div class='admin-section-card'><div class='admin-card-title'>Staff Access</div><div class='admin-card-subtitle'>Assign or revoke technical staff roles without changing the user’s product role.</div></div>",
+        f"<div class='admin-section-card'><div class='admin-card-title'>{_html.escape(t('admin_staff_access_title'))}</div><div class='admin-card-subtitle'>{_html.escape(t('admin_staff_access_subtitle'))}</div></div>",
         unsafe_allow_html=True,
     )
-    search_value = st.text_input("Search users", key="admin_staff_access_search", placeholder="Name, email, or user id")
+    search_value = st.text_input(t("admin_staff_access_search_users"), key="admin_staff_access_search", placeholder=t("admin_staff_access_search_placeholder"))
     users = search_profiles_for_staff_access(search_value, limit=40, cache_bust=str(st.session_state.get("admin_staff_access_refresh_nonce") or 0))
     if not users:
-        st.info("No matching users found.")
+        st.info(t("admin_staff_access_no_matching_users"))
         return
 
     options = [
-        f"{str(row.get('display_name') or row.get('email') or 'User').strip()} | {str(row.get('email') or '').strip()} | {str(row.get('user_id') or '').strip()}"
+        f"{str(row.get('display_name') or row.get('email') or t('admin_staff_access_user_fallback')).strip()} | {str(row.get('email') or '').strip()} | {str(row.get('user_id') or '').strip()}"
         for row in users
     ]
-    picked = st.selectbox("User", options, key="admin_staff_access_user")
+    picked = st.selectbox(t("admin_staff_access_user_label"), options, key="admin_staff_access_user")
     picked_user_id = picked.rsplit("|", 1)[-1].strip()
     selected_user = next((row for row in users if str(row.get("user_id") or "").strip() == picked_user_id), {})
     assignments = list_staff_role_assignments(user_id=picked_user_id, cache_bust=str(st.session_state.get("admin_staff_access_refresh_nonce") or 0))
@@ -2408,10 +2655,10 @@ def _render_staff_access() -> None:
 
     summary_cols = st.columns(4, gap="small")
     summary_cards = [
-        ("Product Role", _role_display_label(str(selected_user.get("role") or "teacher"))),
-        ("Primary Role", _role_display_label(str(selected_user.get("primary_role") or str(selected_user.get("role") or "teacher")))),
-        ("Active Staff Roles", ", ".join(active_roles) if active_roles else "None"),
-        ("User ID", picked_user_id or "n/a"),
+        (t("admin_staff_access_product_role"), _role_display_label(str(selected_user.get("role") or "teacher"))),
+        (t("admin_staff_access_primary_role"), _role_display_label(str(selected_user.get("primary_role") or str(selected_user.get("role") or "teacher")))),
+        (t("admin_staff_access_active_roles"), ", ".join(active_roles) if active_roles else t("admin_staff_access_none")),
+        (t("admin_staff_access_user_id"), picked_user_id or "n/a"),
     ]
     for col, (label, value) in zip(summary_cols, summary_cards):
         with col:
@@ -2425,8 +2672,8 @@ def _render_staff_access() -> None:
                 unsafe_allow_html=True,
             )
 
-    st.caption("Technical staff roles are additive. They do not replace teacher, student, admin, or school roles.")
-    st.markdown("#### Active Technical Roles")
+    st.caption(t("admin_staff_access_additive_caption"))
+    st.markdown(f"#### {t('admin_staff_access_active_roles_heading')}")
     if active_assignments:
         st.dataframe(
             pd.DataFrame(active_assignments)[["role_key", "assigned_at", "assigned_by", "assignment_reason"]],
@@ -2434,19 +2681,19 @@ def _render_staff_access() -> None:
             hide_index=True,
         )
     else:
-        st.info("This user has no active technical staff roles.")
+        st.info(t("admin_staff_access_no_active_roles"))
 
     assign_col, revoke_col = st.columns(2, gap="large")
     with assign_col:
-        st.markdown("##### Assign Role")
+        st.markdown(f"##### {t('admin_staff_access_assign_heading')}")
         with st.form("admin_staff_access_assign_form"):
-            role_key = st.selectbox("Staff role", ["developer", "data_scientist"], key="admin_staff_access_assign_role")
-            reason = st.text_area("Assignment reason", key="admin_staff_access_assign_reason")
-            confirm = st.checkbox("I confirm that I want to assign this technical staff role.", key="admin_staff_access_assign_confirm")
-            submitted = st.form_submit_button("Assign technical role", type="primary")
+            role_key = st.selectbox(t("admin_staff_access_role_label"), ["developer", "data_scientist"], key="admin_staff_access_assign_role")
+            reason = st.text_area(t("admin_staff_access_assignment_reason"), key="admin_staff_access_assign_reason")
+            confirm = st.checkbox(t("admin_staff_access_assign_confirm"), key="admin_staff_access_assign_confirm")
+            submitted = st.form_submit_button(t("admin_staff_access_assign_button"), type="primary")
             if submitted:
                 if not confirm:
-                    st.error("Explicit confirmation is required before assigning a staff role.")
+                    st.error(t("admin_staff_access_assign_confirm_error"))
                 else:
                     ok, message = assign_staff_role(target_user_id=picked_user_id, role_key=role_key, assignment_reason=reason)
                     if ok:
@@ -2456,19 +2703,19 @@ def _render_staff_access() -> None:
                     else:
                         st.error(message)
     with revoke_col:
-        st.markdown("##### Revoke Role")
+        st.markdown(f"##### {t('admin_staff_access_revoke_heading')}")
         revoke_options = {
             f"{str(row.get('role_key') or '')} | assigned {str(row.get('assigned_at') or '')}": row
             for row in active_assignments
         }
         with st.form("admin_staff_access_revoke_form"):
-            revoke_label = st.selectbox("Active assignment", list(revoke_options.keys()) or ["No active role"], key="admin_staff_access_revoke_role")
-            reason = st.text_area("Revocation reason", key="admin_staff_access_revoke_reason")
-            confirm = st.checkbox("I confirm that I want to revoke this active technical staff role.", key="admin_staff_access_revoke_confirm")
-            submitted = st.form_submit_button("Revoke technical role", type="secondary", disabled=not bool(revoke_options))
+            revoke_label = st.selectbox(t("admin_staff_access_active_assignment_label"), list(revoke_options.keys()) or [t("admin_staff_access_no_active_role_option")], key="admin_staff_access_revoke_role")
+            reason = st.text_area(t("admin_staff_access_revocation_reason"), key="admin_staff_access_revoke_reason")
+            confirm = st.checkbox(t("admin_staff_access_revoke_confirm"), key="admin_staff_access_revoke_confirm")
+            submitted = st.form_submit_button(t("admin_staff_access_revoke_button"), type="secondary", disabled=not bool(revoke_options))
             if submitted:
                 if not confirm:
-                    st.error("Explicit confirmation is required before revoking a staff role.")
+                    st.error(t("admin_staff_access_revoke_confirm_error"))
                 else:
                     target_row = revoke_options.get(revoke_label) or {}
                     ok, message = revoke_staff_role(
@@ -2484,7 +2731,7 @@ def _render_staff_access() -> None:
                     else:
                         st.error(message)
 
-    st.markdown("#### Recent Staff Role Changes")
+    st.markdown(f"#### {t('admin_staff_access_recent_changes_heading')}")
     changes = recent_staff_role_changes(limit=25)
     if changes:
         st.dataframe(
@@ -2493,15 +2740,15 @@ def _render_staff_access() -> None:
             hide_index=True,
         )
     else:
-        st.info("No staff-role changes have been recorded yet.")
+        st.info(t("admin_staff_access_no_changes"))
 
 
 def _render_admin_validated_experiment_summary() -> None:
     validated = get_latest_validated_run_summary(cache_bust=str(st.session_state.get("admin_ai_validated_refresh_nonce") or 0))
     cards = st.columns(4, gap="small")
     values = [
-        ("Validated Run", str(validated.get("run_id") or "No validated run yet")),
-        ("Run Status", str(validated.get("run_status") or "No validated run yet")),
+        (t("admin_eic_validated_run"), str(validated.get("run_id") or t("admin_eic_empty_no_validated_run"))),
+        (t("admin_eic_run_status"), str(validated.get("run_status") or t("admin_eic_empty_no_validated_run"))),
         ("Integrity", str(validated.get("integrity_status") or "n/a")),
         ("Primary Leader", str(validated.get("primary_metric_leader") or "n/a")),
     ]
@@ -2518,15 +2765,17 @@ def _render_admin_validated_experiment_summary() -> None:
             )
     if validated:
         st.caption(
-            "Latest validated summary: "
-            f"{int(validated.get('included_row_count') or 0)} mature labels, "
-            f"{int(validated.get('positive_label_count') or 0)} positives, "
-            f"{int(validated.get('negative_label_count') or 0)} negatives."
+            t(
+                "admin_eic_validated_summary_caption",
+                labels=str(int(validated.get("included_row_count") or 0)),
+                positives=str(int(validated.get("positive_label_count") or 0)),
+                negatives=str(int(validated.get("negative_label_count") or 0)),
+            )
         )
     else:
-        st.info("No validated run yet.")
+        st.info(t("admin_eic_empty_no_validated_run"))
     if current_user_can_access_developer_workspace():
-        if st.button("Open Developer Workspace", key="admin_open_developer_workspace", use_container_width=False):
+        if st.button(t("admin_eic_open_developer_workspace"), key="admin_open_developer_workspace", use_container_width=False):
             go_to("developer_workspace")
             st.rerun()
 
@@ -2739,12 +2988,12 @@ def _render_admin_validated_experiment_summary() -> None:
         run_id = str(validated.get("run_id") or "")
         rows.append(
             {
-                "Experiment": experiment_label,
+                t("admin_eic_registry_experiment"): experiment_label,
                 t("admin_eic_validated_run"): run_id or t("admin_eic_value_none"),
                 t("admin_eic_run_status"): get_run_status_display(str(validated.get("run_status") or "not_available")),
                 t("admin_eic_integrity_status"): get_integrity_status_display(str(validated.get("integrity_status") or "not_run")),
                 t("admin_eic_primary_leader"): str(validated.get("primary_metric_leader") or "n/a"),
-                "Validated Runs": int(item.get("validated_run_count") or 0),
+                t("admin_eic_validated_runs_count"): int(item.get("validated_run_count") or 0),
             }
         )
         if experiment_id and run_id:
@@ -2786,6 +3035,12 @@ def _render_admin_validated_experiment_summary() -> None:
             run_id=selected_run_id or t("admin_eic_value_none"),
         )
     )
+    render_report_context_summary(
+        run_id=selected_run_id,
+        experiment_id=selected_experiment_id,
+        language=_eic_lang(),
+        key_prefix=f"admin_summary_{selected_experiment_id}_{selected_run_id}",
+    )
     capabilities = {CAPABILITY_VIEW_TECHNICAL_ARTIFACTS} if has_capability(CAPABILITY_VIEW_TECHNICAL_ARTIFACTS) else set()
     report_rows = list_available_eic_reports(selected_run_id, capabilities, language=_eic_lang())
     if not report_rows:
@@ -2808,33 +3063,21 @@ def _render_admin_validated_experiment_summary() -> None:
                     """,
                     unsafe_allow_html=True,
                 )
-                if report_status == "available" and not bool(report.get("download_ready")):
-                    if st.button(
-                        t("admin_eic_report_generate_button"),
-                        key=f"admin_eic_summary_generate_{selected_run_id}_{report_type}",
-                        use_container_width=True,
-                    ):
-                        result = get_or_create_validated_report(selected_run_id, report_type, _eic_lang())
-                        if result.get("ok"):
-                            st.session_state.pop(f"admin_eic_summary_report_error_{selected_run_id}_{report_type}", None)
-                            st.rerun()
-                        st.session_state[f"admin_eic_summary_report_error_{selected_run_id}_{report_type}"] = str(
-                            result.get("message") or t("admin_eic_report_generation_failed")
-                        )
-                        st.rerun()
-                elif report_status == "available" and bool(report.get("download_ready")):
+                if report_status == "available" and bool(report.get("download_ready")):
                     report_path = Path(str(report.get("path") or ""))
+                    modified_epoch = int(report.get("modified_epoch") or 0)
                     st.download_button(
                         label=t("admin_eic_report_download_button"),
                         data=report_path.read_bytes(),
                         file_name=report_path.name,
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         use_container_width=True,
-                        key=f"admin_eic_summary_download_{selected_run_id}_{report_type}",
+                        key=f"admin_eic_summary_download_{selected_run_id}_{report_type}_{modified_epoch}",
                     )
-                report_error = st.session_state.get(f"admin_eic_summary_report_error_{selected_run_id}_{report_type}")
-                if report_error:
-                    st.caption(f"{t('admin_eic_report_generation_failed_label')}: {report_error}")
+                    if str(report.get("modified_at") or "").strip():
+                        st.caption(t("admin_eic_report_latest_generated_at", value=str(report.get("modified_at") or "")))
+                elif report_status == "available":
+                    st.caption(t("admin_eic_report_prepare_in_workspace"))
                 elif report_status != "available":
                     st.caption(f"{t('admin_eic_report_availability_label')}: {_eic_report_state_label(report_status)}")
 
@@ -2893,6 +3136,13 @@ def _render_admin_intelligence_systems_browser(*, cache_bust: str = "", lang: st
         return
 
     selected_name = get_component_display_name(selected_component_id, lang=lang)
+    business_question = get_component_text_display(selected_component_id, "business_question", selected_component.get("business_question"), lang=lang)
+    decision_supported = get_component_text_display(selected_component_id, "decision_supported", selected_component.get("decision_supported"), lang=lang)
+    production_use = get_component_text_display(selected_component_id, "production_use", selected_component.get("production_use"), lang=lang)
+    limitation = get_component_text_display(selected_component_id, "limitation", selected_component.get("limitation"), lang=lang)
+    product_surface = get_component_text_display(selected_component_id, "product_surface", selected_component.get("product_surface"), lang=lang)
+    educational_value = get_component_text_display(selected_component_id, "educational_value", selected_component.get("educational_value"), lang=lang)
+    outcome_metric = get_component_text_display(selected_component_id, "outcome_metric", selected_component.get("outcome_metric"), lang=lang)
     selected_badges = "".join(
         [
             _eic_badge(
@@ -2915,14 +3165,14 @@ def _render_admin_intelligence_systems_browser(*, cache_bust: str = "", lang: st
     )
     st.markdown(
         f"""
-        <div class='admin-section-card'>
-            <div class='admin-card-title'>{_html.escape(selected_name)}</div>
-            <div class='admin-card-subtitle'>{_html.escape(t('admin_eic_system_detail_subtitle'))}</div>
+            <div class='admin-section-card'>
+                <div class='admin-card-title'>{_html.escape(selected_name)}</div>
+                <div class='admin-card-subtitle'>{_html.escape(t('admin_eic_system_detail_subtitle'))}</div>
             <div class="admin-eic-card" style="margin-top:12px;">
                 <div class="admin-eic-card-title">{_html.escape(selected_name)}</div>
-                <div class="admin-eic-card-subtitle">{_html.escape(str(selected_component.get('business_question') or ''))}</div>
+                <div class="admin-eic-card-subtitle">{_html.escape(business_question)}</div>
                 <div class="admin-eic-meta">{selected_badges}</div>
-                <div class="admin-eic-card-copy">{_html.escape(str(selected_component.get('production_use') or ''))}</div>
+                <div class="admin-eic-card-copy">{_html.escape(production_use)}</div>
                 <div class="admin-eic-card-foot">
                     <strong>{_html.escape(t('admin_eic_component_next_action'))}:</strong>
                     {_html.escape(get_business_action_display(str(selected_component.get('recommended_next_action') or ''), lang=lang))}
@@ -2933,12 +3183,12 @@ def _render_admin_intelligence_systems_browser(*, cache_bust: str = "", lang: st
         unsafe_allow_html=True,
     )
     detail_rows = [
-        (t("admin_eic_component_business_question"), str(selected_component.get("business_question") or "")),
-        (t("admin_eic_component_decision_supported"), str(selected_component.get("decision_supported") or "")),
+        (t("admin_eic_component_business_question"), business_question),
+        (t("admin_eic_component_decision_supported"), decision_supported),
         (t("admin_eic_component_operating_mechanism"), get_component_type_display(str(selected_component.get("component_type") or ""), lang=lang)),
-        (t("admin_eic_component_product_surface"), str(selected_component.get("product_surface") or "")),
-        (t("admin_eic_component_educational_value"), str(selected_component.get("educational_value") or "")),
-        (t("admin_eic_component_current_limitation"), str(selected_component.get("limitation") or "")),
+        (t("admin_eic_component_product_surface"), product_surface),
+        (t("admin_eic_component_educational_value"), educational_value),
+        (t("admin_eic_component_current_limitation"), limitation),
         (t("admin_eic_component_next_action"), get_business_action_display(str(selected_component.get("recommended_next_action") or ""), lang=lang)),
     ]
     st.dataframe(pd.DataFrame(detail_rows, columns=[t("admin_field_label"), t("admin_value_label")]), use_container_width=True, hide_index=True)
@@ -2952,7 +3202,7 @@ def _render_admin_intelligence_systems_browser(*, cache_bust: str = "", lang: st
             resources=str(selected_component.get("resources_represented") or 0),
         )
     )
-    st.caption(f"{t('admin_eic_component_outcomes')}: {selected_component.get('outcome_metric') or t('admin_eic_status_not_available')}")
+    st.caption(f"{t('admin_eic_component_outcomes')}: {outcome_metric or t('admin_eic_status_not_available')}")
 
 
 def _render_admin_ai_intelligence() -> None:
@@ -3224,27 +3474,21 @@ def _render_admin_ai_intelligence() -> None:
                             """,
                             unsafe_allow_html=True,
                         )
-                        if report_status == "available" and not bool(report.get("download_ready")):
-                            if st.button(t("admin_eic_report_generate_button"), key=f"admin_eic_generate_{run_id}_{report_type}", use_container_width=True):
-                                result = get_or_create_validated_report(run_id, report_type, lang)
-                                if result.get("ok"):
-                                    st.session_state.pop(f"admin_eic_report_error_{report_type}", None)
-                                    st.rerun()
-                                st.session_state[f"admin_eic_report_error_{report_type}"] = str(result.get("message") or t("admin_eic_report_generation_failed"))
-                                st.rerun()
-                        elif report_status == "available" and bool(report.get("download_ready")):
+                        if report_status == "available" and bool(report.get("download_ready")):
                             report_path = Path(str(report.get("path") or ""))
+                            modified_epoch = int(report.get("modified_epoch") or 0)
                             st.download_button(
                                 label=t("admin_eic_report_download_button"),
                                 data=report_path.read_bytes(),
                                 file_name=report_path.name,
                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                 use_container_width=True,
-                                key=f"admin_eic_download_docx_{run_id}_{report_type}",
+                                key=f"admin_eic_download_docx_{run_id}_{report_type}_{modified_epoch}",
                             )
-                        report_error = st.session_state.get(f"admin_eic_report_error_{report_type}")
-                        if report_error:
-                            st.caption(f"{t('admin_eic_report_generation_failed_label')}: {report_error}")
+                            if str(report.get("modified_at") or "").strip():
+                                st.caption(t("admin_eic_report_latest_generated_at", value=str(report.get("modified_at") or "")))
+                        elif report_status == "available":
+                            st.caption(t("admin_eic_report_prepare_in_workspace"))
                         elif report_status != "available":
                             st.caption(f"{t('admin_eic_report_availability_label')}: {_eic_report_state_label(report_status)}")
             st.caption(t("admin_eic_report_download_note"))
@@ -3263,39 +3507,107 @@ def _render_accounts(df: pd.DataFrame) -> None:
     plans = list_plan_catalog()
     plan_ids = [str(plan.get("id")) for plan in plans]
     plan_lookup = {str(plan.get("id")): plan for plan in plans}
-    with st.form("admin_create_account_form"):
-        display_name = st.text_input(t("admin_display_name_label"))
-        email = st.text_input(t("admin_email_label"))
-        role = st.selectbox(t("admin_role_label"), ADMIN_ROLE_OPTIONS, index=0, format_func=_role_display_label)
-        default_can_teach = role in {"teacher", "school_admin", "admin"}
-        default_can_study = role == "student"
-        can_teach = st.checkbox(t("admin_can_teach_label"), value=default_can_teach)
-        can_study = st.checkbox(t("admin_can_study_label"), value=default_can_study)
-        active_mode_options = _active_mode_options(role, can_teach, can_study)
-        active_mode = st.selectbox(t("admin_default_active_mode_label"), active_mode_options, index=0, format_func=_mode_display_label)
-        subscription_status_default = "free"
-        plan_id = st.selectbox(t("admin_initial_plan_label"), plan_ids, index=0 if "free" not in plan_ids else plan_ids.index("free"), format_func=lambda value: _plan_display_label(value, plan_lookup))
-        subscription_status = st.selectbox(t("admin_subscription_status_label"), SUBSCRIPTION_STATUS_OPTIONS, index=SUBSCRIPTION_STATUS_OPTIONS.index(subscription_status_default), format_func=_subscription_status_display_label)
-        account_status = st.selectbox(t("admin_account_status_label"), ACCOUNT_STATUS_OPTIONS, index=0, format_func=_account_status_display_label)
-        notes = st.text_area(t("admin_notes_label"), placeholder=t("admin_notes_placeholder"))
-        submitted = st.form_submit_button(t("admin_create_account_button"), type="primary")
-        if submitted:
-            ok, msg = _create_account(
-                email,
-                display_name,
-                role,
-                plan_id,
-                account_status,
-                notes,
-                can_teach=can_teach,
-                can_study=can_study,
-                active_mode=active_mode,
-                subscription_status=subscription_status,
-            )
-            if ok:
-                st.success(t("admin_account_created_success", user_id=msg))
-            else:
-                st.error(msg)
+    display_name = st.text_input(t("admin_display_name_label"), key="admin_create_account_display_name")
+    email = st.text_input(t("admin_email_label"), key="admin_create_account_email")
+    role = st.selectbox(
+        t("admin_role_label"),
+        ADMIN_ROLE_OPTIONS,
+        index=0,
+        format_func=_role_display_label,
+        key="admin_create_account_role",
+    )
+    default_can_teach = role in {"teacher", "school_admin", "admin"}
+    default_can_study = role == "student"
+    can_teach = st.checkbox(
+        t("admin_can_teach_label"),
+        value=bool(st.session_state.get("admin_create_account_can_teach", default_can_teach)),
+        key="admin_create_account_can_teach",
+    )
+    can_study = st.checkbox(
+        t("admin_can_study_label"),
+        value=bool(st.session_state.get("admin_create_account_can_study", default_can_study)),
+        key="admin_create_account_can_study",
+    )
+    staff_role_options = ["", "developer", "data_scientist"]
+    staff_role_key = st.selectbox(
+        t("admin_create_account_staff_access_label"),
+        staff_role_options,
+        index=staff_role_options.index(str(st.session_state.get("admin_create_account_staff_role_key") or ""))
+        if str(st.session_state.get("admin_create_account_staff_role_key") or "") in staff_role_options
+        else 0,
+        format_func=get_staff_role_display,
+        key="admin_create_account_staff_role_key",
+    )
+    st.caption(t("admin_create_account_staff_access_help"))
+    developer_workspace_allowed = bool(role == "admin" or staff_role_key in {"developer", "data_scientist"})
+    active_mode_options = _active_mode_options(
+        role,
+        can_teach,
+        can_study,
+        developer_workspace_allowed=developer_workspace_allowed,
+    )
+    current_active_mode = str(st.session_state.get("admin_create_account_active_mode") or "")
+    if current_active_mode not in active_mode_options:
+        current_active_mode = active_mode_options[0]
+        st.session_state["admin_create_account_active_mode"] = current_active_mode
+    active_mode = st.selectbox(
+        t("admin_default_active_mode_label"),
+        active_mode_options,
+        index=active_mode_options.index(current_active_mode),
+        format_func=_mode_display_label,
+        key="admin_create_account_active_mode",
+    )
+    subscription_status_default = "free"
+    plan_id = st.selectbox(
+        t("admin_initial_plan_label"),
+        plan_ids,
+        index=0 if "free" not in plan_ids else plan_ids.index("free"),
+        format_func=lambda value: _plan_display_label(value, plan_lookup),
+        key="admin_create_account_plan_id",
+    )
+    subscription_status = st.selectbox(
+        t("admin_subscription_status_label"),
+        SUBSCRIPTION_STATUS_OPTIONS,
+        index=SUBSCRIPTION_STATUS_OPTIONS.index(
+            str(st.session_state.get("admin_create_account_subscription_status") or subscription_status_default)
+        )
+        if str(st.session_state.get("admin_create_account_subscription_status") or subscription_status_default) in SUBSCRIPTION_STATUS_OPTIONS
+        else SUBSCRIPTION_STATUS_OPTIONS.index(subscription_status_default),
+        format_func=_subscription_status_display_label,
+        key="admin_create_account_subscription_status",
+    )
+    account_status = st.selectbox(
+        t("admin_account_status_label"),
+        ACCOUNT_STATUS_OPTIONS,
+        index=ACCOUNT_STATUS_OPTIONS.index(str(st.session_state.get("admin_create_account_account_status") or ACCOUNT_STATUS_OPTIONS[0]))
+        if str(st.session_state.get("admin_create_account_account_status") or ACCOUNT_STATUS_OPTIONS[0]) in ACCOUNT_STATUS_OPTIONS
+        else 0,
+        format_func=_account_status_display_label,
+        key="admin_create_account_account_status",
+    )
+    notes = st.text_area(
+        t("admin_notes_label"),
+        placeholder=t("admin_notes_placeholder"),
+        key="admin_create_account_notes",
+    )
+    if st.button(t("admin_create_account_button"), type="primary", key="admin_create_account_submit", use_container_width=False):
+        ok, msg = _create_account(
+            email,
+            display_name,
+            role,
+            plan_id,
+            account_status,
+            notes,
+            can_teach=can_teach,
+            can_study=can_study,
+            active_mode=active_mode,
+            subscription_status=subscription_status,
+            staff_role_key=staff_role_key,
+        )
+        if ok:
+            st.success(t("admin_account_created_success", user_id=msg))
+        else:
+            st.error(msg)
 
 
 def _render_roles_and_access(df: pd.DataFrame) -> None:
@@ -3317,7 +3629,18 @@ def _render_roles_and_access(df: pd.DataFrame) -> None:
         role = st.selectbox(t("admin_role_label"), ADMIN_ROLE_OPTIONS, index=ADMIN_ROLE_OPTIONS.index(current_role) if current_role in ADMIN_ROLE_OPTIONS else 0, format_func=_role_display_label)
         can_teach = st.checkbox(t("admin_can_teach_label"), value=(role in {"teacher", "school_admin", "admin"}))
         can_study = st.checkbox(t("admin_can_study_label"), value=(role == "student"))
-        active_mode_options = ["teacher", "student", "admin"]
+        developer_workspace_allowed = profile_can_access_developer_workspace(
+            {
+                "user_id": str(row.get("user_id") or ""),
+                "role": role,
+            }
+        )
+        active_mode_options = _active_mode_options(
+            role,
+            can_teach,
+            can_study,
+            developer_workspace_allowed=developer_workspace_allowed,
+        )
         current_active_mode = str(row.get("last_active_mode") or "teacher")
         active_mode = st.selectbox(
             t("admin_default_active_mode_label"),

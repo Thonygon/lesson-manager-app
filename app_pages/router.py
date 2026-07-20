@@ -7,7 +7,7 @@ from typing import Callable
 from core.i18n import t
 from core.navigation import go_to, PAGE_KEYS, _set_query
 from core.state import get_current_user_role, get_current_user_id
-from core.database import enable_profile_mode
+from core.database import enable_profile_mode, load_profile_row, profile_can_teach, profile_can_study
 from auth.auth import render_profile_dialog, sign_out_user
 from helpers.ui_components import trigger_book_rain
 from services.auth_service import current_user_is_admin
@@ -346,6 +346,9 @@ def render_student_top_nav(active_page: str):
     if "student_assignments_book_nonce" not in st.session_state:
         st.session_state["student_assignments_book_nonce"] = 0
 
+    current_profile = load_profile_row(str(get_current_user_id() or "").strip())
+    can_switch_to_teacher = profile_can_teach(current_profile)
+
     items = [
         ("student_home",         t("student_home_title"), "house"),
         ("student_practice",     t("smart_practice"),     "lightbulb"),
@@ -353,9 +356,10 @@ def render_student_top_nav(active_page: str):
         ("student_assignments",  t("student_assignments_title"), "journal-text"),
         ("student_find_teacher", t("find_my_teacher"),    "search"),
         ("profile",              t("profile"),            "person-circle"),
-        ("switch_teacher",       t("switch_to_teacher"),  "arrow-repeat"),
         ("sign_out",             t("sign_out"),           "box-arrow-right"),
     ]
+    if can_switch_to_teacher:
+        items.insert(-1, ("switch_teacher", t("switch_to_teacher"), "arrow-repeat"))
     if current_user_is_admin():
         items.insert(-1, ("switch_admin", t("admin"), "shield-lock"))
     if current_user_can_access_developer_workspace():
@@ -523,6 +527,98 @@ def render_admin_top_nav(active_page: str):
         elif selected_key == "developer_workspace":
             go_to("developer_workspace")
             st.rerun()
+        elif selected_key != active_page:
+            go_to(selected_key)
+            st.rerun()
+
+
+def render_developer_workspace_top_nav(active_page: str):
+    _inject_scrollable_top_nav_styles()
+    current_lang = st.session_state.get("ui_lang", "en")
+    if current_lang not in ("en", "es", "tr"):
+        current_lang = "en"
+
+    current_profile = load_profile_row(str(get_current_user_id() or "").strip())
+    can_teach = profile_can_teach(current_profile)
+    can_study = profile_can_study(current_profile)
+
+    items = [
+        ("developer_workspace", "Developer Workspace", "cpu"),
+        ("profile", t("profile"), "person-circle"),
+        ("sign_out", t("sign_out"), "box-arrow-right"),
+    ]
+    if can_teach:
+        items.insert(1, ("switch_teacher", t("switch_to_teacher"), "arrow-left-right"))
+    if can_study:
+        insert_at = 2 if can_teach else 1
+        items.insert(insert_at, ("switch_student", t("switch_to_student"), "arrow-left-right"))
+    if current_user_is_admin():
+        insert_at = len(items) - 2
+        items.insert(insert_at, ("switch_admin", t("admin"), "shield-lock"))
+
+    keys = [k for k, _, _ in items]
+    labels = [label for _, label, _ in items]
+    icons = [icon for _, _, icon in items]
+
+    try:
+        default_index = keys.index(active_page)
+    except ValueError:
+        default_index = 0
+
+    st.markdown("<div class='classio-admin-top-nav-scroll-anchor'></div>", unsafe_allow_html=True)
+    selected_label = option_menu(
+        menu_title=None,
+        options=labels,
+        icons=icons,
+        orientation="horizontal",
+        default_index=default_index,
+        key="developer_workspace_top_nav_option_menu",
+        styles={
+            "container": {
+                "padding": "0 !important",
+                "margin": "0 0 1rem 0 !important",
+                "background": "var(--panel)",
+                "border": "1px solid var(--border)",
+                "border-radius": "14px",
+                "overflow-x": "auto",
+            },
+            "nav-link": {
+                "font-size": "14px",
+                "text-align": "center",
+                "padding": "6px 8px",
+                "color": "var(--muted)",
+                "--hover-color": "var(--panel-soft)",
+            },
+            "nav-link-selected": {
+                "background": "var(--primary)",
+                "color": "#f1f5f9",
+            },
+            "icon": {
+                "font-size": "16px",
+                "color": "var(--primary-light)",
+            },
+        },
+    )
+
+    selected_key = active_page
+    for key, label, _ in items:
+        if label == selected_label:
+            selected_key = key
+            break
+
+    previous_key = st.session_state.get("developer_workspace_top_nav_prev", active_page)
+    if selected_key != previous_key:
+        st.session_state["developer_workspace_top_nav_prev"] = selected_key
+        if selected_key == "sign_out":
+            sign_out_user()
+        elif selected_key == "profile":
+            st.session_state["show_profile_dialog"] = True
+        elif selected_key == "switch_teacher":
+            _switch_role("teacher")
+        elif selected_key == "switch_student":
+            _switch_role("student")
+        elif selected_key == "switch_admin":
+            _switch_role("admin")
         elif selected_key != active_page:
             go_to(selected_key)
             st.rerun()
@@ -703,12 +799,7 @@ def _route_developer_workspace(page: str):
         page = "developer_workspace"
 
     load_css_app(compact=bool(st.session_state.get("compact_mode", False)))
-    if get_current_user_role() == "student":
-        render_student_top_nav(page)
-    elif current_user_is_admin():
-        render_admin_top_nav(page)
-    else:
-        render_top_nav(page)
+    render_developer_workspace_top_nav(page)
     _render_profile_dialog_if_requested()
     _render_page_with_loading("developer_workspace", render_developer_workspace)
     _render_global_page_divider()

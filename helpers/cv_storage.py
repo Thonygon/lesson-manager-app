@@ -14,6 +14,7 @@ from helpers.lesson_planner import subject_label as _subject_label
 from helpers.native_language import native_language_label, normalize_native_language
 from core.timezone import today_local, get_app_tz
 from core.database import clear_app_caches, get_sb, insert_row_with_retries, load_table
+from services.ai_usage_service import log_ai_usage_event, with_provider_chain
 from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
 from helpers.resource_deletion import render_archive_delete_button, render_archive_delete_confirmation
 
@@ -308,14 +309,7 @@ def get_ai_cv_usage_status() -> dict:
 
 def _log_ai_cv(status: str, meta: dict = None) -> None:
     try:
-        payload = with_owner({
-            "feature_name": "quick_cv_ai",
-            "status": status,
-            "meta_json": meta or {},
-            "created_at": _dt.now(timezone.utc).isoformat(),
-        })
-        get_sb().table("ai_usage_logs").insert(payload).execute()
-        clear_app_caches()
+        log_ai_usage_event("quick_cv_ai", status, meta or {})
     except Exception as e:
         st.warning(f"{t('ai_usage_log_insert_failed')}: {e}")
 
@@ -1271,13 +1265,16 @@ def render_quick_cv_builder_expander() -> None:
                             effective_cv_subjects.append(cv_other_subject) 
 
                         if cv_mode == "ai":
-                            _log_ai_cv("requested", {"doc": "cv"})
+                            import helpers.lesson_planner as lp
+
+                            _log_ai_cv("requested", with_provider_chain({"doc": "cv"}, lp.get_ai_provider_order()))
                             generated_cv = _cv().build_ai_cv(
                                 **_kwargs,
                                 user_prompt=cv_ai_prompt,
                             )
-                            _log_ai_cv("success", {"doc": "cv"})
+                            _log_ai_cv("success", {"doc": "cv", "provider": str(generated_cv.pop('_ai_provider', '') or '')})
                         else:
+                            _log_ai_cv("success", {"doc": "cv", "used_ai": False, "generation_mode": "template_only"})
                             generated_cv = _cv().build_template_cv(**_kwargs)
 
                         st.session_state["quick_cv_result"] = generated_cv
@@ -1302,17 +1299,26 @@ def render_quick_cv_builder_expander() -> None:
                             pass  # non-blocking: user can still save manually
 
                     except Exception as e:
+                        if cv_mode == "ai":
+                            import helpers.lesson_planner as lp
+
+                            _log_ai_cv(
+                                "failed",
+                                with_provider_chain({"doc": "cv", "error": str(e)}, lp.get_ai_provider_order()),
+                            )
                         st.error(f"{t('cv_generation_failed')}: {e}")
 
                 if cv_mode == "ai" and cv_also_cl and st.session_state.get("quick_cv_result"):
                     with st.spinner(t("generating_cover_letter")):
                         try:
-                            _log_ai_cv("requested", {"doc": "cover_letter"})
-                            cl_text = _cv().build_ai_cover_letter(
+                            import helpers.lesson_planner as lp
+
+                            _log_ai_cv("requested", with_provider_chain({"doc": "cover_letter"}, lp.get_ai_provider_order()))
+                            cl_text, provider = _cv().build_ai_cover_letter(
                                 cv=st.session_state["quick_cv_result"],
                                 user_prompt=cv_cl_prompt,
                             )
-                            _log_ai_cv("success", {"doc": "cover_letter"})
+                            _log_ai_cv("success", {"doc": "cover_letter", "provider": provider})
                             st.session_state["quick_cl_result"] = cl_text
                             _cl_title = (
                                 f"{t('cover_letter')} – {cv_full_name.strip()}"
@@ -1334,6 +1340,12 @@ def render_quick_cv_builder_expander() -> None:
                                 pass  # non-blocking: user can still save manually
 
                         except Exception as e:
+                            import helpers.lesson_planner as lp
+
+                            _log_ai_cv(
+                                "failed",
+                                with_provider_chain({"doc": "cover_letter", "error": str(e)}, lp.get_ai_provider_order()),
+                            )
                             st.error(f"{t('cv_generation_failed')}: {e}")
         # ── Display CV result ────────────────────────────────────────────
         cv_result = st.session_state.get("quick_cv_result")

@@ -12,6 +12,7 @@ from core.navigation import go_to
 from core.state import get_current_user_id, with_owner
 from core.timezone import now_local, today_local, get_app_tz
 from core.database import get_sb, load_table, clear_app_caches, insert_row_with_retries, register_cache, show_data_load_error
+from services.ai_usage_service import log_ai_usage_event
 from xml.sax.saxutils import escape as xml_escape
 import unicodedata
 from styles.pdf_styles import (
@@ -662,17 +663,7 @@ def render_exam_library_cards(
 # ── AI usage tracking ────────────────────────────────────────────────
 
 def log_exam_ai_usage(status: str, meta: Optional[dict] = None) -> None:
-    try:
-        payload = with_owner({
-            "feature_name": "quick_exam_ai",
-            "status": str(status).strip(),
-            "meta_json": meta or {},
-            "created_at": _dt.now(timezone.utc).isoformat(),
-        })
-        get_sb().table("ai_usage_logs").insert(payload).execute()
-        clear_app_caches()
-    except Exception:
-        pass
+    log_ai_usage_event("quick_exam_ai", str(status).strip(), meta or {})
 
 
 def get_ai_exam_usage_status() -> dict:
