@@ -54,6 +54,15 @@ def _event_summary_limit() -> int:
         return 500
 
 
+def _event_summary_rpc_enabled() -> bool:
+    return str(os.getenv("RECOMMENDATION_EVENT_SUMMARY_RPC_ENABLED", "") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def set_active_recommendation_context(payload: dict | None) -> None:
     st.session_state[_SESSION_KEY] = dict(payload or {})
 
@@ -71,6 +80,7 @@ def recommendation_context_for_assignment(
     *,
     link: dict,
     subject_scope: dict,
+    topic_text: str = "",
 ) -> dict:
     payload = get_active_recommendation_context()
     if not payload:
@@ -82,6 +92,15 @@ def recommendation_context_for_assignment(
     subject_key = _clean_text(subject_scope.get("subject_key"))
     payload_subject_key = _clean_text(payload.get("subject_key"))
     if subject_key and payload_subject_key and subject_key != payload_subject_key:
+        return {}
+    expected_topic = _clean_text(topic_text).casefold()
+    payload_topics = {
+        _clean_text(payload.get("title")).casefold(),
+        _clean_text(payload.get("objective")).casefold(),
+        _clean_text(payload.get("topic_title")).casefold(),
+    }
+    payload_topics.discard("")
+    if expected_topic and payload_topics and expected_topic not in payload_topics:
         return {}
     return payload
 
@@ -153,23 +172,28 @@ def load_recommendation_event_summary(
     student_scope = student_id or (actor_id if actor_id and actor_role == "student" else "")
     cutoff_iso = _history_cutoff_iso()
     row_limit = _event_summary_limit()
-    try:
-        rpc_result = _execute_query_with_diagnostics(
-            get_sb().rpc(
-                "classio_recommendation_event_summary",
-                {
-                    "p_teacher_id": teacher_scope or None,
-                    "p_student_id": student_scope or None,
-                    "p_assignment_ids": assignment_ids or None,
-                    "p_since": cutoff_iso,
-                    "p_row_limit": row_limit,
-                },
-            ),
-            function_name="load_recommendation_event_summary",
-            source_name="classio_recommendation_event_summary",
-        )
-        rows = _rows(rpc_result)
-    except Exception:
+    rows: list[dict] = []
+    if _event_summary_rpc_enabled():
+        try:
+            rpc_result = _execute_query_with_diagnostics(
+                get_sb().rpc(
+                    "classio_recommendation_event_summary",
+                    {
+                        "p_teacher_id": teacher_scope or None,
+                        "p_student_id": student_scope or None,
+                        "p_assignment_ids": assignment_ids or None,
+                        "p_since": cutoff_iso,
+                        "p_row_limit": row_limit,
+                    },
+                ),
+                function_name="load_recommendation_event_summary",
+                source_name="classio_recommendation_event_summary",
+            )
+            rows = _rows(rpc_result)
+        except Exception:
+            rows = []
+
+    if not rows:
         try:
             query = (
                 get_sb()

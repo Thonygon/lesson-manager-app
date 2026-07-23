@@ -46,6 +46,7 @@ from helpers.teacher_student_integration import (
     _strip_html_fragments,
 )
 from helpers.learning_programs import (
+    _scoped_expander_label,
     load_program_assignments_for_teacher,
     archive_learning_program_assignment,
     load_learning_program,
@@ -60,6 +61,7 @@ from helpers.archive_utils import is_archived_status
 from helpers.resource_gallery import (
     extract_gallery_image_url,
     inject_resource_gallery_styles,
+    resource_kind_accent,
     render_gallery_card_html,
 )
 from helpers.recommendation_memory import (
@@ -819,20 +821,33 @@ def _render_teacher_program_assignment_list(rows: list[dict], state_key_prefix: 
         assignment_id = int(row.get("id") or 0)
         progress_map = load_assignment_progress_map(assignment_id) if assignment_id else {}
         for unit in program.get("units") or []:
+            unit_number = int(unit.get("unit_number") or 0)
+            unit_label = t(
+                "unit_title_format",
+                number=unit.get("unit_number"),
+                title=unit.get("title"),
+            )
             with st.expander(
-                f"{t('unit_title_format', number=unit.get('unit_number'), title=unit.get('title'))}",
-                expanded=int(unit.get("unit_number") or 0) == 1,
+                _scoped_expander_label(
+                    unit_label,
+                    f"{state_key_prefix}:{assignment_id}:{unit_number}",
+                ),
+                expanded=unit_number == 1,
             ):
-                for topic in unit.get("topics") or []:
+                for topic_index, topic in enumerate(unit.get("topics") or [], start=1):
                     topic_id = int(topic.get("topic_id") or 0)
                     done = truthy_flag(progress_map.get(topic_id, {}).get("teacher_done"))
                     topic_cols = st.columns([0.14, 0.86], gap="small")
                     with topic_cols[0]:
-                        checkbox_key = f"teacher_learning_program_done_{assignment_id}_{topic_id}"
+                        checkbox_key = (
+                            f"teacher_learning_program_done_{assignment_id}_"
+                            f"{unit_number}_{topic_index}_{topic_id}"
+                        )
                         new_done = st.checkbox(
                             t("done_label"),
                             value=done,
                             key=checkbox_key,
+                            disabled=topic_id <= 0,
                             label_visibility="collapsed",
                         )
                         if new_done != done and topic_id > 0:
@@ -1497,12 +1512,26 @@ def _inject_recommendation_styles() -> None:
             scroll-snap-align: start;
         }
         .classio-reco-resource-card {
+            --reco-resource-accent: #60a5fa;
+            position: relative;
+            overflow: hidden;
             margin-bottom: 8px;
-            padding: 11px 12px;
+            padding: 11px 12px 11px 18px;
             border-radius: 14px;
-            background: rgba(255,255,255,.72);
-            border: 1px solid rgba(148,163,184,.22);
+            background:
+                linear-gradient(90deg, color-mix(in srgb, var(--reco-resource-accent) 8%, rgba(255,255,255,.72)), rgba(255,255,255,.72) 38%),
+                rgba(255,255,255,.72);
+            border: 1px solid color-mix(in srgb, rgba(148,163,184,.22) 78%, var(--reco-resource-accent) 22%);
             min-height: 132px;
+        }
+        .classio-reco-resource-card::before {
+            content: "";
+            position: absolute;
+            inset: 10px auto 10px 8px;
+            width: 5px;
+            border-radius: 999px;
+            background: var(--reco-resource-accent);
+            box-shadow: 0 10px 22px color-mix(in srgb, var(--reco-resource-accent) 24%, transparent);
         }
         .classio-reco-resource-card-top {
             display: flex;
@@ -1588,7 +1617,10 @@ def _render_recommended_resources_for_item(
     assigned_resource_keys = assigned_resource_keys or set()
 
     expander_label = f"{t('recommended_resources_title')} · {t('recommended_resources_count', count=total_matches)}"
-    with st.expander(expander_label, expanded=False):
+    with st.expander(
+        _scoped_expander_label(expander_label, key_prefix),
+        expanded=False,
+    ):
         st.markdown(
             f"""
             <div class="classio-reco-resource-expander-body">
@@ -1658,9 +1690,10 @@ def _render_recommended_resources_for_item(
                     else ""
                 )
                 button_key = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{state_key}_{resource.get('source')}_{row.get('id')}_{resource_idx}")
+                card_accent = resource_kind_accent("lesson_plan" if kind == "plan" else kind)
                 with resource_col:
                     st.markdown(
-                        "<div class='classio-reco-resource-card'>"
+                        f"<div class='classio-reco-resource-card' style='--reco-resource-accent:{card_accent};'>"
                         "<div class='classio-reco-resource-card-top'>"
                         f"<div class='classio-reco-resource-card-title'>{_html.escape(title)}</div>"
                         f"{assigned_html}"
@@ -1812,10 +1845,20 @@ def _render_recommendations_tab(
                     "student_label": student_label,
                     "student_id": str((selected_link or {}).get("student_id") or "").strip(),
                 }
+                recommendation_widget_scope = re.sub(
+                    r"[^A-Za-z0-9._-]+",
+                    "_",
+                    (
+                        f"{recommendation_payload.get('student_id')}_{selected_subject}_"
+                        f"{recommendation_payload.get('learning_program_assignment_id')}_"
+                        f"{recommendation_payload.get('learning_program_topic_id')}_"
+                        f"{recommendation_payload.get('recommendation_bucket')}_{idx}_{offset}"
+                    ),
+                )
                 _render_recommended_resources_for_item(
                     item,
                     resource_pool,
-                    key_prefix=f"reco_resources_{idx}_{offset}_{str(item.get('title') or '')}",
+                    key_prefix=f"reco_resources_{recommendation_widget_scope}",
                     assigned_resource_keys=assigned_resource_keys,
                 )
 
@@ -1823,7 +1866,7 @@ def _render_recommendations_tab(
                 with action_cols[0]:
                     if st.button(
                         t("student_recommendation_create_lesson_plan"),
-                        key=f"reco_plan_{idx}_{offset}_{str(item.get('title') or '')}",
+                        key=f"reco_plan_{recommendation_widget_scope}",
                         use_container_width=True,
                     ):
                         exposure_id = str(recommendation_payload.get("_telemetry_exposure_id") or "").strip()
@@ -1839,7 +1882,7 @@ def _render_recommendations_tab(
                 with action_cols[1]:
                     if st.button(
                         t("student_recommendation_create_worksheet"),
-                        key=f"reco_ws_{idx}_{offset}_{str(item.get('title') or '')}",
+                        key=f"reco_ws_{recommendation_widget_scope}",
                         use_container_width=True,
                     ):
                         exposure_id = str(recommendation_payload.get("_telemetry_exposure_id") or "").strip()
@@ -1855,7 +1898,7 @@ def _render_recommendations_tab(
                 with action_cols[2]:
                     if st.button(
                         t("student_recommendation_create_exam"),
-                        key=f"reco_exam_{idx}_{offset}_{str(item.get('title') or '')}",
+                        key=f"reco_exam_{recommendation_widget_scope}",
                         use_container_width=True,
                     ):
                         exposure_id = str(recommendation_payload.get("_telemetry_exposure_id") or "").strip()
@@ -1871,7 +1914,7 @@ def _render_recommendations_tab(
                 with action_cols[3]:
                     if st.button(
                         t("mark_done"),
-                        key=f"reco_done_{idx}_{offset}_{str(item.get('title') or '')}",
+                        key=f"reco_done_{recommendation_widget_scope}",
                         use_container_width=True,
                     ):
                         exposure_id = str(recommendation_payload.get("_telemetry_exposure_id") or "").strip()

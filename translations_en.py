@@ -2940,6 +2940,8 @@ EN: Dict[str, str] = {
     "learning_program_complete_before_publishing": "Complete all units before making this program public.",
     "learning_program_previous_incomplete_warning": "The previous program has not been completed yet ({ready_units} of {total_units} units ready). Please complete the previous level before using it to generate a new one.",
     "learning_program_update_failed": "Could not update the learning program: {error}",
+    "learning_program_update_conflict": "We couldn't save the new unit details just now. Please try again once. If the issue continues, refresh the page and reopen the learning program.",
+    "learning_program_update_retry_generic": "We couldn't update the learning program right now. Please try again in a moment.",
     "clear_builder": "Clear builder",
     "learning_program_units_adjusted": "Units adjusted to {units} for {learner_stage} based on Classio pedagogical guardrails.",
     "learning_program_lessons_adjusted": "Lessons per unit adjusted to {lessons_per_unit} for {learner_stage} based on Classio pedagogical guardrails.",

@@ -7,7 +7,13 @@ from typing import Callable
 from core.i18n import t
 from core.navigation import go_to, PAGE_KEYS, _set_query
 from core.state import get_current_user_role, get_current_user_id
-from core.database import enable_profile_mode, load_profile_row, profile_can_teach, profile_can_study
+from core.database import (
+    clear_app_caches,
+    enable_profile_mode,
+    load_profile_row,
+    profile_can_teach,
+    profile_can_study,
+)
 from auth.auth import render_profile_dialog, sign_out_user
 from helpers.ui_components import trigger_book_rain
 from services.auth_service import current_user_is_admin
@@ -139,6 +145,7 @@ def _render_page_error_fallback(page_key: str) -> None:
     st.error(title)
     st.caption(body)
     if st.button(retry_label, key=f"{page_key}_render_retry", use_container_width=False):
+        clear_app_caches()
         st.rerun()
 
 

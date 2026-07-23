@@ -3,6 +3,12 @@ from unittest.mock import patch
 import sys
 import types
 
+try:
+    import streamlit  # noqa: F401
+    import streamlit.components.v1  # noqa: F401
+except ImportError:
+    pass
+
 if "streamlit" not in sys.modules:
     def _cache_data(*args, **kwargs):
         def decorator(fn):
@@ -86,6 +92,10 @@ class _FakeQuery:
         self.ops.append(("order", column, desc))
         return self
 
+    def in_(self, column, values):
+        self.ops.append(("in", column, tuple(values)))
+        return self
+
     def limit(self, value):
         self.ops.append(("limit", value))
         return self
@@ -107,6 +117,7 @@ class DashboardAdminQueryOptimizationTests(unittest.TestCase):
     def tearDown(self):
         dashboard.load_dashboard_source_frames.clear()
         admin._fetch_overrides.clear()
+        admin._fetch_recent_app_activity.clear()
 
     def test_dashboard_source_frames_use_shared_explicit_column_queries(self):
         with patch.object(dashboard, "load_table_filtered") as load_table_filtered:
@@ -148,11 +159,9 @@ class DashboardAdminQueryOptimizationTests(unittest.TestCase):
                         "id": 1,
                         "user_id": "user-1",
                         "override_type": "plan_assignment",
-                        "old_value": "free",
-                        "new_value": "teacher_pro",
-                        "note": "granted",
-                        "admin_user_id": "admin-1",
-                        "admin_email": "admin@classio.app",
+                        "reason": "granted",
+                        "created_by": "admin-1",
+                        "expires_at": None,
                         "created_at": "2026-07-14T00:00:00+00:00",
                     }
                 ]
@@ -167,6 +176,33 @@ class DashboardAdminQueryOptimizationTests(unittest.TestCase):
         self.assertEqual(admin._ADMIN_OVERRIDE_COLUMNS, query.ops[0][1])
         self.assertIn(("order", "created_at", True), query.ops)
         self.assertIn(("limit", 100), query.ops)
+
+    def test_recent_activity_skips_non_uuid_profiles_and_undeployed_columns(self):
+        valid_user_id = "5ed84fe2-7437-4dbc-a47e-12ccf4af1e4b"
+        fake_sb = _FakeSupabase(
+            table_data={
+                "practice_sessions": [
+                    {
+                        "user_id": valid_user_id,
+                        "completed_at": "2026-07-23T08:44:14+00:00",
+                        "created_at": "2026-07-23T08:40:00+00:00",
+                    }
+                ]
+            }
+        )
+
+        with patch.object(admin, "get_sb", return_value=fake_sb):
+            activity = admin._fetch_recent_app_activity(("demo_user", valid_user_id))
+
+        self.assertEqual("2026-07-23T08:44:14+00:00", activity[valid_user_id])
+        self.assertNotIn("demo_user", activity)
+        self.assertFalse(any(query.table_name == "profiles" for query in fake_sb.table_log))
+        for query in fake_sb.table_log:
+            selected = query.ops[0][1]
+            self.assertNotIn("updated_at", selected)
+            self.assertNotIn("last_used_at", selected)
+            in_operation = next(op for op in query.ops if op[0] == "in")
+            self.assertEqual((valid_user_id,), in_operation[2])
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 import streamlit as st
 
@@ -98,15 +99,20 @@ def _load_authorization_context(user_id: str, cache_bust: str = "") -> dict[str,
 
     staff_rows: list[dict[str, Any]] = []
     try:
-        staff_rows = (
-            sb.table("user_staff_roles")
-            .select("role_key,is_active")
-            .eq("user_id", safe_user_id)
-            .eq("is_active", True)
-            .execute()
-        ).data or []
-    except Exception:
-        staff_rows = []
+        UUID(safe_user_id)
+    except (TypeError, ValueError, AttributeError):
+        pass
+    else:
+        try:
+            staff_rows = (
+                sb.table("user_staff_roles")
+                .select("role_key,is_active")
+                .eq("user_id", safe_user_id)
+                .eq("is_active", True)
+                .execute()
+            ).data or []
+        except Exception:
+            staff_rows = []
 
     staff_roles = sorted(
         {

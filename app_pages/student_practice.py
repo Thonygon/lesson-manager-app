@@ -15,6 +15,7 @@ from helpers.practice_engine import (
     save_practice_answers,
     update_practice_progress,
     update_practice_session,
+    record_video_engagement_session,
     load_practice_history,
     load_practice_progress,
     load_in_progress_practice_session,
@@ -30,13 +31,19 @@ from helpers.teacher_student_integration import (
     create_teacher_review_request,
     get_reviewable_teacher_links_for_subject,
     load_assignment_state_map,
+    load_practice_assignment_scope_map,
     load_student_assignment_by_id,
+    load_student_assignments,
     load_student_teacher_links,
     load_student_review_requests_for_session,
     record_video_assignment_watch,
 )
 from helpers.exposure_telemetry import attach_student_recommendation_exposures
-from helpers.student_recommendations import build_recommended_materials, rank_recommended_materials
+from helpers.student_recommendations import (
+    build_recommended_materials,
+    group_recommendations_for_subject_tabs,
+    rank_recommended_materials,
+)
 from helpers.student_recommendation_ml import log_student_recommendation_impressions, log_student_recommendation_open
 from helpers.empty_states import render_empty_state
 from helpers.resource_gallery import (
@@ -44,8 +51,11 @@ from helpers.resource_gallery import (
     extract_gallery_image_url,
     inject_resource_gallery_styles,
     render_gallery_card_html,
+    normalize_resource_kind,
+    resource_kind_accent,
+    resource_kind_label,
 )
-from helpers.video_library import load_public_videos
+from helpers.video_library import load_public_videos, load_video_record
 from services.permissions_service import user_has_feature
 
 _STUDENT_PRACTICE_PAGE_SIZE = 6
@@ -54,6 +64,63 @@ _STUDENT_PRACTICE_PAGE_SIZE = 6
 def _ui_text(key: str, fallback: str) -> str:
     value = t(key)
     return value if value != key else fallback
+
+
+def _safe_int(value, default: int = 0) -> int:
+    try:
+        if value in (None, "", "None"):
+            return default
+        if isinstance(value, float) and math.isnan(value):
+            return default
+        return int(value)
+    except Exception:
+        return default
+
+
+def _practice_resource_kind(row_or_kind) -> str:
+    if isinstance(row_or_kind, dict):
+        for key in ("source_type", "resource_type", "assignment_type", "kind"):
+            kind = normalize_resource_kind(row_or_kind.get(key))
+            if kind != "practice":
+                return kind
+        return "practice"
+    return normalize_resource_kind(row_or_kind)
+
+
+def _inject_integrated_card_action_style(button_key: str, accent: str) -> None:
+    """Make the Streamlit action button read as the card footer without changing the card body."""
+    safe_key = "".join(ch if ch.isalnum() or ch in ("_", "-") else "-" for ch in str(button_key))
+    accent = str(accent or resource_kind_accent("worksheet")).strip()
+    st.markdown(
+        f"""
+        <style>
+        div[data-testid="stVerticalBlock"] div.st-key-{safe_key} {{
+            margin-top: -0.55rem;
+        }}
+        div[data-testid="stVerticalBlock"] div.st-key-{safe_key} button {{
+            min-height: 2.65rem;
+            border-radius: 0 0 18px 18px !important;
+            border-top: 0 !important;
+            border-color: color-mix(in srgb, {accent} 32%, rgba(148,163,184,.24)) !important;
+            background:
+                linear-gradient(90deg, color-mix(in srgb, {accent} 14%, rgba(255,255,255,.94)), rgba(255,255,255,.96)) !important;
+            color: var(--text, #0f172a) !important;
+            font-weight: 900 !important;
+            box-shadow: 0 14px 28px rgba(15,23,42,.07) !important;
+        }}
+        div[data-testid="stVerticalBlock"] div.st-key-{safe_key} button:hover {{
+            border-color: color-mix(in srgb, {accent} 46%, rgba(148,163,184,.24)) !important;
+            box-shadow: 0 18px 34px rgba(15,23,42,.10) !important;
+            transform: translateY(-1px);
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _is_specific_resource_kind(kind: str) -> bool:
+    return normalize_resource_kind(kind) in {"worksheet", "exam", "video", "lesson_plan", "program"}
 
 
 def _resolve_exam_payload(row: dict) -> tuple[dict, dict, dict]:
@@ -359,50 +426,35 @@ def _inject_student_practice_styles() -> None:
                 .st-key-sp_cat_word_search_vocab div[data-testid="stButton"] > button::before,
                 .st-key-sp_cat_active_word_search_vocab div[data-testid="stButton"] > button::before { content: "🔠"; }
         .classio-practice-card {
+            --practice-resource-accent: #60a5fa;
             position: relative;
             overflow: hidden;
             background:
-              radial-gradient(circle at top right, rgba(99,102,241,.10), transparent 36%),
+              radial-gradient(circle at top right, color-mix(in srgb, var(--practice-resource-accent) 12%, transparent), transparent 38%),
+              linear-gradient(90deg, color-mix(in srgb, var(--practice-resource-accent) 5%, transparent), transparent 30%),
               linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 84%, white 16%));
-            border: 1px solid color-mix(in srgb, var(--border) 78%, rgba(99,102,241,.22) 22%);
+            border: 1px solid color-mix(in srgb, var(--border) 78%, var(--practice-resource-accent) 22%);
             border-radius: 22px;
-            padding: 18px 20px;
-            box-shadow: 0 14px 32px rgba(15,23,42,.08);
+            padding: 18px 20px 18px 26px;
+            box-shadow:
+              0 18px 42px rgba(15,23,42,.08),
+              inset 0 1px 0 rgba(255,255,255,.70);
             margin-bottom: 0.55rem;
         }
         .classio-practice-card::before {
             content: "";
             position: absolute;
-            inset: 0 auto 0 0;
-            width: 5px;
-            background: linear-gradient(180deg, #38bdf8, #6366f1 58%, #8b5cf6);
-        }
-        .classio-practice-card--worksheet {
-            background:
-              radial-gradient(circle at top right, rgba(167,139,250,.12), transparent 36%),
-              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 84%, white 16%));
-            border-color: color-mix(in srgb, var(--border) 78%, rgba(167,139,250,.22) 22%);
-        }
-        .classio-practice-card--worksheet::before {
-            background: linear-gradient(180deg, #a78bfa, #8b5cf6 58%, #6366f1);
-        }
-        .classio-practice-card--exam {
-            background:
-              radial-gradient(circle at top right, rgba(248,113,113,.12), transparent 36%),
-              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 84%, white 16%));
-            border-color: color-mix(in srgb, var(--border) 78%, rgba(248,113,113,.22) 22%);
-        }
-        .classio-practice-card--exam::before {
-            background: linear-gradient(180deg, #f87171, #ef4444 58%, #f59e0b);
-        }
-        .classio-practice-card--topic {
-            background:
-              radial-gradient(circle at top right, rgba(96,165,250,.12), transparent 36%),
-              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 84%, white 16%));
-            border-color: color-mix(in srgb, var(--border) 78%, rgba(96,165,250,.22) 22%);
-        }
-        .classio-practice-card--topic::before {
-            background: linear-gradient(180deg, #60a5fa, #3b82f6 58%, #38bdf8);
+            inset: 12px auto 12px 10px;
+            width: 7px;
+            border-radius: 999px;
+            background: linear-gradient(
+              180deg,
+              color-mix(in srgb, var(--practice-resource-accent) 78%, white 22%),
+              var(--practice-resource-accent)
+            );
+            box-shadow:
+              0 0 0 1px color-mix(in srgb, var(--practice-resource-accent) 28%, transparent),
+              0 12px 28px color-mix(in srgb, var(--practice-resource-accent) 24%, transparent);
         }
         .classio-practice-title {
             font-size: 1.06rem;
@@ -415,6 +467,20 @@ def _inject_student_practice_styles() -> None:
             color: var(--muted);
             font-size: 0.9rem;
             line-height: 1.45;
+        }
+        .classio-practice-kind-chip {
+            display:inline-flex;
+            align-items:center;
+            gap:5px;
+            width:max-content;
+            margin-top:0.55rem;
+            border-radius:999px;
+            padding:5px 10px;
+            font-size:.76rem;
+            font-weight:850;
+            color:var(--text);
+            background:color-mix(in srgb, var(--practice-resource-accent) 14%, var(--panel));
+            border:1px solid color-mix(in srgb, var(--practice-resource-accent) 34%, var(--border));
         }
         .classio-practice-statgrid {
             display: flex;
@@ -636,7 +702,7 @@ def _render_browse_tab():
                                     level=str(row.get("level_or_band") or ""),
                                     ws_type=str(row.get("worksheet_type") or ""),
                                     btn_key=f"sp_ws_search_{row.get('id', idx)}_{idx}_{col_i}",
-                                    color="#A78BFA",
+                                    color=resource_kind_accent("worksheet"),
                                     row=row,
                                     resource_type="worksheet",
                                 )
@@ -694,7 +760,7 @@ def _render_browse_tab():
                                     level=str(row.get("level_or_band") or ""),
                                     ws_type=str(row.get("worksheet_type") or ""),
                                     btn_key=f"sp_ws_{row.get('id', idx)}_{idx}_{col_i}",
-                                    color="#A78BFA",
+                                    color=resource_kind_accent("worksheet"),
                                     row=row,
                                     resource_type="worksheet",
                                 )
@@ -772,7 +838,7 @@ def _render_browse_tab():
                                 level=str(row.get("level") or ""),
                                 ws_type=str(row.get("exam_length") or ""),
                                 btn_key=f"sp_ex_{row.get('id', idx)}_{idx}_{col_i}",
-                                color="#F87171",
+                                color=resource_kind_accent("exam"),
                                 row=row,
                                 resource_type="exam",
                             )
@@ -852,7 +918,7 @@ def _render_browse_tab():
                                 level=str(row.get("level_or_band") or ""),
                                 ws_type=_ui_text("video_label", "Video"),
                                 btn_key=f"sp_video_{row.get('id', idx)}_{idx}_{col_i}",
-                                color="#EF4444",
+                                color=resource_kind_accent("video"),
                                 row=row,
                                 resource_type="video",
                             )
@@ -861,7 +927,7 @@ def _render_browse_tab():
 
 def _render_practice_card(
     title: str, subject: str, topic: str, level: str,
-    ws_type: str, btn_key: str, color: str = "#A78BFA",
+    ws_type: str, btn_key: str, color: str = "",
     row: dict | None = None,
     resource_type: str = "worksheet",
     recommendation_item: dict | None = None,
@@ -942,15 +1008,26 @@ def _render_practice_card(
         unsafe_allow_html=True,
     )
 
+    _inject_integrated_card_action_style(btn_key, color or resource_kind_accent(resource_type))
+
     if resource_type == "video":
         if st.button(
             f"▶ {_ui_text('watch_video', 'Watch video')}",
             key=btn_key,
             use_container_width=True,
         ):
-            assignment_id = int(row.get("_recommended_assignment_id") or 0)
+            assignment_id = _safe_int(row.get("_recommended_assignment_id"))
             if assignment_id > 0:
                 record_video_assignment_watch(assignment_id)
+            else:
+                record_video_engagement_session(
+                    source_id=row.get("id"),
+                    title=title,
+                    subject=subject,
+                    topic=topic,
+                    level=level,
+                    learner_stage=str(row.get("learner_stage") or ""),
+                )
             if recommendation_item:
                 log_student_recommendation_open(recommendation_item, surface="student_practice")
             st.session_state[f"_start_{btn_key}"] = True
@@ -1000,9 +1077,12 @@ def _render_active_session(exercise_data: dict):
         st.info(t("practice_resumed_notice"))
 
     result = render_practice_session(exercise_data, session_key="sp")
+    review_mode = bool(st.session_state.get("_practice_review_mode"))
 
     # When submitted, save results ONCE (guard against duplicate saves on rerender)
-    if result and not st.session_state.get("_practice_saved_sp"):
+    if result and review_mode:
+        st.info(_ui_text("review_mode_notice", "Review mode — your previous answers are shown without creating a new attempt."))
+    elif result and not st.session_state.get("_practice_saved_sp"):
         st.session_state["_practice_saved_sp"] = True
 
         if str(exercise_data.get("source_type") or "").strip() != "demo":
@@ -1024,7 +1104,7 @@ def _render_active_session(exercise_data: dict):
                 )
                 session_id = retry_id
             elif st.session_state.get("_practice_resume_session_id"):
-                resumed_id = int(st.session_state["_practice_resume_session_id"])
+                resumed_id = _safe_int(st.session_state["_practice_resume_session_id"])
                 update_practice_session(
                     resumed_id,
                     exercise_data,
@@ -1052,12 +1132,17 @@ def _render_active_session(exercise_data: dict):
                     replace_existing=bool(retry_id or st.session_state.get("_practice_resume_session_id")),
                 )
             assignment_id = st.session_state.get("_practice_assignment_id")
+            assignment_scope = (
+                load_student_assignment_by_id(_safe_int(assignment_id))
+                if assignment_id
+                else {}
+            )
             if assignment_id:
                 try:
                     from helpers.teacher_student_integration import record_assignment_attempt_from_practice
 
                     record_assignment_attempt_from_practice(
-                        int(assignment_id),
+                        _safe_int(assignment_id),
                         session_id,
                         result,
                         exercise_data,
@@ -1067,13 +1152,21 @@ def _render_active_session(exercise_data: dict):
             # Always save progress (even if session save failed)
             update_practice_progress(
                 exercise_data, result["answers"],
-                meta=meta, session_key="sp",
+                meta={
+                    **meta,
+                    "assignment_id": _safe_int(assignment_id),
+                    "teacher_id": str(assignment_scope.get("teacher_id") or ""),
+                    "learning_program_assignment_id": int(
+                        assignment_scope.get("learning_program_assignment_id") or 0
+                    ),
+                },
+                session_key="sp",
                 xp_earned=xp, best_streak=strk,
             )
             st.session_state.pop("_practice_resume_session_id", None)
             st.session_state.pop("_practice_resume_answers", None)
 
-    if result and str(exercise_data.get("source_type") or "").strip() != "demo":
+    if result and not review_mode and str(exercise_data.get("source_type") or "").strip() != "demo":
         _render_teacher_review_request_panel(exercise_data)
 
 
@@ -1089,7 +1182,7 @@ def _render_teacher_review_request_panel(exercise_data: dict) -> None:
     meta = st.session_state.get("practice_meta") or {}
     subject_key = str(meta.get("subject") or "").strip()
     links = get_reviewable_teacher_links_for_subject(subject_key)
-    requests = load_student_review_requests_for_session(int(session_id))
+    requests = load_student_review_requests_for_session(_safe_int(session_id))
 
     st.markdown(
         """
@@ -1148,7 +1241,7 @@ def _render_teacher_review_request_panel(exercise_data: dict) -> None:
     if st.button(t("request_teacher_review"), key=f"teacher_review_request_btn_{session_id}", use_container_width=True, type="primary"):
         selected = links[selected_teacher_idx]
         ok, msg = create_teacher_review_request(
-            practice_session_id=int(session_id),
+            practice_session_id=_safe_int(session_id),
             teacher_id=str(selected.get("teacher_id") or ""),
             assignment_id=st.session_state.get("_practice_assignment_id"),
             request_note=review_note,
@@ -1161,8 +1254,49 @@ def _render_teacher_review_request_panel(exercise_data: dict) -> None:
 
 # ── History tab ─────────────────────────────────────────────────
 
-def _render_history_tab():
-    history = load_practice_history()
+def _practice_subject_groups(frame) -> list[tuple[str, str, object]]:
+    if frame is None or frame.empty or "subject" not in frame.columns:
+        return []
+    grouped: dict[tuple[str, str], dict] = {}
+    for _, row in frame.iterrows():
+        subject = str(row.get("subject") or "").strip()
+        if not subject:
+            continue
+        subject_key = subject.lower()
+        teacher_id = str(row.get("_scope_teacher_id") or "").strip()
+        teacher_name = str(row.get("_scope_teacher_name") or "").strip()
+        bucket = grouped.setdefault(
+            (subject_key, teacher_id),
+            {
+                "subject": subject,
+                "teacher_name": teacher_name,
+                "indexes": [],
+            },
+        )
+        bucket["indexes"].append(row.name)
+
+    subject_counts: dict[str, int] = {}
+    for subject_key, _teacher_id in grouped:
+        subject_counts[subject_key] = subject_counts.get(subject_key, 0) + 1
+
+    groups = []
+    for (subject_key, teacher_id), payload in sorted(grouped.items()):
+        subject = str(payload.get("subject") or subject_key)
+        translation_key = f"subject_{subject_key.replace(' ', '_')}"
+        label = t(translation_key)
+        if label == translation_key:
+            label = subject
+        teacher_name = str(payload.get("teacher_name") or "").strip()
+        if subject_counts.get(subject_key, 0) > 1 and teacher_name:
+            label = f"{label} · {teacher_name}"
+        scope_key = f"{subject_key}_{teacher_id or 'independent'}"
+        scoped = frame.loc[payload.get("indexes") or []].reset_index(drop=True)
+        groups.append((scope_key, label, scoped))
+    return groups
+
+
+def _render_history_tab(history_override=None, *, scope_key: str = ""):
+    history = history_override if history_override is not None else load_practice_history()
     if history.empty:
         render_empty_state(
             title_key="student_practice_history_empty_title",
@@ -1176,13 +1310,41 @@ def _render_history_tab():
         )
         return
 
+    if history_override is None:
+        history = history.copy()
+        session_ids = (
+            [
+                _safe_int(value)
+                for value in history["id"].tolist()
+                if _safe_int(value) > 0
+            ]
+            if "id" in history.columns
+            else []
+        )
+        assignment_scopes = load_practice_assignment_scope_map(session_ids)
+        if "id" in history.columns:
+            history["_scope_teacher_id"] = history["id"].apply(
+                lambda value: str(assignment_scopes.get(_safe_int(value), {}).get("teacher_id") or "")
+            )
+            history["_scope_teacher_name"] = history["id"].apply(
+                lambda value: str(assignment_scopes.get(_safe_int(value), {}).get("teacher_name") or "")
+            )
+        subject_groups = _practice_subject_groups(history)
+        if len(subject_groups) > 1:
+            tabs = st.tabs([f"📚 {label}" for _key, label, _frame in subject_groups])
+            for tab, (subject_key, _label, scoped_history) in zip(tabs, subject_groups):
+                with tab:
+                    _render_history_tab(scoped_history, scope_key=subject_key)
+            return
+
     history_rows = history.reset_index(drop=True).to_dict("records")
-    history_page_rows, *_ = _slice_practice_page(history_rows, "student_practice_history_page")
+    page_state_key = f"student_practice_history_page_{scope_key or 'all'}"
+    history_page_rows, *_ = _slice_practice_page(history_rows, page_state_key)
 
     assignment_ids = []
     for row in history_page_rows:
         source_type = str(row.get("source_type") or "").strip()
-        source_id = int(row.get("source_id") or 0)
+        source_id = _safe_int(row.get("source_id"))
         if source_type in {"worksheet", "exam"} and source_id > 0:
             assignment_ids.append(source_id)
     assignment_state_map = load_assignment_state_map(assignment_ids)
@@ -1198,24 +1360,27 @@ def _render_history_tab():
         session_id = row.get("id")
         subject = str(row.get("subject") or "").strip()
         topic = str(row.get("topic") or "").strip()
-        assignment_state = assignment_state_map.get(int(row.get("source_id") or 0), {})
+        assignment_state = assignment_state_map.get(_safe_int(row.get("source_id")), {})
         assignment_removed = str(assignment_state.get("status") or "").strip() == "archived"
         source_archived = bool(assignment_state.get("source_archived"))
 
-        source_type = str(row.get("source_type") or "").strip()
-        if source_type == "exam":
-            card_accent = "#F87171"
-        elif source_type == "worksheet":
-            card_accent = "#A78BFA"
-        else:
-            card_accent = "#60A5FA"
+        resource_kind = _practice_resource_kind(row)
+        card_accent = resource_kind_accent(resource_kind)
+        material_label = resource_kind_label(resource_kind)
+        is_video_history = resource_kind == "video"
 
-        if score >= 80:
+        if is_video_history:
+            color = card_accent
+            result_label = _ui_text("watched_label", "Watched")
+        elif score >= 80:
             color = "#10B981"
+            result_label = f"{round(score)}%"
         elif score >= 60:
             color = "#F59E0B"
+            result_label = f"{round(score)}%"
         else:
             color = "#EF4444"
+            result_label = f"{round(score)}%"
         subject_label = t(f"subject_{subject.lower().replace(' ', '_')}") if subject else ""
         if subject_label == f"subject_{subject.lower().replace(' ', '_')}":
             subject_label = subject
@@ -1223,14 +1388,24 @@ def _render_history_tab():
         left_col, right_col = st.columns([6, 2], gap="medium")
         with left_col:
             meta_bits = [bit for bit in [subject_label, topic, created] if bit]
-            stat_blocks = [
-                (
-                    f"<div class='classio-practice-stat'>"
-                    f"<div class='classio-practice-stat-label'>{t('correct')}</div>"
-                    f"<div class='classio-practice-stat-value'>{correct}/{total}</div>"
-                    f"</div>"
-                )
-            ]
+            if is_video_history:
+                stat_blocks = [
+                    (
+                        f"<div class='classio-practice-stat'>"
+                        f"<div class='classio-practice-stat-label'>{_escape_html(_ui_text('views_label', 'Views'))}</div>"
+                        f"<div class='classio-practice-stat-value'>{max(1, _safe_int(row.get('total_questions'), 1))}</div>"
+                        f"</div>"
+                    )
+                ]
+            else:
+                stat_blocks = [
+                    (
+                        f"<div class='classio-practice-stat'>"
+                        f"<div class='classio-practice-stat-label'>{t('correct')}</div>"
+                        f"<div class='classio-practice-stat-value'>{correct}/{total}</div>"
+                        f"</div>"
+                    )
+                ]
             if streak >= 2:
                 stat_blocks.append(
                     f"<div class='classio-practice-stat'><div class='classio-practice-stat-label'>{t('best_streak')}</div>"
@@ -1243,14 +1418,15 @@ def _render_history_tab():
                 )
             st.markdown(
                 f"""
-                <div class="classio-practice-card" style="border-left:5px solid {card_accent};">
+                <div class="classio-practice-card" style="--practice-resource-accent:{card_accent};">
                     <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
                         <div>
                             <div class="classio-practice-title">{_escape_html(title)}</div>
+                            <div class="classio-practice-kind-chip">🧩 {_escape_html(material_label)}</div>
                             <div class="classio-practice-meta">{_escape_html(' · '.join(meta_bits))}</div>
                         </div>
                         <div style="font-size:1.05rem;font-weight:800;color:{color};background:{color}15;padding:8px 14px;border-radius:999px;border:1px solid {color}33;">
-                            {round(score)}%
+                            {_escape_html(result_label)}
                         </div>
                     </div>
                     <div class="classio-practice-statgrid">
@@ -1271,6 +1447,34 @@ def _render_history_tab():
                     use_container_width=True,
                 ):
                     st.info(t("assignment_source_archived_notice"))
+            elif is_video_history:
+                if st.button(
+                    f"▶ {_ui_text('watch_again', 'Watch again')}",
+                    key=f"hist_watch_again_{session_id}_{h_idx}",
+                    use_container_width=True,
+                    type="primary",
+                ):
+                    st.session_state[f"_history_watch_video_{session_id}_{h_idx}"] = True
+                    st.rerun()
+                if st.session_state.get(f"_history_watch_video_{session_id}_{h_idx}"):
+                    video_payload = exercise_data or {}
+                    if isinstance(video_payload, str):
+                        try:
+                            video_payload = json.loads(video_payload)
+                        except Exception:
+                            video_payload = {}
+                    watch_url = str(
+                        (video_payload or {}).get("watch_url")
+                        or (video_payload or {}).get("youtube_url")
+                        or ""
+                    )
+                    if not watch_url and _safe_int(row.get("source_id")) > 0:
+                        video_row = load_video_record(_safe_int(row.get("source_id"))) or {}
+                        watch_url = str(video_row.get("watch_url") or video_row.get("youtube_url") or "")
+                    if watch_url:
+                        st.video(watch_url)
+                    else:
+                        st.info(_ui_text("video_unavailable", "This video is not available right now."))
             elif exercise_data:
                 if isinstance(exercise_data, str):
                     try:
@@ -1292,13 +1496,13 @@ def _render_history_tab():
                         st.session_state["_practice_retry_session_id"] = session_id
                         st.rerun()
         st.markdown("<div style='height:0.8rem;'></div>", unsafe_allow_html=True)
-    _render_practice_pagination(history_rows, "student_practice_history_page")
+    _render_practice_pagination(history_rows, page_state_key)
 
 
 # ── Progress tab ────────────────────────────────────────────────
 
-def _render_progress_tab():
-    progress = load_practice_progress()
+def _render_progress_tab(progress_override=None, *, scope_key: str = ""):
+    progress = progress_override if progress_override is not None else load_practice_progress()
     if progress.empty:
         render_empty_state(
             title_key="student_practice_progress_empty_title",
@@ -1312,40 +1516,75 @@ def _render_progress_tab():
         )
         return
 
-    subject_values: set[str] = set()
-    if "subject" in progress.columns:
-        subject_values.update(str(s).strip() for s in progress["subject"].fillna("").tolist() if str(s).strip())
-    history = load_practice_history(limit=500)
-    if not history.empty and "subject" in history.columns:
-        subject_values.update(str(s).strip() for s in history["subject"].fillna("").tolist() if str(s).strip())
-    linked_subject_values: set[str] = set()
-    for link in load_student_teacher_links(statuses=["active"]):
-        for subject_row in link.get("active_subjects", []) or []:
-            subject_key = str(subject_row.get("subject_key") or "").strip()
-            if subject_key:
-                linked_subject_values.add(subject_key)
-
-    show_subject_filter = len(subject_values) > 1 or len(linked_subject_values) > 1
-    selected_subject = "__all__"
-    if show_subject_filter:
-        subject_options = ["__all__"] + sorted(subject_values)
-        selected_subject = st.selectbox(
-            t("filter_by_subject"),
-            options=subject_options,
-            format_func=lambda value: (
-                t("all_subjects")
-                if value == "__all__"
-                else (
-                    translated if (translated := t(f"subject_{str(value).lower().replace(' ', '_')}")) != f"subject_{str(value).lower().replace(' ', '_')}" else str(value)
+    if progress_override is None:
+        progress = progress.copy()
+        assignments_by_id = {
+            _safe_int(row.get("id")): row
+            for row in load_student_assignments()
+            if _safe_int(row.get("id")) > 0
+        }
+        history_source_by_assignment: dict[int, str] = {}
+        history_source_by_topic: dict[tuple[str, str, str], str] = {}
+        try:
+            history_for_kind = load_practice_history(limit=500)
+        except Exception:
+            history_for_kind = None
+        if history_for_kind is not None and not history_for_kind.empty:
+            for hist_row in history_for_kind.to_dict("records"):
+                hist_kind = _practice_resource_kind(hist_row)
+                if not _is_specific_resource_kind(hist_kind):
+                    continue
+                hist_assignment_id = _safe_int(hist_row.get("assignment_id"))
+                if hist_assignment_id > 0:
+                    history_source_by_assignment.setdefault(hist_assignment_id, hist_kind)
+                hist_key = (
+                    str(hist_row.get("subject") or "").strip().lower(),
+                    str(hist_row.get("topic") or "").strip().lower(),
+                    str(hist_row.get("level") or "").strip().lower(),
                 )
-            ),
-            key="student_progress_subject_filter",
-        )
+                if hist_key[0] or hist_key[1] or hist_key[2]:
+                    history_source_by_topic.setdefault(hist_key, hist_kind)
 
-    if selected_subject != "__all__" and "subject" in progress.columns:
-        progress = progress[progress["subject"].fillna("").astype(str).str.strip().str.lower() == selected_subject.lower()].reset_index(drop=True)
-        if progress.empty:
-            st.info(t("no_data"))
+        def _progress_display_kind(row) -> str:
+            current_kind = _practice_resource_kind(row.to_dict() if hasattr(row, "to_dict") else dict(row))
+            if _is_specific_resource_kind(current_kind):
+                return current_kind
+            assignment_id = _safe_int(row.get("assignment_id"))
+            assignment_row = assignments_by_id.get(assignment_id, {})
+            assignment_kind = _practice_resource_kind(assignment_row)
+            if _is_specific_resource_kind(assignment_kind):
+                return assignment_kind
+            if assignment_id > 0 and assignment_id in history_source_by_assignment:
+                return history_source_by_assignment[assignment_id]
+            hist_key = (
+                str(row.get("subject") or "").strip().lower(),
+                str(row.get("topic") or "").strip().lower(),
+                str(row.get("level") or "").strip().lower(),
+            )
+            return history_source_by_topic.get(hist_key, current_kind)
+
+        progress["_display_resource_kind"] = progress.apply(_progress_display_kind, axis=1)
+        progress["_scope_teacher_id"] = progress.apply(
+            lambda row: str(
+                row.get("teacher_id")
+                or assignments_by_id.get(_safe_int(row.get("assignment_id")), {}).get("teacher_id")
+                or ""
+            ),
+            axis=1,
+        )
+        progress["_scope_teacher_name"] = progress.apply(
+            lambda row: str(
+                assignments_by_id.get(_safe_int(row.get("assignment_id")), {}).get("teacher_name")
+                or ""
+            ),
+            axis=1,
+        )
+        subject_groups = _practice_subject_groups(progress)
+        if len(subject_groups) > 1:
+            tabs = st.tabs([f"📚 {label}" for _key, label, _frame in subject_groups])
+            for tab, (subject_key, _label, scoped_progress) in zip(tabs, subject_groups):
+                with tab:
+                    _render_progress_tab(scoped_progress, scope_key=subject_key)
             return
 
     # ── Aggregate XP + rank banner ──────────────────────────────
@@ -1378,7 +1617,8 @@ def _render_progress_tab():
 
     # ── Per-topic breakdown ─────────────────────────────────────
     progress_rows = progress.reset_index(drop=True).to_dict("records")
-    progress_page_rows, *_ = _slice_practice_page(progress_rows, "student_practice_progress_page")
+    page_state_key = f"student_practice_progress_page_{scope_key or 'all'}"
+    progress_page_rows, *_ = _slice_practice_page(progress_rows, page_state_key)
 
     for row in progress_page_rows:
         subject  = str(row.get("subject") or "").strip()
@@ -1387,91 +1627,96 @@ def _render_progress_tab():
         accuracy = row.get("accuracy_pct", 0)
         attempted = row.get("total_attempted", 0)
         row_xp   = row.get("total_xp", 0)
+        resource_kind = _practice_resource_kind(row.get("_display_resource_kind") or row)
+        card_accent = resource_kind_accent(resource_kind)
+        is_video_progress = resource_kind == "video"
 
         label = " · ".join(filter(None, [
             t(f"subject_{subject.lower().replace(' ', '_')}") if subject else "",
             topic,
-            t(ex_type) if t(ex_type) != ex_type else ex_type,
+            _ui_text("video_label", "Video") if resource_kind == "video" else (t(ex_type) if t(ex_type) != ex_type else ex_type),
         ]))
 
-        if accuracy >= 80:
+        if is_video_progress:
+            bar_color = card_accent
+            top_badge = _ui_text("watched_label", "Watched")
+        elif accuracy >= 80:
             bar_color = "#10B981"
+            top_badge = f"{round(accuracy)}%"
         elif accuracy >= 60:
             bar_color = "#F59E0B"
+            top_badge = f"{round(accuracy)}%"
         else:
             bar_color = "#EF4444"
+            top_badge = f"{round(accuracy)}%"
+
+        if is_video_progress:
+            progress_width = 100
+            stat_blocks = [
+                (
+                    f"<div class='classio-practice-stat'>"
+                    f"<div class='classio-practice-stat-label'>{_escape_html(_ui_text('views_label', 'Views'))}</div>"
+                    f"<div class='classio-practice-stat-value'>{attempted}</div>"
+                    f"</div>"
+                )
+            ]
+            if row_xp:
+                stat_blocks.append(
+                    f"<div class='classio-practice-stat'><div class='classio-practice-stat-label'>XP</div>"
+                    f"<div class='classio-practice-stat-value'>{row_xp}</div></div>"
+                )
+        else:
+            progress_width = min(accuracy, 100)
+            stat_blocks = [
+                (
+                    f"<div class='classio-practice-stat'>"
+                    f"<div class='classio-practice-stat-label'>{t('score_label')}</div>"
+                    f"<div class='classio-practice-stat-value'>{round(accuracy)}%</div>"
+                    f"</div>"
+                ),
+                (
+                    f"<div class='classio-practice-stat'>"
+                    f"<div class='classio-practice-stat-label'>{t('questions_attempted')}</div>"
+                    f"<div class='classio-practice-stat-value'>{attempted}</div>"
+                    f"</div>"
+                ),
+                (
+                    f"<div class='classio-practice-stat'>"
+                    f"<div class='classio-practice-stat-label'>XP</div>"
+                    f"<div class='classio-practice-stat-value'>{row_xp}</div>"
+                    f"</div>"
+                ),
+            ]
 
         st.markdown(
             f"""
-            <div class="classio-practice-card" style="margin-bottom:0.75rem;border-left:5px solid {bar_color};">
+            <div class="classio-practice-card" style="--practice-resource-accent:{card_accent};margin-bottom:0.75rem;">
                 <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
                     <div>
                         <div class="classio-practice-title">{_escape_html(label)}</div>
-                        <div class="classio-practice-meta">{attempted} {t('questions_attempted')}</div>
                     </div>
                     <div style="font-size:1.05rem;font-weight:800;color:{bar_color};background:{bar_color}15;padding:8px 14px;border-radius:999px;border:1px solid {bar_color}33;">
-                        {round(accuracy)}%
+                        {_escape_html(top_badge)}
                     </div>
                 </div>
                 <div style="background:var(--border);border-radius:999px;height:10px;overflow:hidden;margin-top:0.95rem;">
-                    <div style="width:{min(accuracy, 100)}%;height:100%;background:{bar_color};border-radius:999px;"></div>
+                    <div style="width:{progress_width}%;height:100%;background:{bar_color};border-radius:999px;"></div>
                 </div>
                 <div class="classio-practice-statgrid">
-                    <div class="classio-practice-stat">
-                        <div class="classio-practice-stat-label">{t('score_label')}</div>
-                        <div class="classio-practice-stat-value">{round(accuracy)}%</div>
-                    </div>
-                    <div class="classio-practice-stat">
-                        <div class="classio-practice-stat-label">{t('questions_attempted')}</div>
-                        <div class="classio-practice-stat-value">{attempted}</div>
-                    </div>
-                    <div class="classio-practice-stat">
-                        <div class="classio-practice-stat-label">XP</div>
-                        <div class="classio-practice-stat-value">{row_xp}</div>
-                    </div>
+                    {''.join(stat_blocks)}
                 </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
-    _render_practice_pagination(progress_rows, "student_practice_progress_page")
+    _render_practice_pagination(progress_rows, page_state_key)
 
 
-def _render_recommended_materials(pub_ws, pub_ex, pub_videos) -> None:
-    recommendations = build_recommended_materials(
-        pub_ws,
-        pub_ex,
-        pub_videos,
-        limit=6,
-    )
-    if not recommendations:
-        videos_empty = pub_videos is None or getattr(pub_videos, "empty", True)
-        if pub_ws.empty and pub_ex.empty and videos_empty:
-            return
-        render_empty_state(
-            title_key="student_practice_recommendations_empty_title",
-            body_key="student_practice_recommendations_empty_body",
-            steps=[
-                "student_practice_recommendations_empty_step_practice",
-                "student_practice_recommendations_empty_step_history",
-                "student_practice_recommendations_empty_step_return",
-            ],
-            icon="✨",
-        )
-        return
-
-    st.markdown(
-        f"### {_ui_text('recommended_materials', 'Recommended for you')}"
-    )
-    st.caption(
-        _ui_text(
-            "recommended_materials_caption",
-            "Start with these materials to strengthen weak areas, revisit past topics, and keep moving toward the next level.",
-        )
-    )
-    recommendations = attach_student_recommendation_exposures(recommendations, surface="student_practice")
-    log_student_recommendation_impressions(recommendations, surface="student_practice")
-
+def _render_recommendation_subject_group(
+    recommendations: list[dict],
+    *,
+    group_key: str,
+) -> None:
     for idx in range(0, len(recommendations), 3):
         pair = recommendations[idx:idx + 3]
         cols = st.columns(3, gap="medium")
@@ -1481,9 +1726,13 @@ def _render_recommended_materials(pub_ws, pub_ex, pub_videos) -> None:
                 "_recommended_assignment_id": item.get("assignment_id"),
                 "_recommended_assignment_status": item.get("assignment_status"),
                 "_recommended_assignment_attempt_count": item.get("assignment_attempt_count"),
-                "_recommended_assignment_teacher_name": item.get("assignment_teacher_name"),
+                "_recommended_assignment_teacher_name": (
+                    item.get("assignment_teacher_name")
+                    or item.get("program_teacher_name")
+                ),
             }
             resource_type = str(item.get("resource_type") or "")
+            item_key = f"{group_key}_{resource_type}_{row.get('id', idx)}_{idx}_{col_idx}"
             with cols[col_idx]:
                 _render_practice_card(
                     title=str(item.get("title") or t("untitled_worksheet")),
@@ -1491,8 +1740,8 @@ def _render_recommended_materials(pub_ws, pub_ex, pub_videos) -> None:
                     topic=str(item.get("topic") or ""),
                     level=str(item.get("level") or ""),
                     ws_type=str(item.get("exercise_type") or resource_type),
-                    btn_key=f"sp_reco_{resource_type}_{row.get('id', idx)}_{idx}_{col_idx}",
-                    color="#22C55E" if resource_type == "worksheet" else "#F59E0B" if resource_type == "exam" else "#EF4444",
+                    btn_key=f"sp_reco_{item_key}",
+                    color=resource_kind_accent(resource_type),
                     row=row,
                     resource_type=resource_type,
                     recommendation_item=item,
@@ -1500,9 +1749,9 @@ def _render_recommended_materials(pub_ws, pub_ex, pub_videos) -> None:
                 for reason in item.get("reasons") or []:
                     st.caption(f"- {reason}")
 
-                trigger_key = f"_start_sp_reco_{resource_type}_{row.get('id', idx)}_{idx}_{col_idx}"
+                trigger_key = f"_start_sp_reco_{item_key}"
                 if st.session_state.pop(trigger_key, False):
-                    assignment_id = int(item.get("assignment_id") or 0)
+                    assignment_id = _safe_int(item.get("assignment_id"))
                     if assignment_id > 0 and resource_type in {"worksheet", "exam"}:
                         assignment_row = load_student_assignment_by_id(assignment_id)
                         if assignment_row:
@@ -1545,6 +1794,58 @@ def _render_recommended_materials(pub_ws, pub_ex, pub_videos) -> None:
                                 },
                             ):
                                 st.rerun()
+
+
+def _render_recommended_materials(pub_ws, pub_ex, pub_videos) -> None:
+    recommendations = build_recommended_materials(
+        pub_ws,
+        pub_ex,
+        pub_videos,
+        limit=6,
+    )
+    if not recommendations:
+        videos_empty = pub_videos is None or getattr(pub_videos, "empty", True)
+        if pub_ws.empty and pub_ex.empty and videos_empty:
+            return
+        render_empty_state(
+            title_key="student_practice_recommendations_empty_title",
+            body_key="student_practice_recommendations_empty_body",
+            steps=[
+                "student_practice_recommendations_empty_step_practice",
+                "student_practice_recommendations_empty_step_history",
+                "student_practice_recommendations_empty_step_return",
+            ],
+            icon="✨",
+        )
+        return
+
+    st.markdown(
+        f"### {_ui_text('recommended_materials', 'Recommended for you')}"
+    )
+    st.caption(
+        _ui_text(
+            "recommended_materials_caption",
+            "Start with these materials to strengthen weak areas, revisit past topics, and keep moving toward the next level.",
+        )
+    )
+    recommendations = attach_student_recommendation_exposures(recommendations, surface="student_practice")
+    log_student_recommendation_impressions(recommendations, surface="student_practice")
+
+    recommendation_groups = group_recommendations_for_subject_tabs(recommendations)
+    if len(recommendation_groups) > 1:
+        tabs = st.tabs([str(group.get("label") or "") for group in recommendation_groups])
+        for tab, group in zip(tabs, recommendation_groups):
+            with tab:
+                _render_recommendation_subject_group(
+                    group.get("recommendations") or [],
+                    group_key=str(group.get("key") or "subject"),
+                )
+    elif recommendation_groups:
+        group = recommendation_groups[0]
+        _render_recommendation_subject_group(
+            group.get("recommendations") or [],
+            group_key=str(group.get("key") or "subject"),
+        )
     st.markdown("<div style='height:0.5rem;'></div>", unsafe_allow_html=True)
 
 

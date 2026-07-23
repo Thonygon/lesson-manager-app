@@ -7,7 +7,12 @@ from core.i18n import t
 from core.navigation import go_to
 from core.state import get_current_user_id
 from core.timezone import today_local
-from app_pages.student_assignments import _inject_assignment_page_styles, render_assigned_learning_programs_section
+from app_pages.student_assignments import (
+    _assignment_scope_groups,
+    _inject_assignment_page_styles,
+    _program_subject_groups,
+    render_assigned_learning_programs_section,
+)
 from helpers.lesson_planner import QUICK_SUBJECTS, normalize_subject, subject_label as _subject_label
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student
 from helpers.teacher_student_integration import get_student_assignment_summary, has_active_teacher_relationships
@@ -246,8 +251,8 @@ def _default_smart_plan_state() -> dict:
     }
 
 
-def _load_smart_plan_state() -> dict:
-    key = _smart_plan_user_key("data")
+def _load_smart_plan_state(scope_key: str = "") -> dict:
+    key = _smart_plan_user_key(f"data_{scope_key}" if scope_key else "data")
     existing = st.session_state.get(key)
     defaults = _default_smart_plan_state()
     if not isinstance(existing, dict):
@@ -258,8 +263,9 @@ def _load_smart_plan_state() -> dict:
     return merged.copy()
 
 
-def _save_smart_plan_state(state: dict) -> None:
-    st.session_state[_smart_plan_user_key("data")] = dict(state)
+def _save_smart_plan_state(state: dict, scope_key: str = "") -> None:
+    suffix = f"data_{scope_key}" if scope_key else "data"
+    st.session_state[_smart_plan_user_key(suffix)] = dict(state)
 
 
 def _today_iso() -> str:
@@ -709,7 +715,12 @@ def _sync_rewards(state: dict, old_tasks: list[dict], new_tasks: list[dict]) -> 
     return state
 
 
-def _render_smart_plan_setup(state: dict, program_anchor: dict | None = None) -> tuple[dict, bool]:
+def _render_smart_plan_setup(
+    state: dict,
+    program_anchor: dict | None = None,
+    *,
+    key_prefix: str = "",
+) -> tuple[dict, bool]:
     st.markdown(f"### {t('smart_plan_setup_title')}")
     st.caption(t("smart_plan_program_anchor_setup_hint") if program_anchor else t("smart_plan_setup_subtitle"))
 
@@ -724,7 +735,7 @@ def _render_smart_plan_setup(state: dict, program_anchor: dict | None = None) ->
                 options=subject_options,
                 index=max(0, subject_options.index(selected_subject)) if selected_subject in subject_options else 0,
                 format_func=_subject_label,
-                key="student_smart_plan_subject",
+                key=f"student_smart_plan_subject_{key_prefix or 'default'}",
                 disabled=bool(program_anchor and anchor_subject in subject_options),
             )
             custom_subject = state.get("custom_subject", "")
@@ -732,7 +743,7 @@ def _render_smart_plan_setup(state: dict, program_anchor: dict | None = None) ->
                 custom_subject = st.text_input(
                     t("other_subject_label"),
                     value=str(program_anchor.get("subject_display") or custom_subject) if program_anchor else custom_subject,
-                    key="student_smart_plan_custom_subject",
+                    key=f"student_smart_plan_custom_subject_{key_prefix or 'default'}",
                     disabled=bool(program_anchor),
                 ).strip()
         with col2:
@@ -743,7 +754,7 @@ def _render_smart_plan_setup(state: dict, program_anchor: dict | None = None) ->
                 options=goal_options,
                 index=max(0, goal_options.index(current_goal)) if current_goal in goal_options else 0,
                 format_func=_smart_plan_focus_label,
-                key="student_smart_plan_goal",
+                key=f"student_smart_plan_goal_{key_prefix or 'default'}",
             )
         with col3:
             minutes = st.selectbox(
@@ -751,20 +762,20 @@ def _render_smart_plan_setup(state: dict, program_anchor: dict | None = None) ->
                 options=_smart_plan_time_options(),
                 index=max(0, _smart_plan_time_options().index(int(state["minutes_per_day"]))) if int(state["minutes_per_day"]) in _smart_plan_time_options() else 1,
                 format_func=_smart_plan_time_label,
-                key="student_smart_plan_minutes",
+                key=f"student_smart_plan_minutes_{key_prefix or 'default'}",
             )
 
         b1, b2 = st.columns(2)
         with b1:
             save_clicked = st.button(
                 t("smart_plan_update_preferences") if state.get("setup_complete") else t("smart_plan_save_preferences"),
-                key="student_smart_plan_save",
+                key=f"student_smart_plan_save_{key_prefix or 'default'}",
                 use_container_width=True,
             )
         with b2:
             generate_clicked = st.button(
                 t("smart_plan_generate_plan"),
-                key="student_smart_plan_generate",
+                key=f"student_smart_plan_generate_{key_prefix or 'default'}",
                 type="primary",
                 use_container_width=True,
             )
@@ -812,7 +823,7 @@ def _render_smart_plan_progress(state: dict) -> None:
     st.caption(t("smart_plan_progress_hint", completed=progress["completed"], total=progress["total"]))
 
 
-def _render_smart_plan_today(state: dict) -> dict:
+def _render_smart_plan_today(state: dict, *, key_prefix: str = "") -> dict:
     tasks = [dict(task) for task in state.get("tasks", [])]
     if not tasks:
         return state
@@ -826,7 +837,7 @@ def _render_smart_plan_today(state: dict) -> dict:
         done = st.checkbox(
             f"{_task_title(task)}",
             value=bool(task.get("done")),
-            key=f"student_smart_plan_task_{task.get('id', idx)}",
+            key=f"student_smart_plan_task_{key_prefix or 'default'}_{task.get('id', idx)}",
             help=_task_subtitle(task),
         )
         color_map = {
@@ -919,9 +930,18 @@ def _render_smart_plan_recommendations(state: dict) -> None:
             )
 
 
-def _render_smart_plan_teacher_summary() -> None:
-    assignments = get_student_assignment_summary(limit=60)
-    has_links = has_active_teacher_relationships()
+def _render_smart_plan_teacher_summary(
+    assignments_override: list[dict] | None = None,
+    *,
+    render_heading: bool = True,
+    render_cta: bool = True,
+) -> None:
+    assignments = (
+        assignments_override
+        if assignments_override is not None
+        else get_student_assignment_summary(limit=60)
+    )
+    has_links = bool(assignments_override) or has_active_teacher_relationships()
     if not has_links and not assignments:
         render_empty_state(
             title_key="student_study_plan_teacher_empty_title",
@@ -938,7 +958,8 @@ def _render_smart_plan_teacher_summary() -> None:
             st.rerun()
         return
 
-    st.markdown(f"### {t('smart_plan_teacher_assignments_title')}")
+    if render_heading:
+        st.markdown(f"### {t('smart_plan_teacher_assignments_title')}")
     if not assignments:
         render_empty_state(
             title_key="student_study_plan_teacher_waiting_title",
@@ -951,6 +972,27 @@ def _render_smart_plan_teacher_summary() -> None:
             icon="📝",
         )
         return
+
+    if assignments_override is None:
+        scope_groups = _assignment_scope_groups(assignments)
+        if len(scope_groups) > 1:
+            tabs = st.tabs([f"📚 {group.get('label') or ''}" for group in scope_groups])
+            for tab, group in zip(tabs, scope_groups):
+                with tab:
+                    _render_smart_plan_teacher_summary(
+                        group.get("rows") or [],
+                        render_heading=False,
+                        render_cta=False,
+                    )
+            st.markdown("<div class='classio-smart-teacher-cta-gap'></div>", unsafe_allow_html=True)
+            if st.button(
+                t("view_all_assignments"),
+                key="smart_plan_view_assignments",
+                use_container_width=True,
+            ):
+                go_to("student_assignments")
+                st.rerun()
+            return
 
     worksheets = [row for row in assignments if str(row.get("assignment_type") or "").strip() == "worksheet"]
     exams = [row for row in assignments if str(row.get("assignment_type") or "").strip() == "exam"]
@@ -1019,19 +1061,14 @@ def _render_smart_plan_teacher_summary() -> None:
     with tab_videos:
         _render_teacher_assignment_cards(videos, "🎬")
 
-    st.markdown("<div class='classio-smart-teacher-cta-gap'></div>", unsafe_allow_html=True)
-    if st.button(t("view_all_assignments"), key="smart_plan_view_assignments", use_container_width=True):
-        go_to("student_assignments")
-        st.rerun()
+    if render_cta:
+        st.markdown("<div class='classio-smart-teacher-cta-gap'></div>", unsafe_allow_html=True)
+        if st.button(t("view_all_assignments"), key="smart_plan_view_assignments", use_container_width=True):
+            go_to("student_assignments")
+            st.rerun()
 
 
-def render_student_study_plan():
-    _inject_smart_plan_styles()
-    _inject_assignment_page_styles()
-    state = _load_smart_plan_state()
-    program_assignments = load_enriched_program_assignments_for_current_student()
-    program_anchor = _build_program_anchor(program_assignments)
-
+def _apply_program_anchor_subject(state: dict, program_anchor: dict | None) -> None:
     if program_anchor:
         anchor_subject = normalize_subject(str(program_anchor.get("subject") or ""))
         if anchor_subject in _smart_plan_subject_options():
@@ -1039,6 +1076,64 @@ def render_student_study_plan():
         elif program_anchor.get("subject_display"):
             state["subject"] = "other"
             state["custom_subject"] = str(program_anchor.get("subject_display") or "")
+
+
+def _render_smart_plan_scope(
+    program_anchor: dict | None,
+    *,
+    scope_key: str = "",
+) -> None:
+    state = _load_smart_plan_state(scope_key)
+    _apply_program_anchor_subject(state, program_anchor)
+    state, plan_regenerated = _render_smart_plan_setup(
+        state,
+        program_anchor,
+        key_prefix=scope_key,
+    )
+    if state.get("setup_complete") and not plan_regenerated:
+        state = _ensure_today_plan(state, program_anchor)
+
+    if state.get("setup_complete"):
+        if program_anchor:
+            st.caption(
+                f"{program_anchor.get('program_title', t('assigned_learning_program'))} · "
+                f"{t('smart_plan_program_anchor_progress', completed=program_anchor.get('completed_topics', 0), total=program_anchor.get('total_topics', 0), percent=program_anchor.get('progress_pct', 0))}"
+            )
+        _render_smart_plan_progress(state)
+        state = _render_smart_plan_today(state, key_prefix=scope_key)
+        state["weekly_preview"] = _generate_smart_plan_weekly_preview(
+            state["subject"],
+            state["goal"],
+            int(state["minutes_per_day"]),
+            state.get("tasks", []),
+            program_anchor,
+        )
+        state["recommendations"] = _generate_smart_plan_recommendations(
+            state["subject"],
+            state["goal"],
+            _calculate_smart_plan_progress(state.get("tasks", [])),
+            program_anchor,
+        )
+        _render_smart_plan_weekly(state)
+        _render_smart_plan_recommendations(state)
+    else:
+        render_empty_state(
+            title_key="student_study_plan_empty_title",
+            body_key="student_study_plan_empty_body",
+            steps=[
+                "student_study_plan_empty_step_setup",
+                "student_study_plan_empty_step_daily",
+                "student_study_plan_empty_step_recommendations",
+            ],
+            icon="📚",
+        )
+    _save_smart_plan_state(state, scope_key)
+
+
+def render_student_study_plan():
+    _inject_smart_plan_styles()
+    _inject_assignment_page_styles()
+    program_assignments = load_enriched_program_assignments_for_current_student()
 
     st.markdown(f"## 📚 {t('smart_study_plan')}")
     st.caption(t("smart_plan_page_subtitle"))
@@ -1052,43 +1147,19 @@ def render_student_study_plan():
     )
 
     with tab_plan:
-        state, plan_regenerated = _render_smart_plan_setup(state, program_anchor)
-        if state.get("setup_complete") and not plan_regenerated:
-            state = _ensure_today_plan(state, program_anchor)
-
-        if state.get("setup_complete"):
-            if program_anchor:
-                st.caption(
-                    f"{program_anchor.get('program_title', t('assigned_learning_program'))} · "
-                    f"{t('smart_plan_program_anchor_progress', completed=program_anchor.get('completed_topics', 0), total=program_anchor.get('total_topics', 0), percent=program_anchor.get('progress_pct', 0))}"
-                )
-            _render_smart_plan_progress(state)
-            state = _render_smart_plan_today(state)
-            state["weekly_preview"] = _generate_smart_plan_weekly_preview(
-                state["subject"],
-                state["goal"],
-                int(state["minutes_per_day"]),
-                state.get("tasks", []),
-                program_anchor,
-            )
-            state["recommendations"] = _generate_smart_plan_recommendations(
-                state["subject"],
-                state["goal"],
-                _calculate_smart_plan_progress(state.get("tasks", [])),
-                program_anchor,
-            )
-            _render_smart_plan_weekly(state)
-            _render_smart_plan_recommendations(state)
+        program_groups = _program_subject_groups(program_assignments)
+        if len(program_groups) > 1:
+            subject_tabs = st.tabs([f"📚 {label}" for _scope, label, _rows in program_groups])
+            for subject_tab, (scope_key, _label, scoped_programs) in zip(subject_tabs, program_groups):
+                with subject_tab:
+                    _render_smart_plan_scope(
+                        _build_program_anchor(scoped_programs),
+                        scope_key=scope_key,
+                    )
         else:
-            render_empty_state(
-                title_key="student_study_plan_empty_title",
-                body_key="student_study_plan_empty_body",
-                steps=[
-                    "student_study_plan_empty_step_setup",
-                    "student_study_plan_empty_step_daily",
-                    "student_study_plan_empty_step_recommendations",
-                ],
-                icon="📚",
+            scoped_programs = program_groups[0][2] if program_groups else program_assignments
+            _render_smart_plan_scope(
+                _build_program_anchor(scoped_programs),
             )
 
     with tab_programs:
@@ -1111,5 +1182,3 @@ def render_student_study_plan():
 
     with tab_teacher:
         _render_smart_plan_teacher_summary()
-
-    _save_smart_plan_state(state)

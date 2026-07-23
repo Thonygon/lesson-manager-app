@@ -6,7 +6,7 @@ from core.i18n import t
 from core.navigation import go_to, STUDENT_PAGES
 from core.state import get_current_user_id
 from core.database import load_profile_row
-from helpers.practice_engine import exam_to_exercises, worksheet_to_exercises
+from helpers.practice_engine import exam_to_exercises, record_video_engagement_session, worksheet_to_exercises
 from helpers.notifications import (
     get_student_notifications,
     render_lazy_notification_panel,
@@ -15,7 +15,10 @@ from helpers.empty_states import render_empty_state
 from helpers.exposure_telemetry import attach_student_recommendation_exposures
 from helpers.quick_exam_storage import load_exam_record, load_public_exams
 from helpers.student_recommendation_ml import log_student_recommendation_impressions, log_student_recommendation_open
-from helpers.student_recommendations import build_recommended_materials
+from helpers.student_recommendations import (
+    build_recommended_materials,
+    group_recommendations_for_subject_tabs,
+)
 from helpers.teacher_student_integration import load_student_assignment_by_id, record_video_assignment_watch
 from helpers.video_library import load_public_videos
 from helpers.worksheet_builder import normalize_worksheet_output
@@ -126,6 +129,78 @@ def _load_student_home_recommendations(user_id: str) -> list[dict]:
     except Exception:
         logger.exception("Failed to build student home recommendations", extra={"user_id": safe_user_id})
         return []
+
+
+def _render_home_recommendation_group(items: list[dict], *, group_key: str) -> None:
+    rec_cols = st.columns(min(3, len(items)), gap="medium")
+    for idx, item in enumerate(items):
+        row = item.get("row") or {}
+        resource_type = str(item.get("resource_type") or "worksheet")
+        resource_label = (
+            _ui_text("worksheet_label", "Worksheet")
+            if resource_type == "worksheet"
+            else _ui_text("exam_label", "Exam")
+            if resource_type == "exam"
+            else _ui_text("video_label", "Video")
+        )
+        payload = dict(row or {})
+        if resource_type in {"worksheet", "exam"} and not extract_gallery_image_url(payload) and row.get("id"):
+            full_row = load_worksheet_record(row.get("id")) if resource_type == "worksheet" else load_exam_record(row.get("id"))
+            payload = full_row or payload
+        hero_image = extract_gallery_image_url(payload)
+        language_label = extract_gallery_language_label(payload)
+        chips = "".join(
+            [
+                f'<span class="cm-resource-chip">{_html.escape(resource_label)}</span>',
+                f'<span class="cm-resource-chip">🌐 {_html.escape(language_label)}</span>' if language_label else "",
+                f'<span class="cm-resource-chip">🏷️ {_html.escape(str(item.get("level") or ""))}</span>' if item.get("level") else "",
+                f'<span class="cm-resource-chip">📌 {_html.escape(t("assignment_status_assigned"))}</span>' if item.get("assigned_resource") else "",
+                f'<span class="cm-resource-chip">⚙️ {_html.escape(t("mode_ai"))}</span>' if resource_type != "video" else "",
+            ]
+        )
+        meta = f'<div class="cm-resource-meta">✨ {_html.escape((item.get("reasons") or [""])[0])}</div>'
+        with rec_cols[idx % len(rec_cols)]:
+            st.markdown(
+                render_gallery_card_html(
+                    kind="video" if resource_type == "video" else "exam" if resource_type == "exam" else "worksheet",
+                    title=str(item.get("title") or "—"),
+                    chips_html=chips,
+                    description=str(item.get("topic") or t("no_description_available")),
+                    meta_html=meta,
+                    image_url=hero_image,
+                    placeholder_label=resource_label,
+                ),
+                unsafe_allow_html=True,
+            )
+            action_label = _ui_text("watch_video", "Watch video") if resource_type == "video" else t("start_practice")
+            action_key = f"student_home_recommend_action_{group_key}_{resource_type}_{item.get('id', idx)}"
+            if st.button(
+                f"▶ {action_label}",
+                key=action_key,
+                use_container_width=True,
+                type="primary",
+            ):
+                if resource_type == "video":
+                    if int(item.get("assignment_id") or 0) > 0:
+                        record_video_assignment_watch(int(item.get("assignment_id") or 0))
+                    else:
+                        record_video_engagement_session(
+                            source_id=row.get("id") or item.get("id"),
+                            title=str(item.get("title") or row.get("title") or resource_label),
+                            subject=str(item.get("subject") or row.get("subject") or ""),
+                            topic=str(item.get("topic") or row.get("topic") or ""),
+                            level=str(item.get("level") or row.get("level_or_band") or ""),
+                        )
+                    log_student_recommendation_open(item, surface="student_home")
+                    st.session_state[f"_student_home_watch_video_{group_key}_{item.get('id', idx)}"] = True
+                    st.rerun()
+                else:
+                    _open_home_recommendation_practice(item)
+            video_state_key = f"_student_home_watch_video_{group_key}_{item.get('id', idx)}"
+            if resource_type == "video" and st.session_state.get(video_state_key):
+                watch_url = str(payload.get("watch_url") or payload.get("youtube_url") or row.get("watch_url") or row.get("youtube_url") or "")
+                if watch_url:
+                    st.video(watch_url)
 
 
 def render_student_home():
@@ -477,65 +552,21 @@ def render_student_home():
                 "These are the best next materials for this student right now based on recent progress and practice history.",
             )
         )
-        rec_cols = st.columns(min(3, len(recommended)), gap="medium")
-        for idx, item in enumerate(recommended[:3]):
-            row = item.get("row") or {}
-            resource_type = str(item.get("resource_type") or "worksheet")
-            resource_label = (
-                _ui_text("worksheet_label", "Worksheet")
-                if resource_type == "worksheet"
-                else _ui_text("exam_label", "Exam")
-                if resource_type == "exam"
-                else _ui_text("video_label", "Video")
+        recommendation_groups = group_recommendations_for_subject_tabs(recommended)
+        if len(recommendation_groups) > 1:
+            tabs = st.tabs([str(group.get("label") or "") for group in recommendation_groups])
+            for tab, group in zip(tabs, recommendation_groups):
+                with tab:
+                    _render_home_recommendation_group(
+                        group.get("recommendations") or [],
+                        group_key=str(group.get("key") or "subject"),
+                    )
+        elif recommendation_groups:
+            group = recommendation_groups[0]
+            _render_home_recommendation_group(
+                group.get("recommendations") or [],
+                group_key=str(group.get("key") or "subject"),
             )
-            payload = dict(row or {})
-            if resource_type in {"worksheet", "exam"} and not extract_gallery_image_url(payload) and row.get("id"):
-                full_row = load_worksheet_record(row.get("id")) if resource_type == "worksheet" else load_exam_record(row.get("id"))
-                payload = full_row or payload
-            hero_image = extract_gallery_image_url(payload)
-            language_label = extract_gallery_language_label(payload)
-            chips = "".join(
-                [
-                    f'<span class="cm-resource-chip">{_html.escape(resource_label)}</span>',
-                    f'<span class="cm-resource-chip">🌐 {_html.escape(language_label)}</span>' if language_label else "",
-                    f'<span class="cm-resource-chip">🏷️ {_html.escape(str(item.get("level") or ""))}</span>' if item.get("level") else "",
-                    f'<span class="cm-resource-chip">📌 {_html.escape(t("assignment_status_assigned"))}</span>' if item.get("assigned_resource") else "",
-                    f'<span class="cm-resource-chip">⚙️ {_html.escape(t("mode_ai"))}</span>' if resource_type != "video" else "",
-                ]
-            )
-            meta = f'<div class="cm-resource-meta">✨ {_html.escape((item.get("reasons") or [""])[0])}</div>'
-            with rec_cols[idx]:
-                st.markdown(
-                    render_gallery_card_html(
-                        kind="video" if resource_type == "video" else "exam" if resource_type == "exam" else "worksheet",
-                        title=str(item.get("title") or "—"),
-                        chips_html=chips,
-                        description=str(item.get("topic") or t("no_description_available")),
-                        meta_html=meta,
-                        image_url=hero_image,
-                        placeholder_label=resource_label,
-                    ),
-                    unsafe_allow_html=True,
-                )
-                action_label = _ui_text("watch_video", "Watch video") if resource_type == "video" else t("start_practice")
-                if st.button(
-                    f"▶ {action_label}",
-                    key=f"student_home_recommend_action_{resource_type}_{item.get('id', idx)}",
-                    use_container_width=True,
-                    type="primary",
-                ):
-                    if resource_type == "video":
-                        if int(item.get("assignment_id") or 0) > 0:
-                            record_video_assignment_watch(int(item.get("assignment_id") or 0))
-                        log_student_recommendation_open(item, surface="student_home")
-                        st.session_state[f"_student_home_watch_video_{item.get('id', idx)}"] = True
-                        st.rerun()
-                    else:
-                        _open_home_recommendation_practice(item)
-                if resource_type == "video" and st.session_state.get(f"_student_home_watch_video_{item.get('id', idx)}"):
-                    watch_url = str(payload.get("watch_url") or payload.get("youtube_url") or row.get("watch_url") or row.get("youtube_url") or "")
-                    if watch_url:
-                        st.video(watch_url)
         if st.button(_ui_text("open_recommended_materials", "Open recommended materials"), key="student_home_open_recommended", use_container_width=True):
             go_to("student_practice")
             st.rerun()

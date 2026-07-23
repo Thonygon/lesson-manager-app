@@ -159,6 +159,9 @@ class TeacherStudentIntegrationQueryTests(unittest.TestCase):
         self.assertEqual(tsi._REVIEW_REQUEST_COLUMNS, review_query.ops[0][1])
         self.assertEqual(tsi._PRACTICE_SESSION_COLUMNS, session_query.ops[0][1])
         self.assertEqual(tsi._PRACTICE_ANSWER_COLUMNS, answer_query.ops[0][1])
+        self.assertNotIn("updated_at", tsi._PRACTICE_SESSION_COLUMNS)
+        self.assertIn("answered_at", tsi._PRACTICE_ANSWER_COLUMNS)
+        self.assertNotIn("created_at", tsi._PRACTICE_ANSWER_COLUMNS)
 
 
 if __name__ == "__main__":

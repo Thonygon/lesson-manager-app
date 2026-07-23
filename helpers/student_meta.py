@@ -67,6 +67,13 @@ def _load_student_meta_rows(uid: str, columns: str) -> list[dict]:
 
 
 def _load_student_meta_rows_with_fallback(uid: str) -> pd.DataFrame:
+    # Selecting the available row shape avoids using a failing SELECT as schema
+    # detection when optional profile columns have not been migrated yet.
+    try:
+        return pd.DataFrame(_load_student_meta_rows(uid, "*"))
+    except Exception:
+        pass
+
     remaining_columns = list(_STUDENT_META_COLUMN_LIST)
     while remaining_columns:
         try:

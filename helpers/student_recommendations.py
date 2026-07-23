@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timezone
 import math
 import os
@@ -91,7 +92,29 @@ def _build_recommended_materials_cached(
             if score < 0:
                 continue
             assignment_state = assignment_lookup.get((resource_type, str(row_id or "").strip()))
-            ranked.append(_normalize_recommendation_row(row, resource_type, score, reasons, assignment_state, ml_meta))
+            program_scopes = _program_scopes_for_resource(
+                row,
+                student_profile.get("program_signals") or {},
+                assignment_state,
+            )
+            for program_scope in program_scopes or [{}]:
+                scoped_score = _scope_adjusted_resource_score(
+                    row,
+                    resource_type,
+                    score,
+                    program_scope,
+                )
+                ranked.append(
+                    _normalize_recommendation_row(
+                        row,
+                        resource_type,
+                        scoped_score,
+                        reasons,
+                        assignment_state,
+                        ml_meta,
+                        program_scope,
+                    )
+                )
 
     _append_rows(worksheets_df, "worksheet")
     _append_rows(exams_df, "exam")
@@ -107,9 +130,11 @@ def _build_recommended_materials_cached(
         return ranked
 
     deduped: list[dict[str, Any]] = []
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[tuple[str, str, str, str, str]] = set()
     for item in ranked:
         key = (
+            _recommendation_scope_key(item),
+            normalize_subject(item.get("subject")),
             str(item.get("resource_type") or ""),
             str(item.get("topic") or "").casefold(),
             str(item.get("exercise_type") or "").casefold(),
@@ -118,9 +143,123 @@ def _build_recommended_materials_cached(
             continue
         seen.add(key)
         deduped.append(item)
-        if len(deduped) >= max(1, limit):
+
+    return _select_subject_balanced_recommendations(
+        deduped,
+        {
+            f"assignment:{int(scope.get('learning_program_assignment_id') or 0)}"
+            for scopes in (student_profile.get("program_signals", {}).get("program_scopes") or {}).values()
+            for scope in scopes
+            if int(scope.get("learning_program_assignment_id") or 0) > 0
+        },
+        limit=limit,
+    )
+
+
+def _recommendation_scope_key(item: dict[str, Any]) -> str:
+    assignment_id = _safe_int(item.get("learning_program_assignment_id"), 0)
+    if assignment_id > 0:
+        return f"assignment:{assignment_id}"
+    return f"subject:{normalize_subject(item.get('subject'))}"
+
+
+def _select_subject_balanced_recommendations(
+    rows: list[dict[str, Any]],
+    active_scope_keys: set[str],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    effective_limit = max(1, int(limit), len(active_scope_keys))
+    selected: list[dict[str, Any]] = []
+    selected_ids: set[int] = set()
+    buckets = {
+        scope_key: [
+            item
+            for item in rows
+            if _recommendation_scope_key(item) == scope_key
+        ]
+        for scope_key in sorted(active_scope_keys)
+    }
+    bucket_positions = {scope_key: 0 for scope_key in buckets}
+    while len(selected) < effective_limit:
+        added = False
+        for scope_key, bucket in buckets.items():
+            position = bucket_positions[scope_key]
+            if position >= len(bucket):
+                continue
+            item = bucket[position]
+            bucket_positions[scope_key] = position + 1
+            selected.append(item)
+            selected_ids.add(id(item))
+            added = True
+            if len(selected) >= effective_limit:
+                break
+        if not added:
             break
-    return deduped
+
+    for item in rows:
+        if len(selected) >= effective_limit:
+            break
+        if id(item) in selected_ids:
+            continue
+        selected.append(item)
+        selected_ids.add(id(item))
+
+    selected.sort(
+        key=lambda item: (
+            -_safe_float(item.get("score", 0.0)),
+            str(item.get("topic") or "").casefold(),
+            str(item.get("title") or "").casefold(),
+        )
+    )
+    return selected
+
+
+def group_recommendations_for_subject_tabs(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for item in rows or []:
+        if not isinstance(item, dict):
+            continue
+        scope_key = _recommendation_scope_key(item)
+        subject_key = normalize_subject(item.get("subject"))
+        subject_text = str(item.get("subject_display") or "").strip()
+        if not subject_text:
+            subject_text = subject_label(subject_key) if subject_key else str(item.get("subject") or "").strip()
+        teacher_name = str(
+            item.get("program_teacher_name")
+            or item.get("assignment_teacher_name")
+            or ""
+        ).strip()
+        group = grouped.setdefault(
+            scope_key,
+            {
+                "key": scope_key.replace(":", "_"),
+                "subject": subject_key,
+                "subject_label": subject_text or subject_key.title(),
+                "teacher_name": teacher_name,
+                "learning_program_assignment_id": _safe_int(
+                    item.get("learning_program_assignment_id"),
+                    0,
+                ),
+                "recommendations": [],
+            },
+        )
+        group["recommendations"].append(item)
+        if not group.get("teacher_name") and teacher_name:
+            group["teacher_name"] = teacher_name
+
+    groups = list(grouped.values())
+    label_counts = Counter(str(group.get("subject_label") or "") for group in groups)
+    for group in groups:
+        base_label = str(group.get("subject_label") or "").strip()
+        if label_counts[base_label] > 1:
+            teacher_name = str(group.get("teacher_name") or "").strip()
+            group["label"] = f"{base_label} · {teacher_name}" if teacher_name else base_label
+        else:
+            group["label"] = base_label
+    return groups
 
 
 register_cache(_build_recommended_materials_cached)
@@ -218,7 +357,10 @@ def _load_student_assignment_signal_rows(student_id: str) -> list[dict[str, Any]
             _execute_query_with_diagnostics(
                 get_sb()
                 .table("teacher_assignments")
-                .select("id,teacher_id,assignment_type,source_record_id,status,topic,title,teacher_note,score_pct,updated_at")
+                .select(
+                    "id,teacher_id,assignment_type,source_record_id,status,topic,title,teacher_note,"
+                    "score_pct,updated_at,learning_program_assignment_id,learning_program_topic_id"
+                )
                 .eq("student_id", safe_student_id)
                 .neq("status", "archived")
                 .gte("updated_at", _history_cutoff_iso())
@@ -323,6 +465,8 @@ def _load_assignment_signal_profile() -> dict[str, Any]:
                 "teacher_note": teacher_note,
                 "topic": topic,
                 "title": title,
+                "learning_program_assignment_id": _safe_int(row.get("learning_program_assignment_id"), 0),
+                "learning_program_topic_id": _safe_int(row.get("learning_program_topic_id"), 0),
                 "is_completed": is_completed,
                 "is_unseen": is_unseen,
             }
@@ -420,13 +564,15 @@ def _load_program_signals() -> dict[str, Any]:
         "review_topic_tokens": set(),
         "worksheet_types": set(),
         "exam_types": set(),
+        "program_scopes": {},
     }
-    latest_by_subject: dict[str, dict] = {}
+    latest_by_subject_teacher: dict[tuple[str, str], dict] = {}
     for assignment in enriched:
         program = assignment.get("program") or {}
         subject = normalize_subject(program.get("subject") or assignment.get("subject_key") or "")
         if not subject:
             continue
+        teacher_id = str(assignment.get("teacher_id") or "").strip()
         raw_sequence = program.get("sequence_order") or assignment.get("sequence_order") or 0
         try:
             sequence = int(raw_sequence or 0)
@@ -439,17 +585,18 @@ def _load_program_signals() -> dict[str, Any]:
             or program.get("created_at")
             or ""
         ).strip()
-        current = latest_by_subject.get(subject)
+        scope_key = (subject, teacher_id)
+        current = latest_by_subject_teacher.get(scope_key)
         current_sequence = int((current or {}).get("_sequence_order") or 0)
         current_stamp = str((current or {}).get("_sort_stamp") or "")
         if current is None or sequence > current_sequence or (sequence == current_sequence and stamp > current_stamp):
-            latest_by_subject[subject] = {
+            latest_by_subject_teacher[scope_key] = {
                 **assignment,
                 "_sequence_order": sequence,
                 "_sort_stamp": stamp,
             }
 
-    for assignment in latest_by_subject.values():
+    for assignment in latest_by_subject_teacher.values():
         program = assignment.get("program") or {}
         subject = normalize_subject(program.get("subject") or assignment.get("subject_key") or "")
         if subject:
@@ -474,11 +621,21 @@ def _load_program_signals() -> dict[str, Any]:
                 ordered_topics.append((topic_position, topic, topic_progress))
 
         next_topic_added = False
+        scope_topics: list[dict[str, Any]] = []
         for position, topic, topic_progress in ordered_topics:
             title = str(topic.get("title") or "").strip()
             summary = str(topic.get("student_summary") or topic.get("lesson_focus") or topic.get("subtopic") or "").strip()
             topic_tokens = _topic_tokens(title, summary)
             topic_id = int(topic.get("topic_id") or 0)
+            if topic_id > 0:
+                scope_topics.append(
+                    {
+                        "topic_id": topic_id,
+                        "tokens": topic_tokens,
+                        "is_complete": truthy_flag(topic_progress.get("teacher_done")),
+                        "position": position,
+                    }
+                )
             if truthy_flag(topic_progress.get("teacher_done")) and truthy_flag(topic_progress.get("student_done")):
                 signals["review_topic_tokens"].update(topic_tokens)
                 if topic_id > 0:
@@ -509,7 +666,103 @@ def _load_program_signals() -> dict[str, Any]:
                 cleaned = str(exam_type or "").strip()
                 if cleaned:
                     signals["exam_types"].add(cleaned)
+        signals["program_scopes"].setdefault(subject, [])
+        signals["program_scopes"][subject].append(
+            {
+                "learning_program_assignment_id": _safe_int(assignment.get("id"), 0),
+                "program_id": _safe_int(assignment.get("program_id"), 0),
+                "teacher_id": str(assignment.get("teacher_id") or "").strip(),
+                "teacher_name": str(assignment.get("teacher_name") or "").strip(),
+                "subject_display": str(assignment.get("subject_display") or "").strip(),
+                "level": _normalize_level(
+                    program.get("level_or_band") or assignment.get("level_or_band") or ""
+                ),
+                "topics": scope_topics,
+            }
+        )
     return signals
+
+
+def _program_scopes_for_resource(
+    row: dict[str, Any],
+    program_signals: dict[str, Any],
+    assignment_state: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    exact_assignment_id = _safe_int((assignment_state or {}).get("learning_program_assignment_id"), 0)
+    exact_topic_id = _safe_int((assignment_state or {}).get("learning_program_topic_id"), 0)
+    subject = _resource_subject(row)
+    subject_scopes = [
+        dict(scope)
+        for scope in (program_signals.get("program_scopes") or {}).get(subject, [])
+    ]
+    if exact_assignment_id > 0:
+        matched = [
+            scope
+            for scope in subject_scopes
+            if _safe_int(scope.get("learning_program_assignment_id"), 0) == exact_assignment_id
+        ]
+        subject_scopes = matched or [{"learning_program_assignment_id": exact_assignment_id}]
+
+    resource_tokens = _topic_tokens(_resource_topic(row), row.get("title"))
+    resolved: list[dict[str, Any]] = []
+    for subject_scope in subject_scopes:
+        learning_program_assignment_id = _safe_int(
+            subject_scope.get("learning_program_assignment_id"),
+            0,
+        )
+        if learning_program_assignment_id <= 0:
+            continue
+        learning_program_topic_id = exact_topic_id
+        if learning_program_topic_id <= 0:
+            topic_candidates = [
+                dict(candidate)
+                for candidate in (subject_scope.get("topics") or [])
+                if _safe_int(candidate.get("topic_id"), 0) > 0
+            ]
+            if topic_candidates:
+                topic_candidates.sort(
+                    key=lambda candidate: (
+                        -len(resource_tokens & set(candidate.get("tokens") or set())),
+                        bool(candidate.get("is_complete")),
+                        _safe_int(candidate.get("position"), 0),
+                    )
+                )
+                learning_program_topic_id = _safe_int(topic_candidates[0].get("topic_id"), 0)
+        resolved.append(
+            {
+                **subject_scope,
+                "learning_program_assignment_id": learning_program_assignment_id,
+                "learning_program_topic_id": learning_program_topic_id,
+            }
+        )
+    return resolved
+
+
+def _scope_adjusted_resource_score(
+    row: dict[str, Any],
+    resource_type: str,
+    score: float,
+    program_scope: dict[str, Any],
+) -> float:
+    if not program_scope:
+        return score
+    resource_tokens = _topic_tokens(_resource_topic(row), row.get("title"))
+    topic_overlap = max(
+        (
+            _topic_overlap_score(
+                resource_tokens,
+                set(topic.get("tokens") or set()),
+            )
+            for topic in (program_scope.get("topics") or [])
+            if not bool(topic.get("is_complete"))
+        ),
+        default=0.0,
+    )
+    level_fit = _level_similarity(
+        str(program_scope.get("level") or ""),
+        _resource_level(row, resource_type),
+    )
+    return score + (0.12 * (level_fit - 0.55)) + (0.10 * topic_overlap)
 
 
 def _level_similarity(target_level: str, resource_level: str) -> float:
@@ -862,6 +1115,7 @@ def _normalize_recommendation_row(
     reasons: list[str],
     assignment_state: dict[str, Any] | None = None,
     ml_meta: dict[str, float] | None = None,
+    program_scope: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     return {
         "resource_type": resource_type,
@@ -879,6 +1133,19 @@ def _normalize_recommendation_row(
         "assignment_status": str((assignment_state or {}).get("status") or "").strip(),
         "assignment_attempt_count": _safe_int((assignment_state or {}).get("attempt_count"), 0),
         "assignment_teacher_name": str((assignment_state or {}).get("teacher_name") or "").strip(),
+        "learning_program_assignment_id": _safe_int(
+            (program_scope or {}).get("learning_program_assignment_id"),
+            0,
+        ),
+        "learning_program_topic_id": _safe_int(
+            (program_scope or {}).get("learning_program_topic_id"),
+            0,
+        ),
+        "program_id": _safe_int((program_scope or {}).get("program_id"), 0),
+        "program_teacher_name": str((program_scope or {}).get("teacher_name") or "").strip(),
+        "program_teacher_id": str((program_scope or {}).get("teacher_id") or "").strip(),
+        "subject_display": str((program_scope or {}).get("subject_display") or "").strip(),
+        "program_level": str((program_scope or {}).get("level") or "").strip(),
         "ml_score": _safe_float((ml_meta or {}).get("ml_score"), 0.0),
         "ml_blend_weight": _safe_float((ml_meta or {}).get("ml_blend_weight"), 0.0),
         "row": row,

@@ -7,6 +7,7 @@ import math
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import pandas as pd
 import plotly.express as px
@@ -127,7 +128,7 @@ _SUBSCRIPTION_STATUS_LABEL_KEYS = {
     "free": "admin_subscription_status_value_free",
 }
 _ADMIN_OVERRIDE_COLUMNS = (
-    "id,user_id,override_type,old_value,new_value,note,admin_user_id,admin_email,created_at"
+    "id,user_id,override_type,reason,created_by,expires_at,created_at"
 )
 _OVERRIDE_TYPE_LABEL_KEYS = {
     "account_create": "admin_override_type_account_create",
@@ -565,6 +566,14 @@ def _fetch_recent_app_activity(user_ids: tuple[str, ...] = ()) -> dict[str, str]
     safe_user_ids = [str(user_id or "").strip() for user_id in user_ids if str(user_id or "").strip()]
     if not safe_user_ids:
         return usage
+    uuid_user_ids: list[str] = []
+    for user_id in safe_user_ids:
+        try:
+            uuid_user_ids.append(str(UUID(user_id)))
+        except (TypeError, ValueError, AttributeError):
+            continue
+    if not uuid_user_ids:
+        return usage
 
     def _remember(user_id: Any, *timestamps: Any) -> None:
         safe_user_id = str(user_id or "").strip()
@@ -572,20 +581,9 @@ def _fetch_recent_app_activity(user_ids: tuple[str, ...] = ()) -> dict[str, str]
             return
         usage[safe_user_id] = _latest_timestamp(usage.get(safe_user_id, ""), *timestamps)
 
-    try:
-        profile_rows = getattr(
-            get_sb().table("profiles").select("user_id,last_used_at").in_("user_id", safe_user_ids).limit(len(safe_user_ids)).execute(),
-            "data",
-            None,
-        ) or []
-        for row in profile_rows:
-            _remember(row.get("user_id"), row.get("last_used_at"))
-    except Exception:
-        pass
-
     table_specs = [
         ("user_activity_log", "user_id", ["created_at"]),
-        ("practice_sessions", "user_id", ["updated_at", "completed_at", "created_at"]),
+        ("practice_sessions", "user_id", ["completed_at", "created_at"]),
         ("practice_progress", "user_id", ["last_practiced", "created_at"]),
         ("teacher_review_requests", "student_id", ["created_at"]),
     ]
@@ -593,7 +591,7 @@ def _fetch_recent_app_activity(user_ids: tuple[str, ...] = ()) -> dict[str, str]
         select_columns = ",".join([user_column, *timestamp_columns])
         try:
             rows = getattr(
-                get_sb().table(table_name).select(select_columns).in_(user_column, safe_user_ids).limit(5000).execute(),
+                get_sb().table(table_name).select(select_columns).in_(user_column, uuid_user_ids).limit(5000).execute(),
                 "data",
                 None,
             ) or []
@@ -1238,7 +1236,7 @@ def _load_admin_ai_frames() -> dict[str, pd.DataFrame]:
     frames = {
         "profiles": _table_frame(
             "profiles",
-            "user_id,role,current_plan,subscription_status,created_at,last_used_at,can_teach,can_study",
+            "*",
             cache_bust,
             limit=5000,
             order_column="created_at",

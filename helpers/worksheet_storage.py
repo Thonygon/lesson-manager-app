@@ -1741,6 +1741,31 @@ def render_worksheet_result(
             _wb().reset_worksheet_maker_state()
             st.rerun()
 
+        if allow_assign:
+            with st.expander(t("assign_to_student"), expanded=assign_expanded):
+                from helpers.teacher_student_integration import render_assignment_panel_for_worksheet
+
+                render_assignment_panel_for_worksheet(
+                    prefix=f"{action_key_prefix}_assign_{safe_title}",
+                    worksheet=ws,
+                    subject=subject,
+                    topic=topic,
+                    learner_stage=learner_stage,
+                    level_or_band=level_or_band,
+                    source_record_id=resource_record_id,
+                )
+        if edit_allowed:
+            from helpers.resource_editor import render_resource_editor
+
+            render_resource_editor(
+                resource_label="worksheet",
+                payload=ws,
+                action_key_prefix=f"{action_key_prefix}_edit",
+                on_apply=_apply_worksheet_edit,
+                normalize_payload=_normalize_worksheet_edit,
+                context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
+            )
+
         dc1, dc2 = st.columns(2)
         with dc1:
             st.download_button(
@@ -1778,29 +1803,6 @@ def render_worksheet_result(
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 key=f"dl_ws_tch_docx_inline_{safe_title}",
                 use_container_width=True,
-            )
-        with st.expander(t("assign_to_student"), expanded=False):
-            from helpers.teacher_student_integration import render_assignment_panel_for_worksheet
-
-            render_assignment_panel_for_worksheet(
-                prefix=f"worksheet_assign_{safe_title}",
-                worksheet=ws,
-                subject=subject,
-                topic=topic,
-                learner_stage=learner_stage,
-                level_or_band=level_or_band,
-                source_record_id=resource_record_id,
-            )
-        if edit_allowed:
-            from helpers.resource_editor import render_resource_editor
-
-            render_resource_editor(
-                resource_label="worksheet",
-                payload=ws,
-                action_key_prefix=f"{action_key_prefix}_edit",
-                on_apply=_apply_worksheet_edit,
-                normalize_payload=_normalize_worksheet_edit,
-                context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
             )
 
 

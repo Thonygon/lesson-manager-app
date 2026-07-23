@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +86,10 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _supabase_storage_enabled() -> bool:
+    return str(os.getenv("EXPERIMENT_REPORT_CONTEXT_STORAGE", "local") or "").strip().lower() == "supabase"
+
+
 def _report_dir(run_id: str, language: str) -> Path:
     return REPORT_CONTEXT_ROOT / _clean_text(run_id) / _lang(language)
 
@@ -115,23 +120,24 @@ def _load_any_language_context(run_id: str) -> dict[str, Any] | None:
     safe_run_id = _clean_text(run_id)
     if not safe_run_id:
         return None
-    try:
-        response = (
-            get_sb()
-            .table(REPORT_CONTEXT_TABLE)
-            .select("*")
-            .eq("run_id", safe_run_id)
-            .order("updated_at", desc=True)
-            .limit(1)
-            .execute()
-        )
-        rows = getattr(response, "data", None) or []
-        if rows:
-            row = dict(rows[0])
-            _write_local_context(row)
-            return row
-    except Exception:
-        pass
+    if _supabase_storage_enabled():
+        try:
+            response = (
+                get_sb()
+                .table(REPORT_CONTEXT_TABLE)
+                .select("*")
+                .eq("run_id", safe_run_id)
+                .order("updated_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            rows = getattr(response, "data", None) or []
+            if rows:
+                row = dict(rows[0])
+                _write_local_context(row)
+                return row
+        except Exception:
+            pass
     root = REPORT_CONTEXT_ROOT / safe_run_id
     if not root.exists():
         return None
@@ -198,27 +204,28 @@ def get_report_context(run_id: str, experiment_id: str, language: str) -> dict[s
     safe_lang = _lang(language)
     if not safe_run_id:
         return _default_context(safe_run_id, safe_experiment_id, safe_lang)
-    try:
-        response = (
-            get_sb()
-            .table(REPORT_CONTEXT_TABLE)
-            .select("*")
-            .eq("run_id", safe_run_id)
-            .eq("language", safe_lang)
-            .limit(1)
-            .execute()
-        )
-        rows = getattr(response, "data", None) or []
-        if rows:
-            row = dict(rows[0])
-            row.setdefault("experiment_id", safe_experiment_id)
-            row.setdefault("language", safe_lang)
-            local_row = _read_local_context(safe_run_id, safe_lang) or {}
-            merged = {**_default_context(safe_run_id, safe_experiment_id, safe_lang), **row, **dict(local_row)}
-            _write_local_context(merged)
-            return merged
-    except Exception:
-        pass
+    if _supabase_storage_enabled():
+        try:
+            response = (
+                get_sb()
+                .table(REPORT_CONTEXT_TABLE)
+                .select("*")
+                .eq("run_id", safe_run_id)
+                .eq("language", safe_lang)
+                .limit(1)
+                .execute()
+            )
+            rows = getattr(response, "data", None) or []
+            if rows:
+                row = dict(rows[0])
+                row.setdefault("experiment_id", safe_experiment_id)
+                row.setdefault("language", safe_lang)
+                local_row = _read_local_context(safe_run_id, safe_lang) or {}
+                merged = {**_default_context(safe_run_id, safe_experiment_id, safe_lang), **row, **dict(local_row)}
+                _write_local_context(merged)
+                return merged
+        except Exception:
+            pass
     local_row = _read_local_context(safe_run_id, safe_lang)
     if local_row:
         local_row = dict(local_row)
@@ -261,6 +268,19 @@ def save_report_context(payload: dict[str, Any]) -> dict[str, Any]:
         "updated_at": now_text,
     }
     local_only = {field: _clean_text(payload.get(field)) for field in LOCAL_ONLY_CONTEXT_FIELDS}
+    if not _supabase_storage_enabled():
+        fallback = {
+            **_default_context(safe_run_id, safe_experiment_id, safe_lang),
+            **base,
+            "created_by": current_user_id,
+            "created_at": now_text,
+            "updated_at": now_text,
+            **local_only,
+            "_storage_status": "local_cache",
+        }
+        _write_local_context(fallback)
+        _clear_cached_reports(safe_run_id, safe_lang)
+        return fallback
     try:
         response = (
             get_sb()

@@ -2926,6 +2926,8 @@ TR: Dict[str, str] = {
     "learning_program_complete_before_publishing": "Bu programı herkese açık yapmadan önce tüm üniteleri tamamlayın.",
     "learning_program_previous_incomplete_warning": "Önceki program henüz tamamlanmadı ({total_units} üniteden {ready_units} tanesi hazır). Yeni bir program oluşturmak için kullanmadan önce önceki seviyeyi tamamlayın.",
     "learning_program_update_failed": "Öğrenme programı güncellenemedi: {error}",
+    "learning_program_update_conflict": "Yeni ünite ayrıntılarını şu anda kaydedemedik. Lütfen bir kez daha deneyin. Sorun devam ederse sayfayı yenileyip öğrenme programını yeniden açın.",
+    "learning_program_update_retry_generic": "Öğrenme programını şu anda güncelleyemedik. Lütfen birazdan tekrar deneyin.",
     "clear_builder": "Oluşturucuyu temizle",
     "learning_program_units_adjusted": "Üniteler, Classio pedagojik sınırlarına göre {learner_stage} için {units} olarak ayarlandı.",
     "learning_program_lessons_adjusted": "Ünite başına ders sayısı, Classio pedagojik sınırlarına göre {learner_stage} için {lessons_per_unit} olarak ayarlandı.",

@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from core import database
 
@@ -97,6 +97,61 @@ class DatabaseQueryFilterTests(unittest.TestCase):
             "payment_date",
             True,
         )
+
+    def test_activity_touch_only_updates_columns_present_in_deployed_profile_schema(self):
+        fake_sb = MagicMock()
+        update_query = fake_sb.table.return_value.update.return_value
+        update_query.eq.return_value.execute.return_value.data = []
+
+        with (
+            patch.object(database, "get_current_user_id", return_value="demo_user"),
+            patch.object(database, "load_profile_row", return_value={"user_id": "demo_user", "last_page": ""}),
+            patch.object(database, "get_sb", return_value=fake_sb),
+            patch.object(database.st, "session_state", {}, create=True),
+        ):
+            database.touch_current_user_activity("students")
+
+        fake_sb.table.assert_called_once_with("profiles")
+        fake_sb.table.return_value.update.assert_called_once_with({"last_page": "students"})
+
+    def test_activity_touch_does_not_query_missing_optional_activity_columns(self):
+        fake_sb = MagicMock()
+
+        with (
+            patch.object(database, "get_current_user_id", return_value="demo_user"),
+            patch.object(database, "load_profile_row", return_value={"user_id": "demo_user"}),
+            patch.object(database, "get_sb", return_value=fake_sb),
+            patch.object(database.st, "session_state", {}, create=True),
+        ):
+            database.touch_current_user_activity("home")
+
+        fake_sb.table.assert_not_called()
+
+    def test_student_update_omits_native_language_when_live_row_lacks_column(self):
+        fake_sb = MagicMock()
+        shape_query = fake_sb.table.return_value.select.return_value
+        shape_query.eq.return_value = shape_query
+        shape_query.limit.return_value.execute.return_value.data = [{"student": "Ana", "email": "old@example.com"}]
+        update_query = fake_sb.table.return_value.update.return_value
+        update_query.eq.return_value = update_query
+
+        with (
+            patch.object(database, "get_current_user_id", return_value="teacher-1"),
+            patch.object(database, "get_sb", return_value=fake_sb),
+            patch.object(database, "clear_app_caches"),
+        ):
+            database.update_student_profile(
+                "Ana",
+                "ana@example.com",
+                "",
+                "",
+                "#3B82F6",
+                "",
+                native_language="es",
+            )
+
+        payload = fake_sb.table.return_value.update.call_args.args[0]
+        self.assertNotIn("native_language", payload)
 
 
 if __name__ == "__main__":

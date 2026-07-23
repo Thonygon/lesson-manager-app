@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import hashlib
 import json
 import math
 import re
@@ -14,6 +15,7 @@ import streamlit as st
 from core.database import clear_app_caches, get_sb, load_profile_row, register_cache, show_data_load_error
 from core.i18n import t
 from core.state import get_current_user_id, with_owner
+from helpers.action_feedback import action_spinner
 from helpers.archive_utils import ARCHIVED_STATUS, DELETED_STATUS, filter_archived_rows, is_archived_status, truthy_flag
 from helpers.generation_guidance import build_expert_panel_prompt_blurb
 from helpers.native_language import NATIVE_LANGUAGE_OPTIONS, is_language_subject, native_language_label, normalize_native_language
@@ -2013,6 +2015,120 @@ def _merge_program_unit(base_unit: dict, enriched_unit: dict) -> dict:
     return merged_unit
 
 
+def _resolve_existing_program_unit_id(
+    *,
+    target_unit_number: int,
+    requested_unit_id: int,
+    unit_lookup_by_number: dict[int, int],
+    unit_rows_by_id: dict[int, dict],
+    claimed_unit_ids: set[int],
+) -> int:
+    """Return an existing row only when it already belongs to this unit slot."""
+    exact_unit_id = int(unit_lookup_by_number.get(int(target_unit_number)) or 0)
+    if exact_unit_id > 0 and exact_unit_id not in claimed_unit_ids:
+        return exact_unit_id
+
+    requested_unit_id = int(requested_unit_id or 0)
+    requested_row = unit_rows_by_id.get(requested_unit_id) or {}
+    if (
+        requested_unit_id > 0
+        and requested_unit_id not in claimed_unit_ids
+        and int(requested_row.get("unit_number") or 0) == int(target_unit_number)
+    ):
+        return requested_unit_id
+    return 0
+
+
+def _sanitize_loaded_program_identifiers(program: dict) -> dict:
+    """Prevent legacy duplicate IDs from mixing progress or Streamlit widget state."""
+    sanitized = dict(program or {})
+    sanitized_units: list[dict] = []
+    seen_unit_ids: set[int] = set()
+    seen_topic_ids: set[int] = set()
+
+    for unit_index, raw_unit in enumerate(program.get("units") or [], start=1):
+        unit = dict(raw_unit or {})
+        unit_number = int(unit.get("unit_number") or unit_index)
+        unit_id = int(unit.get("unit_id") or 0)
+        if unit_id <= 0 or unit_id in seen_unit_ids:
+            unit_id = 0
+        else:
+            seen_unit_ids.add(unit_id)
+        unit["unit_number"] = unit_number
+        unit["unit_id"] = unit_id
+
+        sanitized_topics: list[dict] = []
+        for topic_index, raw_topic in enumerate(unit.get("topics") or [], start=1):
+            topic = dict(raw_topic or {})
+            topic_id = int(topic.get("topic_id") or 0)
+            if topic_id <= 0 or topic_id in seen_topic_ids:
+                topic_id = 0
+            else:
+                seen_topic_ids.add(topic_id)
+            topic["topic_id"] = topic_id
+            topic["unit_id"] = unit_id
+            topic["unit_number"] = unit_number
+            topic["topic_number"] = topic_index
+            sanitized_topics.append(topic)
+        unit["topics"] = sanitized_topics
+        sanitized_units.append(unit)
+
+    sanitized["units"] = sanitized_units
+    return sanitized
+
+
+def _canonicalize_program_identifiers(
+    program: dict,
+    *,
+    unit_ids_by_number: dict[int, int],
+    topic_ids_by_position: dict[tuple[int, int], int],
+) -> dict:
+    canonical = normalize_learning_program_output(program)
+    for unit in canonical.get("units") or []:
+        unit_number = int(unit.get("unit_number") or 0)
+        unit_id = int(unit_ids_by_number.get(unit_number) or 0)
+        unit["unit_id"] = unit_id
+        for topic in unit.get("topics") or []:
+            topic_number = int(topic.get("topic_number") or 0)
+            topic["unit_id"] = unit_id
+            topic["unit_number"] = unit_number
+            topic["topic_id"] = int(topic_ids_by_position.get((unit_number, topic_number)) or 0)
+    return canonical
+
+
+def _canonicalize_program_identifiers_from_storage(program_id: int, program: dict) -> dict:
+    program_id = int(program_id or 0)
+    if program_id <= 0:
+        return normalize_learning_program_output(program)
+    unit_rows = _rows(
+        get_sb()
+        .table("learning_program_units")
+        .select("id,unit_number")
+        .eq("program_id", program_id)
+        .execute()
+    )
+    topic_rows = _rows(
+        get_sb()
+        .table("learning_program_topics")
+        .select("id,unit_number,topic_number")
+        .eq("program_id", program_id)
+        .execute()
+    )
+    return _canonicalize_program_identifiers(
+        program,
+        unit_ids_by_number={
+            int(row.get("unit_number") or 0): int(row.get("id") or 0)
+            for row in unit_rows
+            if int(row.get("unit_number") or 0) > 0 and int(row.get("id") or 0) > 0
+        },
+        topic_ids_by_position={
+            (int(row.get("unit_number") or 0), int(row.get("topic_number") or 0)): int(row.get("id") or 0)
+            for row in topic_rows
+            if int(row.get("unit_number") or 0) > 0 and int(row.get("topic_number") or 0) > 0 and int(row.get("id") or 0) > 0
+        },
+    )
+
+
 def _replace_program_unit(program: dict, updated_unit: dict) -> dict:
     program_copy = dict(program or {})
     units = []
@@ -2468,6 +2584,14 @@ def learning_program_is_complete(program: dict) -> bool:
     return _program_is_complete(normalize_learning_program_output(program))
 
 
+def _learning_program_user_error(error: str) -> str:
+    text = _clean_text(error)
+    lowered = text.lower()
+    if "learning_program_topics_unique_order" in text or "duplicate key value violates unique constraint" in lowered or "23505" in lowered:
+        return t("learning_program_update_conflict")
+    return t("learning_program_update_retry_generic")
+
+
 def _flatten_program_rows(program: dict) -> tuple[list[dict], list[dict]]:
     units_payload: list[dict] = []
     topics_payload: list[dict] = []
@@ -2637,6 +2761,8 @@ def save_learning_program(
         if not rows:
             return False, None, t("learning_program_save_failed_generic")
         program_id = int(rows[0]["id"])
+        unit_ids_by_number: dict[int, int] = {}
+        topic_ids_by_position: dict[tuple[int, int], int] = {}
 
         for unit in units_payload:
             unit_insert_payload = {
@@ -2661,24 +2787,48 @@ def save_learning_program(
                 continue
             unit_id = int(unit_rows[0]["id"])
             unit_number = int(unit_rows[0]["unit_number"])
+            unit_ids_by_number[unit_number] = unit_id
             unit_topics = [topic for topic in topics_payload if int(topic["unit_number"]) == unit_number]
             if unit_topics:
-                sb.table("learning_program_topics").insert(
-                    [
-                        {
-                            "program_id": program_id,
-                            "unit_id": unit_id,
-                            **{
-                                key: value
-                                for key, value in topic.items()
-                                if key not in {"existing_topic_id", "existing_unit_id"}
-                            },
-                            "created_at": _now_iso(),
-                            "updated_at": _now_iso(),
-                        }
-                        for topic in unit_topics
-                    ]
-                ).execute()
+                topic_insert = (
+                    sb.table("learning_program_topics")
+                    .insert(
+                        [
+                            {
+                                "program_id": program_id,
+                                "unit_id": unit_id,
+                                **{
+                                    key: value
+                                    for key, value in topic.items()
+                                    if key not in {"existing_topic_id", "existing_unit_id"}
+                                },
+                                "created_at": _now_iso(),
+                                "updated_at": _now_iso(),
+                            }
+                            for topic in unit_topics
+                        ]
+                    )
+                    .execute()
+                )
+                for topic_row in _rows(topic_insert):
+                    topic_ids_by_position[
+                        (
+                            int(topic_row.get("unit_number") or unit_number),
+                            int(topic_row.get("topic_number") or 0),
+                        )
+                    ] = int(topic_row.get("id") or 0)
+
+        canonical_program = _canonicalize_program_identifiers(
+            payload.get("program_data") or {},
+            unit_ids_by_number=unit_ids_by_number,
+            topic_ids_by_position=topic_ids_by_position,
+        )
+        sb.table("learning_programs").update(
+            {
+                "program_data": canonical_program,
+                "updated_at": _now_iso(),
+            }
+        ).eq("id", program_id).execute()
 
         clear_app_caches()
         return True, program_id, "saved"
@@ -2724,6 +2874,7 @@ def update_learning_program(
         sequence_order=sequence_order,
         prerequisite_summary=prerequisite_summary,
     )
+    program_payload = payload.pop("program_data", {})
 
     uid = str(get_current_user_id() or "").strip()
     if not uid or int(program_id or 0) <= 0:
@@ -2737,30 +2888,48 @@ def update_learning_program(
             sb.table("learning_program_units")
             .select("id,unit_number")
             .eq("program_id", int(program_id))
+            .order("id")
             .execute()
         )
         existing_topics = _rows(
             sb.table("learning_program_topics")
             .select("id,unit_id,unit_number,topic_number")
             .eq("program_id", int(program_id))
+            .order("id")
             .execute()
         )
-        unit_lookup_by_number = {
-            int(row.get("unit_number") or 0): int(row.get("id") or 0)
-            for row in existing_units
-            if int(row.get("unit_number") or 0) > 0 and int(row.get("id") or 0) > 0
-        }
-        topic_lookup_by_position = {
-            (int(row.get("unit_number") or 0), int(row.get("topic_number") or 0)): int(row.get("id") or 0)
-            for row in existing_topics
-            if int(row.get("unit_number") or 0) > 0 and int(row.get("topic_number") or 0) > 0 and int(row.get("id") or 0) > 0
-        }
+        unit_lookup_by_number: dict[int, int] = {}
+        unit_rows_by_id: dict[int, dict] = {}
+        for row in existing_units:
+            unit_number = int(row.get("unit_number") or 0)
+            unit_id = int(row.get("id") or 0)
+            if unit_id > 0:
+                unit_rows_by_id[unit_id] = row
+            if unit_number > 0 and unit_id > 0:
+                unit_lookup_by_number.setdefault(unit_number, unit_id)
+        topic_rows_by_id: dict[int, dict] = {}
+        topic_lookup_by_position: dict[tuple[int, int], int] = {}
+        for row in existing_topics:
+            topic_id = int(row.get("id") or 0)
+            unit_number = int(row.get("unit_number") or 0)
+            topic_number = int(row.get("topic_number") or 0)
+            if topic_id > 0:
+                topic_rows_by_id[topic_id] = row
+            if unit_number > 0 and topic_number > 0 and topic_id > 0:
+                topic_lookup_by_position.setdefault((unit_number, topic_number), topic_id)
         kept_unit_ids: set[int] = set()
         kept_topic_ids: set[int] = set()
+        unit_ids_by_number: dict[int, int] = {}
+        topic_ids_by_position: dict[tuple[int, int], int] = {}
         for unit in units_payload:
-            existing_unit_id = int(unit.get("existing_unit_id") or 0)
-            if existing_unit_id <= 0:
-                existing_unit_id = int(unit_lookup_by_number.get(int(unit.get("unit_number") or 0)) or 0)
+            target_unit_number = int(unit.get("unit_number") or 0)
+            existing_unit_id = _resolve_existing_program_unit_id(
+                target_unit_number=target_unit_number,
+                requested_unit_id=int(unit.get("existing_unit_id") or 0),
+                unit_lookup_by_number=unit_lookup_by_number,
+                unit_rows_by_id=unit_rows_by_id,
+                claimed_unit_ids=kept_unit_ids,
+            )
             unit_payload = {
                 key: value
                 for key, value in unit.items()
@@ -2768,7 +2937,7 @@ def update_learning_program(
             }
             unit_row = None
             if existing_unit_id > 0:
-                updated_unit = (
+                (
                     sb.table("learning_program_units")
                     .update(
                         {
@@ -2780,8 +2949,10 @@ def update_learning_program(
                     .eq("program_id", int(program_id))
                     .execute()
                 )
-                updated_rows = _rows(updated_unit)
-                unit_row = updated_rows[0] if updated_rows else None
+                unit_row = {
+                    "id": existing_unit_id,
+                    "unit_number": int(unit_payload.get("unit_number") or unit.get("unit_number") or 0),
+                }
             unit_insert = (
                 None
                 if unit_row is not None
@@ -2804,16 +2975,29 @@ def update_learning_program(
             unit_id = int(unit_row["id"])
             unit_number = int(unit_row["unit_number"])
             kept_unit_ids.add(unit_id)
+            unit_ids_by_number[unit_number] = unit_id
             unit_topics = [topic for topic in topics_payload if int(topic["unit_number"]) == unit_number]
             for topic in unit_topics:
+                target_topic_number = int(topic.get("topic_number") or 0)
                 existing_topic_id = int(topic.get("existing_topic_id") or 0)
+                if existing_topic_id > 0:
+                    existing_topic_row = topic_rows_by_id.get(existing_topic_id) or {}
+                    if (
+                        existing_topic_id in kept_topic_ids
+                        or
+                        int(existing_topic_row.get("unit_number") or 0) != target_unit_number
+                        or int(existing_topic_row.get("topic_number") or 0) != target_topic_number
+                    ):
+                        existing_topic_id = 0
                 if existing_topic_id <= 0:
                     existing_topic_id = int(
                         topic_lookup_by_position.get(
-                            (int(topic.get("unit_number") or 0), int(topic.get("topic_number") or 0))
+                            (target_unit_number, target_topic_number)
                         )
                         or 0
                     )
+                    if existing_topic_id in kept_topic_ids:
+                        existing_topic_id = 0
                 topic_payload = {
                     key: value
                     for key, value in topic.items()
@@ -2829,6 +3013,7 @@ def update_learning_program(
                         }
                     ).eq("id", existing_topic_id).eq("program_id", int(program_id)).execute()
                     kept_topic_ids.add(existing_topic_id)
+                    topic_ids_by_position[(target_unit_number, target_topic_number)] = existing_topic_id
                 else:
                     inserted_topic = (
                         sb.table("learning_program_topics")
@@ -2845,7 +3030,9 @@ def update_learning_program(
                     )
                     inserted_topic_rows = _rows(inserted_topic)
                     if inserted_topic_rows:
-                        kept_topic_ids.add(int(inserted_topic_rows[0].get("id") or 0))
+                        inserted_topic_id = int(inserted_topic_rows[0].get("id") or 0)
+                        kept_topic_ids.add(inserted_topic_id)
+                        topic_ids_by_position[(target_unit_number, target_topic_number)] = inserted_topic_id
 
         for topic_row in existing_topics:
             topic_id = int(topic_row.get("id") or 0)
@@ -2856,17 +3043,174 @@ def update_learning_program(
             if unit_id > 0 and unit_id not in kept_unit_ids:
                 sb.table("learning_program_units").delete().eq("id", unit_id).eq("program_id", int(program_id)).execute()
 
+        canonical_program = _canonicalize_program_identifiers(
+            program_payload,
+            unit_ids_by_number=unit_ids_by_number,
+            topic_ids_by_position=topic_ids_by_position,
+        )
+        sb.table("learning_programs").update(
+            {
+                "program_data": canonical_program,
+                "updated_at": _now_iso(),
+            }
+        ).eq("id", int(program_id)).eq("user_id", uid).execute()
+
         clear_app_caches()
         return True, "updated"
     except Exception as e:
         return False, str(e)
 
 
+def repair_learning_program_storage(program_id: int, *, apply: bool = False) -> dict:
+    program_id = int(program_id or 0)
+    if program_id <= 0:
+        return {"ok": False, "error": "missing_program"}
+
+    sb = get_sb()
+    program_rows = _rows(sb.table("learning_programs").select("*").eq("id", program_id).limit(1).execute())
+    if not program_rows:
+        return {"ok": False, "error": "program_not_found", "program_id": program_id}
+
+    program_row = program_rows[0]
+    source_program = normalize_learning_program_output(
+        program_row.get("program_data") if isinstance(program_row.get("program_data"), dict) else {}
+    )
+    units_payload, topics_payload = _flatten_program_rows(source_program)
+    existing_units = _rows(
+        sb.table("learning_program_units")
+        .select("id,unit_number")
+        .eq("program_id", program_id)
+        .order("id")
+        .execute()
+    )
+    existing_topics = _rows(
+        sb.table("learning_program_topics")
+        .select("id,unit_id,unit_number,topic_number")
+        .eq("program_id", program_id)
+        .order("id")
+        .execute()
+    )
+    units_by_number = {
+        int(row.get("unit_number") or 0): int(row.get("id") or 0)
+        for row in existing_units
+        if int(row.get("unit_number") or 0) > 0 and int(row.get("id") or 0) > 0
+    }
+    topics_by_position = {
+        (int(row.get("unit_number") or 0), int(row.get("topic_number") or 0)): int(row.get("id") or 0)
+        for row in existing_topics
+        if int(row.get("unit_number") or 0) > 0 and int(row.get("topic_number") or 0) > 0 and int(row.get("id") or 0) > 0
+    }
+
+    planned = {
+        "insert_units": 0,
+        "update_units": 0,
+        "insert_topics": 0,
+        "update_topics": 0,
+        "rewrite_program_data": False,
+    }
+    unit_ids_by_number = dict(units_by_number)
+    topic_ids_by_position = dict(topics_by_position)
+
+    for unit in units_payload:
+        unit_number = int(unit.get("unit_number") or 0)
+        unit_payload = {key: value for key, value in unit.items() if key != "existing_unit_id"}
+        unit_id = int(unit_ids_by_number.get(unit_number) or 0)
+        if unit_id > 0:
+            planned["update_units"] += 1
+            if apply:
+                sb.table("learning_program_units").update(
+                    {**unit_payload, "updated_at": _now_iso()}
+                ).eq("id", unit_id).eq("program_id", program_id).execute()
+        else:
+            planned["insert_units"] += 1
+            if apply:
+                inserted_unit = (
+                    sb.table("learning_program_units")
+                    .insert(
+                        {
+                            "program_id": program_id,
+                            **unit_payload,
+                            "created_at": _now_iso(),
+                            "updated_at": _now_iso(),
+                        }
+                    )
+                    .execute()
+                )
+                inserted_unit_rows = _rows(inserted_unit)
+                if inserted_unit_rows:
+                    unit_id = int(inserted_unit_rows[0].get("id") or 0)
+                    unit_ids_by_number[unit_number] = unit_id
+
+        for topic in [row for row in topics_payload if int(row.get("unit_number") or 0) == unit_number]:
+            topic_number = int(topic.get("topic_number") or 0)
+            topic_payload = {
+                key: value
+                for key, value in topic.items()
+                if key not in {"existing_topic_id", "existing_unit_id"}
+            }
+            topic_id = int(topic_ids_by_position.get((unit_number, topic_number)) or 0)
+            if topic_id > 0:
+                planned["update_topics"] += 1
+                if apply and unit_id > 0:
+                    sb.table("learning_program_topics").update(
+                        {
+                            **topic_payload,
+                            "unit_id": unit_id,
+                            "program_id": program_id,
+                            "updated_at": _now_iso(),
+                        }
+                    ).eq("id", topic_id).eq("program_id", program_id).execute()
+            else:
+                planned["insert_topics"] += 1
+                if apply and unit_id > 0:
+                    inserted_topic = (
+                        sb.table("learning_program_topics")
+                        .insert(
+                            {
+                                "program_id": program_id,
+                                "unit_id": unit_id,
+                                **topic_payload,
+                                "created_at": _now_iso(),
+                                "updated_at": _now_iso(),
+                            }
+                        )
+                        .execute()
+                    )
+                    inserted_topic_rows = _rows(inserted_topic)
+                    if inserted_topic_rows:
+                        topic_ids_by_position[(unit_number, topic_number)] = int(inserted_topic_rows[0].get("id") or 0)
+
+    canonical_program = _canonicalize_program_identifiers(
+        source_program,
+        unit_ids_by_number=unit_ids_by_number,
+        topic_ids_by_position=topic_ids_by_position,
+    )
+    planned["rewrite_program_data"] = canonical_program != source_program
+    if apply:
+        sb.table("learning_programs").update(
+            {
+                "program_data": canonical_program,
+                "total_units": len(canonical_program.get("units") or []),
+                "total_topics": sum(len(unit.get("topics") or []) for unit in canonical_program.get("units") or []),
+                "updated_at": _now_iso(),
+            }
+        ).eq("id", program_id).execute()
+        clear_app_caches()
+
+    return {
+        "ok": True,
+        "applied": bool(apply),
+        "program_id": program_id,
+        "title": program_row.get("title") or source_program.get("title") or "",
+        **planned,
+    }
+
+
 def _persist_learning_program_cover(program_id: int, program: dict) -> bool:
     uid = str(get_current_user_id() or "").strip()
     if not uid or int(program_id or 0) <= 0:
         return False
-    normalized_program = normalize_learning_program_output(program)
+    normalized_program = _canonicalize_program_identifiers_from_storage(int(program_id), program)
     try:
         try:
             get_sb().table("learning_programs").update(
@@ -3019,14 +3363,19 @@ def load_learning_program(program_id: int) -> dict:
             .execute()
         )
 
-        topics_by_unit: dict[int, list[dict]] = {}
+        topics_by_unit_position: dict[tuple[int, int], list[dict]] = {}
         for topic in topic_rows:
             unit_id = int(topic.get("unit_id") or 0)
-            unit_topics = topics_by_unit.setdefault(unit_id, [])
+            topic_unit_number = int(topic.get("unit_number") or 0)
+            unit_topics = topics_by_unit_position.setdefault(
+                (unit_id, topic_unit_number),
+                [],
+            )
             unit_topics.append(
                 {
                     "topic_number": len(unit_topics) + 1,
-                    "unit_number": int(topic.get("unit_number") or 1),
+                    "unit_number": topic_unit_number or 1,
+                    "unit_id": unit_id,
                     "title": _clean_display_text(topic.get("title")),
                     "subtopic": _clean_display_text(topic.get("subtopic")),
                     "lesson_focus": _clean_display_text(topic.get("lesson_focus") or topic.get("title")),
@@ -3047,9 +3396,10 @@ def load_learning_program(program_id: int) -> dict:
         units = []
         for unit in unit_rows:
             unit_id = int(unit.get("id") or 0)
+            unit_number = int(unit.get("unit_number") or 1)
             units.append(
                 {
-                    "unit_number": int(unit.get("unit_number") or 1),
+                    "unit_number": unit_number,
                     "title": _clean_display_text(unit.get("title")),
                     "overview": _clean_text(unit.get("overview")),
                     "unit_objectives": unit.get("unit_objectives") or [],
@@ -3058,12 +3408,20 @@ def load_learning_program(program_id: int) -> dict:
                     "recommended_exam_exercise_types": unit.get("recommended_exam_exercise_types") or [],
                     "estimated_lessons": int(unit.get("estimated_lessons") or 1),
                     "unit_id": unit_id,
-                    "topics": topics_by_unit.get(unit_id, []),
+                    # Both foreign-key identity and the denormalized unit
+                    # position must agree. Legacy rows can otherwise attach
+                    # Unit 1 topics to a reused Unit 7 row.
+                    "topics": topics_by_unit_position.get(
+                        (unit_id, unit_number),
+                        [],
+                    ),
                 }
             )
 
-        program_data = program_row.get("program_data") if isinstance(program_row.get("program_data"), dict) else {}
-        return {
+        program_data = normalize_learning_program_output(
+            program_row.get("program_data") if isinstance(program_row.get("program_data"), dict) else {}
+        )
+        loaded_program = {
             **program_row,
             "cover_image": program_row.get("cover_image") or program_data.get("cover_image") or {},
             "subject_display": _subject_display(program_row.get("subject"), program_row.get("custom_subject_name")),
@@ -3075,6 +3433,19 @@ def load_learning_program(program_id: int) -> dict:
             ),
             "units": units,
         }
+        if _count_ready_program_units(program_data) > _count_ready_program_units(loaded_program):
+            db_units_by_number = {
+                int(unit.get("unit_number") or 0): unit
+                for unit in units
+                if int(unit.get("unit_number") or 0) > 0
+            }
+            merged_units = []
+            for program_data_unit in program_data.get("units") or []:
+                unit_number = int(program_data_unit.get("unit_number") or 0)
+                base_unit = db_units_by_number.get(unit_number, program_data_unit)
+                merged_units.append(_merge_program_unit(base_unit, program_data_unit))
+            loaded_program["units"] = merged_units
+        return _sanitize_loaded_program_identifiers(loaded_program)
     except Exception as exc:
         show_data_load_error(exc)
         return {}
@@ -4081,6 +4452,7 @@ def _save_generated_learning_program_from_builder(
     visibility: str,
     mode_used: str,
 ) -> tuple[bool, Optional[int], str]:
+    status = "active" if _program_is_complete(result) else "draft"
     return save_learning_program(
         subject=meta.get("subject", subject),
         learner_stage=meta.get("learner_stage", learner_stage),
@@ -4090,8 +4462,42 @@ def _save_generated_learning_program_from_builder(
         source_type="ai" if mode_used == "ai" else "custom",
         generation_mode=mode_used,
         builder_config=meta.get("builder_config") or {},
-        status="draft",
+        status=status,
         program=result,
+        parent_program_id=meta.get("parent_program_id"),
+        sequence_group_id=meta.get("sequence_group_id", ""),
+        sequence_order=meta.get("sequence_order"),
+        prerequisite_summary=meta.get("prerequisite_summary", ""),
+    )
+
+
+def _sync_saved_learning_program_from_builder(
+    *,
+    saved_program_id: int,
+    result: dict,
+    meta: dict,
+    subject: str,
+    learner_stage: str,
+    level_or_band: str,
+    custom_subject_name: str,
+    visibility: str,
+    mode_used: str,
+) -> tuple[bool, str]:
+    if int(saved_program_id or 0) <= 0:
+        return False, "missing_program"
+    return update_learning_program(
+        program_id=int(saved_program_id),
+        subject=meta.get("subject", subject),
+        learner_stage=meta.get("learner_stage", learner_stage),
+        level_or_band=meta.get("level_or_band", level_or_band),
+        program=result,
+        visibility=meta.get("visibility", visibility),
+        source_type="ai" if mode_used == "ai" else "custom",
+        custom_subject_name=meta.get("custom_subject_name", custom_subject_name),
+        status="active" if _program_is_complete(result) else "draft",
+        generation_mode=mode_used,
+        student_material_language=meta.get("student_native_language"),
+        builder_config=meta.get("builder_config") or {},
         parent_program_id=meta.get("parent_program_id"),
         sequence_group_id=meta.get("sequence_group_id", ""),
         sequence_order=meta.get("sequence_order"),
@@ -4162,7 +4568,10 @@ def render_learning_program_builder_preview(
                     st.session_state[f"{ns}_pending_unit"] = unit_number
                     st.rerun()
 
-        with st.expander(t("unit_title_format", number=unit_number, title=unit.get("title")), expanded=unit_number == 1):
+        with st.expander(
+            t("unit_title_format", number=unit_number, title=unit.get("title")),
+            expanded=generated or unit_number == 1,
+        ):
             if unit.get("unit_objectives"):
                 st.markdown(f"**{t('unit_objectives_label')}**")
                 for item in unit["unit_objectives"]:
@@ -4330,7 +4739,7 @@ def _render_learning_program_unit_editor(
                     st.session_state.pop(f"{ns}_editing_unit", None)
                     st.rerun()
                 else:
-                    st.error(t("learning_program_update_failed", error=msg))
+                    st.error(_learning_program_user_error(msg))
             else:
                 st.session_state[f"{ns}_result"] = updated_program
                 st.success(t("unit_changes_saved"))
@@ -4350,22 +4759,23 @@ def _render_learning_program_unit_editor(
             if not refine_prompt:
                 st.error(t("unit_refine_prompt_required"))
             else:
-                with st.status(t("building_learning_program_unit", unit=unit_number), expanded=True) as status:
-                    status.write(t("learning_program_loading_previous_context"))
-                    status.write(t("learning_program_loading_topic_map"))
-                    status.write(t("learning_program_loading_teacher_student"))
-                    updated_program, _mode_used, warning = generate_ai_learning_program_unit(
-                        subject=(saved_program_meta or {}).get("subject", ""),
-                        learner_stage=(saved_program_meta or {}).get("learner_stage", ""),
-                        level_or_band=(saved_program_meta or {}).get("level_or_band", ""),
-                        program=program,
-                        unit_number=int(unit_number),
-                        custom_subject_name=(saved_program_meta or {}).get("custom_subject_name", ""),
-                        additional_notes=t("unit_refine_prompt_wrapped", prompt=refine_prompt),
-                        previous_program=load_learning_program(int((saved_program_meta or {}).get("parent_program_id") or 0)) if int((saved_program_meta or {}).get("parent_program_id") or 0) > 0 else None,
-                        payload=None,
-                    )
-                    status.update(label=t("learning_program_loading_ready"), state="complete")
+                with action_spinner("generating"):
+                    with st.status(t("building_learning_program_unit", unit=unit_number), expanded=True) as status:
+                        status.write(t("learning_program_loading_previous_context"))
+                        status.write(t("learning_program_loading_topic_map"))
+                        status.write(t("learning_program_loading_teacher_student"))
+                        updated_program, _mode_used, warning = generate_ai_learning_program_unit(
+                            subject=(saved_program_meta or {}).get("subject", ""),
+                            learner_stage=(saved_program_meta or {}).get("learner_stage", ""),
+                            level_or_band=(saved_program_meta or {}).get("level_or_band", ""),
+                            program=program,
+                            unit_number=int(unit_number),
+                            custom_subject_name=(saved_program_meta or {}).get("custom_subject_name", ""),
+                            additional_notes=t("unit_refine_prompt_wrapped", prompt=refine_prompt),
+                            previous_program=load_learning_program(int((saved_program_meta or {}).get("parent_program_id") or 0)) if int((saved_program_meta or {}).get("parent_program_id") or 0) > 0 else None,
+                            payload=None,
+                        )
+                        status.update(label=t("learning_program_loading_ready"), state="complete")
                 if saved_program_id and saved_program_meta:
                     ok, msg = update_learning_program(
                         program_id=int(saved_program_id),
@@ -4393,7 +4803,7 @@ def _render_learning_program_unit_editor(
                         st.session_state.pop(f"{ns}_editing_unit", None)
                         st.rerun()
                     else:
-                        st.error(t("learning_program_update_failed", error=msg))
+                        st.error(_learning_program_user_error(msg))
                 else:
                     st.session_state[f"{ns}_result"] = updated_program
                     if warning:
@@ -4405,6 +4815,12 @@ def _render_learning_program_unit_editor(
     if st.button(t("close_unit_editor"), key=f"{ns}_close_editor_{unit_number}", use_container_width=True):
         st.session_state.pop(f"{ns}_editing_unit", None)
         st.rerun()
+
+
+def _scoped_expander_label(label: str, scope_key: str) -> str:
+    label_digest = hashlib.sha1(str(scope_key or "").encode("utf-8")).hexdigest()[:12]
+    invisible_scope = "".join(chr(0xFE00 + int(char, 16)) for char in label_digest)
+    return f"{label}{invisible_scope}"
 
 
 def render_student_program_view(
@@ -4469,7 +4885,23 @@ def render_student_program_view(
 
     global_topic_number = 0
     for unit in program.get("units") or []:
-        with st.expander(t("unit_title_format", number=unit.get("unit_number"), title=unit.get("title")), expanded=unit.get("unit_number") == 1):
+        unit_label = t(
+            "unit_title_format",
+            number=unit.get("unit_number"),
+            title=unit.get("title"),
+        )
+        # Streamlit expanders do not accept explicit keys. Tabs render all of
+        # their contents, so two assigned programs with the same unit labels
+        # otherwise receive duplicate generated element IDs. Variation
+        # selectors make the internal labels unique without changing the text
+        # students see.
+        with st.expander(
+            _scoped_expander_label(
+                unit_label,
+                f"{key_prefix}:{assignment_id or 0}:{unit.get('unit_number') or 0}",
+            ),
+            expanded=unit.get("unit_number") == 1,
+        ):
             for topic in unit.get("topics") or []:
                 global_topic_number += 1
                 topic_id = int(topic.get("topic_id") or 0)
@@ -4524,7 +4956,10 @@ def render_student_program_view(
                                     unsafe_allow_html=True,
                                 )
                     if interactive and assignment_id and topic_id > 0 and done:
-                        checkbox_key = f"learning_program_needs_practice_{assignment_id}_{topic_id}"
+                        checkbox_key = (
+                            f"learning_program_needs_practice_{assignment_id}_"
+                            f"{unit.get('unit_number') or 0}_{global_topic_number}_{topic_id}"
+                        )
                         new_needs_practice = st.checkbox(
                             t("need_more_practice_request_label"),
                             value=needs_practice,
@@ -4583,21 +5018,22 @@ def render_saved_learning_program_workspace(program: dict, program_id: int, *, n
                 title=_clean_display_text(pending_unit_data.get("title")) or t("learning_program_singular"),
             ),
         )
-        with st.status(t("building_learning_program_unit", unit=pending_unit), expanded=True) as status:
-            status.write(t("learning_program_loading_previous_context"))
-            status.write(t("learning_program_loading_topic_map"))
-            status.write(t("learning_program_loading_teacher_student"))
-            updated_program, _unit_mode_used, unit_warning = generate_ai_learning_program_unit(
-                subject=original_program.get("subject"),
-                learner_stage=original_program.get("learner_stage"),
-                level_or_band=original_program.get("level_or_band"),
-                program=program,
-                unit_number=int(pending_unit),
-                custom_subject_name=original_program.get("custom_subject_name") or "",
-                previous_program=load_learning_program(int(original_program.get("parent_program_id") or 0)) if int(original_program.get("parent_program_id") or 0) > 0 else None,
-                payload=None,
-            )
-            status.update(label=t("learning_program_loading_ready"), state="complete")
+        with action_spinner("generating"):
+            with st.status(t("building_learning_program_unit", unit=pending_unit), expanded=True) as status:
+                status.write(t("learning_program_loading_previous_context"))
+                status.write(t("learning_program_loading_topic_map"))
+                status.write(t("learning_program_loading_teacher_student"))
+                updated_program, _unit_mode_used, unit_warning = generate_ai_learning_program_unit(
+                    subject=original_program.get("subject"),
+                    learner_stage=original_program.get("learner_stage"),
+                    level_or_band=original_program.get("level_or_band"),
+                    program=program,
+                    unit_number=int(pending_unit),
+                    custom_subject_name=original_program.get("custom_subject_name") or "",
+                    previous_program=load_learning_program(int(original_program.get("parent_program_id") or 0)) if int(original_program.get("parent_program_id") or 0) > 0 else None,
+                    payload=None,
+                )
+                status.update(label=t("learning_program_loading_ready"), state="complete")
         ok, msg = update_learning_program(
             program_id=int(program_id),
             subject=original_program.get("subject"),
@@ -4621,7 +5057,7 @@ def render_saved_learning_program_workspace(program: dict, program_id: int, *, n
         if ok:
             st.session_state[warning_key] = unit_warning
         else:
-            st.session_state[warning_key] = t("learning_program_update_failed", error=msg)
+            st.session_state[warning_key] = _learning_program_user_error(msg)
         st.rerun()
 
     warning = st.session_state.get(warning_key)
@@ -4934,22 +5370,23 @@ def render_quick_learning_program_builder_expander() -> None:
                     lessons=skeleton_request.get("requested_lessons_per_unit"),
                 ),
             )
-            with st.status(t("building_learning_program_skeleton"), expanded=True) as status:
-                status.write(t("learning_program_loading_scope"))
-                status.write(t("learning_program_loading_sequence"))
-                status.write(t("learning_program_loading_teacher_student"))
-                program, mode_used, warning, payload = generate_ai_learning_program_skeleton(
-                    subject=skeleton_request.get("subject", subject),
-                    learner_stage=skeleton_request.get("learner_stage", learner_stage),
-                    level_or_band=skeleton_request.get("level_or_band", level_or_band),
-                    requested_units=skeleton_request.get("requested_units", requested_units),
-                    requested_lessons_per_unit=skeleton_request.get("requested_lessons_per_unit", requested_lessons),
-                    custom_subject_name=skeleton_request.get("custom_subject_name", custom_subject_name),
-                    additional_notes=skeleton_request.get("additional_notes", additional_notes),
-                    previous_program=skeleton_request.get("previous_program"),
-                    student_native_language=skeleton_request.get("student_native_language", student_native_language),
-                )
-                status.update(label=t("learning_program_loading_ready"), state="complete")
+            with action_spinner("generating"):
+                with st.status(t("building_learning_program_skeleton"), expanded=True) as status:
+                    status.write(t("learning_program_loading_scope"))
+                    status.write(t("learning_program_loading_sequence"))
+                    status.write(t("learning_program_loading_teacher_student"))
+                    program, mode_used, warning, payload = generate_ai_learning_program_skeleton(
+                        subject=skeleton_request.get("subject", subject),
+                        learner_stage=skeleton_request.get("learner_stage", learner_stage),
+                        level_or_band=skeleton_request.get("level_or_band", level_or_band),
+                        requested_units=skeleton_request.get("requested_units", requested_units),
+                        requested_lessons_per_unit=skeleton_request.get("requested_lessons_per_unit", requested_lessons),
+                        custom_subject_name=skeleton_request.get("custom_subject_name", custom_subject_name),
+                        additional_notes=skeleton_request.get("additional_notes", additional_notes),
+                        previous_program=skeleton_request.get("previous_program"),
+                        student_native_language=skeleton_request.get("student_native_language", student_native_language),
+                    )
+                    status.update(label=t("learning_program_loading_ready"), state="complete")
             st.session_state[f"{ns}_result"] = program
             st.session_state[f"{ns}_mode_used"] = mode_used
             st.session_state[f"{ns}_warning"] = warning
@@ -5019,28 +5456,69 @@ def render_quick_learning_program_builder_expander() -> None:
                         title=_clean_display_text((pending_unit_data or {}).get("title")) or t("learning_program_singular"),
                     ),
                 )
-                with st.status(t("building_learning_program_unit", unit=pending_unit), expanded=True) as status:
-                    status.write(t("learning_program_loading_previous_context"))
-                    status.write(t("learning_program_loading_topic_map"))
-                    status.write(t("learning_program_loading_teacher_student"))
-                    updated_program, unit_mode_used, unit_warning = generate_ai_learning_program_unit(
-                        subject=meta.get("subject", subject),
-                        learner_stage=meta.get("learner_stage", learner_stage),
-                        level_or_band=meta.get("level_or_band", level_or_band),
-                        program=result,
-                        unit_number=int(pending_unit),
-                        custom_subject_name=meta.get("custom_subject_name", custom_subject_name),
-                        additional_notes=meta.get("builder_config", {}).get("additional_notes", additional_notes),
-                        previous_program=previous_program,
-                        payload=payload,
-                    )
-                    status.update(label=t("learning_program_loading_ready"), state="complete")
+                with action_spinner("generating"):
+                    with st.status(t("building_learning_program_unit", unit=pending_unit), expanded=True) as status:
+                        status.write(t("learning_program_loading_previous_context"))
+                        status.write(t("learning_program_loading_topic_map"))
+                        status.write(t("learning_program_loading_teacher_student"))
+                        updated_program, unit_mode_used, unit_warning = generate_ai_learning_program_unit(
+                            subject=meta.get("subject", subject),
+                            learner_stage=meta.get("learner_stage", learner_stage),
+                            level_or_band=meta.get("level_or_band", level_or_band),
+                            program=result,
+                            unit_number=int(pending_unit),
+                            custom_subject_name=meta.get("custom_subject_name", custom_subject_name),
+                            additional_notes=meta.get("builder_config", {}).get("additional_notes", additional_notes),
+                            previous_program=previous_program,
+                            payload=payload,
+                        )
+                        status.update(label=t("learning_program_loading_ready"), state="complete")
                 st.session_state[f"{ns}_result"] = updated_program
                 st.session_state[f"{ns}_mode_used"] = "ai" if unit_mode_used != "template" and mode_used == "ai" else mode_used
                 st.session_state[f"{ns}_warning"] = unit_warning
                 st.session_state.pop(unit_request_key, None)
                 result = updated_program
                 warning = unit_warning
+                saved_program_id = int(st.session_state.get(f"{ns}_saved_program_id") or 0)
+                if saved_program_id > 0:
+                    ok, msg = _sync_saved_learning_program_from_builder(
+                        saved_program_id=saved_program_id,
+                        result=updated_program,
+                        meta=meta,
+                        subject=subject,
+                        learner_stage=learner_stage,
+                        level_or_band=level_or_band,
+                        custom_subject_name=custom_subject_name,
+                        visibility=visibility,
+                        mode_used=st.session_state.get(f"{ns}_mode_used", "ai"),
+                    )
+                    if not ok:
+                        st.error(_learning_program_user_error(msg))
+                        st.stop()
+
+            saved_program_id = int(st.session_state.get(f"{ns}_saved_program_id") or 0)
+            if saved_program_id > 0:
+                saved_program = load_learning_program(saved_program_id) or {}
+                if _count_ready_program_units(result) > _count_ready_program_units(saved_program):
+                    ok, msg = _sync_saved_learning_program_from_builder(
+                        saved_program_id=saved_program_id,
+                        result=result,
+                        meta=meta,
+                        subject=subject,
+                        learner_stage=learner_stage,
+                        level_or_band=level_or_band,
+                        custom_subject_name=custom_subject_name,
+                        visibility=visibility,
+                        mode_used=st.session_state.get(f"{ns}_mode_used", mode_used),
+                    )
+                    if ok:
+                        try:
+                            load_learning_program.clear()
+                        except Exception:
+                            pass
+                        st.rerun()
+                    st.error(_learning_program_user_error(msg))
+                    st.stop()
 
             generated_units = sum(1 for unit in (result.get("units") or []) if _program_has_generated_unit_details(unit))
 
@@ -5081,57 +5559,58 @@ def render_quick_learning_program_builder_expander() -> None:
                         st.session_state.pop(key, None)
                     st.rerun()
 
-            st.markdown(f"### {t('assign_to_student')}")
-            linked_students = _tsi().load_active_linked_students_for_teacher()
-            assignable_students = [row for row in linked_students if _clean_text(row.get("student_name"))]
-            if not assignable_students:
-                st.info(t("assignment_requires_relationship_message"))
-            else:
-                student_options = [_clean_text(row.get("student_name")) for row in assignable_students]
-                assign_col1, assign_col2 = st.columns([1.4, 1.0])
-                with assign_col1:
-                    selected_student_name = st.selectbox(
-                        t("student_name_label"),
-                        student_options,
-                        key=f"{ns}_assign_student_name",
-                    )
-                selected_row = next(
-                    (row for row in assignable_students if _clean_text(row.get("student_name")) == selected_student_name),
-                    {},
-                )
-                with assign_col2:
-                    assign_note = st.text_input(
-                        t("teacher_note"),
-                        key=f"{ns}_assign_note",
-                        placeholder=t("assignment_teacher_note_placeholder"),
-                    ).strip()
-
-                if st.button(t("assign_learning_program_and_save_button"), key=f"{ns}_assign_and_save", use_container_width=True):
-                    program_id = st.session_state.get(f"{ns}_saved_program_id")
-                    if not program_id:
-                        ok, program_id, msg = _save_generated_learning_program_from_builder(
-                            result=result,
-                            meta=meta,
-                            subject=subject,
-                            learner_stage=learner_stage,
-                            level_or_band=level_or_band,
-                            custom_subject_name=custom_subject_name,
-                            visibility=visibility,
-                            mode_used=mode_used,
+            if _program_is_complete(result):
+                st.markdown(f"### {t('assign_to_student')}")
+                linked_students = _tsi().load_active_linked_students_for_teacher()
+                assignable_students = [row for row in linked_students if _clean_text(row.get("student_name"))]
+                if not assignable_students:
+                    st.info(t("assignment_requires_relationship_message"))
+                else:
+                    student_options = [_clean_text(row.get("student_name")) for row in assignable_students]
+                    assign_col1, assign_col2 = st.columns([1.4, 1.0])
+                    with assign_col1:
+                        selected_student_name = st.selectbox(
+                            t("student_name_label"),
+                            student_options,
+                            key=f"{ns}_assign_student_name",
                         )
-                        if not ok:
-                            st.error(t("learning_program_save_failed", error=msg))
-                            st.stop()
-                        st.session_state[f"{ns}_saved_program_id"] = program_id
-                        st.success(t("learning_program_saved_success", program_id=program_id))
-
-                    ok, assignment_id, msg = assign_learning_program(
-                        program_id=int(program_id),
-                        student_name=selected_student_name,
-                        student_user_id=_clean_text(selected_row.get("student_id")),
-                        note=assign_note,
+                    selected_row = next(
+                        (row for row in assignable_students if _clean_text(row.get("student_name")) == selected_student_name),
+                        {},
                     )
-                    if ok:
-                        st.success(t("learning_program_assigned_success", student=selected_student_name, assignment_id=assignment_id))
-                    else:
-                        st.error(t("learning_program_assigned_failed", error=msg))
+                    with assign_col2:
+                        assign_note = st.text_input(
+                            t("teacher_note"),
+                            key=f"{ns}_assign_note",
+                            placeholder=t("assignment_teacher_note_placeholder"),
+                        ).strip()
+
+                    if st.button(t("assign_learning_program_and_save_button"), key=f"{ns}_assign_and_save", use_container_width=True):
+                        program_id = st.session_state.get(f"{ns}_saved_program_id")
+                        if not program_id:
+                            ok, program_id, msg = _save_generated_learning_program_from_builder(
+                                result=result,
+                                meta=meta,
+                                subject=subject,
+                                learner_stage=learner_stage,
+                                level_or_band=level_or_band,
+                                custom_subject_name=custom_subject_name,
+                                visibility=visibility,
+                                mode_used=mode_used,
+                            )
+                            if not ok:
+                                st.error(t("learning_program_save_failed", error=msg))
+                                st.stop()
+                            st.session_state[f"{ns}_saved_program_id"] = program_id
+                            st.success(t("learning_program_saved_success", program_id=program_id))
+
+                        ok, assignment_id, msg = assign_learning_program(
+                            program_id=int(program_id),
+                            student_name=selected_student_name,
+                            student_user_id=_clean_text(selected_row.get("student_id")),
+                            note=assign_note,
+                        )
+                        if ok:
+                            st.success(t("learning_program_assigned_success", student=selected_student_name, assignment_id=assignment_id))
+                        else:
+                            st.error(t("learning_program_assigned_failed", error=msg))

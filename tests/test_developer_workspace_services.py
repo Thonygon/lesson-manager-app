@@ -174,11 +174,12 @@ class DeveloperWorkspaceServiceTests(unittest.TestCase):
         ml.clear_experiment_cache()
 
     def test_authorization_context_supports_multi_role_capabilities(self):
+        user_id = "5ed84fe2-7437-4dbc-a47e-12ccf4af1e4b"
         fake_sb = _FakeSupabase(
             {
                 "profiles": [
                     {
-                        "user_id": "user-1",
+                        "user_id": user_id,
                         "role": "admin",
                         "primary_role": "teacher",
                         "can_teach": True,
@@ -186,19 +187,34 @@ class DeveloperWorkspaceServiceTests(unittest.TestCase):
                     }
                 ],
                 "user_staff_roles": [
-                    {"user_id": "user-1", "role_key": "developer", "is_active": True},
-                    {"user_id": "user-1", "role_key": "data_scientist", "is_active": True},
+                    {"user_id": user_id, "role_key": "developer", "is_active": True},
+                    {"user_id": user_id, "role_key": "data_scientist", "is_active": True},
                 ],
             }
         )
         with patch.object(authz, "get_sb", return_value=fake_sb):
-            context = authz.get_authorization_context(user_id="user-1", refresh=True)
+            context = authz.get_authorization_context(user_id=user_id, refresh=True)
 
         self.assertIn("admin", context.product_roles)
         self.assertIn("developer", context.staff_roles)
         self.assertIn(authz.CAPABILITY_MANAGE_STAFF_ROLES, context.capabilities)
         self.assertIn(authz.CAPABILITY_RUN_APPROVED_EXPERIMENTS, context.capabilities)
         self.assertIn(authz.CAPABILITY_VIEW_JOB_DIAGNOSTICS, context.capabilities)
+
+    def test_authorization_context_does_not_send_demo_profile_to_uuid_staff_table(self):
+        fake_sb = _FakeSupabase(
+            {
+                "profiles": [{"user_id": "demo_user", "role": "student"}],
+                "user_staff_roles": [],
+            }
+        )
+
+        with patch.object(authz, "get_sb", return_value=fake_sb):
+            context = authz.get_authorization_context(user_id="demo_user", refresh=True)
+
+        self.assertEqual("demo_user", context.user_id)
+        self.assertEqual(("student",), context.product_roles)
+        self.assertEqual((), context.staff_roles)
 
     def test_assign_and_revoke_staff_role_require_admin_capability(self):
         fake_sb = _FakeSupabase(

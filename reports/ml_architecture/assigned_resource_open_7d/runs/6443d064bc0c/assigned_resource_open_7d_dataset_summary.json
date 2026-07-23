@@ -1,0 +1,23 @@
+{
+  "data_fingerprint": "342d351fd7b81b6a0c14168336883de6eaee6596e4f9b14f84e3c1e5a7b292f8",
+  "date_range": {
+    "assigned_at_max": "2026-07-17T17:21:47.105912+00:00",
+    "assigned_at_min": "2026-04-10T11:54:00.263328+00:00"
+  },
+  "excluded_row_count": 2,
+  "exclusion_reasons": {
+    "included": 126,
+    "observation_window_open": 2
+  },
+  "extracted_at": "2026-07-17T18:51:11.287339+00:00",
+  "feature_schema_version": "assigned_resource_open_7d.v1",
+  "frozen_dataset_path": "reports/ml_architecture/assigned_resource_open_7d/runs/6443d064bc0c/assigned_resource_open_7d_dataset_frozen.csv",
+  "included_row_count": 126,
+  "negative_count": 53,
+  "positive_count": 73,
+  "resource_count": 61,
+  "run_id": "6443d064bc0c",
+  "source_row_count": 128,
+  "student_count": 15,
+  "teacher_count": 1
+}

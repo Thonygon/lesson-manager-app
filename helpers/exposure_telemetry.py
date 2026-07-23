@@ -231,14 +231,22 @@ def _insert_exposure_row(payload: dict[str, Any]) -> str:
     if not idempotency_key or not exposure_id:
         return ""
     try:
-        get_sb().table("resource_exposures").insert(payload).execute()
+        get_sb().table("resource_exposures").upsert(
+            payload,
+            on_conflict="idempotency_key",
+            ignore_duplicates=True,
+        ).execute()
         return exposure_id
     except Exception as exc:
         if "cycle_id" in str(exc):
             fallback_payload = dict(payload)
             fallback_payload.pop("cycle_id", None)
             try:
-                get_sb().table("resource_exposures").insert(fallback_payload).execute()
+                get_sb().table("resource_exposures").upsert(
+                    fallback_payload,
+                    on_conflict="idempotency_key",
+                    ignore_duplicates=True,
+                ).execute()
                 return exposure_id
             except Exception:
                 logger.exception(
@@ -338,7 +346,17 @@ def attach_student_recommendation_exposures(rows: list[dict[str, Any]], *, surfa
     viewer_user_id = _clean_text(get_current_user_id())
     if not safe_rows or not viewer_user_id:
         return safe_rows
-    signature = _frame_signature(safe_rows[:12], keys=["resource_type", "id", "assignment_id", "score"])
+    signature = _frame_signature(
+        safe_rows[:12],
+        keys=[
+            "resource_type",
+            "id",
+            "assignment_id",
+            "learning_program_assignment_id",
+            "learning_program_topic_id",
+            "score",
+        ],
+    )
     cycle_id = get_surface_cycle_id(
         surface=surface,
         exposure_type="optional_student_recommendation",
@@ -352,6 +370,17 @@ def attach_student_recommendation_exposures(rows: list[dict[str, Any]], *, surfa
         if not resource_id:
             enriched.append(item)
             continue
+        learning_program_assignment_id = _safe_int(item.get("learning_program_assignment_id")) or None
+        learning_program_topic_id = _safe_int(item.get("learning_program_topic_id")) or None
+        existing_exposure_id = _clean_text(item.get("_telemetry_exposure_id"))
+        if existing_exposure_id:
+            signature_key = (
+                f"student_reco:{surface}:{learning_program_assignment_id or 0}:"
+                f"{learning_program_topic_id or 0}:{item.get('resource_type')}:{resource_id}"
+            )
+            _store_active_exposure(signature_key, existing_exposure_id)
+            enriched.append(item)
+            continue
         payload = {
             "cycle_id": cycle_id,
             "teacher_id": "",
@@ -362,6 +391,8 @@ def attach_student_recommendation_exposures(rows: list[dict[str, Any]], *, surfa
             "exposure_type": "optional_student_recommendation",
             "surface": surface,
             "position": position,
+            "learning_program_assignment_id": learning_program_assignment_id,
+            "learning_program_topic_id": learning_program_topic_id,
             "shown_at": _now_iso(),
             "model_component_id": "student_recommendation_ranker",
             "heuristic_score": _safe_float(item.get("score")) - (_safe_float(item.get("ml_blend_weight")) * _safe_float(item.get("ml_score"))),
@@ -373,11 +404,17 @@ def attach_student_recommendation_exposures(rows: list[dict[str, Any]], *, surfa
                 "level": _clean_text(item.get("level")),
                 "assigned_resource": bool(item.get("assigned_resource")),
                 "assignment_id": _safe_int(item.get("assignment_id")) or None,
+                "program_id": _safe_int(item.get("program_id")) or None,
+                "learning_program_assignment_id": learning_program_assignment_id,
+                "learning_program_topic_id": learning_program_topic_id,
                 "source_created_at": row.get("created_at"),
             },
         }
         exposure_id = record_exposure(payload)
-        signature_key = f"student_reco:{surface}:{item.get('resource_type')}:{resource_id}"
+        signature_key = (
+            f"student_reco:{surface}:{learning_program_assignment_id or 0}:"
+            f"{learning_program_topic_id or 0}:{item.get('resource_type')}:{resource_id}"
+        )
         if exposure_id:
             item["_telemetry_exposure_id"] = exposure_id
             _store_active_exposure(signature_key, exposure_id)

@@ -48,6 +48,33 @@ def _safe_count(table_name: str, filters: list[tuple[str, Any]]) -> int:
         return len(_safe_select(table_name, filters, "id"))
 
 
+def _safe_count_in(table_name: str, column_name: str, values: list[Any]) -> int:
+    safe_values = [value for value in values if value not in (None, "")]
+    if not safe_values:
+        return 0
+    try:
+        result = (
+            get_sb()
+            .table(table_name)
+            .select("*", count="exact", head=True)
+            .in_(column_name, safe_values)
+            .execute()
+        )
+        return int(getattr(result, "count", 0) or 0)
+    except Exception:
+        try:
+            result = (
+                get_sb()
+                .table(table_name)
+                .select("id")
+                .in_(column_name, safe_values)
+                .execute()
+            )
+            return len(_rows(result))
+        except Exception:
+            return 0
+
+
 def _safe_delete(table_name: str, filters: list[tuple[str, Any]]) -> int:
     count = _safe_count(table_name, filters)
     if count <= 0:
@@ -59,6 +86,30 @@ def _safe_delete(table_name: str, filters: list[tuple[str, Any]]) -> int:
         return count
     except Exception:
         return 0
+
+
+def _safe_delete_in(table_name: str, column_name: str, values: list[Any]) -> int:
+    safe_values = [value for value in values if value not in (None, "")]
+    count = _safe_count_in(table_name, column_name, safe_values)
+    if count <= 0:
+        return 0
+    try:
+        get_sb().table(table_name).delete().in_(column_name, safe_values).execute()
+        return count
+    except Exception:
+        return 0
+
+
+def _student_program_assignment_ids(user_id: str) -> list[int]:
+    return [
+        int(row.get("id"))
+        for row in _safe_select(
+            "learning_program_assignments",
+            [("student_user_id", user_id)],
+            "id",
+        )
+        if row.get("id") not in (None, "")
+    ]
 
 
 def _safe_update(
@@ -117,11 +168,17 @@ def _resource_archive_count(table_name: str, user_id: str) -> tuple[int, int]:
 
 def _build_student_preview_rows(user_id: str, remove_relationships: bool) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    program_assignment_ids = _student_program_assignment_ids(user_id)
     _add_row(rows, "admin_reset_preview_student_assignments", "archive", _safe_count("teacher_assignments", [("student_id", user_id)]), "admin_reset_preview_student_assignments_note")
     _add_row(rows, "admin_reset_preview_student_attempts", "delete", _safe_count("teacher_assignment_attempts", [("student_id", user_id)]))
     _add_row(rows, "admin_reset_preview_student_reviews", "delete", _safe_count("teacher_review_requests", [("student_id", user_id)]))
-    _add_row(rows, "admin_reset_preview_student_program_assignments", "delete", _safe_count("learning_program_assignments", [("user_id", user_id)]))
-    _add_row(rows, "admin_reset_preview_student_program_progress", "delete", _safe_count("learning_program_progress", [("user_id", user_id)]))
+    _add_row(rows, "admin_reset_preview_student_program_assignments", "delete", len(program_assignment_ids))
+    _add_row(
+        rows,
+        "admin_reset_preview_student_program_progress",
+        "delete",
+        _safe_count_in("learning_program_progress", "assignment_id", program_assignment_ids),
+    )
     _add_row(rows, "admin_reset_preview_student_sessions", "delete", _safe_count("practice_sessions", [("user_id", user_id)]))
     _add_row(rows, "admin_reset_preview_student_answers", "delete", _safe_count("practice_answers", [("user_id", user_id)]))
     _add_row(rows, "admin_reset_preview_student_progress", "delete", _safe_count("practice_progress", [("user_id", user_id)]))
@@ -270,12 +327,20 @@ def _archive_teacher_resources(user_id: str) -> dict[str, int]:
 
 
 def _execute_student_reset(user_id: str, *, remove_relationships: bool) -> dict[str, int]:
+    program_assignment_ids = _student_program_assignment_ids(user_id)
     counters = {
         "student_assignments": _archive_student_assignments(user_id),
         "student_attempts": _safe_delete("teacher_assignment_attempts", [("student_id", user_id)]),
         "student_reviews": _safe_delete("teacher_review_requests", [("student_id", user_id)]),
-        "student_program_assignments": _safe_delete("learning_program_assignments", [("user_id", user_id)]),
-        "student_program_progress": _safe_delete("learning_program_progress", [("user_id", user_id)]),
+        "student_program_progress": _safe_delete_in(
+            "learning_program_progress",
+            "assignment_id",
+            program_assignment_ids,
+        ),
+        "student_program_assignments": _safe_delete(
+            "learning_program_assignments",
+            [("student_user_id", user_id)],
+        ),
         "student_sessions": _safe_delete("practice_sessions", [("user_id", user_id)]),
         "student_answers": _safe_delete("practice_answers", [("user_id", user_id)]),
         "student_progress": _safe_delete("practice_progress", [("user_id", user_id)]),
