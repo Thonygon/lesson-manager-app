@@ -1,8 +1,9 @@
 import streamlit as st
 import json
 import math
+from urllib.parse import urlencode
 from core.i18n import t
-from core.navigation import go_to
+from core.navigation import go_to, _set_query
 from core.state import get_current_user_id
 from helpers.practice_engine import (
     autosave_practice_draft_if_needed,
@@ -24,6 +25,7 @@ from helpers.practice_engine import (
     get_global_best_streak,
     get_rank,
     calculate_session_xp,
+    record_video_practice_interaction,
 )
 from helpers.teacher_student_integration import (
     _clean_teacher_feedback_text,
@@ -54,6 +56,26 @@ _STUDENT_PRACTICE_PAGE_SIZE = 6
 def _ui_text(key: str, fallback: str) -> str:
     value = t(key)
     return value if value != key else fallback
+
+
+def _resource_card_href(card_key: str) -> str:
+    params = {
+        "page": "student_practice",
+        "lang": st.session_state.get("ui_lang", "en"),
+        "card": card_key,
+    }
+    browser_tz = str(st.session_state.get("browser_tz") or "").strip()
+    if browser_tz:
+        params["browser_tz"] = browser_tz
+    return "?" + urlencode(params)
+
+
+def _resource_card_clicked(card_key: str) -> bool:
+    return str(st.query_params.get("card", "") or "").strip() == card_key
+
+
+def _consume_resource_card_click() -> None:
+    _set_query(page="student_practice", lang=st.session_state.get("ui_lang", "en"))
 
 
 def _resolve_exam_payload(row: dict) -> tuple[dict, dict, dict]:
@@ -925,35 +947,44 @@ def _render_practice_card(
     if row.get("created_at"):
         meta_html += f'<div class="cm-resource-meta">🕒 {_html.escape(str(row.get("created_at") or "")[:16])}</div>'
 
-    st.markdown(
-        render_gallery_card_html(
-            kind="video" if resource_type == "video" else "exam" if resource_type == "exam" else "worksheet",
-            title=title,
-            chips_html=chips,
-            description=topic or t("no_description_available"),
-            meta_html=meta_html,
-            image_url=hero_image,
-            placeholder_label=(
-                _ui_text("video_label", "Video")
-                if resource_type == "video"
-                else t("quick_exam_builder") if resource_type == "exam" else t("worksheet_maker")
-            ),
+    card_html = render_gallery_card_html(
+        kind="video" if resource_type == "video" else "exam" if resource_type == "exam" else "worksheet",
+        title=title,
+        chips_html=chips,
+        description=topic or t("no_description_available"),
+        meta_html=meta_html,
+        image_url=hero_image,
+        placeholder_label=(
+            _ui_text("video_label", "Video")
+            if resource_type == "video"
+            else t("quick_exam_builder") if resource_type == "exam" else t("worksheet_maker")
         ),
+    )
+    st.markdown(
+        f'<a class="cm-resource-card-link" href="{_escape_html(_resource_card_href(btn_key))}">{card_html}</a>',
         unsafe_allow_html=True,
     )
+    card_clicked = _resource_card_clicked(btn_key)
 
     if resource_type == "video":
-        if st.button(
-            f"▶ {_ui_text('watch_video', 'Watch video')}",
-            key=btn_key,
-            use_container_width=True,
-        ):
+        if card_clicked:
             assignment_id = int(row.get("_recommended_assignment_id") or 0)
             if assignment_id > 0:
                 record_video_assignment_watch(assignment_id)
+            record_video_practice_interaction(
+                combined_payload,
+                meta={
+                    "subject": subject,
+                    "topic": topic,
+                    "learner_stage": str(row.get("learner_stage") or ""),
+                    "level": level,
+                },
+                assignment_id=assignment_id or None,
+            )
             if recommendation_item:
                 log_student_recommendation_open(recommendation_item, surface="student_practice")
             st.session_state[f"_start_{btn_key}"] = True
+            _consume_resource_card_click()
             st.rerun()
         if st.session_state.get(f"_start_{btn_key}"):
             watch_url = str(combined_payload.get("watch_url") or combined_payload.get("youtube_url") or "")
@@ -961,10 +992,11 @@ def _render_practice_card(
                 st.video(watch_url)
         return
 
-    if st.button(f"▶ {t('start_practice')}", key=btn_key, use_container_width=True):
+    if card_clicked:
         if recommendation_item:
             log_student_recommendation_open(recommendation_item, surface="student_practice")
         st.session_state[f"_start_{btn_key}"] = True
+        _consume_resource_card_click()
         st.rerun()
 
 
@@ -1205,6 +1237,8 @@ def _render_history_tab():
         source_type = str(row.get("source_type") or "").strip()
         if source_type == "exam":
             card_accent = "#F87171"
+        elif source_type == "video":
+            card_accent = "#EF4444"
         elif source_type == "worksheet":
             card_accent = "#A78BFA"
         else:
@@ -1271,6 +1305,11 @@ def _render_history_tab():
                     use_container_width=True,
                 ):
                     st.info(t("assignment_source_archived_notice"))
+            elif source_type == "video":
+                st.markdown(
+                    f"<div class='classio-assign-action-done'>{_escape_html(_ui_text('watch_video', 'Watch video'))} · {_escape_html(t('assignment_done'))}</div>",
+                    unsafe_allow_html=True,
+                )
             elif exercise_data:
                 if isinstance(exercise_data, str):
                     try:

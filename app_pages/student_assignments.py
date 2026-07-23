@@ -1,15 +1,17 @@
 import html as _html
 import json
 import math
+from urllib.parse import urlencode
 
 import streamlit as st
 
 from core.database import get_sb
 from core.i18n import t
-from core.navigation import go_to
+from core.navigation import go_to, _set_query
 from core.state import get_current_user_id
 from helpers.practice_engine import exam_to_exercises, worksheet_to_exercises
 from helpers.practice_engine import load_in_progress_practice_session, load_practice_draft_answers, normalize_exercise_data_for_web
+from helpers.practice_engine import record_video_practice_interaction
 from helpers.visual_support import enrich_exam_with_visuals, enrich_worksheet_with_visuals, exam_has_ready_visuals, worksheet_has_ready_visuals
 from helpers.quick_exam_storage import load_exam_record
 from helpers.teacher_student_integration import (
@@ -31,6 +33,26 @@ from helpers.worksheet_builder import normalize_worksheet_output
 from helpers.worksheet_storage import load_worksheet_record
 
 _STUDENT_PAGE_SIZE = 6
+
+
+def _assignment_card_href(card_key: str) -> str:
+    params = {
+        "page": "student_assignments",
+        "lang": st.session_state.get("ui_lang", "en"),
+        "card": card_key,
+    }
+    browser_tz = str(st.session_state.get("browser_tz") or "").strip()
+    if browser_tz:
+        params["browser_tz"] = browser_tz
+    return "?" + urlencode(params)
+
+
+def _assignment_card_clicked(card_key: str) -> bool:
+    return str(st.query_params.get("card", "") or "").strip() == card_key
+
+
+def _consume_assignment_card_click() -> None:
+    _set_query(page="student_assignments", lang=st.session_state.get("ui_lang", "en"))
 
 
 def _log_video_assignment_event(row: dict, event_type: str) -> None:
@@ -596,6 +618,8 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
         "video": "classio-assign-card--plan",
         "lesson_plan_topic": "classio-assign-card--topic",
     }.get(assignment_type, "")
+    card_click_key = f"{key_prefix}_card"
+    card_clicked = _assignment_card_clicked(card_click_key)
 
     meta_bits = [teacher_name, subject_name]
     if due_at:
@@ -620,16 +644,17 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
                 ]
             )
             meta_html = f'<div class="cm-resource-meta">{" · ".join(meta_bits)}</div>'
+            card_html = render_gallery_card_html(
+                kind="video",
+                title=title_raw,
+                chips_html=chips,
+                description=teacher_note or str(payload.get("description") or row.get("topic") or t("video_default_description")),
+                meta_html=meta_html,
+                image_url=hero_image,
+                placeholder_label=t("video_label"),
+            )
             st.markdown(
-                render_gallery_card_html(
-                    kind="video",
-                    title=title_raw,
-                    chips_html=chips,
-                    description=teacher_note or str(payload.get("description") or row.get("topic") or t("video_default_description")),
-                    meta_html=meta_html,
-                    image_url=hero_image,
-                    placeholder_label=t("video_label"),
-                ),
+                f'<a class="cm-resource-card-link" href="{_html.escape(_assignment_card_href(card_click_key), quote=True)}">{card_html}</a>',
                 unsafe_allow_html=True,
             )
             watch_state_key = f"{key_prefix}_video_player_open"
@@ -677,16 +702,17 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
             ]
         )
         meta_html = f'<div class="cm-resource-meta">{" · ".join(meta_bits)}</div>'
+        card_html = render_gallery_card_html(
+            kind="exam" if assignment_type == "exam" else "worksheet",
+            title=title_raw,
+            chips_html=chips,
+            description=teacher_note or str(row.get("topic") or t("assigned_material")),
+            meta_html=meta_html,
+            image_url=hero_image,
+            placeholder_label=t("exam_label") if assignment_type == "exam" else t("worksheet_label"),
+        )
         st.markdown(
-            render_gallery_card_html(
-                kind="exam" if assignment_type == "exam" else "worksheet",
-                title=title_raw,
-                chips_html=chips,
-                description=teacher_note or str(row.get("topic") or t("assigned_material")),
-                meta_html=meta_html,
-                image_url=hero_image,
-                placeholder_label=t("exam_label") if assignment_type == "exam" else t("worksheet_label"),
-            ),
+            f'<a class="cm-resource-card-link" href="{_html.escape(_assignment_card_href(card_click_key), quote=True)}">{card_html}</a>',
             unsafe_allow_html=True,
         )
 
@@ -705,8 +731,7 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
                 )
             else:
                 action_text = t("continue_practice") if is_continue else t("open_assignment")
-                if st.button(action_text, key=f"{key_prefix}_open", use_container_width=True, type="primary"):
-                    _open_assignment_practice(row)
+                st.markdown(f"<div class='classio-assign-action-label'>{_html.escape(action_text)}</div>", unsafe_allow_html=True)
         elif assignment_type == "video":
             attempts_value = int(row.get("attempt_count") or 0)
             if attempts_value > 0:
@@ -715,11 +740,7 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
                     unsafe_allow_html=True,
                 )
                 st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
-            if st.button(t("watch_video"), key=f"{key_prefix}_video_watch", use_container_width=True, type="primary"):
-                st.session_state[f"{key_prefix}_video_player_open"] = True
-                record_video_assignment_watch(int(row.get("id") or 0))
-                _log_video_assignment_event(row, "student_video_watched")
-                st.rerun()
+            st.markdown(f"<div class='classio-assign-action-label'>{_html.escape(t('watch_video'))}</div>", unsafe_allow_html=True)
         elif assignment_type == "lesson_plan_topic":
             st.markdown(
                 f"<div class='classio-assign-action-label'>{_html.escape(t('assigned_topics'))}</div>",
@@ -733,6 +754,40 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
                 update_topic_assignment_status(row.get("id"), "completed")
                 st.rerun()
         st.markdown("<div style='height:0.7rem;'></div>", unsafe_allow_html=True)
+
+    if card_clicked and assignment_type in {"worksheet", "exam"}:
+        is_finalized = status in {"submitted", "graded", "completed", "cancelled"}
+        if source_archived:
+            st.info(t("assignment_source_archived_notice"))
+            _consume_assignment_card_click()
+            st.rerun()
+        if not is_finalized:
+            _consume_assignment_card_click()
+            _open_assignment_practice(row)
+            return
+        _consume_assignment_card_click()
+        st.rerun()
+
+    if card_clicked and assignment_type == "video":
+        snapshot = row.get("content_snapshot") or {}
+        payload = snapshot.get("video") or {}
+        if not payload and row.get("source_record_id"):
+            payload = _load_source_video(row.get("source_record_id"))
+        st.session_state[f"{key_prefix}_video_player_open"] = True
+        record_video_assignment_watch(int(row.get("id") or 0))
+        _log_video_assignment_event(row, "student_video_watched")
+        record_video_practice_interaction(
+            payload or row,
+            meta={
+                "subject": str(row.get("subject_display") or row.get("subject_key") or ""),
+                "topic": str(row.get("topic") or ""),
+                "learner_stage": str(row.get("learner_stage") or ""),
+                "level": str(row.get("level_or_band") or ""),
+            },
+            assignment_id=int(row.get("id") or 0) or None,
+        )
+        _consume_assignment_card_click()
+        st.rerun()
 
     if grid_mode and assignment_type in {"worksheet", "exam", "video"}:
         _render_assignment_body()
