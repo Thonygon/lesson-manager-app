@@ -1,12 +1,13 @@
 import html as _html
 import logging
+from urllib.parse import urlencode
 
 import streamlit as st
 from core.i18n import t
-from core.navigation import go_to, STUDENT_PAGES
+from core.navigation import go_to, STUDENT_PAGES, _set_query
 from core.state import get_current_user_id
 from core.database import load_profile_row
-from helpers.practice_engine import exam_to_exercises, worksheet_to_exercises
+from helpers.practice_engine import exam_to_exercises, worksheet_to_exercises, record_video_practice_interaction
 from helpers.notifications import (
     get_student_notifications,
     render_lazy_notification_panel,
@@ -34,6 +35,26 @@ logger = logging.getLogger(__name__)
 def _ui_text(key: str, fallback: str) -> str:
     value = t(key)
     return value if value != key else fallback
+
+
+def _resource_card_href(card_key: str) -> str:
+    params = {
+        "page": "student_home",
+        "lang": st.session_state.get("ui_lang", "en"),
+        "card": card_key,
+    }
+    browser_tz = str(st.session_state.get("browser_tz") or "").strip()
+    if browser_tz:
+        params["browser_tz"] = browser_tz
+    return "?" + urlencode(params)
+
+
+def _resource_card_clicked(card_key: str) -> bool:
+    return str(st.query_params.get("card", "") or "").strip() == card_key
+
+
+def _consume_resource_card_click() -> None:
+    _set_query(page="student_home", lang=st.session_state.get("ui_lang", "en"))
 
 
 def _render_student_nav_card(card: dict) -> None:
@@ -505,32 +526,41 @@ def render_student_home():
             )
             meta = f'<div class="cm-resource-meta">✨ {_html.escape((item.get("reasons") or [""])[0])}</div>'
             with rec_cols[idx]:
+                card_key = f"student_home_recommend_action_{resource_type}_{item.get('id', idx)}"
+                card_html = render_gallery_card_html(
+                    kind="video" if resource_type == "video" else "exam" if resource_type == "exam" else "worksheet",
+                    title=str(item.get("title") or "—"),
+                    chips_html=chips,
+                    description=str(item.get("topic") or t("no_description_available")),
+                    meta_html=meta,
+                    image_url=hero_image,
+                    placeholder_label=resource_label,
+                )
                 st.markdown(
-                    render_gallery_card_html(
-                        kind="video" if resource_type == "video" else "exam" if resource_type == "exam" else "worksheet",
-                        title=str(item.get("title") or "—"),
-                        chips_html=chips,
-                        description=str(item.get("topic") or t("no_description_available")),
-                        meta_html=meta,
-                        image_url=hero_image,
-                        placeholder_label=resource_label,
-                    ),
+                    f'<a class="cm-resource-card-link" href="{_html.escape(_resource_card_href(card_key), quote=True)}">{card_html}</a>',
                     unsafe_allow_html=True,
                 )
-                action_label = _ui_text("watch_video", "Watch video") if resource_type == "video" else t("start_practice")
-                if st.button(
-                    f"▶ {action_label}",
-                    key=f"student_home_recommend_action_{resource_type}_{item.get('id', idx)}",
-                    use_container_width=True,
-                    type="primary",
-                ):
+                if _resource_card_clicked(card_key):
                     if resource_type == "video":
-                        if int(item.get("assignment_id") or 0) > 0:
-                            record_video_assignment_watch(int(item.get("assignment_id") or 0))
+                        assignment_id = int(item.get("assignment_id") or 0)
+                        if assignment_id > 0:
+                            record_video_assignment_watch(assignment_id)
+                        record_video_practice_interaction(
+                            payload,
+                            meta={
+                                "subject": str(row.get("subject") or ""),
+                                "topic": str(item.get("topic") or ""),
+                                "learner_stage": str(row.get("learner_stage") or ""),
+                                "level": str(item.get("level") or row.get("level_or_band") or ""),
+                            },
+                            assignment_id=assignment_id or None,
+                        )
                         log_student_recommendation_open(item, surface="student_home")
                         st.session_state[f"_student_home_watch_video_{item.get('id', idx)}"] = True
+                        _consume_resource_card_click()
                         st.rerun()
                     else:
+                        _consume_resource_card_click()
                         _open_home_recommendation_practice(item)
                 if resource_type == "video" and st.session_state.get(f"_student_home_watch_video_{item.get('id', idx)}"):
                     watch_url = str(payload.get("watch_url") or payload.get("youtube_url") or row.get("watch_url") or row.get("youtube_url") or "")

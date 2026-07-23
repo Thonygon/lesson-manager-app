@@ -1378,32 +1378,32 @@ def _inject_recommendation_styles() -> None:
         .classio-reco-title {
             font-size: 1.08rem;
             font-weight: 900;
-            color: #0f172a;
+            color: var(--text, #0f172a);
             line-height: 1.25;
         }
         .classio-reco-meta {
             margin-top: 0.35rem;
             font-size: 0.84rem;
-            color: #64748b;
+            color: var(--muted, #64748b);
             font-weight: 600;
         }
         .classio-reco-section-label {
             margin-top: 0.95rem;
             font-size: 0.78rem;
-            color: #475569;
+            color: var(--muted, #475569);
             font-weight: 800;
             text-transform: uppercase;
             letter-spacing: .04em;
         }
         .classio-reco-body {
             margin-top: 0.3rem;
-            color: #0f172a;
+            color: var(--text, #0f172a);
             line-height: 1.5;
         }
         .classio-reco-list {
             margin: 0.45rem 0 0 0;
             padding-left: 1.1rem;
-            color: #1e293b;
+            color: var(--text, #1e293b);
         }
         .classio-reco-list li {
             margin-bottom: 0.28rem;
@@ -1457,9 +1457,9 @@ def _inject_recommendation_styles() -> None:
             padding: 5px 9px;
             font-size: .72rem;
             font-weight: 850;
-            color: #047857;
-            background: rgba(16,185,129,.12);
-            border: 1px solid rgba(16,185,129,.2);
+            color: var(--success, #10b981);
+            background: color-mix(in srgb, var(--success, #10b981) 14%, transparent);
+            border: 1px solid color-mix(in srgb, var(--success, #10b981) 24%, transparent);
         }
         div[data-testid="stExpander"]:has(.classio-reco-resource-expander-body) {
             border: 1px solid color-mix(in srgb, var(--border, rgba(148,163,184,.35)) 78%, #10b981 22%) !important;
@@ -1480,7 +1480,7 @@ def _inject_recommendation_styles() -> None:
             margin-bottom: 6px;
             font-size: .72rem;
             font-weight: 900;
-            color: #475569;
+            color: var(--muted, #475569);
             text-transform: uppercase;
             letter-spacing: .04em;
         }
@@ -1500,8 +1500,8 @@ def _inject_recommendation_styles() -> None:
             margin-bottom: 8px;
             padding: 11px 12px;
             border-radius: 14px;
-            background: rgba(255,255,255,.72);
-            border: 1px solid rgba(148,163,184,.22);
+            background: color-mix(in srgb, var(--panel, #ffffff) 86%, white 14%);
+            border: 1px solid color-mix(in srgb, var(--border, rgba(148,163,184,.35)) 82%, var(--primary, #2563eb) 18%);
             min-height: 132px;
         }
         .classio-reco-resource-card-top {
@@ -1513,7 +1513,7 @@ def _inject_recommendation_styles() -> None:
         .classio-reco-resource-card-title {
             font-size: .88rem;
             font-weight: 900;
-            color: #0f172a;
+            color: var(--text, #0f172a);
             line-height: 1.25;
             min-width: 0;
         }
@@ -1523,14 +1523,14 @@ def _inject_recommendation_styles() -> None:
             padding: 4px 8px;
             font-size: .68rem;
             font-weight: 900;
-            color: #047857;
-            background: rgba(16,185,129,.14);
-            border: 1px solid rgba(16,185,129,.24);
+            color: var(--success, #10b981);
+            background: color-mix(in srgb, var(--success, #10b981) 16%, transparent);
+            border: 1px solid color-mix(in srgb, var(--success, #10b981) 28%, transparent);
             white-space: nowrap;
         }
         .classio-reco-resource-preview {
             margin-top: 4px;
-            color: #64748b;
+            color: var(--muted, #64748b);
             font-size: .78rem;
             line-height: 1.35;
         }
@@ -1545,18 +1545,18 @@ def _inject_recommendation_styles() -> None:
             padding: 4px 8px;
             font-size: .7rem;
             font-weight: 800;
-            color: #334155;
-            background: rgba(248,250,252,.86);
-            border: 1px solid rgba(148,163,184,.2);
+            color: var(--text, #334155);
+            background: color-mix(in srgb, var(--panel-soft, #f8fafc) 84%, transparent);
+            border: 1px solid color-mix(in srgb, var(--border, rgba(148,163,184,.35)) 78%, var(--primary, #2563eb) 22%);
         }
         .classio-reco-resource-empty {
             margin-top: 8px;
             padding: 10px 12px;
             border-radius: 14px;
-            color: #64748b;
+            color: var(--muted, #64748b);
             font-size: .8rem;
-            background: rgba(248,250,252,.74);
-            border: 1px dashed rgba(148,163,184,.34);
+            background: color-mix(in srgb, var(--panel-soft, #f8fafc) 84%, transparent);
+            border: 1px dashed color-mix(in srgb, var(--border, rgba(148,163,184,.35)) 70%, var(--primary, #2563eb) 30%);
         }
         @media (max-width: 768px) {
             .classio-reco-card {
