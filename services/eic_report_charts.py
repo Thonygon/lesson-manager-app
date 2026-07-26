@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,13 @@ def _copy(lang: str, key: str) -> str:
             "no_data": "No data",
             "no_stored_curve_data": "No stored curve data",
             "stored_cutoff": "Stored cutoff",
+            "unsupervised_model_quality": "Unsupervised model quality ranking",
+            "unsupervised_quality_tradeoff": "Quality vs. contamination trade-off",
+            "unsupervised_cluster_projection": "Winning cluster projection",
+            "unsupervised_cluster_sizes": "Winning cluster size distribution",
+            "silhouette": "Silhouette score",
+            "subject_contamination": "Cross-subject contamination",
+            "cluster_size": "Cluster size",
         },
         "es": {
             "label_balance": "Balance de etiquetas",
@@ -99,6 +107,13 @@ def _copy(lang: str, key: str) -> str:
             "no_data": "Sin datos",
             "no_stored_curve_data": "No hay datos de curva almacenados",
             "stored_cutoff": "Corte almacenado",
+            "unsupervised_model_quality": "Ranking de calidad de modelos no supervisados",
+            "unsupervised_quality_tradeoff": "Trade-off entre calidad y contaminación",
+            "unsupervised_cluster_projection": "Proyección de clústeres del modelo ganador",
+            "unsupervised_cluster_sizes": "Distribución de tamaños de clústeres ganadores",
+            "silhouette": "Silhouette score",
+            "subject_contamination": "Contaminación entre materias",
+            "cluster_size": "Tamaño de clúster",
         },
         "tr": {
             "label_balance": "Etiket dengesi",
@@ -139,6 +154,13 @@ def _copy(lang: str, key: str) -> str:
             "no_data": "Veri yok",
             "no_stored_curve_data": "Saklanan eğri verisi yok",
             "stored_cutoff": "Saklanan kesim",
+            "unsupervised_model_quality": "Denetimsiz model kalite sıralaması",
+            "unsupervised_quality_tradeoff": "Kalite ve karışma dengesi",
+            "unsupervised_cluster_projection": "Kazanan küme projeksiyonu",
+            "unsupervised_cluster_sizes": "Kazanan küme boyutu dağılımı",
+            "silhouette": "Silhouette skoru",
+            "subject_contamination": "Dersler arası karışma",
+            "cluster_size": "Küme boyutu",
         },
     }
     return strings[_lang(lang)].get(key, key)
@@ -199,6 +221,8 @@ def _build_palette() -> dict[str, str]:
 
 def _get_plt():
     try:
+        Path("/tmp/classio_matplotlib").mkdir(parents=True, exist_ok=True)
+        os.environ.setdefault("MPLCONFIGDIR", "/tmp/classio_matplotlib")
         import matplotlib
 
         matplotlib.use("Agg")
@@ -511,6 +535,178 @@ def _model_rows(context: dict[str, Any], artifacts: dict[str, Path]) -> list[dic
     return list((context.get("detail", {}).get("model_results") or {}).get("models_compared") or [])
 
 
+def _safe_frame(path: Path | None) -> pd.DataFrame:
+    if not path or not path.exists():
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return pd.DataFrame()
+
+
+def _algorithm_for_row(row: dict[str, Any]) -> str:
+    algorithm = _clean_text(row.get("algorithm_name"))
+    if algorithm:
+        return algorithm
+    name = _clean_text(row.get("model_name"))
+    return name.split()[0] if name else "model"
+
+
+def _plot_unsupervised_quality_ranking(path: Path, model_rows: list[dict[str, Any]], *, lang: str = "en") -> None:
+    rows = [row for row in model_rows if _clean_text(row.get("status")).lower() in {"ok", "success"}]
+    rows = sorted(rows, key=lambda row: _float(row.get("silhouette_score"), -2.0), reverse=True)[:12]
+    labels = [str(row.get("model_name") or "model") for row in rows]
+    values = [_float(row.get("silhouette_score"), 0.0) for row in rows]
+    _plot_bar(path, _copy(lang, "unsupervised_model_quality"), labels or [_copy(lang, "no_data")], values or [0.0], horizontal=True, ylabel=_copy(lang, "silhouette"), lang=lang)
+
+
+def _plot_unsupervised_tradeoff(path: Path, model_rows: list[dict[str, Any]], *, lang: str = "en") -> None:
+    plt = _get_plt()
+    if plt is None:
+        rows = [
+            f"{row.get('model_name')}: silhouette={_float(row.get('silhouette_score'))}, contamination={_float(row.get('cross_subject_contamination_rate'))}"
+            for row in model_rows[:10]
+        ]
+        _placeholder_chart(path, _copy(lang, "unsupervised_quality_tradeoff"), rows)
+        return
+    rows = [row for row in model_rows if _clean_text(row.get("status")).lower() in {"ok", "success"}]
+    if not rows:
+        _placeholder_chart(path, _copy(lang, "unsupervised_quality_tradeoff"), [_copy(lang, "no_data")])
+        return
+    palette = _build_palette()
+    algorithm_colors = {
+        "DBSCAN": palette["pink"] if "pink" in palette else "#D946EF",
+        "KMeans": palette["blue"],
+        "AgglomerativeClustering": palette["teal"],
+    }
+    plt.figure(figsize=(7.2, 4.8))
+    for row in rows:
+        algorithm = _algorithm_for_row(row)
+        x = _float(row.get("cross_subject_contamination_rate"), 0.0)
+        y = _float(row.get("silhouette_score"), 0.0)
+        size = 45 + min(max(_float(row.get("cluster_count"), 0.0), 0.0), 80.0) * 3.0
+        plt.scatter(x, y, s=size, alpha=0.72, color=algorithm_colors.get(algorithm, palette["gray"]), edgecolor="white", linewidth=0.8, label=algorithm)
+    best = max(rows, key=lambda row: _float(row.get("silhouette_score"), -2.0))
+    best_x = _float(best.get("cross_subject_contamination_rate"), 0.0)
+    best_y = _float(best.get("silhouette_score"), 0.0)
+    plt.scatter([best_x], [best_y], s=260, marker="*", color=palette["gold"], edgecolor=palette["navy"], linewidth=0.8, zorder=5)
+    plt.annotate(str(best.get("model_name") or "winner")[:42], (best_x, best_y), xytext=(8, 8), textcoords="offset points", fontsize=8)
+    handles, labels = plt.gca().get_legend_handles_labels()
+    unique: dict[str, Any] = {}
+    for handle, label in zip(handles, labels):
+        unique.setdefault(label, handle)
+    plt.legend(unique.values(), unique.keys(), fontsize=8, frameon=False, loc="best")
+    plt.xlabel(_copy(lang, "subject_contamination"))
+    plt.ylabel(_copy(lang, "silhouette"))
+    plt.title(_copy(lang, "unsupervised_quality_tradeoff"), fontsize=12, pad=10)
+    plt.grid(alpha=0.2, linestyle="--")
+    _save_current(path)
+
+
+def _plot_unsupervised_cluster_sizes(path: Path, cluster_df: pd.DataFrame, *, lang: str = "en") -> None:
+    if cluster_df.empty or "cluster_id" not in cluster_df.columns:
+        _placeholder_chart(path, _copy(lang, "unsupervised_cluster_sizes"), [_copy(lang, "no_data")])
+        return
+    counts = cluster_df[cluster_df["cluster_id"].astype(str) != "-1"]["cluster_id"].value_counts().head(15)
+    labels = [f"C{item}" for item in counts.index.astype(str).tolist()]
+    values = [float(item) for item in counts.values.tolist()]
+    _plot_bar(path, _copy(lang, "unsupervised_cluster_sizes"), labels or [_copy(lang, "no_data")], values or [0.0], horizontal=False, ylabel=_copy(lang, "cluster_size"), lang=lang)
+
+
+def _plot_unsupervised_cluster_projection(path: Path, dataset_df: pd.DataFrame, cluster_df: pd.DataFrame, *, lang: str = "en") -> None:
+    plt = _get_plt()
+    if plt is None:
+        _placeholder_chart(path, _copy(lang, "unsupervised_cluster_projection"), [_copy(lang, "no_data")])
+        return
+    if dataset_df.empty or cluster_df.empty or "resource_key" not in dataset_df.columns or "resource_key" not in cluster_df.columns:
+        _placeholder_chart(path, _copy(lang, "unsupervised_cluster_projection"), [_copy(lang, "no_data")])
+        return
+    merged = dataset_df.merge(cluster_df[["resource_key", "cluster_id"]], on="resource_key", how="inner")
+    if len(merged) < 3:
+        _placeholder_chart(path, _copy(lang, "unsupervised_cluster_projection"), [_copy(lang, "no_data")])
+        return
+    try:
+        from sklearn.decomposition import TruncatedSVD
+        from sklearn.feature_extraction.text import TfidfVectorizer
+    except Exception:
+        _placeholder_chart(path, _copy(lang, "unsupervised_cluster_projection"), ["scikit-learn unavailable for projection"])
+        return
+    texts = merged.get("profile_text", pd.Series(dtype=str)).fillna("").astype(str).tolist()
+    if not any(texts):
+        _placeholder_chart(path, _copy(lang, "unsupervised_cluster_projection"), [_copy(lang, "no_data")])
+        return
+    try:
+        vectorizer = TfidfVectorizer(max_features=1200, ngram_range=(1, 2), min_df=1)
+        matrix = vectorizer.fit_transform(texts)
+        if matrix.shape[1] < 2:
+            _placeholder_chart(path, _copy(lang, "unsupervised_cluster_projection"), [_copy(lang, "no_data")])
+            return
+        coords = TruncatedSVD(n_components=2, random_state=42).fit_transform(matrix)
+    except Exception as exc:
+        _placeholder_chart(path, _copy(lang, "unsupervised_cluster_projection"), [str(exc)[:90]])
+        return
+    plot_df = merged.copy()
+    plot_df["_x"] = coords[:, 0]
+    plot_df["_y"] = coords[:, 1]
+    plot_df["_cluster"] = plot_df["cluster_id"].astype(str)
+    top_clusters = [str(item) for item in plot_df.loc[plot_df["_cluster"] != "-1", "_cluster"].value_counts().head(9).index.tolist()]
+    palette = ["#2563EB", "#7C3AED", "#0F766E", "#F59E0B", "#DB2777", "#14B8A6", "#6366F1", "#A855F7", "#0284C7"]
+    plt.figure(figsize=(7.2, 5.0))
+    noise = plot_df[plot_df["_cluster"] == "-1"]
+    if not noise.empty:
+        plt.scatter(noise["_x"], noise["_y"], s=28, color="#94A3B8", alpha=0.38, label="Noise")
+    other = plot_df[(plot_df["_cluster"] != "-1") & (~plot_df["_cluster"].isin(top_clusters))]
+    if not other.empty:
+        plt.scatter(other["_x"], other["_y"], s=30, color="#CBD5E1", alpha=0.48, label="Other clusters")
+    for idx, cluster_id in enumerate(top_clusters):
+        group = plot_df[plot_df["_cluster"] == cluster_id]
+        plt.scatter(group["_x"], group["_y"], s=42, alpha=0.76, color=palette[idx % len(palette)], label=f"C{cluster_id}")
+        if not group.empty:
+            plt.scatter([group["_x"].mean()], [group["_y"].mean()], marker="x", s=90, color="#111827", linewidth=1.8)
+    plt.title(_copy(lang, "unsupervised_cluster_projection"), fontsize=12, pad=10)
+    plt.xlabel("SVD 1")
+    plt.ylabel("SVD 2")
+    plt.legend(fontsize=7, frameon=False, ncol=2, loc="best")
+    plt.grid(alpha=0.16, linestyle="--")
+    _save_current(path)
+
+
+def _build_unsupervised_charts(
+    run_id: str,
+    language: str,
+    context: dict[str, Any],
+    artifacts: dict[str, Path],
+    output_dir: Path,
+) -> dict[str, Path]:
+    lang = _lang(language)
+    checksum = _artifact_checksum(list(artifacts.values()))
+    charts: dict[str, Path] = {}
+    model_rows = _model_rows(context, artifacts)
+    dataset_df = _safe_frame(artifacts.get("frozen_dataset_csv"))
+    cluster_df = _safe_frame(artifacts.get("cluster_assignments_csv"))
+
+    path = _chart_path(output_dir, "unsupervised_model_quality", checksum)
+    if not path.exists():
+        _plot_unsupervised_quality_ranking(path, model_rows, lang=lang)
+    charts["unsupervised_model_quality"] = path
+
+    path = _chart_path(output_dir, "unsupervised_quality_tradeoff", checksum)
+    if not path.exists():
+        _plot_unsupervised_tradeoff(path, model_rows, lang=lang)
+    charts["unsupervised_quality_tradeoff"] = path
+
+    path = _chart_path(output_dir, "unsupervised_cluster_sizes", checksum)
+    if not path.exists():
+        _plot_unsupervised_cluster_sizes(path, cluster_df, lang=lang)
+    charts["unsupervised_cluster_sizes"] = path
+
+    path = _chart_path(output_dir, "unsupervised_cluster_projection", checksum)
+    if not path.exists():
+        _plot_unsupervised_cluster_projection(path, dataset_df, cluster_df, lang=lang)
+    charts["unsupervised_cluster_projection"] = path
+    return charts
+
+
 def build_report_charts(
     report_type: str,
     run_id: str,
@@ -530,6 +726,9 @@ def build_report_charts(
     predictions = _prediction_frame(artifacts)
     feature_df = _feature_frame(artifacts)
     palette = _build_palette()
+
+    if report_type == "unsupervised_docx":
+        return _build_unsupervised_charts(run_id, language, context, artifacts, output_dir)
 
     if report_type in {"executive_docx", "academic_docx", "technical_docx"}:
         path = _chart_path(output_dir, "label_balance", checksum)

@@ -13,7 +13,9 @@ from core.database import get_sb
 from services.authorization_service import CAPABILITY_VIEW_TECHNICAL_ARTIFACTS, has_capability
 from services.ml_experiment_service import (
     APPROVED_EXPERIMENT_ID,
+    EXPERIMENT_PARADIGM_UNSUPERVISED,
     FINAL_VALIDATED_RUN_STATES,
+    RESOURCE_AFFINITY_EXPERIMENT_ID,
     RUN_ARTIFACT_TABLE,
     RUN_SUMMARY_FILENAME,
     DATASET_SUMMARY_FILENAME,
@@ -21,6 +23,7 @@ from services.ml_experiment_service import (
     FEATURE_AUDIT_FILENAME,
     ACADEMIC_REPORT_FILENAME,
     TECHNICAL_REPORT_FILENAME,
+    get_experiment_paradigm,
     list_experiment_catalog,
     list_run_artifacts,
 )
@@ -635,21 +638,23 @@ def get_intelligence_component_portfolio(cache_bust: str = "") -> list[dict[str,
         if not experiment_id or experiment_id in known_component_ids:
             continue
         latest_validated = dict(experiment.get("latest_validated_run") or {})
+        is_affinity_experiment = experiment_id == RESOURCE_AFFINITY_EXPERIMENT_ID
+        is_unsupervised_experiment = get_experiment_paradigm(experiment_id, experiment) == EXPERIMENT_PARADIGM_UNSUPERVISED
         rows.append(
             {
                 "component_id": experiment_id,
                 "name": _clean_text(experiment.get("name")) or experiment_id,
                 "business_question": _clean_text(experiment.get("business_question")) or "Experiment business question not documented yet.",
-                "decision_supported": "Whether this supervised experiment is credible enough to influence future product decisions.",
-                "component_type": "supervised_experiment",
+                "decision_supported": "Whether semantic resource-affinity discovery is credible enough for shadow recommendation candidate expansion." if is_affinity_experiment else ("Whether this unsupervised experiment is credible enough to inform future product decisions." if is_unsupervised_experiment else "Whether this supervised experiment is credible enough to influence future product decisions."),
+                "component_type": "unsupervised_experiment" if is_unsupervised_experiment else "supervised_experiment",
                 "operational_status": "offline_evaluation",
                 "data_maturity": "validated_evidence_ready" if latest_validated else "collecting_data",
                 "evidence_maturity": _run_evidence_level(latest_validated),
                 "production_use": "Experiment registry visibility only until a dedicated workflow is integrated.",
-                "limitation": "This experiment was discovered from the registry and still needs dedicated workflow wiring.",
+                "limitation": "Unsupervised cluster quality is a proxy; human semantic review is still needed before production use." if is_affinity_experiment else "This experiment was discovered from the registry and still needs dedicated workflow wiring.",
                 "recommended_next_action": _run_business_action(latest_validated),
-                "product_surface": "Developer Workspace and Admin intelligence supervision.",
-                "educational_value": "Extends Classio experiment governance to future supervised workflows.",
+                "product_surface": "Teacher recommendations and pre-generation similar-resource warnings." if is_affinity_experiment else "Developer Workspace and Admin intelligence supervision.",
+                "educational_value": "Discovers semantically related resources beyond manual tags and exact topic text." if is_affinity_experiment else "Extends Classio experiment governance to future supervised workflows.",
                 "unit_of_analysis": _clean_text(experiment.get("unit_of_analysis")) or "Not documented yet.",
                 "relevant_rows": int(latest_validated.get("included_row_count") or 0),
                 "date_coverage": f"{_clean_text(latest_validated.get('source_start_at')) or 'n/a'} to {_clean_text(latest_validated.get('source_end_at')) or 'n/a'}",
@@ -806,7 +811,18 @@ def get_academic_evidence_summary(run_id: str, *, cache_bust: str = "") -> dict[
     positive = int(business_detail.get("positive_label_count") or 0)
     negative = int(business_detail.get("negative_label_count") or 0)
     experiment_id = _clean_text(business_detail.get("experiment_id"))
-    if experiment_id == "student_recommendation_open_within_7d":
+    if experiment_id == RESOURCE_AFFINITY_EXPERIMENT_ID:
+        target_definition = "semantic_cluster and nearest-neighbor affinity are produced from unsupervised resource profiles; no supervised target label is used."
+        unit_of_analysis = "One Classio educational resource semantic profile."
+        data_sources = ["worksheets", "quick_exams", "videos", "lesson_plans", "learning_programs"]
+        future_improvements = [
+            "Add human review labels for semantically similar/not similar resource pairs",
+            "Run the best model in shadow mode for teacher recommendation candidate expansion",
+            "Compare semantic warning candidates with current generation reuse warnings",
+        ]
+        smart_objective = "Within one offline experiment cycle, discover semantically coherent resource clusters with measurable cluster quality and less than 10% cross-subject contamination before any production ranking change."
+        evaluation_design = "Unsupervised clustering and cosine-neighbor comparison using canonical resource text profiles."
+    elif experiment_id == "student_recommendation_open_within_7d":
         target_definition = "opened_within_7d derived from recommendation shown_at with downstream opened events inside a seven-day window."
         unit_of_analysis = "One optional student recommendation exposure."
         data_sources = ["resource_exposures", "resource_exposure_events", "practice_sessions", "worksheets", "quick_exams", "videos"]
@@ -815,6 +831,8 @@ def get_academic_evidence_summary(run_id: str, *, cache_bust: str = "") -> dict[
             "Collect more mature labels across more students",
             "Compare repeated validated runs before any live ranking replacement",
         ]
+        smart_objective = "Build credible evidence for a supervised comparison without changing live recommendation ordering."
+        evaluation_design = "Chronological train/holdout split using past-only features."
     else:
         target_definition = "opened_within_7d derived from teacher_assignments.assigned_at with opened_at/viewed_at inside a seven-day window."
         unit_of_analysis = "One teacher assignment representing one assigned-resource exposure."
@@ -824,6 +842,8 @@ def get_academic_evidence_summary(run_id: str, *, cache_bust: str = "") -> dict[
             "Continue collecting mature labels",
             "Improve telemetry coverage for related recommendation surfaces",
         ]
+        smart_objective = "Build credible evidence for a supervised comparison without changing live recommendation ordering."
+        evaluation_design = "Chronological train/holdout split using past-only features."
     return {
         "run_id": safe_run_id,
         "dataset_fingerprint": _clean_text(business_detail.get("dataset_fingerprint")),
@@ -833,7 +853,7 @@ def get_academic_evidence_summary(run_id: str, *, cache_bust: str = "") -> dict[
         "validation_status": _clean_text(business_detail.get("run_status")),
         "company_context": "Classio is evaluating educational intelligence systems that support teaching, learning, and resource recommendation.",
         "business_problem": _clean_text(business_detail.get("business_question")) or "Experiment business question not documented yet.",
-        "smart_objective": "Build credible evidence for a supervised comparison without changing live recommendation ordering.",
+        "smart_objective": smart_objective,
         "target_definition": target_definition,
         "unit_of_analysis": unit_of_analysis,
         "data_sources": data_sources,
@@ -846,7 +866,7 @@ def get_academic_evidence_summary(run_id: str, *, cache_bust: str = "") -> dict[
         "train_holdout_split": {
             "chronological_cutoff": _clean_text(business_detail.get("chronological_cutoff") or evaluation.get("cutoff_timestamp")),
         },
-        "evaluation_design": "Chronological train/holdout split using past-only features.",
+        "evaluation_design": evaluation_design,
         "models_compared": [_clean_text(row.get("model_name")) for row in model_rows if _clean_text(row.get("model_name"))],
         "metrics": ["roc_auc", "average_precision", "balanced_accuracy", "f1", "brier_score", "log_loss"],
         "baseline": "DummyClassifier",

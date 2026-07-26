@@ -47,6 +47,8 @@ from services.eic_display_service import (
 from services.eic_report_service import get_or_create_validated_report, list_available_eic_reports
 from services.ml_experiment_service import (
     APPROVED_EXPERIMENT_ID,
+    EXPERIMENT_PARADIGM_SUPERVISED,
+    EXPERIMENT_PARADIGM_UNSUPERVISED,
     can_manually_rerun_integrity,
     get_run_artifact_retention_status,
     compute_experiment_eligibility_summary,
@@ -64,6 +66,33 @@ from services.ml_experiment_service import (
     mark_stale_experiment_jobs,
     rerun_integrity_review_for_run,
 )
+
+
+def _experiment_paradigm_label(value: str) -> str:
+    lang = str(st.session_state.get("ui_lang") or "en")
+    safe = str(value or "").strip().lower()
+    labels = {
+        "all": {"en": "All experiment types", "es": "Todos los tipos", "tr": "Tüm deney türleri"},
+        EXPERIMENT_PARADIGM_SUPERVISED: {"en": "Supervised", "es": "Supervisados", "tr": "Denetimli"},
+        EXPERIMENT_PARADIGM_UNSUPERVISED: {"en": "Unsupervised", "es": "No supervisados", "tr": "Denetimsiz"},
+    }
+    return labels.get(safe, {}).get(lang, labels.get(safe, {}).get("en", safe.title() or "Unknown"))
+
+
+def _filtered_experiment_catalog(catalog: list[dict], *, state_key: str) -> list[dict]:
+    if not catalog:
+        return []
+    options = ["all", EXPERIMENT_PARADIGM_SUPERVISED, EXPERIMENT_PARADIGM_UNSUPERVISED]
+    selected = st.selectbox(
+        "Experiment type" if str(st.session_state.get("ui_lang") or "en") == "en" else ("Tipo de experimento" if str(st.session_state.get("ui_lang") or "en") == "es" else "Deney türü"),
+        options,
+        index=options.index(str(st.session_state.get(state_key) or "all")) if str(st.session_state.get(state_key) or "all") in options else 0,
+        format_func=_experiment_paradigm_label,
+        key=state_key,
+    )
+    if selected == "all":
+        return catalog
+    return [row for row in catalog if str(row.get("modeling_paradigm") or "").strip().lower() == selected]
 from services.privileged_action_service import list_privileged_actions, record_privileged_action
 
 
@@ -553,6 +582,7 @@ def _render_overview() -> None:
             [
                 {
                     t("developer_workspace_catalog_experiment"): get_experiment_display_name(str(row.get("experiment_id") or "")),
+                    "Type" if str(st.session_state.get("ui_lang") or "en") == "en" else ("Tipo" if str(st.session_state.get("ui_lang") or "en") == "es" else "Tür"): _experiment_paradigm_label(str(row.get("modeling_paradigm") or "")),
                     t("developer_workspace_catalog_status"): get_experiment_status_display(str(row.get("status") or "")),
                     t("developer_workspace_catalog_runs"): int(row.get("run_count") or 0),
                     t("developer_workspace_catalog_validated_runs"): int(row.get("validated_run_count") or 0),
@@ -599,14 +629,18 @@ def _render_overview() -> None:
 def _render_ml_lab() -> None:
     require_capability(CAPABILITY_VIEW_ML_LAB)
     catalog = list_experiment_catalog(cache_bust=str(st.session_state.get("developer_workspace_refresh_nonce") or 0))
+    catalog = _filtered_experiment_catalog(catalog, state_key="developer_workspace_lab_experiment_paradigm")
     selected_experiment = _selected_experiment(catalog, state_key="developer_workspace_lab_experiment_id")
     selected_experiment_id = str(selected_experiment.get("experiment_id") or APPROVED_EXPERIMENT_ID)
+    selected_paradigm = str(selected_experiment.get("modeling_paradigm") or EXPERIMENT_PARADIGM_SUPERVISED)
     eligibility = compute_experiment_eligibility_summary(selected_experiment_id)
     top = st.columns(4, gap="small")
+    count_label = t("developer_workspace_lab_mature_labels") if selected_paradigm == EXPERIMENT_PARADIGM_SUPERVISED else ("Resources" if str(st.session_state.get("ui_lang") or "en") == "en" else ("Recursos" if str(st.session_state.get("ui_lang") or "en") == "es" else "Kaynaklar"))
+    count_value = int((eligibility.get("data_summary") or {}).get("mature_labels") or (eligibility.get("data_summary") or {}).get("resource_profiles") or (eligibility.get("data_summary") or {}).get("resource_count") or 0)
     cards = [
         (t("developer_workspace_lab_experiment"), get_experiment_display_name(selected_experiment_id)),
         (t("developer_workspace_lab_eligible"), _yes_no(bool(eligibility.get("eligible")))),
-        (t("developer_workspace_lab_mature_labels"), str(int((eligibility.get("data_summary") or {}).get("mature_labels") or 0))),
+        (count_label, str(count_value)),
         (t("developer_workspace_lab_expected_ceiling"), get_maturity_display(str(eligibility.get("expected_maturity_ceiling") or "unknown"))),
     ]
     for col, (label, value) in zip(top, cards):
@@ -771,8 +805,10 @@ def _render_experiment_evidence() -> None:
     refresh_nonce = int(st.session_state.get("developer_workspace_refresh_nonce") or 0)
     cache_bust = str(refresh_nonce)
     catalog = list_experiment_catalog(cache_bust=cache_bust)
+    catalog = _filtered_experiment_catalog(catalog, state_key="developer_workspace_evidence_experiment_paradigm")
     selected_experiment = _selected_experiment(catalog, state_key="developer_workspace_evidence_experiment_id")
     selected_experiment_id = str(selected_experiment.get("experiment_id") or APPROVED_EXPERIMENT_ID)
+    selected_paradigm = str(selected_experiment.get("modeling_paradigm") or EXPERIMENT_PARADIGM_SUPERVISED)
     latest_validated = get_latest_validated_run_summary(experiment_id=selected_experiment_id, cache_bust=cache_bust) or {}
     validated_runs = eic_service.list_validated_experiment_summaries(limit=10, cache_bust=cache_bust, experiment_id=selected_experiment_id)
 
@@ -805,11 +841,12 @@ def _render_experiment_evidence() -> None:
             summary_rows = [
                 (t("developer_workspace_summary_experiment"), get_experiment_display_name(str(latest_validated.get("experiment_id") or selected_experiment_id))),
                 (t("developer_workspace_summary_dataset_size"), str(int(latest_validated.get("included_row_count") or 0))),
-                (t("developer_workspace_summary_positive_labels"), str(int(latest_validated.get("positive_label_count") or 0))),
-                (t("developer_workspace_summary_negative_labels"), str(int(latest_validated.get("negative_label_count") or 0))),
                 (t("developer_workspace_summary_teachers_represented"), str(int(latest_validated.get("teachers_represented") or 0))),
                 (t("developer_workspace_summary_recommended_business_action"), get_business_action_display(str(latest_validated.get("recommended_business_action") or ""))),
             ]
+            if selected_paradigm == EXPERIMENT_PARADIGM_SUPERVISED:
+                summary_rows.insert(2, (t("developer_workspace_summary_positive_labels"), str(int(latest_validated.get("positive_label_count") or 0))))
+                summary_rows.insert(3, (t("developer_workspace_summary_negative_labels"), str(int(latest_validated.get("negative_label_count") or 0))))
             st.dataframe(pd.DataFrame(summary_rows, columns=[t("admin_field_label"), t("admin_value_label")]), use_container_width=True, hide_index=True)
             business_detail = eic_service.get_experiment_business_detail(run_id, cache_bust=cache_bust)
             model_rows = ((business_detail or {}).get("model_results") or {}).get("models_compared") or []
@@ -829,17 +866,18 @@ def _render_experiment_evidence() -> None:
         if validated_runs:
             registry_df = pd.DataFrame(
                 [
-                    {
+                    ({
                         t("developer_workspace_registry_run_id"): str(row.get("run_id") or ""),
                         t("developer_workspace_catalog_experiment"): get_experiment_display_name(str(row.get("experiment_id") or selected_experiment_id)),
                         t("developer_workspace_registry_run_status"): get_run_status_display(str(row.get("run_status") or "")),
                         t("developer_workspace_registry_integrity"): get_integrity_status_display(str(row.get("integrity_status") or "not_run")),
                         t("developer_workspace_evidence_evidence"): get_evidence_display(str(row.get("evidence_level") or row.get("evidence_verdict") or "not_available"), lang=str(st.session_state.get("ui_lang") or "en")),
                         t("developer_workspace_registry_included_rows"): int(row.get("included_row_count") or 0),
+                        t("developer_workspace_registry_primary_metric_leader"): str(row.get("primary_metric_leader") or "—"),
+                    } | ({
                         t("developer_workspace_registry_positive_labels"): int(row.get("positive_label_count") or 0),
                         t("developer_workspace_registry_negative_labels"): int(row.get("negative_label_count") or 0),
-                        t("developer_workspace_registry_primary_metric_leader"): str(row.get("primary_metric_leader") or "—"),
-                    }
+                    } if selected_paradigm == EXPERIMENT_PARADIGM_SUPERVISED else {}))
                     for row in validated_runs
                 ]
             )

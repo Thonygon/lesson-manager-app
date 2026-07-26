@@ -33,6 +33,56 @@ from helpers.worksheet_storage import load_worksheet_record
 _STUDENT_PAGE_SIZE = 6
 
 
+def _assignment_action_label(row: dict, *, has_draft: bool = False) -> str:
+    assignment_type = str(row.get("assignment_type") or "").strip()
+    status = str(row.get("status") or "").strip()
+    attempt_count = int(row.get("attempt_count") or 0)
+    if status in {"submitted", "graded", "completed"} or attempt_count > 0:
+        return _safe_ui_label("assignment_done", "Done")
+    if has_draft or status == "started":
+        return t("continue_practice")
+    if assignment_type == "video":
+        return t("watch_video")
+    return t("open_assignment")
+
+
+def _latest_completed_assignment_session(assignment_id: int) -> dict:
+    safe_assignment_id = int(assignment_id or 0)
+    uid = str(get_current_user_id() or "").strip()
+    if safe_assignment_id <= 0 or not uid:
+        return {}
+    try:
+        rows = (
+            get_sb()
+            .table("teacher_assignment_attempts")
+            .select("practice_session_id")
+            .eq("assignment_id", safe_assignment_id)
+            .eq("student_id", uid)
+            .order("created_at", desc=True)
+            .limit(10)
+            .execute()
+        ).data or []
+        session_id = 0
+        for attempt_row in rows:
+            session_id = int((attempt_row or {}).get("practice_session_id") or 0)
+            if session_id > 0:
+                break
+        if session_id <= 0:
+            return {}
+        session_rows = (
+            get_sb()
+            .table("practice_sessions")
+            .select("*")
+            .eq("id", session_id)
+            .eq("user_id", uid)
+            .limit(1)
+            .execute()
+        ).data or []
+        return session_rows[0] if session_rows else {}
+    except Exception:
+        return {}
+
+
 def _log_video_assignment_event(row: dict, event_type: str) -> None:
     user_id = str(get_current_user_id() or "").strip()
     if not user_id:
@@ -77,18 +127,35 @@ def _program_sort_key(item: dict) -> tuple[int, str]:
 
 
 def _program_subject_groups(program_assignments: list[dict]) -> list[tuple[str, str, list[dict]]]:
-    grouped: dict[str, dict[str, object]] = {}
+    grouped: dict[tuple[str, str], dict[str, object]] = {}
     for item in program_assignments or []:
         program = item.get("program") or {}
         subject_key = str(program.get("subject") or item.get("subject_key") or "").strip() or "other"
         subject_display = str(item.get("subject_display") or program.get("subject_display") or subject_key or "—").strip()
-        bucket = grouped.setdefault(subject_key, {"label": subject_display, "rows": []})
+        teacher_id = str(item.get("teacher_id") or "").strip()
+        teacher_name = str(item.get("teacher_name") or t("teacher_role")).strip()
+        bucket = grouped.setdefault(
+            (subject_key, teacher_id),
+            {
+                "label": subject_display,
+                "teacher_name": teacher_name,
+                "rows": [],
+            },
+        )
         bucket["rows"].append(item)
 
     ordered_groups: list[tuple[str, str, list[dict]]] = []
-    for subject_key, payload in grouped.items():
+    subject_counts: dict[str, int] = {}
+    for subject_key, _teacher_id in grouped:
+        subject_counts[subject_key] = subject_counts.get(subject_key, 0) + 1
+    for (subject_key, teacher_id), payload in grouped.items():
         rows = sorted(list(payload.get("rows") or []), key=_program_sort_key, reverse=True)
-        ordered_groups.append((subject_key, str(payload.get("label") or subject_key), rows))
+        label = str(payload.get("label") or subject_key)
+        if subject_counts.get(subject_key, 0) > 1:
+            teacher_name = str(payload.get("teacher_name") or t("teacher_role"))
+            label = f"{label} · {teacher_name}"
+        scope_key = f"{subject_key}_{teacher_id or 'teacher'}"
+        ordered_groups.append((scope_key, label, rows))
 
     ordered_groups.sort(
         key=lambda item: (
@@ -244,7 +311,7 @@ def _load_source_video(source_record_id):
     return dict(row or {})
 
 
-def _open_assignment_practice(row: dict) -> None:
+def _open_assignment_practice(row: dict, *, review_completed: bool = False) -> None:
     assignment_id = row.get("id")
     snapshot = row.get("content_snapshot") or {}
     assignment_type = str(row.get("assignment_type") or "").strip()
@@ -299,8 +366,24 @@ def _open_assignment_practice(row: dict) -> None:
         st.warning(t("no_exercises_available"))
         return
 
-    draft = load_in_progress_practice_session(assignment_type, assignment_id)
-    if draft:
+    completed_session = _latest_completed_assignment_session(int(assignment_id or 0)) if review_completed else {}
+    draft = {} if completed_session else load_in_progress_practice_session(assignment_type, assignment_id)
+    if completed_session:
+        completed_exercise_data = completed_session.get("exercise_data") or exercise_data
+        if isinstance(completed_exercise_data, str):
+            try:
+                completed_exercise_data = json.loads(completed_exercise_data)
+            except Exception:
+                completed_exercise_data = exercise_data
+        completed_session_id = int(completed_session.get("id") or 0)
+        st.session_state["practice_exercise_data"] = normalize_exercise_data_for_web(completed_exercise_data or exercise_data)
+        st.session_state["_practice_resume_answers"] = load_practice_draft_answers(completed_session_id)
+        st.session_state["_practice_last_session_id"] = completed_session_id
+        st.session_state["_practice_review_mode"] = True
+        st.session_state["_practice_submitted_sp"] = True
+        st.session_state.pop("_practice_resume_session_id", None)
+        st.session_state.pop("_practice_resume_notice", None)
+    elif draft:
         draft_exercise_data = draft.get("exercise_data") or exercise_data
         if isinstance(draft_exercise_data, str):
             try:
@@ -311,15 +394,19 @@ def _open_assignment_practice(row: dict) -> None:
         st.session_state["_practice_resume_session_id"] = draft.get("id")
         st.session_state["_practice_resume_answers"] = load_practice_draft_answers(int(draft.get("id")))
         st.session_state["_practice_resume_notice"] = True
+        st.session_state.pop("_practice_review_mode", None)
     else:
         st.session_state["practice_exercise_data"] = exercise_data
         st.session_state.pop("_practice_resume_session_id", None)
         st.session_state.pop("_practice_resume_answers", None)
         st.session_state.pop("_practice_resume_notice", None)
+        st.session_state.pop("_practice_review_mode", None)
+        st.session_state.pop("_practice_submitted_sp", None)
     st.session_state["practice_meta"] = meta
     st.session_state["_practice_assignment_id"] = assignment_id
     st.session_state["_practice_assignment_type"] = assignment_type
-    mark_assignment_started(assignment_id)
+    if not review_completed:
+        mark_assignment_started(assignment_id)
     go_to("student_practice")
     st.rerun()
 
@@ -434,12 +521,21 @@ def _inject_assignment_page_styles() -> None:
         }
         .classio-assign-card--exam {
             background:
-              radial-gradient(circle at top right, rgba(248,113,113,.12), transparent 38%),
+              radial-gradient(circle at top right, rgba(236,72,153,.12), transparent 38%),
               linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 84%, white 16%));
-            border-color: color-mix(in srgb, var(--border) 76%, rgba(248,113,113,.26) 24%);
+            border-color: color-mix(in srgb, var(--border) 76%, rgba(236,72,153,.26) 24%);
         }
         .classio-assign-card--exam::before {
-            background: linear-gradient(180deg, #f87171, #ef4444 58%, #f59e0b);
+            background: linear-gradient(180deg, #f9a8d4, #ec4899 58%, #be185d);
+        }
+        .classio-assign-card--video {
+            background:
+              radial-gradient(circle at top right, rgba(30,58,138,.12), transparent 38%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 84%, white 16%));
+            border-color: color-mix(in srgb, var(--border) 76%, rgba(30,58,138,.25) 24%);
+        }
+        .classio-assign-card--video::before {
+            background: linear-gradient(180deg, #64748b, #1e3a8a 58%, #0f172a);
         }
         .classio-assign-card--topic {
             background:
@@ -448,7 +544,7 @@ def _inject_assignment_page_styles() -> None:
             border-color: color-mix(in srgb, var(--border) 76%, rgba(96,165,250,.24) 24%);
         }
         .classio-assign-card--topic::before {
-            background: linear-gradient(180deg, #60a5fa, #3b82f6 58%, #38bdf8);
+            background: linear-gradient(180deg, #bae6fd, #60a5fa 58%, #38bdf8);
         }
         .classio-assign-title {
             font-size: 1.18rem;
@@ -586,6 +682,7 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
     teacher_note = _clean_teacher_feedback_text(row.get("teacher_note"))
     assignment_type = str(row.get("assignment_type") or "").strip()
     source_archived = bool(row.get("source_archived"))
+    attempts_value = int(row.get("attempt_count") or 0)
     teacher_name_raw = str(row.get("teacher_name") or "—")
     subject_name_raw = str(row.get("subject_display") or "—")
     teacher_name = _html.escape(teacher_name_raw)
@@ -593,7 +690,7 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
     type_class = {
         "worksheet": "classio-assign-card--worksheet",
         "exam": "classio-assign-card--exam",
-        "video": "classio-assign-card--plan",
+        "video": "classio-assign-card--video",
         "lesson_plan_topic": "classio-assign-card--topic",
     }.get(assignment_type, "")
 
@@ -611,12 +708,12 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
             if not payload and row.get("source_record_id"):
                 payload = _load_source_video(row.get("source_record_id"))
             hero_image = extract_gallery_image_url(payload) or str(payload.get("thumbnail_url") or "")
-            status_label = _safe_ui_label(f"assignment_status_{status}") if status else ""
+            action_label = _assignment_action_label(row)
             chips = "".join(
                 [
                     f'<span class="cm-resource-chip">📚 {_html.escape(subject_name_raw)}</span>',
                     f'<span class="cm-resource-chip">🎬 {_html.escape(t("video_label"))}</span>',
-                    f'<span class="cm-resource-chip">📌 {_html.escape(status_label)}</span>' if status_label else "",
+                    f'<span class="cm-resource-chip">📌 {_html.escape(action_label)}</span>',
                 ]
             )
             meta_html = f'<div class="cm-resource-meta">{" · ".join(meta_bits)}</div>'
@@ -667,13 +764,14 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
             if source_image:
                 payload = source_payload
                 hero_image = source_image
-        status_label = _safe_ui_label(f"assignment_status_{status}") if status else ""
         type_label = t("exam_label") if assignment_type == "exam" else t("worksheet_label")
+        draft = load_in_progress_practice_session(assignment_type, row.get("id"))
+        action_label = _assignment_action_label(row, has_draft=bool(draft))
         chips = "".join(
             [
                 f'<span class="cm-resource-chip">📚 {_html.escape(subject_name_raw)}</span>',
                 f'<span class="cm-resource-chip">🧩 {_html.escape(type_label)}</span>',
-                f'<span class="cm-resource-chip">📌 {_html.escape(status_label)}</span>' if status_label else "",
+                f'<span class="cm-resource-chip">📌 {_html.escape(action_label)}</span>',
             ]
         )
         meta_html = f'<div class="cm-resource-meta">{" · ".join(meta_bits)}</div>'
@@ -699,23 +797,21 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
                 if st.button(t("archived_label"), key=f"{key_prefix}_archived", use_container_width=True):
                     st.info(t("assignment_source_archived_notice"))
             elif is_finalized:
-                st.markdown(
-                    f"<div class='classio-assign-action-done'>{_html.escape(t('assignment_done'))}</div>",
-                    unsafe_allow_html=True,
-                )
+                if st.button(_safe_ui_label("review_answers", "Review answers"), key=f"{key_prefix}_review", use_container_width=True, type="primary"):
+                    _open_assignment_practice(row, review_completed=True)
             else:
                 action_text = t("continue_practice") if is_continue else t("open_assignment")
                 if st.button(action_text, key=f"{key_prefix}_open", use_container_width=True, type="primary"):
                     _open_assignment_practice(row)
         elif assignment_type == "video":
-            attempts_value = int(row.get("attempt_count") or 0)
             if attempts_value > 0:
                 st.markdown(
-                    f"<div class='classio-assign-action-done'>{_html.escape(t('attempts_label'))}: {attempts_value} · {_html.escape(t('score_label'))}: 100%</div>",
+                    f"<div class='classio-assign-action-done'>{_html.escape(_safe_ui_label('assignment_done', 'Done'))} · {_html.escape(_safe_ui_label('views_label', 'Views'))}: {attempts_value}</div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
-            if st.button(t("watch_video"), key=f"{key_prefix}_video_watch", use_container_width=True, type="primary"):
+            video_action = _safe_ui_label("watch_again", "Watch again") if attempts_value > 0 else t("watch_video")
+            if st.button(video_action, key=f"{key_prefix}_video_watch", use_container_width=True, type="primary"):
                 st.session_state[f"{key_prefix}_video_player_open"] = True
                 record_video_assignment_watch(int(row.get("id") or 0))
                 _log_video_assignment_event(row, "student_video_watched")
@@ -793,20 +889,38 @@ def _render_teacher_relationships() -> None:
                 st.caption(f"{t('requested_subjects')}: {requested}")
 
 
-def _render_assignment_group(title: str, rows: list[dict], group_prefix: str) -> None:
-    if not rows:
-        render_empty_state(
-            title_key="student_assignments_group_empty_title",
-            body_key="student_assignments_group_empty_body",
-            steps=[
-                "student_assignments_group_empty_step_teacher",
-                "student_assignments_group_empty_step_status",
-                "student_assignments_group_empty_step_practice",
-            ],
-            icon="🗂️",
+def _assignment_scope_groups(rows: list[dict]) -> list[dict]:
+    grouped: dict[tuple[str, str], dict] = {}
+    for row in rows or []:
+        subject_key = str(row.get("subject_key") or "").strip() or "other"
+        subject_label = str(row.get("subject_display") or subject_key).strip()
+        teacher_id = str(row.get("teacher_id") or "").strip()
+        teacher_name = str(row.get("teacher_name") or "—").strip()
+        bucket = grouped.setdefault(
+            (subject_key, teacher_id),
+            {
+                "key": f"{subject_key}_{teacher_id or 'teacher'}",
+                "subject_key": subject_key,
+                "subject_label": subject_label,
+                "teacher_name": teacher_name,
+                "rows": [],
+            },
         )
-        return
+        bucket["rows"].append(row)
+    subject_counts: dict[str, int] = {}
+    for group in grouped.values():
+        subject = str(group.get("subject_key") or "")
+        subject_counts[subject] = subject_counts.get(subject, 0) + 1
+    result = list(grouped.values())
+    for group in result:
+        label = str(group.get("subject_label") or "")
+        if subject_counts.get(str(group.get("subject_key") or ""), 0) > 1:
+            label = f"{label} · {group.get('teacher_name') or '—'}"
+        group["label"] = label
+    return result
 
+
+def _render_assignment_rows(rows: list[dict], group_prefix: str) -> None:
     page_rows, *_ = _slice_student_page(rows, f"{group_prefix}_page")
     if all(str(row.get("assignment_type") or "").strip() in {"worksheet", "exam", "video"} for row in page_rows):
         inject_resource_gallery_styles()
@@ -827,6 +941,37 @@ def _render_assignment_group(title: str, rows: list[dict], group_prefix: str) ->
             for idx, row in enumerate(items):
                 _assignment_card(row, f"{group_prefix}_{teacher_name}_{subject_name}_{idx}")
     _render_student_pagination(rows, f"{group_prefix}_page")
+
+
+def _render_assignment_group(title: str, rows: list[dict], group_prefix: str) -> None:
+    if not rows:
+        render_empty_state(
+            title_key="student_assignments_group_empty_title",
+            body_key="student_assignments_group_empty_body",
+            steps=[
+                "student_assignments_group_empty_step_teacher",
+                "student_assignments_group_empty_step_status",
+                "student_assignments_group_empty_step_practice",
+            ],
+            icon="🗂️",
+        )
+        return
+
+    scope_groups = _assignment_scope_groups(rows)
+    if len(scope_groups) > 1:
+        tabs = st.tabs([f"📚 {group.get('label') or ''}" for group in scope_groups])
+        for tab, group in zip(tabs, scope_groups):
+            with tab:
+                _render_assignment_rows(
+                    group.get("rows") or [],
+                    f"{group_prefix}_{group.get('key') or 'scope'}",
+                )
+        return
+    group = scope_groups[0]
+    _render_assignment_rows(
+        group.get("rows") or [],
+        f"{group_prefix}_{group.get('key') or 'scope'}",
+    )
 
 
 def render_assigned_learning_programs_section(program_assignments: list[dict], legacy_topics: list[dict]) -> None:

@@ -11,6 +11,8 @@ import streamlit as st
 from core.i18n import t
 from core.database import register_cache
 from core.state import get_current_user_id
+from helpers.recommendation_models import resource_semantic_affinity
+from helpers.resource_affinity_runtime import resource_affinity_score
 
 
 def _normalize_text(value: Any) -> str:
@@ -260,8 +262,12 @@ def _material_score(resource: dict, request: dict) -> float:
     ))
     topic_similarity = _text_similarity(query_text, str(resource.get("search_text") or ""))
     token_overlap = _overlap_score(_request_tokens(request), resource.get("tokens") or set())
+    semantic_affinity = resource_semantic_affinity(row, kind, request)
+    unsupervised_affinity, _unsupervised_affinity_meta = resource_affinity_score(row, kind, request)
     score += 5.2 * topic_similarity
     score += 4.0 * token_overlap
+    score += 4.4 * semantic_affinity
+    score += 4.8 * unsupervised_affinity
 
     row_topic = _normalize_text(row.get("topic"))
     request_topic = _normalize_text(request.get("topic"))
@@ -304,7 +310,16 @@ def find_similar_materials(
         score = _material_score(resource, request)
         if score < min_score:
             continue
-        ranked.append({**resource, "score": score})
+        unsupervised_affinity, unsupervised_affinity_meta = resource_affinity_score(resource.get("row") or {}, str(resource.get("kind") or ""), request)
+        ranked.append(
+            {
+                **resource,
+                "score": score,
+                "semantic_affinity": resource_semantic_affinity(resource.get("row") or {}, str(resource.get("kind") or ""), request),
+                "unsupervised_affinity": unsupervised_affinity,
+                "unsupervised_affinity_meta": unsupervised_affinity_meta,
+            }
+        )
     ranked.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
     return ranked[: max(1, int(limit))]
 

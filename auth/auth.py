@@ -1489,6 +1489,117 @@ def render_choose_username_dialog(user_id: str) -> None:
 def render_choose_role_dialog(user_id: str) -> None:
     """Premium welcome dialog for new users to pick Teacher or Student role."""
     try:
+        def _render_clickable_role_card(
+            *,
+            title: str,
+            description: str,
+            icon: str,
+            accent: str,
+            accent_rgb: str,
+            button_key: str,
+        ) -> bool:
+            wrapper_class = f"st-key-{button_key}"
+            st.markdown(
+                f"""
+                <style>
+                .{wrapper_class} {{
+                    --role-accent: {accent};
+                    --role-rgb: {accent_rgb};
+                    height: 100%;
+                }}
+                .{wrapper_class} div[data-testid="stButton"] > button {{
+                    position: relative;
+                    overflow: hidden;
+                    width: 100%;
+                    min-height: 220px;
+                    height: 220px;
+                    padding: 28px 20px 20px !important;
+                    border-radius: 24px !important;
+                    border: 1px solid color-mix(in srgb, var(--border-strong, rgba(15,23,42,.16)) 72%, var(--role-accent) 28%) !important;
+                    background:
+                        radial-gradient(circle at 50% -18%, rgba(var(--role-rgb), .24), transparent 42%),
+                        linear-gradient(180deg, color-mix(in srgb, var(--panel, #fff) 90%, white 10%), color-mix(in srgb, var(--panel-2, #f8fafc) 82%, var(--role-accent) 18%)) !important;
+                    text-align: center;
+                    color: var(--text, #0f172a) !important;
+                    white-space: normal !important;
+                    box-shadow:
+                        0 24px 58px rgba(15,23,42,.12),
+                        inset 0 1px 0 rgba(255,255,255,.78) !important;
+                    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease !important;
+                }}
+                .{wrapper_class} div[data-testid="stButton"] > button:hover,
+                .{wrapper_class} div[data-testid="stButton"] > button:focus {{
+                    transform: translateY(-3px);
+                    border-color: color-mix(in srgb, var(--role-accent) 48%, rgba(255,255,255,.44)) !important;
+                    box-shadow:
+                        0 30px 68px rgba(15,23,42,.16),
+                        inset 0 1px 0 rgba(255,255,255,.82) !important;
+                }}
+                .{wrapper_class} div[data-testid="stButton"] > button p {{
+                    position: relative;
+                    z-index: 1;
+                    display: block;
+                    max-width: 230px;
+                    margin: 66px auto 0;
+                    white-space: pre-line !important;
+                    text-align: center;
+                    font-size: .86rem;
+                    line-height: 1.42;
+                    font-weight: 650;
+                    color: var(--muted, #64748b) !important;
+                }}
+                .{wrapper_class} div[data-testid="stButton"] > button p strong {{
+                    display: block;
+                    margin: 0 0 8px;
+                    font-size: 1.08rem;
+                    line-height: 1.14;
+                    font-weight: 900;
+                    color: var(--text, #0f172a) !important;
+                }}
+                .{wrapper_class} div[data-testid="stButton"] > button::before {{
+                    content: {icon!r};
+                    position: absolute;
+                    top: 18px;
+                    left: 50%;
+                    width: 56px;
+                    height: 56px;
+                    transform: translateX(-50%);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    border-radius: 18px;
+                    background:
+                        linear-gradient(180deg, rgba(255,255,255,.74), rgba(255,255,255,.28)),
+                        color-mix(in srgb, var(--role-accent) 15%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--role-accent) 28%, rgba(255,255,255,.72));
+                    box-shadow: 0 14px 28px rgba(var(--role-rgb), .16);
+                    font-size: 1.8rem;
+                    line-height: 1;
+                    pointer-events: none;
+                }}
+                .{wrapper_class} div[data-testid="stButton"] > button::after {{
+                    content: "";
+                    position: absolute;
+                    left: 18px;
+                    right: 18px;
+                    top: 0;
+                    height: 4px;
+                    border-radius: 0 0 999px 999px;
+                    background: linear-gradient(90deg, transparent, var(--role-accent), transparent);
+                    opacity: .72;
+                    pointer-events: none;
+                }}
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+            clicked = st.button(
+                f"**{title}**  \n{description}",
+                key=button_key,
+                use_container_width=True,
+            )
+            return clicked
+
         @st.dialog(t("welcome_choose_role_title"), width="large")
         def _choose_role_dlg():
             # ── Language selector (persists choice to profile + cookie) ──
@@ -1527,25 +1638,13 @@ def render_choose_role_dialog(user_id: str) -> None:
             col_teacher, col_student = st.columns(2, gap="large")
 
             with col_teacher:
-                st.markdown(
-                    f"""
-                    <div style="
-                        background: linear-gradient(135deg, rgba(59,130,246,0.12), rgba(59,130,246,0.04));
-                        border-radius: 18px; padding: 28px 20px; text-align: center;
-                        border: 1px solid var(--border); min-height: 220px;
-                    ">
-                        <div style="font-size:2.8rem; margin-bottom:10px;">👩‍🏫</div>
-                        <h3 style="margin:0 0 8px;">{t("teacher_role")}</h3>
-                        <p style="opacity:0.7; font-size:0.92rem; margin:0;">{t("welcome_teacher_desc")}</p>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                if st.button(
-                    t("welcome_i_am_teacher"),
-                    key="btn_role_teacher",
-                    use_container_width=True,
-                    type="primary",
+                if _render_clickable_role_card(
+                    title=t("teacher_role"),
+                    description=t("welcome_teacher_desc"),
+                    icon="👩",
+                    accent="#3B82F6",
+                    accent_rgb="59,130,246",
+                    button_key="btn_role_teacher",
                 ):
                     _chosen_lang = st.session_state.get("ui_lang", "en")
                     upsert_profile_row(
@@ -1565,25 +1664,13 @@ def render_choose_role_dialog(user_id: str) -> None:
                     st.rerun()
 
             with col_student:
-                st.markdown(
-                    f"""
-                    <div style="
-                        background: linear-gradient(135deg, rgba(16,185,129,0.12), rgba(16,185,129,0.04));
-                        border-radius: 18px; padding: 28px 20px; text-align: center;
-                        border: 1px solid var(--border); min-height: 220px;
-                    ">
-                        <div style="font-size:2.8rem; margin-bottom:10px;">🎓</div>
-                        <h3 style="margin:0 0 8px;">{t("student_role")}</h3>
-                        <p style="opacity:0.7; font-size:0.92rem; margin:0;">{t("welcome_student_desc")}</p>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                if st.button(
-                    t("welcome_i_am_student"),
-                    key="btn_role_student",
-                    use_container_width=True,
-                    type="primary",
+                if _render_clickable_role_card(
+                    title=t("student_role"),
+                    description=t("welcome_student_desc"),
+                    icon="🎓",
+                    accent="#10B981",
+                    accent_rgb="16,185,129",
+                    button_key="btn_role_student",
                 ):
                     _chosen_lang = st.session_state.get("ui_lang", "en")
                     upsert_profile_row(

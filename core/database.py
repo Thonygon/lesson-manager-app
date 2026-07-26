@@ -779,25 +779,22 @@ def touch_current_user_activity(page_name: str = "") -> None:
     if not should_touch:
         return
 
-    payload = {"last_used_at": now.isoformat()}
-    if safe_page and safe_page != "home":
+    profile = load_profile_row(uid)
+    payload = {}
+    if "last_used_at" in profile:
+        payload["last_used_at"] = now.isoformat()
+    if safe_page and safe_page != "home" and "last_page" in profile:
         payload["last_page"] = safe_page
+
+    if not payload:
+        st.session_state["_app_usage_touch_epoch"] = now_epoch
+        st.session_state["_app_usage_touch_page"] = safe_page
+        return
 
     try:
         get_sb().table("profiles").update(payload).eq("user_id", uid).execute()
-    except Exception as exc:
-        if "last_used_at" in str(exc):
-            fallback_payload = dict(payload)
-            fallback_payload.pop("last_used_at", None)
-            if fallback_payload:
-                try:
-                    get_sb().table("profiles").update(fallback_payload).eq("user_id", uid).execute()
-                except Exception:
-                    return
-            else:
-                return
-        else:
-            return
+    except Exception:
+        return
 
     st.session_state["_app_usage_touch_epoch"] = now_epoch
     st.session_state["_app_usage_touch_page"] = safe_page
@@ -945,22 +942,20 @@ def update_student_profile(student: str, email: str, zoom_link: str, notes: str,
         "color": color,
         "phone": phone,
         "address": address,
-        "native_language": native_language,
     }
+    try:
+        shape_query = sb.table("students").select("*").eq("student", student)
+        if uid:
+            shape_query = shape_query.eq("user_id", uid)
+        shape_rows = getattr(shape_query.limit(1).execute(), "data", None) or []
+        if shape_rows and "native_language" in shape_rows[0]:
+            payload["native_language"] = native_language
+    except Exception:
+        pass
     q = sb.table("students").update(payload).eq("student", student)
     if uid:
         q = q.eq("user_id", uid)
-    try:
-        q.execute()
-    except Exception as exc:
-        if "native_language" not in str(exc):
-            raise
-        legacy_payload = dict(payload)
-        legacy_payload.pop("native_language", None)
-        q = sb.table("students").update(legacy_payload).eq("student", student)
-        if uid:
-            q = q.eq("user_id", uid)
-        q.execute()
+    q.execute()
     clear_app_caches()
 
 

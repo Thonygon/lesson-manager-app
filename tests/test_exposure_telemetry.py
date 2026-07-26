@@ -52,6 +52,7 @@ class _FakeTableQuery:
         self._order = None
         self._pending_update = None
         self._pending_insert = None
+        self._pending_upsert = None
 
     def select(self, value):
         self.selected = value
@@ -85,6 +86,10 @@ class _FakeTableQuery:
         self._pending_insert = payload
         return self
 
+    def upsert(self, payload, *, on_conflict="", ignore_duplicates=False):
+        self._pending_upsert = (payload, on_conflict, ignore_duplicates)
+        return self
+
     def update(self, payload):
         self._pending_update = payload
         return self
@@ -104,6 +109,33 @@ class _FakeTableQuery:
 
     def execute(self):
         rows = self.store.setdefault(self.table_name, [])
+        if self._pending_upsert is not None:
+            payload, on_conflict, ignore_duplicates = self._pending_upsert
+            payloads = payload if isinstance(payload, list) else [payload]
+            inserted = []
+            for item in payloads:
+                item = dict(item)
+                duplicate = next(
+                    (row for row in rows if row.get(on_conflict) == item.get(on_conflict)),
+                    None,
+                )
+                if duplicate and ignore_duplicates:
+                    continue
+                if duplicate:
+                    duplicate.update(item)
+                    inserted.append(dict(duplicate))
+                    continue
+                if self.table_name == "resource_exposures":
+                    duplicate_exposure = next(
+                        (row for row in rows if row.get("exposure_id") == item.get("exposure_id")),
+                        None,
+                    )
+                    if duplicate_exposure:
+                        raise RuntimeError("duplicate exposure_id")
+                item.setdefault("id", len(rows) + 1)
+                rows.append(item)
+                inserted.append(item)
+            return _FakeResult(inserted)
         if self._pending_insert is not None:
             payloads = self._pending_insert if isinstance(self._pending_insert, list) else [self._pending_insert]
             inserted = []
@@ -184,6 +216,72 @@ class ExposureTelemetryTests(unittest.TestCase):
 
         self.assertNotEqual(first[0]["_telemetry_exposure_id"], second[0]["_telemetry_exposure_id"])
         self.assertEqual(2, len(fake_sb.tables["resource_exposures"]))
+
+    def test_same_resource_is_scoped_to_concurrent_learning_programs(self):
+        fake_sb = _FakeSupabase({"resource_exposures": []})
+        english = {
+            "id": 28,
+            "resource_type": "video",
+            "subject": "english",
+            "score": 0.8,
+            "program_id": 101,
+            "learning_program_assignment_id": 201,
+            "learning_program_topic_id": 301,
+        }
+        spanish = {
+            **english,
+            "subject": "spanish",
+            "program_id": 102,
+            "learning_program_assignment_id": 202,
+            "learning_program_topic_id": 302,
+        }
+        with (
+            patch.object(telemetry.st, "session_state", {}),
+            patch.object(telemetry, "get_sb", return_value=fake_sb),
+            patch.object(telemetry, "get_current_user_id", return_value="student-1"),
+        ):
+            english_row = telemetry.attach_student_recommendation_exposures([english], surface="student_home")[0]
+            spanish_row = telemetry.attach_student_recommendation_exposures([spanish], surface="student_home")[0]
+
+        self.assertNotEqual(
+            english_row["_telemetry_exposure_id"],
+            spanish_row["_telemetry_exposure_id"],
+        )
+        self.assertEqual(2, len(fake_sb.tables["resource_exposures"]))
+        self.assertEqual(
+            {201, 202},
+            {
+                row["learning_program_assignment_id"]
+                for row in fake_sb.tables["resource_exposures"]
+            },
+        )
+        self.assertEqual(
+            {301, 302},
+            {
+                row["learning_program_topic_id"]
+                for row in fake_sb.tables["resource_exposures"]
+            },
+        )
+
+    def test_already_annotated_student_recommendation_is_not_inserted_twice(self):
+        fake_sb = _FakeSupabase({"resource_exposures": []})
+        row = {
+            "id": 28,
+            "resource_type": "video",
+            "score": 0.8,
+            "learning_program_assignment_id": 202,
+            "learning_program_topic_id": 302,
+        }
+        with (
+            patch.object(telemetry.st, "session_state", {}),
+            patch.object(telemetry, "get_sb", return_value=fake_sb),
+            patch.object(telemetry, "get_current_user_id", return_value="student-1"),
+        ):
+            first = telemetry.attach_student_recommendation_exposures([row], surface="student_home")
+            second = telemetry.attach_student_recommendation_exposures(first, surface="student_home")
+
+        self.assertEqual(first[0]["_telemetry_exposure_id"], second[0]["_telemetry_exposure_id"])
+        self.assertEqual(1, len(fake_sb.tables["resource_exposures"]))
 
     def test_open_event_matches_existing_exposure(self):
         fake_sb = _FakeSupabase(
@@ -367,8 +465,11 @@ class ExposureTelemetryTests(unittest.TestCase):
     def test_cycle_id_fallback_keeps_inserts_working_on_older_schema(self):
         class _LegacyCycleQuery(_FakeTableQuery):
             def execute(self):
-                if self._pending_insert is not None and self.table_name == "resource_exposures":
-                    payloads = self._pending_insert if isinstance(self._pending_insert, list) else [self._pending_insert]
+                pending_payload = self._pending_insert
+                if self._pending_upsert is not None:
+                    pending_payload = self._pending_upsert[0]
+                if pending_payload is not None and self.table_name == "resource_exposures":
+                    payloads = pending_payload if isinstance(pending_payload, list) else [pending_payload]
                     for payload in payloads:
                         if "cycle_id" in payload:
                             raise RuntimeError("Could not find the 'cycle_id' column of 'resource_exposures' in the schema cache")

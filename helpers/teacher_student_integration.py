@@ -46,6 +46,7 @@ _ASSIGNMENT_LIST_COLUMNS = (
 )
 _ASSIGNMENT_EVENT_COLUMNS = (
     "id,teacher_id,student_id,assignment_type,source_record_id,title,status,opened_at,"
+    "subject_key,subject_label,topic,"
     "learning_program_assignment_id,learning_program_topic_id,recommendation_bucket,"
     "recommendation_focus_kind,recommendation_context,resource_exposure_id"
 )
@@ -60,11 +61,11 @@ _REVIEW_REQUEST_COLUMNS = (
     "requested_at,reviewed_at,created_at,updated_at"
 )
 _PRACTICE_SESSION_COLUMNS = (
-    "id,user_id,exercise_data,completed_at,correct_count,score_pct,created_at,updated_at"
+    "id,user_id,exercise_data,completed_at,correct_count,score_pct,created_at"
 )
 _PRACTICE_ANSWER_COLUMNS = (
-    "id,session_id,user_id,exercise_idx,question_idx,student_answer,correct_answer,"
-    "is_correct,created_at,updated_at"
+    "id,session_id,user_id,exercise_idx,question_idx,exercise_type,student_answer,"
+    "correct_answer,is_correct,answered_at"
 )
 
 
@@ -1165,6 +1166,46 @@ def load_assignment_state_map(assignment_ids: list[int]) -> dict[int, dict]:
     }
 
 
+def load_practice_assignment_scope_map(practice_session_ids: list[int]) -> dict[int, dict]:
+    """Return exact assignment/teacher scope for practice sessions created from assignments."""
+    student_id = str(get_current_user_id() or "").strip()
+    cleaned_ids = sorted({int(item) for item in practice_session_ids if int(item or 0) > 0})
+    if not student_id or not cleaned_ids:
+        return {}
+    try:
+        attempts = _rows(
+            get_sb()
+            .table("teacher_assignment_attempts")
+            .select("practice_session_id, assignment_id")
+            .eq("student_id", student_id)
+            .in_("practice_session_id", cleaned_ids)
+            .execute()
+        )
+    except Exception:
+        return {}
+
+    assignments_by_id = {
+        int(row.get("id") or 0): row
+        for row in load_student_assignments()
+        if int(row.get("id") or 0) > 0
+    }
+    result: dict[int, dict] = {}
+    for attempt in attempts:
+        session_id = int(attempt.get("practice_session_id") or 0)
+        assignment_id = int(attempt.get("assignment_id") or 0)
+        assignment = assignments_by_id.get(assignment_id)
+        if session_id <= 0 or not assignment:
+            continue
+        result[session_id] = {
+            "assignment_id": assignment_id,
+            "teacher_id": str(assignment.get("teacher_id") or "").strip(),
+            "teacher_name": str(assignment.get("teacher_name") or "").strip(),
+            "subject_key": str(assignment.get("subject_key") or "").strip(),
+            "subject_display": str(assignment.get("subject_display") or "").strip(),
+        }
+    return result
+
+
 def get_student_assignment_summary(limit: int = 4) -> list[dict]:
     statuses = ["assigned", "started", "submitted", "graded", "completed", "overdue"]
     assignments = load_student_assignments(statuses=statuses)
@@ -1306,6 +1347,29 @@ def record_video_assignment_watch(assignment_id: int) -> None:
             return
         assignment = rows[0]
         now = _now_iso()
+        video_session_id = None
+        try:
+            from helpers.practice_engine import record_video_practice_interaction
+
+            recommendation_context = assignment.get("recommendation_context") or {}
+            video_session_id = record_video_practice_interaction(
+                {
+                    "id": assignment.get("source_record_id"),
+                    "source_record_id": assignment.get("source_record_id"),
+                    "title": str(assignment.get("title") or t("video_label")),
+                    "subject": str(assignment.get("subject_key") or assignment.get("subject_label") or ""),
+                    "topic": str(assignment.get("topic") or ""),
+                    "level_or_band": str(recommendation_context.get("level") or ""),
+                },
+                meta={
+                    "subject": str(assignment.get("subject_key") or assignment.get("subject_label") or ""),
+                    "topic": str(assignment.get("topic") or ""),
+                    "level": str(recommendation_context.get("level") or ""),
+                },
+                assignment_id=int(assignment_id),
+            )
+        except Exception:
+            video_session_id = None
         existing_attempts = _rows(
             get_sb()
             .table("teacher_assignment_attempts")
@@ -1323,7 +1387,7 @@ def record_video_assignment_watch(assignment_id: int) -> None:
                     "assignment_id": int(assignment_id),
                     "teacher_id": str(assignment.get("teacher_id") or "").strip(),
                     "student_id": uid,
-                    "practice_session_id": None,
+                    "practice_session_id": video_session_id,
                     "attempt_number": attempt_number,
                     "status": "completed",
                     "score_pct": 100.0,
@@ -2370,7 +2434,11 @@ def render_assignment_panel_for_worksheet(
         topic=topic,
     )
     duplicate_confirmed = _render_duplicate_assignment_confirmation(prefix, duplicate_count)
-    recommendation_context = recommendation_context_for_assignment(link=link, subject_scope=subject_scope)
+    recommendation_context = recommendation_context_for_assignment(
+        link=link,
+        subject_scope=subject_scope,
+        topic_text=topic,
+    )
     if st.button(t("create_assignment"), key=f"{prefix}_assign_btn", use_container_width=True):
         if duplicate_count > 0 and not duplicate_confirmed:
             st.error(t("assignment_duplicate_confirm_required"))
@@ -2434,7 +2502,11 @@ def render_assignment_panel_for_exam(
         topic=topic,
     )
     duplicate_confirmed = _render_duplicate_assignment_confirmation(prefix, duplicate_count)
-    recommendation_context = recommendation_context_for_assignment(link=link, subject_scope=subject_scope)
+    recommendation_context = recommendation_context_for_assignment(
+        link=link,
+        subject_scope=subject_scope,
+        topic_text=topic,
+    )
     if st.button(t("create_assignment"), key=f"{prefix}_assign_btn", use_container_width=True):
         if duplicate_count > 0 and not duplicate_confirmed:
             st.error(t("assignment_duplicate_confirm_required"))
@@ -2497,7 +2569,11 @@ def render_assignment_panel_for_video(
         topic=topic,
     )
     duplicate_confirmed = _render_duplicate_assignment_confirmation(prefix, duplicate_count)
-    recommendation_context = recommendation_context_for_assignment(link=link, subject_scope=subject_scope)
+    recommendation_context = recommendation_context_for_assignment(
+        link=link,
+        subject_scope=subject_scope,
+        topic_text=topic,
+    )
     if st.button(t("create_assignment"), key=f"{prefix}_assign_btn", use_container_width=True):
         if duplicate_count > 0 and not duplicate_confirmed:
             st.error(t("assignment_duplicate_confirm_required"))
@@ -2592,9 +2668,14 @@ def render_assignment_panel_for_lesson_plan(
             item = topic_options[label]
             item_recommendation_context = {}
             if recommendation_context:
-                if _clean_text(recommendation_context.get("topic_title")) == _clean_text(item.get("topic_title")):
+                item_recommendation_context = recommendation_context_for_assignment(
+                    link=link,
+                    subject_scope=subject_scope,
+                    topic_text=item.get("topic_title", ""),
+                )
+                if item_recommendation_context:
                     item_recommendation_context = {
-                        **recommendation_context,
+                        **item_recommendation_context,
                         "topic_title": item["topic_title"],
                     }
             snapshot = {

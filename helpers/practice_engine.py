@@ -1981,6 +1981,19 @@ to   {{ opacity: 1; transform: translateY(0); }}
 #  F. SUPABASE PERSISTENCE
 # ════════════════════════════════════════════════════════════════
 
+def _normalize_practice_source_type(value: object) -> str:
+    source_type = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "worksheet_builder": "worksheet",
+        "worksheet_maker": "worksheet",
+        "quick_exam": "exam",
+        "quick_exam_builder": "exam",
+        "exam_builder": "exam",
+        "video_library": "video",
+    }
+    return aliases.get(source_type, source_type or "custom")
+
+
 def save_practice_session(
     exercise_data: dict,
     total: int,
@@ -2001,7 +2014,7 @@ def save_practice_session(
         payload = {
             "user_id": uid,
             "owner_id": uid,
-            "source_type": str(exercise_data.get("source_type") or "custom"),
+            "source_type": _normalize_practice_source_type(exercise_data.get("source_type")),
             "source_id": exercise_data.get("source_id"),
             "title": str(exercise_data.get("title") or ""),
             "subject": str(meta.get("subject") or ""),
@@ -2124,7 +2137,7 @@ def save_practice_draft(
     payload = {
         "user_id": uid,
         "owner_id": uid,
-        "source_type": str(exercise_data.get("source_type") or "custom"),
+        "source_type": _normalize_practice_source_type(exercise_data.get("source_type")),
         "source_id": exercise_data.get("source_id"),
         "title": str(exercise_data.get("title") or ""),
         "subject": str(meta.get("subject") or ""),
@@ -2193,6 +2206,11 @@ def update_practice_progress(
     subject = str(meta.get("subject") or "")
     topic   = str(meta.get("topic") or "")
     level   = str(meta.get("level") or "")
+    source_type = _normalize_practice_source_type(exercise_data.get("source_type"))
+    assignment_id = int(meta.get("assignment_id") or 0)
+    teacher_id = str(meta.get("teacher_id") or "").strip()
+    learning_program_assignment_id = int(meta.get("learning_program_assignment_id") or 0)
+    scope_key = f"assignment:{assignment_id}" if assignment_id > 0 else "independent"
 
     # Aggregate by exercise type
     type_stats: dict[str, dict] = {}
@@ -2228,16 +2246,35 @@ def update_practice_progress(
             type_xp = round(xp_earned / len(type_stats))
 
         try:
-            existing = (
-                sb.table("practice_progress")
-                .select("*")
-                .eq("user_id", uid)
-                .eq("subject", subject)
-                .eq("topic", topic)
-                .eq("exercise_type", ex_type)
-                .eq("level", level)
-                .execute()
-            )
+            source_type_supported = True
+            try:
+                existing = (
+                    sb.table("practice_progress")
+                    .select("*")
+                    .eq("user_id", uid)
+                    .eq("subject", subject)
+                    .eq("topic", topic)
+                    .eq("exercise_type", ex_type)
+                    .eq("level", level)
+                    .eq("scope_key", scope_key)
+                    .eq("source_type", source_type)
+                    .execute()
+                )
+            except Exception as select_err:
+                if "source_type" not in str(select_err):
+                    raise
+                source_type_supported = False
+                existing = (
+                    sb.table("practice_progress")
+                    .select("*")
+                    .eq("user_id", uid)
+                    .eq("subject", subject)
+                    .eq("topic", topic)
+                    .eq("exercise_type", ex_type)
+                    .eq("level", level)
+                    .eq("scope_key", scope_key)
+                    .execute()
+                )
             rows = existing.data or []
 
             now = _dt.now(timezone.utc).isoformat()
@@ -2257,6 +2294,8 @@ def update_practice_progress(
                     update_data["total_xp"] = (row.get("total_xp") or 0) + type_xp
                 if "best_streak" in row:
                     update_data["best_streak"] = max(row.get("best_streak") or 0, best_streak)
+                if source_type_supported and "source_type" in row:
+                    update_data["source_type"] = source_type
                 sb.table("practice_progress").update(update_data).eq("id", row["id"]).execute()
             else:
                 pct = round(stats["correct"] / stats["attempted"] * 100, 1) if stats["attempted"] else 0
@@ -2265,8 +2304,13 @@ def update_practice_progress(
                     "owner_id":        uid,
                     "subject":         subject,
                     "topic":           topic,
+                    "source_type":      source_type,
                     "exercise_type":   ex_type,
                     "level":           level,
+                    "scope_key":       scope_key,
+                    "teacher_id":      teacher_id or None,
+                    "assignment_id":   assignment_id or None,
+                    "learning_program_assignment_id": learning_program_assignment_id or None,
                     "total_attempted": stats["attempted"],
                     "total_correct":   stats["correct"],
                     "accuracy_pct":    pct,
@@ -2285,6 +2329,21 @@ def update_practice_progress(
                     if "total_xp" in err_str or "best_streak" in err_str:
                         insert_data.pop("total_xp", None)
                         insert_data.pop("best_streak", None)
+                    if "source_type" in err_str:
+                        insert_data.pop("source_type", None)
+                    if any(
+                        column in err_str
+                        for column in (
+                            "scope_key",
+                            "teacher_id",
+                            "assignment_id",
+                            "learning_program_assignment_id",
+                        )
+                    ):
+                        insert_data.pop("scope_key", None)
+                        insert_data.pop("teacher_id", None)
+                        insert_data.pop("assignment_id", None)
+                        insert_data.pop("learning_program_assignment_id", None)
                     try:
                         sb.table("practice_progress").insert(insert_data).execute()
                     except Exception:
@@ -2295,6 +2354,183 @@ def update_practice_progress(
     clear_app_caches()
 
 
+def record_video_engagement_session(
+    *,
+    source_id: int | str | None = None,
+    title: str = "",
+    subject: str = "",
+    topic: str = "",
+    level: str = "",
+    learner_stage: str = "",
+    assignment_id: int | str | None = None,
+    teacher_id: str = "",
+    learning_program_assignment_id: int | str | None = None,
+) -> int | None:
+    """Record a video watch as engagement, without treating it as correctness."""
+    uid = str(get_current_user_id() or "").strip()
+    if not uid:
+        return None
+
+    def _safe_optional_int(value):
+        try:
+            if value in (None, "", "None"):
+                return None
+            return int(value)
+        except Exception:
+            return None
+
+    now = _dt.now(timezone.utc).isoformat()
+    safe_source_id = _safe_optional_int(source_id)
+    safe_assignment_id = _safe_optional_int(assignment_id) or 0
+    safe_program_assignment_id = _safe_optional_int(learning_program_assignment_id) or 0
+    scope_key = f"assignment:{safe_assignment_id}" if safe_assignment_id > 0 else "independent"
+    clean_subject = str(subject or "").strip()
+    clean_topic = str(topic or "").strip()
+    clean_level = str(level or "").strip()
+    clean_title = str(title or t("video_label") or "Video").strip()
+    sb = get_sb()
+    session_id = None
+
+    payload = {
+        "user_id": uid,
+        "owner_id": uid,
+        "source_type": "video",
+        "source_id": safe_source_id,
+        "title": clean_title,
+        "subject": clean_subject,
+        "topic": clean_topic,
+        "learner_stage": str(learner_stage or "").strip(),
+        "level": clean_level,
+        "exercise_data": {
+            "source_type": "video",
+            "source_id": safe_source_id,
+            "title": clean_title,
+            "subject": clean_subject,
+            "topic": clean_topic,
+            "level": clean_level,
+            "engagement_type": "video_watch",
+        },
+        "total_questions": 1,
+        "correct_count": 0,
+        "score_pct": 0,
+        "xp_earned": 0,
+        "best_streak": 0,
+        "status": "completed",
+        "started_at": now,
+        "completed_at": now,
+        "created_at": now,
+    }
+    try:
+        try:
+            res = sb.table("practice_sessions").insert(payload).execute()
+        except Exception as exc:
+            retry_payload = dict(payload)
+            if "owner_id" in str(exc):
+                retry_payload.pop("owner_id", None)
+            res = sb.table("practice_sessions").insert(retry_payload).execute()
+        rows = res.data or []
+        session_id = int((rows[0] if rows else {}).get("id") or 0) or None
+    except Exception:
+        session_id = None
+
+    try:
+        source_type_supported = True
+        try:
+            existing = (
+                sb.table("practice_progress")
+                .select("*")
+                .eq("user_id", uid)
+                .eq("subject", clean_subject)
+                .eq("topic", clean_topic)
+                .eq("exercise_type", "video_watch")
+                .eq("level", clean_level)
+                .eq("scope_key", scope_key)
+                .eq("source_type", "video")
+                .execute()
+            )
+        except Exception as select_err:
+            if "source_type" not in str(select_err):
+                raise
+            source_type_supported = False
+            existing = (
+                sb.table("practice_progress")
+                .select("*")
+                .eq("user_id", uid)
+                .eq("subject", clean_subject)
+                .eq("topic", clean_topic)
+                .eq("exercise_type", "video_watch")
+                .eq("level", clean_level)
+                .eq("scope_key", scope_key)
+                .execute()
+            )
+        rows = existing.data or []
+        if rows:
+            row = rows[0]
+            update_data = {
+                "total_attempted": int(row.get("total_attempted") or 0) + 1,
+                "total_correct": int(row.get("total_correct") or 0),
+                "accuracy_pct": float(row.get("accuracy_pct") or 0),
+                "last_practiced": now,
+            }
+            if source_type_supported and "source_type" in row:
+                update_data["source_type"] = "video"
+            if "teacher_id" in row:
+                update_data["teacher_id"] = str(teacher_id or "").strip() or row.get("teacher_id")
+            if "assignment_id" in row:
+                update_data["assignment_id"] = safe_assignment_id or row.get("assignment_id")
+            if "learning_program_assignment_id" in row:
+                update_data["learning_program_assignment_id"] = safe_program_assignment_id or row.get("learning_program_assignment_id")
+            sb.table("practice_progress").update(update_data).eq("id", row["id"]).execute()
+        else:
+            insert_data = {
+                "user_id": uid,
+                "owner_id": uid,
+                "subject": clean_subject,
+                "topic": clean_topic,
+                "source_type": "video",
+                "exercise_type": "video_watch",
+                "level": clean_level,
+                "scope_key": scope_key,
+                "teacher_id": str(teacher_id or "").strip() or None,
+                "assignment_id": safe_assignment_id or None,
+                "learning_program_assignment_id": safe_program_assignment_id or None,
+                "total_attempted": 1,
+                "total_correct": 0,
+                "accuracy_pct": 0,
+                "total_xp": 0,
+                "best_streak": 0,
+                "last_practiced": now,
+                "created_at": now,
+            }
+            try:
+                sb.table("practice_progress").insert(insert_data).execute()
+            except Exception as exc:
+                err_str = str(exc)
+                if "owner_id" in err_str:
+                    insert_data.pop("owner_id", None)
+                if "source_type" in err_str:
+                    insert_data.pop("source_type", None)
+                if "total_xp" in err_str or "best_streak" in err_str:
+                    insert_data.pop("total_xp", None)
+                    insert_data.pop("best_streak", None)
+                if any(
+                    column in err_str
+                    for column in ("scope_key", "teacher_id", "assignment_id", "learning_program_assignment_id")
+                ):
+                    insert_data.pop("scope_key", None)
+                    insert_data.pop("teacher_id", None)
+                    insert_data.pop("assignment_id", None)
+                    insert_data.pop("learning_program_assignment_id", None)
+                try:
+                    sb.table("practice_progress").insert(insert_data).execute()
+                except Exception:
+                    pass
+        clear_app_caches()
+    except Exception:
+        pass
+    return session_id
+
+
 def rebuild_practice_progress_for_user(user_id: str | None = None) -> None:
     """Recompute practice_progress from completed sessions + answers for one user."""
     uid = str(user_id or get_current_user_id() or "").strip()
@@ -2303,14 +2539,26 @@ def rebuild_practice_progress_for_user(user_id: str | None = None) -> None:
 
     try:
         sb = get_sb()
-        session_rows = (
-            sb.table("practice_sessions")
-            .select("id, subject, topic, level, xp_earned, best_streak, completed_at, created_at, status")
-            .eq("user_id", uid)
-            .eq("status", "completed")
-            .order("created_at", desc=False)
-            .execute()
-        ).data or []
+        try:
+            session_rows = (
+                sb.table("practice_sessions")
+                .select("id, source_type, subject, topic, level, xp_earned, best_streak, completed_at, created_at, status")
+                .eq("user_id", uid)
+                .eq("status", "completed")
+                .order("created_at", desc=False)
+                .execute()
+            ).data or []
+        except Exception as select_err:
+            if "source_type" not in str(select_err):
+                raise
+            session_rows = (
+                sb.table("practice_sessions")
+                .select("id, subject, topic, level, xp_earned, best_streak, completed_at, created_at, status")
+                .eq("user_id", uid)
+                .eq("status", "completed")
+                .order("created_at", desc=False)
+                .execute()
+            ).data or []
         if not session_rows:
             try:
                 sb.table("practice_progress").delete().eq("user_id", uid).execute()
@@ -2330,29 +2578,74 @@ def rebuild_practice_progress_for_user(user_id: str | None = None) -> None:
                 .execute()
             ).data or []
 
+        attempt_rows = (
+            sb.table("teacher_assignment_attempts")
+            .select("practice_session_id, assignment_id, teacher_id")
+            .eq("student_id", uid)
+            .in_("practice_session_id", session_ids)
+            .execute()
+        ).data or [] if session_ids else []
+        assignment_ids = sorted(
+            {
+                int(row.get("assignment_id") or 0)
+                for row in attempt_rows
+                if int(row.get("assignment_id") or 0) > 0
+            }
+        )
+        assignment_rows = (
+            sb.table("teacher_assignments")
+            .select("id, learning_program_assignment_id")
+            .eq("student_id", uid)
+            .in_("id", assignment_ids)
+            .execute()
+        ).data or [] if assignment_ids else []
+        program_assignment_by_assignment = {
+            int(row.get("id") or 0): int(row.get("learning_program_assignment_id") or 0)
+            for row in assignment_rows
+        }
+        assignment_scope_by_session = {
+            int(row.get("practice_session_id") or 0): {
+                "assignment_id": int(row.get("assignment_id") or 0),
+                "teacher_id": str(row.get("teacher_id") or "").strip(),
+                "learning_program_assignment_id": program_assignment_by_assignment.get(
+                    int(row.get("assignment_id") or 0),
+                    0,
+                ),
+            }
+            for row in attempt_rows
+            if int(row.get("practice_session_id") or 0) > 0
+        }
+
         answers_by_session: dict[int, list[dict]] = {}
         for row in answer_rows:
             answers_by_session.setdefault(int(row.get("session_id") or 0), []).append(row)
 
-        aggregate: dict[tuple[str, str, str, str], dict] = {}
-        created_at_by_key: dict[tuple[str, str, str, str], str] = {}
+        aggregate: dict[tuple[str, str, str, str, str, str], dict] = {}
+        created_at_by_key: dict[tuple[str, str, str, str, str, str], str] = {}
 
         for session in session_rows:
             session_id = int(session.get("id") or 0)
             subject = str(session.get("subject") or "")
             topic = str(session.get("topic") or "")
             level = str(session.get("level") or "")
+            source_type = _normalize_practice_source_type(session.get("source_type"))
             session_answers = answers_by_session.get(session_id, [])
-            if not session_answers:
+            if not session_answers and source_type != "video":
                 continue
+            assignment_scope = assignment_scope_by_session.get(session_id, {})
+            assignment_id = int(assignment_scope.get("assignment_id") or 0)
+            scope_key = f"assignment:{assignment_id}" if assignment_id > 0 else "independent"
 
             type_stats: dict[str, dict[str, int]] = {}
-            for answer in session_answers:
-                ex_type = str(answer.get("exercise_type") or "unknown")
-                bucket = type_stats.setdefault(ex_type, {"attempted": 0, "correct": 0})
-                bucket["attempted"] += 1
-                if bool(answer.get("is_correct")):
-                    bucket["correct"] += 1
+            if source_type == "video" and not session_answers:
+                type_stats["video_watch"] = {"attempted": max(1, int(session.get("total_questions") or 1)), "correct": 0}
+            else:
+                for answer in session_answers:
+                    ex_type = str(answer.get("exercise_type") or "unknown")
+                    bucket = type_stats.setdefault(ex_type, {"attempted": 0, "correct": 0})
+                    bucket["attempted"] += 1
+                    if bool(answer.get("is_correct")):
+                        bucket["correct"] += 1
 
             total_correct = sum(item["correct"] for item in type_stats.values())
             session_xp = int(session.get("xp_earned") or 0)
@@ -2367,11 +2660,18 @@ def rebuild_practice_progress_for_user(user_id: str | None = None) -> None:
                 elif session_xp and not total_correct and type_stats:
                     type_xp = round(session_xp / len(type_stats))
 
-                key = (subject, topic, ex_type, level)
+                key = (scope_key, source_type, subject, topic, ex_type, level)
                 bucket = aggregate.setdefault(
                     key,
                     {
                         "user_id": uid,
+                        "scope_key": scope_key,
+                        "source_type": source_type,
+                        "teacher_id": str(assignment_scope.get("teacher_id") or "").strip() or None,
+                        "assignment_id": assignment_id or None,
+                        "learning_program_assignment_id": int(
+                            assignment_scope.get("learning_program_assignment_id") or 0
+                        ) or None,
                         "subject": subject,
                         "topic": topic,
                         "exercise_type": ex_type,
@@ -2419,6 +2719,21 @@ def rebuild_practice_progress_for_user(user_id: str | None = None) -> None:
                     if "total_xp" in err_str or "best_streak" in err_str:
                         retry_row.pop("total_xp", None)
                         retry_row.pop("best_streak", None)
+                    if "source_type" in err_str:
+                        retry_row.pop("source_type", None)
+                    if any(
+                        column in err_str
+                        for column in (
+                            "scope_key",
+                            "teacher_id",
+                            "assignment_id",
+                            "learning_program_assignment_id",
+                        )
+                    ):
+                        retry_row.pop("scope_key", None)
+                        retry_row.pop("teacher_id", None)
+                        retry_row.pop("assignment_id", None)
+                        retry_row.pop("learning_program_assignment_id", None)
                     retry_rows.append(retry_row)
                 try:
                     sb.table("practice_progress").insert(retry_rows).execute()
@@ -2474,6 +2789,8 @@ def _load_practice_history_cached(uid: str, limit: int = 50) -> pd.DataFrame:
         if df is None or df.empty:
             return pd.DataFrame()
         df = df.copy()
+        if "user_id" in df.columns:
+            df = df[df["user_id"].astype(str) == str(uid)].copy()
         if "status" in df.columns:
             df = df[df["status"].fillna("completed").astype(str) == "completed"].copy()
         if "created_at" in df.columns:
@@ -2551,6 +2868,72 @@ def get_completed_source_ids() -> dict[str, set]:
     return result
 
 
+def record_video_practice_interaction(
+    video_payload: dict | None = None,
+    meta: dict | None = None,
+    *,
+    assignment_id: int | None = None,
+    xp_earned: int | None = None,
+) -> int | None:
+    """Persist a video watch as a completed practice session + progress event."""
+    payload = dict(video_payload or {})
+    meta = dict(meta or {})
+    source_id = (
+        int(payload.get("id") or 0)
+        or int(payload.get("video_id") or 0)
+        or int(payload.get("source_record_id") or 0)
+        or int(assignment_id or 0)
+    )
+    title = str(payload.get("title") or t("video_label") or "Video").strip()
+    event_xp = int(xp_earned if xp_earned is not None else (XP_PER_CORRECT + XP_PER_ATTEMPT))
+    event_xp = max(event_xp, 0)
+
+    exercise_data = {
+        "title": title,
+        "instructions": "Watch and review the video resource.",
+        "source_type": "video",
+        "source_id": source_id or None,
+        "exercises": [
+            {
+                "type": "video_watch",
+                "title": title,
+                "instructions": "Video watched",
+                "questions": [{"text": "video_watch"}],
+                "answers": ["watched"],
+            }
+        ],
+    }
+    student_answers = {"video_0_0": "watched"}
+    progress_meta = {
+        "subject": str(meta.get("subject") or payload.get("subject") or ""),
+        "topic": str(meta.get("topic") or payload.get("topic") or ""),
+        "learner_stage": str(meta.get("learner_stage") or payload.get("learner_stage") or ""),
+        "level": str(meta.get("level") or payload.get("level_or_band") or ""),
+    }
+
+    session_id = save_practice_session(
+        exercise_data,
+        total=1,
+        correct=1,
+        score_pct=100.0,
+        xp_earned=event_xp,
+        best_streak=1,
+        status="completed",
+        meta=progress_meta,
+    )
+    if not session_id:
+        return None
+    update_practice_progress(
+        exercise_data,
+        student_answers,
+        meta=progress_meta,
+        session_key="video",
+        xp_earned=event_xp,
+        best_streak=1,
+    )
+    return session_id
+
+
 def update_practice_session(
     session_id: int,
     exercise_data: dict,
@@ -2602,7 +2985,18 @@ def load_practice_progress() -> pd.DataFrame:
     """Load the current user's practice progress aggregates."""
     uid = str(get_current_user_id() or "").strip()
     _maybe_refresh_practice_progress_from_reviews(uid)
-    return _load_practice_progress_cached(uid)
+    progress = _load_practice_progress_cached(uid)
+    scope_refresh_key = f"_practice_progress_assignment_scope_v3_{uid}"
+    if (
+        uid
+        and "scope_key" in progress.columns
+        and "source_type" in progress.columns
+        and not st.session_state.get(scope_refresh_key)
+    ):
+        rebuild_practice_progress_for_user(uid)
+        st.session_state[scope_refresh_key] = True
+        progress = _load_practice_progress_cached(uid)
+    return progress
 
 
 def get_total_xp() -> int:

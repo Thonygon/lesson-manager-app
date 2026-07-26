@@ -413,6 +413,10 @@ def _student_reco_meta(item: dict[str, Any], surface: str) -> dict[str, Any]:
         "level": str(item.get("level") or "").strip(),
         "exercise_type": str(item.get("exercise_type") or "").strip(),
         "assigned_resource": bool(item.get("assigned_resource")),
+        "assignment_id": int(item.get("assignment_id") or 0) or None,
+        "program_id": int(item.get("program_id") or 0) or None,
+        "learning_program_assignment_id": int(item.get("learning_program_assignment_id") or 0) or None,
+        "learning_program_topic_id": int(item.get("learning_program_topic_id") or 0) or None,
         "score": _safe_float(item.get("score"), 0.0),
         "ml_score": _safe_float(item.get("ml_score"), 0.0),
         "ml_blend_weight": _safe_float(item.get("ml_blend_weight"), 0.0),
@@ -431,7 +435,11 @@ def log_student_recommendation_impressions(rows: list[dict[str, Any]], *, surfac
     seen = set(st.session_state.get("_student_reco_impressions_seen") or [])
     payloads = []
     for source_item, item in zip(safe_rows[:12], annotated_rows[:12]):
-        signature = f"{surface}:{item.get('resource_type')}:{item.get('id')}"
+        signature = (
+            f"{surface}:{int(item.get('learning_program_assignment_id') or 0)}:"
+            f"{int(item.get('learning_program_topic_id') or 0)}:"
+            f"{item.get('resource_type')}:{item.get('id')}"
+        )
         if item.get("id") in (None, "", 0, "0") or signature in seen:
             continue
         seen.add(signature)
@@ -461,14 +469,20 @@ def log_student_recommendation_open(item: dict[str, Any], *, surface: str) -> No
     if not isinstance(item, dict) or item.get("id") in (None, "", 0, "0"):
         return
     seen = set(st.session_state.get("_student_reco_open_seen") or [])
-    signature = f"{surface}:{item.get('resource_type')}:{item.get('id')}"
+    learning_program_assignment_id = int(item.get("learning_program_assignment_id") or 0)
+    learning_program_topic_id = int(item.get("learning_program_topic_id") or 0)
+    signature = (
+        f"{surface}:{learning_program_assignment_id}:{learning_program_topic_id}:"
+        f"{item.get('resource_type')}:{item.get('id')}"
+    )
     if signature in seen:
         return
     try:
         exposure_id = str(item.get("_telemetry_exposure_id") or "").strip()
         if not exposure_id:
             exposure_id = lookup_active_exposure_id(
-                f"student_reco:{surface}:{item.get('resource_type')}:{item.get('id')}"
+                f"student_reco:{surface}:{learning_program_assignment_id}:"
+                f"{learning_program_topic_id}:{item.get('resource_type')}:{item.get('id')}"
             )
         if exposure_id:
             record_exposure_event(

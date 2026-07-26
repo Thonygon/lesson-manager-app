@@ -138,23 +138,32 @@ class RecommendationIoOptimizationTests(unittest.TestCase):
         queried_tables = [query.table_name for query in fake_sb.table_log]
         self.assertNotIn("learning_program_topic_videos", queried_tables)
 
-    def test_recommendation_event_summary_uses_rpc_with_teacher_scope(self):
+    def test_recommendation_event_summary_uses_deployed_table_without_missing_rpc_probe(self):
         fake_sb = _FakeSupabase(
-            rpc_data={
-                "classio_recommendation_event_summary": [
+            table_data={
+                "learning_program_recommendation_events": [
                     {
+                        "teacher_id": "teacher-1",
+                        "student_id": "student-9",
                         "learning_program_assignment_id": 41,
                         "learning_program_topic_id": 7,
                         "recommendation_bucket": "review",
-                        "event_count": 3,
-                        "last_event_type": "student_improved",
-                        "last_event_at": "2026-07-01T00:00:00+00:00",
-                        "latest_score": 88.0,
-                        "improved_count": 1,
-                        "assigned_count": 1,
-                        "teacher_marked_done_count": 0,
-                        "resource_kinds": ["worksheet", "video"],
-                    }
+                        "event_type": "student_improved",
+                        "resource_kind": "worksheet",
+                        "metadata": {"score_pct": 88.0},
+                        "created_at": "2026-07-01T00:00:00+00:00",
+                    },
+                    {
+                        "teacher_id": "teacher-1",
+                        "student_id": "student-9",
+                        "learning_program_assignment_id": 41,
+                        "learning_program_topic_id": 7,
+                        "recommendation_bucket": "review",
+                        "event_type": "assignment_created",
+                        "resource_kind": "video",
+                        "metadata": {},
+                        "created_at": "2026-06-30T00:00:00+00:00",
+                    },
                 ]
             }
         )
@@ -166,16 +175,18 @@ class RecommendationIoOptimizationTests(unittest.TestCase):
         ):
             summary = recommendation_memory.load_recommendation_event_summary((41,), "student-9")
 
-        self.assertEqual(1, len(fake_sb.rpc_log))
-        rpc_call = fake_sb.rpc_log[0]
-        self.assertEqual("classio_recommendation_event_summary", rpc_call.fn_name)
-        self.assertEqual("teacher-1", rpc_call.params["p_teacher_id"])
-        self.assertEqual("student-9", rpc_call.params["p_student_id"])
-        self.assertEqual([41], rpc_call.params["p_assignment_ids"])
+        self.assertEqual([], fake_sb.rpc_log)
+        event_query = next(
+            query for query in fake_sb.table_log
+            if query.table_name == "learning_program_recommendation_events"
+        )
+        self.assertIn(("eq", "teacher_id", "teacher-1"), event_query.ops)
+        self.assertIn(("eq", "student_id", "student-9"), event_query.ops)
+        self.assertIn(("in", "learning_program_assignment_id", (41,)), event_query.ops)
 
         key = (41, 7, "review")
         self.assertIn(key, summary)
-        self.assertEqual(3, summary[key]["count"])
+        self.assertEqual(2, summary[key]["count"])
         self.assertEqual("student_improved", summary[key]["last_event_type"])
         self.assertEqual({"worksheet", "video"}, summary[key]["resource_kinds"])
 

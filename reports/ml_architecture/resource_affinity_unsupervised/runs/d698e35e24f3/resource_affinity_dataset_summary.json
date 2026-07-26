@@ -1,0 +1,26 @@
+{
+  "data_fingerprint": "76a5385031c8d483e2918c50",
+  "errors": [],
+  "extracted_at": "2026-07-25T21:16:33.568877+00:00",
+  "feature_schema_version": "resource_affinity_unsupervised.v1",
+  "included_counts_by_type": {
+    "exam": 31,
+    "lesson_plan": 14,
+    "program": 7,
+    "video": 44,
+    "worksheet": 84
+  },
+  "included_row_count": 180,
+  "language_count": 2,
+  "level_count": 6,
+  "raw_counts_by_type": {
+    "exam": 31,
+    "lesson_plan": 14,
+    "program": 7,
+    "video": 44,
+    "worksheet": 85
+  },
+  "resource_count": 180,
+  "source_row_count": 181,
+  "subject_count": 4
+}

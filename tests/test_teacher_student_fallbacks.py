@@ -83,17 +83,37 @@ class TeacherStudentFallbackTests(unittest.TestCase):
             df = student_meta.load_students_df()
 
         self.assertEqual(["Ana"], df["student"].tolist())
-        self.assertIn(("students", student_meta._STUDENT_META_COLUMNS), fake_sb.selected_columns_log)
-        self.assertIn(
-            (
-                "students",
-                "student,email,zoom_link,notes,color,phone,address,native_language,teacher_student_link_id,student_source,linked_at",
-            ),
-            fake_sb.selected_columns_log,
-        )
-        self.assertIn(("eq", "user_id", "teacher-1"), fake_sb.queries[1].filters)
+        self.assertEqual([("students", "*")], fake_sb.selected_columns_log)
+        self.assertIn(("eq", "user_id", "teacher-1"), fake_sb.queries[0].filters)
         self.assertEqual([""], df["linked_student_user_id"].tolist())
         self.assertEqual(["manual"], df["student_source"].tolist())
+
+    def test_student_meta_defaults_native_language_when_column_is_not_deployed(self):
+        fake_sb = _FakeSupabase(
+            {
+                "students": [
+                    {
+                        "student": "Ana",
+                        "email": "ana@example.com",
+                        "zoom_link": "",
+                        "notes": "",
+                        "color": "#3B82F6",
+                        "phone": "",
+                        "address": "",
+                    }
+                ]
+            }
+        )
+
+        with (
+            patch.object(student_meta, "get_sb", return_value=fake_sb),
+            patch.object(student_meta, "_execute_query_with_diagnostics", side_effect=lambda query, **_: query.execute()),
+            patch.object(student_meta.st, "session_state", {"user_id": "teacher-1"}, create=True),
+        ):
+            df = student_meta.load_students_df()
+
+        self.assertEqual([""], df["native_language"].tolist())
+        self.assertEqual([("students", "*")], fake_sb.selected_columns_log)
 
     def test_teacher_student_rows_fall_back_when_link_columns_are_missing(self):
         fake_sb = _FakeSupabase(

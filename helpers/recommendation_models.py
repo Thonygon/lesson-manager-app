@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from difflib import SequenceMatcher
 import math
 import os
 import re
@@ -18,6 +19,7 @@ from helpers.exposure_telemetry import (
     lookup_active_exposure_id,
     record_exposure_event,
 )
+from helpers.resource_affinity_runtime import clear_resource_affinity_runtime_cache, resource_affinity_score
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -95,6 +97,63 @@ def _tokenize(*values: Any) -> set[str]:
             if len(cleaned) >= 3:
                 tokens.add(cleaned)
     return tokens
+
+
+def semantic_text_affinity(left_values: list[Any] | tuple[Any, ...], right_values: list[Any] | tuple[Any, ...]) -> float:
+    """Lightweight Phase-2 semantic-affinity proxy used before the unsupervised model is promoted.
+
+    This intentionally stays deterministic and dependency-free for production rankers. Experiment 3
+    produces the stronger offline unsupervised artifacts; this helper makes the current heuristic
+    ranker complete enough to consider canonical text affinity across title, topic, objective,
+    subtype, and description rather than only exact topic/title matches.
+    """
+    left_text = _norm_text(" ".join(str(item or "") for item in left_values))
+    right_text = _norm_text(" ".join(str(item or "") for item in right_values))
+    if not left_text or not right_text:
+        return 0.0
+    if left_text.casefold() == right_text.casefold():
+        return 1.0
+    left_tokens = _tokenize(left_text)
+    right_tokens = _tokenize(right_text)
+    token_overlap = _overlap_score(left_tokens, right_tokens, scale=max(3.0, min(len(left_tokens), len(right_tokens), 8)))
+    containment = 0.0
+    left_cf = left_text.casefold()
+    right_cf = right_text.casefold()
+    if left_cf in right_cf or right_cf in left_cf:
+        containment = 0.82
+    try:
+        sequence_ratio = SequenceMatcher(None, left_cf, right_cf).ratio()
+    except Exception:
+        sequence_ratio = 0.0
+    return _clamp(max(token_overlap, containment, sequence_ratio * 0.86))
+
+
+def resource_semantic_affinity(row: dict, kind: str, context: dict) -> float:
+    """Semantic-affinity proxy between one resource and a recommendation/generation context."""
+    resource_values = [
+        row.get("title"),
+        row.get("topic"),
+        row.get("description"),
+        row.get("worksheet_type"),
+        row.get("lesson_purpose"),
+        row.get("exam_length"),
+        " ".join(str(item or "") for item in (row.get("exercise_types") or []) if str(item or "")),
+    ]
+    context_values = [
+        context.get("title"),
+        context.get("topic"),
+        context.get("objective"),
+        context.get("lesson_focus"),
+        context.get("recommendation_bucket"),
+        context.get("focus_kind"),
+        context.get("worksheet_type"),
+        context.get("lesson_purpose"),
+        context.get("exam_length"),
+        " ".join(str(item or "") for item in (context.get("exercise_types") or []) if str(item or "")),
+        " ".join(str(item or "") for item in (context.get("next_topics") or []) if str(item or "")),
+        " ".join(str(item or "") for item in (context.get("weak_topics") or []) if str(item or "")),
+    ]
+    return semantic_text_affinity(resource_values, context_values)
 
 
 def _now_iso() -> str:
@@ -310,6 +369,10 @@ def clear_recommendation_model_caches() -> None:
             fn.clear()
         except Exception:
             pass
+    try:
+        clear_resource_affinity_runtime_cache()
+    except Exception:
+        pass
 
 
 @st.cache_data(ttl=90, show_spinner=False)
@@ -664,6 +727,8 @@ def build_teacher_recommendation_model(teacher_id: str | None = None) -> dict[st
         "direct_topic_link": 0.64,
         "topic_kind_prior": 0.34,
         "topic_match_ambiguity": -0.26,
+        "semantic_affinity": 0.52,
+        "unsupervised_affinity": 0.38,
         "prior_kind_success": 0.24,
         "prior_bucket_success": 0.3,
         "prior_focus_success": 0.22,
@@ -757,6 +822,8 @@ def score_teacher_resource_candidate(
     title_match = 1.0 if _norm_text(recommendation_item.get("title")) and _norm_text(recommendation_item.get("title")).casefold() in _norm_text(row.get("title")).casefold() else 0.0
     objective_match = 1.0 if _norm_text(recommendation_item.get("objective")) and _norm_text(recommendation_item.get("objective")).casefold() in _norm_text(row.get("title")).casefold() else 0.0
     topic_overlap = _overlap_score(title_tokens, query_tokens)
+    semantic_affinity = resource_semantic_affinity(row, kind, recommendation_item)
+    unsupervised_affinity, unsupervised_affinity_meta = resource_affinity_score(row, kind, recommendation_item)
     bucket = _norm_key(recommendation_item.get("recommendation_bucket"))
     focus = _norm_key(recommendation_item.get("focus_kind"))
     kind_key = _norm_key(kind)
@@ -768,6 +835,8 @@ def score_teacher_resource_candidate(
         "title_match": title_match,
         "objective_match": objective_match,
         "topic_overlap": topic_overlap,
+        "semantic_affinity": semantic_affinity,
+        "unsupervised_affinity": unsupervised_affinity,
         "source_own": 1.0 if source == "own" else 0.0,
         f"kind_{kind_key}": 1.0 if kind_key else 0.0,
         f"bucket_{bucket}": 1.0 if bucket else 0.0,
@@ -782,6 +851,9 @@ def score_teacher_resource_candidate(
         "prior_bucket_success": _safe_float((model.get("priors") or {}).get("bucket", {}).get(bucket), 0.0),
         "prior_focus_success": _safe_float((model.get("priors") or {}).get("focus", {}).get(focus), 0.0),
     }
+    if unsupervised_affinity_meta.get("matched"):
+        features["unsupervised_same_cluster"] = 1.0 if unsupervised_affinity_meta.get("same_cluster_as_query_anchor") else 0.0
+        features["unsupervised_candidate_similarity"] = _safe_float(unsupervised_affinity_meta.get("candidate_similarity"), 0.0)
     return _score_linear_model(model.get("weights") or {}, features), features
 
 
@@ -1332,6 +1404,7 @@ def build_student_recommendation_model(
         "exercise_need": 0.36,
         "completion_fit": 0.28,
         "format_fit": 0.24,
+        "semantic_affinity": 0.44,
         "explicit_topic_match": 0.82,
         "explicit_topic_support": 0.28,
         "direct_topic_link": 0.54,

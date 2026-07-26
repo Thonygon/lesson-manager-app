@@ -1,0 +1,86 @@
+{
+  "dataset": {
+    "data_fingerprint": "76a5385031c8d483e2918c50",
+    "errors": [],
+    "extracted_at": "2026-07-25T21:14:22.005972+00:00",
+    "feature_schema_version": "resource_affinity_unsupervised.v1",
+    "included_counts_by_type": {
+      "exam": 31,
+      "lesson_plan": 14,
+      "program": 7,
+      "video": 44,
+      "worksheet": 84
+    },
+    "included_row_count": 180,
+    "language_count": 2,
+    "level_count": 6,
+    "raw_counts_by_type": {
+      "exam": 31,
+      "lesson_plan": 14,
+      "program": 7,
+      "video": 44,
+      "worksheet": 85
+    },
+    "resource_count": 180,
+    "source_row_count": 181,
+    "subject_count": 4
+  },
+  "evaluation": {
+    "best_model": {
+      "calinski_harabasz": 13.501060896065765,
+      "cluster_count": 54,
+      "cross_language_contamination_rate": 0.0,
+      "cross_subject_contamination_rate": 0.0556,
+      "davies_bouldin": 0.6898200510253327,
+      "failure_reason": "",
+      "inference_duration_ms": 0,
+      "model_key": "DBSCAN:{\"eps\": 0.32, \"metric\": \"cosine\", \"min_samples\": 2}",
+      "model_name": "DBSCAN",
+      "noise_ratio": 0.1722,
+      "parameters_json": "{\"eps\": 0.32, \"metric\": \"cosine\", \"min_samples\": 2}",
+      "silhouette_score": 0.752721104597836,
+      "singleton_cluster_count": 0,
+      "status": "ok",
+      "train_duration_ms": 1
+    },
+    "embedding_manifest": {
+      "embedding_method": "tfidf_truncated_svd",
+      "explained_variance_ratio_sum": 0.6707238447755411,
+      "feature_count": 1600,
+      "ngram_range": "1,2",
+      "vector_dimensions": 64,
+      "vectorizer": "TfidfVectorizer"
+    },
+    "experiment_id": "resource_affinity_unsupervised_discovery",
+    "feature_names": [
+      "profile_text",
+      "subject",
+      "language",
+      "level",
+      "resource_type"
+    ],
+    "high_confidence_neighbor_edges": 258,
+    "limitations": [
+      "No human-labeled semantic relevance labels are used in this unsupervised phase.",
+      "Small or imbalanced resource catalogs can make clustering metrics unstable.",
+      "Business rules must still filter by subject, language, teacher, student, level, and archive state."
+    ],
+    "maturity_verdict": "CANDIDATE_FOR_SHADOW_TESTING",
+    "overall_evidence_strength": "EXPLORATORY_SEMANTIC_AFFINITY",
+    "primary_metric": "silhouette_score",
+    "primary_metric_leader": "DBSCAN",
+    "run_id": "81afd0e1a449",
+    "winner": "DBSCAN"
+  },
+  "generated_at": "2026-07-25T21:14:25.882790+00:00",
+  "review": {
+    "label_reconciliation": {
+      "limitations": [
+        "No human-labeled semantic relevance labels are used in this unsupervised phase.",
+        "Small or imbalanced resource catalogs can make clustering metrics unstable.",
+        "Business rules must still filter by subject, language, teacher, student, level, and archive state."
+      ],
+      "summary": "Unsupervised experiment: no supervised label construction was used."
+    }
+  }
+}

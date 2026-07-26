@@ -9,6 +9,78 @@ import streamlit as st
 from core.i18n import t
 
 
+RESOURCE_KIND_ACCENTS = {
+    "worksheet": "#8b5cf6",
+    "exam": "#ec4899",
+    "lesson_plan": "#eab308",
+    "program": "#60a5fa",
+    "topic": "#60a5fa",
+    "video": "#1e3a8a",
+    "practice": "#60a5fa",
+}
+
+_RESOURCE_KIND_ALIASES = {
+    "worksheet_builder": "worksheet",
+    "worksheet_maker": "worksheet",
+    "worksheets": "worksheet",
+    "quick_exam": "exam",
+    "quick_exam_builder": "exam",
+    "exam_builder": "exam",
+    "exams": "exam",
+    "video_library": "video",
+    "videos": "video",
+    "lesson_plan_builder": "lesson_plan",
+    "plan": "lesson_plan",
+    "lesson": "lesson_plan",
+    "learning_program": "program",
+    "learning_programs": "program",
+    "topic": "topic",
+    "topics": "topic",
+    "learning_topic": "topic",
+    "lesson_plan_topic": "topic",
+}
+
+_RESOURCE_KIND_CLASS_SUFFIX = {
+    "lesson_plan": "plan",
+}
+
+
+def normalize_resource_kind(kind: Any) -> str:
+    """Return the canonical resource kind used by shared resource cards."""
+    raw = str(kind or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not raw:
+        return "practice"
+    return _RESOURCE_KIND_ALIASES.get(raw, raw if raw in RESOURCE_KIND_ACCENTS else "practice")
+
+
+def resource_kind_accent(kind: Any) -> str:
+    """Shared accent color for a resource kind."""
+    return RESOURCE_KIND_ACCENTS.get(normalize_resource_kind(kind), RESOURCE_KIND_ACCENTS["practice"])
+
+
+def resource_kind_css_class(kind: Any) -> str:
+    """Shared CSS class for a resource kind card."""
+    normalized = normalize_resource_kind(kind)
+    suffix = _RESOURCE_KIND_CLASS_SUFFIX.get(normalized, normalized)
+    return f"cm-resource-{suffix}"
+
+
+def resource_kind_label(kind: Any) -> str:
+    """Localized, user-facing material label for a resource kind."""
+    normalized = normalize_resource_kind(kind)
+    labels = {
+        "worksheet": t("worksheet_label"),
+        "exam": t("exam_label"),
+        "lesson_plan": t("lesson_plan"),
+        "program": t("learning_program"),
+        "topic": t("topics_label"),
+        "video": t("video_label"),
+        "practice": t("smart_practice"),
+    }
+    label = labels.get(normalized) or normalized.replace("_", " ").title()
+    return label if label and label != normalized else normalized.replace("_", " ").title()
+
+
 def inject_resource_gallery_styles() -> None:
     st.markdown(
         """
@@ -30,11 +102,13 @@ def inject_resource_gallery_styles() -> None:
           border-color:color-mix(in srgb, var(--resource-accent) 48%, var(--border));
           box-shadow:0 24px 60px rgba(15,23,42,.14), 0 0 0 1px color-mix(in srgb, var(--resource-accent) 16%, transparent);
         }
-        .cm-resource-worksheet{--resource-accent:#8b5cf6;}
-        .cm-resource-exam{--resource-accent:#10b981;}
-        .cm-resource-plan{--resource-accent:#f59e0b;}
-        .cm-resource-program{--resource-accent:#3b82f6;}
-        .cm-resource-video{--resource-accent:#ef4444;}
+        .cm-resource-worksheet{--resource-accent:var(--resource-accent-worksheet, #8b5cf6);}
+        .cm-resource-exam{--resource-accent:var(--resource-accent-exam, #ec4899);}
+        .cm-resource-plan{--resource-accent:var(--resource-accent-plan, #eab308);}
+        .cm-resource-program{--resource-accent:var(--resource-accent-program, #60a5fa);}
+        .cm-resource-topic{--resource-accent:var(--resource-accent-topic, #60a5fa);}
+        .cm-resource-video{--resource-accent:var(--resource-accent-video, #1e3a8a);}
+        .cm-resource-practice{--resource-accent:var(--resource-accent-practice, #60a5fa);}
         .cm-resource-hero{
           position:relative;
           aspect-ratio:16/9;
@@ -270,7 +344,8 @@ def render_gallery_card_html(
 ) -> str:
     safe_title = html.escape(str(title or ""))
     safe_description = html.escape(str(description or t("no_description_available")))
-    safe_placeholder = html.escape(str(placeholder_label or kind.replace("_", " ").title()))
+    safe_placeholder = html.escape(str(placeholder_label or resource_kind_label(kind)))
+    safe_kind_class = html.escape(resource_kind_css_class(kind))
     if image_url:
         hero = f'<div class="cm-resource-hero"><img src="{html.escape(image_url, quote=True)}" alt="{safe_title}" loading="lazy"></div>'
     else:
@@ -281,7 +356,7 @@ def render_gallery_card_html(
             "</div></div>"
         )
     return (
-        f'<div class="cm-resource-card cm-resource-{html.escape(kind)}">'
+        f'<div class="cm-resource-card {safe_kind_class}">'
         f"{hero}"
         '<div class="cm-resource-body">'
         f'<div class="cm-resource-card__title">{safe_title}</div>'

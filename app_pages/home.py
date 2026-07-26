@@ -64,6 +64,7 @@ from helpers.worksheet_storage import (
     render_worksheet_library_cards,
     render_worksheet_result,
 )
+from helpers.resource_gallery import resource_kind_accent
 from styles.theme import load_css_home
 
 
@@ -886,10 +887,10 @@ def _render_smart_tools_hub():
     )
 
     tool_specs = [
-        ("open_quick_learning_program_expander", "📚", "#2563EB", "quick_learning_program_maker", "smart_tools_program_body", "smart_tools_badge_curriculum"),
-        ("open_quick_plan_expander", "📝", "#10B981", "quick_lesson_planner", "smart_tools_plan_body", "smart_tools_badge_lesson"),
-        ("open_quick_ws_expander", "📋", "#A855F7", "worksheet_maker", "smart_tools_worksheet_body", "smart_tools_badge_practice"),
-        ("open_quick_exam_expander", "📄", "#F59E0B", "quick_exam_builder", "smart_tools_exam_body", "smart_tools_badge_assessment"),
+        ("open_quick_learning_program_expander", "📚", resource_kind_accent("program"), "quick_learning_program_maker", "smart_tools_program_body", "smart_tools_badge_curriculum"),
+        ("open_quick_plan_expander", "📝", resource_kind_accent("lesson_plan"), "quick_lesson_planner", "smart_tools_plan_body", "smart_tools_badge_lesson"),
+        ("open_quick_ws_expander", "📋", resource_kind_accent("worksheet"), "worksheet_maker", "smart_tools_worksheet_body", "smart_tools_badge_practice"),
+        ("open_quick_exam_expander", "📄", resource_kind_accent("exam"), "quick_exam_builder", "smart_tools_exam_body", "smart_tools_badge_assessment"),
         ("open_quick_cv_expander", "💼", "#0EA5E9", "quick_cv_builder", "smart_tools_cv_body", "smart_tools_badge_professional"),
         ("open_income_goal_expander", "🎯", "#EF4444", "income_goal_calculator", "smart_tools_goal_body", "smart_tools_badge_business"),
     ]

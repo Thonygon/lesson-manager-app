@@ -385,6 +385,10 @@ def _root_vars() -> str:
           --radius-xl:24px; --radius-lg:18px; --radius-md:14px;
           --platform-card-bg:#1e2b3f; --platform-card-border:rgba(96,165,250,0.22);
           --platform-card-hover-bg:#243450; --platform-card-hover-border:#60a5fa;
+          --resource-accent-worksheet:#8b5cf6; --resource-accent-exam:#ec4899;
+          --resource-accent-plan:#eab308; --resource-accent-program:#60a5fa;
+          --resource-accent-topic:#60a5fa; --resource-accent-video:#1e3a8a;
+          --resource-accent-practice:#60a5fa;
         }}
 
         html, body {{
@@ -410,6 +414,10 @@ def _root_vars() -> str:
           --radius-xl:24px; --radius-lg:18px; --radius-md:14px;
           --platform-card-bg:#eff6ff; --platform-card-border:rgba(59,130,246,0.25);
           --platform-card-hover-bg:#dbeafe; --platform-card-hover-border:#3b82f6;
+          --resource-accent-worksheet:#8b5cf6; --resource-accent-exam:#ec4899;
+          --resource-accent-plan:#eab308; --resource-accent-program:#60a5fa;
+          --resource-accent-topic:#60a5fa; --resource-accent-video:#1e3a8a;
+          --resource-accent-practice:#60a5fa;
         }}
 
         html, body {{
@@ -419,11 +427,11 @@ def _root_vars() -> str:
 
       /* MANUAL OVERRIDE: DARK */
       {"html, body, :root { color-scheme: dark !important; }" if force_dark else ""}
-      {" :root { --bg-1:#0f172a; --bg-2:#1a2640; --bg-3:#162032; --bg:#0f172a; --text:#f1f5f9; --muted:#94a3b8; --panel:rgba(30,41,59,0.92); --panel-2:rgba(20,30,48,0.85); --panel-soft:#1e2d42; --border:rgba(255,255,255,0.08); --border-strong:rgba(255,255,255,0.14); --border2:rgba(255,255,255,0.10); --primary:#3B82F6; --primary-strong:#60A5FA; --primary-light:#60A5FA; --success:#34D399; --warning:#FBBF24; --danger:#F87171; --shadow:0 12px 28px rgba(0,0,0,0.30); --shadow-sm:0 2px 8px rgba(0,0,0,0.20); --shadow-md:0 12px 28px rgba(0,0,0,0.30); --shadow-lg:0 22px 55px rgba(0,0,0,0.40); --radius-xl:24px; --radius-lg:18px; --radius-md:14px; --platform-card-bg:#1e2b3f; --platform-card-border:rgba(96,165,250,0.22); --platform-card-hover-bg:#243450; --platform-card-hover-border:#60a5fa; }" if force_dark else ""}
+      {" :root { --bg-1:#0f172a; --bg-2:#1a2640; --bg-3:#162032; --bg:#0f172a; --text:#f1f5f9; --muted:#94a3b8; --panel:rgba(30,41,59,0.92); --panel-2:rgba(20,30,48,0.85); --panel-soft:#1e2d42; --border:rgba(255,255,255,0.08); --border-strong:rgba(255,255,255,0.14); --border2:rgba(255,255,255,0.10); --primary:#3B82F6; --primary-strong:#60A5FA; --primary-light:#60A5FA; --success:#34D399; --warning:#FBBF24; --danger:#F87171; --shadow:0 12px 28px rgba(0,0,0,0.30); --shadow-sm:0 2px 8px rgba(0,0,0,0.20); --shadow-md:0 12px 28px rgba(0,0,0,0.30); --shadow-lg:0 22px 55px rgba(0,0,0,0.40); --radius-xl:24px; --radius-lg:18px; --radius-md:14px; --platform-card-bg:#1e2b3f; --platform-card-border:rgba(96,165,250,0.22); --platform-card-hover-bg:#243450; --platform-card-hover-border:#60a5fa; --resource-accent-worksheet:#8b5cf6; --resource-accent-exam:#ec4899; --resource-accent-plan:#eab308; --resource-accent-program:#60a5fa; --resource-accent-topic:#60a5fa; --resource-accent-video:#1e3a8a; --resource-accent-practice:#60a5fa; }" if force_dark else ""}
 
       /* MANUAL OVERRIDE: LIGHT */
       {"html, body, :root { color-scheme: light !important; }" if force_light else ""}
-      {" :root { --bg-1:#f5f7fb; --bg-2:#f8faff; --bg-3:#eef4ff; --bg:#f5f7fb; --text:#0f172a; --muted:#475569; --panel:rgba(255,255,255,0.88); --panel-2:rgba(255,255,255,0.72); --panel-soft:#fbfcff; --border:rgba(17,24,39,0.08); --border-strong:rgba(17,24,39,0.12); --border2:rgba(17,24,39,0.10); --primary:#2563EB; --primary-strong:#1D4ED8; --primary-light:#3B82F6; --success:#10B981; --warning:#F59E0B; --danger:#EF4444; --shadow:0 12px 28px rgba(15,23,42,0.08); --shadow-sm:0 2px 8px rgba(15,23,42,0.04); --shadow-md:0 12px 28px rgba(15,23,42,0.08); --shadow-lg:0 22px 55px rgba(15,23,42,0.10); --radius-xl:24px; --radius-lg:18px; --radius-md:14px; --platform-card-bg:#eff6ff; --platform-card-border:rgba(59,130,246,0.25); --platform-card-hover-bg:#dbeafe; --platform-card-hover-border:#3b82f6; }" if force_light else ""}
+      {" :root { --bg-1:#f5f7fb; --bg-2:#f8faff; --bg-3:#eef4ff; --bg:#f5f7fb; --text:#0f172a; --muted:#475569; --panel:rgba(255,255,255,0.88); --panel-2:rgba(255,255,255,0.72); --panel-soft:#fbfcff; --border:rgba(17,24,39,0.08); --border-strong:rgba(17,24,39,0.12); --border2:rgba(17,24,39,0.10); --primary:#2563EB; --primary-strong:#1D4ED8; --primary-light:#3B82F6; --success:#10B981; --warning:#F59E0B; --danger:#EF4444; --shadow:0 12px 28px rgba(15,23,42,0.08); --shadow-sm:0 2px 8px rgba(15,23,42,0.04); --shadow-md:0 12px 28px rgba(15,23,42,0.08); --shadow-lg:0 22px 55px rgba(15,23,42,0.10); --radius-xl:24px; --radius-lg:18px; --radius-md:14px; --platform-card-bg:#eff6ff; --platform-card-border:rgba(59,130,246,0.25); --platform-card-hover-bg:#dbeafe; --platform-card-hover-border:#3b82f6; --resource-accent-worksheet:#8b5cf6; --resource-accent-exam:#ec4899; --resource-accent-plan:#eab308; --resource-accent-program:#60a5fa; --resource-accent-topic:#60a5fa; --resource-accent-video:#1e3a8a; --resource-accent-practice:#60a5fa; }" if force_light else ""}
     """
 
 def _dark_widget_css() -> str:
@@ -654,9 +662,10 @@ def _resource_cards_css() -> str:
     return """
       /* ---------- Shared resource cards ---------- */
       .cm-resource-card{
+        --resource-accent: var(--resource-accent-program, #60a5fa);
         background: linear-gradient(180deg, var(--panel, rgba(255,255,255,0.96)), var(--panel-2, rgba(248,250,255,0.92)));
-        border: 1px solid var(--border-strong, rgba(17,24,39,0.08));
-        border-left: 5px solid #60A5FA;
+        border: 1px solid color-mix(in srgb, var(--border-strong, rgba(17,24,39,0.08)) 80%, var(--resource-accent) 20%);
+        border-left: 5px solid var(--resource-accent);
         border-radius: 20px;
         padding: 16px;
         box-shadow: var(--shadow-md);
@@ -665,19 +674,31 @@ def _resource_cards_css() -> str:
       }
 
       .cm-resource-plan{
-        border-left-color: #60A5FA;
+        --resource-accent: var(--resource-accent-plan, #eab308);
       }
 
       .cm-resource-worksheet{
-        border-left-color: #A78BFA;
+        --resource-accent: var(--resource-accent-worksheet, #8b5cf6);
       }
 
       .cm-resource-exam{
-        border-left-color: #F87171;
+        --resource-accent: var(--resource-accent-exam, #ec4899);
       }
 
       .cm-resource-program{
-        border-left-color: #FBBF24;
+        --resource-accent: var(--resource-accent-program, #60a5fa);
+      }
+
+      .cm-resource-topic{
+        --resource-accent: var(--resource-accent-topic, #60a5fa);
+      }
+
+      .cm-resource-video{
+        --resource-accent: var(--resource-accent-video, #1e3a8a);
+      }
+
+      .cm-resource-practice{
+        --resource-accent: var(--resource-accent-practice, #60a5fa);
       }
 
       .cm-resource-card__title{
@@ -705,23 +726,8 @@ def _resource_cards_css() -> str:
         font-weight: 700;
         white-space: nowrap;
         color: var(--text);
-        background: rgba(96,165,250,0.10);
-        border: 1px solid rgba(96,165,250,0.18);
-      }
-
-      .cm-resource-worksheet .cm-resource-chip{
-        background: rgba(167,139,250,0.10);
-        border: 1px solid rgba(167,139,250,0.18);
-      }
-
-      .cm-resource-exam .cm-resource-chip{
-        background: rgba(248,113,113,0.10);
-        border: 1px solid rgba(248,113,113,0.18);
-      }
-
-      .cm-resource-program .cm-resource-chip{
-        background: rgba(251,191,36,0.12);
-        border: 1px solid rgba(251,191,36,0.22);
+        background: color-mix(in srgb, var(--resource-accent) 12%, transparent);
+        border: 1px solid color-mix(in srgb, var(--resource-accent) 24%, transparent);
       }
 
       .cm-resource-preview{

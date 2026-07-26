@@ -46,6 +46,7 @@ from helpers.teacher_student_integration import (
     _strip_html_fragments,
 )
 from helpers.learning_programs import (
+    _scoped_expander_label,
     load_program_assignments_for_teacher,
     archive_learning_program_assignment,
     load_learning_program,
@@ -60,6 +61,7 @@ from helpers.archive_utils import is_archived_status
 from helpers.resource_gallery import (
     extract_gallery_image_url,
     inject_resource_gallery_styles,
+    resource_kind_accent,
     render_gallery_card_html,
 )
 from helpers.recommendation_memory import (
@@ -819,20 +821,33 @@ def _render_teacher_program_assignment_list(rows: list[dict], state_key_prefix: 
         assignment_id = int(row.get("id") or 0)
         progress_map = load_assignment_progress_map(assignment_id) if assignment_id else {}
         for unit in program.get("units") or []:
+            unit_number = int(unit.get("unit_number") or 0)
+            unit_label = t(
+                "unit_title_format",
+                number=unit.get("unit_number"),
+                title=unit.get("title"),
+            )
             with st.expander(
-                f"{t('unit_title_format', number=unit.get('unit_number'), title=unit.get('title'))}",
-                expanded=int(unit.get("unit_number") or 0) == 1,
+                _scoped_expander_label(
+                    unit_label,
+                    f"{state_key_prefix}:{assignment_id}:{unit_number}",
+                ),
+                expanded=unit_number == 1,
             ):
-                for topic in unit.get("topics") or []:
+                for topic_index, topic in enumerate(unit.get("topics") or [], start=1):
                     topic_id = int(topic.get("topic_id") or 0)
                     done = truthy_flag(progress_map.get(topic_id, {}).get("teacher_done"))
                     topic_cols = st.columns([0.14, 0.86], gap="small")
                     with topic_cols[0]:
-                        checkbox_key = f"teacher_learning_program_done_{assignment_id}_{topic_id}"
+                        checkbox_key = (
+                            f"teacher_learning_program_done_{assignment_id}_"
+                            f"{unit_number}_{topic_index}_{topic_id}"
+                        )
                         new_done = st.checkbox(
                             t("done_label"),
                             value=done,
                             key=checkbox_key,
+                            disabled=topic_id <= 0,
                             label_visibility="collapsed",
                         )
                         if new_done != done and topic_id > 0:
@@ -1378,32 +1393,32 @@ def _inject_recommendation_styles() -> None:
         .classio-reco-title {
             font-size: 1.08rem;
             font-weight: 900;
-            color: #0f172a;
+            color: var(--text, #0f172a);
             line-height: 1.25;
         }
         .classio-reco-meta {
             margin-top: 0.35rem;
             font-size: 0.84rem;
-            color: #64748b;
+            color: var(--muted, #64748b);
             font-weight: 600;
         }
         .classio-reco-section-label {
             margin-top: 0.95rem;
             font-size: 0.78rem;
-            color: #475569;
+            color: var(--muted, #475569);
             font-weight: 800;
             text-transform: uppercase;
             letter-spacing: .04em;
         }
         .classio-reco-body {
             margin-top: 0.3rem;
-            color: #0f172a;
+            color: var(--text, #0f172a);
             line-height: 1.5;
         }
         .classio-reco-list {
             margin: 0.45rem 0 0 0;
             padding-left: 1.1rem;
-            color: #1e293b;
+            color: var(--text, #1e293b);
         }
         .classio-reco-list li {
             margin-bottom: 0.28rem;
@@ -1457,9 +1472,9 @@ def _inject_recommendation_styles() -> None:
             padding: 5px 9px;
             font-size: .72rem;
             font-weight: 850;
-            color: #047857;
-            background: rgba(16,185,129,.12);
-            border: 1px solid rgba(16,185,129,.2);
+            color: var(--success, #10b981);
+            background: color-mix(in srgb, var(--success, #10b981) 14%, transparent);
+            border: 1px solid color-mix(in srgb, var(--success, #10b981) 24%, transparent);
         }
         div[data-testid="stExpander"]:has(.classio-reco-resource-expander-body) {
             border: 1px solid color-mix(in srgb, var(--border, rgba(148,163,184,.35)) 78%, #10b981 22%) !important;
@@ -1480,7 +1495,7 @@ def _inject_recommendation_styles() -> None:
             margin-bottom: 6px;
             font-size: .72rem;
             font-weight: 900;
-            color: #475569;
+            color: var(--muted, #475569);
             text-transform: uppercase;
             letter-spacing: .04em;
         }
@@ -1497,12 +1512,26 @@ def _inject_recommendation_styles() -> None:
             scroll-snap-align: start;
         }
         .classio-reco-resource-card {
+            --reco-resource-accent: #60a5fa;
+            position: relative;
+            overflow: hidden;
             margin-bottom: 8px;
-            padding: 11px 12px;
+            padding: 11px 12px 11px 18px;
             border-radius: 14px;
-            background: rgba(255,255,255,.72);
-            border: 1px solid rgba(148,163,184,.22);
+            background:
+                linear-gradient(90deg, color-mix(in srgb, var(--reco-resource-accent) 8%, rgba(255,255,255,.72)), rgba(255,255,255,.72) 38%),
+                rgba(255,255,255,.72);
+            border: 1px solid color-mix(in srgb, rgba(148,163,184,.22) 78%, var(--reco-resource-accent) 22%);
             min-height: 132px;
+        }
+        .classio-reco-resource-card::before {
+            content: "";
+            position: absolute;
+            inset: 10px auto 10px 8px;
+            width: 5px;
+            border-radius: 999px;
+            background: var(--reco-resource-accent);
+            box-shadow: 0 10px 22px color-mix(in srgb, var(--reco-resource-accent) 24%, transparent);
         }
         .classio-reco-resource-card-top {
             display: flex;
@@ -1513,7 +1542,7 @@ def _inject_recommendation_styles() -> None:
         .classio-reco-resource-card-title {
             font-size: .88rem;
             font-weight: 900;
-            color: #0f172a;
+            color: var(--text, #0f172a);
             line-height: 1.25;
             min-width: 0;
         }
@@ -1523,14 +1552,14 @@ def _inject_recommendation_styles() -> None:
             padding: 4px 8px;
             font-size: .68rem;
             font-weight: 900;
-            color: #047857;
-            background: rgba(16,185,129,.14);
-            border: 1px solid rgba(16,185,129,.24);
+            color: var(--success, #10b981);
+            background: color-mix(in srgb, var(--success, #10b981) 16%, transparent);
+            border: 1px solid color-mix(in srgb, var(--success, #10b981) 28%, transparent);
             white-space: nowrap;
         }
         .classio-reco-resource-preview {
             margin-top: 4px;
-            color: #64748b;
+            color: var(--muted, #64748b);
             font-size: .78rem;
             line-height: 1.35;
         }
@@ -1545,18 +1574,18 @@ def _inject_recommendation_styles() -> None:
             padding: 4px 8px;
             font-size: .7rem;
             font-weight: 800;
-            color: #334155;
-            background: rgba(248,250,252,.86);
-            border: 1px solid rgba(148,163,184,.2);
+            color: var(--text, #334155);
+            background: color-mix(in srgb, var(--panel-soft, #f8fafc) 84%, transparent);
+            border: 1px solid color-mix(in srgb, var(--border, rgba(148,163,184,.35)) 78%, var(--primary, #2563eb) 22%);
         }
         .classio-reco-resource-empty {
             margin-top: 8px;
             padding: 10px 12px;
             border-radius: 14px;
-            color: #64748b;
+            color: var(--muted, #64748b);
             font-size: .8rem;
-            background: rgba(248,250,252,.74);
-            border: 1px dashed rgba(148,163,184,.34);
+            background: color-mix(in srgb, var(--panel-soft, #f8fafc) 84%, transparent);
+            border: 1px dashed color-mix(in srgb, var(--border, rgba(148,163,184,.35)) 70%, var(--primary, #2563eb) 30%);
         }
         @media (max-width: 768px) {
             .classio-reco-card {
@@ -1588,7 +1617,10 @@ def _render_recommended_resources_for_item(
     assigned_resource_keys = assigned_resource_keys or set()
 
     expander_label = f"{t('recommended_resources_title')} · {t('recommended_resources_count', count=total_matches)}"
-    with st.expander(expander_label, expanded=False):
+    with st.expander(
+        _scoped_expander_label(expander_label, key_prefix),
+        expanded=False,
+    ):
         st.markdown(
             f"""
             <div class="classio-reco-resource-expander-body">
@@ -1658,9 +1690,10 @@ def _render_recommended_resources_for_item(
                     else ""
                 )
                 button_key = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{state_key}_{resource.get('source')}_{row.get('id')}_{resource_idx}")
+                card_accent = resource_kind_accent("lesson_plan" if kind == "plan" else kind)
                 with resource_col:
                     st.markdown(
-                        "<div class='classio-reco-resource-card'>"
+                        f"<div class='classio-reco-resource-card' style='--reco-resource-accent:{card_accent};'>"
                         "<div class='classio-reco-resource-card-top'>"
                         f"<div class='classio-reco-resource-card-title'>{_html.escape(title)}</div>"
                         f"{assigned_html}"
@@ -1812,10 +1845,20 @@ def _render_recommendations_tab(
                     "student_label": student_label,
                     "student_id": str((selected_link or {}).get("student_id") or "").strip(),
                 }
+                recommendation_widget_scope = re.sub(
+                    r"[^A-Za-z0-9._-]+",
+                    "_",
+                    (
+                        f"{recommendation_payload.get('student_id')}_{selected_subject}_"
+                        f"{recommendation_payload.get('learning_program_assignment_id')}_"
+                        f"{recommendation_payload.get('learning_program_topic_id')}_"
+                        f"{recommendation_payload.get('recommendation_bucket')}_{idx}_{offset}"
+                    ),
+                )
                 _render_recommended_resources_for_item(
                     item,
                     resource_pool,
-                    key_prefix=f"reco_resources_{idx}_{offset}_{str(item.get('title') or '')}",
+                    key_prefix=f"reco_resources_{recommendation_widget_scope}",
                     assigned_resource_keys=assigned_resource_keys,
                 )
 
@@ -1823,7 +1866,7 @@ def _render_recommendations_tab(
                 with action_cols[0]:
                     if st.button(
                         t("student_recommendation_create_lesson_plan"),
-                        key=f"reco_plan_{idx}_{offset}_{str(item.get('title') or '')}",
+                        key=f"reco_plan_{recommendation_widget_scope}",
                         use_container_width=True,
                     ):
                         exposure_id = str(recommendation_payload.get("_telemetry_exposure_id") or "").strip()
@@ -1839,7 +1882,7 @@ def _render_recommendations_tab(
                 with action_cols[1]:
                     if st.button(
                         t("student_recommendation_create_worksheet"),
-                        key=f"reco_ws_{idx}_{offset}_{str(item.get('title') or '')}",
+                        key=f"reco_ws_{recommendation_widget_scope}",
                         use_container_width=True,
                     ):
                         exposure_id = str(recommendation_payload.get("_telemetry_exposure_id") or "").strip()
@@ -1855,7 +1898,7 @@ def _render_recommendations_tab(
                 with action_cols[2]:
                     if st.button(
                         t("student_recommendation_create_exam"),
-                        key=f"reco_exam_{idx}_{offset}_{str(item.get('title') or '')}",
+                        key=f"reco_exam_{recommendation_widget_scope}",
                         use_container_width=True,
                     ):
                         exposure_id = str(recommendation_payload.get("_telemetry_exposure_id") or "").strip()
@@ -1871,7 +1914,7 @@ def _render_recommendations_tab(
                 with action_cols[3]:
                     if st.button(
                         t("mark_done"),
-                        key=f"reco_done_{idx}_{offset}_{str(item.get('title') or '')}",
+                        key=f"reco_done_{recommendation_widget_scope}",
                         use_container_width=True,
                     ):
                         exposure_id = str(recommendation_payload.get("_telemetry_exposure_id") or "").strip()
@@ -1935,11 +1978,12 @@ def _render_teacher_review_requests(
         subject_display = _html.escape(_localized_subject_display(row.get("subject_key"), row.get("subject_display") or row.get("subject_label")))
         request_note_html = _review_note_block("teacher_review_note", row.get("request_note"))
         feedback_html = _review_note_block("teacher_review_feedback", row.get("teacher_feedback"), feedback=True)
+        card_accent = resource_kind_accent(str(row.get("source_type") or "").strip())
         card_col, action_col = st.columns([6, 2], gap="medium")
         with card_col:
             st.markdown(
                 f"""
-                <div class="classio-progress-card">
+                <div class="classio-progress-card" style="--teacher-progress-accent:{card_accent};">
                     <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
                         <div>
                             <div class="classio-progress-title">{title}</div>
@@ -2235,12 +2279,14 @@ def render_students():
             margin: 0 0.45rem 0.45rem 0;
         }
         .classio-progress-card {
+            --teacher-progress-accent: var(--resource-accent-topic, #60a5fa);
             position: relative;
             overflow: hidden;
             background:
-              radial-gradient(circle at top right, rgba(139,92,246,.10), transparent 34%),
+              radial-gradient(circle at top right, color-mix(in srgb, var(--teacher-progress-accent) 12%, transparent), transparent 34%),
+              linear-gradient(90deg, color-mix(in srgb, var(--teacher-progress-accent) 6%, transparent), transparent 32%),
               linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 82%, white 18%));
-            border: 1px solid color-mix(in srgb, var(--border) 78%, rgba(139,92,246,.18) 22%);
+            border: 1px solid color-mix(in srgb, var(--border) 76%, var(--teacher-progress-accent) 24%);
             border-radius: 22px;
             padding: 18px 20px;
             box-shadow: 0 14px 32px rgba(15,23,42,.08);
@@ -2251,7 +2297,8 @@ def render_students():
             position: absolute;
             inset: 0 auto 0 0;
             width: 5px;
-            background: linear-gradient(180deg, #8b5cf6, #6366f1 52%, #38bdf8);
+            background: linear-gradient(180deg, color-mix(in srgb, var(--teacher-progress-accent) 78%, white 22%), var(--teacher-progress-accent));
+            box-shadow: 0 0 24px color-mix(in srgb, var(--teacher-progress-accent) 24%, transparent);
         }
         .classio-progress-title {
             font-size: 1.08rem;
@@ -2900,11 +2947,13 @@ def render_students():
                             attempts_value = int(row.get("attempt_count") or 0)
                             score_value = f"{score}%" if score not in (None, "") else "—"
                             student_name_safe = _html.escape(str(row.get("student_name") or selected_student_name or "—"))
+                            assignment_kind = str(row.get("assignment_type") or row.get("source_type") or "").strip()
+                            card_accent = resource_kind_accent(assignment_kind)
                             card_col, action_col = st.columns([6, 2], gap="medium")
                             with card_col:
                                 st.markdown(
                                     f"""
-                                    <div class="classio-progress-card">
+                                    <div class="classio-progress-card" style="--teacher-progress-accent:{card_accent};">
                                         <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
                                             <div>
                                                 <div class="classio-progress-title">{title}</div>
