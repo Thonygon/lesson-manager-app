@@ -52,6 +52,24 @@ from helpers.student_recommendation_open_7d_review import (
     RECONCILIATION_FILENAME as STUDENT_RECO_RECONCILIATION_FILENAME,
     review_student_recommendation_open_7d,
 )
+from helpers.resource_affinity_unsupervised_eval import (
+    ACADEMIC_REPORT_FILENAME as RESOURCE_AFFINITY_ACADEMIC_REPORT_FILENAME,
+    CLUSTER_ASSIGNMENTS_FILENAME as RESOURCE_AFFINITY_CLUSTER_ASSIGNMENTS_FILENAME,
+    DEFAULT_OUTPUT_DIR as RESOURCE_AFFINITY_DEFAULT_OUTPUT_DIR,
+    FEATURE_AUDIT_FILENAME as RESOURCE_AFFINITY_FEATURE_AUDIT_FILENAME,
+    FROZEN_DATASET_FILENAME as RESOURCE_AFFINITY_FROZEN_DATASET_FILENAME,
+    INTEGRITY_REVIEW_FILENAME as RESOURCE_AFFINITY_INTEGRITY_REVIEW_FILENAME,
+    MODEL_COMPARISON_FILENAME as RESOURCE_AFFINITY_MODEL_COMPARISON_FILENAME,
+    NEIGHBORS_FILENAME as RESOURCE_AFFINITY_NEIGHBORS_FILENAME,
+    PROFILE_AUDIT_FILENAME as RESOURCE_AFFINITY_PROFILE_AUDIT_FILENAME,
+    RECONCILIATION_FILENAME as RESOURCE_AFFINITY_RECONCILIATION_FILENAME,
+    RUN_SUMMARY_FILENAME as RESOURCE_AFFINITY_RUN_SUMMARY_FILENAME,
+    TECHNICAL_REPORT_FILENAME as RESOURCE_AFFINITY_TECHNICAL_REPORT_FILENAME,
+    TARGET_NAME as RESOURCE_AFFINITY_TARGET_NAME,
+    extract_resource_profiles,
+    generate_resource_affinity_unsupervised_evaluation,
+    review_resource_affinity_unsupervised,
+)
 from helpers.exposure_telemetry import load_telemetry_health_snapshot
 from services.authorization_service import (
     CAPABILITY_COMPARE_EXPERIMENT_RUNS,
@@ -76,18 +94,26 @@ from core.state import get_current_user_id
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ML_PIPELINE_SCRIPT = PROJECT_ROOT / "scripts" / "run_assigned_resource_open_7d_pipeline.py"
 STUDENT_RECOMMENDATION_PIPELINE_SCRIPT = PROJECT_ROOT / "scripts" / "run_student_recommendation_open_7d_pipeline.py"
+RESOURCE_AFFINITY_PIPELINE_SCRIPT = PROJECT_ROOT / "scripts" / "run_resource_affinity_unsupervised_pipeline.py"
 EXPERIMENT_TABLE = "ml_experiments"
 RUN_TABLE = "ml_experiment_runs"
 RUN_MODEL_TABLE = "ml_run_models"
 RUN_ARTIFACT_TABLE = "ml_run_artifacts"
 APPROVED_EXPERIMENT_ID = "assigned_resource_open_within_7d"
 STUDENT_RECOMMENDATION_EXPERIMENT_ID = "student_recommendation_open_within_7d"
+RESOURCE_AFFINITY_EXPERIMENT_ID = "resource_affinity_unsupervised_discovery"
 APPROVED_TARGET_VERSION = "opened_within_7d_v1"
 APPROVED_EXPERIMENT_VERSION = "phase3_6_v1"
 STUDENT_RECOMMENDATION_TARGET_VERSION = "opened_within_7d_v1"
 STUDENT_RECOMMENDATION_EXPERIMENT_VERSION = "phase4_0_v1"
+RESOURCE_AFFINITY_TARGET_VERSION = "semantic_cluster_v1"
+RESOURCE_AFFINITY_EXPERIMENT_VERSION = "phase1_0_v1"
+EXPERIMENT_PARADIGM_SUPERVISED = "supervised"
+EXPERIMENT_PARADIGM_UNSUPERVISED = "unsupervised"
+EXPERIMENT_PARADIGM_UNKNOWN = "unknown"
 RUNS_ROOT = Path("reports") / "ml_architecture" / "assigned_resource_open_7d" / "runs"
 STUDENT_RECOMMENDATION_RUNS_ROOT = Path("reports") / "ml_architecture" / "student_recommendation_open_7d" / "runs"
+RESOURCE_AFFINITY_RUNS_ROOT = Path("reports") / "ml_architecture" / "resource_affinity_unsupervised" / "runs"
 LATEST_PHASE3_5_RUN_ID = "ca935f4e5587"
 SUPPORTED_MODEL_NAMES = (
     "DummyClassifier",
@@ -122,6 +148,7 @@ EXPERIMENT_DEFINITION = {
     "unit_of_analysis": "One teacher_assignments record representing one assigned-resource exposure.",
     "primary_metric": "roc_auc",
     "definition_json": {
+        "modeling_paradigm": EXPERIMENT_PARADIGM_SUPERVISED,
         "approved_models": list(SUPPORTED_MODEL_NAMES),
         "evaluation_rules": [
             "chronological development/holdout split",
@@ -170,12 +197,31 @@ EXPERIMENT_RUNTIME: dict[str, dict[str, Any]] = {
         "evaluator_callable": generate_student_recommendation_open_7d_evaluation,
         "review_callable": review_student_recommendation_open_7d,
     },
+    RESOURCE_AFFINITY_EXPERIMENT_ID: {
+        "runs_root": RESOURCE_AFFINITY_RUNS_ROOT,
+        "pipeline_script": RESOURCE_AFFINITY_PIPELINE_SCRIPT,
+        "dataset_summary_filename": "resource_affinity_dataset_summary.json",
+        "frozen_dataset_filename": RESOURCE_AFFINITY_FROZEN_DATASET_FILENAME,
+        "label_audit_filename": RESOURCE_AFFINITY_PROFILE_AUDIT_FILENAME,
+        "feature_audit_filename": RESOURCE_AFFINITY_FEATURE_AUDIT_FILENAME,
+        "model_comparison_filename": RESOURCE_AFFINITY_MODEL_COMPARISON_FILENAME,
+        "cluster_assignments_filename": RESOURCE_AFFINITY_CLUSTER_ASSIGNMENTS_FILENAME,
+        "run_summary_filename": RESOURCE_AFFINITY_RUN_SUMMARY_FILENAME,
+        "predictions_filename": RESOURCE_AFFINITY_NEIGHBORS_FILENAME,
+        "technical_report_filename": RESOURCE_AFFINITY_TECHNICAL_REPORT_FILENAME,
+        "academic_report_filename": RESOURCE_AFFINITY_ACADEMIC_REPORT_FILENAME,
+        "integrity_review_filename": RESOURCE_AFFINITY_INTEGRITY_REVIEW_FILENAME,
+        "reconciliation_filename": RESOURCE_AFFINITY_RECONCILIATION_FILENAME,
+        "evaluator_callable": generate_resource_affinity_unsupervised_evaluation,
+        "review_callable": review_resource_affinity_unsupervised,
+    },
 }
 
 KNOWN_EXPERIMENTS: dict[str, dict[str, Any]] = {
     APPROVED_EXPERIMENT_ID: {
         **EXPERIMENT_DEFINITION,
         "sequence_number": 1,
+        "modeling_paradigm": EXPERIMENT_PARADIGM_SUPERVISED,
         "launch_supported": True,
         "eligibility_supported": True,
         "reporting_supported": True,
@@ -190,6 +236,7 @@ KNOWN_EXPERIMENTS: dict[str, dict[str, Any]] = {
         "unit_of_analysis": "One optional student recommendation exposure.",
         "primary_metric": "roc_auc",
         "definition_json": {
+            "modeling_paradigm": EXPERIMENT_PARADIGM_SUPERVISED,
             "approved_models": list(SUPPORTED_MODEL_NAMES),
             "evaluation_rules": [
                 "chronological development/holdout split",
@@ -201,10 +248,43 @@ KNOWN_EXPERIMENTS: dict[str, dict[str, Any]] = {
             ],
         },
         "sequence_number": 2,
+        "modeling_paradigm": EXPERIMENT_PARADIGM_SUPERVISED,
         "launch_supported": True,
         "eligibility_supported": True,
         "reporting_supported": True,
         "component_id": "student_recommendation_open_within_7d",
+    },
+    RESOURCE_AFFINITY_EXPERIMENT_ID: {
+        "experiment_id": RESOURCE_AFFINITY_EXPERIMENT_ID,
+        "experiment_version": RESOURCE_AFFINITY_EXPERIMENT_VERSION,
+        "name": "Unsupervised Resource Affinity Discovery",
+        "business_question": "Can Classio discover semantic relationships between educational resources without manual labels to improve recommendation candidates and similar-resource warnings?",
+        "target_version": RESOURCE_AFFINITY_TARGET_VERSION,
+        "unit_of_analysis": "One Classio educational resource semantic profile.",
+        "primary_metric": "silhouette_score",
+        "definition_json": {
+            "modeling_paradigm": EXPERIMENT_PARADIGM_UNSUPERVISED,
+            "approved_models": ["KMeans", "AgglomerativeClustering", "DBSCAN"],
+            "evaluation_rules": [
+                "offline unsupervised experiment",
+                "no supervised labels required",
+                "cluster metrics plus semantic-neighbor audit",
+                "business-rule filters remain mandatory before production use",
+                "no automatic deployment",
+            ],
+            "artifact_focus": [
+                "resource clusters",
+                "pairwise semantic neighbors",
+                "teacher recommendation candidate expansion",
+                "generation reuse warning improvement",
+            ],
+        },
+        "sequence_number": 3,
+        "modeling_paradigm": EXPERIMENT_PARADIGM_UNSUPERVISED,
+        "launch_supported": True,
+        "eligibility_supported": True,
+        "reporting_supported": True,
+        "component_id": RESOURCE_AFFINITY_EXPERIMENT_ID,
     },
 }
 
@@ -323,6 +403,55 @@ def _artifact_checksum(path: Path) -> str:
 
 def _runtime_config(experiment_id: str) -> dict[str, Any]:
     return EXPERIMENT_RUNTIME.get(_clean_text(experiment_id), EXPERIMENT_RUNTIME[APPROVED_EXPERIMENT_ID])
+
+
+def normalize_experiment_paradigm(value: Any) -> str:
+    safe = _clean_text(value).lower().replace("-", "_")
+    if safe in {EXPERIMENT_PARADIGM_SUPERVISED, "supervised_learning", "classification", "regression"}:
+        return EXPERIMENT_PARADIGM_SUPERVISED
+    if safe in {EXPERIMENT_PARADIGM_UNSUPERVISED, "unsupervised_learning", "clustering", "cluster"}:
+        return EXPERIMENT_PARADIGM_UNSUPERVISED
+    return EXPERIMENT_PARADIGM_UNKNOWN
+
+
+def _definition_json_for_experiment(experiment_id: str, db_row: dict[str, Any] | None = None) -> dict[str, Any]:
+    known = KNOWN_EXPERIMENTS.get(_clean_text(experiment_id)) or {}
+    payload = (db_row or {}).get("definition_json")
+    if isinstance(payload, str):
+        try:
+            parsed = json.loads(payload)
+            payload = parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            payload = {}
+    if not isinstance(payload, dict) or not payload:
+        payload = known.get("definition_json") if isinstance(known.get("definition_json"), dict) else {}
+    return dict(payload or {})
+
+
+def get_experiment_paradigm(experiment_id: str, db_row: dict[str, Any] | None = None) -> str:
+    safe_id = _clean_text(experiment_id)
+    known = KNOWN_EXPERIMENTS.get(safe_id) or {}
+    explicit = normalize_experiment_paradigm(known.get("modeling_paradigm"))
+    if explicit != EXPERIMENT_PARADIGM_UNKNOWN:
+        return explicit
+    definition_json = _definition_json_for_experiment(safe_id, db_row)
+    from_definition = normalize_experiment_paradigm(definition_json.get("modeling_paradigm") or definition_json.get("learning_type"))
+    if from_definition != EXPERIMENT_PARADIGM_UNKNOWN:
+        return from_definition
+    component_id = _clean_text(known.get("component_id") or safe_id).lower()
+    if "unsupervised" in component_id or "cluster" in component_id or "affinity" in component_id:
+        return EXPERIMENT_PARADIGM_UNSUPERVISED
+    if safe_id:
+        return EXPERIMENT_PARADIGM_SUPERVISED
+    return EXPERIMENT_PARADIGM_UNKNOWN
+
+
+def is_unsupervised_experiment(experiment_id: str, db_row: dict[str, Any] | None = None) -> bool:
+    return get_experiment_paradigm(experiment_id, db_row) == EXPERIMENT_PARADIGM_UNSUPERVISED
+
+
+def is_supervised_experiment(experiment_id: str, db_row: dict[str, Any] | None = None) -> bool:
+    return get_experiment_paradigm(experiment_id, db_row) == EXPERIMENT_PARADIGM_SUPERVISED
 
 
 def _run_dir(run_id: str, experiment_id: str = APPROVED_EXPERIMENT_ID) -> Path:
@@ -546,6 +675,7 @@ def ensure_experiment_registered() -> None:
         payload.pop("eligibility_supported", None)
         payload.pop("reporting_supported", None)
         payload.pop("component_id", None)
+        payload.pop("modeling_paradigm", None)
         payload["is_active"] = True
         get_sb().table(EXPERIMENT_TABLE).insert(payload).execute()
 
@@ -898,7 +1028,7 @@ def get_environment_readiness() -> dict[str, Any]:
     writable = True
     writable_error = ""
     try:
-        for root in [RUNS_ROOT, STUDENT_RECOMMENDATION_RUNS_ROOT]:
+        for root in [RUNS_ROOT, STUDENT_RECOMMENDATION_RUNS_ROOT, RESOURCE_AFFINITY_RUNS_ROOT]:
             root.mkdir(parents=True, exist_ok=True)
             probe = root / ".write_probe"
             probe.write_text("ok", encoding="utf-8")
@@ -912,7 +1042,7 @@ def get_environment_readiness() -> dict[str, Any]:
         message="Run artifact directory is writable." if writable else "Run artifact directory is not writable.",
         error=writable_error,
         recommended_action="" if writable else "grant filesystem write access",
-        metadata={"paths": [str(RUNS_ROOT), str(STUDENT_RECOMMENDATION_RUNS_ROOT)]},
+        metadata={"paths": [str(RUNS_ROOT), str(STUDENT_RECOMMENDATION_RUNS_ROOT), str(RESOURCE_AFFINITY_RUNS_ROOT)]},
     )
 
     ml_runtime_path, ml_runtime_mode = _resolve_ml_runtime()
@@ -1135,6 +1265,7 @@ def list_experiment_catalog(cache_bust: str = "") -> list[dict[str, Any]]:
     for position, experiment_id in enumerate(ordered_ids, start=1):
         known = KNOWN_EXPERIMENTS.get(experiment_id) or {}
         db_row = latest_db_row_by_experiment.get(experiment_id) or {}
+        modeling_paradigm = get_experiment_paradigm(experiment_id, db_row)
         runs = list_experiment_runs(experiment_id=experiment_id, limit=100, cache_bust=f"{cache_bust}:{experiment_id}:catalog")
         validated_runs = [row for row in runs if _clean_text(row.get("run_status")).upper() in FINAL_VALIDATED_RUN_STATES]
         sequence_number = int(known.get("sequence_number") or position)
@@ -1150,6 +1281,7 @@ def list_experiment_catalog(cache_bust: str = "") -> list[dict[str, Any]]:
                 "business_question": _clean_text(db_row.get("business_question") or known.get("business_question")),
                 "unit_of_analysis": _clean_text(db_row.get("unit_of_analysis") or known.get("unit_of_analysis")),
                 "primary_metric": _clean_text(db_row.get("primary_metric") or known.get("primary_metric")),
+                "modeling_paradigm": modeling_paradigm,
                 "status": "integrated" if known else "discovered",
                 "launch_supported": bool(known.get("launch_supported")),
                 "eligibility_supported": bool(known.get("eligibility_supported")),
@@ -1176,6 +1308,8 @@ def launch_experiment(experiment_id: str) -> tuple[bool, dict[str, Any], str]:
         return launch_assigned_resource_open_experiment()
     if safe_experiment_id == STUDENT_RECOMMENDATION_EXPERIMENT_ID:
         return launch_student_recommendation_open_experiment()
+    if safe_experiment_id == RESOURCE_AFFINITY_EXPERIMENT_ID:
+        return launch_resource_affinity_experiment()
     return False, {"experiment_id": safe_experiment_id}, "This experiment is visible in Classio, but its launch pipeline is not wired in the workspace yet."
 
 
@@ -1189,7 +1323,9 @@ def compute_experiment_eligibility_summary(experiment_id: str) -> dict[str, Any]
             "message": "Eligibility checks are not wired for this experiment yet.",
         }
     try:
-        if safe_experiment_id == STUDENT_RECOMMENDATION_EXPERIMENT_ID:
+        if safe_experiment_id == RESOURCE_AFFINITY_EXPERIMENT_ID:
+            result = compute_resource_affinity_experiment_eligibility()
+        elif safe_experiment_id == STUDENT_RECOMMENDATION_EXPERIMENT_ID:
             result = compute_student_recommendation_experiment_eligibility()
         else:
             result = compute_experiment_eligibility()
@@ -1376,6 +1512,51 @@ def compute_student_recommendation_experiment_eligibility() -> EligibilityResult
     )
 
 
+def compute_resource_affinity_experiment_eligibility() -> EligibilityResult:
+    extraction_time = _utc_now()
+    profile_df, dataset_diag = extract_resource_profiles(extraction_time=extraction_time)
+    resource_count = int(len(profile_df))
+    type_count = int(profile_df["resource_type"].nunique()) if not profile_df.empty else 0
+    subject_count = int(profile_df["subject"].replace("", pd.NA).nunique()) if not profile_df.empty else 0
+    blocking: list[str] = []
+    warnings: list[str] = []
+    if resource_count < 6:
+        blocking.append("Fewer than six resources are available for unsupervised affinity discovery.")
+    if resource_count < 30:
+        warnings.append("The catalog is small; clustering metrics will be exploratory and unstable.")
+    if type_count < 2:
+        warnings.append("Only one resource type is represented.")
+    if subject_count < 1:
+        warnings.append("No subject metadata was detected in the resource profiles.")
+    latest_attempted = list_experiment_runs(experiment_id=RESOURCE_AFFINITY_EXPERIMENT_ID, limit=1, cache_bust="resource-affinity-eligibility-latest")
+    latest_validated = list_experiment_runs(experiment_id=RESOURCE_AFFINITY_EXPERIMENT_ID, limit=20, validated_only=True, cache_bust="resource-affinity-eligibility-validated")
+    latest_attempted_row = latest_attempted[0] if latest_attempted else {}
+    latest_validated_row = latest_validated[0] if latest_validated else {}
+    data_summary = {
+        **dataset_diag,
+        "resource_profiles": resource_count,
+        "resource_types_represented": type_count,
+        "subjects_represented": subject_count,
+        "estimated_execution_time_seconds": 20,
+        "expected_maturity_ceiling": "EXPLORATORY_ONLY" if resource_count < 80 else "CANDIDATE_FOR_SHADOW_TESTING",
+    }
+    comparison = {
+        "latest_attempted_run_id": str(latest_attempted_row.get("run_id") or ""),
+        "latest_attempted_status": str(latest_attempted_row.get("run_status") or ""),
+        "latest_validated_run_id": str(latest_validated_row.get("run_id") or ""),
+        "latest_validated_status": str(latest_validated_row.get("run_status") or ""),
+        "new_resources_since_latest_validated": max(0, resource_count - int(latest_validated_row.get("included_row_count") or 0)),
+    }
+    return EligibilityResult(
+        eligible=not blocking,
+        blocking_reasons=tuple(blocking),
+        warnings=tuple(warnings),
+        expected_maturity_ceiling=str(data_summary["expected_maturity_ceiling"]),
+        data_summary=data_summary,
+        comparison=comparison,
+    )
+
+
 def _insert_run_row(payload: dict[str, Any]) -> None:
     get_sb().table(RUN_TABLE).insert(json_safe(payload)).execute()
     clear_experiment_cache()
@@ -1388,13 +1569,30 @@ def _insert_model_rows(run_id: str, comparison_path: Path) -> None:
         return
     rows = []
     for _, row in df.iterrows():
+        parameters = _read_json_dictish(row.get("parameters_json"))
+        algorithm_name = _clean_text(row.get("algorithm_name"))
+        if algorithm_name and "algorithm_name" not in parameters:
+            parameters["algorithm_name"] = algorithm_name
+        model_key = _clean_text(row.get("model_key"))
+        if model_key and "model_key" not in parameters:
+            parameters["model_key"] = model_key
+        unsupervised_metrics = {
+            "silhouette_score": row.get("silhouette_score"),
+            "calinski_harabasz": row.get("calinski_harabasz"),
+            "davies_bouldin": row.get("davies_bouldin"),
+            "cluster_count": row.get("cluster_count"),
+            "noise_ratio": row.get("noise_ratio"),
+            "singleton_cluster_count": row.get("singleton_cluster_count"),
+            "cross_subject_contamination_rate": row.get("cross_subject_contamination_rate"),
+            "cross_language_contamination_rate": row.get("cross_language_contamination_rate"),
+        }
         rows.append(
             {
                 "run_id": run_id,
                 "model_name": str(row.get("model_name") or ""),
                 "execution_status": str(row.get("status") or ""),
-                "parameters_json": {},
-                "cv_metrics_json": {},
+                "parameters_json": parameters,
+                "cv_metrics_json": json_safe({key: value for key, value in unsupervised_metrics.items() if value not in (None, "")}),
                 "holdout_metrics_json": {
                     "roc_auc": row.get("roc_auc"),
                     "average_precision": row.get("average_precision"),
@@ -1412,7 +1610,11 @@ def _insert_model_rows(run_id: str, comparison_path: Path) -> None:
             }
         )
     if rows:
-        get_sb().table(RUN_MODEL_TABLE).insert(rows).execute()
+        query = get_sb().table(RUN_MODEL_TABLE)
+        if hasattr(query, "upsert"):
+            query.upsert(rows, on_conflict="run_id,model_name").execute()
+        else:
+            query.insert(rows).execute()
 
 
 def _safe_int(value: Any) -> int | None:
@@ -1444,6 +1646,7 @@ def _insert_artifact_rows(run_id: str, run_dir: Path, experiment_id: str) -> Non
         ("label_audit_csv", str(runtime.get("label_audit_filename") or LABEL_AUDIT_FILENAME), "text/csv", True),
         ("feature_audit_csv", str(runtime.get("feature_audit_filename") or FEATURE_AUDIT_FILENAME), "text/csv", False),
         ("model_comparison_csv", str(runtime.get("model_comparison_filename") or MODEL_COMPARISON_FILENAME), "text/csv", False),
+        ("cluster_assignments_csv", str(runtime.get("cluster_assignments_filename") or ""), "text/csv", True),
         ("run_summary_json", str(runtime.get("run_summary_filename") or RUN_SUMMARY_FILENAME), "application/json", False),
         ("technical_report_md", str(runtime.get("technical_report_filename") or TECHNICAL_REPORT_FILENAME), "text/markdown", False),
         ("findings_interpretation_report_md", str(runtime.get("academic_report_filename") or ACADEMIC_REPORT_FILENAME), "text/markdown", False),
@@ -1454,8 +1657,10 @@ def _insert_artifact_rows(run_id: str, run_dir: Path, experiment_id: str) -> Non
     ]
     rows = []
     for artifact_type, filename, content_type, sensitive in artifact_specs:
+        if not _clean_text(filename):
+            continue
         path = run_dir / filename
-        if not path.exists():
+        if not path.exists() or not path.is_file():
             continue
         rows.append(
             {
@@ -1530,7 +1735,7 @@ def _persist_run_results(run_id: str, job_id: str, run_dir: Path, review_result:
         "precision_recall_leader": evaluation.get("best_precision_recall_ranking"),
         "calibration_leader": evaluation.get("calibration_leader"),
         "overall_model_selection": evaluation.get("winner"),
-        "artifact_root": _artifact_root_label(run_id),
+        "artifact_root": str(run_dir),
         "validation_notes": str(review_section.get("label_reconciliation", {}).get("summary") or ""),
         "warning_summary": "; ".join(review_section.get("label_reconciliation", {}).get("limitations") or []),
         **_run_counts_from_dataset_summary(dataset_summary),
@@ -1549,6 +1754,13 @@ def _persist_run_results(run_id: str, job_id: str, run_dir: Path, review_result:
     _insert_artifact_rows(run_id, run_dir, experiment_id)
     if run_status in FINAL_VALIDATED_RUN_STATES:
         _promote_current_validated_run(run_id, experiment_id)
+        if experiment_id == RESOURCE_AFFINITY_EXPERIMENT_ID:
+            try:
+                from helpers.resource_affinity_runtime import clear_resource_affinity_runtime_cache
+
+                clear_resource_affinity_runtime_cache()
+            except Exception:
+                pass
         record_privileged_action(
             action_type="run_marked_validated",
             entity_type="ml_experiment_run",
@@ -1569,6 +1781,10 @@ def launch_student_recommendation_open_experiment() -> tuple[bool, dict[str, Any
     return _launch_registered_experiment(STUDENT_RECOMMENDATION_EXPERIMENT_ID)
 
 
+def launch_resource_affinity_experiment() -> tuple[bool, dict[str, Any], str]:
+    return _launch_registered_experiment(RESOURCE_AFFINITY_EXPERIMENT_ID)
+
+
 def _launch_registered_experiment(experiment_id: str) -> tuple[bool, dict[str, Any], str]:
     require_capability(CAPABILITY_RUN_APPROVED_EXPERIMENTS, message="Developer or data scientist access required.")
     ensure_experiment_registered()
@@ -1578,11 +1794,12 @@ def _launch_registered_experiment(experiment_id: str) -> tuple[bool, dict[str, A
     if not bool(((environment.get("experiment_launcher") or {}).get("ready"))):
         return False, {"environment": environment}, "Experiment launcher is not ready in this environment."
 
-    eligibility = (
-        compute_student_recommendation_experiment_eligibility()
-        if experiment_id == STUDENT_RECOMMENDATION_EXPERIMENT_ID
-        else compute_experiment_eligibility()
-    )
+    if experiment_id == RESOURCE_AFFINITY_EXPERIMENT_ID:
+        eligibility = compute_resource_affinity_experiment_eligibility()
+    elif experiment_id == STUDENT_RECOMMENDATION_EXPERIMENT_ID:
+        eligibility = compute_student_recommendation_experiment_eligibility()
+    else:
+        eligibility = compute_experiment_eligibility()
     record_privileged_action(
         action_type="experiment_eligibility_check",
         entity_type="ml_experiment",
@@ -1641,7 +1858,7 @@ def _launch_registered_experiment(experiment_id: str) -> tuple[bool, dict[str, A
                 "initiated_by": initiated_by or None,
                 "environment": "streamlit_sync_controlled_job",
                 "code_version": _git_code_version(),
-                "artifact_root": _artifact_root_label(run_id),
+                "artifact_root": str(run_dir),
                 "is_current_validated_run": False,
                 "validation_notes": "",
             }

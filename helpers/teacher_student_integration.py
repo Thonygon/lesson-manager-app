@@ -1349,18 +1349,24 @@ def record_video_assignment_watch(assignment_id: int) -> None:
         now = _now_iso()
         video_session_id = None
         try:
-            from helpers.practice_engine import record_video_engagement_session
+            from helpers.practice_engine import record_video_practice_interaction
 
             recommendation_context = assignment.get("recommendation_context") or {}
-            video_session_id = record_video_engagement_session(
-                source_id=assignment.get("source_record_id"),
-                title=str(assignment.get("title") or t("video_label")),
-                subject=str(assignment.get("subject_key") or assignment.get("subject_label") or ""),
-                topic=str(assignment.get("topic") or ""),
-                level=str(recommendation_context.get("level") or ""),
+            video_session_id = record_video_practice_interaction(
+                {
+                    "id": assignment.get("source_record_id"),
+                    "source_record_id": assignment.get("source_record_id"),
+                    "title": str(assignment.get("title") or t("video_label")),
+                    "subject": str(assignment.get("subject_key") or assignment.get("subject_label") or ""),
+                    "topic": str(assignment.get("topic") or ""),
+                    "level_or_band": str(recommendation_context.get("level") or ""),
+                },
+                meta={
+                    "subject": str(assignment.get("subject_key") or assignment.get("subject_label") or ""),
+                    "topic": str(assignment.get("topic") or ""),
+                    "level": str(recommendation_context.get("level") or ""),
+                },
                 assignment_id=int(assignment_id),
-                teacher_id=str(assignment.get("teacher_id") or "").strip(),
-                learning_program_assignment_id=int(assignment.get("learning_program_assignment_id") or 0) or None,
             )
         except Exception:
             video_session_id = None

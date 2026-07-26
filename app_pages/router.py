@@ -191,12 +191,14 @@ def render_top_nav(active_page: str):
         ("profile",   t("profile"),   "person-circle"),
         ("analytics", t("analytics"), "graph-up"),
     ]
-    if current_user_can_access_developer_workspace():
-        more_items.append(("developer_workspace", "Developer Workspace", "cpu"))
     if current_user_is_admin():
         more_items.append(("pricing", t("pricing"), "gem"))
         more_items.append(("account", t("account"), "person-badge"))
+    more_items.append(("student_home", t("switch_to_student"), "mortarboard"))
+    if current_user_is_admin():
         more_items.append(("admin", t("admin"), "shield-lock"))
+    if current_user_can_access_developer_workspace():
+        more_items.append(("developer_workspace", "Developer Workspace", "cpu"))
     more_items.append(("sign_out", t("sign_out"), "box-arrow-right"))
 
     keys   = [k for k, _, _ in primary_items]
@@ -323,6 +325,8 @@ def render_top_nav(active_page: str):
                     elif key == "profile":
                         st.session_state["show_profile_dialog"] = True
                         st.rerun()
+                    elif key == "student_home":
+                        _switch_role("student")
                     else:
                         go_to(key)
                         st.rerun()

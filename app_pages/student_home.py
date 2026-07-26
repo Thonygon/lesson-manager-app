@@ -6,7 +6,7 @@ from core.i18n import t
 from core.navigation import go_to, STUDENT_PAGES
 from core.state import get_current_user_id
 from core.database import load_profile_row
-from helpers.practice_engine import exam_to_exercises, record_video_engagement_session, worksheet_to_exercises
+from helpers.practice_engine import exam_to_exercises, worksheet_to_exercises, record_video_practice_interaction
 from helpers.notifications import (
     get_student_notifications,
     render_lazy_notification_panel,
@@ -160,6 +160,7 @@ def _render_home_recommendation_group(items: list[dict], *, group_key: str) -> N
         )
         meta = f'<div class="cm-resource-meta">✨ {_html.escape((item.get("reasons") or [""])[0])}</div>'
         with rec_cols[idx % len(rec_cols)]:
+            card_key = f"student_home_recommend_action_{group_key}_{resource_type}_{item.get('id', idx)}"
             st.markdown(
                 render_gallery_card_html(
                     kind="video" if resource_type == "video" else "exam" if resource_type == "exam" else "worksheet",
@@ -173,23 +174,25 @@ def _render_home_recommendation_group(items: list[dict], *, group_key: str) -> N
                 unsafe_allow_html=True,
             )
             action_label = _ui_text("watch_video", "Watch video") if resource_type == "video" else t("start_practice")
-            action_key = f"student_home_recommend_action_{group_key}_{resource_type}_{item.get('id', idx)}"
             if st.button(
                 f"▶ {action_label}",
-                key=action_key,
+                key=card_key,
                 use_container_width=True,
                 type="primary",
             ):
                 if resource_type == "video":
-                    if int(item.get("assignment_id") or 0) > 0:
-                        record_video_assignment_watch(int(item.get("assignment_id") or 0))
+                    assignment_id = int(item.get("assignment_id") or 0)
+                    if assignment_id > 0:
+                        record_video_assignment_watch(assignment_id)
                     else:
-                        record_video_engagement_session(
-                            source_id=row.get("id") or item.get("id"),
-                            title=str(item.get("title") or row.get("title") or resource_label),
-                            subject=str(item.get("subject") or row.get("subject") or ""),
-                            topic=str(item.get("topic") or row.get("topic") or ""),
-                            level=str(item.get("level") or row.get("level_or_band") or ""),
+                        record_video_practice_interaction(
+                            {**payload, "id": row.get("id") or item.get("id"), "title": item.get("title") or row.get("title") or resource_label},
+                            meta={
+                                "subject": str(item.get("subject") or row.get("subject") or ""),
+                                "topic": str(item.get("topic") or row.get("topic") or ""),
+                                "learner_stage": str(row.get("learner_stage") or ""),
+                                "level": str(item.get("level") or row.get("level_or_band") or ""),
+                            },
                         )
                     log_student_recommendation_open(item, surface="student_home")
                     st.session_state[f"_student_home_watch_video_{group_key}_{item.get('id', idx)}"] = True

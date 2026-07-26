@@ -20,6 +20,7 @@ from helpers.learning_programs import (
 from helpers.explorer_moves import stage_explorer_move
 from helpers.archive_utils import is_archived_status
 from helpers.practice_engine import normalize_exercise_data_for_web, render_practice_session
+from helpers.resource_gallery import resource_kind_accent
 from styles.theme import load_css_home
 import re
 import pandas as pd
@@ -78,6 +79,17 @@ _CURRENCY_RATE_FROM_USD: dict[str, float] = {
     "PLN": 4.0,
     "CNY": 7.25,
 }
+
+
+def _resource_rgb(kind: str) -> str:
+    """Return the shared material accent as an RGB string for inline CSS variables."""
+    accent = resource_kind_accent(kind).strip().lstrip("#")
+    if len(accent) != 6:
+        return "37,99,235"
+    try:
+        return ",".join(str(int(accent[idx : idx + 2], 16)) for idx in (0, 2, 4))
+    except Exception:
+        return "37,99,235"
 
 # Planning constants
 _TEACHING_WEEKS_PER_YEAR = 44        # ~8 weeks of holidays / breaks
@@ -565,8 +577,8 @@ def _render_explore_teaching_resources() -> bool:
         emoji="📚",
         title=t("explore_teaching_resources_title"),
         subtitle=t("explore_teaching_resources_subtitle"),
-        accent="#F59E0B",
-        rgb="245,158,11",
+        accent=resource_kind_accent("program"),
+        rgb=_resource_rgb("program"),
     ):
         section_is_open = _toggle_explore_section_open(
             "explore_teaching_resources_keep_open",
@@ -1848,8 +1860,8 @@ def _render_explore_ai_tools() -> None:
         emoji="🧰",
         title=t("explore_ai_tools_title"),
         subtitle=t("explore_ai_tools_subtitle"),
-        accent="#2563EB",
-        rgb="37,99,235",
+        accent=resource_kind_accent("program"),
+        rgb=_resource_rgb("program"),
     ):
         section_is_open = _toggle_explore_section_open(
             "explore_ai_tools_keep_open",
@@ -1868,8 +1880,8 @@ def _render_explore_ai_tools() -> None:
             "key": "planner",
             "icon": "📝",
             "title": t("quick_lesson_planner"),
-            "accent": "#2563EB",
-            "rgb": "37,99,235",
+            "accent": resource_kind_accent("lesson_plan"),
+            "rgb": _resource_rgb("lesson_plan"),
             "badge": t("smart_tools_badge_lesson"),
             "desc": t("explore_planner_caption_one"),
         },
@@ -1877,8 +1889,8 @@ def _render_explore_ai_tools() -> None:
             "key": "worksheet",
             "icon": "📋",
             "title": t("worksheet_maker"),
-            "accent": "#10B981",
-            "rgb": "16,185,129",
+            "accent": resource_kind_accent("worksheet"),
+            "rgb": _resource_rgb("worksheet"),
             "badge": t("smart_tools_badge_practice"),
             "desc": t("worksheet_maker_caption_one"),
         },
@@ -1886,8 +1898,8 @@ def _render_explore_ai_tools() -> None:
             "key": "exam",
             "icon": "🧪",
             "title": t("quick_exam_builder"),
-            "accent": "#F59E0B",
-            "rgb": "245,158,11",
+            "accent": resource_kind_accent("exam"),
+            "rgb": _resource_rgb("exam"),
             "badge": t("smart_tools_badge_assessment"),
             "desc": t("quick_exam_builder_caption"),
         },
@@ -1895,8 +1907,8 @@ def _render_explore_ai_tools() -> None:
             "key": "program",
             "icon": "📚",
             "title": t("quick_learning_program_maker"),
-            "accent": "#7C3AED",
-            "rgb": "124,58,237",
+            "accent": resource_kind_accent("program"),
+            "rgb": _resource_rgb("program"),
             "badge": t("smart_tools_badge_curriculum"),
             "desc": t("quick_learning_program_maker_caption"),
         },

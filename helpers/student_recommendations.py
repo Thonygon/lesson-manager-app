@@ -15,7 +15,7 @@ from core.state import get_current_user_id
 from helpers.archive_utils import truthy_flag
 from helpers.lesson_planner import normalize_subject, subject_label
 from helpers.practice_engine import get_completed_source_ids, load_practice_progress
-from helpers.recommendation_models import score_student_resource_candidate, topic_resource_alignment_features
+from helpers.recommendation_models import resource_semantic_affinity, score_student_resource_candidate, topic_resource_alignment_features
 from helpers.student_recommendation_ml import student_recommendation_blend_weight
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student
 
@@ -943,6 +943,17 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
         priority_topic_ids or active_topic_ids,
         student_id=get_current_user_id(),
     )
+    semantic_affinity = resource_semantic_affinity(
+        row,
+        resource_type,
+        {
+            "title": topic,
+            "topic": topic,
+            "objective": " ".join(str(item or "") for item in (program_signals.get("next_topics") or []) if str(item or "")),
+            "next_topics": list(program_signals.get("next_topic_tokens") or set()),
+            "weak_topics": list(student_profile.get("topic_need", {}).keys()),
+        },
+    )
 
     if bootstrap_mode and program_subjects and subject not in program_subjects:
         return -1.0, [], {}
@@ -1029,6 +1040,7 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
         + 0.04 * topic_alignment["explicit_topic_support"]
         + 0.06 * topic_alignment["direct_topic_link"]
         + 0.04 * topic_alignment["topic_kind_prior"]
+        + 0.05 * semantic_affinity
         + review_boost
         + stretch_boost
         + assignment_boost
@@ -1063,6 +1075,7 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
         "direct_topic_link": topic_alignment["direct_topic_link"],
         "topic_kind_prior": topic_alignment["topic_kind_prior"],
         "topic_match_ambiguity": topic_alignment["topic_match_ambiguity"],
+        "semantic_affinity": semantic_affinity,
         "topic_success_penalty": 1.0 if topic_success >= 0.82 and topic_need < 0.28 else 0.0,
         "topic_in_program": program_topic_overlap,
     }
@@ -1102,6 +1115,8 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
         reasons.append(t("student_material_reason_level_stretch", level=level))
     if ml_score >= 0.72:
         reasons.append(t("student_material_reason_ml_fit"))
+    elif semantic_affinity >= 0.68 and topic:
+        reasons.append(t("student_material_reason_revisit_topic", topic=topic))
     if not reasons:
         reasons.append(t("student_material_reason_balanced"))
 

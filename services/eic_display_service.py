@@ -18,11 +18,14 @@ COMPONENT_NAME_KEYS = {
     "material_reuse_similarity_retriever": "admin_eic_component_name_material_reuse_similarity_retriever",
     "recommendation_event_feedback_loop": "admin_eic_component_name_recommendation_event_feedback_loop",
     "assigned_resource_open_within_7d": "admin_eic_component_name_assigned_resource_open_within_7d",
+    "student_recommendation_open_within_7d": "admin_eic_component_name_student_recommendation_open_within_7d",
+    "resource_affinity_unsupervised_discovery": "admin_eic_component_name_resource_affinity_unsupervised_discovery",
 }
 
 EXPERIMENT_NAME_KEYS = {
     "assigned_resource_open_within_7d": "admin_eic_experiment_name_assigned_resource_open_within_7d",
     "student_recommendation_open_within_7d": "admin_eic_experiment_name_student_recommendation_open_within_7d",
+    "resource_affinity_unsupervised_discovery": "admin_eic_experiment_name_resource_affinity_unsupervised_discovery",
 }
 
 EXPERIMENT_STATUS_KEYS = {
@@ -130,6 +133,24 @@ COMPONENT_TEXT_KEYS = {
         "educational_value": "admin_eic_component_text_assigned_resource_open_within_7d_educational_value",
         "outcome_metric": "admin_eic_component_text_assigned_resource_open_within_7d_outcome_metric",
     },
+    "student_recommendation_open_within_7d": {
+        "business_question": "admin_eic_component_text_student_recommendation_open_within_7d_business_question",
+        "decision_supported": "admin_eic_component_text_student_recommendation_open_within_7d_decision_supported",
+        "production_use": "admin_eic_component_text_student_recommendation_open_within_7d_production_use",
+        "limitation": "admin_eic_component_text_student_recommendation_open_within_7d_limitation",
+        "product_surface": "admin_eic_component_text_student_recommendation_open_within_7d_product_surface",
+        "educational_value": "admin_eic_component_text_student_recommendation_open_within_7d_educational_value",
+        "outcome_metric": "admin_eic_component_text_student_recommendation_open_within_7d_outcome_metric",
+    },
+    "resource_affinity_unsupervised_discovery": {
+        "business_question": "admin_eic_component_text_resource_affinity_unsupervised_discovery_business_question",
+        "decision_supported": "admin_eic_component_text_resource_affinity_unsupervised_discovery_decision_supported",
+        "production_use": "admin_eic_component_text_resource_affinity_unsupervised_discovery_production_use",
+        "limitation": "admin_eic_component_text_resource_affinity_unsupervised_discovery_limitation",
+        "product_surface": "admin_eic_component_text_resource_affinity_unsupervised_discovery_product_surface",
+        "educational_value": "admin_eic_component_text_resource_affinity_unsupervised_discovery_educational_value",
+        "outcome_metric": "admin_eic_component_text_resource_affinity_unsupervised_discovery_outcome_metric",
+    },
 }
 
 RUN_STATUS_KEYS = {
@@ -182,6 +203,7 @@ COMPONENT_TYPE_KEYS = {
     "heuristic_ranker": "admin_eic_type_heuristic_ranker",
     "statistical_estimator": "admin_eic_type_statistical_estimator",
     "supervised_experiment": "admin_eic_type_supervised_experiment",
+    "unsupervised_experiment": "admin_eic_type_unsupervised_experiment",
     "retrieval_system": "admin_eic_type_retrieval_system",
     "hybrid_intelligence": "admin_eic_type_hybrid_intelligence",
 }
@@ -274,6 +296,7 @@ MODEL_KIND_KEYS = {
     "baseline_manual": "admin_eic_model_kind_baseline_manual",
     "baseline": "admin_eic_model_kind_baseline",
     "supervised": "admin_eic_model_kind_supervised",
+    "unsupervised": "admin_eic_model_kind_unsupervised",
 }
 
 MODEL_RESULT_STATUS_KEYS = {

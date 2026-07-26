@@ -2789,6 +2789,8 @@ def _load_practice_history_cached(uid: str, limit: int = 50) -> pd.DataFrame:
         if df is None or df.empty:
             return pd.DataFrame()
         df = df.copy()
+        if "user_id" in df.columns:
+            df = df[df["user_id"].astype(str) == str(uid)].copy()
         if "status" in df.columns:
             df = df[df["status"].fillna("completed").astype(str) == "completed"].copy()
         if "created_at" in df.columns:
@@ -2864,6 +2866,72 @@ def get_completed_source_ids() -> dict[str, set]:
         if src_type in result and src_id is not None:
             result[src_type].add(src_id)
     return result
+
+
+def record_video_practice_interaction(
+    video_payload: dict | None = None,
+    meta: dict | None = None,
+    *,
+    assignment_id: int | None = None,
+    xp_earned: int | None = None,
+) -> int | None:
+    """Persist a video watch as a completed practice session + progress event."""
+    payload = dict(video_payload or {})
+    meta = dict(meta or {})
+    source_id = (
+        int(payload.get("id") or 0)
+        or int(payload.get("video_id") or 0)
+        or int(payload.get("source_record_id") or 0)
+        or int(assignment_id or 0)
+    )
+    title = str(payload.get("title") or t("video_label") or "Video").strip()
+    event_xp = int(xp_earned if xp_earned is not None else (XP_PER_CORRECT + XP_PER_ATTEMPT))
+    event_xp = max(event_xp, 0)
+
+    exercise_data = {
+        "title": title,
+        "instructions": "Watch and review the video resource.",
+        "source_type": "video",
+        "source_id": source_id or None,
+        "exercises": [
+            {
+                "type": "video_watch",
+                "title": title,
+                "instructions": "Video watched",
+                "questions": [{"text": "video_watch"}],
+                "answers": ["watched"],
+            }
+        ],
+    }
+    student_answers = {"video_0_0": "watched"}
+    progress_meta = {
+        "subject": str(meta.get("subject") or payload.get("subject") or ""),
+        "topic": str(meta.get("topic") or payload.get("topic") or ""),
+        "learner_stage": str(meta.get("learner_stage") or payload.get("learner_stage") or ""),
+        "level": str(meta.get("level") or payload.get("level_or_band") or ""),
+    }
+
+    session_id = save_practice_session(
+        exercise_data,
+        total=1,
+        correct=1,
+        score_pct=100.0,
+        xp_earned=event_xp,
+        best_streak=1,
+        status="completed",
+        meta=progress_meta,
+    )
+    if not session_id:
+        return None
+    update_practice_progress(
+        exercise_data,
+        student_answers,
+        meta=progress_meta,
+        session_key="video",
+        xp_earned=event_xp,
+        best_streak=1,
+    )
+    return session_id
 
 
 def update_practice_session(

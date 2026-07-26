@@ -25,7 +25,7 @@ from helpers.teacher_student_integration import (
 )
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student, render_student_program_view
 from helpers.empty_states import render_empty_state
-from helpers.resource_gallery import extract_gallery_image_url, inject_resource_gallery_styles, render_gallery_card_html, resource_kind_accent
+from helpers.resource_gallery import extract_gallery_image_url, inject_resource_gallery_styles, render_gallery_card_html
 from helpers.video_library import load_video_record
 from helpers.worksheet_builder import normalize_worksheet_output
 from helpers.worksheet_storage import load_worksheet_record
@@ -81,32 +81,6 @@ def _latest_completed_assignment_session(assignment_id: int) -> dict:
         return session_rows[0] if session_rows else {}
     except Exception:
         return {}
-
-
-def _inject_assignment_action_style(button_key: str, resource_kind: str) -> None:
-    safe_key = "".join(ch if ch.isalnum() or ch in ("_", "-") else "-" for ch in str(button_key))
-    accent = resource_kind_accent(resource_kind)
-    st.markdown(
-        f"""
-        <style>
-        div[data-testid="stVerticalBlock"] div.st-key-{safe_key} {{
-            margin-top: -0.55rem;
-        }}
-        div[data-testid="stVerticalBlock"] div.st-key-{safe_key} button {{
-            min-height: 2.65rem;
-            border-radius: 0 0 18px 18px !important;
-            border-top: 0 !important;
-            border-color: color-mix(in srgb, {accent} 32%, rgba(148,163,184,.24)) !important;
-            background:
-                linear-gradient(90deg, color-mix(in srgb, {accent} 14%, rgba(255,255,255,.94)), rgba(255,255,255,.96)) !important;
-            color: var(--text, #0f172a) !important;
-            font-weight: 900 !important;
-            box-shadow: 0 14px 28px rgba(15,23,42,.07) !important;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
 
 
 def _log_video_assignment_event(row: dict, event_type: str) -> None:
@@ -820,20 +794,14 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
             is_finalized = status in {"submitted", "graded", "completed", "cancelled"}
             is_continue = bool(draft) or status == "started"
             if source_archived:
-                button_key = f"{key_prefix}_archived"
-                _inject_assignment_action_style(button_key, assignment_type)
-                if st.button(t("archived_label"), key=button_key, use_container_width=True):
+                if st.button(t("archived_label"), key=f"{key_prefix}_archived", use_container_width=True):
                     st.info(t("assignment_source_archived_notice"))
             elif is_finalized:
-                button_key = f"{key_prefix}_review"
-                _inject_assignment_action_style(button_key, assignment_type)
-                if st.button(_safe_ui_label("review_answers", "Review answers"), key=button_key, use_container_width=True, type="primary"):
+                if st.button(_safe_ui_label("review_answers", "Review answers"), key=f"{key_prefix}_review", use_container_width=True, type="primary"):
                     _open_assignment_practice(row, review_completed=True)
             else:
                 action_text = t("continue_practice") if is_continue else t("open_assignment")
-                button_key = f"{key_prefix}_open"
-                _inject_assignment_action_style(button_key, assignment_type)
-                if st.button(action_text, key=button_key, use_container_width=True, type="primary"):
+                if st.button(action_text, key=f"{key_prefix}_open", use_container_width=True, type="primary"):
                     _open_assignment_practice(row)
         elif assignment_type == "video":
             if attempts_value > 0:
@@ -843,9 +811,7 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
                 )
                 st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
             video_action = _safe_ui_label("watch_again", "Watch again") if attempts_value > 0 else t("watch_video")
-            button_key = f"{key_prefix}_video_watch"
-            _inject_assignment_action_style(button_key, "video")
-            if st.button(video_action, key=button_key, use_container_width=True, type="primary"):
+            if st.button(video_action, key=f"{key_prefix}_video_watch", use_container_width=True, type="primary"):
                 st.session_state[f"{key_prefix}_video_player_open"] = True
                 record_video_assignment_watch(int(row.get("id") or 0))
                 _log_video_assignment_event(row, "student_video_watched")

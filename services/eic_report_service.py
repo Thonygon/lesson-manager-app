@@ -37,7 +37,12 @@ from services.eic_display_service import (
     get_run_status_display,
 )
 from services.eic_report_charts import build_report_charts
-from services.ml_experiment_service import FINAL_VALIDATED_RUN_STATES, list_run_artifacts
+from services.ml_experiment_service import (
+    EXPERIMENT_PARADIGM_UNSUPERVISED,
+    FINAL_VALIDATED_RUN_STATES,
+    get_experiment_paradigm,
+    list_run_artifacts,
+)
 
 
 REPORT_ROOT = Path("reports") / "ml_architecture" / "eic_reports"
@@ -383,20 +388,17 @@ def _clean_text(value: Any) -> str:
 
 def _translated_business_question(detail: dict[str, Any], lang: str) -> str:
     experiment_id = _clean_text(detail.get("experiment_id") or "")
-    if experiment_id == "assigned_resource_open_within_7d":
+    if experiment_id in {
+        "assigned_resource_open_within_7d",
+        "student_recommendation_open_within_7d",
+        "resource_affinity_unsupervised_discovery",
+    }:
         return get_component_text_display(
-            "assigned_resource_open_within_7d",
+            experiment_id,
             "business_question",
             detail.get("business_question"),
             lang=lang,
         )
-    if experiment_id == "student_recommendation_open_within_7d":
-        fallback = _clean_text(detail.get("business_question"))
-        if lang == "es":
-            return fallback or "¿Puede Classio predecir si un estudiante abrirá una recomendación opcional dentro de siete días desde que la ve?"
-        if lang == "tr":
-            return fallback or "Classio, bir öğrencinin isteğe bağlı bir öneriyi gördükten sonraki yedi gün içinde açıp açmayacağını tahmin edebilir mi?"
-        return fallback
     return _clean_text(detail.get("business_question"))
 
 
@@ -631,6 +633,17 @@ def _artifact_path_map(run_id: str) -> dict[str, Path]:
     }
     if "findings_interpretation_report_md" not in mapping and "academic_report_md" in mapping:
         mapping["findings_interpretation_report_md"] = mapping["academic_report_md"]
+    run_summary_path = mapping.get("run_summary_json")
+    run_dir = run_summary_path.parent if run_summary_path and run_summary_path.exists() else None
+    if run_dir:
+        inferred = {
+            "cluster_assignments_csv": run_dir / "resource_affinity_cluster_assignments.csv",
+            "frozen_dataset_csv": run_dir / "resource_affinity_dataset_frozen.csv",
+            "holdout_predictions_csv": run_dir / "resource_affinity_pairwise_neighbors.csv",
+        }
+        for artifact_type, path in inferred.items():
+            if artifact_type not in mapping and path.exists():
+                mapping[artifact_type] = path
     return mapping
 
 
@@ -888,6 +901,7 @@ def _artifact_display_name(artifact_type: str) -> str:
         "dataset_summary_json": "Dataset Summary JSON",
         "feature_audit_csv": "Feature Audit CSV",
         "frozen_dataset_csv": "Frozen Dataset CSV",
+        "cluster_assignments_csv": "Cluster Assignments CSV",
         "holdout_predictions_csv": "Holdout Predictions CSV",
         "integrity_review_md": "Integrity Review Markdown",
         "integrity_report_md": "Integrity Report Markdown",
@@ -1455,6 +1469,7 @@ def _artifact_manifest_rows(artifacts: dict[str, Path], lang: str) -> tuple[list
         "model_comparison_csv": _phrase(lang, "stored_model_metrics"),
         "holdout_predictions_csv": _phrase(lang, "stored_holdout_probabilities"),
         "feature_audit_csv": _phrase(lang, "feature_availability_audit"),
+        "cluster_assignments_csv": "Winning clustering assignments" if lang == "en" else ("Asignaciones de clúster del modelo ganador" if lang == "es" else "Kazanan küme atamaları"),
         "label_reconciliation_csv": _phrase(lang, "label_reconciliation_review"),
         "integrity_report_md": _phrase(lang, "integrity_narrative"),
         "academic_report_md": _phrase(lang, "findings_markdown_baseline"),
@@ -2255,8 +2270,229 @@ def build_technical_report_docx(run_id: str, language: str) -> dict[str, Any]:
     }
 
 
+def _is_unsupervised_report_context(context: dict[str, Any]) -> bool:
+    detail = context.get("detail") or {}
+    return get_experiment_paradigm(str(detail.get("experiment_id") or "")) == EXPERIMENT_PARADIGM_UNSUPERVISED
+
+
+def _read_csv_records(path: Path, *, limit: int = 12) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    try:
+        frame = pd.read_csv(path)
+    except Exception:
+        return []
+    if frame.empty:
+        return []
+    return frame.head(max(1, int(limit))).fillna("").to_dict("records")
+
+
+def _unsupervised_metric_rows(summary: dict[str, Any], detail: dict[str, Any], lang: str) -> list[list[str]]:
+    evaluation = summary.get("evaluation") or {}
+    best = evaluation.get("best_model") or {}
+    dataset = summary.get("dataset") or {}
+    embedding = evaluation.get("embedding_manifest") or {}
+    return [
+        ["Best model" if lang == "en" else ("Mejor modelo" if lang == "es" else "En iyi model"), str(evaluation.get("winner") or best.get("model_name") or detail.get("primary_metric_leader") or "—")],
+        ["Primary metric" if lang == "en" else ("Métrica principal" if lang == "es" else "Ana metrik"), str(evaluation.get("primary_metric") or detail.get("primary_metric") or "—")],
+        ["Silhouette score" if lang == "en" else ("Silhouette score" if lang == "es" else "Silhouette skoru"), _display_scalar(best.get("silhouette_score"))],
+        ["Calinski-Harabasz" if lang == "en" else ("Calinski-Harabasz" if lang == "es" else "Calinski-Harabasz"), _display_scalar(best.get("calinski_harabasz"))],
+        ["Davies-Bouldin" if lang == "en" else ("Davies-Bouldin" if lang == "es" else "Davies-Bouldin"), _display_scalar(best.get("davies_bouldin"))],
+        ["Clusters" if lang == "en" else ("Clústeres" if lang == "es" else "Kümeler"), _display_scalar(best.get("cluster_count"))],
+        ["Noise ratio" if lang == "en" else ("Proporción de ruido" if lang == "es" else "Gürültü oranı"), _display_scalar(best.get("noise_ratio"))],
+        ["Cross-subject contamination" if lang == "en" else ("Contaminación entre materias" if lang == "es" else "Dersler arası karışma"), _display_scalar(best.get("cross_subject_contamination_rate"))],
+        ["Cross-language contamination" if lang == "en" else ("Contaminación entre idiomas" if lang == "es" else "Diller arası karışma"), _display_scalar(best.get("cross_language_contamination_rate"))],
+        ["Resources included" if lang == "en" else ("Recursos incluidos" if lang == "es" else "Dahil edilen kaynaklar"), _display_scalar(dataset.get("resource_count") or detail.get("resources_represented") or detail.get("included_row_count"))],
+        ["Resource types" if lang == "en" else ("Tipos de recurso" if lang == "es" else "Kaynak türleri"), _display_scalar(dataset.get("resource_type_count"))],
+        ["Vector method" if lang == "en" else ("Método vectorial" if lang == "es" else "Vektör yöntemi"), _display_scalar(embedding.get("embedding_method"))],
+        ["Vector dimensions" if lang == "en" else ("Dimensiones vectoriales" if lang == "es" else "Vektör boyutları"), _display_scalar(embedding.get("vector_dimensions"))],
+    ]
+
+
+def build_unsupervised_experiment_report_docx(run_id: str, language: str, *, report_type: str = "experiment_docx") -> dict[str, Any]:
+    lang = _lang(language)
+    context = _report_base_context(run_id, lang)
+    if not context:
+        return {"ok": False, "message": t("admin_eic_report_unavailable_no_validated_run", lang=lang)}
+    if not _is_unsupervised_report_context(context):
+        return build_experiment_report_docx(run_id, lang)
+    missing_context_labels = _report_context_missing_labels(context, lang)
+    if missing_context_labels:
+        return {
+            "ok": False,
+            "message": t("report_context_generation_blocked", lang=lang, fields=", ".join(missing_context_labels)),
+        }
+    artifacts = _artifact_path_map(run_id)
+    if not artifacts.get("run_summary_json") or not artifacts["run_summary_json"].exists():
+        return {"ok": False, "message": t("admin_eic_report_unavailable_no_validated_run", lang=lang)}
+
+    detail = context["detail"]
+    run_summary = context["run_summary"]
+    dataset_summary = context["dataset_summary"]
+    report_context = context.get("report_context") or {}
+    academic = context.get("academic") or {}
+    manifest_rows, filenames = _artifact_manifest_rows(artifacts, lang)
+    model_rows = _read_csv_records(artifacts.get("model_comparison_csv", Path("__missing__")), limit=12)
+    neighbor_rows = _read_csv_records(artifacts.get("holdout_predictions_csv", Path("__missing__")), limit=10)
+    charts = build_report_charts("unsupervised_docx", run_id, lang, context, artifacts, _report_dir(run_id, lang) / "assets_unsupervised_docx")
+    ai_narrative = _generate_report_ai_narrative(context, report_kind="unsupervised", lang=lang)
+
+    doc = Document()
+    _set_doc_defaults(doc)
+    title = "Unsupervised Experiment Report" if lang == "en" else ("Informe de experimento no supervisado" if lang == "es" else "Denetimsiz deney raporu")
+    _cover(
+        doc,
+        title,
+        str(detail.get("business_question") or ""),
+        get_run_status_display(str(detail.get("run_status") or ""), lang=lang),
+        [
+            _copy(lang, "cover_generated", value=_now_text(lang)),
+            _copy(lang, "cover_run", value=run_id),
+            _copy(lang, "cover_fingerprint", value=_short_fingerprint(str(detail.get("dataset_fingerprint") or "n/a"))),
+        ],
+        lang,
+    )
+    _apply_page_furniture(doc, title, run_id, lang)
+
+    _add_heading(doc, "Planteamiento de la solución" if lang == "es" else ("Solution framing" if lang == "en" else "Çözüm çerçevesi"), 1)
+    _add_paragraph(doc, _translated_business_question(detail, lang))
+    _add_table(
+        doc,
+        [_copy(lang, "meta_field"), _copy(lang, "meta_value")],
+        [
+            ["Business problem" if lang == "en" else ("Problema de negocio" if lang == "es" else "İş problemi"), _context_text(report_context, "business_problem", lang, ai_narrative)],
+            ["Decision supported" if lang == "en" else ("Decisión apoyada" if lang == "es" else "Desteklenen karar"), _context_text(report_context, "decision_supported", lang, ai_narrative)],
+            ["SMART objective" if lang == "en" else ("Objetivo SMART" if lang == "es" else "SMART hedef"), _context_text(report_context, "success_definition", lang, ai_narrative)],
+            ["Expected value" if lang == "en" else ("Valor esperado" if lang == "es" else "Beklenen değer"), _context_text(report_context, "expected_value", lang, ai_narrative)],
+        ],
+        [2.1, 4.6],
+    )
+
+    _add_heading(doc, "Desarrollo del modelo" if lang == "es" else ("Model development" if lang == "en" else "Model geliştirme"), 1)
+    _add_paragraph(
+        doc,
+        "Este experimento usa perfiles canónicos de recursos y algoritmos no supervisados para descubrir clústeres y vecinos semánticos sin construir etiquetas positivas/negativas."
+        if lang == "es"
+        else ("This experiment uses canonical resource profiles and unsupervised algorithms to discover clusters and semantic neighbors without positive/negative labels." if lang == "en" else "Bu deney, pozitif/negatif etiketler oluşturmadan kümeleri ve anlamsal komşuları keşfetmek için kanonik kaynak profilleri ve denetimsiz algoritmalar kullanır."),
+    )
+    _add_picture_with_caption(
+        doc,
+        charts.get("unsupervised_model_quality", Path("__missing__")),
+        "Figura 1. Ranking de modelos por Silhouette Score; barras más altas indican mayor coherencia interna de los clústeres." if lang == "es" else ("Figure 1. Model ranking by Silhouette Score; higher bars indicate stronger internal cluster coherence." if lang == "en" else "Şekil 1. Silhouette skoruna göre model sıralaması."),
+        width=6.5,
+    )
+    _add_picture_with_caption(
+        doc,
+        charts.get("unsupervised_quality_tradeoff", Path("__missing__")),
+        "Figura 2. Trade-off entre calidad y contaminación: el ganador debe combinar alto Silhouette con baja mezcla entre materias." if lang == "es" else ("Figure 2. Quality/contamination trade-off: the winner should combine high Silhouette with low cross-subject mixing." if lang == "en" else "Şekil 2. Kalite/karışma dengesi."),
+        width=6.5,
+    )
+    _add_table(doc, [_copy(lang, "meta_field"), _copy(lang, "meta_value")], _unsupervised_metric_rows(run_summary, detail, lang), [2.4, 4.3])
+
+    if model_rows:
+        _add_heading(doc, "Model comparison" if lang == "en" else ("Comparación de modelos" if lang == "es" else "Model karşılaştırması"), 2)
+        comparison_rows = [
+            [
+                str(row.get("model_name") or ""),
+                _display_scalar(row.get("silhouette_score")),
+                _display_scalar(row.get("cluster_count")),
+                _display_scalar(row.get("noise_ratio")),
+                _display_scalar(row.get("cross_subject_contamination_rate")),
+            ]
+            for row in model_rows
+        ]
+        _add_table(
+            doc,
+            ["Model" if lang == "en" else ("Modelo" if lang == "es" else "Model"), "Silhouette", "Clusters" if lang == "en" else ("Clústeres" if lang == "es" else "Kümeler"), "Noise" if lang == "en" else ("Ruido" if lang == "es" else "Gürültü"), "Subject contamination" if lang == "en" else ("Contaminación por materia" if lang == "es" else "Ders karışması")],
+            comparison_rows,
+            [2.4, 1.1, 1.0, 1.0, 1.4],
+            numeric_cols={1, 2, 3, 4},
+        )
+
+    _add_heading(doc, "Visualización de clústeres" if lang == "es" else ("Cluster visualization" if lang == "en" else "Küme görselleştirme"), 2)
+    _add_picture_with_caption(
+        doc,
+        charts.get("unsupervised_cluster_projection", Path("__missing__")),
+        "Figura 3. Proyección 2D reproducible de los perfiles de recursos; las X marcan centroides aproximados de los clústeres principales y los puntos grises son ruido/otros clústeres." if lang == "es" else ("Figure 3. Reproducible 2D projection of resource profiles; X markers show approximate centroids for major clusters and gray points represent noise/other clusters." if lang == "en" else "Şekil 3. Kaynak profillerinin 2B projeksiyonu."),
+        width=6.5,
+    )
+    _add_picture_with_caption(
+        doc,
+        charts.get("unsupervised_cluster_sizes", Path("__missing__")),
+        "Figura 4. Tamaños de los clústeres principales del modelo ganador; ayuda a detectar clústeres dominantes o demasiado fragmentados." if lang == "es" else ("Figure 4. Main cluster sizes for the winning model; this helps detect dominant or overly fragmented clusters." if lang == "en" else "Şekil 4. Kazanan modelin ana küme boyutları."),
+        width=6.2,
+    )
+
+    if neighbor_rows:
+        _add_heading(doc, "Semantic neighbor audit" if lang == "en" else ("Auditoría de vecinos semánticos" if lang == "es" else "Anlamsal komşu denetimi"), 2)
+        _add_table(
+            doc,
+            ["Source" if lang == "en" else ("Origen" if lang == "es" else "Kaynak"), "Neighbor" if lang == "en" else ("Vecino" if lang == "es" else "Komşu"), "Similarity" if lang == "en" else ("Similitud" if lang == "es" else "Benzerlik"), "Same subject" if lang == "en" else ("Misma materia" if lang == "es" else "Aynı ders")],
+            [
+                [
+                    str(row.get("source_title") or row.get("source_resource_key") or "")[:90],
+                    str(row.get("target_title") or row.get("target_resource_key") or "")[:90],
+                    _display_scalar(row.get("similarity_score")),
+                    _bool_text(row.get("same_subject"), lang),
+                ]
+                for row in neighbor_rows
+            ],
+            [2.4, 2.4, 0.9, 0.9],
+            numeric_cols={2},
+        )
+
+    _add_heading(doc, "Conclusiones" if lang == "es" else ("Conclusions" if lang == "en" else "Sonuçlar"), 1)
+    _add_note_box(
+        doc,
+        _copy(lang, "section_note"),
+        str(
+            ai_narrative.get("conclusion_paragraph")
+            or "El resultado es exploratorio y apto para análisis de shadow testing; no debe activar cambios automáticos en producción sin revisión humana de vecinos/clústeres."
+            if lang == "es"
+            else (ai_narrative.get("conclusion_paragraph") or "The result is exploratory and suitable for shadow-test analysis; it should not trigger automatic production changes without human review of neighbors/clusters.")
+        ),
+    )
+    limitations = _unique_nonempty(
+        list(ai_narrative.get("limitations") or [])
+        + list(academic.get("limitations") or [])
+        + list((run_summary.get("evaluation") or {}).get("limitations") or [])
+        + list(((run_summary.get("review") or {}).get("label_reconciliation") or {}).get("limitations") or [])
+    )
+    _add_heading(doc, _copy(lang, "limitations"), 2)
+    _add_bullets(doc, limitations or [t("admin_eic_report_no_additional_risks", lang=lang)])
+
+    _add_heading(doc, _copy(lang, "appendix"), 1)
+    _add_heading(doc, _copy(lang, "artifact_manifest"), 2)
+    _add_table(
+        doc,
+        [_copy(lang, "artifact_name"), _copy(lang, "artifact_purpose"), _copy(lang, "artifact_format"), _copy(lang, "artifact_checksum"), _copy(lang, "artifact_availability")],
+        manifest_rows,
+        [1.5, 2.5, 0.7, 1.0, 1.0],
+        caption=_copy(lang, "caption_manifest"),
+    )
+    for file_name in filenames:
+        _add_paragraph(doc, f"{_copy(lang, 'artifact_filename')}: {file_name}", color=MUTED)
+
+    report_dir = _report_dir(run_id, lang)
+    report_dir.mkdir(parents=True, exist_ok=True)
+    safe_report_type = report_type if report_type in REPORT_TYPES else "experiment_docx"
+    path = report_dir / _report_filename(safe_report_type, run_id)
+    doc.save(path)
+    return {
+        "ok": True,
+        "path": str(path),
+        "bytes": _verified_docx_bytes(path),
+        "report_type": safe_report_type,
+        "generation_mode": "ai" if bool(ai_narrative.get("_ai_used")) else "template",
+        "provider": str(ai_narrative.get("_provider") or ""),
+    }
+
+
 def build_experiment_report_docx(run_id: str, language: str) -> dict[str, Any]:
     lang = _lang(language)
+    context = _report_base_context(run_id, lang)
+    if context and _is_unsupervised_report_context(context):
+        return build_unsupervised_experiment_report_docx(run_id, lang, report_type="experiment_docx")
     technical = build_technical_report_docx(run_id, lang)
     if not technical.get("ok"):
         return technical
@@ -2284,6 +2520,9 @@ def get_or_create_validated_report(run_id: str, report_type: str, language: str,
     path = _report_dir(safe_run_id, lang) / _report_filename(safe_type, safe_run_id)
     if path.exists() and not force_regenerate:
         return {"ok": True, "path": str(path), "bytes": _verified_docx_bytes(path), "report_type": safe_type}
+    context = _report_base_context(safe_run_id, lang)
+    if context and _is_unsupervised_report_context(context):
+        return build_unsupervised_experiment_report_docx(safe_run_id, lang, report_type=safe_type)
     builders = {
         "experiment_docx": build_experiment_report_docx,
         "executive_docx": build_executive_report_docx,
@@ -2299,11 +2538,21 @@ def list_available_eic_reports(run_id: str, user_capabilities: set[str] | None =
     capabilities = user_capabilities or set()
     detail = _validated_run_detail(safe_run_id)
     has_validated_run = bool(detail)
+    paradigm = get_experiment_paradigm(str(detail.get("experiment_id") or "")) if detail else "unknown"
+    description = (
+        "Informe Word del experimento no supervisado con métricas de clustering, vecinos semánticos y conclusiones."
+        if lang == "es" and paradigm == EXPERIMENT_PARADIGM_UNSUPERVISED
+        else (
+            "Word report for the unsupervised experiment with clustering metrics, semantic neighbors, and conclusions."
+            if paradigm == EXPERIMENT_PARADIGM_UNSUPERVISED
+            else t("admin_eic_report_experiment_subtitle", lang=lang)
+        )
+    )
     base_rows = [
         {
             "report_type": "experiment_docx",
             "title": get_report_type_display("experiment_docx", lang=lang),
-            "description": t("admin_eic_report_experiment_subtitle", lang=lang),
+            "description": description,
             "status": "available" if has_validated_run else "no_validated_run",
             "restricted": False,
         }

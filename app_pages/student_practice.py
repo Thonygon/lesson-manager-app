@@ -15,7 +15,6 @@ from helpers.practice_engine import (
     save_practice_answers,
     update_practice_progress,
     update_practice_session,
-    record_video_engagement_session,
     load_practice_history,
     load_practice_progress,
     load_in_progress_practice_session,
@@ -25,6 +24,7 @@ from helpers.practice_engine import (
     get_global_best_streak,
     get_rank,
     calculate_session_xp,
+    record_video_practice_interaction,
 )
 from helpers.teacher_student_integration import (
     _clean_teacher_feedback_text,
@@ -85,38 +85,6 @@ def _practice_resource_kind(row_or_kind) -> str:
                 return kind
         return "practice"
     return normalize_resource_kind(row_or_kind)
-
-
-def _inject_integrated_card_action_style(button_key: str, accent: str) -> None:
-    """Make the Streamlit action button read as the card footer without changing the card body."""
-    safe_key = "".join(ch if ch.isalnum() or ch in ("_", "-") else "-" for ch in str(button_key))
-    accent = str(accent or resource_kind_accent("worksheet")).strip()
-    st.markdown(
-        f"""
-        <style>
-        div[data-testid="stVerticalBlock"] div.st-key-{safe_key} {{
-            margin-top: -0.55rem;
-        }}
-        div[data-testid="stVerticalBlock"] div.st-key-{safe_key} button {{
-            min-height: 2.65rem;
-            border-radius: 0 0 18px 18px !important;
-            border-top: 0 !important;
-            border-color: color-mix(in srgb, {accent} 32%, rgba(148,163,184,.24)) !important;
-            background:
-                linear-gradient(90deg, color-mix(in srgb, {accent} 14%, rgba(255,255,255,.94)), rgba(255,255,255,.96)) !important;
-            color: var(--text, #0f172a) !important;
-            font-weight: 900 !important;
-            box-shadow: 0 14px 28px rgba(15,23,42,.07) !important;
-        }}
-        div[data-testid="stVerticalBlock"] div.st-key-{safe_key} button:hover {{
-            border-color: color-mix(in srgb, {accent} 46%, rgba(148,163,184,.24)) !important;
-            box-shadow: 0 18px 34px rgba(15,23,42,.10) !important;
-            transform: translateY(-1px);
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
 
 
 def _is_specific_resource_kind(kind: str) -> bool:
@@ -1008,25 +976,24 @@ def _render_practice_card(
         unsafe_allow_html=True,
     )
 
-    _inject_integrated_card_action_style(btn_key, color or resource_kind_accent(resource_type))
-
     if resource_type == "video":
         if st.button(
             f"▶ {_ui_text('watch_video', 'Watch video')}",
             key=btn_key,
             use_container_width=True,
         ):
-            assignment_id = _safe_int(row.get("_recommended_assignment_id"))
+            assignment_id = int(row.get("_recommended_assignment_id") or 0)
             if assignment_id > 0:
                 record_video_assignment_watch(assignment_id)
             else:
-                record_video_engagement_session(
-                    source_id=row.get("id"),
-                    title=title,
-                    subject=subject,
-                    topic=topic,
-                    level=level,
-                    learner_stage=str(row.get("learner_stage") or ""),
+                record_video_practice_interaction(
+                    combined_payload,
+                    meta={
+                        "subject": subject,
+                        "topic": topic,
+                        "learner_stage": str(row.get("learner_stage") or ""),
+                        "level": level,
+                    },
                 )
             if recommendation_item:
                 log_student_recommendation_open(recommendation_item, surface="student_practice")

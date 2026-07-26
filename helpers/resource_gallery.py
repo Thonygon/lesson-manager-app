@@ -102,13 +102,13 @@ def inject_resource_gallery_styles() -> None:
           border-color:color-mix(in srgb, var(--resource-accent) 48%, var(--border));
           box-shadow:0 24px 60px rgba(15,23,42,.14), 0 0 0 1px color-mix(in srgb, var(--resource-accent) 16%, transparent);
         }
-        .cm-resource-worksheet{--resource-accent:#8b5cf6;}
-        .cm-resource-exam{--resource-accent:#ec4899;}
-        .cm-resource-plan{--resource-accent:#eab308;}
-        .cm-resource-program{--resource-accent:#60a5fa;}
-        .cm-resource-topic{--resource-accent:#60a5fa;}
-        .cm-resource-video{--resource-accent:#1e3a8a;}
-        .cm-resource-practice{--resource-accent:#60a5fa;}
+        .cm-resource-worksheet{--resource-accent:var(--resource-accent-worksheet, #8b5cf6);}
+        .cm-resource-exam{--resource-accent:var(--resource-accent-exam, #ec4899);}
+        .cm-resource-plan{--resource-accent:var(--resource-accent-plan, #eab308);}
+        .cm-resource-program{--resource-accent:var(--resource-accent-program, #60a5fa);}
+        .cm-resource-topic{--resource-accent:var(--resource-accent-topic, #60a5fa);}
+        .cm-resource-video{--resource-accent:var(--resource-accent-video, #1e3a8a);}
+        .cm-resource-practice{--resource-accent:var(--resource-accent-practice, #60a5fa);}
         .cm-resource-hero{
           position:relative;
           aspect-ratio:16/9;

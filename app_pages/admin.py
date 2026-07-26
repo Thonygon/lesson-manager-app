@@ -72,7 +72,12 @@ from services.account_reset_service import (
     execute_user_reset,
 )
 from services.auth_service import require_admin
-from services.ml_experiment_service import get_latest_validated_run_summary, list_experiment_catalog
+from services.ml_experiment_service import (
+    EXPERIMENT_PARADIGM_SUPERVISED,
+    EXPERIMENT_PARADIGM_UNSUPERVISED,
+    get_latest_validated_run_summary,
+    list_experiment_catalog,
+)
 from services.staff_roles_service import (
     assign_staff_role,
     list_staff_role_assignments,
@@ -81,6 +86,17 @@ from services.staff_roles_service import (
     search_profiles_for_staff_access,
 )
 from services.subscription_service import list_active_plans, list_plan_catalog, reset_usage, update_user_plan
+
+
+def _admin_experiment_paradigm_label(value: str, *, lang: str | None = None) -> str:
+    safe_lang = lang or str(st.session_state.get("ui_lang") or "en")
+    safe = str(value or "").strip().lower()
+    labels = {
+        "all": {"en": "All experiment types", "es": "Todos los tipos", "tr": "Tüm deney türleri"},
+        EXPERIMENT_PARADIGM_SUPERVISED: {"en": "Supervised", "es": "Supervisados", "tr": "Denetimli"},
+        EXPERIMENT_PARADIGM_UNSUPERVISED: {"en": "Unsupervised", "es": "No supervisados", "tr": "Denetimsiz"},
+    }
+    return labels.get(safe, {}).get(safe_lang, labels.get(safe, {}).get("en", safe.title() or "Unknown"))
 
 
 ADMIN_ROLE_OPTIONS = ["teacher", "student", "school_admin", "admin"]
@@ -2977,16 +2993,26 @@ def _render_staff_access() -> None:
 def _render_admin_validated_experiment_summary() -> None:
     cache_bust = str(st.session_state.get("admin_eic_refresh_nonce") or 0)
     catalog = list_experiment_catalog(cache_bust=cache_bust)
+    paradigm_options = ["all", EXPERIMENT_PARADIGM_SUPERVISED, EXPERIMENT_PARADIGM_UNSUPERVISED]
+    selected_paradigm = st.selectbox(
+        "Experiment type" if _eic_lang() == "en" else ("Tipo de experimento" if _eic_lang() == "es" else "Deney türü"),
+        paradigm_options,
+        format_func=lambda value: _admin_experiment_paradigm_label(value, lang=_eic_lang()),
+        key="admin_eic_experiment_paradigm_filter",
+    )
+    if selected_paradigm != "all":
+        catalog = [row for row in catalog if str(row.get("modeling_paradigm") or "").strip().lower() == selected_paradigm]
     rows = []
     validated_options: list[dict[str, str]] = []
     for item in catalog:
         validated = dict(item.get("latest_validated_run") or {})
         experiment_id = str(item.get("experiment_id") or "")
-        experiment_label = str(item.get("display_label") or item.get("name") or "")
+        experiment_label = get_experiment_display_name(experiment_id, lang=_eic_lang()) if experiment_id else str(item.get("display_label") or item.get("name") or "")
         run_id = str(validated.get("run_id") or "")
         rows.append(
             {
                 t("admin_eic_registry_experiment"): experiment_label,
+                "Type" if _eic_lang() == "en" else ("Tipo" if _eic_lang() == "es" else "Tür"): _admin_experiment_paradigm_label(str(item.get("modeling_paradigm") or ""), lang=_eic_lang()),
                 t("admin_eic_validated_run"): run_id or t("admin_eic_value_none"),
                 t("admin_eic_run_status"): get_run_status_display(str(validated.get("run_status") or "not_available")),
                 t("admin_eic_integrity_status"): get_integrity_status_display(str(validated.get("integrity_status") or "not_run")),
@@ -3114,6 +3140,18 @@ def _eic_report_state_label(state: str) -> str:
     return t(f"admin_eic_report_state_{_admin_clean_text(state).lower() or 'not_available'}")
 
 
+def _format_eic_coverage(value: Any, *, lang: str | None = None) -> str:
+    text = _admin_clean_text(value)
+    if not text:
+        return t("admin_eic_status_not_available")
+    safe_lang = lang or _eic_lang()
+    if " to " not in text:
+        return text
+    start, end = [part.strip() or "n/a" for part in text.split(" to ", 1)]
+    connector = " a " if safe_lang == "es" else (" - " if safe_lang == "tr" else " to ")
+    return f"{start}{connector}{end}"
+
+
 def _render_admin_intelligence_systems_browser(*, cache_bust: str = "", lang: str | None = None, select_key: str = "admin_ai_component_picker") -> None:
     lang = lang or _eic_lang()
     portfolio = eic_service.get_intelligence_component_portfolio(cache_bust=cache_bust)
@@ -3194,7 +3232,7 @@ def _render_admin_intelligence_systems_browser(*, cache_bust: str = "", lang: st
         t(
             "admin_eic_component_data_health_caption",
             rows=str(selected_component.get("relevant_rows") or 0),
-            coverage=str(selected_component.get("date_coverage") or t("admin_eic_status_not_available")),
+            coverage=_format_eic_coverage(selected_component.get("date_coverage"), lang=lang),
             teachers=str(selected_component.get("teachers_represented") or 0),
             students=str(selected_component.get("students_represented") or 0),
             resources=str(selected_component.get("resources_represented") or 0),
