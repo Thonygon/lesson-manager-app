@@ -66,7 +66,7 @@ from helpers.resource_affinity_unsupervised_eval import (
     RUN_SUMMARY_FILENAME as RESOURCE_AFFINITY_RUN_SUMMARY_FILENAME,
     TECHNICAL_REPORT_FILENAME as RESOURCE_AFFINITY_TECHNICAL_REPORT_FILENAME,
     TARGET_NAME as RESOURCE_AFFINITY_TARGET_NAME,
-    extract_resource_profiles,
+    FEATURE_SCHEMA_VERSION as RESOURCE_AFFINITY_FEATURE_SCHEMA_VERSION,
     generate_resource_affinity_unsupervised_evaluation,
     review_resource_affinity_unsupervised,
 )
@@ -1513,39 +1513,49 @@ def compute_student_recommendation_experiment_eligibility() -> EligibilityResult
 
 
 def compute_resource_affinity_experiment_eligibility() -> EligibilityResult:
-    extraction_time = _utc_now()
-    profile_df, dataset_diag = extract_resource_profiles(extraction_time=extraction_time)
-    resource_count = int(len(profile_df))
-    type_count = int(profile_df["resource_type"].nunique()) if not profile_df.empty else 0
-    subject_count = int(profile_df["subject"].replace("", pd.NA).nunique()) if not profile_df.empty else 0
+    # Keep Experiment 3 eligibility metadata-only. It is rendered from the
+    # Developer Workspace and EIC/admin surfaces, so it must never scan the
+    # whole resource catalog during normal app navigation. The catalog scan
+    # belongs only to the explicit experiment run pipeline.
+    def _row_int(row: dict[str, Any], key: str, default: int = 0) -> int:
+        try:
+            value = row.get(key)
+            if value in (None, "", "nan"):
+                return default
+            return int(float(value))
+        except Exception:
+            return default
+
     blocking: list[str] = []
-    warnings: list[str] = []
-    if resource_count < 6:
-        blocking.append("Fewer than six resources are available for unsupervised affinity discovery.")
-    if resource_count < 30:
-        warnings.append("The catalog is small; clustering metrics will be exploratory and unstable.")
-    if type_count < 2:
-        warnings.append("Only one resource type is represented.")
-    if subject_count < 1:
-        warnings.append("No subject metadata was detected in the resource profiles.")
+    warnings: list[str] = [
+        "Resource catalog validation is deferred to the explicit Experiment 3 run so normal app navigation does not scan resource tables."
+    ]
     latest_attempted = list_experiment_runs(experiment_id=RESOURCE_AFFINITY_EXPERIMENT_ID, limit=1, cache_bust="resource-affinity-eligibility-latest")
     latest_validated = list_experiment_runs(experiment_id=RESOURCE_AFFINITY_EXPERIMENT_ID, limit=20, validated_only=True, cache_bust="resource-affinity-eligibility-validated")
     latest_attempted_row = latest_attempted[0] if latest_attempted else {}
     latest_validated_row = latest_validated[0] if latest_validated else {}
+    latest_resource_count = _row_int(latest_validated_row, "included_row_count", 0)
+    if not latest_validated_row:
+        warnings.append("No validated resource-affinity run exists yet; the next explicit run will perform the first full catalog validation.")
+    maturity_ceiling = "CANDIDATE_FOR_SHADOW_TESTING" if latest_resource_count >= 80 else "EXPLORATORY_ONLY"
     data_summary = {
-        **dataset_diag,
-        "resource_profiles": resource_count,
-        "resource_types_represented": type_count,
-        "subjects_represented": subject_count,
-        "estimated_execution_time_seconds": 20,
-        "expected_maturity_ceiling": "EXPLORATORY_ONLY" if resource_count < 80 else "CANDIDATE_FOR_SHADOW_TESTING",
+        "extracted_at": _utc_now_iso(),
+        "feature_schema_version": RESOURCE_AFFINITY_FEATURE_SCHEMA_VERSION,
+        "eligibility_mode": "metadata_only_no_catalog_scan",
+        "catalog_scan_deferred": True,
+        "resource_profiles": latest_resource_count,
+        "resource_types_represented": None,
+        "subjects_represented": None,
+        "estimated_execution_time_seconds": 60,
+        "expected_maturity_ceiling": maturity_ceiling,
+        "latest_validated_included_row_count": latest_resource_count,
     }
     comparison = {
         "latest_attempted_run_id": str(latest_attempted_row.get("run_id") or ""),
         "latest_attempted_status": str(latest_attempted_row.get("run_status") or ""),
         "latest_validated_run_id": str(latest_validated_row.get("run_id") or ""),
         "latest_validated_status": str(latest_validated_row.get("run_status") or ""),
-        "new_resources_since_latest_validated": max(0, resource_count - int(latest_validated_row.get("included_row_count") or 0)),
+        "new_resources_since_latest_validated": None,
     }
     return EligibilityResult(
         eligible=not blocking,

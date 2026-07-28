@@ -6,7 +6,7 @@ import re
 import urllib.parse
 import pandas as pd
 from core.i18n import t
-from core.navigation import page_header, go_to
+from core.navigation import clear_open_resource_previews, page_header, go_to
 from core.database import load_profile_row, load_table, load_students, get_sb
 from core.database import (
     ensure_student,
@@ -51,6 +51,8 @@ from helpers.learning_programs import (
     archive_learning_program_assignment,
     load_learning_program,
     load_assignment_progress_map,
+    open_learning_program_assign_dialog,
+    render_learning_program_assign_dialog,
     set_assignment_topic_progress,
 )
 from helpers.material_recommendations import build_generation_request, find_similar_materials, load_material_pool, open_material_recommendation
@@ -394,6 +396,10 @@ def _open_recommended_resource(resource: dict, recommendation_item: dict | None 
         program_id = int(row.get("id") or 0)
         if program_id <= 0:
             return
+        if assign:
+            open_learning_program_assign_dialog(row)
+            return
+        clear_open_resource_previews()
         target_key = "my_learning_programs_selected_program_id" if source == "own" else "public_learning_programs_selected_program_id"
         for key in [
             "my_learning_programs_selected_program_id",
@@ -402,14 +408,25 @@ def _open_recommended_resource(resource: dict, recommendation_item: dict | None 
             "home_public_learning_programs_selected_program_id",
         ]:
             st.session_state.pop(key, None)
+        for key in list(st.session_state.keys()):
+            if str(key).startswith("show_assign_learning_program_"):
+                st.session_state.pop(key, None)
         st.session_state[target_key] = program_id
-        if assign:
-            st.session_state[f"show_assign_learning_program_{program_id}"] = True
+        st.session_state["_resources_target_main_tab"] = t("community_library") if source != "own" else t("my_programs")
+        if source != "own":
+            st.session_state["_resources_target_nested_tab"] = f"📚 {t('learning_programs')}"
+        else:
+            st.session_state.pop("_resources_target_nested_tab", None)
         go_to("resources")
         st.rerun()
 
     if kind in {"plan", "worksheet", "exam", "video"}:
-        open_material_recommendation(resource, assign=assign, open_in_files=True)
+        open_material_recommendation(
+            resource,
+            assign=assign,
+            open_in_files=True,
+            fixed_link_id=recommendation_item.get("link_id"),
+        )
 
 
 def _current_teacher_teaches_languages() -> bool:
@@ -1711,6 +1728,11 @@ def _render_recommended_resources_for_item(
                         if st.button(t("recommended_resource_assign"), key=f"{button_key}_assign", use_container_width=True):
                             _open_recommended_resource(resource, item, assign=True)
             _render_teacher_pagination(resources, state_key, page_size=_RECOMMENDED_RESOURCE_PAGE_SIZE)
+        from helpers.teacher_student_integration import render_resource_bulk_assign_dialog
+
+        for kind in ("worksheet", "exam", "plan", "video"):
+            render_resource_bulk_assign_dialog(kind_filter=kind)
+        render_learning_program_assign_dialog()
 
 
 def _render_recommendations_tab(
@@ -1844,6 +1866,7 @@ def _render_recommendations_tab(
                     **item,
                     "student_label": student_label,
                     "student_id": str((selected_link or {}).get("student_id") or "").strip(),
+                    "link_id": selected_link.get("id"),
                 }
                 recommendation_widget_scope = re.sub(
                     r"[^A-Za-z0-9._-]+",
@@ -1856,7 +1879,7 @@ def _render_recommendations_tab(
                     ),
                 )
                 _render_recommended_resources_for_item(
-                    item,
+                    recommendation_payload,
                     resource_pool,
                     key_prefix=f"reco_resources_{recommendation_widget_scope}",
                     assigned_resource_keys=assigned_resource_keys,
@@ -2915,6 +2938,10 @@ def render_students():
                         f"✨ {t('student_progress_recommendations_tab')}",
                     ]
                 )
+                scored_progress_rows = [
+                    row for row in progress_rows
+                    if str(row.get("assignment_type") or "").strip() != "lesson_plan_topic"
+                ]
 
                 with assignments_tab:
                     assignment_status_options = ["__all__"] + list(
@@ -2949,38 +2976,65 @@ def render_students():
                             student_name_safe = _html.escape(str(row.get("student_name") or selected_student_name or "—"))
                             assignment_kind = str(row.get("assignment_type") or row.get("source_type") or "").strip()
                             card_accent = resource_kind_accent(assignment_kind)
+                            is_lesson_topic = assignment_kind == "lesson_plan_topic"
+                            kind_chip = (
+                                f'<span class="classio-inline-chip">📒 {_html.escape(t("lesson_plan"))}</span> '
+                                if is_lesson_topic
+                                else ""
+                            )
                             card_col, action_col = st.columns([6, 2], gap="medium")
                             with card_col:
+                                if is_lesson_topic:
+                                    stats_html = (
+                                        '<div class="classio-progress-stats">'
+                                        '<div class="classio-progress-stat">'
+                                        f'<div class="classio-progress-stat-label">{_html.escape(t("lesson_plan"))}</div>'
+                                        f'<div class="classio-progress-stat-value">{_html.escape(t("assigned_topics"))}</div>'
+                                        "</div>"
+                                        '<div class="classio-progress-stat">'
+                                        f'<div class="classio-progress-stat-label">{_html.escape(t("status"))}</div>'
+                                        f'<div class="classio-progress-stat-value">{status_label}</div>'
+                                        "</div>"
+                                        '<div class="classio-progress-stat">'
+                                        f'<div class="classio-progress-stat-label">{_html.escape(t("created_at_label"))}</div>'
+                                        f'<div class="classio-progress-stat-value">{_html.escape(str(row.get("created_at") or "")[:10] or "—")}</div>'
+                                        "</div>"
+                                        "</div>"
+                                    )
+                                else:
+                                    stats_html = (
+                                        '<div class="classio-progress-stats">'
+                                        '<div class="classio-progress-stat">'
+                                        f'<div class="classio-progress-stat-label">{_html.escape(t("attempts_label"))}</div>'
+                                        f'<div class="classio-progress-stat-value">{attempts_value}</div>'
+                                        "</div>"
+                                        '<div class="classio-progress-stat">'
+                                        f'<div class="classio-progress-stat-label">{_html.escape(t("score_label"))}</div>'
+                                        f'<div class="classio-progress-stat-value">{_html.escape(score_value)}</div>'
+                                        "</div>"
+                                        '<div class="classio-progress-stat">'
+                                        f'<div class="classio-progress-stat-label">{_html.escape(t("created_at_label"))}</div>'
+                                        f'<div class="classio-progress-stat-value">{_html.escape(str(row.get("created_at") or "")[:10] or "—")}</div>'
+                                        "</div>"
+                                        "</div>"
+                                    )
                                 st.markdown(
-                                    f"""
-                                    <div class="classio-progress-card" style="--teacher-progress-accent:{card_accent};">
-                                        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
-                                            <div>
-                                                <div class="classio-progress-title">{title}</div>
-                                                <div class="classio-progress-meta">{student_name_safe} · {subject_display}</div>
-                                            </div>
-                                            <div><span class="classio-inline-chip">📌 {status_label}</span></div>
-                                        </div>
-                                        <div class="classio-progress-stats">
-                                            <div class="classio-progress-stat">
-                                                <div class="classio-progress-stat-label">{_html.escape(t('attempts_label'))}</div>
-                                                <div class="classio-progress-stat-value">{attempts_value}</div>
-                                            </div>
-                                            <div class="classio-progress-stat">
-                                                <div class="classio-progress-stat-label">{_html.escape(t('score_label'))}</div>
-                                                <div class="classio-progress-stat-value">{_html.escape(score_value)}</div>
-                                            </div>
-                                            <div class="classio-progress-stat">
-                                                <div class="classio-progress-stat-label">{_html.escape(t('created_at_label'))}</div>
-                                                <div class="classio-progress-stat-value">{_html.escape(str(row.get('created_at') or '')[:10] or '—')}</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    """,
+                                    (
+                                        f'<div class="classio-progress-card" style="--teacher-progress-accent:{card_accent};">'
+                                        '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">'
+                                        "<div>"
+                                        f'<div class="classio-progress-title">{title}</div>'
+                                        f'<div class="classio-progress-meta">{student_name_safe} · {subject_display}</div>'
+                                        "</div>"
+                                        f'<div>{kind_chip}<span class="classio-inline-chip">📌 {status_label}</span></div>'
+                                        "</div>"
+                                        f"{stats_html}"
+                                        "</div>"
+                                    ),
                                     unsafe_allow_html=True,
                                 )
                             with action_col:
-                                if latest.get("practice_session_id") and str(row.get("assignment_type") or "").strip() in {"worksheet", "exam"}:
+                                if latest.get("practice_session_id") and not is_lesson_topic and str(row.get("assignment_type") or "").strip() in {"worksheet", "exam"}:
                                     if st.button(
                                         t("teacher_review_start"),
                                         key=f"teacher_review_start_{row.get('id')}",
@@ -3015,7 +3069,7 @@ def render_students():
 
                 with recommendations_tab:
                     _render_recommendations_tab(
-                        progress_rows,
+                        scored_progress_rows,
                         program_rows,
                         selected_subject,
                         selected_student_name,

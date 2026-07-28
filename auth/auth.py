@@ -789,6 +789,11 @@ def require_login():
             if after_page:
                 st.session_state["page"] = after_page
             return
+        st.error(t("data_load_temporarily_unavailable"))
+        st.caption(t("data_load_retry_later"))
+        if st.button(t("try_again"), key="auth_profile_restore_retry", use_container_width=True):
+            st.rerun()
+        st.stop()
 
     auth_provider_configured = _has_configured_auth_provider()
     if not auth_provider_configured and _try_local_dev_login():

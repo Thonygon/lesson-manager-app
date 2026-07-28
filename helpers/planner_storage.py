@@ -12,7 +12,7 @@ import pandas as pd
 import streamlit as st
 from core.database import clear_app_caches, get_sb, insert_row_with_retries, load_table, register_cache, show_data_load_error
 from core.i18n import t
-from core.navigation import go_to
+from core.navigation import clear_open_resource_previews, go_to
 from core.state import get_current_user_id, with_owner
 from core.timezone import get_app_tz, today_local
 from services.ai_usage_service import log_ai_usage_event
@@ -41,7 +41,7 @@ from helpers.resource_gallery import (
 )
 from helpers.resource_deletion import render_archive_delete_button, render_archive_delete_confirmation
 from helpers.recommendation_models import log_teacher_material_open
-from helpers.visual_support import generate_resource_cover_image
+from helpers.visual_support import generate_resource_cover_image, preserve_generated_media_fields
 from reportlab.lib.enums import TA_CENTER
 
 
@@ -634,7 +634,7 @@ def _normalize_lesson_plan_frame(rows: list[dict] | None) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=45, show_spinner=False)
-def _load_my_lesson_plans_cached(uid: str, limit: int = 500) -> pd.DataFrame:
+def _load_my_lesson_plans_cached(uid: str, limit: int = 120) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
     res = (
@@ -653,7 +653,7 @@ register_cache(_load_my_lesson_plans_cached)
 
 
 @st.cache_data(ttl=45, show_spinner=False)
-def _load_public_lesson_plans_cached(limit: int = 500) -> pd.DataFrame:
+def _load_public_lesson_plans_cached(limit: int = 120) -> pd.DataFrame:
     res = (
         get_sb()
         .table("lesson_plans")
@@ -712,6 +712,8 @@ def _persist_lesson_plan_cover(plan_id: int | str, plan: dict) -> bool:
         return False
     safe_id = int(str(plan_id).strip()) if str(plan_id).strip().isdigit() else plan_id
     clean_plan = _clean_plan_data(plan)
+    existing_row = load_lesson_plan_record(safe_id) or {}
+    clean_plan = preserve_generated_media_fields(clean_plan, existing_row.get("plan_json") or existing_row)
     try:
         try:
             get_sb().table("lesson_plans").update(
@@ -876,6 +878,9 @@ def _open_plan_library_record(
     require_signup: bool = False,
     expand_assign: bool = False,
 ) -> None:
+    clear_open_resource_previews(except_kind="plan", clear_dialogs=not expand_assign)
+    if not expand_assign:
+        st.session_state.pop("_resource_bulk_assign_dialog", None)
     if require_signup:
         st.session_state["_post_signup_open_panel"] = "files"
         st.session_state["_post_signup_open_tab"] = "community_library"
@@ -912,6 +917,12 @@ def _open_plan_library_record(
     )
 
     if open_in_files:
+        target_main_tab = t("community_library") if current_user_id and current_user_id != row_owner_id else t("my_plans")
+        st.session_state["_resources_target_main_tab"] = target_main_tab
+        if target_main_tab == t("community_library"):
+            st.session_state["_resources_target_nested_tab"] = f"📝 {t('community_plans')}"
+        else:
+            st.session_state.pop("_resources_target_nested_tab", None)
         go_to("resources")
     else:
         st.session_state["explore_teaching_resources_keep_open"] = True
@@ -935,6 +946,8 @@ def render_plan_library_cards(
 ) -> None:
     if df is None or df.empty:
         return
+
+    from helpers.teacher_student_integration import open_resource_bulk_assign_dialog, render_resource_bulk_assign_dialog
 
     inject_resource_gallery_styles()
     rows = df.reset_index(drop=True).to_dict("records")
@@ -1029,12 +1042,15 @@ def render_plan_library_cards(
                             t("assign_to_student"),
                             key=f"{prefix}_assign_{row_id}_{idx}_{col_idx}",
                         ):
-                            _open_plan_library_record(
-                                row,
-                                open_in_files=open_in_files,
-                                require_signup=require_signup,
-                                expand_assign=True,
-                            )
+                            if require_signup:
+                                _open_plan_library_record(
+                                    row,
+                                    open_in_files=open_in_files,
+                                    require_signup=True,
+                                    expand_assign=True,
+                                )
+                            else:
+                                open_resource_bulk_assign_dialog("plan", row)
                 if show_owner_controls:
                     with action_cols[2]:
                         if allow_visibility_toggle and is_owner and str(plan_id or "").strip() and not is_archived:
@@ -1092,6 +1108,7 @@ def render_plan_library_cards(
                             source_type="lesson_plan_builder",
                             on_deleted=lambda: st.session_state.pop("files_selected_plan", None),
                         )
+    render_resource_bulk_assign_dialog(kind_filter="plan")
 
 
 # ============================================================
@@ -1380,6 +1397,25 @@ def render_quick_lesson_plan_result(
 
     def _apply_plan_edit(updated_plan: dict) -> bool:
         updated_plan = _clean_plan_data(updated_plan)
+        updated_plan = preserve_generated_media_fields(updated_plan, plan)
+        body_keys = (
+            "lesson_flow",
+            "warm_up",
+            "presentation",
+            "guided_practice",
+            "independent_practice",
+            "assessment",
+            "homework",
+            "objectives",
+            "learning_objectives",
+            "materials",
+            "activities",
+        )
+        original_has_body = any(str(plan.get(key) or "").strip() for key in body_keys)
+        edited_has_body = any(str(updated_plan.get(key) or "").strip() for key in body_keys)
+        if original_has_body and not edited_has_body:
+            st.error(t("resource_changes_save_failed"))
+            return False
         if not _persist_lesson_plan_resource(edit_record_id, updated_plan):
             return False
         st.session_state["quick_lesson_plan_result"] = updated_plan
@@ -1460,7 +1496,7 @@ def render_quick_lesson_plan_result(
         return
 
     if resolved_mode == "template":
-        a1, a2, a3 = st.columns(3)
+        a1, a2 = st.columns(2)
         with a1:
             if st.button(t("save_template_plan"), key="btn_save_template_plan", use_container_width=True):
                 ok = save_lesson_plan_record(
@@ -1491,10 +1527,6 @@ def render_quick_lesson_plan_result(
                 key=f"{action_key_prefix}_download_pdf_inline",
                 use_container_width=True,
             )
-        with a3:
-            if st.button(t("close"), key="btn_close_quick_plan", use_container_width=True):
-                _lp().reset_quick_lesson_planner_state()
-                st.rerun()
         st.download_button(
             label=t("download_word"),
             data=docx_bytes,
@@ -1523,8 +1555,8 @@ def render_quick_lesson_plan_result(
                 action_key_prefix=f"{action_key_prefix}_edit",
                 on_apply=_apply_plan_edit,
                 normalize_payload=_clean_plan_data,
-                context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
-            )
+            context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
+        )
     else:
         a1, a2 = st.columns(2)
         with a1:
@@ -1567,7 +1599,12 @@ def render_quick_lesson_plan_result(
                 normalize_payload=_clean_plan_data,
                 context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
             )
-        if st.button(t("close"), key="btn_close_quick_plan", use_container_width=True):
+    if not read_only:
+        if st.button(
+            "🗑️ " + (t("clear_result") if t("clear_result") != "clear_result" else "Clear result"),
+            key="btn_close_quick_plan",
+            use_container_width=True,
+        ):
             _lp().reset_quick_lesson_planner_state()
             st.rerun()
 

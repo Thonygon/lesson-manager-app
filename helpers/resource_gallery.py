@@ -37,7 +37,7 @@ _RESOURCE_KIND_ALIASES = {
     "topic": "topic",
     "topics": "topic",
     "learning_topic": "topic",
-    "lesson_plan_topic": "topic",
+    "lesson_plan_topic": "lesson_plan",
 }
 
 _RESOURCE_KIND_CLASS_SUFFIX = {

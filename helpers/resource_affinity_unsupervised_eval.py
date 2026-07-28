@@ -16,7 +16,7 @@ from helpers.assigned_resource_open_7d_eval import _fetch_all_rows, _json_safe
 from helpers.archive_utils import is_archived_status
 
 
-FEATURE_SCHEMA_VERSION = "resource_affinity_unsupervised.v1"
+FEATURE_SCHEMA_VERSION = "resource_affinity_unsupervised.v2"
 DEFAULT_SEED = 20260726
 DEFAULT_OUTPUT_DIR = Path("reports") / "ml_architecture" / "resource_affinity_unsupervised"
 FROZEN_DATASET_FILENAME = "resource_affinity_dataset_frozen.csv"
@@ -53,9 +53,13 @@ RESOURCE_TABLE_SPECS = {
         "learning_programs",
         "id,user_id,title,subject,custom_subject_name,learner_stage,level_or_band,program_overview,is_public,status,total_units,total_topics,sequence_order,created_at,updated_at",
     ),
+    "program_topic": (
+        "learning_program_topics",
+        "id,program_id,unit_number,topic_number,title,subtopic,lesson_focus,lesson_purpose,learning_objectives,success_criteria,student_can_do,suggested_worksheet_types,suggested_exam_exercise_types,homework_idea,teacher_notes,student_summary,estimated_lessons,created_at,updated_at",
+    ),
 }
 
-MATERIAL_KINDS = {"worksheet", "exam", "video", "lesson_plan", "program"}
+MATERIAL_KINDS = {"worksheet", "exam", "video", "lesson_plan", "program", "program_topic"}
 PROFILE_COLUMNS = [
     "resource_key",
     "resource_type",
@@ -204,6 +208,8 @@ def build_resource_profile(row: dict[str, Any], resource_type: str) -> dict[str,
     topic = _field(row, "topic")
     title = _field(row, "title")
     subtype = _field(row, "worksheet_type", "exam_length", "lesson_purpose", "planner_mode", "source_type")
+    if resource_type == "program_topic":
+        subtype = _clean_text("program_topic " + subtype).strip()
     language = _resource_language(row)
     detail_fields = [
         "description",
@@ -215,6 +221,14 @@ def build_resource_profile(row: dict[str, Any], resource_type: str) -> dict[str,
         "lesson_plan_json",
         "content_json",
         "exercise_types",
+        "learning_objectives",
+        "success_criteria",
+        "student_can_do",
+        "suggested_worksheet_types",
+        "suggested_exam_exercise_types",
+        "homework_idea",
+        "teacher_notes",
+        "student_summary",
     ]
     detail_text = " ".join(_flatten_json_text(row.get(name)) for name in detail_fields if row.get(name) not in (None, ""))
     profile_text = _clean_text(
@@ -257,6 +271,7 @@ def extract_resource_profiles(extraction_time: datetime | None = None) -> tuple[
     rows: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
     raw_counts: dict[str, int] = {}
+    program_meta_by_id: dict[str, dict[str, Any]] = {}
     for resource_type, (table_name, columns) in RESOURCE_TABLE_SPECS.items():
         try:
             table_rows = _fetch_all_rows(table_name, columns, page_size=500)
@@ -267,6 +282,22 @@ def extract_resource_profiles(extraction_time: datetime | None = None) -> tuple[
         for row in table_rows:
             if is_archived_status(row.get("status")):
                 continue
+            if resource_type == "program":
+                program_meta_by_id[_clean_text(row.get("id"))] = {
+                    "subject": _field(row, "subject", "custom_subject_name"),
+                    "learner_stage": _field(row, "learner_stage"),
+                    "level_or_band": _field(row, "level_or_band", "level"),
+                    "language": _resource_language(row),
+                    "program_title": _field(row, "title"),
+                }
+            elif resource_type == "program_topic":
+                parent = program_meta_by_id.get(_clean_text(row.get("program_id"))) or {}
+                row = {
+                    **parent,
+                    **row,
+                    "topic": _field(row, "title", "subtopic", "lesson_focus"),
+                    "title": _field(row, "title", "lesson_focus", "subtopic"),
+                }
             profile = build_resource_profile(row, resource_type)
             if profile["resource_id"] and profile["profile_token_count"] >= 3:
                 rows.append(profile)

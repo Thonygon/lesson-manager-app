@@ -1017,6 +1017,44 @@ def generate_resource_cover_image(
     }
 
 
+def preserve_generated_media_fields(updated: dict | None, existing: dict | None) -> dict:
+    """Preserve generated images when an edit payload omits media fields."""
+    if not isinstance(updated, dict):
+        updated = {}
+    out = dict(updated)
+    if not isinstance(existing, dict) or not existing:
+        return out
+
+    for key in (
+        "cover_image",
+        "gallery_image_url",
+        "image_url",
+        "imageUrl",
+        "visual_supports",
+        "_visual_support_status",
+    ):
+        if out.get(key) in (None, "", [], {}) and existing.get(key) not in (None, "", [], {}):
+            out[key] = existing.get(key)
+
+    updated_sections = out.get("sections")
+    existing_sections = existing.get("sections")
+    if isinstance(updated_sections, list) and isinstance(existing_sections, list):
+        merged_sections = []
+        for idx, section in enumerate(updated_sections):
+            if not isinstance(section, dict):
+                merged_sections.append(section)
+                continue
+            merged = dict(section)
+            old = existing_sections[idx] if idx < len(existing_sections) and isinstance(existing_sections[idx], dict) else {}
+            for key in ("visual_support", "_visual_support_status"):
+                if merged.get(key) in (None, "", [], {}) and old.get(key) not in (None, "", [], {}):
+                    merged[key] = old.get(key)
+            merged_sections.append(merged)
+        out["sections"] = merged_sections
+
+    return out
+
+
 def worksheet_eligible_for_visuals(ws: dict, *, subject: str = "", learner_stage: str = "", topic: str = "") -> bool:
     """Return True if the worksheet type/stage qualifies for image generation."""
     try:

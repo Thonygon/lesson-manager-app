@@ -5,7 +5,7 @@ from streamlit_option_menu import option_menu
 from typing import Callable
 
 from core.i18n import t
-from core.navigation import go_to, PAGE_KEYS, _set_query
+from core.navigation import clear_resource_transient_state, go_to, PAGE_KEYS, _set_query
 from core.state import get_current_user_role, get_current_user_id
 from core.database import (
     clear_app_caches,
@@ -640,6 +640,7 @@ def _switch_role(target_role: str):
     uid = get_current_user_id()
     if uid:
         enable_profile_mode(uid, target_role)
+    clear_resource_transient_state()
     st.session_state["user_role"] = target_role
     if target_role == "student":
         st.session_state["page"] = "student_home"

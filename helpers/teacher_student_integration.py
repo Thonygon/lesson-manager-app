@@ -11,7 +11,6 @@ from core.database import clear_app_caches, get_sb, register_cache
 from core.i18n import t
 from core.state import get_current_user_id
 from helpers.archive_utils import truthy_flag
-from helpers.lesson_planner import QUICK_SUBJECTS, normalize_subject, subject_label
 from helpers.recommendation_memory import (
     clear_active_recommendation_context,
     recommendation_context_for_assignment,
@@ -67,6 +66,27 @@ _PRACTICE_ANSWER_COLUMNS = (
     "id,session_id,user_id,exercise_idx,question_idx,exercise_type,student_answer,"
     "correct_answer,is_correct,answered_at"
 )
+
+
+def _lesson_planner():
+    import helpers.lesson_planner as lp
+
+    return lp
+
+
+def _quick_subjects() -> set[str]:
+    try:
+        return set(_lesson_planner().QUICK_SUBJECTS)
+    except Exception:
+        return {"english", "spanish", "turkish", "math", "science", "other"}
+
+
+def normalize_subject(value: Any) -> str:
+    return _lesson_planner().normalize_subject(value)
+
+
+def subject_label(value: Any) -> str:
+    return _lesson_planner().subject_label(value)
 
 
 def _now_iso() -> str:
@@ -298,7 +318,7 @@ def _load_profiles_map(user_ids: list[str]) -> dict[str, dict]:
 
 def _subject_scope_dict(subject_key: str, subject_label_text: str = "") -> dict:
     normalized = normalize_subject(subject_key or subject_label_text)
-    if normalized in QUICK_SUBJECTS and normalized != "other":
+    if normalized in _quick_subjects() and normalized != "other":
         return {
             "subject_key": normalized,
             "subject_label": subject_label(normalized),
@@ -315,7 +335,7 @@ def _subject_scope_dict(subject_key: str, subject_label_text: str = "") -> dict:
 
 def _localized_subject_display(subject_key: Any, subject_label_text: Any = "") -> str:
     normalized = normalize_subject(subject_key or subject_label_text)
-    if normalized in QUICK_SUBJECTS and normalized != "other":
+    if normalized in _quick_subjects() and normalized != "other":
         return _clean_display_text(subject_label(normalized))
     return _clean_display_text(subject_label_text or subject_key or "—")
 
@@ -2421,61 +2441,17 @@ def render_assignment_panel_for_worksheet(
     level_or_band: str,
     source_record_id: int | str | None = None,
 ) -> None:
-    st.markdown(f"### {t('assign_to_student')}")
-    links = _assignment_target_options()
-    link, subject_scope, due_date, teacher_note = _render_assignment_target_fields(prefix, links)
-    if not link or not subject_scope:
-        return
-    duplicate_count = _assignment_duplicate_count(
-        link=link,
-        assignment_type="worksheet",
-        source_record_id=source_record_id,
-        title=str(worksheet.get("title") or topic or t("untitled_worksheet")),
-        topic=topic,
-    )
-    duplicate_confirmed = _render_duplicate_assignment_confirmation(prefix, duplicate_count)
-    recommendation_context = recommendation_context_for_assignment(
-        link=link,
-        subject_scope=subject_scope,
-        topic_text=topic,
-    )
-    if st.button(t("create_assignment"), key=f"{prefix}_assign_btn", use_container_width=True):
-        if duplicate_count > 0 and not duplicate_confirmed:
-            st.error(t("assignment_duplicate_confirm_required"))
-            return
-        snapshot = {
-            "worksheet": worksheet,
-            "meta": {
-                "subject": subject,
-                "topic": topic,
-                "learner_stage": learner_stage,
-                "level_or_band": level_or_band,
-                "worksheet_type": worksheet.get("worksheet_type", ""),
-            },
-        }
-        ok, key = create_teacher_assignment(
-            link_id=link["id"],
-            subject_scope_id=subject_scope["id"],
-            assignment_type="worksheet",
-            source_type="worksheet_builder",
-            source_record_id=source_record_id,
-            title=str(worksheet.get("title") or topic or t("untitled_worksheet")),
-            subject_key=str(subject_scope.get("subject_key") or subject or ""),
-            subject_label_text=str(subject_scope.get("subject_label") or subject_label(subject or "")),
-            topic=topic,
-            teacher_note=teacher_note,
-            due_date=due_date,
-            content_snapshot=snapshot,
-            learning_program_assignment_id=int(recommendation_context.get("learning_program_assignment_id") or 0) or None,
-            learning_program_topic_id=int(recommendation_context.get("learning_program_topic_id") or 0) or None,
-            recommendation_bucket=str(recommendation_context.get("recommendation_bucket") or "").strip(),
-            recommendation_focus_kind=str(recommendation_context.get("focus_kind") or "").strip(),
-            recommendation_context=recommendation_context,
-        )
-        if ok:
-            st.success(t(key))
-        else:
-            st.error(t(key))
+    row = {
+        "id": source_record_id,
+        "title": worksheet.get("title") or topic or t("untitled_worksheet"),
+        "subject": subject,
+        "topic": topic,
+        "learner_stage": learner_stage,
+        "level_or_band": level_or_band,
+        "worksheet_type": worksheet.get("worksheet_type", ""),
+        "worksheet_json": worksheet,
+    }
+    render_resource_bulk_assign_panel(kind="worksheet", row=row, prefix=prefix)
 
 
 def render_assignment_panel_for_exam(
@@ -2489,61 +2465,17 @@ def render_assignment_panel_for_exam(
     level_or_band: str,
     source_record_id: int | str | None = None,
 ) -> None:
-    st.markdown(f"### {t('assign_to_student')}")
-    links = _assignment_target_options()
-    link, subject_scope, due_date, teacher_note = _render_assignment_target_fields(prefix, links)
-    if not link or not subject_scope:
-        return
-    duplicate_count = _assignment_duplicate_count(
-        link=link,
-        assignment_type="exam",
-        source_record_id=source_record_id,
-        title=str(exam_data.get("title") or topic or t("quick_exam_generic_exam_title")),
-        topic=topic,
-    )
-    duplicate_confirmed = _render_duplicate_assignment_confirmation(prefix, duplicate_count)
-    recommendation_context = recommendation_context_for_assignment(
-        link=link,
-        subject_scope=subject_scope,
-        topic_text=topic,
-    )
-    if st.button(t("create_assignment"), key=f"{prefix}_assign_btn", use_container_width=True):
-        if duplicate_count > 0 and not duplicate_confirmed:
-            st.error(t("assignment_duplicate_confirm_required"))
-            return
-        snapshot = {
-            "exam_data": exam_data,
-            "answer_key": answer_key,
-            "meta": {
-                "subject": subject,
-                "topic": topic,
-                "learner_stage": learner_stage,
-                "level_or_band": level_or_band,
-            },
-        }
-        ok, key = create_teacher_assignment(
-            link_id=link["id"],
-            subject_scope_id=subject_scope["id"],
-            assignment_type="exam",
-            source_type="exam_builder",
-            source_record_id=source_record_id,
-            title=str(exam_data.get("title") or topic or t("quick_exam_generic_exam_title")),
-            subject_key=str(subject_scope.get("subject_key") or subject or ""),
-            subject_label_text=str(subject_scope.get("subject_label") or subject_label(subject or "")),
-            topic=topic,
-            teacher_note=teacher_note,
-            due_date=due_date,
-            content_snapshot=snapshot,
-            learning_program_assignment_id=int(recommendation_context.get("learning_program_assignment_id") or 0) or None,
-            learning_program_topic_id=int(recommendation_context.get("learning_program_topic_id") or 0) or None,
-            recommendation_bucket=str(recommendation_context.get("recommendation_bucket") or "").strip(),
-            recommendation_focus_kind=str(recommendation_context.get("focus_kind") or "").strip(),
-            recommendation_context=recommendation_context,
-        )
-        if ok:
-            st.success(t(key))
-        else:
-            st.error(t(key))
+    row = {
+        "id": source_record_id,
+        "title": exam_data.get("title") or topic or t("quick_exam_generic_exam_title"),
+        "subject": subject,
+        "topic": topic,
+        "learner_stage": learner_stage,
+        "level": level_or_band,
+        "exam_data": exam_data,
+        "answer_key": answer_key,
+    }
+    render_resource_bulk_assign_panel(kind="exam", row=row, prefix=prefix)
 
 
 def render_assignment_panel_for_video(
@@ -2556,69 +2488,16 @@ def render_assignment_panel_for_video(
     level_or_band: str,
     source_record_id: int | str | None = None,
 ) -> None:
-    st.markdown(f"### {t('assign_to_student')}")
-    links = _assignment_target_options()
-    link, subject_scope, due_date, teacher_note = _render_assignment_target_fields(prefix, links)
-    if not link or not subject_scope:
-        return
-    duplicate_count = _assignment_duplicate_count(
-        link=link,
-        assignment_type="video",
-        source_record_id=source_record_id,
-        title=str(video.get("title") or topic or t("video_default_title")),
-        topic=topic,
-    )
-    duplicate_confirmed = _render_duplicate_assignment_confirmation(prefix, duplicate_count)
-    recommendation_context = recommendation_context_for_assignment(
-        link=link,
-        subject_scope=subject_scope,
-        topic_text=topic,
-    )
-    if st.button(t("create_assignment"), key=f"{prefix}_assign_btn", use_container_width=True):
-        if duplicate_count > 0 and not duplicate_confirmed:
-            st.error(t("assignment_duplicate_confirm_required"))
-            return
-        snapshot = {
-            "video": {
-                "id": video.get("id"),
-                "video_id": video.get("video_id"),
-                "youtube_url": video.get("youtube_url") or video.get("watch_url"),
-                "watch_url": video.get("watch_url") or video.get("youtube_url"),
-                "embed_url": video.get("embed_url"),
-                "thumbnail_url": video.get("thumbnail_url"),
-                "title": video.get("title") or t("video_default_title"),
-                "description": video.get("description") or "",
-            },
-            "meta": {
-                "subject": subject,
-                "topic": topic,
-                "learner_stage": learner_stage,
-                "level_or_band": level_or_band,
-            },
-        }
-        ok, key = create_teacher_assignment(
-            link_id=link["id"],
-            subject_scope_id=subject_scope["id"],
-            assignment_type="video",
-            source_type="video_library",
-            source_record_id=source_record_id,
-            title=str(video.get("title") or topic or t("video_default_title")),
-            subject_key=str(subject_scope.get("subject_key") or subject or ""),
-            subject_label_text=str(subject_scope.get("subject_label") or subject_label(subject or "")),
-            topic=topic,
-            teacher_note=teacher_note,
-            due_date=due_date,
-            content_snapshot=snapshot,
-            learning_program_assignment_id=int(recommendation_context.get("learning_program_assignment_id") or 0) or None,
-            learning_program_topic_id=int(recommendation_context.get("learning_program_topic_id") or 0) or None,
-            recommendation_bucket=str(recommendation_context.get("recommendation_bucket") or "").strip(),
-            recommendation_focus_kind=str(recommendation_context.get("focus_kind") or "").strip(),
-            recommendation_context=recommendation_context,
-        )
-        if ok:
-            st.success(t(key))
-        else:
-            st.error(t(key))
+    row = {
+        **dict(video or {}),
+        "id": source_record_id or video.get("id"),
+        "title": video.get("title") or topic or t("video_default_title"),
+        "subject": subject,
+        "topic": topic,
+        "learner_stage": learner_stage,
+        "level_or_band": level_or_band,
+    }
+    render_resource_bulk_assign_panel(kind="video", row=row, prefix=prefix)
 
 
 def render_assignment_panel_for_lesson_plan(
@@ -2630,86 +2509,409 @@ def render_assignment_panel_for_lesson_plan(
     lesson_purpose: str,
     source_record_id: int | None = None,
 ) -> None:
-    st.markdown(f"### {t('assign_to_student')}")
-    links = _assignment_target_options()
-    link, subject_scope, due_date, teacher_note = _render_assignment_target_fields(prefix, links)
-    if not link or not subject_scope:
-        return
+    row = {
+        "id": source_record_id,
+        "title": plan.get("title") or topic or t("untitled_plan"),
+        "subject": subject,
+        "topic": topic,
+        "lesson_purpose": lesson_purpose,
+        "learner_stage": plan.get("learner_stage") or plan.get("stage") or "",
+        "level_or_band": plan.get("level_or_band") or plan.get("level") or "",
+        "plan_json": plan,
+    }
+    render_resource_bulk_assign_panel(kind="plan", row=row, prefix=prefix)
 
-    topics = extract_assignable_plan_topics(plan, subject=subject, topic=topic, lesson_purpose=lesson_purpose)
-    topic_options = {f"{item['sequence_order']}. {item['topic_title']}": item for item in topics}
-    selected_labels = st.multiselect(
-        t("assigned_topics"),
-        options=list(topic_options.keys()),
-        default=list(topic_options.keys())[:1],
-        key=f"{prefix}_plan_topics",
-    )
-    duplicate_count = 0
-    for label in selected_labels:
-        item = topic_options[label]
-        duplicate_count += _assignment_duplicate_count(
-            link=link,
-            assignment_type="lesson_plan_topic",
+
+def _resource_assignment_kind(kind: str) -> str:
+    safe = _clean_text(kind).lower()
+    if safe in {"worksheet", "exam", "video", "plan"}:
+        return safe
+    if safe in {"lesson_plan", "lesson_plan_topic"}:
+        return "plan"
+    return safe
+
+
+def _resource_assignment_title(kind: str, row: dict) -> str:
+    safe = _resource_assignment_kind(kind)
+    fallback = {
+        "worksheet": t("untitled_worksheet"),
+        "exam": t("quick_exam_generic_exam_title"),
+        "video": t("video_default_title"),
+        "plan": t("untitled_plan"),
+    }.get(safe, t("untitled"))
+    return _clean_display_text(row.get("title") or row.get("topic") or fallback)
+
+
+def _resource_assignment_subject(row: dict) -> str:
+    return _clean_text(row.get("subject") or row.get("subject_key") or "")
+
+
+def _resource_assignment_topic(row: dict) -> str:
+    return _clean_display_text(row.get("topic") or row.get("title") or "")
+
+
+def _resource_assignment_level(kind: str, row: dict) -> str:
+    return _clean_text(row.get("level_or_band") or row.get("level") or "")
+
+
+def _load_full_resource_row(kind: str, row: dict) -> dict:
+    safe = _resource_assignment_kind(kind)
+    rid = row.get("id") or row.get("source_record_id")
+    if not rid:
+        return dict(row or {})
+    try:
+        if safe == "worksheet" and not row.get("worksheet_json"):
+            from helpers.worksheet_storage import load_worksheet_record
+
+            return {**row, **(load_worksheet_record(rid) or {})}
+        if safe == "exam" and (not row.get("exam_data") or not row.get("answer_key")):
+            from helpers.quick_exam_storage import load_exam_record
+
+            return {**row, **(load_exam_record(rid) or {})}
+        if safe == "plan" and not row.get("plan_json"):
+            from helpers.planner_storage import load_lesson_plan_record
+
+            return {**row, **(load_lesson_plan_record(rid) or {})}
+    except Exception:
+        return dict(row or {})
+    return dict(row or {})
+
+
+def _resource_assignment_snapshot(kind: str, row: dict, *, topic_item: dict | None = None) -> dict:
+    safe = _resource_assignment_kind(kind)
+    subject = _resource_assignment_subject(row)
+    topic = _resource_assignment_topic(row)
+    learner_stage = _clean_text(row.get("learner_stage"))
+    level = _resource_assignment_level(safe, row)
+    if safe == "worksheet":
+        worksheet = row.get("worksheet_json") if isinstance(row.get("worksheet_json"), dict) else row
+        return {
+            "worksheet": worksheet,
+            "meta": {
+                "subject": subject,
+                "topic": topic,
+                "learner_stage": learner_stage,
+                "level_or_band": level,
+                "worksheet_type": row.get("worksheet_type", ""),
+            },
+        }
+    if safe == "exam":
+        return {
+            "exam_data": row.get("exam_data") if isinstance(row.get("exam_data"), dict) else row,
+            "answer_key": row.get("answer_key") if isinstance(row.get("answer_key"), dict) else {},
+            "meta": {"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level},
+        }
+    if safe == "video":
+        return {
+            "video": {
+                "id": row.get("id"),
+                "video_id": row.get("video_id"),
+                "youtube_url": row.get("youtube_url") or row.get("watch_url"),
+                "watch_url": row.get("watch_url") or row.get("youtube_url"),
+                "embed_url": row.get("embed_url"),
+                "thumbnail_url": row.get("thumbnail_url"),
+                "title": row.get("title") or t("video_default_title"),
+                "description": row.get("description") or "",
+            },
+            "meta": {"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level},
+        }
+    if topic_item:
+        return {
+            "topic_title": topic_item.get("topic_title", ""),
+            "topic_summary": topic_item.get("topic_summary", ""),
+            "focus_area": topic_item.get("focus_area", ""),
+            "sequence_order": topic_item.get("sequence_order", 1),
+            "plan_title": row.get("title", ""),
+        }
+    return {"resource": row, "meta": {"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level}}
+
+
+def _source_type_for_resource_assignment(kind: str) -> str:
+    return {
+        "worksheet": "worksheet_builder",
+        "exam": "exam_builder",
+        "video": "video_library",
+        "plan": "lesson_plan_builder",
+    }.get(_resource_assignment_kind(kind), "resource_library")
+
+
+def _assignment_targets_for_resource(row: dict, links: list[dict]) -> list[dict]:
+    desired_subject = normalize_subject(_resource_assignment_subject(row))
+    targets: list[dict] = []
+    for link in links:
+        for subject_row in link.get("subjects", []) or []:
+            if desired_subject and desired_subject != "other":
+                candidate_subject = normalize_subject(subject_row.get("subject_key") or subject_row.get("subject_label"))
+                if candidate_subject != desired_subject:
+                    continue
+            label = f"{link.get('student_name', '—')} · {_localized_subject_display(subject_row.get('subject_key'), subject_row.get('subject_label'))}"
+            targets.append({"label": label, "link": link, "subject": subject_row})
+    return targets
+
+
+def _render_multi_assignment_duplicates(
+    *,
+    prefix: str,
+    selected_targets: list[dict],
+    assignment_type: str,
+    source_record_id: int | str | None,
+    title: str,
+    topic: str,
+) -> tuple[bool, list[str]]:
+    duplicate_names: list[str] = []
+    for target in selected_targets:
+        if _assignment_duplicate_count(
+            link=target["link"],
+            assignment_type=assignment_type,
             source_record_id=source_record_id,
-            title=item["topic_title"],
-            topic=item["topic_title"],
+            title=title,
+            topic=topic,
+        ) > 0:
+            duplicate_names.append(_clean_text(target["link"].get("student_name")) or target["label"])
+    if not duplicate_names:
+        return True, []
+    return _render_duplicate_student_confirmation(prefix=prefix, duplicate_names=duplicate_names)
+
+
+def _render_duplicate_student_confirmation(*, prefix: str, duplicate_names: list[str]) -> tuple[bool, list[str]]:
+    names = sorted({_clean_text(name) for name in duplicate_names if _clean_text(name)})
+    if not names:
+        return True, []
+    st.warning(t("assignment_duplicate_warning_students", students=", ".join(names)))
+    confirmed = bool(st.checkbox(t("assignment_duplicate_confirm"), key=f"{prefix}_duplicate_confirm"))
+    return confirmed, names
+
+
+def render_resource_bulk_assign_panel(
+    *,
+    kind: str,
+    row: dict,
+    prefix: str,
+    fixed_link_id: int | str | None = None,
+) -> bool:
+    safe_kind = _resource_assignment_kind(kind)
+    full_row = _load_full_resource_row(safe_kind, dict(row or {}))
+    source_record_id = full_row.get("id") or full_row.get("source_record_id")
+    title = _resource_assignment_title(safe_kind, full_row)
+    topic = _resource_assignment_topic(full_row)
+    subject = _resource_assignment_subject(full_row)
+    learner_stage = _clean_text(full_row.get("learner_stage"))
+    level = _resource_assignment_level(safe_kind, full_row)
+
+    st.caption(title)
+    links = _assignment_target_options()
+    if not links:
+        st.info(t("no_linked_students"))
+        return False
+    targets = _assignment_targets_for_resource(full_row, links)
+    if fixed_link_id not in (None, "", 0, "0"):
+        targets = [target for target in targets if str(target["link"].get("id")) == str(fixed_link_id)]
+    if not targets:
+        st.warning(t("assignment_subject_required"))
+        return False
+
+    has_fixed_target = fixed_link_id not in (None, "", 0, "0")
+    if has_fixed_target:
+        st.caption(f"{t('select_student')}: {targets[0]['label']}")
+        selected_targets = targets
+    else:
+        target_lookup = {target["label"]: target for target in targets}
+        selected_labels = st.multiselect(
+            t("select_student"),
+            options=list(target_lookup.keys()),
+            default=[],
+            key=f"{prefix}_targets",
         )
-    duplicate_confirmed = _render_duplicate_assignment_confirmation(prefix, duplicate_count)
-    recommendation_context = recommendation_context_for_assignment(link=link, subject_scope=subject_scope)
+        selected_targets = [target_lookup[label] for label in selected_labels]
+
+    use_due_date = st.checkbox(t("assignment_set_due_date"), key=f"{prefix}_use_due_date")
+    due_date = st.date_input(t("due_date"), value=date.today(), key=f"{prefix}_due_date") if use_due_date else None
+    teacher_note = st.text_area(
+        t("teacher_note"),
+        key=f"{prefix}_teacher_note",
+        height=90,
+        placeholder=t("assignment_teacher_note_placeholder"),
+    )
+
+    plan_topic_options: dict[str, dict] = {}
+    selected_plan_topic_labels: list[str] = []
+    if safe_kind == "plan":
+        plan_payload = full_row.get("plan_json") if isinstance(full_row.get("plan_json"), dict) else full_row
+        topics = extract_assignable_plan_topics(plan_payload, subject=subject, topic=topic, lesson_purpose=_clean_text(full_row.get("lesson_purpose")))
+        plan_topic_options = {f"{item['sequence_order']}. {item['topic_title']}": item for item in topics}
+        selected_plan_topic_labels = st.multiselect(
+            t("assigned_topics"),
+            options=list(plan_topic_options.keys()),
+            default=list(plan_topic_options.keys())[:1],
+            key=f"{prefix}_plan_topics",
+        )
+
+    duplicate_confirmed = True
+    if selected_targets:
+        if safe_kind == "plan":
+            duplicate_names: list[str] = []
+            for label in selected_plan_topic_labels:
+                topic_item = plan_topic_options[label]
+                for target in selected_targets:
+                    if _assignment_duplicate_count(
+                        link=target["link"],
+                        assignment_type="lesson_plan_topic",
+                        source_record_id=source_record_id,
+                        title=topic_item.get("topic_title", ""),
+                        topic=topic_item.get("topic_title", ""),
+                    ) > 0:
+                        duplicate_names.append(_clean_text(target["link"].get("student_name")) or target["label"])
+            duplicate_confirmed, _duplicate_names = _render_duplicate_student_confirmation(
+                prefix=prefix,
+                duplicate_names=duplicate_names,
+            )
+        else:
+            duplicate_confirmed, _duplicate_names = _render_multi_assignment_duplicates(
+                prefix=prefix,
+                selected_targets=selected_targets,
+                assignment_type=safe_kind,
+                source_record_id=source_record_id,
+                title=title,
+                topic=topic,
+            )
+
     if st.button(t("create_assignment"), key=f"{prefix}_assign_btn", use_container_width=True):
-        if not selected_labels:
+        if not selected_targets:
+            st.error(t("select_student"))
+            return False
+        if safe_kind == "plan" and not selected_plan_topic_labels:
             st.error(t("select_assigned_topics"))
-            return
-        if duplicate_count > 0 and not duplicate_confirmed:
+            return False
+        if not duplicate_confirmed:
             st.error(t("assignment_duplicate_confirm_required"))
-            return
+            return False
         created = 0
-        for label in selected_labels:
-            item = topic_options[label]
-            item_recommendation_context = {}
-            if recommendation_context:
-                item_recommendation_context = recommendation_context_for_assignment(
-                    link=link,
-                    subject_scope=subject_scope,
-                    topic_text=item.get("topic_title", ""),
-                )
-                if item_recommendation_context:
-                    item_recommendation_context = {
-                        **item_recommendation_context,
-                        "topic_title": item["topic_title"],
-                    }
-            snapshot = {
-                "topic_title": item["topic_title"],
-                "topic_summary": item.get("topic_summary", ""),
-                "focus_area": item.get("focus_area", ""),
-                "sequence_order": item.get("sequence_order", 1),
-                "plan_title": plan.get("title", ""),
-            }
+        failures = 0
+        for target in selected_targets:
+            link = target["link"]
+            subject_scope = target["subject"]
+            if safe_kind == "plan":
+                for label in selected_plan_topic_labels:
+                    topic_item = plan_topic_options[label]
+                    recommendation_context = recommendation_context_for_assignment(
+                        link=link,
+                        subject_scope=subject_scope,
+                        topic_text=topic_item.get("topic_title", ""),
+                    )
+                    ok, _key = create_teacher_assignment(
+                        link_id=link["id"],
+                        subject_scope_id=subject_scope["id"],
+                        assignment_type="lesson_plan_topic",
+                        source_type=_source_type_for_resource_assignment(safe_kind),
+                        source_record_id=source_record_id,
+                        title=topic_item.get("topic_title", ""),
+                        subject_key=str(subject_scope.get("subject_key") or subject or ""),
+                        subject_label_text=str(subject_scope.get("subject_label") or subject_label(subject or "")),
+                        topic=topic_item.get("topic_title", ""),
+                        teacher_note=teacher_note,
+                        due_date=due_date,
+                        content_snapshot=_resource_assignment_snapshot(safe_kind, full_row, topic_item=topic_item),
+                        learning_program_assignment_id=int(recommendation_context.get("learning_program_assignment_id") or 0) or None,
+                        learning_program_topic_id=int(recommendation_context.get("learning_program_topic_id") or 0) or None,
+                        recommendation_bucket=str(recommendation_context.get("recommendation_bucket") or "").strip(),
+                        recommendation_focus_kind=str(recommendation_context.get("focus_kind") or "").strip(),
+                        recommendation_context=recommendation_context,
+                    )
+                    created += 1 if ok else 0
+                    failures += 0 if ok else 1
+                continue
+            recommendation_context = recommendation_context_for_assignment(link=link, subject_scope=subject_scope, topic_text=topic)
             ok, _key = create_teacher_assignment(
                 link_id=link["id"],
                 subject_scope_id=subject_scope["id"],
-                assignment_type="lesson_plan_topic",
-                source_type="lesson_plan_builder",
+                assignment_type=safe_kind,
+                source_type=_source_type_for_resource_assignment(safe_kind),
                 source_record_id=source_record_id,
-                title=item["topic_title"],
+                title=title,
                 subject_key=str(subject_scope.get("subject_key") or subject or ""),
                 subject_label_text=str(subject_scope.get("subject_label") or subject_label(subject or "")),
-                topic=item["topic_title"],
+                topic=topic,
                 teacher_note=teacher_note,
                 due_date=due_date,
-                content_snapshot=snapshot,
-                learning_program_assignment_id=int(item_recommendation_context.get("learning_program_assignment_id") or 0) or None,
-                learning_program_topic_id=int(item_recommendation_context.get("learning_program_topic_id") or 0) or None,
-                recommendation_bucket=str(item_recommendation_context.get("recommendation_bucket") or "").strip(),
-                recommendation_focus_kind=str(item_recommendation_context.get("focus_kind") or "").strip(),
-                recommendation_context=item_recommendation_context,
+                content_snapshot=_resource_assignment_snapshot(safe_kind, full_row),
+                learning_program_assignment_id=int(recommendation_context.get("learning_program_assignment_id") or 0) or None,
+                learning_program_topic_id=int(recommendation_context.get("learning_program_topic_id") or 0) or None,
+                recommendation_bucket=str(recommendation_context.get("recommendation_bucket") or "").strip(),
+                recommendation_focus_kind=str(recommendation_context.get("focus_kind") or "").strip(),
+                recommendation_context=recommendation_context,
             )
-            if ok:
-                created += 1
+            created += 1 if ok else 0
+            failures += 0 if ok else 1
         if created:
-            st.success(t("assignment_topics_created", count=created))
-        else:
+            st.success(t("assignment_topics_created", count=created) if safe_kind == "plan" else t("assignment_created"))
+        if failures:
             st.error(t("assignment_create_failed"))
+        return created > 0 and failures == 0
+    return False
+
+
+def open_resource_bulk_assign_dialog(kind: str, row: dict, *, fixed_link_id: int | str | None = None) -> None:
+    safe_kind = _resource_assignment_kind(kind)
+    if safe_kind == "program":
+        from helpers.learning_programs import open_learning_program_assign_dialog
+
+        open_learning_program_assign_dialog(row)
+        return
+    st.session_state.pop("_learning_program_assign_dialog", None)
+    for key in list(st.session_state.keys()):
+        if str(key).startswith("show_assign_learning_program_"):
+            st.session_state.pop(key, None)
+    for key in (
+        "files_selected_worksheet",
+        "files_selected_worksheet_id",
+        "files_selected_worksheet_status",
+        "files_selected_worksheet_assign_expanded",
+        "files_selected_exam",
+        "files_selected_exam_answer_key",
+        "files_selected_exam_id",
+        "files_selected_exam_status",
+        "files_selected_exam_assign_expanded",
+        "files_selected_plan",
+        "files_selected_plan_id",
+        "files_selected_plan_status",
+        "files_selected_plan_assign_expanded",
+        "files_selected_video",
+        "files_selected_video_id",
+        "files_selected_video_status",
+        "files_selected_video_assign_expanded",
+    ):
+        st.session_state.pop(key, None)
+    st.session_state["_resource_bulk_assign_dialog"] = {
+        "kind": safe_kind,
+        "row": dict(row or {}),
+        "fixed_link_id": fixed_link_id,
+    }
+
+
+def render_resource_bulk_assign_dialog(kind_filter: str | None = None) -> None:
+    state = st.session_state.get("_resource_bulk_assign_dialog")
+    if not isinstance(state, dict):
+        return
+    safe_kind = _resource_assignment_kind(state.get("kind"))
+    if kind_filter and safe_kind != _resource_assignment_kind(kind_filter):
+        return
+
+    @st.dialog(t("assign_to_student"))
+    def _dialog():
+        created = render_resource_bulk_assign_panel(
+            kind=safe_kind,
+            row=state.get("row") if isinstance(state.get("row"), dict) else {},
+            prefix=f"resource_bulk_assign_{safe_kind}",
+            fixed_link_id=state.get("fixed_link_id"),
+        )
+        if created:
+            st.session_state.pop("_resource_bulk_assign_dialog", None)
+            st.rerun()
+        if st.button(t("close"), key=f"resource_bulk_assign_{safe_kind}_close", use_container_width=True):
+            st.session_state.pop("_resource_bulk_assign_dialog", None)
+            st.rerun()
+
+    _dialog()
 
 
 def group_assignments_by_teacher_subject(assignments: list[dict]) -> list[tuple[str, list[tuple[str, list[dict]]]]]:

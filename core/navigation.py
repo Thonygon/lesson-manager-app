@@ -28,6 +28,122 @@ STUDENT_PAGES = [
 PAGE_KEYS = {"home", "resources", "community"} | {key for key, _, _ in PAGES} | {key for key, _, _ in STUDENT_PAGES}
 
 
+_RESOURCE_DIALOG_KEYS = {
+    "_learning_program_assign_dialog",
+    "_resource_bulk_assign_dialog",
+}
+
+_RESOURCE_PREVIEW_KEY_GROUPS = {
+    "worksheet": {
+    "files_selected_worksheet",
+    "files_ws_subject",
+    "files_ws_stage",
+    "files_ws_level",
+    "files_ws_type",
+    "files_ws_topic",
+    "files_ws_title",
+    "files_selected_worksheet_id",
+    "files_selected_worksheet_status",
+    "files_selected_worksheet_assign_expanded",
+    },
+    "exam": {
+    "files_selected_exam",
+    "files_selected_exam_answer_key",
+    "files_exam_subject",
+    "files_exam_stage",
+    "files_exam_level",
+    "files_exam_topic",
+    "files_exam_title",
+    "files_selected_exam_id",
+    "files_selected_exam_status",
+    "files_selected_exam_assign_expanded",
+    },
+    "plan": {
+    "files_selected_plan",
+    "files_selected_subject",
+    "files_selected_stage",
+    "files_selected_level",
+    "files_selected_purpose",
+    "files_selected_topic",
+    "files_selected_source_type",
+    "files_selected_title",
+    "files_selected_plan_id",
+    "files_selected_plan_status",
+    "files_selected_plan_assign_expanded",
+    },
+    "video": {
+    "files_selected_video",
+    "files_selected_video_id",
+    "files_selected_video_status",
+    "files_selected_video_assign_expanded",
+    },
+    "program": {
+    "my_learning_programs_selected_program_id",
+    "archived_learning_programs_selected_program_id",
+    "public_learning_programs_selected_program_id",
+    "home_public_learning_programs_selected_program_id",
+    },
+}
+
+_RESOURCE_TRANSIENT_KEYS = set(_RESOURCE_DIALOG_KEYS)
+for _resource_keys in _RESOURCE_PREVIEW_KEY_GROUPS.values():
+    _RESOURCE_TRANSIENT_KEYS.update(_resource_keys)
+
+_SMART_TOOL_RESULT_KEYS = {
+    "worksheet_result",
+    "worksheet_result_saved",
+    "worksheet_record_id",
+    "exam_result",
+    "exam_answer_key",
+    "exam_result_saved",
+    "exam_record_id",
+    "quick_lesson_plan_result",
+    "quick_lesson_plan_record_id",
+    "quick_lesson_plan_kept",
+    "quick_lesson_plan_mode_used",
+    "quick_lesson_plan_warning",
+    "quick_lesson_no_template",
+    "quick_lesson_plan_assign_expanded",
+}
+
+
+def clear_resource_transient_state() -> None:
+    for key in _RESOURCE_TRANSIENT_KEYS:
+        st.session_state.pop(key, None)
+    for key in list(st.session_state.keys()):
+        if str(key).startswith("show_assign_learning_program_"):
+            st.session_state.pop(key, None)
+
+
+def clear_open_resource_previews(*, except_kind: str | None = None, clear_dialogs: bool = True) -> None:
+    keep = str(except_kind or "").strip().lower()
+    aliases = {"lesson_plan": "plan", "lesson": "plan", "quick_exam": "exam", "learning_program": "program"}
+    keep = aliases.get(keep, keep)
+    for kind, keys in _RESOURCE_PREVIEW_KEY_GROUPS.items():
+        if keep and kind == keep:
+            continue
+        for key in keys:
+            st.session_state.pop(key, None)
+    if keep != "program":
+        for key in list(st.session_state.keys()):
+            if str(key).startswith("show_assign_learning_program_"):
+                st.session_state.pop(key, None)
+    if clear_dialogs:
+        for key in _RESOURCE_DIALOG_KEYS:
+            st.session_state.pop(key, None)
+
+
+def _clear_page_transient_state(next_page: str) -> None:
+    current_page = str(st.session_state.get("page") or "")
+    if next_page != "resources":
+        clear_resource_transient_state()
+    keys: set[str] = set()
+    if current_page == "smart_tools" and next_page != "smart_tools":
+        keys.update(_SMART_TOOL_RESULT_KEYS)
+    for key in keys:
+        st.session_state.pop(key, None)
+
+
 def _set_query(page: Optional[str] = None, lang: Optional[str] = None, panel: Optional[str] = None) -> None:
     new_page = page if page is not None else st.session_state.get("page", "home")
     new_lang = lang if lang is not None else st.session_state.get("ui_lang", "en")
@@ -48,6 +164,7 @@ def _set_query(page: Optional[str] = None, lang: Optional[str] = None, panel: Op
 def go_to(page_name: str):
     if page_name not in PAGE_KEYS:
         page_name = "home"
+    _clear_page_transient_state(page_name)
     st.session_state["page"] = page_name
     _set_query(page=page_name, lang=st.session_state.get("ui_lang", "en"))
 
@@ -55,6 +172,7 @@ def go_to(page_name: str):
 def home_go(page_name: str = "home", panel: Optional[str] = None):
     if page_name not in PAGE_KEYS:
         page_name = "home"
+    _clear_page_transient_state(page_name)
     st.session_state["page"] = page_name
     _set_query(page=page_name, lang=st.session_state.get("ui_lang", "en"), panel=panel)
 

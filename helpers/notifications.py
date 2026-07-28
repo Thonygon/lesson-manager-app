@@ -334,7 +334,7 @@ def _topic_title_from_program(program: dict, topic_id: int) -> str:
 
 def _teacher_learning_program_help_requests(limit: int = 5) -> list[dict]:
     try:
-        assignments_df = load_program_assignments_for_teacher(limit=500)
+        assignments_df = load_program_assignments_for_teacher(limit=120)
         if assignments_df is None or assignments_df.empty or "id" not in assignments_df.columns:
             return []
         assignment_rows = assignments_df.to_dict("records")

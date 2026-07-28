@@ -15,7 +15,7 @@ from services.ai_usage_service import log_ai_usage_event
 import math
 import html
 import textwrap
-from core.navigation import go_to
+from core.navigation import clear_open_resource_previews, go_to
 import re
 import unicodedata
 from xml.sax.saxutils import escape as xml_escape
@@ -37,6 +37,7 @@ from helpers.visual_support import (
     build_pdf_visual_flowables,
     render_visual_support_status_group,
     get_visual_watermark_bytes,
+    preserve_generated_media_fields,
 )
 from helpers.answer_key_utils import normalize_answer_key_text, split_answer_key_items
 from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
@@ -909,7 +910,7 @@ def _normalize_worksheet_frame(rows: list[dict] | None) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=45, show_spinner=False)
-def _load_my_worksheets_cached(uid: str, limit: int = 500) -> pd.DataFrame:
+def _load_my_worksheets_cached(uid: str, limit: int = 120) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
     res = (
@@ -928,7 +929,7 @@ register_cache(_load_my_worksheets_cached)
 
 
 @st.cache_data(ttl=45, show_spinner=False)
-def _load_public_worksheets_cached(limit: int = 500) -> pd.DataFrame:
+def _load_public_worksheets_cached(limit: int = 120) -> pd.DataFrame:
     res = (
         get_sb()
         .table("worksheets")
@@ -1069,6 +1070,9 @@ def _open_worksheet_library_record(
     require_signup: bool = False,
     expand_assign: bool = False,
 ) -> None:
+    clear_open_resource_previews(except_kind="worksheet", clear_dialogs=not expand_assign)
+    if not expand_assign:
+        st.session_state.pop("_resource_bulk_assign_dialog", None)
     if require_signup:
         st.session_state["_post_signup_open_panel"] = "files"
         st.session_state["_post_signup_open_tab"] = "community_library"
@@ -1109,6 +1113,12 @@ def _open_worksheet_library_record(
     )
 
     if open_in_files:
+        target_main_tab = t("community_library") if current_user_id and current_user_id != row_owner_id else t("my_worksheets")
+        st.session_state["_resources_target_main_tab"] = target_main_tab
+        if target_main_tab == t("community_library"):
+            st.session_state["_resources_target_nested_tab"] = f"📋 {t('community_worksheets')}"
+        else:
+            st.session_state.pop("_resources_target_nested_tab", None)
         go_to("resources")
     else:
         st.session_state["explore_teaching_resources_keep_open"] = True
@@ -1207,6 +1217,8 @@ def render_worksheet_library_cards(
     if df is None or df.empty:
         st.info(t("no_data"))
         return
+
+    from helpers.teacher_student_integration import open_resource_bulk_assign_dialog, render_resource_bulk_assign_dialog
 
     inject_resource_gallery_styles()
     rows = df.reset_index(drop=True).to_dict("records")
@@ -1307,12 +1319,15 @@ def render_worksheet_library_cards(
                             t("assign_to_student"),
                             key=f"{prefix}_assign_{row_id}_{idx}_{col_idx}",
                         ):
-                            _open_worksheet_library_record(
-                                row,
-                                open_in_files=open_in_files,
-                                require_signup=require_signup,
-                                expand_assign=True,
-                            )
+                            if require_signup:
+                                _open_worksheet_library_record(
+                                    row,
+                                    open_in_files=open_in_files,
+                                    require_signup=True,
+                                    expand_assign=True,
+                                )
+                            else:
+                                open_resource_bulk_assign_dialog("worksheet", row)
                 if show_owner_controls:
                     with action_cols[2]:
                         if allow_visibility_toggle and is_owner and str(worksheet_id or "").strip() and not is_archived:
@@ -1370,6 +1385,7 @@ def render_worksheet_library_cards(
                             source_type="worksheet_builder",
                             on_deleted=lambda: st.session_state.pop("files_selected_worksheet", None),
                         )
+    render_resource_bulk_assign_dialog(kind_filter="worksheet")
 
 
 # ── Render worksheet result ──────────────────────────────────────────
@@ -1595,8 +1611,34 @@ def render_worksheet_result(
         updated_ws = _normalize_worksheet_unicode(updated_ws)
         return _clean_worksheet_data(updated_ws)
 
+    def _worksheet_has_student_content(candidate: dict) -> bool:
+        if not isinstance(candidate, dict):
+            return False
+        for key in (
+            "questions",
+            "items",
+            "prompts",
+            "sentences",
+            "statements",
+            "true_false_statements",
+            "matching_pairs",
+            "vocabulary_words",
+            "words",
+        ):
+            value = candidate.get(key)
+            if isinstance(value, list) and any(str(item).strip() for item in value):
+                return True
+        for key in ("reading_text", "source_text", "passage", "instructions"):
+            if str(candidate.get(key) or "").strip():
+                return True
+        return False
+
     def _apply_worksheet_edit(updated_ws: dict) -> bool:
         updated_ws = _normalize_worksheet_edit(updated_ws)
+        updated_ws = preserve_generated_media_fields(updated_ws, ws)
+        if _worksheet_has_student_content(ws) and not _worksheet_has_student_content(updated_ws):
+            st.error(t("resource_changes_save_failed"))
+            return False
         if not _persist_saved_worksheet_resource(edit_record_id, updated_ws):
             return False
         st.session_state["worksheet_result"] = updated_ws
@@ -1733,14 +1775,6 @@ def render_worksheet_result(
                     use_container_width=True,
                 )
     else:
-        if st.button(
-            "🗑️ " + (t("clear_result") if t("clear_result") != "clear_result" else "Clear result"),
-            key="btn_clear_ws",
-            use_container_width=True,
-        ):
-            _wb().reset_worksheet_maker_state()
-            st.rerun()
-
         if allow_assign:
             with st.expander(t("assign_to_student"), expanded=assign_expanded):
                 from helpers.teacher_student_integration import render_assignment_panel_for_worksheet
@@ -1804,6 +1838,13 @@ def render_worksheet_result(
                 key=f"dl_ws_tch_docx_inline_{safe_title}",
                 use_container_width=True,
             )
+        if st.button(
+            "🗑️ " + (t("clear_result") if t("clear_result") != "clear_result" else "Clear result"),
+            key="btn_clear_ws",
+            use_container_width=True,
+        ):
+            _wb().reset_worksheet_maker_state()
+            st.rerun()
 
 
 def _persist_saved_worksheet_visuals(worksheet_id: int | str, worksheet: dict) -> bool:
@@ -1817,6 +1858,8 @@ def _persist_saved_worksheet_visuals(worksheet_id: int | str, worksheet: dict) -
             return False
         safe_id = int(stripped) if stripped.isdigit() else stripped
     worksheet = _clean_worksheet_data(_normalize_worksheet_unicode(dict(worksheet or {})))
+    existing_row = load_worksheet_record(safe_id) or {}
+    worksheet = preserve_generated_media_fields(worksheet, existing_row.get("worksheet_json") or {})
     try:
         payload_with_timestamp = {
             "worksheet_json": worksheet,

@@ -57,6 +57,8 @@ def _kind_to_resource_type(kind: Any) -> str:
         "video": "video",
         "program": "program",
         "learning_program": "program",
+        "program_topic": "program_topic",
+        "learning_program_topic": "program_topic",
     }.get(safe, safe)
 
 

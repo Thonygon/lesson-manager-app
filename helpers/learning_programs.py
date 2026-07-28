@@ -28,6 +28,7 @@ from helpers.resource_gallery import (
 from helpers.recommendation_models import log_teacher_material_open
 from helpers.video_library import load_topic_video_links, render_topic_video_manager
 from helpers.visual_support import generate_resource_cover_image
+from core.navigation import clear_open_resource_previews
 
 AI_PROGRAM_DAILY_LIMIT = 1
 AI_PROGRAM_COOLDOWN_SECONDS = 10
@@ -3237,7 +3238,7 @@ def _persist_learning_program_cover(program_id: int, program: dict) -> bool:
 
 
 def load_my_learning_programs(
-    limit: int = 500,
+    limit: int = 120,
     *,
     include_archived: bool = False,
     archived_only: bool = False,
@@ -3260,7 +3261,7 @@ def load_my_learning_programs(
         return pd.DataFrame()
 
 
-def load_public_learning_programs(limit: int = 500) -> pd.DataFrame:
+def load_public_learning_programs(limit: int = 120) -> pd.DataFrame:
     try:
         return _load_public_learning_programs_cached(limit=limit)
     except Exception as exc:
@@ -3281,7 +3282,7 @@ def _normalize_learning_program_frame(rows: list[dict] | None) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=45, show_spinner=False)
-def _load_my_learning_programs_cached(uid: str, limit: int = 500) -> pd.DataFrame:
+def _load_my_learning_programs_cached(uid: str, limit: int = 120) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
     res = (
@@ -3300,7 +3301,7 @@ register_cache(_load_my_learning_programs_cached)
 
 
 @st.cache_data(ttl=45, show_spinner=False)
-def _load_public_learning_programs_cached(limit: int = 500) -> pd.DataFrame:
+def _load_public_learning_programs_cached(limit: int = 120) -> pd.DataFrame:
     res = (
         get_sb()
         .table("learning_programs")
@@ -3724,7 +3725,7 @@ def archive_learning_program_assignment(assignment_id: int) -> tuple[bool, str]:
 
 
 @st.cache_data(ttl=45, show_spinner=False)
-def _load_program_assignments_for_teacher_cached(teacher_id: str, limit: int = 500) -> pd.DataFrame:
+def _load_program_assignments_for_teacher_cached(teacher_id: str, limit: int = 120) -> pd.DataFrame:
     if not teacher_id:
         return pd.DataFrame()
     try:
@@ -3749,7 +3750,7 @@ def _load_program_assignments_for_teacher_cached(teacher_id: str, limit: int = 5
 register_cache(_load_program_assignments_for_teacher_cached)
 
 
-def load_program_assignments_for_teacher(limit: int = 500) -> pd.DataFrame:
+def load_program_assignments_for_teacher(limit: int = 120) -> pd.DataFrame:
     teacher_id = get_current_user_id()
     if not teacher_id:
         return pd.DataFrame()
@@ -3757,7 +3758,7 @@ def load_program_assignments_for_teacher(limit: int = 500) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=45, show_spinner=False)
-def _load_program_assignments_for_student_cached(student_user_id: str = "", student_name: str = "", limit: int = 500) -> pd.DataFrame:
+def _load_program_assignments_for_student_cached(student_user_id: str = "", student_name: str = "", limit: int = 120) -> pd.DataFrame:
     sb = get_sb()
     try:
         if student_user_id:
@@ -3793,7 +3794,7 @@ def _load_program_assignments_for_student_cached(student_user_id: str = "", stud
 register_cache(_load_program_assignments_for_student_cached)
 
 
-def load_program_assignments_for_student(student_user_id: str = "", student_name: str = "", limit: int = 500) -> pd.DataFrame:
+def load_program_assignments_for_student(student_user_id: str = "", student_name: str = "", limit: int = 120) -> pd.DataFrame:
     return _load_program_assignments_for_student_cached(
         student_user_id=_clean_text(student_user_id),
         student_name=_clean_text(student_name),
@@ -3978,6 +3979,7 @@ def render_learning_program_library_cards(
                 action_cols = st.columns([1, 1, 1, 1, 1] if show_delete_control else ([1, 1, 1, 1] if show_owner_controls else [1, 1]))
                 with action_cols[0]:
                     if program_id > 0 and st.button(t("open_program"), key=f"{prefix}_open_{program_id}_{idx}_{col_idx}"):
+                        clear_open_resource_previews()
                         log_teacher_material_open(
                             row,
                             "program",
@@ -3997,8 +3999,7 @@ def render_learning_program_library_cards(
                             st.session_state["_show_signup_invite_dialog"] = True
                             st.session_state["explore_teaching_resources_keep_open"] = True
                             st.rerun()
-                        st.session_state[f"{prefix}_selected_program_id"] = program_id
-                        st.session_state[f"show_assign_learning_program_{program_id}"] = True
+                        open_learning_program_assign_dialog(row)
                 if show_owner_controls:
                     with action_cols[2]:
                         if allow_visibility_toggle and is_owner and program_id > 0 and is_complete and not is_archived:
@@ -4047,6 +4048,8 @@ def render_learning_program_library_cards(
                             row,
                             key_prefix=delete_key_prefix,
                         )
+
+    render_learning_program_assign_dialog()
 
 
 def _inject_program_styles() -> None:
@@ -4381,23 +4384,23 @@ def render_teacher_program_view(program: dict) -> None:
                                     st.video(watch_url)
 
 
-def render_learning_program_assignment_panel(program: dict, prefix: str = "learning_program_assign") -> None:
+def render_learning_program_assignment_panel(program: dict, prefix: str = "learning_program_assign") -> bool:
     program_id = int(program.get("id") or 0)
     if program_id <= 0:
         st.info(t("save_program_before_assigning"))
-        return
+        return False
 
     st.markdown(f"### {t('assign_learning_program_title')}")
 
     linked_students = _tsi().load_active_linked_students_for_teacher()
     if not linked_students:
         st.info(t("assignment_requires_relationship_message"))
-        return
+        return False
 
     student_options = [row for row in linked_students if _clean_text(row.get("student_name"))]
     if not student_options:
         st.info(t("assignment_requires_relationship_message"))
-        return
+        return False
 
     labels = [_clean_text(row.get("student_name")) for row in student_options]
     selected_student_name = st.selectbox(
@@ -4428,7 +4431,7 @@ def render_learning_program_assignment_panel(program: dict, prefix: str = "learn
     if st.button(t("assign"), key=f"{prefix}_assign_btn"):
         if duplicate_count > 0 and not duplicate_confirmed:
             st.error(t("assignment_duplicate_confirm_required"))
-            return
+            return False
         ok, assignment_id, msg = assign_learning_program(
             program_id=program_id,
             student_name=selected_student_name,
@@ -4437,8 +4440,58 @@ def render_learning_program_assignment_panel(program: dict, prefix: str = "learn
         )
         if ok:
             st.success(t("learning_program_assigned_success", student=selected_student_name, assignment_id=assignment_id))
+            return True
         else:
             st.error(t("learning_program_assigned_failed", error=msg))
+    return False
+
+
+def open_learning_program_assign_dialog(program: dict | int | str) -> None:
+    st.session_state.pop("_resource_bulk_assign_dialog", None)
+    for key in list(st.session_state.keys()):
+        if str(key).startswith("show_assign_learning_program_"):
+            st.session_state.pop(key, None)
+    if isinstance(program, dict):
+        program_id = int(program.get("id") or 0)
+    elif str(program or "").strip().isdigit():
+        program_id = int(str(program).strip())
+    else:
+        program_id = 0
+    if program_id <= 0:
+        return
+    row = dict(program or {}) if isinstance(program, dict) else {}
+    st.session_state["_learning_program_assign_dialog"] = {
+        "program_id": program_id,
+        "row": row,
+    }
+
+
+def render_learning_program_assign_dialog() -> None:
+    state = st.session_state.get("_learning_program_assign_dialog")
+    if not isinstance(state, dict):
+        return
+    program_id = int(state.get("program_id") or 0)
+    if program_id <= 0:
+        st.session_state.pop("_learning_program_assign_dialog", None)
+        return
+    program = dict(state.get("row") or {})
+    if not program or not program.get("program_data"):
+        program = load_learning_program(program_id) or program
+    if not program:
+        st.session_state.pop("_learning_program_assign_dialog", None)
+        return
+
+    @st.dialog(t("assign_learning_program_title"))
+    def _dialog():
+        assigned = render_learning_program_assignment_panel(program, prefix=f"learning_program_dialog_assign_{program_id}")
+        if assigned:
+            st.session_state.pop("_learning_program_assign_dialog", None)
+            st.rerun()
+        if st.button(t("close"), key=f"learning_program_dialog_assign_{program_id}_close", use_container_width=True):
+            st.session_state.pop("_learning_program_assign_dialog", None)
+            st.rerun()
+
+    _dialog()
 
 
 def _save_generated_learning_program_from_builder(
