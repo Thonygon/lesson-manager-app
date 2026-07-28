@@ -21,7 +21,6 @@ from helpers.teacher_student_integration import (
     mark_assignment_started,
     persist_assignment_content_snapshot,
     record_video_assignment_watch,
-    update_topic_assignment_status,
 )
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student, render_student_program_view
 from helpers.empty_states import render_empty_state
@@ -492,6 +491,8 @@ def _inject_assignment_page_styles() -> None:
             color: var(--muted);
         }
         .classio-assign-card {
+            width: 100%;
+            box-sizing: border-box;
             position: relative;
             overflow: hidden;
             background:
@@ -545,6 +546,15 @@ def _inject_assignment_page_styles() -> None:
         }
         .classio-assign-card--topic::before {
             background: linear-gradient(180deg, #bae6fd, #60a5fa 58%, #38bdf8);
+        }
+        .classio-assign-card--lesson {
+            background:
+              radial-gradient(circle at top right, rgba(234,179,8,.16), transparent 38%),
+              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 84%, white 16%));
+            border-color: color-mix(in srgb, var(--border) 74%, rgba(234,179,8,.28) 26%);
+        }
+        .classio-assign-card--lesson::before {
+            background: linear-gradient(180deg, #fde68a, #eab308 58%, #d97706);
         }
         .classio-assign-title {
             font-size: 1.18rem;
@@ -691,7 +701,7 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
         "worksheet": "classio-assign-card--worksheet",
         "exam": "classio-assign-card--exam",
         "video": "classio-assign-card--video",
-        "lesson_plan_topic": "classio-assign-card--topic",
+        "lesson_plan_topic": "classio-assign-card--lesson",
     }.get(assignment_type, "")
 
     meta_bits = [teacher_name, subject_name]
@@ -815,18 +825,6 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
                 st.session_state[f"{key_prefix}_video_player_open"] = True
                 record_video_assignment_watch(int(row.get("id") or 0))
                 _log_video_assignment_event(row, "student_video_watched")
-                st.rerun()
-        elif assignment_type == "lesson_plan_topic":
-            st.markdown(
-                f"<div class='classio-assign-action-label'>{_html.escape(t('assigned_topics'))}</div>",
-                unsafe_allow_html=True,
-            )
-            if st.button(t("mark_in_progress"), key=f"{key_prefix}_start", use_container_width=True):
-                update_topic_assignment_status(row.get("id"), "started")
-                st.rerun()
-            st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
-            if st.button(t("mark_completed"), key=f"{key_prefix}_complete", use_container_width=True, type="primary"):
-                update_topic_assignment_status(row.get("id"), "completed")
                 st.rerun()
         st.markdown("<div style='height:0.7rem;'></div>", unsafe_allow_html=True)
 
@@ -1137,14 +1135,14 @@ def render_student_assignments() -> None:
     worksheets = [row for row in assignments if row.get("assignment_type") == "worksheet"]
     exams = [row for row in assignments if row.get("assignment_type") == "exam"]
     videos = [row for row in assignments if row.get("assignment_type") == "video"]
-    topics = [row for row in assignments if row.get("assignment_type") == "lesson_plan_topic"]
+    # Lesson-plan topics are informative study-plan items, not scored assignments.
+    # They live in Smart Plan so students don't see duplicate topic lists here.
 
-    tab_ws, tab_exams, tab_videos, tab_topics = st.tabs(
+    tab_ws, tab_exams, tab_videos = st.tabs(
         [
             f"📋 {t('worksheet_assignments')}",
             f"📝 {t('exam_assignments')}",
             f"🎬 {t('video_assignments')}",
-            f"🧠 {t('assigned_topics')}",
         ]
     )
 
@@ -1154,6 +1152,3 @@ def render_student_assignments() -> None:
         _render_assignment_group(t("exam_assignments"), exams, "student_assignments_exam")
     with tab_videos:
         _render_assignment_group(t("video_assignments"), videos, "student_assignments_videos")
-    with tab_topics:
-        if not _render_program_assigned_topics(program_assignments):
-            _render_assignment_group(t("assigned_topics"), topics, "student_assignments_topics")

@@ -173,6 +173,8 @@ def _clear_cached_reports(run_id: str, language: str) -> None:
 def _default_context(run_id: str, experiment_id: str, language: str) -> dict[str, Any]:
     safe_lang = _lang(language)
     localized = _localized_default_text(_clean_text(experiment_id), safe_lang)
+    run_suggestion = _run_aware_suggestion_text(_clean_text(run_id), _clean_text(experiment_id), safe_lang)
+    localized = {**localized, **run_suggestion}
     return {
         "run_id": _clean_text(run_id),
         "experiment_id": _clean_text(experiment_id),
@@ -197,6 +199,70 @@ def _default_context(run_id: str, experiment_id: str, language: str) -> dict[str
         "created_by": "",
         "created_at": "",
         "updated_at": "",
+        "context_source": "suggested",
+        "suggestion_version": run_suggestion.get("suggestion_version", "static_default_v1"),
+        "suggested_at": _now_iso(),
+    }
+
+
+def _run_aware_suggestion_text(run_id: str, experiment_id: str, language: str) -> dict[str, str]:
+    if experiment_id != "resource_affinity_unsupervised_discovery" or not run_id:
+        return {}
+    summary_path = Path("reports") / "ml_architecture" / "resource_affinity_unsupervised" / "runs" / run_id / "resource_affinity_run_summary.json"
+    if not summary_path.exists():
+        return {}
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    dataset = summary.get("dataset") or {}
+    evaluation = summary.get("evaluation") or {}
+    best = evaluation.get("best_model") or {}
+    included = int(dataset.get("included_row_count") or 0)
+    excluded = int(dataset.get("excluded_row_count") or 0)
+    model = _clean_text(best.get("model_name")) or _clean_text(evaluation.get("selected_candidate_for_human_review"))
+    silhouette = _clean_text(best.get("silhouette_score"))
+    maturity = _clean_text(evaluation.get("maturity_verdict"))
+    if language == "es":
+        return {
+            "suggestion_version": "resource_affinity_run_aware_v1",
+            "business_problem": f"Classio necesita evaluar si {included} recursos pueden agruparse por afinidad semántica sin etiquetas manuales para apoyar recomendaciones y avisos de recursos similares.",
+            "decision_supported": "Si el resultado exploratorio justifica revisión humana estructurada y una posible prueba sombra, no un despliegue automático.",
+            "expected_value": "Ampliar candidatos relacionados por significado mientras las reglas de negocio siguen filtrando profesor, estudiante, materia, idioma, nivel y estado de archivo.",
+            "success_definition": f"El candidato {model} debe producir vecinos pedagógicamente útiles bajo revisión humana; las métricas técnicas como Silhouette {silhouette} son solo evidencia proxy.",
+            "minimum_evidence_required": "Auditoría de exclusiones reconciliada, revisión humana de pares, métricas de contaminación con denominadores y posterior telemetría de engagement antes de producción.",
+            "risks": "Un Silhouette alto puede favorecer clústeres pequeños o ruido; la afinidad semántica no prueba preferencia docente ni mejora de aprendizaje.",
+            "main_limitation": f"El veredicto {maturity or 'exploratorio'} no mide efectividad de recomendación y {excluded} filas quedaron fuera del dataset incluido.",
+            "evidence_non_proof": "Este experimento no demuestra que profesores o estudiantes prefieran los recursos vecinos.",
+            "recommended_next_action": "Revisar la muestra humana, corregir metadata faltante y usar el modelo solo en modo sombra si la revisión pedagógica es positiva.",
+            "next_review_trigger": "Revisar cuando exista feedback humano suficiente o tras recopilar telemetría sombra de recomendaciones.",
+        }
+    if language == "tr":
+        return {
+            "suggestion_version": "resource_affinity_run_aware_v1",
+            "business_problem": f"Classio, {included} kaynağın manuel etiket olmadan anlamsal yakınlığa göre gruplanıp gruplanamayacağını öneriler ve benzer kaynak uyarıları için değerlendirmelidir.",
+            "decision_supported": "Bu keşifsel sonucun otomatik dağıtımı değil, yapılandırılmış insan incelemesini ve olası gölge testi haklı çıkarıp çıkarmadığı.",
+            "expected_value": "İş kuralları öğretmen, öğrenci, ders, dil, seviye ve arşiv durumuna göre filtrelemeye devam ederken anlam temelli ilgili kaynak adaylarını genişletmek.",
+            "success_definition": f"{model} adayı insan incelemesinde pedagojik olarak yararlı komşular üretmelidir; Silhouette {silhouette} gibi teknik metrikler yalnızca proxy kanıttır.",
+            "minimum_evidence_required": "Uzlaştırılmış dışlama denetimi, insan çift incelemesi, paydalı karışma metrikleri ve üretim öncesi sonraki etkileşim telemetrisi.",
+            "risks": "Yüksek Silhouette küçük kümeleri veya gürültü yönetimini ödüllendirebilir; anlamsal yakınlık öğretmen tercihini ya da öğrenme etkisini kanıtlamaz.",
+            "main_limitation": f"{maturity or 'keşifsel'} kararı öneri etkinliğini ölçmez ve {excluded} satır dahil edilen veri setinin dışında kalmıştır.",
+            "evidence_non_proof": "Bu deney, öğretmenlerin veya öğrencilerin komşu kaynakları tercih edeceğini kanıtlamaz.",
+            "recommended_next_action": "İnsan inceleme örneğini gözden geçirin, eksik metadatayı onarın ve pedagojik inceleme olumluysa modeli yalnızca gölge modda kullanın.",
+            "next_review_trigger": "Yeterli insan geri bildirimi oluştuğunda veya gölge öneri telemetrisi toplandıktan sonra yeniden inceleyin.",
+        }
+    return {
+        "suggestion_version": "resource_affinity_run_aware_v1",
+        "business_problem": f"Classio needs to evaluate whether {included} resources can be grouped by semantic affinity without manual labels to support recommendations and similar-resource warnings.",
+        "decision_supported": "Whether this exploratory result justifies structured human review and possible shadow testing, not automatic deployment.",
+        "expected_value": "Expand meaning-based related-resource candidates while business rules still filter by teacher, student, subject, language, level, and archive status.",
+        "success_definition": f"The candidate {model} should produce pedagogically useful neighbors under human review; technical metrics such as Silhouette {silhouette} are proxy evidence only.",
+        "minimum_evidence_required": "Reconciled exclusion audit, human pair review, contamination metrics with denominators, and later engagement telemetry before production use.",
+        "risks": "High Silhouette can reward small clusters or noise handling; semantic affinity does not prove teacher preference or learning impact.",
+        "main_limitation": f"The {maturity or 'exploratory'} verdict does not measure recommendation effectiveness, and {excluded} rows were excluded from the included dataset.",
+        "evidence_non_proof": "This experiment does not prove that teachers or students will prefer neighboring resources.",
+        "recommended_next_action": "Review the human sample, repair missing metadata, and use the model only in shadow mode if pedagogical review is positive.",
+        "next_review_trigger": "Review after enough human feedback exists or after shadow recommendation telemetry is collected.",
     }
 
 

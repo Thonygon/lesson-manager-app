@@ -234,7 +234,7 @@ def stage_explorer_move(
 
 
 @st.cache_data(ttl=45, show_spinner=False)
-def _load_explorer_moves_cached(limit: int = 500) -> pd.DataFrame:
+def _load_explorer_moves_cached(limit: int = 120) -> pd.DataFrame:
     response = (
         get_sb()
         .table(EXPLORER_MOVES_TABLE)
@@ -249,7 +249,7 @@ def _load_explorer_moves_cached(limit: int = 500) -> pd.DataFrame:
 register_cache(_load_explorer_moves_cached)
 
 
-def load_explorer_moves_admin(limit: int = 500) -> pd.DataFrame:
+def load_explorer_moves_admin(limit: int = 120) -> pd.DataFrame:
     try:
         return _load_explorer_moves_cached(limit)
     except Exception:

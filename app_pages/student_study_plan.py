@@ -1,4 +1,5 @@
 from datetime import date
+import html as _html
 
 import streamlit as st
 
@@ -11,20 +12,27 @@ from app_pages.student_assignments import (
     _assignment_scope_groups,
     _inject_assignment_page_styles,
     _program_subject_groups,
+    _render_student_pagination,
+    _slice_student_page,
     render_assigned_learning_programs_section,
 )
 from helpers.lesson_planner import QUICK_SUBJECTS, normalize_subject, subject_label as _subject_label
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student
-from helpers.teacher_student_integration import get_student_assignment_summary, has_active_teacher_relationships
+from helpers.teacher_student_integration import get_student_assignment_summary, has_active_teacher_relationships, load_student_assignments
 from helpers.empty_states import render_empty_state
 
 
 _SMART_PLAN_NS = "student_smart_plan"
+_LESSON_TOPIC_PAGE_SIZE = 6
 
 
 def _smart_plan_user_key(suffix: str) -> str:
     uid = str(get_current_user_id() or "").strip() or "anon"
     return f"{_SMART_PLAN_NS}_{suffix}_{uid}"
+
+
+def _smart_plan_pagination_key(suffix: str) -> str:
+    return _smart_plan_user_key(f"page_{suffix}")
 
 
 def _inject_smart_plan_styles() -> None:
@@ -1130,19 +1138,90 @@ def _render_smart_plan_scope(
     _save_smart_plan_state(state, scope_key)
 
 
+def _render_lesson_plan_topic_card(row: dict) -> None:
+    title = _html.escape(str(row.get("title") or "—").strip() or "—")
+    teacher_name = _html.escape(str(row.get("teacher_name") or "—").strip() or "—")
+    subject_display = _html.escape(str(row.get("subject_display") or "—").strip() or "—")
+    created_at = str(row.get("created_at") or "").strip()
+    created_label = created_at[:10] if created_at else "—"
+    st.markdown(
+        f"""
+        <div class="classio-assign-card classio-assign-card--lesson">
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+                <div>
+                    <div class="classio-assign-title">{title}</div>
+                    <div class="classio-assign-meta">
+                        {teacher_name} · {subject_display} · {_html.escape(t('created_at_label'))}: {_html.escape(created_label)}
+                    </div>
+                </div>
+                <div>
+                    <span class="classio-inline-chip">📒 {_html.escape(t('lesson_plan'))}</span>
+                    <span class="classio-inline-chip">📌 {_html.escape(t('assigned'))}</span>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_lesson_plan_topics_tab(topic_rows: list[dict]) -> None:
+    st.markdown(f"### {t('lesson_plan')}")
+    st.caption(t("lesson_plan_topic_student_caption"))
+    if not topic_rows:
+        render_empty_state(
+            title_key="student_lesson_plan_topics_empty_title",
+            body_key="student_lesson_plan_topics_empty_body",
+            steps=[
+                "student_lesson_plan_topics_empty_step_teacher",
+                "student_lesson_plan_topics_empty_step_prepare",
+                "student_study_plan_programs_empty_step_plan",
+            ],
+            icon="📒",
+        )
+        return
+
+    scope_groups = _assignment_scope_groups(topic_rows)
+    if len(scope_groups) > 1:
+        tabs = st.tabs([f"📚 {group.get('label') or ''}" for group in scope_groups])
+        for tab, group in zip(tabs, scope_groups):
+            with tab:
+                rows = group.get("rows") or []
+                page_key = _smart_plan_pagination_key(
+                    f"lesson_plan_topics_{group.get('key') or 'scope'}"
+                )
+                page_rows, *_ = _slice_student_page(rows, page_key, page_size=_LESSON_TOPIC_PAGE_SIZE)
+                for row in page_rows:
+                    _render_lesson_plan_topic_card(row)
+                _render_student_pagination(rows, page_key, page_size=_LESSON_TOPIC_PAGE_SIZE)
+        return
+
+    rows = scope_groups[0].get("rows") if scope_groups else topic_rows
+    page_key = _smart_plan_pagination_key("lesson_plan_topics")
+    page_rows, *_ = _slice_student_page(rows or [], page_key, page_size=_LESSON_TOPIC_PAGE_SIZE)
+    for row in page_rows:
+        _render_lesson_plan_topic_card(row)
+    _render_student_pagination(rows or [], page_key, page_size=_LESSON_TOPIC_PAGE_SIZE)
+
+
 def render_student_study_plan():
     _inject_smart_plan_styles()
     _inject_assignment_page_styles()
     program_assignments = load_enriched_program_assignments_for_current_student()
+    topic_assignments = [
+        row
+        for row in load_student_assignments()
+        if str(row.get("assignment_type") or "").strip() == "lesson_plan_topic"
+    ]
 
     st.markdown(f"## 📚 {t('smart_study_plan')}")
     st.caption(t("smart_plan_page_subtitle"))
 
-    tab_plan, tab_programs, tab_teacher = st.tabs(
+    tab_plan, tab_programs, tab_topics = st.tabs(
         [
             f"✨ {t('smart_study_plan')}",
             f"📚 {t('assigned_learning_program')}",
-            f"🗂️ {t('smart_plan_teacher_assignments_title')}",
+            f"📒 {t('assigned_topics')}",
         ]
     )
 
@@ -1180,5 +1259,5 @@ def render_student_study_plan():
                 go_to("student_find_teacher")
                 st.rerun()
 
-    with tab_teacher:
-        _render_smart_plan_teacher_summary()
+    with tab_topics:
+        _render_lesson_plan_topics_tab(topic_assignments)

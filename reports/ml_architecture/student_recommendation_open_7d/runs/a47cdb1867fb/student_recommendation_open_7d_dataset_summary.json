@@ -1,0 +1,26 @@
+{
+  "data_fingerprint": "965ee741ddeef08d58ec6049c0079555aaea3bba390ad829d5c3b64ee8f29fe6",
+  "date_range": {
+    "assigned_at_max": "2026-07-28T11:36:01.004829+00:00",
+    "assigned_at_min": "2026-07-17T12:46:02.438526+00:00"
+  },
+  "excluded_row_count": 487,
+  "exclusion_reasons": {
+    "included": 164,
+    "observation_window_open": 487
+  },
+  "extracted_at": "2026-07-28T14:11:05.992323+00:00",
+  "feature_schema_version": "student_recommendation_open_7d.v1",
+  "frozen_dataset_path": "reports/ml_architecture/student_recommendation_open_7d/runs/a47cdb1867fb/assigned_resource_open_7d_dataset_frozen.csv",
+  "included_row_count": 164,
+  "negative_count": 141,
+  "positive_count": 23,
+  "resource_count": 34,
+  "run_id": "a47cdb1867fb",
+  "source_row_count": 651,
+  "student_count": 6,
+  "surface_count": 2,
+  "target_version": "opened_within_7d_v1",
+  "teacher_count": 2,
+  "telemetry_source": "resource_exposures/resource_exposure_events"
+}

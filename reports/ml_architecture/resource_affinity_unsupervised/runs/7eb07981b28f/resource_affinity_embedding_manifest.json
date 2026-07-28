@@ -1,0 +1,8 @@
+{
+  "embedding_method": "tfidf_truncated_svd",
+  "explained_variance_ratio_sum": 0.6497267160491165,
+  "feature_count": 1600,
+  "ngram_range": "1,2",
+  "vector_dimensions": 64,
+  "vectorizer": "TfidfVectorizer"
+}

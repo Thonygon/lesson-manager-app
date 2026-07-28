@@ -83,6 +83,24 @@ def _resource_level(row: dict, kind: str) -> str:
     return str(row.get("level_or_band") or row.get("level") or "").strip()
 
 
+def _translated_value_label(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    key = re.sub(r"[^a-z0-9]+", "_", raw.casefold()).strip("_")
+    if not key:
+        return raw
+    translated = t(key)
+    return translated if translated != key else raw.replace("_", " ").title()
+
+
+def _source_label(value: Any) -> str:
+    raw = str(value or "").strip().casefold()
+    if raw in {"own", "community"}:
+        return t(f"recommended_resource_source_{raw}")
+    return _translated_value_label(value)
+
+
 def _resource_search_text(row: dict, kind: str) -> str:
     if kind == "plan":
         fields = ["title", "topic", "lesson_purpose", "subject", "learner_stage", "level_or_band", "author_name"]
@@ -413,16 +431,18 @@ def render_generation_recommendations(
     for match in matches:
         row = match.get("row") or {}
         meta = [
-            str(match.get("source") or "").title(),
-            str(row.get("subject") or "").strip(),
+            _source_label(match.get("source")),
+            _translated_value_label(row.get("subject")),
             str(_resource_level(row, str(match.get("kind") or "")) or "").strip(),
         ]
         if match.get("kind") == "worksheet":
-            meta.append(str(row.get("worksheet_type") or "").strip())
+            meta.append(_translated_value_label(row.get("worksheet_type")))
         elif match.get("kind") == "plan":
-            meta.append(str(row.get("lesson_purpose") or "").strip())
+            meta.append(_translated_value_label(row.get("lesson_purpose")))
+        elif match.get("kind") == "video":
+            meta.append(t("video_label"))
         else:
-            meta.append(str(row.get("exam_length") or "").strip())
+            meta.append(_translated_value_label(row.get("exam_length")))
         meta_text = " · ".join(part for part in meta if part)
         card_html.append(
             "<div style='margin-top:10px;padding:10px 11px;border-radius:14px;"
@@ -459,12 +479,39 @@ def render_generation_recommendations(
             if st.button(t("material_recommendations_assign"), key=f"{state_prefix}_match_assign_{idx}", use_container_width=True):
                 open_material_recommendation(match, assign=True, open_in_files=False)
 
+    from helpers.teacher_student_integration import render_resource_bulk_assign_dialog
+
+    for kind in ("worksheet", "exam", "plan", "video"):
+        render_resource_bulk_assign_dialog(kind_filter=kind)
+    try:
+        from helpers.learning_programs import render_learning_program_assign_dialog
+
+        render_learning_program_assign_dialog()
+    except Exception:
+        pass
+
     return matches
 
 
-def open_material_recommendation(resource: dict, *, assign: bool = False, open_in_files: bool = False) -> None:
+def open_material_recommendation(
+    resource: dict,
+    *,
+    assign: bool = False,
+    open_in_files: bool = False,
+    fixed_link_id: int | str | None = None,
+) -> None:
     kind = str(resource.get("kind") or "")
     row = dict(resource.get("row") or {})
+    if assign:
+        if kind == "program":
+            from helpers.learning_programs import open_learning_program_assign_dialog
+
+            open_learning_program_assign_dialog(row)
+            return
+        from helpers.teacher_student_integration import open_resource_bulk_assign_dialog
+
+        open_resource_bulk_assign_dialog(kind, row, fixed_link_id=fixed_link_id)
+        return
     if kind == "worksheet":
         from helpers.worksheet_storage import _open_worksheet_library_record
 

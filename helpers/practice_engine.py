@@ -2391,6 +2391,7 @@ def record_video_engagement_session(
     sb = get_sb()
     session_id = None
 
+    event_xp = max(0, int(XP_PER_CORRECT + XP_PER_ATTEMPT))
     payload = {
         "user_id": uid,
         "owner_id": uid,
@@ -2413,8 +2414,8 @@ def record_video_engagement_session(
         "total_questions": 1,
         "correct_count": 0,
         "score_pct": 0,
-        "xp_earned": 0,
-        "best_streak": 0,
+        "xp_earned": event_xp,
+        "best_streak": 1,
         "status": "completed",
         "started_at": now,
         "completed_at": now,
@@ -2497,8 +2498,8 @@ def record_video_engagement_session(
                 "total_attempted": 1,
                 "total_correct": 0,
                 "accuracy_pct": 0,
-                "total_xp": 0,
-                "best_streak": 0,
+                "total_xp": event_xp,
+                "best_streak": 1,
                 "last_practiced": now,
                 "created_at": now,
             }
@@ -2856,8 +2857,8 @@ def load_practice_draft_answers(session_id: int) -> dict[str, str]:
 
 def get_completed_source_ids() -> dict[str, set]:
     """Return sets of source_ids the user has already practised, keyed by source_type."""
-    history = load_practice_history(limit=500)
-    result: dict[str, set] = {"worksheet": set(), "exam": set()}
+    history = load_practice_history(limit=160)
+    result: dict[str, set] = {"worksheet": set(), "exam": set(), "video": set()}
     if history.empty:
         return result
     for _, row in history.iterrows():

@@ -54,19 +54,25 @@ from helpers.student_recommendation_open_7d_review import (
 )
 from helpers.resource_affinity_unsupervised_eval import (
     ACADEMIC_REPORT_FILENAME as RESOURCE_AFFINITY_ACADEMIC_REPORT_FILENAME,
+    ANCHOR_RESOURCE_CANDIDATES_FILENAME as RESOURCE_AFFINITY_ANCHOR_RESOURCE_CANDIDATES_FILENAME,
+    CATEGORY_NORMALIZATION_AUDIT_FILENAME as RESOURCE_AFFINITY_CATEGORY_NORMALIZATION_AUDIT_FILENAME,
     CLUSTER_ASSIGNMENTS_FILENAME as RESOURCE_AFFINITY_CLUSTER_ASSIGNMENTS_FILENAME,
     DEFAULT_OUTPUT_DIR as RESOURCE_AFFINITY_DEFAULT_OUTPUT_DIR,
+    EXCLUSION_AUDIT_FILENAME as RESOURCE_AFFINITY_EXCLUSION_AUDIT_FILENAME,
+    EXPERIMENT_CONFIG_FILENAME as RESOURCE_AFFINITY_EXPERIMENT_CONFIG_FILENAME,
     FEATURE_AUDIT_FILENAME as RESOURCE_AFFINITY_FEATURE_AUDIT_FILENAME,
     FROZEN_DATASET_FILENAME as RESOURCE_AFFINITY_FROZEN_DATASET_FILENAME,
+    HUMAN_REVIEW_SAMPLE_FILENAME as RESOURCE_AFFINITY_HUMAN_REVIEW_SAMPLE_FILENAME,
     INTEGRITY_REVIEW_FILENAME as RESOURCE_AFFINITY_INTEGRITY_REVIEW_FILENAME,
     MODEL_COMPARISON_FILENAME as RESOURCE_AFFINITY_MODEL_COMPARISON_FILENAME,
     NEIGHBORS_FILENAME as RESOURCE_AFFINITY_NEIGHBORS_FILENAME,
     PROFILE_AUDIT_FILENAME as RESOURCE_AFFINITY_PROFILE_AUDIT_FILENAME,
+    REPRESENTATION_MANIFEST_FILENAME as RESOURCE_AFFINITY_REPRESENTATION_MANIFEST_FILENAME,
     RECONCILIATION_FILENAME as RESOURCE_AFFINITY_RECONCILIATION_FILENAME,
     RUN_SUMMARY_FILENAME as RESOURCE_AFFINITY_RUN_SUMMARY_FILENAME,
     TECHNICAL_REPORT_FILENAME as RESOURCE_AFFINITY_TECHNICAL_REPORT_FILENAME,
     TARGET_NAME as RESOURCE_AFFINITY_TARGET_NAME,
-    extract_resource_profiles,
+    FEATURE_SCHEMA_VERSION as RESOURCE_AFFINITY_FEATURE_SCHEMA_VERSION,
     generate_resource_affinity_unsupervised_evaluation,
     review_resource_affinity_unsupervised,
 )
@@ -208,10 +214,16 @@ EXPERIMENT_RUNTIME: dict[str, dict[str, Any]] = {
         "cluster_assignments_filename": RESOURCE_AFFINITY_CLUSTER_ASSIGNMENTS_FILENAME,
         "run_summary_filename": RESOURCE_AFFINITY_RUN_SUMMARY_FILENAME,
         "predictions_filename": RESOURCE_AFFINITY_NEIGHBORS_FILENAME,
+        "anchor_resource_candidates_filename": RESOURCE_AFFINITY_ANCHOR_RESOURCE_CANDIDATES_FILENAME,
         "technical_report_filename": RESOURCE_AFFINITY_TECHNICAL_REPORT_FILENAME,
         "academic_report_filename": RESOURCE_AFFINITY_ACADEMIC_REPORT_FILENAME,
         "integrity_review_filename": RESOURCE_AFFINITY_INTEGRITY_REVIEW_FILENAME,
         "reconciliation_filename": RESOURCE_AFFINITY_RECONCILIATION_FILENAME,
+        "exclusion_audit_filename": RESOURCE_AFFINITY_EXCLUSION_AUDIT_FILENAME,
+        "category_normalization_audit_filename": RESOURCE_AFFINITY_CATEGORY_NORMALIZATION_AUDIT_FILENAME,
+        "human_review_sample_filename": RESOURCE_AFFINITY_HUMAN_REVIEW_SAMPLE_FILENAME,
+        "experiment_config_filename": RESOURCE_AFFINITY_EXPERIMENT_CONFIG_FILENAME,
+        "representation_manifest_filename": RESOURCE_AFFINITY_REPRESENTATION_MANIFEST_FILENAME,
         "evaluator_callable": generate_resource_affinity_unsupervised_evaluation,
         "review_callable": review_resource_affinity_unsupervised,
     },
@@ -1513,39 +1525,49 @@ def compute_student_recommendation_experiment_eligibility() -> EligibilityResult
 
 
 def compute_resource_affinity_experiment_eligibility() -> EligibilityResult:
-    extraction_time = _utc_now()
-    profile_df, dataset_diag = extract_resource_profiles(extraction_time=extraction_time)
-    resource_count = int(len(profile_df))
-    type_count = int(profile_df["resource_type"].nunique()) if not profile_df.empty else 0
-    subject_count = int(profile_df["subject"].replace("", pd.NA).nunique()) if not profile_df.empty else 0
+    # Keep Experiment 3 eligibility metadata-only. It is rendered from the
+    # Developer Workspace and EIC/admin surfaces, so it must never scan the
+    # whole resource catalog during normal app navigation. The catalog scan
+    # belongs only to the explicit experiment run pipeline.
+    def _row_int(row: dict[str, Any], key: str, default: int = 0) -> int:
+        try:
+            value = row.get(key)
+            if value in (None, "", "nan"):
+                return default
+            return int(float(value))
+        except Exception:
+            return default
+
     blocking: list[str] = []
-    warnings: list[str] = []
-    if resource_count < 6:
-        blocking.append("Fewer than six resources are available for unsupervised affinity discovery.")
-    if resource_count < 30:
-        warnings.append("The catalog is small; clustering metrics will be exploratory and unstable.")
-    if type_count < 2:
-        warnings.append("Only one resource type is represented.")
-    if subject_count < 1:
-        warnings.append("No subject metadata was detected in the resource profiles.")
+    warnings: list[str] = [
+        "Resource catalog validation is deferred to the explicit Experiment 3 run so normal app navigation does not scan resource tables."
+    ]
     latest_attempted = list_experiment_runs(experiment_id=RESOURCE_AFFINITY_EXPERIMENT_ID, limit=1, cache_bust="resource-affinity-eligibility-latest")
     latest_validated = list_experiment_runs(experiment_id=RESOURCE_AFFINITY_EXPERIMENT_ID, limit=20, validated_only=True, cache_bust="resource-affinity-eligibility-validated")
     latest_attempted_row = latest_attempted[0] if latest_attempted else {}
     latest_validated_row = latest_validated[0] if latest_validated else {}
+    latest_resource_count = _row_int(latest_validated_row, "included_row_count", 0)
+    if not latest_validated_row:
+        warnings.append("No validated resource-affinity run exists yet; the next explicit run will perform the first full catalog validation.")
+    maturity_ceiling = "CANDIDATE_FOR_SHADOW_TESTING" if latest_resource_count >= 80 else "EXPLORATORY_ONLY"
     data_summary = {
-        **dataset_diag,
-        "resource_profiles": resource_count,
-        "resource_types_represented": type_count,
-        "subjects_represented": subject_count,
-        "estimated_execution_time_seconds": 20,
-        "expected_maturity_ceiling": "EXPLORATORY_ONLY" if resource_count < 80 else "CANDIDATE_FOR_SHADOW_TESTING",
+        "extracted_at": _utc_now_iso(),
+        "feature_schema_version": RESOURCE_AFFINITY_FEATURE_SCHEMA_VERSION,
+        "eligibility_mode": "metadata_only_no_catalog_scan",
+        "catalog_scan_deferred": True,
+        "resource_profiles": latest_resource_count,
+        "resource_types_represented": None,
+        "subjects_represented": None,
+        "estimated_execution_time_seconds": 60,
+        "expected_maturity_ceiling": maturity_ceiling,
+        "latest_validated_included_row_count": latest_resource_count,
     }
     comparison = {
         "latest_attempted_run_id": str(latest_attempted_row.get("run_id") or ""),
         "latest_attempted_status": str(latest_attempted_row.get("run_status") or ""),
         "latest_validated_run_id": str(latest_validated_row.get("run_id") or ""),
         "latest_validated_status": str(latest_validated_row.get("run_status") or ""),
-        "new_resources_since_latest_validated": max(0, resource_count - int(latest_validated_row.get("included_row_count") or 0)),
+        "new_resources_since_latest_validated": None,
     }
     return EligibilityResult(
         eligible=not blocking,
@@ -1583,8 +1605,20 @@ def _insert_model_rows(run_id: str, comparison_path: Path) -> None:
             "cluster_count": row.get("cluster_count"),
             "noise_ratio": row.get("noise_ratio"),
             "singleton_cluster_count": row.get("singleton_cluster_count"),
+            "min_cluster_size": row.get("min_cluster_size"),
+            "max_cluster_size": row.get("max_cluster_size"),
+            "mean_cluster_size": row.get("mean_cluster_size"),
+            "median_cluster_size": row.get("median_cluster_size"),
+            "cluster_size_2_rate": row.get("cluster_size_2_rate"),
+            "cluster_size_le_3_rate": row.get("cluster_size_le_3_rate"),
+            "assigned_resource_coverage": row.get("assigned_resource_coverage"),
+            "contaminated_subject_clusters": row.get("contaminated_subject_clusters"),
+            "evaluated_subject_clusters": row.get("evaluated_subject_clusters"),
+            "contaminated_language_clusters": row.get("contaminated_language_clusters"),
+            "evaluated_language_clusters": row.get("evaluated_language_clusters"),
             "cross_subject_contamination_rate": row.get("cross_subject_contamination_rate"),
             "cross_language_contamination_rate": row.get("cross_language_contamination_rate"),
+            "selection_score": row.get("selection_score"),
         }
         rows.append(
             {
@@ -1651,9 +1685,15 @@ def _insert_artifact_rows(run_id: str, run_dir: Path, experiment_id: str) -> Non
         ("technical_report_md", str(runtime.get("technical_report_filename") or TECHNICAL_REPORT_FILENAME), "text/markdown", False),
         ("findings_interpretation_report_md", str(runtime.get("academic_report_filename") or ACADEMIC_REPORT_FILENAME), "text/markdown", False),
         ("holdout_predictions_csv", str(runtime.get("predictions_filename") or PREDICTIONS_FILENAME), "text/csv", True),
+        ("anchor_resource_candidates_csv", str(runtime.get("anchor_resource_candidates_filename") or ""), "text/csv", True),
         ("frozen_dataset_csv", str(runtime.get("frozen_dataset_filename") or FROZEN_DATASET_FILENAME), "text/csv", True),
         ("integrity_review_md", str(runtime.get("integrity_review_filename") or INTEGRITY_REVIEW_FILENAME), "text/markdown", False),
         ("label_reconciliation_csv", str(runtime.get("reconciliation_filename") or RECONCILIATION_FILENAME), "text/csv", True),
+        ("exclusion_audit_csv", str(runtime.get("exclusion_audit_filename") or ""), "text/csv", True),
+        ("category_normalization_audit_csv", str(runtime.get("category_normalization_audit_filename") or ""), "text/csv", False),
+        ("human_review_sample_csv", str(runtime.get("human_review_sample_filename") or ""), "text/csv", True),
+        ("experiment_config_json", str(runtime.get("experiment_config_filename") or ""), "application/json", False),
+        ("representation_manifest_json", str(runtime.get("representation_manifest_filename") or ""), "application/json", False),
     ]
     rows = []
     for artifact_type, filename, content_type, sensitive in artifact_specs:
@@ -1753,14 +1793,18 @@ def _persist_run_results(run_id: str, job_id: str, run_dir: Path, review_result:
     _insert_model_rows(run_id, run_dir / str(runtime.get("model_comparison_filename") or MODEL_COMPARISON_FILENAME))
     _insert_artifact_rows(run_id, run_dir, experiment_id)
     if run_status in FINAL_VALIDATED_RUN_STATES:
-        _promote_current_validated_run(run_id, experiment_id)
         if experiment_id == RESOURCE_AFFINITY_EXPERIMENT_ID:
+            # Experiment 3 produces review-ready semantic-affinity artifacts, but
+            # it must not supersede the previous validated run automatically.
+            # Promotion should happen only through an explicit future review action.
             try:
                 from helpers.resource_affinity_runtime import clear_resource_affinity_runtime_cache
 
                 clear_resource_affinity_runtime_cache()
             except Exception:
                 pass
+        else:
+            _promote_current_validated_run(run_id, experiment_id)
         record_privileged_action(
             action_type="run_marked_validated",
             entity_type="ml_experiment_run",
@@ -2031,18 +2075,99 @@ def list_run_models(run_id: str) -> list[dict[str, Any]]:
 
 
 def list_run_artifacts(run_id: str) -> list[dict[str, Any]]:
+    safe_run_id = _clean_text(run_id)
     try:
         rows = (
             get_sb()
             .table(RUN_ARTIFACT_TABLE)
             .select("*")
-            .eq("run_id", _clean_text(run_id))
+            .eq("run_id", safe_run_id)
             .order("created_at", desc=False)
             .execute()
         ).data or []
-        return [dict(row) for row in rows]
+        if rows:
+            return [dict(row) for row in rows]
     except Exception:
+        pass
+    return _local_run_artifact_rows(safe_run_id)
+
+
+def _local_run_artifact_rows(run_id: str) -> list[dict[str, Any]]:
+    try:
+        run_row = get_run(run_id)
+    except Exception:
+        run_row = {}
+    experiment_id = _clean_text((run_row or {}).get("experiment_id"))
+    run_dir = _artifact_root_for_row(run_row) if run_row else Path("")
+    if not run_row:
+        for candidate_experiment_id, runtime in EXPERIMENT_RUNTIME.items():
+            candidate_dir = Path(str(runtime.get("runs_root") or "")) / run_id
+            if candidate_dir.exists():
+                experiment_id = candidate_experiment_id
+                run_dir = candidate_dir
+                run_row = {"run_id": run_id, "experiment_id": experiment_id, "artifact_root": str(run_dir)}
+                break
+    if not run_row:
         return []
+    experiment_id = experiment_id or APPROVED_EXPERIMENT_ID
+    if not run_dir.exists():
+        return []
+    artifact_type_aliases = {
+        "dataset_summary": "dataset_summary_json",
+        "frozen_dataset": "frozen_dataset_csv",
+        "label_audit": "label_audit_csv",
+        "feature_audit": "feature_audit_csv",
+        "model_comparison": "model_comparison_csv",
+        "run_summary": "run_summary_json",
+        "holdout_predictions": "holdout_predictions_csv",
+        "technical_report": "technical_report_md",
+        "findings_interpretation_report": "findings_interpretation_report_md",
+    }
+    specs: list[tuple[str, str, str]] = [
+        (
+            artifact_type_aliases.get(artifact_type, artifact_type),
+            filename,
+            "application/json" if filename.endswith(".json") else ("text/markdown" if filename.endswith(".md") else "text/csv"),
+        )
+        for artifact_type, filename in _required_artifact_specs(experiment_id)
+    ]
+    runtime = _runtime_config(experiment_id)
+    optional_specs = [
+        ("cluster_assignments_csv", str(runtime.get("cluster_assignments_filename") or ""), "text/csv"),
+        ("exclusion_audit_csv", str(runtime.get("exclusion_audit_filename") or ""), "text/csv"),
+        ("category_normalization_audit_csv", str(runtime.get("category_normalization_audit_filename") or ""), "text/csv"),
+        ("human_review_sample_csv", str(runtime.get("human_review_sample_filename") or ""), "text/csv"),
+        ("anchor_resource_candidates_csv", str(runtime.get("anchor_resource_candidates_filename") or ""), "text/csv"),
+        ("experiment_config_json", str(runtime.get("experiment_config_filename") or ""), "application/json"),
+        ("representation_manifest_json", str(runtime.get("representation_manifest_filename") or ""), "application/json"),
+        ("integrity_review_md", str(runtime.get("integrity_review_filename") or ""), "text/markdown"),
+        ("label_reconciliation_csv", str(runtime.get("reconciliation_filename") or ""), "text/csv"),
+    ]
+    specs.extend(optional_specs)
+    rows: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    for artifact_type, filename, content_type in specs:
+        if not filename:
+            continue
+        path = run_dir / filename
+        if not path.exists() or not path.is_file():
+            continue
+        path_key = str(path.resolve())
+        if path_key in seen_paths:
+            continue
+        seen_paths.add(path_key)
+        rows.append(
+            {
+                "run_id": run_id,
+                "artifact_type": artifact_type,
+                "storage_path": str(path),
+                "content_type": content_type,
+                "checksum": _artifact_checksum(path),
+                "sensitive": False,
+                "created_at": _clean_text(run_row.get("completed_at") or run_row.get("created_at")),
+            }
+        )
+    return rows
 
 
 def cleanup_expired_local_artifacts(*, experiment_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:

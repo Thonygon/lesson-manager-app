@@ -67,7 +67,7 @@ if "pycountry" not in sys.modules:
 
 
 from app_pages import admin
-from services import eic_service
+from services import eic_report_service, eic_service
 from services.eic_display_service import (
     get_model_comparison_column_display,
     get_model_comparison_value_display,
@@ -187,6 +187,50 @@ class EICServiceTests(unittest.TestCase):
             rows = eic_service.list_validated_experiment_summaries(cache_bust="1")
 
         self.assertEqual(["valid-2", "valid-1"], [row["run_id"] for row in rows])
+
+    def test_unsupervised_report_rows_localize_spanish_methodology_text(self):
+        summary = {
+            "dataset": {},
+            "evaluation": {
+                "target_definition": "Learning-program topics are curricular anchors. Worksheets, exams, videos, lesson plans, and learning programs are candidate resources tested for semantic alignment with those anchors.",
+                "selection_scoring_methodology": {
+                    "sort_order": ["highest selection_score", "highest silhouette_score as tie-breaker"],
+                    "component_definitions": {
+                        "noise_ratio": "Share of rows assigned to DBSCAN noise label -1.",
+                    },
+                    "weight_rationale": [
+                        "Silhouette remains the positive base because the experiment is unsupervised and has no human relevance labels yet.",
+                    ],
+                    "why_not_silhouette_only": "The highest Silhouette model can over-reward small, isolated, or noisy clusters. The balanced score prefers a model that is coherent enough while still preserving coverage and useful cluster structure for downstream heuristics.",
+                },
+                "python_model_development_methodology": {
+                    "data_sources": {
+                        "worksheets": "worksheets table: title, subject, topic, learner stage, level/band, worksheet type, language fields, status, visibility, and creation timestamp. Full worksheet_json is not fetched by the experiment.",
+                    },
+                    "inclusion_rules": ["Archived rows are excluded before model development."],
+                    "profile_construction": ["Each included row becomes one canonical text profile."],
+                    "model_pipeline": ["Build a pandas DataFrame of frozen resource profiles."],
+                    "reproducibility_controls": ["Random seed is fixed at 20260726."],
+                },
+            },
+        }
+
+        rendered = " ".join(
+            value
+            for rows in [
+                eic_report_service._unsupervised_normalization_rows(summary, "es"),
+                eic_report_service._unsupervised_scoring_rows(summary, "es"),
+                eic_report_service._unsupervised_python_methodology_rows(summary, "es"),
+            ]
+            for _, value in rows
+        )
+
+        self.assertIn("Los temas del learning program son anclas curriculares", rendered)
+        self.assertIn("Las filas archivadas se excluyen", rendered)
+        self.assertIn("Construir un DataFrame de pandas", rendered)
+        self.assertNotIn("Learning-program topics are curricular anchors", rendered)
+        self.assertNotIn("Archived rows are excluded", rendered)
+        self.assertNotIn("Build a pandas DataFrame", rendered)
 
     def test_business_summary_without_validated_run_recommends_data_collection(self):
         fake_sb = _FakeSupabase({"ml_experiment_runs": [], "resource_exposures": [], "resource_exposure_events": []})
@@ -371,7 +415,7 @@ class EICServiceTests(unittest.TestCase):
         self.assertNotIn("AI Intelligence", source)
         self.assertIn("get_component_display_name", source)
         self.assertIn("get_experiment_display_name", source)
-        self.assertIn("get_or_create_validated_report", source)
+        self.assertIn("list_available_eic_reports", source)
 
 
 if __name__ == "__main__":

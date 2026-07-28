@@ -38,6 +38,11 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _owned_activity_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    owned = with_owner(payload)
+    return owned if str(owned.get("user_id") or "").strip() else {}
+
+
 def _base_student_weights() -> dict[str, float]:
     return {
         "bias": -0.12,
@@ -444,16 +449,16 @@ def log_student_recommendation_impressions(rows: list[dict[str, Any]], *, surfac
             continue
         seen.add(signature)
         source_item["_telemetry_exposure_id"] = item.get("_telemetry_exposure_id")
-        payloads.append(
-            with_owner(
-                {
-                    "activity_type": "student_recommendation_impression",
-                    "feature_name": "student_recommendation_feed",
-                    "meta_json": _student_reco_meta(item, surface),
-                    "created_at": _now_iso(),
-                }
-            )
+        payload = _owned_activity_payload(
+            {
+                "activity_type": "student_recommendation_impression",
+                "feature_name": "student_recommendation_feed",
+                "meta_json": _student_reco_meta(item, surface),
+                "created_at": _now_iso(),
+            }
         )
+        if payload:
+            payloads.append(payload)
     if not payloads:
         return
     st.session_state["_student_reco_impressions_seen"] = list(seen)
@@ -491,16 +496,16 @@ def log_student_recommendation_open(item: dict[str, Any], *, surface: str) -> No
                 student_id=str(get_current_user_id() or "").strip(),
                 viewer_user_id=str(get_current_user_id() or "").strip(),
             )
-        get_sb().table("user_activity_log").insert(
-            with_owner(
-                {
-                    "activity_type": "student_recommendation_open",
-                    "feature_name": "student_recommendation_feed",
-                    "meta_json": _student_reco_meta(item, surface),
-                    "created_at": _now_iso(),
-                }
-            )
-        ).execute()
+        payload = _owned_activity_payload(
+            {
+                "activity_type": "student_recommendation_open",
+                "feature_name": "student_recommendation_feed",
+                "meta_json": _student_reco_meta(item, surface),
+                "created_at": _now_iso(),
+            }
+        )
+        if payload:
+            get_sb().table("user_activity_log").insert(payload).execute()
         seen.add(signature)
         st.session_state["_student_reco_open_seen"] = list(seen)
         clear_recommendation_model_caches()

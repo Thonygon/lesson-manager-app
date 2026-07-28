@@ -10,7 +10,7 @@ import streamlit as st
 
 from core.database import clear_app_caches, get_sb, load_profile_row, register_cache
 from core.i18n import t
-from core.navigation import go_to
+from core.navigation import clear_open_resource_previews, go_to
 from core.state import get_current_user_id
 from helpers.archive_utils import filter_archived_rows, is_archived_status
 from helpers.resource_deletion import render_archive_delete_button, render_archive_delete_confirmation
@@ -260,7 +260,7 @@ def save_video_resource(
 
 
 @st.cache_data(ttl=45, show_spinner=False)
-def _load_my_videos_cached(uid: str, limit: int = 500) -> pd.DataFrame:
+def _load_my_videos_cached(uid: str, limit: int = 120) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
     try:
@@ -293,7 +293,7 @@ def load_my_videos(*, include_archived: bool = False, archived_only: bool = Fals
 
 
 @st.cache_data(ttl=45, show_spinner=False)
-def _load_public_videos_cached(limit: int = 500) -> pd.DataFrame:
+def _load_public_videos_cached(limit: int = 120) -> pd.DataFrame:
     try:
         rows = _rows(
             get_sb()
@@ -347,6 +347,9 @@ def _open_video_library_record(
     require_signup: bool = False,
     expand_assign: bool = False,
 ) -> None:
+    clear_open_resource_previews(except_kind="video", clear_dialogs=not expand_assign)
+    if not expand_assign:
+        st.session_state.pop("_resource_bulk_assign_dialog", None)
     if require_signup:
         st.session_state["_post_signup_open_panel"] = "files"
         st.session_state["_post_signup_open_tab"] = "my_videos"
@@ -368,6 +371,12 @@ def _open_video_library_record(
         surface="home_preview" if open_in_files else "resources",
     )
     if open_in_files:
+        target_main_tab = t("community_library") if current_user_id and current_user_id != row_owner_id else t("my_videos")
+        st.session_state["_resources_target_main_tab"] = target_main_tab
+        if target_main_tab == t("community_library"):
+            st.session_state["_resources_target_nested_tab"] = f"🎬 {t('community_videos')}"
+        else:
+            st.session_state.pop("_resources_target_nested_tab", None)
         go_to("resources")
     else:
         st.session_state["explore_teaching_resources_keep_open"] = True
@@ -425,6 +434,8 @@ def render_video_library_cards(
 ) -> None:
     if df is None or df.empty:
         return
+    from helpers.teacher_student_integration import open_resource_bulk_assign_dialog, render_resource_bulk_assign_dialog
+
     inject_resource_gallery_styles()
     rows = [_normalize_video_row(row) for row in df.reset_index(drop=True).to_dict("records")]
     for idx in range(0, len(rows), 3):
@@ -451,7 +462,10 @@ def render_video_library_cards(
                         use_container_width=True,
                         disabled=is_archived_status(row.get("status")),
                     ):
-                        _open_video_library_record(row, open_in_files=open_in_files, require_signup=require_signup, expand_assign=True)
+                        if require_signup:
+                            _open_video_library_record(row, open_in_files=open_in_files, require_signup=True, expand_assign=True)
+                        else:
+                            open_resource_bulk_assign_dialog("video", row)
                 if show_owner_controls:
                     with action_cols[2]:
                         if allow_visibility_toggle and is_owner and str(row.get("id") or "").strip() and not is_archived_status(row.get("status")):
@@ -510,6 +524,7 @@ def render_video_library_cards(
                             source_type="video_library",
                             on_deleted=lambda: st.session_state.pop("files_selected_video", None),
                         )
+    render_resource_bulk_assign_dialog(kind_filter="video")
 
 
 def render_video_detail(

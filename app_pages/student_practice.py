@@ -1493,7 +1493,7 @@ def _render_progress_tab(progress_override=None, *, scope_key: str = ""):
         history_source_by_assignment: dict[int, str] = {}
         history_source_by_topic: dict[tuple[str, str, str], str] = {}
         try:
-            history_for_kind = load_practice_history(limit=500)
+            history_for_kind = load_practice_history(limit=160)
         except Exception:
             history_for_kind = None
         if history_for_kind is not None and not history_for_kind.empty:

@@ -8,7 +8,7 @@ from datetime import datetime as _dt, timezone
 import pandas as pd
 from io import BytesIO
 from core.i18n import t
-from core.navigation import go_to
+from core.navigation import clear_open_resource_previews, go_to
 from core.state import get_current_user_id, with_owner
 from core.timezone import now_local, today_local, get_app_tz
 from core.database import get_sb, load_table, clear_app_caches, insert_row_with_retries, register_cache, show_data_load_error
@@ -31,6 +31,7 @@ from helpers.visual_support import (
     render_streamlit_visual_support,
     build_pdf_visual_flowables,
     render_visual_support_status_group,
+    preserve_generated_media_fields,
 )
 from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
 from helpers.resource_gallery import (
@@ -258,7 +259,7 @@ def _normalize_exam_frame(rows: list[dict] | None) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=45, show_spinner=False)
-def _load_my_exams_cached(uid: str, limit: int = 500) -> pd.DataFrame:
+def _load_my_exams_cached(uid: str, limit: int = 120) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
     res = (
@@ -292,7 +293,7 @@ def load_my_exams(*, include_archived: bool = False, archived_only: bool = False
 
 
 @st.cache_data(ttl=45, show_spinner=False)
-def _load_public_exams_cached(limit: int = 500) -> pd.DataFrame:
+def _load_public_exams_cached(limit: int = 120) -> pd.DataFrame:
     res = (
         get_sb()
         .table("quick_exams")
@@ -446,6 +447,9 @@ def _open_exam_library_record(
     require_signup: bool = False,
     expand_assign: bool = False,
 ) -> None:
+    clear_open_resource_previews(except_kind="exam", clear_dialogs=not expand_assign)
+    if not expand_assign:
+        st.session_state.pop("_resource_bulk_assign_dialog", None)
     if require_signup:
         st.session_state["_post_signup_open_panel"] = "files"
         st.session_state["_post_signup_open_tab"] = "community_library"
@@ -486,6 +490,12 @@ def _open_exam_library_record(
     )
 
     if open_in_files:
+        target_main_tab = t("community_library") if current_user_id and current_user_id != row_owner_id else t("my_exams")
+        st.session_state["_resources_target_main_tab"] = target_main_tab
+        if target_main_tab == t("community_library"):
+            st.session_state["_resources_target_nested_tab"] = f"📄 {t('community_exams')}"
+        else:
+            st.session_state.pop("_resources_target_nested_tab", None)
         go_to("resources")
     else:
         st.session_state["explore_teaching_resources_keep_open"] = True
@@ -505,6 +515,8 @@ def render_exam_library_cards(
     if df is None or df.empty:
         st.info(t("no_data"))
         return
+
+    from helpers.teacher_student_integration import open_resource_bulk_assign_dialog, render_resource_bulk_assign_dialog
 
     inject_resource_gallery_styles()
     rows = df.reset_index(drop=True).to_dict("records")
@@ -595,12 +607,15 @@ def render_exam_library_cards(
                             t("assign_to_student"),
                             key=f"{prefix}_assign_{row_id}_{idx}_{col_idx}",
                         ):
-                            _open_exam_library_record(
-                                row,
-                                open_in_files=open_in_files,
-                                require_signup=require_signup,
-                                expand_assign=True,
-                            )
+                            if require_signup:
+                                _open_exam_library_record(
+                                    row,
+                                    open_in_files=open_in_files,
+                                    require_signup=True,
+                                    expand_assign=True,
+                                )
+                            else:
+                                open_resource_bulk_assign_dialog("exam", row)
                 if show_owner_controls:
                     with action_cols[2]:
                         if allow_visibility_toggle and is_owner and str(exam_id or "").strip() and not is_archived:
@@ -658,6 +673,7 @@ def render_exam_library_cards(
                             source_type="exam_builder",
                             on_deleted=lambda: st.session_state.pop("files_selected_exam", None),
                         )
+    render_resource_bulk_assign_dialog(kind_filter="exam")
 
 
 # ── AI usage tracking ────────────────────────────────────────────────
@@ -1371,12 +1387,26 @@ def render_exam_result(
         edited_exam = dict(payload.get("exam_data") if isinstance(payload.get("exam_data"), dict) else payload or {})
         edited_answer_key = payload.get("answer_key") if isinstance(payload.get("answer_key"), dict) else answer_key
         edited_exam, edited_answer_key = _eb().repair_exam_answer_key(edited_exam, edited_answer_key)
+        edited_exam = preserve_generated_media_fields(edited_exam, exam_data)
         return {"exam_data": edited_exam, "answer_key": edited_answer_key}
+
+    def _exam_has_student_content(candidate: dict) -> bool:
+        if not isinstance(candidate, dict):
+            return False
+        sections = candidate.get("sections")
+        if isinstance(sections, list):
+            for section in sections:
+                if isinstance(section, dict) and any(str(item).strip() for item in (section.get("questions") or [])):
+                    return True
+        return any(str(candidate.get(key) or "").strip() for key in ("instructions", "reading_text", "source_text", "passage"))
 
     def _apply_exam_edit(payload: dict) -> bool:
         normalized = _normalize_exam_edit(payload)
         edited_exam = normalized["exam_data"]
         edited_answer_key = normalized["answer_key"]
+        if _exam_has_student_content(exam_data) and not _exam_has_student_content(edited_exam):
+            st.error(t("resource_changes_save_failed"))
+            return False
         if not _persist_saved_exam_resource(edit_record_id, edited_exam, edited_answer_key):
             return False
         st.session_state["exam_result"] = edited_exam
@@ -1506,8 +1536,16 @@ def render_exam_result(
                 key=f"{action_key_prefix}_dl_exam_tch_docx_{safe_title}",
                 use_container_width=True,
             )
+    if not signup_required_actions:
+        if st.button(
+            "🗑️ " + (t("clear_result") if t("clear_result") != "clear_result" else "Clear result"),
+            key=f"{action_key_prefix}_clear_result",
+            use_container_width=True,
+        ):
+            _eb().reset_exam_builder_state()
+            st.rerun()
 
-# ── Builder proxy ────────────────────────────────────────────────────
+    # ── Builder proxy ────────────────────────────────────────────────────
 def render_quick_exam_builder_expander() -> None:
     """
     Delegate to the builder module so the UI logic stays in one place.
@@ -1575,6 +1613,8 @@ def _persist_saved_exam_resource(exam_id: int | str, exam_data: dict, answer_key
             return False
         safe_id = int(stripped) if stripped.isdigit() else stripped
     exam_data, answer_key = _eb().repair_exam_answer_key(dict(exam_data or {}), dict(answer_key or {}))
+    existing_row = load_exam_record(safe_id) or {}
+    exam_data = preserve_generated_media_fields(exam_data, existing_row.get("exam_data") or {})
     try:
         try:
             (

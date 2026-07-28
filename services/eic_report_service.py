@@ -412,6 +412,72 @@ def _translate_known_evidence_text(value: Any, lang: str) -> str:
             "No identifier mismatch was found.": "No se detectó ningún desajuste de identificadores.",
             "Missing values are produced by the feature-construction rule that only uses strictly earlier mature history.": "Los valores faltantes se producen por la regla de construcción de variables que solo utiliza historial maduro estrictamente anterior.",
             "For early assignments there is no mature prior history yet; resource-level sparsity is especially severe for prior_resource_open_rate.": "En las asignaciones tempranas todavía no existe historial maduro previo; la dispersión a nivel de recurso es especialmente alta para prior_resource_open_rate.",
+            "Learning-program topics are curricular anchors. Worksheets, exams, videos, lesson plans, and learning programs are candidate resources tested for semantic alignment with those anchors.": "Los temas del learning program son anclas curriculares. Worksheets, exámenes, videos, lesson plans y learning programs se tratan como recursos candidatos cuya alineación semántica se evalúa contra esas anclas.",
+            "No human-labeled semantic relevance labels are used in this unsupervised phase.": "En esta fase no supervisada no se usan etiquetas humanas de relevancia semántica.",
+            "Small or imbalanced resource catalogs can make clustering metrics unstable.": "Los catálogos de recursos pequeños o desbalanceados pueden volver inestables las métricas de agrupamiento.",
+            "Program topics are curricular anchors, not standalone resources; candidate-resource alignment must be reviewed separately from topic-to-topic similarity.": "Los program topics son anclas o subunidades curriculares, no recursos completos; la alineación de recursos candidatos debe revisarse por separado de la similitud entre temas.",
+            "Business rules must still filter by subject, language, teacher, student, level, and archive state.": "Las reglas de negocio todavía deben filtrar por materia, idioma, profesor, estudiante, nivel y estado de archivo.",
+            "Cross-language contamination is calculated only from non-empty known language values. Missing language metadata limits interpretation.": "La contaminación entre idiomas se calcula solo con valores de idioma conocidos y no vacíos. La metadata de idioma faltante limita la interpretación.",
+            "Archived rows are excluded before model development.": "Las filas archivadas se excluyen antes del desarrollo del modelo.",
+            "Rows without a stable resource id are excluded.": "Las filas sin un identificador estable de recurso se excluyen.",
+            "Rows with fewer than three profile tokens are excluded.": "Las filas con menos de tres tokens de perfil se excluyen.",
+            "Duplicate rows with the same resource key and profile hash are excluded after the first occurrence.": "Las filas duplicadas con la misma clave de recurso y el mismo hash de perfil se excluyen después de la primera aparición.",
+            "The primary extractor does not select worksheet_json or exam_data. Content is included only through bounded sanitized excerpts when the lightweight excerpt view exists.": "El extractor principal no selecciona worksheet_json ni exam_data. El contenido solo se incluye mediante extractos sanitizados y acotados cuando existe la vista liviana de extractos.",
+            "If the excerpt view is unavailable, worksheets and exams remain included through metadata-only profiles and the run records a warning.": "Si la vista de extractos no está disponible, worksheets y exámenes permanecen incluidos mediante perfiles basados solo en metadata, y la ejecución registra una advertencia.",
+            "Each included row becomes one canonical text profile.": "Cada fila incluida se convierte en un perfil textual canónico.",
+            "content_excerpt is included only when a bounded sanitized excerpt is available; images, media, URLs, answer keys, correct answers, and solutions are excluded.": "content_excerpt solo se incluye cuando existe un extracto sanitizado y acotado; se excluyen imágenes, medios, URLs, answer keys, respuestas correctas y soluciones.",
+            "program_topic rows are assigned resource_role=curricular_anchor.": "Las filas program_topic reciben resource_role=curricular_anchor.",
+            "worksheet, exam, video, lesson_plan, and program rows are assigned resource_role=candidate_resource.": "Las filas worksheet, exam, video, lesson_plan y program reciben resource_role=candidate_resource.",
+            "Lesson-plan topics are extracted from plan_json keys related to topic, title, objective, focus, vocabulary, success, and assessment, plus the fallback topic field.": "Los temas de lesson plans se extraen desde claves de plan_json relacionadas con tema, título, objetivo, foco, vocabulario, éxito y evaluación, además del campo topic como respaldo.",
+            "Program topics inherit parent learning-program metadata when the parent program is available, so topic anchors carry subject, level, and stage context.": "Los program topics heredan metadata del learning program padre cuando está disponible, por lo que las anclas de tema conservan contexto de materia, nivel y etapa.",
+            "Build a pandas DataFrame of frozen resource profiles.": "Construir un DataFrame de pandas con los perfiles de recursos congelados.",
+            "Vectorize profile_text with scikit-learn TfidfVectorizer using unigrams and bigrams.": "Vectorizar profile_text con TfidfVectorizer de scikit-learn usando unigramas y bigramas.",
+            "When matrix shape permits, reduce TF-IDF features with TruncatedSVD.": "Cuando la forma de la matriz lo permite, reducir las variables TF-IDF con TruncatedSVD.",
+            "Normalize vectors with scikit-learn Normalizer using L2 normalization.": "Normalizar vectores con Normalizer de scikit-learn usando normalización L2.",
+            "Train candidate KMeans, AgglomerativeClustering, and DBSCAN configurations.": "Entrenar configuraciones candidatas de KMeans, AgglomerativeClustering y DBSCAN.",
+            "Evaluate each successful configuration with Silhouette, Calinski-Harabasz, Davies-Bouldin, noise ratio, cluster-size diagnostics, and cross-subject/cross-language contamination.": "Evaluar cada configuración exitosa con Silhouette, Calinski-Harabasz, Davies-Bouldin, proporción de ruido, diagnósticos de tamaño de clúster y contaminación entre materias/idiomas.",
+            "Select the winner by the transparent balanced selection_score formula.": "Seleccionar el ganador con la fórmula transparente y balanceada de selection_score.",
+            "Generate pairwise semantic neighbors with cosine similarity.": "Generar vecinos semánticos pareados mediante similitud coseno.",
+            "Generate the human-review sample from program_topic anchors to candidate resources.": "Generar la muestra de revisión humana desde anclas program_topic hacia recursos candidatos.",
+            "Persist the fitted vectorizer, SVD, normalizer, vector matrix, ordered resource keys, frozen dataset, model comparison, cluster assignments, and audit files.": "Persistir el vectorizador ajustado, SVD, normalizador, matriz de vectores, claves de recursos ordenadas, dataset congelado, comparación de modelos, asignaciones de clúster y archivos de auditoría.",
+            "Random seed is fixed at 20260726.": "La semilla aleatoria se fija en 20260726.",
+            "The run stores a dataset fingerprint built from profile hashes.": "La ejecución guarda una huella del dataset construida a partir de hashes de perfil.",
+            "The run stores a configuration hash for the model grid and preprocessing settings.": "La ejecución guarda un hash de configuración para la grilla de modelos y los ajustes de preprocesamiento.",
+            "The fitted representation is serialized so runtime scoring does not refit TF-IDF from live data.": "La representación ajustada se serializa para que el scoring en runtime no reajuste TF-IDF con datos vivos.",
+            "highest selection_score": "mayor selection_score",
+            "highest silhouette_score as tie-breaker": "mayor silhouette_score como desempate",
+            "lowest cross_subject_contamination_rate as tie-breaker": "menor cross_subject_contamination_rate como desempate",
+            "Share of clusters with exactly two rows, used as a fragmentation warning.": "Proporción de clústeres con exactamente dos filas, usada como advertencia de fragmentación.",
+            "Share of clusters with three or fewer rows, used as a broader fragmentation warning.": "Proporción de clústeres con tres filas o menos, usada como advertencia más amplia de fragmentación.",
+            "Share of evaluated clusters containing more than one normalized subject among rows with known subject metadata.": "Proporción de clústeres evaluados que contienen más de una materia normalizada entre filas con metadata de materia conocida.",
+            "Share of rows assigned to DBSCAN noise label -1.": "Proporción de filas asignadas a la etiqueta de ruido -1 de DBSCAN.",
+            "Primary unsupervised cohesion/separation metric calculated with cosine distance on non-noise observations.": "Métrica no supervisada principal de cohesión/separación, calculada con distancia coseno sobre observaciones que no son ruido.",
+            "Silhouette remains the positive base because the experiment is unsupervised and has no human relevance labels yet.": "Silhouette se mantiene como base positiva porque el experimento es no supervisado y aún no tiene etiquetas humanas de relevancia.",
+            "Cross-subject contamination receives the largest penalty because Classio's recommendation rules treat subject boundaries as business-critical.": "La contaminación entre materias recibe la penalización más alta porque las reglas de recomendación de Classio tratan los límites de materia como críticos para el negocio.",
+            "Noise receives a moderate penalty because a model that leaves many rows unassigned is less useful for candidate generation.": "El ruido recibe una penalización moderada porque un modelo que deja muchas filas sin asignar es menos útil para generar candidatos.",
+            "Tiny-cluster penalties discourage models that look clean only because they fragment the catalog into very small groups.": "Las penalizaciones por clústeres diminutos desincentivan modelos que parecen limpios solo porque fragmentan el catálogo en grupos muy pequeños.",
+            "The weights are heuristic and transparent; they are intended for exploratory model triage, not as proof of recommendation impact.": "Los pesos son heurísticos y transparentes; sirven para triage exploratorio de modelos, no como prueba de impacto en recomendaciones.",
+            "The highest Silhouette model can over-reward small, isolated, or noisy clusters. The balanced score prefers a model that is coherent enough while still preserving coverage and useful cluster structure for downstream heuristics.": "El modelo con mayor Silhouette puede sobrepremiar clústeres pequeños, aislados o ruidosos. El score balanceado prefiere un modelo suficientemente coherente que preserve cobertura y una estructura de clúster útil para las heurísticas posteriores.",
+            "The winner is the top balanced selection-score candidate. The metric leader is reported separately because a higher Silhouette score alone can over-reward fragmented, noisy, or business-contaminated cluster structures.": "El ganador es el candidato con mayor score balanceado de selección. El líder métrico se informa por separado porque un Silhouette más alto por sí solo puede sobrepremiar estructuras fragmentadas, ruidosas o contaminadas desde el punto de vista de negocio.",
+            "subject, language, level, resource_type, and resource_role are audited.": "Se auditan materia, idioma, nivel, resource_type y resource_role.",
+            "Category values are case-folded.": "Los valores categóricos se normalizan con casefold.",
+            "Slash and pipe separators are converted to spaces.": "Los separadores slash y pipe se convierten en espacios.",
+            "Known aliases are mapped before metrics are calculated.": "Los alias conocidos se mapean antes de calcular las métricas.",
+            "Accent-insensitive fallback keys are used when an alias exists without diacritics.": "Se usan claves de respaldo insensibles a acentos cuando existe un alias sin diacríticos.",
+            "Empty metadata values are excluded from contamination denominators.": "Los valores de metadata vacíos se excluyen de los denominadores de contaminación.",
+            "All text fields are converted to strings, collapsed to single spaces, and stripped of leading/trailing whitespace.": "Todos los campos de texto se convierten a strings, los espacios múltiples se compactan en uno y se eliminan espacios iniciales/finales.",
+            "Unicode text is normalized with NFKC for category comparison.": "El texto Unicode se normaliza con NFKC para comparar categorías.",
+            "Dash variants are normalized before category comparison.": "Las variantes de guion se normalizan antes de comparar categorías.",
+            "Canonical profile text is vectorized with TF-IDF using unigrams and bigrams.": "El texto canónico del perfil se vectoriza con TF-IDF usando unigramas y bigramas.",
+            "When TF-IDF shape allows it, Truncated SVD reduces the sparse matrix to dense latent dimensions.": "Cuando la forma TF-IDF lo permite, Truncated SVD reduce la matriz dispersa a dimensiones latentes densas.",
+            "All vectors are L2-normalized before cosine similarity, clustering quality calculations, and runtime scoring.": "Todos los vectores se normalizan con L2 antes de calcular similitud coseno, calidad de clústeres y scoring en runtime.",
+            "Optional resource_affinity_content_excerpts view: resource_type, resource_id, content_excerpt, source, and character count. This view must return sanitized bounded text only; the experiment does not fetch full worksheet_json or exam_data as its primary path.": "Vista opcional resource_affinity_content_excerpts: resource_type, resource_id, content_excerpt, source y conteo de caracteres. Esta vista debe devolver solo texto sanitizado y acotado; el experimento no obtiene worksheet_json ni exam_data completos como ruta principal.",
+            "quick_exams table: title, subject, topic, learner stage, level, exam length, exercise types, status, visibility, and creation timestamp. Full exam_data is not fetched by the experiment.": "Tabla quick_exams: título, materia, tema, etapa del estudiante, nivel, duración del examen, tipos de ejercicios, estado, visibilidad y fecha de creación. El experimento no obtiene exam_data completo.",
+            "learning_program_topics table: program_id, unit/topic order, title, subtopic, lesson focus, lesson purpose, objectives, success criteria, can-do statements, suggested worksheet/exam types, homework idea, teacher notes, student summary, estimated lessons, and timestamps.": "Tabla learning_program_topics: program_id, orden de unidad/tema, título, subtema, foco de lección, propósito, objetivos, criterios de éxito, can-do statements, tipos sugeridos de worksheet/examen, idea de tarea, notas del profesor, resumen para estudiante, lecciones estimadas y timestamps.",
+            "learning_programs table: title, subject/custom subject, learner stage, level/band, overview, status, visibility, unit/topic counts, sequence order, timestamps, and program_data content.": "Tabla learning_programs: título, materia/materia personalizada, etapa del estudiante, nivel/banda, resumen, estado, visibilidad, conteos de unidades/temas, orden de secuencia, timestamps y contenido de program_data.",
+            "lesson_plans table: title, subject, topic, learner stage, level/band, lesson purpose, source/planner metadata, language fields, status, visibility, creation/update timestamps, and plan_json content.": "Tabla lesson_plans: título, materia, tema, etapa del estudiante, nivel/banda, propósito de la lección, metadata de fuente/planificador, campos de idioma, estado, visibilidad, timestamps de creación/actualización y contenido de plan_json.",
+            "videos table: title, subject/custom subject, topic, description, learner stage, level/band, status, visibility, creation/update timestamps.": "Tabla videos: título, materia/materia personalizada, tema, descripción, etapa del estudiante, nivel/banda, estado, visibilidad y timestamps de creación/actualización.",
+            "worksheets table: title, subject, topic, learner stage, level/band, worksheet type, language fields, status, visibility, and creation timestamp. Full worksheet_json is not fetched by the experiment.": "Tabla worksheets: título, materia, tema, etapa del estudiante, nivel/banda, tipo de worksheet, campos de idioma, estado, visibilidad y fecha de creación. El experimento no obtiene worksheet_json completo.",
         },
         "tr": {
             "This run was generated by the current Phase 3.6 pipeline, so historical Phase 3.5 audit-count reconciliation is not required for validation.": "Bu çalışma mevcut Phase 3.6 hattı tarafından üretildiği için, doğrulama açısından geçmiş Phase 3.5 denetim sayımı uzlaştırması gerekli değildir.",
@@ -424,6 +490,60 @@ def _translate_known_evidence_text(value: Any, lang: str) -> str:
     for source, target in replacements.get(lang, {}).items():
         translated = translated.replace(source, target)
     return translated
+
+
+_AFFINITY_DATA_SOURCE_LABELS = {
+    "es": {
+        "bounded_content_excerpts": "Extractos acotados de contenido",
+        "exams": "Exámenes",
+        "learning_program_topics": "Temas del learning program",
+        "learning_programs": "Learning programs",
+        "lesson_plans": "Lesson plans",
+        "videos": "Videos",
+        "worksheets": "Worksheets",
+    },
+    "tr": {},
+}
+
+_AFFINITY_COMPONENT_LABELS = {
+    "es": {
+        "cluster_size_2_rate": "Tasa de clústeres de tamaño 2",
+        "cluster_size_le_3_rate": "Tasa de clústeres de tamaño 3 o menos",
+        "cross_subject_contamination_rate": "Contaminación entre materias",
+        "noise_ratio": "Proporción de ruido",
+        "silhouette_score": "Silhouette score",
+    },
+    "tr": {},
+}
+
+_AFFINITY_METRIC_LABELS = {
+    "es": {
+        "balanced_selection_score": "score balanceado de selección",
+        "selection_score": "selection_score",
+    },
+    "tr": {},
+}
+
+
+def _localize_known_text(value: Any, lang: str) -> str:
+    return _translate_known_evidence_text(value, lang)
+
+
+def _localized_join(values: Any, lang: str, *, separator: str = " ") -> str:
+    return separator.join(_localize_known_text(item, lang) for item in list(values or []) if _clean_text(item))
+
+
+def _localized_bullets(values: Any, lang: str) -> list[str]:
+    return _unique_nonempty([_localize_known_text(item, lang) for item in list(values or [])])
+
+
+def _localized_json_map(values: dict[str, Any], lang: str, labels: dict[str, dict[str, str]] | None = None) -> str:
+    localized: dict[str, Any] = {}
+    lang_labels = (labels or {}).get(lang, {})
+    for key, value in (values or {}).items():
+        display_key = lang_labels.get(str(key), _humanize_identifier(key))
+        localized[display_key] = _localize_known_text(value, lang)
+    return json.dumps(localized, ensure_ascii=False, sort_keys=True)
 
 
 def _date_connector(lang: str) -> str:
@@ -640,6 +760,12 @@ def _artifact_path_map(run_id: str) -> dict[str, Path]:
             "cluster_assignments_csv": run_dir / "resource_affinity_cluster_assignments.csv",
             "frozen_dataset_csv": run_dir / "resource_affinity_dataset_frozen.csv",
             "holdout_predictions_csv": run_dir / "resource_affinity_pairwise_neighbors.csv",
+            "anchor_resource_candidates_csv": run_dir / "resource_affinity_program_topic_resource_candidates.csv",
+            "exclusion_audit_csv": run_dir / "resource_affinity_exclusion_audit.csv",
+            "category_normalization_audit_csv": run_dir / "resource_affinity_category_normalization_audit.csv",
+            "human_review_sample_csv": run_dir / "resource_affinity_human_review_sample.csv",
+            "experiment_config_json": run_dir / "resource_affinity_experiment_config.json",
+            "representation_manifest_json": run_dir / "resource_affinity_representation_manifest.json",
         }
         for artifact_type, path in inferred.items():
             if artifact_type not in mapping and path.exists():
@@ -894,7 +1020,24 @@ def _humanize_list(values: list[Any]) -> str:
     return ", ".join(_humanize_identifier(value) for value in values if _clean_text(value))
 
 
-def _artifact_display_name(artifact_type: str) -> str:
+def _artifact_display_name(artifact_type: str, path: Path | None = None) -> str:
+    filename = str((path or Path("")).name)
+    if filename.startswith("resource_affinity_"):
+        affinity_mapping = {
+            "label_audit_csv": "Profile Audit CSV",
+            "holdout_predictions_csv": "Pairwise Semantic Neighbors CSV",
+            "anchor_resource_candidates_csv": "Program Topic Resource Candidates CSV",
+            "label_reconciliation_csv": "Unsupervised Validation Reconciliation CSV",
+            "resource_affinity_program_topic_resource_candidates.csv": "Program Topic Resource Candidates CSV",
+            "resource_affinity_exclusion_audit.csv": "Exclusion Audit CSV",
+            "resource_affinity_category_normalization_audit.csv": "Category Normalization Audit CSV",
+            "resource_affinity_human_review_sample.csv": "Human Review Sample CSV",
+            "resource_affinity_experiment_config.json": "Experiment Configuration JSON",
+            "resource_affinity_representation_manifest.json": "Fitted Representation Manifest JSON",
+        }
+        specific = affinity_mapping.get(_clean_text(artifact_type)) or affinity_mapping.get(filename)
+        if specific:
+            return specific
     mapping = {
         "academic_report_md": "Findings Interpretation Report Markdown",
         "findings_interpretation_report_md": "Findings Interpretation Report Markdown",
@@ -1111,11 +1254,42 @@ def _verified_docx_bytes(path: Path) -> bytes:
 
 def _validated_run_detail(run_id: str) -> dict[str, Any]:
     detail = eic_service.get_experiment_business_detail(run_id, cache_bust=f"report-{run_id}")
-    if not detail:
+    if detail and _clean_text(detail.get("run_status")) in FINAL_VALIDATED_RUN_STATES:
+        return detail
+    artifacts = _artifact_path_map(run_id)
+    run_summary = _read_json(artifacts.get("run_summary_json", Path("__missing__")))
+    dataset = run_summary.get("dataset") or {}
+    evaluation = run_summary.get("evaluation") or {}
+    review = run_summary.get("review") or {}
+    final_verdict = _clean_text(review.get("final_verdict") or "VALIDATED_EXPLORATORY_RUN")
+    if not run_summary or final_verdict not in FINAL_VALIDATED_RUN_STATES:
         return {}
-    if _clean_text(detail.get("run_status")) not in FINAL_VALIDATED_RUN_STATES:
-        return {}
-    return detail
+    best = evaluation.get("best_model") or {}
+    return {
+        "run_id": run_id,
+        "experiment_id": _clean_text(evaluation.get("experiment_id")) or "resource_affinity_unsupervised_discovery",
+        "run_status": final_verdict,
+        "integrity_status": "approved_exploratory",
+        "maturity_verdict": _clean_text(evaluation.get("maturity_verdict")),
+        "evidence_level": _clean_text(evaluation.get("overall_evidence_strength")),
+        "evidence_verdict": _clean_text(evaluation.get("overall_evidence_strength")),
+        "business_question": _clean_text(evaluation.get("target_definition")),
+        "recommended_business_action": "move_to_shadow_testing" if _clean_text(evaluation.get("maturity_verdict")) == "CANDIDATE_FOR_SHADOW_TESTING" else "continue_collecting_data",
+        "included_row_count": int(dataset.get("included_row_count") or 0),
+        "positive_label_count": 0,
+        "negative_label_count": 0,
+        "teachers_represented": 0,
+        "students_represented": 0,
+        "resources_represented": int(dataset.get("candidate_resource_count") or dataset.get("resource_count") or 0),
+        "primary_metric_leader": _clean_text(evaluation.get("winner") or best.get("model_name")),
+        "primary_metric": _clean_text(evaluation.get("primary_metric")),
+        "dataset_fingerprint": _clean_text(dataset.get("data_fingerprint")),
+        "model_results": {
+            "models_compared": [],
+            "overall_evidence_conclusion": _clean_text(evaluation.get("overall_evidence_strength")),
+        },
+        "limitations": list(evaluation.get("limitations") or []),
+    }
 
 
 def _report_base_context(run_id: str, lang: str) -> dict[str, Any]:
@@ -1123,11 +1297,26 @@ def _report_base_context(run_id: str, lang: str) -> dict[str, Any]:
     if not detail:
         return {}
     experiment_id = str(detail.get("experiment_id") or "")
-    academic = eic_service.get_academic_evidence_summary(run_id, cache_bust=f"academic-{run_id}")
-    telemetry = eic_service.get_business_telemetry_health(cache_bust=f"telemetry-{run_id}")
-    portfolio = eic_service.get_intelligence_component_portfolio(cache_bust=f"portfolio-{run_id}")
-    decisions = eic_service.get_prioritized_intelligence_decisions(cache_bust=f"decisions-{run_id}")
-    latest_summary = eic_service.get_intelligence_business_summary(cache_bust=f"summary-{run_id}")
+    try:
+        academic = eic_service.get_academic_evidence_summary(run_id, cache_bust=f"academic-{run_id}")
+    except Exception:
+        academic = {}
+    try:
+        telemetry = eic_service.get_business_telemetry_health(cache_bust=f"telemetry-{run_id}")
+    except Exception:
+        telemetry = {}
+    try:
+        portfolio = eic_service.get_intelligence_component_portfolio(cache_bust=f"portfolio-{run_id}")
+    except Exception:
+        portfolio = []
+    try:
+        decisions = eic_service.get_prioritized_intelligence_decisions(cache_bust=f"decisions-{run_id}")
+    except Exception:
+        decisions = []
+    try:
+        latest_summary = eic_service.get_intelligence_business_summary(cache_bust=f"summary-{run_id}")
+    except Exception:
+        latest_summary = {}
     artifacts = _artifact_path_map(run_id)
     run_summary = _read_json(artifacts.get("run_summary_json", Path("__missing__")))
     dataset_summary = _read_json(artifacts.get("dataset_summary_json", Path("__missing__")))
@@ -1468,6 +1657,7 @@ def _artifact_manifest_rows(artifacts: dict[str, Path], lang: str) -> tuple[list
         "dataset_summary_json": _phrase(lang, "dataset_accounting_purpose"),
         "model_comparison_csv": _phrase(lang, "stored_model_metrics"),
         "holdout_predictions_csv": _phrase(lang, "stored_holdout_probabilities"),
+        "anchor_resource_candidates_csv": "Program-topic to candidate-resource alignment candidates" if lang == "en" else ("Candidatos de alineación entre tema del programa y recurso candidato" if lang == "es" else "Program konusu ile aday kaynak hizalama adayları"),
         "feature_audit_csv": _phrase(lang, "feature_availability_audit"),
         "cluster_assignments_csv": "Winning clustering assignments" if lang == "en" else ("Asignaciones de clúster del modelo ganador" if lang == "es" else "Kazanan küme atamaları"),
         "label_reconciliation_csv": _phrase(lang, "label_reconciliation_review"),
@@ -1482,7 +1672,7 @@ def _artifact_manifest_rows(artifacts: dict[str, Path], lang: str) -> tuple[list
         filenames.append(path.name)
         rows.append(
             [
-                _artifact_display_name(artifact_type),
+                _artifact_display_name(artifact_type, path),
                 purpose_map.get(artifact_type, _phrase(lang, "stored_supporting_artifact")),
                 path.suffix.lstrip(".") or "file",
                 _hash_file(path),
@@ -1552,6 +1742,7 @@ def _decision_summary_rows(context: dict[str, Any], ai_narrative: dict[str, Any]
         + list(detail.get("limitations") or [])
         + list(((run_summary.get("review") or {}).get("label_reconciliation") or {}).get("limitations") or [])
     )
+    localized_limitations = _localized_bullets(limitations, lang)
     return [
         [_copy(lang, "meta_field"), _copy(lang, "meta_value")],
         ["Experiment" if lang == "en" else ("Experimento" if lang == "es" else "Deney"), str(detail.get("experiment_id") or "")],
@@ -1562,7 +1753,7 @@ def _decision_summary_rows(context: dict[str, Any], ai_narrative: dict[str, Any]
         ["Model leader" if lang == "en" else ("Modelo líder" if lang == "es" else "Lider model"), _model_name(str(evaluation.get("primary_metric_leader") or detail.get("primary_metric_leader") or ""), lang)],
         ["Next review trigger" if lang == "en" else ("Disparador de la próxima revisión" if lang == "es" else "Sonraki inceleme tetikleyicisi"), _context_text(report_context, "next_review_trigger", lang, ai_narrative)],
         ["Responsible person or team" if lang == "en" else ("Persona o equipo responsable" if lang == "es" else "Sorumlu kişi veya ekip"), _context_text(report_context, "responsible_person_or_team", lang, ai_narrative)],
-        ["Main limitation" if lang == "en" else ("Limitación principal" if lang == "es" else "Ana sınırlama"), _clean_text(ai_narrative.get("main_limitation_text")) or _context_text(report_context, "main_limitation", lang, ai_narrative) or (limitations[0] if limitations else _editable_placeholder(lang))],
+        ["Main limitation" if lang == "en" else ("Limitación principal" if lang == "es" else "Ana sınırlama"), _clean_text(ai_narrative.get("main_limitation_text")) or _context_text(report_context, "main_limitation", lang, ai_narrative) or (localized_limitations[0] if localized_limitations else _editable_placeholder(lang))],
     ]
 
 
@@ -1718,7 +1909,7 @@ def build_executive_report_docx(run_id: str, language: str) -> dict[str, Any]:
     )
 
     _add_heading(doc, _copy(lang, "business_risks"), 1)
-    _add_bullets(doc, list(detail.get("limitations") or [t("admin_eic_report_no_additional_risks", lang=lang)]))
+    _add_bullets(doc, _localized_bullets(detail.get("limitations"), lang) or [t("admin_eic_report_no_additional_risks", lang=lang)])
 
     _add_heading(doc, _copy(lang, "prioritized_actions"), 1)
     _add_table(
@@ -1897,7 +2088,7 @@ def build_academic_report_docx(run_id: str, language: str) -> dict[str, Any]:
     _add_paragraph(doc, str(ai_narrative.get("implementation_paragraph") or ("The present evidence supports continued offline evaluation, telemetry improvement, and internal academic review rather than immediate live replacement of the existing heuristic workflow." if lang == "en" else ("La evidencia actual respalda continuar con evaluación offline, mejora de telemetría y revisión académica interna antes de cualquier sustitución inmediata de la lógica heurística en vivo." if lang == "es" else "Mevcut kanıt, canlı sezgisel iş akışının hemen değiştirilmesi yerine çevrimdışı değerlendirme, telemetri iyileştirmesi ve iç akademik incelemenin sürdürülmesini destekler."))))
 
     _add_heading(doc, _copy(lang, "limitations"), 1)
-    _add_bullets(doc, list(ai_narrative.get("limitations") or academic.get("limitations") or detail.get("limitations") or []))
+    _add_bullets(doc, _localized_bullets(ai_narrative.get("limitations") or academic.get("limitations") or detail.get("limitations") or [], lang))
 
     _add_heading(doc, _copy(lang, "future_work"), 1)
     _add_bullets(doc, list(ai_narrative.get("future_work") or academic.get("future_improvements") or []))
@@ -1984,7 +2175,7 @@ def build_technical_report_docx(run_id: str, language: str) -> dict[str, Any]:
         str(
             ai_narrative.get("non_proof_paragraph")
             or _context_text(report_context, "evidence_non_proof", lang, ai_narrative)
-            or (_unique_nonempty(list(academic.get("limitations") or []) + list(detail.get("limitations") or [])) or [_editable_placeholder(lang)])[0]
+            or (_localized_bullets(_unique_nonempty(list(academic.get("limitations") or []) + list(detail.get("limitations") or [])), lang) or [_editable_placeholder(lang)])[0]
         ),
     )
     _add_note_box(
@@ -2231,7 +2422,7 @@ def build_technical_report_docx(run_id: str, language: str) -> dict[str, Any]:
         + list(detail.get("limitations") or [])
         + list((review.get("label_reconciliation") or {}).get("limitations") or [])
     )
-    _add_bullets(doc, limitation_rows or [t("admin_eic_report_no_additional_risks", lang=lang)])
+    _add_bullets(doc, _localized_bullets(limitation_rows, lang) or [t("admin_eic_report_no_additional_risks", lang=lang)])
 
     _add_heading(doc, _copy(lang, "appendix"), 1)
     _add_heading(doc, _copy(lang, "artifact_manifest"), 2)
@@ -2294,7 +2485,7 @@ def _unsupervised_metric_rows(summary: dict[str, Any], detail: dict[str, Any], l
     embedding = evaluation.get("embedding_manifest") or {}
     return [
         ["Best model" if lang == "en" else ("Mejor modelo" if lang == "es" else "En iyi model"), str(evaluation.get("winner") or best.get("model_name") or detail.get("primary_metric_leader") or "—")],
-        ["Primary metric" if lang == "en" else ("Métrica principal" if lang == "es" else "Ana metrik"), str(evaluation.get("primary_metric") or detail.get("primary_metric") or "—")],
+        ["Primary metric" if lang == "en" else ("Métrica principal" if lang == "es" else "Ana metrik"), _AFFINITY_METRIC_LABELS.get(lang, {}).get(str(evaluation.get("primary_metric") or detail.get("primary_metric") or ""), str(evaluation.get("primary_metric") or detail.get("primary_metric") or "—"))],
         ["Silhouette score" if lang == "en" else ("Silhouette score" if lang == "es" else "Silhouette skoru"), _display_scalar(best.get("silhouette_score"))],
         ["Calinski-Harabasz" if lang == "en" else ("Calinski-Harabasz" if lang == "es" else "Calinski-Harabasz"), _display_scalar(best.get("calinski_harabasz"))],
         ["Davies-Bouldin" if lang == "en" else ("Davies-Bouldin" if lang == "es" else "Davies-Bouldin"), _display_scalar(best.get("davies_bouldin"))],
@@ -2302,10 +2493,128 @@ def _unsupervised_metric_rows(summary: dict[str, Any], detail: dict[str, Any], l
         ["Noise ratio" if lang == "en" else ("Proporción de ruido" if lang == "es" else "Gürültü oranı"), _display_scalar(best.get("noise_ratio"))],
         ["Cross-subject contamination" if lang == "en" else ("Contaminación entre materias" if lang == "es" else "Dersler arası karışma"), _display_scalar(best.get("cross_subject_contamination_rate"))],
         ["Cross-language contamination" if lang == "en" else ("Contaminación entre idiomas" if lang == "es" else "Diller arası karışma"), _display_scalar(best.get("cross_language_contamination_rate"))],
+        ["Selection score" if lang == "en" else ("Selection score" if lang == "es" else "Seçim skoru"), _display_scalar(best.get("selection_score"))],
         ["Resources included" if lang == "en" else ("Recursos incluidos" if lang == "es" else "Dahil edilen kaynaklar"), _display_scalar(dataset.get("resource_count") or detail.get("resources_represented") or detail.get("included_row_count"))],
+        ["Curricular anchors" if lang == "en" else ("Anclas curriculares" if lang == "es" else "Müfredat çıpaları"), _display_scalar(dataset.get("curricular_anchor_count"))],
+        ["Candidate resources" if lang == "en" else ("Recursos candidatos" if lang == "es" else "Aday kaynaklar"), _display_scalar(dataset.get("candidate_resource_count"))],
         ["Resource types" if lang == "en" else ("Tipos de recurso" if lang == "es" else "Kaynak türleri"), _display_scalar(dataset.get("resource_type_count"))],
         ["Vector method" if lang == "en" else ("Método vectorial" if lang == "es" else "Vektör yöntemi"), _display_scalar(embedding.get("embedding_method"))],
         ["Vector dimensions" if lang == "en" else ("Dimensiones vectoriales" if lang == "es" else "Vektör boyutları"), _display_scalar(embedding.get("vector_dimensions"))],
+    ]
+
+
+def _unsupervised_normalization_rows(summary: dict[str, Any], lang: str) -> list[list[str]]:
+    evaluation = summary.get("evaluation") or {}
+    dataset = summary.get("dataset") or {}
+    normalization = evaluation.get("normalization_methodology") or {}
+    completeness = dataset.get("completeness") or {}
+    aliases = normalization.get("known_aliases") or {}
+    if lang == "es":
+        return [
+            ["Unidad de análisis", _localize_known_text(evaluation.get("target_definition"), lang)],
+            ["Roles", "program_topic = ancla curricular; worksheet, exam, video, lesson_plan y program = recursos candidatos."],
+            ["Limpieza textual", "Los campos se convierten a texto, se compactan espacios múltiples y se eliminan espacios al inicio/final."],
+            ["Normalización categórica", "Se aplica Unicode NFKC, casefold, normalización de separadores / y |, y alias conocidos para materia e idioma."],
+            ["Alias usados", json.dumps(aliases, ensure_ascii=False, sort_keys=True)],
+            ["Valores faltantes", "Los valores vacíos se auditan y no cuentan en denominadores de contaminación entre materias o idiomas."],
+            ["Completitud", json.dumps(completeness, ensure_ascii=False, sort_keys=True)],
+            ["Vectorización", "TF-IDF con unigramas y bigramas; SVD truncado cuando el tamaño lo permite; normalización L2 antes de similaridad coseno."],
+            ["Artefactos auditables", ", ".join(normalization.get("audit_artifacts") or [])],
+        ]
+    if lang == "tr":
+        return [
+            ["Analiz birimi", _localize_known_text(evaluation.get("target_definition"), lang)],
+            ["Roller", "program_topic = müfredat çıpası; worksheet, exam, video, lesson_plan ve program = aday kaynaklar."],
+            ["Metin temizliği", "Alanlar metne çevrilir, fazla boşluklar tek boşluğa indirilir ve baştaki/sondaki boşluklar silinir."],
+            ["Kategori normalizasyonu", "Unicode NFKC, casefold, / ve | ayırıcı normalizasyonu ve bilinen ders/dil alias eşleşmeleri uygulanır."],
+            ["Kullanılan aliaslar", json.dumps(aliases, ensure_ascii=False, sort_keys=True)],
+            ["Eksik değerler", "Boş değerler denetlenir ve ders/dil karışma paydalarına dahil edilmez."],
+            ["Tamlık", json.dumps(completeness, ensure_ascii=False, sort_keys=True)],
+            ["Vektörleştirme", "Unigram/bigram TF-IDF; uygun olduğunda Truncated SVD; kosinüs benzerliğinden önce L2 normalizasyonu."],
+            ["Denetlenebilir artefaktlar", ", ".join(normalization.get("audit_artifacts") or [])],
+        ]
+    return [
+        ["Analysis unit", _localize_known_text(evaluation.get("target_definition"), lang)],
+        ["Roles", "program_topic = curricular anchor; worksheet, exam, video, lesson_plan, and program = candidate resources."],
+        ["Text cleaning", "Fields are converted to text, repeated whitespace is collapsed, and leading/trailing whitespace is stripped."],
+        ["Category normalization", "Unicode NFKC, casefolding, / and | separator normalization, and known subject/language aliases are applied."],
+        ["Aliases used", json.dumps(aliases, ensure_ascii=False, sort_keys=True)],
+        ["Missing values", "Empty values are audited and excluded from subject/language contamination denominators."],
+        ["Completeness", json.dumps(completeness, ensure_ascii=False, sort_keys=True)],
+        ["Vectorization", "TF-IDF with unigrams and bigrams; Truncated SVD when shape allows; L2 normalization before cosine similarity."],
+        ["Auditable artifacts", ", ".join(normalization.get("audit_artifacts") or [])],
+    ]
+
+
+def _unsupervised_scoring_rows(summary: dict[str, Any], lang: str) -> list[list[str]]:
+    evaluation = summary.get("evaluation") or {}
+    scoring = evaluation.get("selection_scoring_methodology") or {}
+    winner = evaluation.get("winner_explanation") or {}
+    components = scoring.get("component_definitions") or {}
+    rationale = scoring.get("weight_rationale") or []
+    if lang == "es":
+        return [
+            ["Fórmula", _display_scalar(scoring.get("formula"))],
+            ["Orden de selección", " -> ".join(_localize_known_text(item, lang) for item in scoring.get("sort_order") or [])],
+            ["Ganador", f"{winner.get('winner') or 'n/a'}; selection_score={_display_scalar(winner.get('winner_selection_score'))}"],
+            ["Líder por Silhouette", f"{winner.get('metric_leader') or 'n/a'}; selection_score={_display_scalar(winner.get('metric_leader_selection_score'))}"],
+            ["Definición de componentes", _localized_json_map(components, lang, _AFFINITY_COMPONENT_LABELS)],
+            ["Justificación de pesos", _localized_join(rationale, lang)],
+            ["Por qué no Silhouette solamente", _localize_known_text(scoring.get("why_not_silhouette_only"), lang)],
+        ]
+    if lang == "tr":
+        return [
+            ["Formül", _display_scalar(scoring.get("formula"))],
+            ["Seçim sırası", " -> ".join(_localize_known_text(item, lang) for item in scoring.get("sort_order") or [])],
+            ["Kazanan", f"{winner.get('winner') or 'n/a'}; selection_score={_display_scalar(winner.get('winner_selection_score'))}"],
+            ["Silhouette lideri", f"{winner.get('metric_leader') or 'n/a'}; selection_score={_display_scalar(winner.get('metric_leader_selection_score'))}"],
+            ["Bileşen tanımları", _localized_json_map(components, lang, _AFFINITY_COMPONENT_LABELS)],
+            ["Ağırlık gerekçesi", _localized_join(rationale, lang)],
+            ["Neden yalnız Silhouette değil", _localize_known_text(scoring.get("why_not_silhouette_only"), lang)],
+        ]
+    return [
+        ["Formula", _display_scalar(scoring.get("formula"))],
+        ["Selection order", " -> ".join(scoring.get("sort_order") or [])],
+        ["Winner", f"{winner.get('winner') or 'n/a'}; selection_score={_display_scalar(winner.get('winner_selection_score'))}"],
+        ["Silhouette leader", f"{winner.get('metric_leader') or 'n/a'}; selection_score={_display_scalar(winner.get('metric_leader_selection_score'))}"],
+        ["Component definitions", json.dumps(components, ensure_ascii=False, sort_keys=True)],
+        ["Weight rationale", " ".join(str(item) for item in rationale)],
+        ["Why not Silhouette only", _display_scalar(scoring.get("why_not_silhouette_only"))],
+    ]
+
+
+def _unsupervised_python_methodology_rows(summary: dict[str, Any], lang: str) -> list[list[str]]:
+    evaluation = summary.get("evaluation") or {}
+    methodology = evaluation.get("python_model_development_methodology") or {}
+    data_sources = methodology.get("data_sources") or {}
+    if lang == "es":
+        return [
+            ["Lenguaje", _display_scalar(methodology.get("language"))],
+            ["Librerías principales", ", ".join(methodology.get("core_libraries") or [])],
+            ["Datos utilizados", "; ".join(f"{_AFFINITY_DATA_SOURCE_LABELS.get(lang, {}).get(str(key), key)}: {_localize_known_text(value, lang)}" for key, value in data_sources.items())],
+            ["Reglas de inclusión/exclusión", _localized_join(methodology.get("inclusion_rules"), lang)],
+            ["Construcción de perfiles", _localized_join(methodology.get("profile_construction"), lang)],
+            ["Pipeline del modelo", _localized_join(methodology.get("model_pipeline"), lang)],
+            ["Reproducibilidad", _localized_join(methodology.get("reproducibility_controls"), lang)],
+        ]
+    if lang == "tr":
+        return [
+            ["Dil", _display_scalar(methodology.get("language"))],
+            ["Ana kütüphaneler", ", ".join(methodology.get("core_libraries") or [])],
+            ["Kullanılan veriler", "; ".join(f"{_AFFINITY_DATA_SOURCE_LABELS.get(lang, {}).get(str(key), key)}: {_localize_known_text(value, lang)}" for key, value in data_sources.items())],
+            ["Dahil etme/dışlama kuralları", _localized_join(methodology.get("inclusion_rules"), lang)],
+            ["Profil oluşturma", _localized_join(methodology.get("profile_construction"), lang)],
+            ["Model hattı", _localized_join(methodology.get("model_pipeline"), lang)],
+            ["Yeniden üretilebilirlik", _localized_join(methodology.get("reproducibility_controls"), lang)],
+        ]
+    return [
+        ["Language", _display_scalar(methodology.get("language"))],
+        ["Core libraries", ", ".join(methodology.get("core_libraries") or [])],
+        ["Data used", "; ".join(f"{key}: {value}" for key, value in data_sources.items())],
+        ["Inclusion/exclusion rules", " ".join(str(item) for item in methodology.get("inclusion_rules") or [])],
+        ["Profile construction", " ".join(str(item) for item in methodology.get("profile_construction") or [])],
+        ["Model pipeline", " ".join(str(item) for item in methodology.get("model_pipeline") or [])],
+        ["Reproducibility", " ".join(str(item) for item in methodology.get("reproducibility_controls") or [])],
     ]
 
 
@@ -2343,7 +2652,7 @@ def build_unsupervised_experiment_report_docx(run_id: str, language: str, *, rep
     _cover(
         doc,
         title,
-        str(detail.get("business_question") or ""),
+        _translated_business_question(detail, lang),
         get_run_status_display(str(detail.get("run_status") or ""), lang=lang),
         [
             _copy(lang, "cover_generated", value=_now_text(lang)),
@@ -2375,6 +2684,27 @@ def build_unsupervised_experiment_report_docx(run_id: str, language: str, *, rep
         if lang == "es"
         else ("This experiment uses canonical resource profiles and unsupervised algorithms to discover clusters and semantic neighbors without positive/negative labels." if lang == "en" else "Bu deney, pozitif/negatif etiketler oluşturmadan kümeleri ve anlamsal komşuları keşfetmek için kanonik kaynak profilleri ve denetimsiz algoritmalar kullanır."),
     )
+    _add_heading(doc, "Datos utilizados y desarrollo en Python" if lang == "es" else ("Data used and Python model development" if lang == "en" else "Kullanılan veri ve Python model geliştirme"), 2)
+    _add_table(
+        doc,
+        [_copy(lang, "meta_field"), _copy(lang, "meta_value")],
+        _unsupervised_python_methodology_rows(run_summary, lang),
+        [2.1, 4.6],
+    )
+    _add_heading(doc, "Normalización y preparación de datos" if lang == "es" else ("Data normalization and preparation" if lang == "en" else "Veri normalizasyonu ve hazırlığı"), 2)
+    _add_table(
+        doc,
+        [_copy(lang, "meta_field"), _copy(lang, "meta_value")],
+        _unsupervised_normalization_rows(run_summary, lang),
+        [2.1, 4.6],
+    )
+    _add_heading(doc, "Fórmula de scoring del ganador" if lang == "es" else ("Winner scoring formula" if lang == "en" else "Kazanan skor formülü"), 2)
+    _add_table(
+        doc,
+        [_copy(lang, "meta_field"), _copy(lang, "meta_value")],
+        _unsupervised_scoring_rows(run_summary, lang),
+        [2.1, 4.6],
+    )
     _add_picture_with_caption(
         doc,
         charts.get("unsupervised_model_quality", Path("__missing__")),
@@ -2398,15 +2728,16 @@ def build_unsupervised_experiment_report_docx(run_id: str, language: str, *, rep
                 _display_scalar(row.get("cluster_count")),
                 _display_scalar(row.get("noise_ratio")),
                 _display_scalar(row.get("cross_subject_contamination_rate")),
+                _display_scalar(row.get("selection_score")),
             ]
             for row in model_rows
         ]
         _add_table(
             doc,
-            ["Model" if lang == "en" else ("Modelo" if lang == "es" else "Model"), "Silhouette", "Clusters" if lang == "en" else ("Clústeres" if lang == "es" else "Kümeler"), "Noise" if lang == "en" else ("Ruido" if lang == "es" else "Gürültü"), "Subject contamination" if lang == "en" else ("Contaminación por materia" if lang == "es" else "Ders karışması")],
+            ["Model" if lang == "en" else ("Modelo" if lang == "es" else "Model"), "Silhouette", "Clusters" if lang == "en" else ("Clústeres" if lang == "es" else "Kümeler"), "Noise" if lang == "en" else ("Ruido" if lang == "es" else "Gürültü"), "Subject contamination" if lang == "en" else ("Contaminación por materia" if lang == "es" else "Ders karışması"), "Selection score"],
             comparison_rows,
-            [2.4, 1.1, 1.0, 1.0, 1.4],
-            numeric_cols={1, 2, 3, 4},
+            [2.0, 1.0, 0.8, 0.8, 1.2, 0.9],
+            numeric_cols={1, 2, 3, 4, 5},
         )
 
     _add_heading(doc, "Visualización de clústeres" if lang == "es" else ("Cluster visualization" if lang == "en" else "Küme görselleştirme"), 2)
@@ -2459,7 +2790,7 @@ def build_unsupervised_experiment_report_docx(run_id: str, language: str, *, rep
         + list(((run_summary.get("review") or {}).get("label_reconciliation") or {}).get("limitations") or [])
     )
     _add_heading(doc, _copy(lang, "limitations"), 2)
-    _add_bullets(doc, limitations or [t("admin_eic_report_no_additional_risks", lang=lang)])
+    _add_bullets(doc, [_localize_known_text(item, lang) for item in limitations] or [t("admin_eic_report_no_additional_risks", lang=lang)])
 
     _add_heading(doc, _copy(lang, "appendix"), 1)
     _add_heading(doc, _copy(lang, "artifact_manifest"), 2)
