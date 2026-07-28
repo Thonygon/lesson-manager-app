@@ -1121,6 +1121,11 @@ def _material_log_meta(row: dict, kind: str, source: str, surface: str) -> dict[
     }
 
 
+def _owned_activity_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    owned = with_owner(payload)
+    return owned if str(owned.get("user_id") or "").strip() else {}
+
+
 def log_teacher_material_impressions(
     rows: list[dict],
     kind: str,
@@ -1146,16 +1151,16 @@ def log_teacher_material_impressions(
             continue
         seen.add(signature)
         source_row["_telemetry_exposure_id"] = row.get("_telemetry_exposure_id")
-        payloads.append(
-            with_owner(
-                {
-                    "activity_type": "teacher_material_impression",
-                    "feature_name": "teacher_material_feed",
-                    "meta_json": _material_log_meta(row, kind, source, surface),
-                    "created_at": _now_iso(),
-                }
-            )
+        payload = _owned_activity_payload(
+            {
+                "activity_type": "teacher_material_impression",
+                "feature_name": "teacher_material_feed",
+                "meta_json": _material_log_meta(row, kind, source, surface),
+                "created_at": _now_iso(),
+            }
         )
+        if payload:
+            payloads.append(payload)
     if not payloads:
         return
     st.session_state["_teacher_material_impression_seen"] = list(seen)
@@ -1196,16 +1201,16 @@ def log_teacher_material_open(
                 teacher_id=str(get_current_user_id() or "").strip(),
                 viewer_user_id=str(get_current_user_id() or "").strip(),
             )
-        get_sb().table("user_activity_log").insert(
-            with_owner(
-                {
-                    "activity_type": "teacher_material_open",
-                    "feature_name": "teacher_material_feed",
-                    "meta_json": _material_log_meta(row, kind, source, surface),
-                    "created_at": _now_iso(),
-                }
-            )
-        ).execute()
+        payload = _owned_activity_payload(
+            {
+                "activity_type": "teacher_material_open",
+                "feature_name": "teacher_material_feed",
+                "meta_json": _material_log_meta(row, kind, source, surface),
+                "created_at": _now_iso(),
+            }
+        )
+        if payload:
+            get_sb().table("user_activity_log").insert(payload).execute()
         seen.add(signature)
         st.session_state["_teacher_material_open_seen"] = list(seen)
         for fn in (_load_teacher_material_activity_rows, build_teacher_material_feed_profile):

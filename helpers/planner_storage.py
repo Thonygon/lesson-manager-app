@@ -1130,6 +1130,8 @@ def log_user_activity(
                 "created_at": _dt.now(timezone.utc).isoformat(),
             }
         )
+        if not str(payload.get("user_id") or "").strip():
+            return
         get_sb().table("user_activity_log").insert(payload).execute()
     except Exception as e:
         st.warning(f"user_activity_log insert failed: {e}")

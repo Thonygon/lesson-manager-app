@@ -3,15 +3,20 @@ from __future__ import annotations
 from functools import lru_cache
 import json
 from pathlib import Path
+import pickle
 import re
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 
 RUNS_ROOT = Path("reports") / "ml_architecture" / "resource_affinity_unsupervised" / "runs"
-WINNING_MODEL_NAME = "DBSCAN eps=0.32 min_samples=2"
 MIN_QUERY_ANCHOR_SIMILARITY = 0.38
+REPRESENTATION_MANIFEST_FILENAME = "resource_affinity_representation_manifest.json"
+MIN_FEATURE_SCHEMA_VERSION = "resource_affinity_unsupervised.v5"
+PREFERRED_RUNTIME_MODEL_FAMILY = "kmeans"
+ALLOW_NON_KMEANS_RUNTIME_FALLBACK = False
 
 
 def _clean_text(value: Any) -> str:
@@ -129,8 +134,43 @@ def _read_json(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _load_pickle(path: Path) -> Any:
+    with path.open("rb") as handle:
+        return pickle.load(handle)
+
+
+def _model_family(value: Any) -> str:
+    return _norm_key(value).split("_", 1)[0]
+
+
+def _run_winner(summary: dict[str, Any], comparison: pd.DataFrame | None = None) -> str:
+    evaluation = summary.get("evaluation") or {}
+    winner = _clean_text(
+        evaluation.get("winner")
+        or evaluation.get("selected_candidate_for_human_review")
+        or evaluation.get("balanced_candidate")
+        or evaluation.get("primary_metric_leader")
+        or ((evaluation.get("best_model") or {}).get("model_name") if isinstance(evaluation.get("best_model"), dict) else "")
+    )
+    if winner:
+        return winner
+    if comparison is not None and not comparison.empty and "model_name" in comparison.columns:
+        return _clean_text(comparison.iloc[0].get("model_name"))
+    return ""
+
+
+def _artifact_candidate_score(summary_path: Path, summary: dict[str, Any], winner: str) -> tuple[int, float, float]:
+    evaluation = summary.get("evaluation") or {}
+    dataset = summary.get("dataset") or {}
+    preferred = 1 if _model_family(winner) == PREFERRED_RUNTIME_MODEL_FAMILY else 0
+    included_rows = _safe_float(dataset.get("included_row_count"), 0.0)
+    freshness = float(summary_path.stat().st_mtime)
+    selection_score = _safe_float((evaluation.get("best_model") or {}).get("selection_score"), -1.0) if isinstance(evaluation.get("best_model"), dict) else -1.0
+    return (preferred, selection_score + included_rows / 1_000_000.0, freshness)
+
+
 def _best_run_dir() -> Path | None:
-    candidates: list[tuple[float, Path]] = []
+    candidates: list[tuple[tuple[int, float, float], Path]] = []
     if not RUNS_ROOT.exists():
         return None
     for run_dir in RUNS_ROOT.iterdir():
@@ -140,15 +180,21 @@ def _best_run_dir() -> Path | None:
         comparison_path = run_dir / "resource_affinity_model_comparison.csv"
         frozen_path = run_dir / "resource_affinity_dataset_frozen.csv"
         cluster_path = run_dir / "resource_affinity_cluster_assignments.csv"
-        if not (summary_path.exists() and comparison_path.exists() and frozen_path.exists() and cluster_path.exists()):
+        representation_path = run_dir / REPRESENTATION_MANIFEST_FILENAME
+        if not (summary_path.exists() and comparison_path.exists() and frozen_path.exists() and cluster_path.exists() and representation_path.exists()):
             continue
         summary = _read_json(summary_path)
-        winner = _clean_text(((summary.get("evaluation") or {}).get("winner")))
-        score = 0.0
-        if winner == WINNING_MODEL_NAME:
-            score += 1000.0
-        score += summary_path.stat().st_mtime
-        candidates.append((score, run_dir))
+        dataset = summary.get("dataset") or {}
+        if _clean_text(dataset.get("feature_schema_version")) < MIN_FEATURE_SCHEMA_VERSION:
+            continue
+        try:
+            comparison = pd.read_csv(comparison_path).fillna("")
+        except Exception:
+            comparison = pd.DataFrame()
+        winner = _run_winner(summary, comparison)
+        if _model_family(winner) != PREFERRED_RUNTIME_MODEL_FAMILY and not ALLOW_NON_KMEANS_RUNTIME_FALLBACK:
+            continue
+        candidates.append((_artifact_candidate_score(summary_path, summary, winner), run_dir))
     if not candidates:
         return None
     candidates.sort(key=lambda item: item[0], reverse=True)
@@ -164,28 +210,34 @@ def load_resource_affinity_index() -> dict[str, Any]:
         frozen = pd.read_csv(run_dir / "resource_affinity_dataset_frozen.csv").fillna("")
         clusters = pd.read_csv(run_dir / "resource_affinity_cluster_assignments.csv").fillna("")
         comparison = pd.read_csv(run_dir / "resource_affinity_model_comparison.csv").fillna("")
+        representation = _read_json(run_dir / REPRESENTATION_MANIFEST_FILENAME)
     except Exception as exc:
         return {"available": False, "reason": f"artifact_read_failed:{exc}"}
     if frozen.empty or clusters.empty or "resource_key" not in frozen.columns:
         return {"available": False, "reason": "empty_index"}
-    try:
-        from sklearn.feature_extraction.text import TfidfVectorizer
-        from sklearn.metrics.pairwise import cosine_similarity
-    except Exception as exc:
-        return {"available": False, "reason": f"sklearn_unavailable:{exc}"}
 
     merged = frozen.merge(clusters[["resource_key", "cluster_id"]], on="resource_key", how="left")
-    texts = merged.get("profile_text", pd.Series(dtype=str)).astype(str).fillna("").tolist()
-    if not any(texts):
-        return {"available": False, "reason": "missing_profile_text"}
+    files = representation.get("files") or {}
     try:
-        vectorizer = TfidfVectorizer(max_features=1600, ngram_range=(1, 2), min_df=1)
-        matrix = vectorizer.fit_transform(texts)
+        vectorizer = _load_pickle(Path(str(files.get("vectorizer") or "")))
+        normalizer = _load_pickle(Path(str(files.get("normalizer") or "")))
+        svd_path = _clean_text(files.get("svd"))
+        svd = _load_pickle(Path(svd_path)) if svd_path else None
+        vectors_payload = np.load(Path(str(files.get("vectors") or "")))
+        matrix = np.asarray(vectors_payload["vectors"], dtype=float)
+        ordered_keys = json.loads(Path(str(files.get("resource_keys") or "")).read_text(encoding="utf-8"))
     except Exception as exc:
-        return {"available": False, "reason": f"vectorizer_failed:{exc}"}
+        return {"available": False, "reason": f"fitted_representation_load_failed:{exc}"}
+    merged_keys = merged["resource_key"].astype(str).tolist()
+    if list(ordered_keys) != merged_keys:
+        return {"available": False, "reason": "resource_order_mismatch"}
+    if matrix.shape[0] != len(merged_keys):
+        return {"available": False, "reason": "vector_row_count_mismatch"}
+    summary = _read_json(run_dir / "resource_affinity_run_summary.json")
     best_row = {}
     if not comparison.empty:
-        matches = comparison[comparison.get("model_name", pd.Series(dtype=str)).astype(str) == WINNING_MODEL_NAME]
+        winner_name = _run_winner(summary, comparison)
+        matches = comparison[comparison.get("model_name", pd.Series(dtype=str)).astype(str) == winner_name] if winner_name else pd.DataFrame()
         if not matches.empty:
             best_row = matches.iloc[0].to_dict()
         else:
@@ -194,14 +246,19 @@ def load_resource_affinity_index() -> dict[str, Any]:
         "available": True,
         "run_id": run_dir.name,
         "run_dir": str(run_dir),
-        "winner": _clean_text(best_row.get("model_name") or WINNING_MODEL_NAME),
+        "winner": _clean_text(best_row.get("model_name")),
+        "model_family": _model_family(best_row.get("model_name")),
+        "runtime_model_policy": f"preferred_family={PREFERRED_RUNTIME_MODEL_FAMILY}; fallback={'allowed' if ALLOW_NON_KMEANS_RUNTIME_FALLBACK else 'disabled'}",
         "silhouette_score": _safe_float(best_row.get("silhouette_score")),
+        "selection_score": _safe_float(best_row.get("selection_score")),
         "cross_subject_contamination_rate": _safe_float(best_row.get("cross_subject_contamination_rate")),
         "resources": merged.to_dict("records"),
         "resource_key_to_index": {str(key): idx for idx, key in enumerate(merged["resource_key"].astype(str).tolist())},
         "vectorizer": vectorizer,
+        "svd": svd,
+        "normalizer": normalizer,
         "matrix": matrix,
-        "cosine_similarity": cosine_similarity,
+        "representation_manifest": representation,
     }
 
 
@@ -219,7 +276,13 @@ def resource_affinity_score(row: dict[str, Any], kind: Any, context: dict[str, A
         query_text = _profile_text_for_candidate(row, kind)
     try:
         query_vec = index["vectorizer"].transform([query_text])
-        sims = index["cosine_similarity"](query_vec, index["matrix"])[0]
+        if index.get("svd") is not None:
+            query_vec = index["svd"].transform(query_vec)
+        else:
+            query_vec = query_vec.toarray()
+        query_vec = index["normalizer"].transform(query_vec)
+        matrix = np.asarray(index["matrix"], dtype=float)
+        sims = np.dot(query_vec, matrix.T)[0]
     except Exception as exc:
         return 0.0, {"available": False, "reason": f"score_failed:{exc}", "resource_key": resource_key}
 
@@ -246,6 +309,8 @@ def resource_affinity_score(row: dict[str, Any], kind: Any, context: dict[str, A
         "matched": True,
         "run_id": index.get("run_id"),
         "winner": index.get("winner"),
+        "model_family": index.get("model_family"),
+        "runtime_model_policy": index.get("runtime_model_policy"),
         "resource_key": resource_key,
         "candidate_similarity": round(candidate_similarity, 6),
         "candidate_cluster": candidate_cluster,

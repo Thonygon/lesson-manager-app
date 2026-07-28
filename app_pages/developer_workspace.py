@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html as _html
 import json
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -66,6 +67,34 @@ from services.ml_experiment_service import (
     mark_stale_experiment_jobs,
     rerun_integrity_review_for_run,
 )
+
+
+logger = logging.getLogger(__name__)
+
+
+def _render_workspace_section_error(section_name: str, exc: Exception) -> None:
+    logger.exception("Developer Workspace section failed", extra={"section_name": section_name})
+    st.error(t("developer_workspace_section_error") if t("developer_workspace_section_error") != "developer_workspace_section_error" else "No pudimos abrir esta sección del panel.")
+    st.caption(f"{section_name}: {type(exc).__name__}: {exc}")
+
+
+def _prepare_model_comparison_frame(model_rows: list[dict]) -> pd.DataFrame:
+    model_df = pd.DataFrame(model_rows)
+    if model_df.empty:
+        return model_df
+    model_df = model_df[[column for column in model_df.columns if not str(column).startswith("_")]].copy()
+    display_columns: dict[str, str] = {}
+    seen_labels: set[str] = set()
+    for column_name in list(model_df.columns):
+        model_df[column_name] = model_df[column_name].apply(
+            lambda value, name=column_name: get_model_comparison_value_display(name, value)
+        )
+        display_label = get_model_comparison_column_display(column_name)
+        if display_label in seen_labels:
+            display_label = f"{display_label} ({column_name})"
+        seen_labels.add(display_label)
+        display_columns[column_name] = display_label
+    return model_df.rename(columns=display_columns)
 
 
 def _experiment_paradigm_label(value: str) -> str:
@@ -135,8 +164,24 @@ def _product_role_display(role: str) -> str:
     return t(key) if key else safe_role
 
 
-def _artifact_type_display(artifact_type: str) -> str:
+def _artifact_type_display(artifact_type: str, *, filename: str = "") -> str:
     safe_type = " ".join(str(artifact_type or "").split()).strip()
+    if str(filename or "").startswith("resource_affinity_"):
+        affinity_labels = {
+            "label_audit_csv": "Profile Audit",
+            "holdout_predictions_csv": "Pairwise Semantic Neighbors",
+            "anchor_resource_candidates_csv": "Program Topic Resource Candidates",
+            "label_reconciliation_csv": "Unsupervised Validation Reconciliation",
+            "resource_affinity_program_topic_resource_candidates.csv": "Program Topic Resource Candidates",
+            "resource_affinity_exclusion_audit.csv": "Exclusion Audit",
+            "resource_affinity_category_normalization_audit.csv": "Category Normalization Audit",
+            "resource_affinity_human_review_sample.csv": "Human Review Sample",
+            "resource_affinity_experiment_config.json": "Experiment Configuration",
+            "resource_affinity_representation_manifest.json": "Fitted Representation Manifest",
+        }
+        specific = affinity_labels.get(safe_type) or affinity_labels.get(str(filename or ""))
+        if specific:
+            return specific
     key = ARTIFACT_TYPE_DISPLAY_KEYS.get(safe_type)
     if key:
         translated = t(key)
@@ -377,8 +422,8 @@ def _inject_styles() -> None:
 
 
 def _artifact_button_label(artifact: dict) -> str:
-    artifact_type = _artifact_type_display(str(artifact.get("artifact_type") or ""))
     artifact_path = Path(str(artifact.get("storage_path") or ""))
+    artifact_type = _artifact_type_display(str(artifact.get("artifact_type") or ""), filename=artifact_path.name)
     if artifact_path.name:
         return f"{artifact_type} ({artifact_path.name})"
     return artifact_type or t("developer_workspace_artifact_fallback")
@@ -537,7 +582,7 @@ def _render_protected_artifacts(artifact_rows: list[dict], *, key_prefix: str) -
         for artifact in artifact_rows:
             artifact_path = Path(str(artifact.get("storage_path") or ""))
             label = _artifact_button_label(artifact)
-            artifact_key = f"{key_prefix}_{artifact.get('artifact_type')}"
+            artifact_key = f"{key_prefix}_{artifact.get('artifact_type')}_{artifact_path.name}_{artifact.get('checksum') or ''}"
             if artifact_path.exists() and has_capability(CAPABILITY_VIEW_TECHNICAL_ARTIFACTS):
                 st.download_button(
                     label,
@@ -834,149 +879,119 @@ def _render_experiment_evidence() -> None:
     )
 
     with evidence_tab:
-        if not latest_validated:
-            st.info(t("developer_workspace_evidence_requires_validated_run"))
-        else:
-            run_id = str(latest_validated.get("run_id") or "")
-            summary_rows = [
-                (t("developer_workspace_summary_experiment"), get_experiment_display_name(str(latest_validated.get("experiment_id") or selected_experiment_id))),
-                (t("developer_workspace_summary_dataset_size"), str(int(latest_validated.get("included_row_count") or 0))),
-                (t("developer_workspace_summary_teachers_represented"), str(int(latest_validated.get("teachers_represented") or 0))),
-                (t("developer_workspace_summary_recommended_business_action"), get_business_action_display(str(latest_validated.get("recommended_business_action") or ""))),
-            ]
-            if selected_paradigm == EXPERIMENT_PARADIGM_SUPERVISED:
-                summary_rows.insert(2, (t("developer_workspace_summary_positive_labels"), str(int(latest_validated.get("positive_label_count") or 0))))
-                summary_rows.insert(3, (t("developer_workspace_summary_negative_labels"), str(int(latest_validated.get("negative_label_count") or 0))))
-            st.dataframe(pd.DataFrame(summary_rows, columns=[t("admin_field_label"), t("admin_value_label")]), use_container_width=True, hide_index=True)
-            business_detail = eic_service.get_experiment_business_detail(run_id, cache_bust=cache_bust)
-            model_rows = ((business_detail or {}).get("model_results") or {}).get("models_compared") or []
-            if model_rows:
-                model_df = pd.DataFrame(model_rows)
-                for column_name in list(model_df.columns):
-                    model_df[column_name] = model_df[column_name].apply(
-                        lambda value, name=column_name: get_model_comparison_value_display(name, value)
-                    )
-                model_df = model_df.rename(
-                    columns={column_name: get_model_comparison_column_display(column_name) for column_name in model_df.columns}
-                )
-                st.markdown(f"#### {t('developer_workspace_model_comparison_title')}")
-                st.dataframe(model_df, use_container_width=True, hide_index=True)
+        try:
+            if not latest_validated:
+                st.info(t("developer_workspace_evidence_requires_validated_run"))
+            else:
+                run_id = str(latest_validated.get("run_id") or "")
+                summary_rows = [
+                    (t("developer_workspace_summary_experiment"), get_experiment_display_name(str(latest_validated.get("experiment_id") or selected_experiment_id))),
+                    (t("developer_workspace_summary_dataset_size"), str(int(latest_validated.get("included_row_count") or 0))),
+                    (t("developer_workspace_summary_teachers_represented"), str(int(latest_validated.get("teachers_represented") or 0))),
+                    (t("developer_workspace_summary_recommended_business_action"), get_business_action_display(str(latest_validated.get("recommended_business_action") or ""))),
+                ]
+                if selected_paradigm == EXPERIMENT_PARADIGM_SUPERVISED:
+                    summary_rows.insert(2, (t("developer_workspace_summary_positive_labels"), str(int(latest_validated.get("positive_label_count") or 0))))
+                    summary_rows.insert(3, (t("developer_workspace_summary_negative_labels"), str(int(latest_validated.get("negative_label_count") or 0))))
+                st.dataframe(pd.DataFrame(summary_rows, columns=[t("admin_field_label"), t("admin_value_label")]), use_container_width=True, hide_index=True)
+                try:
+                    business_detail = eic_service.get_experiment_business_detail(run_id, cache_bust=cache_bust)
+                except Exception:
+                    business_detail = {}
+                model_rows = ((business_detail or {}).get("model_results") or {}).get("models_compared") or []
+                if model_rows:
+                    model_df = _prepare_model_comparison_frame(model_rows)
+                    st.markdown(f"#### {t('developer_workspace_model_comparison_title')}")
+                    st.dataframe(model_df, use_container_width=True, hide_index=True)
+        except Exception as exc:
+            _render_workspace_section_error("Resumen validado", exc)
 
     with registry_tab:
-        if validated_runs:
-            registry_df = pd.DataFrame(
-                [
-                    ({
-                        t("developer_workspace_registry_run_id"): str(row.get("run_id") or ""),
-                        t("developer_workspace_catalog_experiment"): get_experiment_display_name(str(row.get("experiment_id") or selected_experiment_id)),
-                        t("developer_workspace_registry_run_status"): get_run_status_display(str(row.get("run_status") or "")),
-                        t("developer_workspace_registry_integrity"): get_integrity_status_display(str(row.get("integrity_status") or "not_run")),
-                        t("developer_workspace_evidence_evidence"): get_evidence_display(str(row.get("evidence_level") or row.get("evidence_verdict") or "not_available"), lang=str(st.session_state.get("ui_lang") or "en")),
-                        t("developer_workspace_registry_included_rows"): int(row.get("included_row_count") or 0),
-                        t("developer_workspace_registry_primary_metric_leader"): str(row.get("primary_metric_leader") or "—"),
-                    } | ({
-                        t("developer_workspace_registry_positive_labels"): int(row.get("positive_label_count") or 0),
-                        t("developer_workspace_registry_negative_labels"): int(row.get("negative_label_count") or 0),
-                    } if selected_paradigm == EXPERIMENT_PARADIGM_SUPERVISED else {}))
-                    for row in validated_runs
-                ]
-            )
-            st.dataframe(registry_df, use_container_width=True, hide_index=True)
-        else:
-            st.info(t("developer_workspace_evidence_no_validated_runs"))
+        try:
+            if validated_runs:
+                registry_df = pd.DataFrame(
+                    [
+                        ({
+                            t("developer_workspace_registry_run_id"): str(row.get("run_id") or ""),
+                            t("developer_workspace_catalog_experiment"): get_experiment_display_name(str(row.get("experiment_id") or selected_experiment_id)),
+                            t("developer_workspace_registry_run_status"): get_run_status_display(str(row.get("run_status") or "")),
+                            t("developer_workspace_registry_integrity"): get_integrity_status_display(str(row.get("integrity_status") or "not_run")),
+                            t("developer_workspace_evidence_evidence"): get_evidence_display(str(row.get("evidence_level") or row.get("evidence_verdict") or "not_available"), lang=str(st.session_state.get("ui_lang") or "en")),
+                            t("developer_workspace_registry_included_rows"): int(row.get("included_row_count") or 0),
+                            t("developer_workspace_registry_primary_metric_leader"): str(row.get("primary_metric_leader") or "—"),
+                        } | ({
+                            t("developer_workspace_registry_positive_labels"): int(row.get("positive_label_count") or 0),
+                            t("developer_workspace_registry_negative_labels"): int(row.get("negative_label_count") or 0),
+                        } if selected_paradigm == EXPERIMENT_PARADIGM_SUPERVISED else {}))
+                        for row in validated_runs
+                    ]
+                )
+                st.dataframe(registry_df, use_container_width=True, hide_index=True)
+            else:
+                st.info(t("developer_workspace_evidence_no_validated_runs"))
 
-        runs = list_experiment_runs(experiment_id=selected_experiment_id, limit=25, cache_bust=cache_bust)
-        if runs:
-            selected_run_id = st.selectbox(
-                t("developer_workspace_registry_artifact_run_detail"),
-                [str(row.get("run_id") or "") for row in runs],
-                key="developer_workspace_evidence_run_id",
-            )
-            selected_run = get_run(selected_run_id)
-            if selected_run:
-                retention = get_run_artifact_retention_status(selected_run_id)
-                detail_cols = st.columns(4, gap="small")
-                detail_cards = [
-                    (t("developer_workspace_detail_run_status"), get_run_status_display(str(selected_run.get("run_status") or ""))),
-                    (t("developer_workspace_detail_integrity"), get_integrity_status_display(str(selected_run.get("integrity_status") or "not_run"))),
-                    (t("developer_workspace_registry_maturity"), get_maturity_display(str(selected_run.get("maturity_verdict") or ""))),
-                    (t("developer_workspace_detail_current_validated"), _yes_no(bool(selected_run.get("is_current_validated_run")))),
-                ]
-                for col, (label, value) in zip(detail_cols, detail_cards):
-                    with col:
-                        st.markdown(_card(label, value), unsafe_allow_html=True)
-                st.caption(t("developer_workspace_detail_artifact_retention", value=_translate_retention_reason(retention.reason)))
-                artifact_rows = list_run_artifacts(selected_run_id)
-                _render_protected_artifacts(artifact_rows, key_prefix=f"evidence_{selected_run_id}")
+            runs = list_experiment_runs(experiment_id=selected_experiment_id, limit=25, cache_bust=cache_bust)
+            if runs:
+                selected_run_id = st.selectbox(
+                    t("developer_workspace_registry_artifact_run_detail"),
+                    [str(row.get("run_id") or "") for row in runs],
+                    key="developer_workspace_evidence_run_id",
+                )
+                selected_run = get_run(selected_run_id)
+                if selected_run:
+                    retention = get_run_artifact_retention_status(selected_run_id)
+                    detail_cols = st.columns(4, gap="small")
+                    detail_cards = [
+                        (t("developer_workspace_detail_run_status"), get_run_status_display(str(selected_run.get("run_status") or ""))),
+                        (t("developer_workspace_detail_integrity"), get_integrity_status_display(str(selected_run.get("integrity_status") or "not_run"))),
+                        (t("developer_workspace_registry_maturity"), get_maturity_display(str(selected_run.get("maturity_verdict") or ""))),
+                        (t("developer_workspace_detail_current_validated"), _yes_no(bool(selected_run.get("is_current_validated_run")))),
+                    ]
+                    for col, (label, value) in zip(detail_cols, detail_cards):
+                        with col:
+                            st.markdown(_card(label, value), unsafe_allow_html=True)
+                    st.caption(t("developer_workspace_detail_artifact_retention", value=_translate_retention_reason(retention.reason)))
+                    artifact_rows = list_run_artifacts(selected_run_id)
+                    _render_protected_artifacts(artifact_rows, key_prefix=f"evidence_{selected_run_id}")
+        except Exception as exc:
+            _render_workspace_section_error("Registro y artefactos", exc)
 
     with reports_tab:
-        if not latest_validated:
-            st.info(t("developer_workspace_reports_no_validated_run"))
-        else:
-            run_id = str(latest_validated.get("run_id") or "")
-            lang = str(st.session_state.get("ui_lang") or "en")
-            feedback_key = f"developer_workspace_report_feedback_{run_id}_{lang}"
-            feedback = st.session_state.pop(feedback_key, None)
-            if isinstance(feedback, dict):
-                generation_mode = str(feedback.get("generation_mode") or "template")
-                provider = str(feedback.get("provider") or "").strip()
-                if generation_mode == "ai":
-                    provider_suffix = f" ({provider})" if provider else ""
-                    st.success(t("developer_workspace_reports_feedback_ai", provider=provider_suffix))
-                else:
-                    st.warning(t("developer_workspace_reports_feedback_template"))
-            render_report_context_editor(
-                run_id=run_id,
-                experiment_id=selected_experiment_id,
-                language=lang,
-                key_prefix=f"developer_workspace_{selected_experiment_id}_{run_id}",
-            )
-            capabilities = {CAPABILITY_VIEW_TECHNICAL_ARTIFACTS} if has_capability(CAPABILITY_VIEW_TECHNICAL_ARTIFACTS) else set()
-            report_rows = list_available_eic_reports(run_id, capabilities, language=lang)
-            for start in range(0, len(report_rows), 3):
-                cols = st.columns(3, gap="medium")
-                for col, report in zip(cols, report_rows[start : start + 3]):
-                    report_type = str(report.get("report_type") or "")
-                    report_status = str(report.get("status") or "not_available")
-                    with col:
-                        st.markdown(_card(str(report.get("title") or ""), _report_status_display(report_status), str(report.get("description") or "")), unsafe_allow_html=True)
-                        if report_status == "available" and not bool(report.get("download_ready")):
-                            if st.button(t("developer_workspace_reports_generate"), key=f"developer_workspace_generate_{run_id}_{report_type}", use_container_width=True):
-                                with st.spinner(t("generating")):
-                                    result = get_or_create_validated_report(run_id, report_type, lang)
-                                if result.get("ok"):
-                                    st.session_state[feedback_key] = {
-                                        "generation_mode": str(result.get("generation_mode") or "template"),
-                                        "provider": str(result.get("provider") or ""),
-                                    }
-                                    st.rerun()
-                                st.error(str(result.get("message") or t("admin_eic_report_generation_failed")))
-                        elif report_status == "available" and bool(report.get("download_ready")):
-                            report_path = Path(str(report.get("path") or ""))
-                            modified_epoch = int(report.get("modified_epoch") or 0)
-                            action_cols = st.columns(2, gap="small")
-                            with action_cols[0]:
-                                st.download_button(
-                                    label=t("developer_workspace_reports_download"),
-                                    data=report_path.read_bytes(),
-                                    file_name=report_path.name,
-                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                    use_container_width=True,
-                                    key=f"developer_workspace_download_docx_{run_id}_{report_type}_{modified_epoch}",
-                                )
-                            with action_cols[1]:
-                                if st.button(
-                                    t("developer_workspace_reports_regenerate"),
-                                    key=f"developer_workspace_regenerate_{run_id}_{report_type}",
-                                    use_container_width=True,
-                                ):
+        try:
+            if not latest_validated:
+                st.info(t("developer_workspace_reports_no_validated_run"))
+            else:
+                run_id = str(latest_validated.get("run_id") or "")
+                lang = str(st.session_state.get("ui_lang") or "en")
+                feedback_key = f"developer_workspace_report_feedback_{run_id}_{lang}"
+                feedback = st.session_state.pop(feedback_key, None)
+                if isinstance(feedback, dict):
+                    generation_mode = str(feedback.get("generation_mode") or "template")
+                    provider = str(feedback.get("provider") or "").strip()
+                    if generation_mode == "ai":
+                        provider_suffix = f" ({provider})" if provider else ""
+                        st.success(t("developer_workspace_reports_feedback_ai", provider=provider_suffix))
+                    else:
+                        st.warning(t("developer_workspace_reports_feedback_template"))
+                render_report_context_editor(
+                    run_id=run_id,
+                    experiment_id=selected_experiment_id,
+                    language=lang,
+                    key_prefix=f"developer_workspace_{selected_experiment_id}_{run_id}",
+                )
+                capabilities = {CAPABILITY_VIEW_TECHNICAL_ARTIFACTS} if has_capability(CAPABILITY_VIEW_TECHNICAL_ARTIFACTS) else set()
+                report_rows = list_available_eic_reports(run_id, capabilities, language=lang)
+                for start in range(0, len(report_rows), 3):
+                    cols = st.columns(3, gap="medium")
+                    for col, report in zip(cols, report_rows[start : start + 3]):
+                        report_type = str(report.get("report_type") or "")
+                        report_status = str(report.get("status") or "not_available")
+                        with col:
+                            st.markdown(_card(str(report.get("title") or ""), _report_status_display(report_status), str(report.get("description") or "")), unsafe_allow_html=True)
+                            if report_status == "available" and not bool(report.get("download_ready")):
+                                if st.button(t("developer_workspace_reports_generate"), key=f"developer_workspace_generate_{run_id}_{report_type}", use_container_width=True):
                                     with st.spinner(t("generating")):
-                                        result = get_or_create_validated_report(
-                                            run_id,
-                                            report_type,
-                                            lang,
-                                            force_regenerate=True,
-                                        )
+                                        result = get_or_create_validated_report(run_id, report_type, lang)
                                     if result.get("ok"):
                                         st.session_state[feedback_key] = {
                                             "generation_mode": str(result.get("generation_mode") or "template"),
@@ -984,10 +999,48 @@ def _render_experiment_evidence() -> None:
                                         }
                                         st.rerun()
                                     st.error(str(result.get("message") or t("admin_eic_report_generation_failed")))
-                            if str(report.get("modified_at") or "").strip():
-                                st.caption(t("developer_workspace_reports_latest_generated_at", value=str(report.get("modified_at") or "")))
-                        else:
-                            st.caption(t("developer_workspace_reports_availability", value=report_status))
+                            elif report_status == "available" and bool(report.get("download_ready")):
+                                report_path = Path(str(report.get("path") or ""))
+                                modified_epoch = int(report.get("modified_epoch") or 0)
+                                action_cols = st.columns(2, gap="small")
+                                with action_cols[0]:
+                                    if report_path.exists():
+                                        st.download_button(
+                                            label=t("developer_workspace_reports_download"),
+                                            data=report_path.read_bytes(),
+                                            file_name=report_path.name,
+                                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                            use_container_width=True,
+                                            key=f"developer_workspace_download_docx_{run_id}_{report_type}_{modified_epoch}",
+                                        )
+                                    else:
+                                        st.button(t("developer_workspace_reports_download"), disabled=True, use_container_width=True, key=f"developer_workspace_missing_docx_{run_id}_{report_type}")
+                                with action_cols[1]:
+                                    if st.button(
+                                        t("developer_workspace_reports_regenerate"),
+                                        key=f"developer_workspace_regenerate_{run_id}_{report_type}",
+                                        use_container_width=True,
+                                    ):
+                                        with st.spinner(t("generating")):
+                                            result = get_or_create_validated_report(
+                                                run_id,
+                                                report_type,
+                                                lang,
+                                                force_regenerate=True,
+                                            )
+                                        if result.get("ok"):
+                                            st.session_state[feedback_key] = {
+                                                "generation_mode": str(result.get("generation_mode") or "template"),
+                                                "provider": str(result.get("provider") or ""),
+                                            }
+                                            st.rerun()
+                                        st.error(str(result.get("message") or t("admin_eic_report_generation_failed")))
+                                if str(report.get("modified_at") or "").strip():
+                                    st.caption(t("developer_workspace_reports_latest_generated_at", value=str(report.get("modified_at") or "")))
+                            else:
+                                st.caption(t("developer_workspace_reports_availability", value=report_status))
+        except Exception as exc:
+            _render_workspace_section_error("Informes", exc)
 
 
 def _render_telemetry_diagnostics() -> None:

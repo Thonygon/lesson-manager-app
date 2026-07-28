@@ -173,6 +173,22 @@ class DeveloperWorkspaceServiceTests(unittest.TestCase):
         jobs.clear_job_cache()
         ml.clear_experiment_cache()
 
+    def test_model_comparison_frame_hides_internal_selection_score_column(self):
+        frame = dev_workspace._prepare_model_comparison_frame(
+            [
+                {
+                    "model_name": "KMeans",
+                    "_selection_score": 0.123456,
+                    "selection_score": 0.123456,
+                }
+            ]
+        )
+
+        self.assertIn("Selection Score", frame.columns)
+        self.assertNotIn("_ Selection Score", frame.columns)
+        self.assertNotIn("_selection_score", frame.columns)
+        self.assertEqual(len(frame.columns), len(set(frame.columns)))
+
     def test_authorization_context_supports_multi_role_capabilities(self):
         user_id = "5ed84fe2-7437-4dbc-a47e-12ccf4af1e4b"
         fake_sb = _FakeSupabase(
