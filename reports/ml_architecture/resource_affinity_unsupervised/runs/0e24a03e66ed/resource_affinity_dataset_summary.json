@@ -1,0 +1,111 @@
+{
+  "candidate_resource_count": 103,
+  "candidate_resource_types": [
+    "worksheet",
+    "exam",
+    "video",
+    "lesson_plan",
+    "program"
+  ],
+  "completeness": {
+    "language": {
+      "known_count": 0,
+      "known_pct": 0.0,
+      "missing_count": 451
+    },
+    "learner_stage": {
+      "known_count": 451,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "lesson_plan_extracted_topics": {
+      "known_count": 15,
+      "known_pct": 0.0333,
+      "missing_count": 436
+    },
+    "level": {
+      "known_count": 451,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "profile_text": {
+      "known_count": 451,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "resource_id": {
+      "known_count": 451,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "resource_role": {
+      "known_count": 451,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "subject": {
+      "known_count": 451,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "subtype": {
+      "known_count": 396,
+      "known_pct": 0.878,
+      "missing_count": 55
+    },
+    "title": {
+      "known_count": 451,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "topic": {
+      "known_count": 444,
+      "known_pct": 0.9845,
+      "missing_count": 7
+    }
+  },
+  "curricular_anchor_count": 348,
+  "data_fingerprint": "ec9e0fa4f474c425277db4b2",
+  "errors": [
+    {
+      "error": "{'message': 'canceling statement due to statement timeout', 'code': '57014', 'hint': None, 'details': None}",
+      "resource_type": "worksheet",
+      "table_name": "worksheets"
+    }
+  ],
+  "excluded_counts_by_reason": {},
+  "excluded_counts_by_type": {},
+  "excluded_row_count": 0,
+  "experiment_target": "learning_program_topic_to_candidate_resource_alignment",
+  "extracted_at": "2026-07-28T19:10:50.189210+00:00",
+  "feature_schema_version": "resource_affinity_unsupervised.v4",
+  "included_counts_by_role": {
+    "candidate_resource": 103,
+    "curricular_anchor": 348
+  },
+  "included_counts_by_type": {
+    "exam": 33,
+    "lesson_plan": 15,
+    "program": 7,
+    "program_topic": 348,
+    "video": 48
+  },
+  "included_row_count": 451,
+  "language_count": 0,
+  "level_count": 5,
+  "program_topic_role": "curricular_anchor",
+  "raw_counts_by_type": {
+    "exam": 33,
+    "lesson_plan": 15,
+    "program": 7,
+    "program_topic": 348,
+    "video": 48,
+    "worksheet": 0
+  },
+  "raw_language_count": 0,
+  "raw_level_count": 5,
+  "raw_subject_count": 4,
+  "resource_count": 103,
+  "source_row_count": 451,
+  "subject_count": 2
+}

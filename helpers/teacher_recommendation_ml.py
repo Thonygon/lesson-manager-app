@@ -609,7 +609,7 @@ def build_teacher_recommendation_samples(
         bucket = _norm_key(row.get("recommendation_bucket"))
         focus = _norm_key(row.get("recommendation_focus_kind"))
         topic_id = int(row.get("learning_program_topic_id") or 0)
-        resource_id = int(row.get("resource_record_id") or 0)
+        resource_id = _resource_id_key(row.get("resource_record_id"))
         topic_features = {
             "explicit_topic_match": 0.0,
             "explicit_topic_support": 0.0,
@@ -617,7 +617,7 @@ def build_teacher_recommendation_samples(
             "topic_kind_prior": 0.0,
             "topic_match_ambiguity": 0.0,
         }
-        if topic_id > 0 and resource_id > 0 and kind:
+        if topic_id > 0 and resource_id and resource_id not in {"0", "None", "nan"} and kind:
             topic_features = topic_resource_alignment_features(
                 kind,
                 resource_id,

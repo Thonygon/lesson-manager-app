@@ -749,16 +749,16 @@ def build_teacher_recommendation_model(teacher_id: str | None = None) -> dict[st
         bucket = _norm_key(row.get("recommendation_bucket"))
         focus = _norm_key(row.get("recommendation_focus_kind"))
         topic_id = int(row.get("learning_program_topic_id") or 0)
-        resource_id = int(row.get("resource_record_id") or 0)
+        resource_id = _resource_id_key(row.get("resource_record_id"))
         target = _teacher_event_target(row)
         topic_features = {
-            "exact_topic_match": 0.0,
-            "exact_topic_support": 0.0,
+            "explicit_topic_match": 0.0,
+            "explicit_topic_support": 0.0,
             "direct_topic_link": 0.0,
             "topic_kind_prior": 0.0,
             "topic_match_ambiguity": 0.0,
         }
-        if topic_id > 0 and resource_id > 0:
+        if topic_id > 0 and resource_id and resource_id not in {"0", "None", "nan"}:
             topic_features = topic_resource_alignment_features(
                 kind,
                 resource_id,

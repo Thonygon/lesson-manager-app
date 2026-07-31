@@ -214,6 +214,17 @@ BUSINESS_ACTION_KEYS = {
     "maintain_current_logic": "admin_eic_action_maintain_current_logic",
     "improve_exposure_matching": "admin_eic_action_improve_exposure_matching",
     "expand_teacher_coverage": "admin_eic_action_expand_teacher_coverage",
+    "continue_telemetry_collection_before_supervised_training": "admin_eic_action_continue_telemetry_before_supervised_training",
+    "keep_as_heuristic_plus_affinity_ranker": "admin_eic_action_keep_as_heuristic_plus_affinity_ranker",
+    "maintain_current_logic_and_monitor_tenant_isolation": "admin_eic_action_maintain_current_logic_and_monitor_tenant_isolation",
+    "continue_collecting_consistent_recommendation_exposures": "admin_eic_action_continue_collecting_consistent_recommendation_exposures",
+    "retire_the_acceptance_framing_until_real_labels_exist": "admin_eic_action_retire_the_acceptance_framing_until_real_labels_exist",
+    "keep_as_feature_engineering_not_as_a_standalone_ml_claim": "admin_eic_action_keep_as_feature_engineering_not_as_a_standalone_ml_claim",
+    "maintain_current_logic_and_monitor_data_quality": "admin_eic_action_maintain_current_logic_and_monitor_data_quality",
+    "maintain_deterministic_logic": "admin_eic_action_maintain_deterministic_logic",
+    "maintain_and_monitor": "admin_eic_action_maintain_and_monitor",
+    "improve_exposure_matching_and_grow_real_usage": "admin_eic_action_improve_exposure_matching_and_grow_real_usage",
+    "expand_teacher_coverage_and_continue_collecting_labels": "admin_eic_action_expand_teacher_coverage_and_continue_collecting_labels",
 }
 
 STAFF_ROLE_DISPLAY_KEYS = {
@@ -430,6 +441,13 @@ def get_component_type_display(component_type: str, lang: str | None = None) -> 
 
 def get_business_action_display(action_key: str, lang: str | None = None) -> str:
     safe_action = _clean_text(action_key)
+    normalized_action = _normalized_token(safe_action).lower().strip("._")
+    normalized_action = re.sub(r"_+", "_", normalized_action)
+    key = BUSINESS_ACTION_KEYS.get(normalized_action)
+    if key:
+        translated = _translate_key(key, lang=lang)
+        if translated:
+            return translated
     key = BUSINESS_ACTION_KEYS.get(safe_action)
     return _translate_key(key, lang=lang) if key else _fallback_display(safe_action)
 

@@ -1,0 +1,234 @@
+{
+  "dataset": {
+    "completeness": {
+      "language": {
+        "known_count": 0,
+        "known_pct": 0.0,
+        "missing_count": 418
+      },
+      "learner_stage": {
+        "known_count": 418,
+        "known_pct": 1.0,
+        "missing_count": 0
+      },
+      "lesson_plan_extracted_topics": {
+        "known_count": 15,
+        "known_pct": 0.0359,
+        "missing_count": 403
+      },
+      "level": {
+        "known_count": 418,
+        "known_pct": 1.0,
+        "missing_count": 0
+      },
+      "profile_text": {
+        "known_count": 418,
+        "known_pct": 1.0,
+        "missing_count": 0
+      },
+      "resource_id": {
+        "known_count": 418,
+        "known_pct": 1.0,
+        "missing_count": 0
+      },
+      "subject": {
+        "known_count": 418,
+        "known_pct": 1.0,
+        "missing_count": 0
+      },
+      "subtype": {
+        "known_count": 363,
+        "known_pct": 0.8684,
+        "missing_count": 55
+      },
+      "title": {
+        "known_count": 418,
+        "known_pct": 1.0,
+        "missing_count": 0
+      },
+      "topic": {
+        "known_count": 411,
+        "known_pct": 0.9833,
+        "missing_count": 7
+      }
+    },
+    "data_fingerprint": "3dd56e12aaafc557d504bd56",
+    "errors": [
+      {
+        "error": "{'message': 'column worksheets.updated_at does not exist', 'code': '42703', 'hint': 'Perhaps you meant to reference the column \"worksheets.created_at\".', 'details': None}",
+        "resource_type": "worksheet",
+        "table_name": "worksheets"
+      },
+      {
+        "error": "{'message': 'column quick_exams.updated_at does not exist', 'code': '42703', 'hint': 'Perhaps you meant to reference the column \"quick_exams.created_at\".', 'details': None}",
+        "resource_type": "exam",
+        "table_name": "quick_exams"
+      }
+    ],
+    "excluded_counts_by_reason": {},
+    "excluded_counts_by_type": {},
+    "excluded_row_count": 0,
+    "extracted_at": "2026-07-28T18:07:13.736173+00:00",
+    "feature_schema_version": "resource_affinity_unsupervised.v3",
+    "included_counts_by_type": {
+      "lesson_plan": 15,
+      "program": 7,
+      "program_topic": 348,
+      "video": 48
+    },
+    "included_row_count": 418,
+    "language_count": 0,
+    "level_count": 5,
+    "raw_counts_by_type": {
+      "exam": 0,
+      "lesson_plan": 15,
+      "program": 7,
+      "program_topic": 348,
+      "video": 48,
+      "worksheet": 0
+    },
+    "raw_language_count": 0,
+    "raw_level_count": 5,
+    "raw_subject_count": 4,
+    "resource_count": 418,
+    "source_row_count": 418,
+    "subject_count": 2
+  },
+  "evaluation": {
+    "balanced_candidate": "KMeans k=24",
+    "best_model": {
+      "_selection_score": 0.16135458456957458,
+      "algorithm_name": "KMeans",
+      "assigned_resource_coverage": 1.0,
+      "calinski_harabasz": 14.582379685179346,
+      "cluster_count": 24,
+      "cluster_size_2_rate": 0.0,
+      "cluster_size_le_3_rate": 0.0,
+      "contaminated_language_clusters": 0,
+      "contaminated_subject_clusters": 3,
+      "cross_language_contamination_rate": null,
+      "cross_subject_contamination_rate": 0.125,
+      "davies_bouldin": 2.1351737063562464,
+      "evaluated_language_clusters": 0,
+      "evaluated_subject_clusters": 24,
+      "failure_reason": "",
+      "inference_duration_ms": 0,
+      "max_cluster_size": 65,
+      "mean_cluster_size": 17.4167,
+      "median_cluster_size": 13.0,
+      "min_cluster_size": 4,
+      "model_key": "KMeans:{\"n_clusters\": 24}",
+      "model_name": "KMeans k=24",
+      "noise_ratio": 0.0,
+      "parameters_json": "{\"n_clusters\": 24}",
+      "silhouette_score": 0.2051045845695746,
+      "singleton_cluster_count": 0,
+      "status": "ok",
+      "train_duration_ms": 13
+    },
+    "embedding_manifest": {
+      "embedding_method": "tfidf_truncated_svd",
+      "explained_variance_ratio_sum": 0.5406690538095251,
+      "feature_count": 1600,
+      "ngram_range": "1,2",
+      "vector_dimensions": 64,
+      "vectorizer": "TfidfVectorizer"
+    },
+    "experiment_config": {
+      "candidate_count": 43,
+      "configuration_hash": "da2b8f5a4b81d81e633f59ae",
+      "not_exhaustive": true
+    },
+    "experiment_id": "resource_affinity_unsupervised_discovery",
+    "feature_names": [
+      "profile_text",
+      "subject_normalized",
+      "language_normalized",
+      "level_normalized",
+      "resource_type_normalized"
+    ],
+    "high_confidence_neighbor_edges": 1314,
+    "limitations": [
+      "No human-labeled semantic relevance labels are used in this unsupervised phase.",
+      "Small or imbalanced resource catalogs can make clustering metrics unstable.",
+      "Business rules must still filter by subject, language, teacher, student, level, and archive state.",
+      "Cross-language contamination is calculated only from non-empty known language values. Missing language metadata limits interpretation."
+    ],
+    "maturity_verdict": "CANDIDATE_FOR_SHADOW_TESTING",
+    "metric_leader": "KMeans k=3",
+    "metric_notes": {
+      "cluster_metrics_noise_handling": "Silhouette, Calinski-Harabasz, and Davies-Bouldin are calculated only on non-noise observations.",
+      "contamination_denominators": "Empty metadata values are excluded from unique-category counts.",
+      "silhouette_distance": "cosine"
+    },
+    "neighbor_summary": {
+      "directed_edge_count": 2090,
+      "max_similarity": 1.0,
+      "mean_similarity": 0.756017,
+      "median_similarity": 0.757417,
+      "min_similarity": 0.33458,
+      "noise_source_edges": 0,
+      "noise_target_edges": 0,
+      "reciprocal_edge_count": 1396,
+      "reciprocal_edge_rate": 0.6679,
+      "same_language_rate_known": null,
+      "same_level_rate_known": 0.6636,
+      "same_subject_rate": 0.9866,
+      "thresholds": {
+        "0.6": 1896,
+        "0.7": 1464,
+        "0.72": 1314,
+        "0.8": 743,
+        "0.9": 240
+      },
+      "top_k": 5,
+      "unique_undirected_pair_count": 1392
+    },
+    "overall_evidence_strength": "EXPLORATORY_SEMANTIC_AFFINITY",
+    "primary_metric": "balanced_selection_score",
+    "primary_metric_leader": "KMeans k=24",
+    "representation_manifest": {
+      "configuration_hash": "8825d687d8daca5996bac33e",
+      "dataset_fingerprint": "3dd56e12aaafc557d504bd56",
+      "embedding_method": "tfidf_truncated_svd",
+      "explained_variance_ratio_sum": 0.5406690538095251,
+      "feature_count": 1600,
+      "feature_schema_version": "resource_affinity_unsupervised.v3",
+      "file_checksums": {
+        "normalizer": "0f9a9eb405bc8ca2f23c18311282b2836d542758781fa3e7b1a5aa43e9222b78",
+        "resource_keys": "fcdc4efd7b1cf14458683736fa7e1e31ddae1e0733e8b7114c87dd9591cacb90",
+        "svd": "f751cc3f2d073245eb883e11d4bf1f842bbf98de18062c57150adfce919c6f00",
+        "vectorizer": "0d805c626c8c1d64970d2bf5f647015f9f6fc7e8b24cb7cfded422c40d7de38f",
+        "vectors": "1e980f178dab3852aaca8dfec5dc38e8cf0167536d68160b0e00eb77ff72b364"
+      },
+      "files": {
+        "normalizer": "reports/ml_architecture/resource_affinity_unsupervised/runs/187db2d8a61d/resource_affinity_normalizer.pkl",
+        "resource_keys": "reports/ml_architecture/resource_affinity_unsupervised/runs/187db2d8a61d/resource_affinity_ordered_resource_keys.json",
+        "svd": "reports/ml_architecture/resource_affinity_unsupervised/runs/187db2d8a61d/resource_affinity_svd.pkl",
+        "vectorizer": "reports/ml_architecture/resource_affinity_unsupervised/runs/187db2d8a61d/resource_affinity_vectorizer.pkl",
+        "vectors": "reports/ml_architecture/resource_affinity_unsupervised/runs/187db2d8a61d/resource_affinity_vectors.npz"
+      },
+      "ngram_range": "1,2",
+      "ordered_resource_key_count": 418,
+      "resource_count": 418,
+      "run_id": "187db2d8a61d",
+      "vector_dimensions": 64,
+      "vectorizer": "TfidfVectorizer"
+    },
+    "run_id": "187db2d8a61d",
+    "selected_candidate_for_human_review": "KMeans k=24",
+    "winner": "KMeans k=24"
+  },
+  "generated_at": "2026-07-28T18:07:19.316629+00:00",
+  "review": {
+    "label_reconciliation": {
+      "limitations": [
+        "No human-labeled semantic relevance labels are used in this unsupervised phase.",
+        "Small or imbalanced resource catalogs can make clustering metrics unstable.",
+        "Business rules must still filter by subject, language, teacher, student, level, and archive state.",
+        "Cross-language contamination is calculated only from non-empty known language values. Missing language metadata limits interpretation."
+      ],
+      "summary": "Unsupervised experiment: no supervised label construction was used."
+    }
+  }
+}

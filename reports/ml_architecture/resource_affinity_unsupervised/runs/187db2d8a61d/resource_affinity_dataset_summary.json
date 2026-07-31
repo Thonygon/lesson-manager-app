@@ -1,0 +1,95 @@
+{
+  "completeness": {
+    "language": {
+      "known_count": 0,
+      "known_pct": 0.0,
+      "missing_count": 418
+    },
+    "learner_stage": {
+      "known_count": 418,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "lesson_plan_extracted_topics": {
+      "known_count": 15,
+      "known_pct": 0.0359,
+      "missing_count": 403
+    },
+    "level": {
+      "known_count": 418,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "profile_text": {
+      "known_count": 418,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "resource_id": {
+      "known_count": 418,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "subject": {
+      "known_count": 418,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "subtype": {
+      "known_count": 363,
+      "known_pct": 0.8684,
+      "missing_count": 55
+    },
+    "title": {
+      "known_count": 418,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "topic": {
+      "known_count": 411,
+      "known_pct": 0.9833,
+      "missing_count": 7
+    }
+  },
+  "data_fingerprint": "3dd56e12aaafc557d504bd56",
+  "errors": [
+    {
+      "error": "{'message': 'column worksheets.updated_at does not exist', 'code': '42703', 'hint': 'Perhaps you meant to reference the column \"worksheets.created_at\".', 'details': None}",
+      "resource_type": "worksheet",
+      "table_name": "worksheets"
+    },
+    {
+      "error": "{'message': 'column quick_exams.updated_at does not exist', 'code': '42703', 'hint': 'Perhaps you meant to reference the column \"quick_exams.created_at\".', 'details': None}",
+      "resource_type": "exam",
+      "table_name": "quick_exams"
+    }
+  ],
+  "excluded_counts_by_reason": {},
+  "excluded_counts_by_type": {},
+  "excluded_row_count": 0,
+  "extracted_at": "2026-07-28T18:07:13.736173+00:00",
+  "feature_schema_version": "resource_affinity_unsupervised.v3",
+  "included_counts_by_type": {
+    "lesson_plan": 15,
+    "program": 7,
+    "program_topic": 348,
+    "video": 48
+  },
+  "included_row_count": 418,
+  "language_count": 0,
+  "level_count": 5,
+  "raw_counts_by_type": {
+    "exam": 0,
+    "lesson_plan": 15,
+    "program": 7,
+    "program_topic": 348,
+    "video": 48,
+    "worksheet": 0
+  },
+  "raw_language_count": 0,
+  "raw_level_count": 5,
+  "raw_subject_count": 4,
+  "resource_count": 418,
+  "source_row_count": 418,
+  "subject_count": 2
+}

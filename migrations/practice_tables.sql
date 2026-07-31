@@ -7,10 +7,9 @@
 CREATE TABLE IF NOT EXISTS practice_sessions (
     id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id       UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    owner_id      UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
 
     source_type   TEXT NOT NULL DEFAULT 'worksheet',       -- 'worksheet' | 'exam'
-    source_id     BIGINT,                                  -- FK to worksheets.id or quick_exams.id (nullable)
+    source_id     TEXT,                                    -- worksheet/exam/video id (numeric or UUID)
     title         TEXT NOT NULL DEFAULT '',
     subject       TEXT NOT NULL DEFAULT '',
     topic         TEXT NOT NULL DEFAULT '',
@@ -51,7 +50,6 @@ CREATE TABLE IF NOT EXISTS practice_answers (
 CREATE TABLE IF NOT EXISTS practice_progress (
     id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id         UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    owner_id        UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
 
     subject         TEXT NOT NULL DEFAULT '',
     topic           TEXT NOT NULL DEFAULT '',

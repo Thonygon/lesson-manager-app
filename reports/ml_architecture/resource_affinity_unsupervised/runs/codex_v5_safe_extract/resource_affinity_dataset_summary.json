@@ -1,0 +1,123 @@
+{
+  "candidate_resource_count": 193,
+  "candidate_resource_types": [
+    "worksheet",
+    "exam",
+    "video",
+    "lesson_plan",
+    "program"
+  ],
+  "completeness": {
+    "content_excerpt": {
+      "known_count": 0,
+      "known_pct": 0.0,
+      "missing_count": 541
+    },
+    "language": {
+      "known_count": 90,
+      "known_pct": 0.1664,
+      "missing_count": 451
+    },
+    "learner_stage": {
+      "known_count": 541,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "lesson_plan_extracted_topics": {
+      "known_count": 15,
+      "known_pct": 0.0277,
+      "missing_count": 526
+    },
+    "level": {
+      "known_count": 541,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "profile_text": {
+      "known_count": 541,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "resource_id": {
+      "known_count": 541,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "resource_role": {
+      "known_count": 541,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "subject": {
+      "known_count": 541,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "subtype": {
+      "known_count": 486,
+      "known_pct": 0.8983,
+      "missing_count": 55
+    },
+    "title": {
+      "known_count": 541,
+      "known_pct": 1.0,
+      "missing_count": 0
+    },
+    "topic": {
+      "known_count": 534,
+      "known_pct": 0.9871,
+      "missing_count": 7
+    }
+  },
+  "curricular_anchor_count": 348,
+  "data_fingerprint": "c7379af008a63ebaf26bbf58",
+  "errors": [],
+  "excluded_counts_by_reason": {
+    "archived_status": 1
+  },
+  "excluded_counts_by_type": {
+    "worksheet": 1
+  },
+  "excluded_row_count": 1,
+  "experiment_target": "learning_program_topic_to_candidate_resource_alignment",
+  "extracted_at": "2026-07-28T19:51:29.637390+00:00",
+  "feature_schema_version": "resource_affinity_unsupervised.v5",
+  "included_counts_by_role": {
+    "candidate_resource": 193,
+    "curricular_anchor": 348
+  },
+  "included_counts_by_type": {
+    "exam": 33,
+    "lesson_plan": 15,
+    "program": 7,
+    "program_topic": 348,
+    "video": 48,
+    "worksheet": 90
+  },
+  "included_row_count": 541,
+  "language_count": 2,
+  "level_count": 6,
+  "program_topic_role": "curricular_anchor",
+  "raw_counts_by_type": {
+    "exam": 33,
+    "lesson_plan": 15,
+    "program": 7,
+    "program_topic": 348,
+    "video": 48,
+    "worksheet": 91
+  },
+  "raw_language_count": 2,
+  "raw_level_count": 6,
+  "raw_subject_count": 4,
+  "resource_count": 193,
+  "source_row_count": 542,
+  "subject_count": 2,
+  "warnings": [
+    {
+      "primary_error": "{'message': \"Could not find the table 'public.resource_affinity_content_excerpts' in the schema cache\", 'code': 'PGRST205', 'hint': \"Perhaps you meant the table 'public.resource_exposure_events'\", 'details': None}",
+      "resource_type": "worksheet_exam",
+      "table_name": "resource_affinity_content_excerpts",
+      "warning": "content_excerpt_view_unavailable_metadata_only"
+    }
+  ]
+}

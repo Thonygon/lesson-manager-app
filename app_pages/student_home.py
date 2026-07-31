@@ -6,7 +6,7 @@ from core.i18n import t
 from core.navigation import go_to, STUDENT_PAGES
 from core.state import get_current_user_id
 from core.database import load_profile_row
-from helpers.practice_engine import exam_to_exercises, worksheet_to_exercises, record_video_practice_interaction
+from helpers.practice_engine import exam_to_exercises, worksheet_to_exercises
 from helpers.notifications import (
     get_student_notifications,
     render_lazy_notification_panel,
@@ -19,7 +19,7 @@ from helpers.student_recommendations import (
     build_recommended_materials,
     group_recommendations_for_subject_tabs,
 )
-from helpers.teacher_student_integration import load_student_assignment_by_id, record_video_assignment_watch
+from helpers.teacher_student_integration import load_student_assignment_by_id
 from helpers.video_library import load_public_videos
 from helpers.worksheet_builder import normalize_worksheet_output
 from helpers.worksheet_storage import load_public_worksheets, load_worksheet_record
@@ -181,29 +181,24 @@ def _render_home_recommendation_group(items: list[dict], *, group_key: str) -> N
                 type="primary",
             ):
                 if resource_type == "video":
-                    assignment_id = int(item.get("assignment_id") or 0)
-                    if assignment_id > 0:
-                        record_video_assignment_watch(assignment_id)
-                    else:
-                        record_video_practice_interaction(
-                            {**payload, "id": row.get("id") or item.get("id"), "title": item.get("title") or row.get("title") or resource_label},
-                            meta={
-                                "subject": str(item.get("subject") or row.get("subject") or ""),
-                                "topic": str(item.get("topic") or row.get("topic") or ""),
-                                "learner_stage": str(row.get("learner_stage") or ""),
-                                "level": str(item.get("level") or row.get("level_or_band") or ""),
-                            },
-                        )
-                    log_student_recommendation_open(item, surface="student_home")
-                    st.session_state[f"_student_home_watch_video_{group_key}_{item.get('id', idx)}"] = True
-                    st.rerun()
+                    from app_pages.student_practice import _open_video_item
+
+                    opened = _open_video_item(
+                        {**payload, "id": row.get("id") or item.get("id"), "title": item.get("title") or row.get("title") or resource_label},
+                        {
+                            "subject": str(item.get("subject") or row.get("subject") or ""),
+                            "topic": str(item.get("topic") or row.get("topic") or ""),
+                            "learner_stage": str(row.get("learner_stage") or ""),
+                            "level": str(item.get("level") or row.get("level_or_band") or ""),
+                        },
+                        assignment_id=int(item.get("assignment_id") or 0),
+                    )
+                    if opened:
+                        log_student_recommendation_open(item, surface="student_home")
+                        go_to("student_practice")
+                        st.rerun()
                 else:
                     _open_home_recommendation_practice(item)
-            video_state_key = f"_student_home_watch_video_{group_key}_{item.get('id', idx)}"
-            if resource_type == "video" and st.session_state.get(video_state_key):
-                watch_url = str(payload.get("watch_url") or payload.get("youtube_url") or row.get("watch_url") or row.get("youtube_url") or "")
-                if watch_url:
-                    st.video(watch_url)
 
 
 def render_student_home():

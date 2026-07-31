@@ -1231,7 +1231,7 @@ def generate_exam_with_limit(
 
     usage = get_ai_exam_usage_status()
 
-    if usage["used_today"] >= AI_EXAM_DAILY_LIMIT:
+    if usage["remaining_today"] <= 0:
         lang = get_plan_language()
         msg = (
             t("ai_limit_reached")
@@ -1310,7 +1310,7 @@ def render_quick_exam_builder_expander() -> None:
             t(
                 "ai_plans_left_today",
                 remaining=usage["remaining_today"],
-                limit=AI_EXAM_DAILY_LIMIT,
+                limit=usage.get("limit", AI_EXAM_DAILY_LIMIT),
             )
         )
 
@@ -1615,6 +1615,7 @@ def render_quick_exam_builder_expander() -> None:
                 allow_assign=True,
                 assign_expanded=bool(st.session_state.get("exam_assign_expanded", False)),
                 resource_record_id=st.session_state.get("exam_record_id"),
+                show_clear_result=True,
                 subject=effective_subject,
                 topic=st.session_state.get("quick_exam_effective_topic") or topic,
                 learner_stage=learner_stage,

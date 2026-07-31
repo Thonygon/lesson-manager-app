@@ -11,7 +11,7 @@ from streamlit_option_menu import option_menu
 from auth.auth import render_choose_role_dialog, render_choose_username_dialog, render_logout_button, render_profile_dialog, sign_out_user
 from core.database import clear_app_caches, get_profile_avatar_url, load_community_profiles, load_profile_row, load_students, load_table, profile_can_teach
 from core.i18n import t
-from core.navigation import PAGES, go_to, home_go
+from core.navigation import PAGES, clear_open_resource_previews, clear_smart_tool_result_state, go_to, home_go
 from core.state import get_current_user_id
 from core.timezone import _get_qp
 from helpers.archive_utils import is_archived_status
@@ -68,6 +68,7 @@ from helpers.worksheet_storage import (
 )
 from helpers.resource_gallery import resource_kind_accent
 from styles.theme import load_css_home
+from helpers.ui_components import render_loading_overlay_markup
 
 
 _RESOURCE_PAGE_SIZE = 6
@@ -342,12 +343,14 @@ def _render_resource_pagination_controls(df, state_key: str, *, page_size: int =
     prev_col, info_col, next_col = st.columns([1, 3, 1])
     with prev_col:
         if st.button("←", key=f"{state_key}_prev", use_container_width=True, disabled=current_page <= 1):
+            clear_open_resource_previews()
             st.session_state[state_key] = max(1, current_page - 1)
             st.rerun()
     with info_col:
         st.caption(f"{start_idx + 1}-{end_idx} / {total_items} · {current_page}/{total_pages}")
     with next_col:
         if st.button("→", key=f"{state_key}_next", use_container_width=True, disabled=current_page >= total_pages):
+            clear_open_resource_previews()
             st.session_state[state_key] = min(total_pages, current_page + 1)
             st.rerun()
 
@@ -375,6 +378,17 @@ def queue_resources_tab_target(main_tab: str, *, nested_tab: str | None = None) 
         st.session_state.pop("_resources_target_nested_tab", None)
 
 
+def queue_home_resources_overview_target(kind: str) -> None:
+    target_map = {
+        "program": t("my_programs"),
+        "plan": t("my_plans"),
+        "worksheet": t("my_worksheets"),
+        "exam": t("my_exams"),
+        "video": t("my_videos"),
+    }
+    queue_resources_tab_target(target_map.get(str(kind or "").strip().lower(), t("my_programs")))
+
+
 def _render_resources_tab_target_script() -> None:
     main_tab = str(st.session_state.pop("_resources_target_main_tab", "") or "").strip()
     nested_tab = str(st.session_state.pop("_resources_target_nested_tab", "") or "").strip()
@@ -388,23 +402,73 @@ def _render_resources_tab_target_script() -> None:
           const nestedTarget = {json.dumps(nested_tab)};
 
           function normalize(text) {{
-            return String(text || "").replace(/\\s+/g, " ").trim().toLowerCase();
+            return String(text || "")
+              .replace(/[\\u{{1F300}}-\\u{{1FAFF}}\\u2600-\\u27BF]/gu, " ")
+              .replace(/\\s+/g, " ")
+              .trim()
+              .toLowerCase();
           }}
 
-          function clickTab(label) {{
+          function canonicalize(text) {{
+            return normalize(text)
+              .replace(/^[^\\p{{L}}\\p{{N}}]+/gu, "")
+              .trim();
+          }}
+
+          function getVisibleTabs() {{
+            return Array.from(window.parent.document.querySelectorAll('[role="tab"]')).filter((tab) => {{
+              const rect = tab.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0;
+            }});
+          }}
+
+          function findTab(label, options) {{
             if (!label) return false;
-            const target = normalize(label);
-            const tabs = Array.from(window.parent.document.querySelectorAll('[role="tab"]'));
-            const match = tabs.find((tab) => normalize(tab.textContent).includes(target));
+            const exact = Boolean(options && options.exact);
+            const target = canonicalize(label);
+            if (!target) return null;
+
+            const tabs = getVisibleTabs();
+            const exactMatch = tabs.find((tab) => canonicalize(tab.textContent) === target);
+            if (exactMatch) return exactMatch;
+            if (exact) return null;
+
+            return tabs.find((tab) => canonicalize(tab.textContent).includes(target));
+          }}
+
+          function clickTab(label, options) {{
+            const match = findTab(label, options);
             if (!match) return false;
             match.click();
             return true;
           }}
 
+          function runNestedSelection() {{
+            const startedAt = Date.now();
+
+            function attempt() {{
+              const mainMatch = findTab(mainTarget, {{ exact: true }});
+              const mainSelected = mainMatch && mainMatch.getAttribute('aria-selected') === 'true';
+              if (!mainSelected) {{
+                if (Date.now() - startedAt < 2500) {{
+                  window.setTimeout(attempt, 120);
+                }}
+                return;
+              }}
+
+              const nestedClicked = clickTab(nestedTarget, {{ exact: true }});
+              if (!nestedClicked && Date.now() - startedAt < 2500) {{
+                window.setTimeout(attempt, 120);
+              }}
+            }}
+
+            attempt();
+          }}
+
           setTimeout(() => {{
-            const mainClicked = clickTab(mainTarget);
+            const mainClicked = clickTab(mainTarget, {{ exact: true }});
             if (!mainClicked || !nestedTarget) return;
-            setTimeout(() => clickTab(nestedTarget), 180);
+            runNestedSelection();
           }}, 120);
         }})();
         </script>
@@ -600,85 +664,13 @@ def _render_selected_file_resource_detail(kind: str, *, scope: str = "files") ->
 
 def inject_loading_screen():
     st.markdown(
-        """
-        <style>
-        /* Full-screen splash */
-        #app-preloader {
-            position: fixed;
-            inset: 0;
-            z-index: 999999;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-            gap: 14px;
-            background:
-                radial-gradient(circle at top left, rgba(59,130,246,0.16), transparent 35%),
-                radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 30%),
-                linear-gradient(180deg, #0f172a 0%, #111827 100%);
-            color: #f8fafc;
-            transition: opacity 0.35s ease, visibility 0.35s ease;
-        }
-
-        #app-preloader.hide {
-            opacity: 0;
-            visibility: hidden;
-            pointer-events: none;
-        }
-
-        .preloader-logo {
-            font-size: 1.6rem;
-            font-weight: 800;
-            letter-spacing: 0.04em;
-        }
-
-        .preloader-sub {
-            font-size: 0.95rem;
-            color: rgba(241,245,249,0.78);
-        }
-
-        .preloader-spinner {
-            width: 56px;
-            height: 56px;
-            border-radius: 50%;
-            border: 4px solid rgba(255,255,255,0.12);
-            border-top-color: #60A5FA;
-            animation: app-spin 0.9s linear infinite;
-            box-shadow: 0 0 30px rgba(96,165,250,0.18);
-        }
-
-        @keyframes app-spin {
-            to { transform: rotate(360deg); }
-        }
-        </style>
-
-        <div id="app-preloader">
-            <div class="preloader-spinner"></div>
-            <div class="preloader-logo">Classio</div>
-            <div class="preloader-sub">Loading your workspace...</div>
-        </div>
-        """,
+        render_loading_overlay_markup(
+            overlay_id="app-preloader",
+            title="Classio",
+            copy="Loading your workspace...",
+            auto_hide_ms=500,
+        ),
         unsafe_allow_html=True,
-    )
-
-    components.html(
-        """
-        <script>
-        function hidePreloader() {
-            const p = window.parent.document.getElementById("app-preloader");
-            if (p) p.classList.add("hide");
-        }
-
-        // Hide after page settles a bit
-        window.addEventListener("load", () => {
-            setTimeout(hidePreloader, 500);
-        });
-
-        // Fallback in case load fires earlier/later in Streamlit
-        setTimeout(hidePreloader, 1200);
-        </script>
-        """,
-        height=0,
     )
 
 def _render_restore_dialog(user_id: str) -> None:
@@ -786,6 +778,7 @@ def render_home_teaching_resources_preview():
                 )
 
             if st.button(t("see_all_learning_programs"), key="home_see_all_learning_programs", use_container_width=True):
+                queue_home_resources_overview_target("program")
                 go_to("resources")
                 st.rerun()
 
@@ -835,6 +828,7 @@ def render_home_teaching_resources_preview():
                 )
 
             if st.button(t("see_all_lesson_plans"), key="home_see_all_plans", use_container_width=True):
+                queue_home_resources_overview_target("plan")
                 go_to("resources")
                 st.rerun()
 
@@ -884,6 +878,7 @@ def render_home_teaching_resources_preview():
                 )
 
             if st.button(t("see_all_worksheets"), key="home_see_all_ws", use_container_width=True):
+                queue_home_resources_overview_target("worksheet")
                 go_to("resources")
                 st.rerun()
 
@@ -933,6 +928,7 @@ def render_home_teaching_resources_preview():
                 )
 
             if st.button(t("see_all_exams"), key="home_see_all_exams", use_container_width=True):
+                queue_home_resources_overview_target("exam")
                 go_to("resources")
                 st.rerun()
 
@@ -977,6 +973,7 @@ def render_home_teaching_resources_preview():
                 )
 
             if st.button(t("see_all_videos"), key="home_see_all_videos", use_container_width=True):
+                queue_home_resources_overview_target("video")
                 go_to("resources")
                 st.rerun()
 
@@ -1240,6 +1237,7 @@ def _render_smart_tools_hub():
             with col:
                 if _render_smart_tool_open_card(flag, icon, accent, title_key, body_key, badge_key):
                     current_selected = str(st.session_state.get("home_smart_tool_selected") or "")
+                    clear_smart_tool_result_state()
                     if current_selected == flag:
                         st.session_state["home_smart_tool_selected"] = ""
                     else:
@@ -2533,7 +2531,6 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
 
         _all_profiles_raw = load_community_profiles()
 
-        # Tabs: Teachers / Students
         _comm_tab_teachers, _comm_tab_students = st.tabs([
             f"👩‍🏫 {t('teacher_role')}",
             f"🎓 {t('student_role')}",
@@ -2759,10 +2756,12 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
             st.markdown(f"### 🤖 {t('smart_tools_command_center')}")
         with ai_head_mid:
             if st.button(t("files"), key="open_resources_from_ai_tools", use_container_width=True):
+                clear_smart_tool_result_state(clear_selection=True)
                 go_to("resources")
                 st.rerun()
         with ai_head_right:
             if st.button(t("close"), key="close_ai_tools_panel_top", use_container_width=True):
+                clear_smart_tool_result_state(clear_selection=True)
                 home_go("home", panel=None)
                 st.rerun()
 
@@ -2780,26 +2779,6 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
         if selected_tool in tool_renderers:
             if st.session_state.pop("_home_smart_tool_scroll_toast", False):
                 st.toast(t("scroll_down_to_view"))
-            st.markdown(
-                """
-                <style>
-                div[data-testid="stExpander"] {
-                    border: none !important;
-                    background: transparent !important;
-                    box-shadow: none !important;
-                    margin-bottom: 0 !important;
-                }
-                div[data-testid="stExpander"] summary {
-                    display: none !important;
-                }
-                div[data-testid="stExpander"] details {
-                    border: none !important;
-                    background: transparent !important;
-                }
-                </style>
-                """,
-                unsafe_allow_html=True,
-            )
             st.session_state[selected_tool] = True
             tool_renderers[selected_tool]()
 

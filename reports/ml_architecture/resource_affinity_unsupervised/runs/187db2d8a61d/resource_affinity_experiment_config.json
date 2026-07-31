@@ -1,0 +1,115 @@
+{
+  "clustering_grid": {
+    "agglomerative_k": [
+      2,
+      3,
+      4,
+      5,
+      8,
+      12,
+      16,
+      24
+    ],
+    "agglomerative_linkage": "average",
+    "dbscan_eps": [
+      0.28,
+      0.32,
+      0.36,
+      0.4,
+      0.42,
+      0.46,
+      0.52,
+      0.58,
+      0.62
+    ],
+    "dbscan_min_samples": [
+      2,
+      3,
+      4
+    ],
+    "distance_metric": "cosine",
+    "kmeans_k": [
+      2,
+      3,
+      4,
+      5,
+      8,
+      12,
+      16,
+      24
+    ]
+  },
+  "configuration_hash": "da2b8f5a4b81d81e633f59ae",
+  "configuration_schema_version": "resource_affinity_config.v1",
+  "feature_schema_version": "resource_affinity_unsupervised.v3",
+  "minimum_dataset_checks": {
+    "minimum_resources": 6
+  },
+  "model_selection": {
+    "balanced_candidate": "highest balanced selection score after fragmentation, noise, and contamination penalties",
+    "metric_leader": "highest silhouette among successful rows",
+    "not_exhaustive": true
+  },
+  "neighbors": {
+    "directed": true,
+    "thresholds": [
+      0.6,
+      0.7,
+      0.72,
+      0.8,
+      0.9
+    ],
+    "top_k": 5
+  },
+  "normalization": {
+    "category_unicode_nfkc_casefold": true,
+    "vector_l2_normalization": true
+  },
+  "profile_schema": [
+    "resource_key",
+    "resource_type",
+    "resource_id",
+    "title",
+    "subject",
+    "language",
+    "level",
+    "learner_stage",
+    "topic",
+    "topics_extracted",
+    "subtype",
+    "is_public",
+    "status",
+    "created_at",
+    "updated_at",
+    "profile_text",
+    "profile_hash",
+    "profile_token_count",
+    "subject_normalized",
+    "language_normalized",
+    "level_normalized",
+    "resource_type_normalized"
+  ],
+  "random_seed": 20260726,
+  "report_schema_version": "resource_affinity_report.v2",
+  "runtime": {
+    "numpy": "2.4.4",
+    "pandas": "2.3.3",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "python": "3.11.15"
+  },
+  "svd": {
+    "enabled_when_min_tfidf_shape_gt": 3,
+    "max_components": 64
+  },
+  "text_processing": {
+    "lowercase": true,
+    "max_df": 0.92,
+    "max_features": 1600,
+    "min_df": 1,
+    "ngram_range": [
+      1,
+      2
+    ],
+    "strip_accents": "unicode"
+  }
+}

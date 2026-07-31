@@ -351,10 +351,19 @@ def _passage_excerpt(text: str, limit: int = 420) -> str:
     return f"{clipped}..."
 
 
+def _preferred_visual_caption(*candidates) -> str:
+    for candidate in candidates:
+        cleaned = _clean_text(candidate)
+        if cleaned:
+            return cleaned
+    return ""
+
+
 def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) -> tuple[str, str, str] | None:
     ws_type = _clean_text(ws.get("worksheet_type"))
     subject_label = _clean_text(subject or ws.get("subject", "")).replace("_", " ")
     topic_label = _clean_text(topic or ws.get("topic", "") or ws.get("title", ""))
+    caption_label = _preferred_visual_caption(ws.get("title", ""), topic, ws.get("topic", ""))
     tier = _stage_tier(learner_stage)
     stage_lbl = _stage_label(learner_stage)
     style = _visual_style(learner_stage)
@@ -384,7 +393,7 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
             f"Constraints: exactly {len(terms)} pictures, no words, no letters, no labels, no decorative filler, each picture must be distinct and usable for matching\n"
             "Avoid: abstract icons, posters, banners, title cards, watermark"
         )
-        return ("image_based_matching", topic_label or "Matching", prompt)
+        return ("image_based_matching", caption_label or "Matching", prompt)
 
     if ws_type in {"word_search_vocab"}:
         # Picture vocabulary boards are most useful for primary stages only.
@@ -408,7 +417,7 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
             f"Constraints: exactly {len(terms)} pictures, no text, no labels, no decorative filler, every item must be easy to identify\n"
             "Avoid: collage chaos, title banners, watermark"
         )
-        return ("picture_vocabulary", topic_label or "Vocabulary", prompt)
+        return ("picture_vocabulary", caption_label or "Vocabulary", prompt)
 
     if ws_type == "true_false":
         # Observation-scene support helps primary students; older students can reason without it.
@@ -432,7 +441,7 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
             "Constraints: no text, no labels, no unnecessary extra objects, the visible details must be easy to verify\n"
             "Avoid: decorative posters, abstract symbols, watermark"
         )
-        return ("scene_truth_support", topic_label or "True or False", prompt)
+        return ("scene_truth_support", caption_label or "True or False", prompt)
 
     if ws_type == "reading_comprehension":
         # Scene illustrations aid comprehension at all stages; require richer passages for older learners.
@@ -454,7 +463,7 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
             "Constraints: match the passage details, no text, no labels, no answer spoilers beyond the scene itself\n"
             "Avoid: decorative filler, watermark"
         )
-        return ("reading_scene_support", topic_label or "Reading", prompt)
+        return ("reading_scene_support", caption_label or "Reading", prompt)
 
     if ws_type == "vocabulary":
         # Picture vocabulary boards are most useful for primary stages only.
@@ -477,7 +486,7 @@ def _worksheet_prompt(ws: dict, subject: str, learner_stage: str, topic: str) ->
             f"Constraints: exactly {len(terms)} pictures, no labels, no decorative filler, every item must be easy to identify visually\n"
             "Avoid: abstract icons, posters, watermark"
         )
-        return ("picture_vocabulary", topic_label or "Vocabulary", prompt)
+        return ("picture_vocabulary", caption_label or "Vocabulary", prompt)
 
     return None
 
@@ -486,6 +495,7 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
     sec_type = _clean_text(section.get("type"))
     subject_label = _clean_text(subject or exam_data.get("subject", "")).replace("_", " ")
     topic_label = _clean_text(topic or section.get("title", "") or exam_data.get("title", ""))
+    caption_label = _preferred_visual_caption(section.get("title", ""), exam_data.get("title", ""), topic)
     tier = _stage_tier(learner_stage)
     stage_lbl = _stage_label(learner_stage)
     style = _visual_style(learner_stage)
@@ -512,7 +522,7 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
             f"Constraints: exactly {len(terms)} pictures, no labels, no decorative filler, each item must be visually distinct and usable for matching\n"
             "Avoid: posters, title cards, watermark"
         )
-        return ("image_based_matching", topic_label or "Matching", prompt)
+        return ("image_based_matching", caption_label or "Matching", prompt)
 
     if sec_type == "vocabulary":
         if tier not in ("lower_primary", "upper_primary"):
@@ -534,7 +544,7 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
             f"Constraints: exactly {len(terms)} pictures, no labels, no decorative filler, every item must be easy to recognize\n"
             "Avoid: abstract icons, posters, watermark"
         )
-        return ("picture_vocabulary", topic_label or "Vocabulary", prompt)
+        return ("picture_vocabulary", caption_label or "Vocabulary", prompt)
 
     if sec_type == "reading_comprehension":
         min_passage = {"lower_primary": 80, "upper_primary": 120, "secondary": 200, "adult": 300}.get(tier, 200)
@@ -555,7 +565,7 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
             "Constraints: no labels, no decorative filler, do not introduce contradictory details\n"
             "Avoid: watermark"
         )
-        return ("reading_scene_support", topic_label or "Reading", prompt)
+        return ("reading_scene_support", caption_label or "Reading", prompt)
 
     if sec_type == "true_false":
         if tier not in ("lower_primary", "upper_primary"):
@@ -578,7 +588,7 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
             "Constraints: no labels, no decorative filler, no irrelevant objects\n"
             "Avoid: watermark"
         )
-        return ("scene_truth_support", topic_label or "True or False", prompt)
+        return ("scene_truth_support", caption_label or "True or False", prompt)
 
     if sec_type in {"diagram_questions", "classification", "symbol_identification", "theory_questions", "terminology"}:
         # Diagrams and instructional visuals are pedagogically valuable at all stages.
@@ -598,7 +608,7 @@ def _exam_prompt(exam_data: dict, section: dict, subject: str, learner_stage: st
             "Constraints: no decorative filler, use only the fewest elements needed to support the task\n"
             "Avoid: posters, banners, watermark"
         )
-        return ("instructional_diagram_support", f"{topic_label or 'Visual'} support", prompt)
+        return ("instructional_diagram_support", f"{caption_label or topic_label or 'Visual'} support", prompt)
 
     return None
 

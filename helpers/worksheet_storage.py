@@ -15,7 +15,7 @@ from services.ai_usage_service import log_ai_usage_event
 import math
 import html
 import textwrap
-from core.navigation import clear_open_resource_previews, go_to
+from core.navigation import clear_open_resource_previews, clear_smart_tool_result_state, go_to
 import re
 import unicodedata
 from xml.sax.saxutils import escape as xml_escape
@@ -65,6 +65,7 @@ from helpers.resource_gallery import (
     render_gallery_card_html,
 )
 from helpers.recommendation_models import log_teacher_material_open
+from services.permissions_service import get_feature_usage_status
 
 
 _WORKSHEET_LIST_COLUMNS = ",".join([
@@ -82,6 +83,7 @@ _WORKSHEET_LIST_COLUMNS = ",".join([
     "is_public",
     "status",
     "created_at",
+    "updated_at",
 ])
 
 
@@ -903,9 +905,13 @@ def _normalize_worksheet_frame(rows: list[dict] | None) -> pd.DataFrame:
     df = pd.DataFrame(rows or [])
     if df.empty:
         return pd.DataFrame()
+    if "updated_at" in df.columns:
+        df["updated_at"] = pd.to_datetime(df["updated_at"], errors="coerce")
     if "created_at" in df.columns:
         df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-        df = df.sort_values("created_at", ascending=False, na_position="last")
+    sort_col = "updated_at" if "updated_at" in df.columns else "created_at"
+    if sort_col in df.columns:
+        df = df.sort_values(sort_col, ascending=False, na_position="last")
     return df
 
 
@@ -918,7 +924,7 @@ def _load_my_worksheets_cached(uid: str, limit: int = 120) -> pd.DataFrame:
         .table("worksheets")
         .select(_WORKSHEET_LIST_COLUMNS)
         .eq("user_id", uid)
-        .order("created_at", desc=True)
+        .order("updated_at", desc=True)
         .limit(limit)
         .execute()
     )
@@ -935,7 +941,7 @@ def _load_public_worksheets_cached(limit: int = 120) -> pd.DataFrame:
         .table("worksheets")
         .select(_WORKSHEET_LIST_COLUMNS)
         .eq("is_public", True)
-        .order("created_at", desc=True)
+        .order("updated_at", desc=True)
         .limit(limit)
         .execute()
     )
@@ -1070,6 +1076,7 @@ def _open_worksheet_library_record(
     require_signup: bool = False,
     expand_assign: bool = False,
 ) -> None:
+    clear_smart_tool_result_state(clear_selection=True)
     clear_open_resource_previews(except_kind="worksheet", clear_dialogs=not expand_assign)
     if not expand_assign:
         st.session_state.pop("_resource_bulk_assign_dialog", None)
@@ -1153,14 +1160,15 @@ def get_ai_worksheet_usage_status() -> dict:
     today_start_utc = _dt.combine(today_local(), _dt.min.time()).replace(
         tzinfo=get_app_tz()
     ).astimezone(timezone.utc)
-
-    limit = _wb().AI_WORKSHEET_DAILY_LIMIT
+    usage_status = get_feature_usage_status(get_current_user_id(), "ai_generations")
+    limit = usage_status["limit"] if usage_status["limit"] is not None else _wb().AI_WORKSHEET_DAILY_LIMIT
     cooldown = _wb().AI_WORKSHEET_COOLDOWN_SECONDS
 
     if df.empty:
         return {
-            "used_today": 0,
-            "remaining_today": limit,
+            "used_today": int(usage_status["used"] or 0),
+            "remaining_today": max(0, limit - int(usage_status["used"] or 0)),
+            "limit": limit,
             "cooldown_ok": True,
             "seconds_left": 0,
             "last_request_at": None,
@@ -1182,8 +1190,9 @@ def get_ai_worksheet_usage_status() -> dict:
             seconds_left = int(math.ceil(cooldown - delta))
 
     return {
-        "used_today": used_today,
-        "remaining_today": max(0, limit - used_today),
+        "used_today": int(usage_status["used"] or used_today),
+        "remaining_today": max(0, limit - int(usage_status["used"] or used_today)),
+        "limit": limit,
         "cooldown_ok": cooldown_ok,
         "seconds_left": max(0, seconds_left),
         "last_request_at": last_request_at,
@@ -1401,6 +1410,7 @@ def render_worksheet_result(
     allow_image_generation: bool | None = None,
     allow_auto_image_generation: bool = True,
     on_image_update=None,
+    show_clear_result: bool = False,
     **meta,
 ) -> None:
     if not ws:
@@ -1665,19 +1675,7 @@ def render_worksheet_result(
             elif str(action_key_prefix).startswith("explore_"):
                 st.session_state["explore_ai_tools_keep_open"] = True
             st.rerun()
-    elif read_only and allow_assign:
-        with st.expander(t("assign_to_student"), expanded=assign_expanded):
-            from helpers.teacher_student_integration import render_assignment_panel_for_worksheet
-
-            render_assignment_panel_for_worksheet(
-                prefix=f"{action_key_prefix}_assign_readonly_{re.sub(r'[^A-Za-z0-9._-]+', '_', str(ws.get('title') or 'worksheet').strip()) or 'worksheet'}",
-                worksheet=ws,
-                subject=subject,
-                topic=topic,
-                learner_stage=learner_stage,
-                level_or_band=level_or_band,
-                source_record_id=resource_record_id,
-            )
+    elif read_only:
         if edit_allowed:
             from helpers.resource_editor import render_resource_editor
 
@@ -1689,6 +1687,19 @@ def render_worksheet_result(
                 normalize_payload=_normalize_worksheet_edit,
                 context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
             )
+        if allow_assign:
+            with st.expander(t("assign_to_student"), expanded=assign_expanded):
+                from helpers.teacher_student_integration import render_assignment_panel_for_worksheet
+
+                render_assignment_panel_for_worksheet(
+                    prefix=f"{action_key_prefix}_assign_readonly_{re.sub(r'[^A-Za-z0-9._-]+', '_', str(ws.get('title') or 'worksheet').strip()) or 'worksheet'}",
+                    worksheet=ws,
+                    subject=subject,
+                    topic=topic,
+                    learner_stage=learner_stage,
+                    level_or_band=level_or_band,
+                    source_record_id=resource_record_id,
+                )
 
     _pdf_kwargs = dict(
         subject=subject,
@@ -1775,6 +1786,17 @@ def render_worksheet_result(
                     use_container_width=True,
                 )
     else:
+        if edit_allowed:
+            from helpers.resource_editor import render_resource_editor
+
+            render_resource_editor(
+                resource_label="worksheet",
+                payload=ws,
+                action_key_prefix=f"{action_key_prefix}_edit",
+                on_apply=_apply_worksheet_edit,
+                normalize_payload=_normalize_worksheet_edit,
+                context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
+            )
         if allow_assign:
             with st.expander(t("assign_to_student"), expanded=assign_expanded):
                 from helpers.teacher_student_integration import render_assignment_panel_for_worksheet
@@ -1788,17 +1810,6 @@ def render_worksheet_result(
                     level_or_band=level_or_band,
                     source_record_id=resource_record_id,
                 )
-        if edit_allowed:
-            from helpers.resource_editor import render_resource_editor
-
-            render_resource_editor(
-                resource_label="worksheet",
-                payload=ws,
-                action_key_prefix=f"{action_key_prefix}_edit",
-                on_apply=_apply_worksheet_edit,
-                normalize_payload=_normalize_worksheet_edit,
-                context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
-            )
 
         dc1, dc2 = st.columns(2)
         with dc1:
@@ -1838,13 +1849,14 @@ def render_worksheet_result(
                 key=f"dl_ws_tch_docx_inline_{safe_title}",
                 use_container_width=True,
             )
-        if st.button(
-            "🗑️ " + (t("clear_result") if t("clear_result") != "clear_result" else "Clear result"),
-            key="btn_clear_ws",
-            use_container_width=True,
-        ):
-            _wb().reset_worksheet_maker_state()
-            st.rerun()
+        if show_clear_result:
+            if st.button(
+                "🗑️ " + (t("clear_result") if t("clear_result") != "clear_result" else "Clear result"),
+                key="btn_clear_ws",
+                use_container_width=True,
+            ):
+                _wb().reset_worksheet_maker_state()
+                st.rerun()
 
 
 def _persist_saved_worksheet_visuals(worksheet_id: int | str, worksheet: dict) -> bool:
@@ -1861,29 +1873,14 @@ def _persist_saved_worksheet_visuals(worksheet_id: int | str, worksheet: dict) -
     existing_row = load_worksheet_record(safe_id) or {}
     worksheet = preserve_generated_media_fields(worksheet, existing_row.get("worksheet_json") or {})
     try:
-        payload_with_timestamp = {
-            "worksheet_json": worksheet,
-            "updated_at": _dt.now(timezone.utc).isoformat(),
-        }
-        payload_minimal = {"worksheet_json": worksheet}
-        try:
-            (
-                get_sb()
-                .table("worksheets")
-                .update(payload_with_timestamp)
-                .eq("id", safe_id)
-                .eq("user_id", uid)
-                .execute()
-            )
-        except Exception:
-            (
-                get_sb()
-                .table("worksheets")
-                .update(payload_minimal)
-                .eq("id", safe_id)
-                .eq("user_id", uid)
-                .execute()
-            )
+        (
+            get_sb()
+            .table("worksheets")
+            .update({"worksheet_json": worksheet})
+            .eq("id", safe_id)
+            .eq("user_id", uid)
+            .execute()
+        )
         clear_app_caches()
         try:
             load_worksheet_record.clear()
@@ -1910,35 +1907,19 @@ def _persist_saved_worksheet_resource(worksheet_id: int | str, worksheet: dict) 
         safe_id = int(stripped) if stripped.isdigit() else stripped
     worksheet = _clean_worksheet_data(_normalize_worksheet_unicode(dict(worksheet or {})))
     try:
-        try:
-            (
-                get_sb()
-                .table("worksheets")
-                .update(
-                    {
-                        "worksheet_json": worksheet,
-                        "title": _clean_display_text(worksheet.get("title") or ""),
-                        "updated_at": _dt.now(timezone.utc).isoformat(),
-                    }
-                )
-                .eq("id", safe_id)
-                .eq("user_id", uid)
-                .execute()
+        (
+            get_sb()
+            .table("worksheets")
+            .update(
+                {
+                    "worksheet_json": worksheet,
+                    "title": _clean_display_text(worksheet.get("title") or ""),
+                }
             )
-        except Exception:
-            (
-                get_sb()
-                .table("worksheets")
-                .update(
-                    {
-                        "worksheet_json": worksheet,
-                        "title": _clean_display_text(worksheet.get("title") or ""),
-                    }
-                )
-                .eq("id", safe_id)
-                .eq("user_id", uid)
-                .execute()
-            )
+            .eq("id", safe_id)
+            .eq("user_id", uid)
+            .execute()
+        )
         clear_app_caches()
         try:
             load_worksheet_record.clear()
@@ -2591,7 +2572,7 @@ def render_quick_worksheet_maker_expander() -> None:
             t(
                 "ai_plans_left_today",
                 remaining=usage["remaining_today"],
-                limit=_wb().AI_WORKSHEET_DAILY_LIMIT,
+                limit=usage.get("limit", _wb().AI_WORKSHEET_DAILY_LIMIT),
             )
         )
 
@@ -2800,6 +2781,7 @@ def render_quick_worksheet_maker_expander() -> None:
                 st.info(f"📌 {t('worksheet_kept_msg')}")
             render_worksheet_result(
                 result,
+                allow_assign=True,
                 subject=subject,
                 learner_stage=learner_stage,
                 level_or_band=level_or_band,
@@ -2807,6 +2789,7 @@ def render_quick_worksheet_maker_expander() -> None:
                 topic=st.session_state.get("ws_effective_topic") or topic,
                 assign_expanded=bool(st.session_state.get("worksheet_assign_expanded", False)),
                 resource_record_id=st.session_state.get("worksheet_record_id"),
+                show_clear_result=True,
             )
 
         compare_payload = st.session_state.get("worksheet_ab_debug_compare") or {}

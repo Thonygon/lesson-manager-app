@@ -8,7 +8,7 @@ from datetime import datetime as _dt, timezone
 import pandas as pd
 from io import BytesIO
 from core.i18n import t
-from core.navigation import clear_open_resource_previews, go_to
+from core.navigation import clear_open_resource_previews, clear_smart_tool_result_state, go_to
 from core.state import get_current_user_id, with_owner
 from core.timezone import now_local, today_local, get_app_tz
 from core.database import get_sb, load_table, clear_app_caches, insert_row_with_retries, register_cache, show_data_load_error
@@ -42,6 +42,7 @@ from helpers.resource_gallery import (
 )
 from helpers.resource_deletion import render_archive_delete_button, render_archive_delete_confirmation
 from helpers.recommendation_models import log_teacher_material_open
+from services.permissions_service import get_feature_usage_status
 
 
 _QUICK_EXAM_LIST_COLUMNS = ",".join([
@@ -57,6 +58,7 @@ _QUICK_EXAM_LIST_COLUMNS = ",".join([
     "is_public",
     "status",
     "created_at",
+    "updated_at",
 ])
 
 
@@ -252,9 +254,13 @@ def _normalize_exam_frame(rows: list[dict] | None) -> pd.DataFrame:
     df = pd.DataFrame(rows or [])
     if df.empty:
         return pd.DataFrame()
+    if "updated_at" in df.columns:
+        df["updated_at"] = pd.to_datetime(df["updated_at"], errors="coerce")
     if "created_at" in df.columns:
         df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-        df = df.sort_values("created_at", ascending=False, na_position="last")
+    sort_col = "updated_at" if "updated_at" in df.columns else "created_at"
+    if sort_col in df.columns:
+        df = df.sort_values(sort_col, ascending=False, na_position="last")
     return df
 
 
@@ -267,7 +273,7 @@ def _load_my_exams_cached(uid: str, limit: int = 120) -> pd.DataFrame:
         .table("quick_exams")
         .select(_QUICK_EXAM_LIST_COLUMNS)
         .eq("user_id", uid)
-        .order("created_at", desc=True)
+        .order("updated_at", desc=True)
         .limit(limit)
         .execute()
     )
@@ -299,7 +305,7 @@ def _load_public_exams_cached(limit: int = 120) -> pd.DataFrame:
         .table("quick_exams")
         .select(_QUICK_EXAM_LIST_COLUMNS)
         .eq("is_public", True)
-        .order("created_at", desc=True)
+        .order("updated_at", desc=True)
         .limit(limit)
         .execute()
     )
@@ -447,6 +453,7 @@ def _open_exam_library_record(
     require_signup: bool = False,
     expand_assign: bool = False,
 ) -> None:
+    clear_smart_tool_result_state(clear_selection=True)
     clear_open_resource_previews(except_kind="exam", clear_dialogs=not expand_assign)
     if not expand_assign:
         st.session_state.pop("_resource_bulk_assign_dialog", None)
@@ -696,13 +703,15 @@ def get_ai_exam_usage_status() -> dict:
         tzinfo=get_app_tz()
     ).astimezone(timezone.utc)
 
-    limit = _eb().AI_EXAM_DAILY_LIMIT
+    usage_status = get_feature_usage_status(get_current_user_id(), "ai_generations")
+    limit = usage_status["limit"] if usage_status["limit"] is not None else _eb().AI_EXAM_DAILY_LIMIT
     cooldown = _eb().AI_EXAM_COOLDOWN_SECONDS
 
     if df.empty:
         return {
-            "used_today": 0,
+            "used_today": int(usage_status["used"] or 0),
             "remaining_today": limit,
+            "limit": limit,
             "cooldown_ok": True,
             "seconds_left": 0,
             "last_request_at": None,
@@ -733,8 +742,9 @@ def get_ai_exam_usage_status() -> dict:
             seconds_left = int(math.ceil(cooldown - delta))
 
     return {
-        "used_today": used_today,
-        "remaining_today": max(0, limit - used_today),
+        "used_today": int(usage_status["used"] or used_today),
+        "remaining_today": max(0, limit - int(usage_status["used"] or used_today)),
+        "limit": limit,
         "cooldown_ok": cooldown_ok,
         "seconds_left": max(0, seconds_left),
         "last_request_at": last_request_at,
@@ -1092,6 +1102,7 @@ def render_exam_result(
     allow_image_generation: bool | None = None,
     allow_auto_image_generation: bool = True,
     on_image_update=None,
+    show_clear_result: bool = False,
     **meta,
 ) -> None:
     if not exam_data or not exam_data.get("sections"):
@@ -1317,6 +1328,59 @@ def render_exam_result(
     if comparison_mode:
         return
 
+    edit_record_id = resource_record_id or st.session_state.get("exam_record_id")
+    edit_allowed = (
+        not signup_required_actions
+        and not comparison_mode
+        and edit_record_id not in (None, "", 0, "0")
+        and not exam_data.get("_admin_only_image_controls")
+    )
+
+    def _normalize_exam_edit(payload: dict) -> dict:
+        edited_exam = dict(payload.get("exam_data") if isinstance(payload.get("exam_data"), dict) else payload or {})
+        edited_answer_key = payload.get("answer_key") if isinstance(payload.get("answer_key"), dict) else answer_key
+        edited_exam, edited_answer_key = _eb().repair_exam_answer_key(edited_exam, edited_answer_key)
+        edited_exam = preserve_generated_media_fields(edited_exam, exam_data)
+        return {"exam_data": edited_exam, "answer_key": edited_answer_key}
+
+    def _exam_has_student_content(candidate: dict) -> bool:
+        if not isinstance(candidate, dict):
+            return False
+        sections = candidate.get("sections")
+        if isinstance(sections, list):
+            for section in sections:
+                if isinstance(section, dict) and any(str(item).strip() for item in (section.get("questions") or [])):
+                    return True
+        return any(str(candidate.get(key) or "").strip() for key in ("instructions", "reading_text", "source_text", "passage"))
+
+    def _apply_exam_edit(payload: dict) -> bool:
+        normalized = _normalize_exam_edit(payload)
+        edited_exam = normalized["exam_data"]
+        edited_answer_key = normalized["answer_key"]
+        if _exam_has_student_content(exam_data) and not _exam_has_student_content(edited_exam):
+            st.error(t("resource_changes_save_failed"))
+            return False
+        if not _persist_saved_exam_resource(edit_record_id, edited_exam, edited_answer_key):
+            return False
+        st.session_state["exam_result"] = edited_exam
+        st.session_state["exam_answer_key"] = edited_answer_key
+        if st.session_state.get("files_selected_exam") is not None:
+            st.session_state["files_selected_exam"] = edited_exam
+            st.session_state["files_selected_exam_answer_key"] = edited_answer_key
+        return True
+
+    if edit_allowed:
+        from helpers.resource_editor import render_resource_editor
+
+        render_resource_editor(
+            resource_label="exam",
+            payload={"exam_data": exam_data, "answer_key": answer_key},
+            action_key_prefix=f"{action_key_prefix}_edit",
+            on_apply=_apply_exam_edit,
+            normalize_payload=_normalize_exam_edit,
+            context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
+        )
+
     if signup_required_actions:
         st.caption(t("explore_resource_action_signup_note"))
         if st.button(
@@ -1374,59 +1438,6 @@ def render_exam_result(
                 level_or_band=level_or_band,
                 source_record_id=resource_record_id,
             )
-
-    edit_record_id = resource_record_id or st.session_state.get("exam_record_id")
-    edit_allowed = (
-        not signup_required_actions
-        and not comparison_mode
-        and edit_record_id not in (None, "", 0, "0")
-        and not exam_data.get("_admin_only_image_controls")
-    )
-
-    def _normalize_exam_edit(payload: dict) -> dict:
-        edited_exam = dict(payload.get("exam_data") if isinstance(payload.get("exam_data"), dict) else payload or {})
-        edited_answer_key = payload.get("answer_key") if isinstance(payload.get("answer_key"), dict) else answer_key
-        edited_exam, edited_answer_key = _eb().repair_exam_answer_key(edited_exam, edited_answer_key)
-        edited_exam = preserve_generated_media_fields(edited_exam, exam_data)
-        return {"exam_data": edited_exam, "answer_key": edited_answer_key}
-
-    def _exam_has_student_content(candidate: dict) -> bool:
-        if not isinstance(candidate, dict):
-            return False
-        sections = candidate.get("sections")
-        if isinstance(sections, list):
-            for section in sections:
-                if isinstance(section, dict) and any(str(item).strip() for item in (section.get("questions") or [])):
-                    return True
-        return any(str(candidate.get(key) or "").strip() for key in ("instructions", "reading_text", "source_text", "passage"))
-
-    def _apply_exam_edit(payload: dict) -> bool:
-        normalized = _normalize_exam_edit(payload)
-        edited_exam = normalized["exam_data"]
-        edited_answer_key = normalized["answer_key"]
-        if _exam_has_student_content(exam_data) and not _exam_has_student_content(edited_exam):
-            st.error(t("resource_changes_save_failed"))
-            return False
-        if not _persist_saved_exam_resource(edit_record_id, edited_exam, edited_answer_key):
-            return False
-        st.session_state["exam_result"] = edited_exam
-        st.session_state["exam_answer_key"] = edited_answer_key
-        if st.session_state.get("files_selected_exam") is not None:
-            st.session_state["files_selected_exam"] = edited_exam
-            st.session_state["files_selected_exam_answer_key"] = edited_answer_key
-        return True
-
-    if edit_allowed:
-        from helpers.resource_editor import render_resource_editor
-
-        render_resource_editor(
-            resource_label="exam",
-            payload={"exam_data": exam_data, "answer_key": answer_key},
-            action_key_prefix=f"{action_key_prefix}_edit",
-            on_apply=_apply_exam_edit,
-            normalize_payload=_normalize_exam_edit,
-            context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
-        )
 
     _pdf_kwargs = dict(
         subject=subject,
@@ -1536,7 +1547,7 @@ def render_exam_result(
                 key=f"{action_key_prefix}_dl_exam_tch_docx_{safe_title}",
                 use_container_width=True,
             )
-    if not signup_required_actions:
+    if show_clear_result and not signup_required_actions:
         if st.button(
             "🗑️ " + (t("clear_result") if t("clear_result") != "clear_result" else "Clear result"),
             key=f"{action_key_prefix}_clear_result",
@@ -1565,29 +1576,14 @@ def _persist_saved_exam_visuals(exam_id: int | str, exam_data: dict) -> bool:
             return False
         safe_id = int(stripped) if stripped.isdigit() else stripped
     try:
-        payload_with_timestamp = {
-            "exam_data": exam_data,
-            "updated_at": _dt.now(timezone.utc).isoformat(),
-        }
-        payload_minimal = {"exam_data": exam_data}
-        try:
-            (
-                get_sb()
-                .table("quick_exams")
-                .update(payload_with_timestamp)
-                .eq("id", safe_id)
-                .eq("user_id", uid)
-                .execute()
-            )
-        except Exception:
-            (
-                get_sb()
-                .table("quick_exams")
-                .update(payload_minimal)
-                .eq("id", safe_id)
-                .eq("user_id", uid)
-                .execute()
-            )
+        (
+            get_sb()
+            .table("quick_exams")
+            .update({"exam_data": exam_data})
+            .eq("id", safe_id)
+            .eq("user_id", uid)
+            .execute()
+        )
         clear_app_caches()
         try:
             load_exam_record.clear()
@@ -1616,37 +1612,20 @@ def _persist_saved_exam_resource(exam_id: int | str, exam_data: dict, answer_key
     existing_row = load_exam_record(safe_id) or {}
     exam_data = preserve_generated_media_fields(exam_data, existing_row.get("exam_data") or {})
     try:
-        try:
-            (
-                get_sb()
-                .table("quick_exams")
-                .update(
-                    {
-                        "exam_data": exam_data,
-                        "answer_key": answer_key,
-                        "title": str(exam_data.get("title") or "").strip(),
-                        "updated_at": _dt.now(timezone.utc).isoformat(),
-                    }
-                )
-                .eq("id", safe_id)
-                .eq("user_id", uid)
-                .execute()
+        (
+            get_sb()
+            .table("quick_exams")
+            .update(
+                {
+                    "exam_data": exam_data,
+                    "answer_key": answer_key,
+                    "title": str(exam_data.get("title") or "").strip(),
+                }
             )
-        except Exception:
-            (
-                get_sb()
-                .table("quick_exams")
-                .update(
-                    {
-                        "exam_data": exam_data,
-                        "answer_key": answer_key,
-                        "title": str(exam_data.get("title") or "").strip(),
-                    }
-                )
-                .eq("id", safe_id)
-                .eq("user_id", uid)
-                .execute()
-            )
+            .eq("id", safe_id)
+            .eq("user_id", uid)
+            .execute()
+        )
         clear_app_caches()
         try:
             load_exam_record.clear()

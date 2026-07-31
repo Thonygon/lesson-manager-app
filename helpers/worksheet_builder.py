@@ -967,10 +967,14 @@ def generate_worksheet_with_limit(
     student_profile: dict | None = None,
 ) -> tuple[dict, str | None]:
     from helpers.worksheet_storage import get_ai_worksheet_usage_status, log_ai_usage
+    from services.permissions_service import can_use_ai_tool, increment_usage
+
+    if not can_use_ai_tool():
+        return {}, t("ai_limit_reached")
 
     usage = get_ai_worksheet_usage_status()
 
-    if usage["used_today"] >= AI_WORKSHEET_DAILY_LIMIT:
+    if usage["remaining_today"] <= 0:
         lang = get_plan_language()
         msg = t("ai_limit_reached") if "ai_limit_reached" in I18N.get(lang, {}) else "AI daily limit reached."
         return {}, msg
@@ -1007,6 +1011,7 @@ def generate_worksheet_with_limit(
             status="success",
             meta={"subject": subject, "topic": topic, "worksheet_type": worksheet_type, "provider": provider},
         )
+        increment_usage(None, "ai_generations")
         return ws, None
 
     except Exception as e:

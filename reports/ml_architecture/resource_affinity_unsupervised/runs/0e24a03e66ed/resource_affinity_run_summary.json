@@ -1,0 +1,401 @@
+{
+  "dataset": {
+    "candidate_resource_count": 103,
+    "candidate_resource_types": [
+      "worksheet",
+      "exam",
+      "video",
+      "lesson_plan",
+      "program"
+    ],
+    "completeness": {
+      "language": {
+        "known_count": 0,
+        "known_pct": 0.0,
+        "missing_count": 451
+      },
+      "learner_stage": {
+        "known_count": 451,
+        "known_pct": 1.0,
+        "missing_count": 0
+      },
+      "lesson_plan_extracted_topics": {
+        "known_count": 15,
+        "known_pct": 0.0333,
+        "missing_count": 436
+      },
+      "level": {
+        "known_count": 451,
+        "known_pct": 1.0,
+        "missing_count": 0
+      },
+      "profile_text": {
+        "known_count": 451,
+        "known_pct": 1.0,
+        "missing_count": 0
+      },
+      "resource_id": {
+        "known_count": 451,
+        "known_pct": 1.0,
+        "missing_count": 0
+      },
+      "resource_role": {
+        "known_count": 451,
+        "known_pct": 1.0,
+        "missing_count": 0
+      },
+      "subject": {
+        "known_count": 451,
+        "known_pct": 1.0,
+        "missing_count": 0
+      },
+      "subtype": {
+        "known_count": 396,
+        "known_pct": 0.878,
+        "missing_count": 55
+      },
+      "title": {
+        "known_count": 451,
+        "known_pct": 1.0,
+        "missing_count": 0
+      },
+      "topic": {
+        "known_count": 444,
+        "known_pct": 0.9845,
+        "missing_count": 7
+      }
+    },
+    "curricular_anchor_count": 348,
+    "data_fingerprint": "ec9e0fa4f474c425277db4b2",
+    "errors": [
+      {
+        "error": "{'message': 'canceling statement due to statement timeout', 'code': '57014', 'hint': None, 'details': None}",
+        "resource_type": "worksheet",
+        "table_name": "worksheets"
+      }
+    ],
+    "excluded_counts_by_reason": {},
+    "excluded_counts_by_type": {},
+    "excluded_row_count": 0,
+    "experiment_target": "learning_program_topic_to_candidate_resource_alignment",
+    "extracted_at": "2026-07-28T19:10:50.189210+00:00",
+    "feature_schema_version": "resource_affinity_unsupervised.v4",
+    "included_counts_by_role": {
+      "candidate_resource": 103,
+      "curricular_anchor": 348
+    },
+    "included_counts_by_type": {
+      "exam": 33,
+      "lesson_plan": 15,
+      "program": 7,
+      "program_topic": 348,
+      "video": 48
+    },
+    "included_row_count": 451,
+    "language_count": 0,
+    "level_count": 5,
+    "program_topic_role": "curricular_anchor",
+    "raw_counts_by_type": {
+      "exam": 33,
+      "lesson_plan": 15,
+      "program": 7,
+      "program_topic": 348,
+      "video": 48,
+      "worksheet": 0
+    },
+    "raw_language_count": 0,
+    "raw_level_count": 5,
+    "raw_subject_count": 4,
+    "resource_count": 103,
+    "source_row_count": 451,
+    "subject_count": 2
+  },
+  "evaluation": {
+    "anchor_resource_alignment_summary": {
+      "directed_edge_count": 2784,
+      "max_similarity": 0.912313,
+      "mean_similarity": 0.394424,
+      "median_similarity": 0.377985,
+      "min_similarity": 0.119205,
+      "noise_source_edges": 0,
+      "noise_target_edges": 0,
+      "reciprocal_edge_count": 0,
+      "reciprocal_edge_rate": 0.0,
+      "same_language_rate_known": null,
+      "same_level_rate_known": 0.333,
+      "same_subject_rate": 0.9824,
+      "thresholds": {
+        "0.6": 198,
+        "0.7": 65,
+        "0.72": 52,
+        "0.8": 15,
+        "0.9": 2
+      },
+      "top_k": 8,
+      "unique_undirected_pair_count": 2784
+    },
+    "balanced_candidate": "KMeans k=24",
+    "best_model": {
+      "_selection_score": 0.18234284636010584,
+      "algorithm_name": "KMeans",
+      "assigned_resource_coverage": 1.0,
+      "calinski_harabasz": 16.76708455155375,
+      "cluster_count": 24,
+      "cluster_size_2_rate": 0.0417,
+      "cluster_size_le_3_rate": 0.0417,
+      "contaminated_language_clusters": 0,
+      "contaminated_subject_clusters": 2,
+      "cross_language_contamination_rate": null,
+      "cross_subject_contamination_rate": 0.0833,
+      "davies_bouldin": 2.1816195086368677,
+      "evaluated_language_clusters": 0,
+      "evaluated_subject_clusters": 24,
+      "failure_reason": "",
+      "inference_duration_ms": 0,
+      "max_cluster_size": 45,
+      "mean_cluster_size": 18.7917,
+      "median_cluster_size": 18.5,
+      "min_cluster_size": 2,
+      "model_key": "KMeans:{\"n_clusters\": 24}",
+      "model_name": "KMeans k=24",
+      "noise_ratio": 0.0,
+      "parameters_json": "{\"n_clusters\": 24}",
+      "selection_score": 0.182343,
+      "silhouette_score": 0.21983784636010584,
+      "singleton_cluster_count": 0,
+      "status": "ok",
+      "train_duration_ms": 15
+    },
+    "embedding_manifest": {
+      "embedding_method": "tfidf_truncated_svd",
+      "explained_variance_ratio_sum": 0.5399456060536588,
+      "feature_count": 1600,
+      "ngram_range": "1,2",
+      "vector_dimensions": 64,
+      "vectorizer": "TfidfVectorizer"
+    },
+    "experiment_config": {
+      "candidate_count": 43,
+      "configuration_hash": "a065622c679540de81fdb665",
+      "not_exhaustive": true
+    },
+    "experiment_id": "resource_affinity_unsupervised_discovery",
+    "feature_names": [
+      "profile_text",
+      "subject_normalized",
+      "language_normalized",
+      "level_normalized",
+      "resource_type_normalized"
+    ],
+    "high_confidence_anchor_candidate_edges": 52,
+    "high_confidence_neighbor_edges": 1550,
+    "limitations": [
+      "No human-labeled semantic relevance labels are used in this unsupervised phase.",
+      "Small or imbalanced resource catalogs can make clustering metrics unstable.",
+      "Program topics are curricular anchors, not standalone resources; candidate-resource alignment must be reviewed separately from topic-to-topic similarity.",
+      "Business rules must still filter by subject, language, teacher, student, level, and archive state.",
+      "Cross-language contamination is calculated only from non-empty known language values. Missing language metadata limits interpretation."
+    ],
+    "maturity_verdict": "CANDIDATE_FOR_SHADOW_TESTING",
+    "metric_leader": "KMeans k=3",
+    "metric_notes": {
+      "cluster_metrics_noise_handling": "Silhouette, Calinski-Harabasz, and Davies-Bouldin are calculated only on non-noise observations.",
+      "contamination_denominators": "Empty metadata values are excluded from unique-category counts.",
+      "silhouette_distance": "cosine"
+    },
+    "neighbor_summary": {
+      "directed_edge_count": 2255,
+      "max_similarity": 1.0,
+      "mean_similarity": 0.769688,
+      "median_similarity": 0.76982,
+      "min_similarity": 0.382188,
+      "noise_source_edges": 0,
+      "noise_target_edges": 0,
+      "reciprocal_edge_count": 1480,
+      "reciprocal_edge_rate": 0.6563,
+      "same_language_rate_known": null,
+      "same_level_rate_known": 0.6443,
+      "same_subject_rate": 0.9858,
+      "thresholds": {
+        "0.6": 2093,
+        "0.7": 1682,
+        "0.72": 1550,
+        "0.8": 878,
+        "0.9": 266
+      },
+      "top_k": 5,
+      "unique_undirected_pair_count": 1515
+    },
+    "normalization_methodology": {
+      "audit_artifacts": [
+        "resource_affinity_category_normalization_audit.csv",
+        "resource_affinity_profile_audit.csv",
+        "resource_affinity_feature_audit.csv",
+        "resource_affinity_representation_manifest.json"
+      ],
+      "category_normalization": [
+        "subject, language, level, resource_type, and resource_role are audited.",
+        "Category values are case-folded.",
+        "Slash and pipe separators are converted to spaces.",
+        "Known aliases are mapped before metrics are calculated.",
+        "Accent-insensitive fallback keys are used when an alias exists without diacritics.",
+        "Empty metadata values are excluded from contamination denominators."
+      ],
+      "known_aliases": {
+        "language": {
+          "eng": "en",
+          "english": "en",
+          "espanol": "es",
+          "espa\u00f1ol": "es",
+          "spanish": "es",
+          "turkce": "tr",
+          "turkish": "tr",
+          "t\u00fcrk\u00e7e": "tr"
+        },
+        "subject": {
+          "english language": "english",
+          "espanol": "spanish",
+          "espa\u00f1ol": "spanish",
+          "math": "mathematics",
+          "maths": "mathematics",
+          "spanish language": "spanish"
+        }
+      },
+      "text_cleaning": [
+        "All text fields are converted to strings, collapsed to single spaces, and stripped of leading/trailing whitespace.",
+        "Unicode text is normalized with NFKC for category comparison.",
+        "Dash variants are normalized before category comparison."
+      ],
+      "vector_normalization": [
+        "Canonical profile text is vectorized with TF-IDF using unigrams and bigrams.",
+        "When TF-IDF shape allows it, Truncated SVD reduces the sparse matrix to dense latent dimensions.",
+        "All vectors are L2-normalized before cosine similarity, clustering quality calculations, and runtime scoring."
+      ]
+    },
+    "overall_evidence_strength": "EXPLORATORY_SEMANTIC_AFFINITY",
+    "primary_metric": "balanced_selection_score",
+    "primary_metric_leader": "KMeans k=24",
+    "python_model_development_methodology": {
+      "core_libraries": [
+        "pandas",
+        "numpy",
+        "scikit-learn"
+      ],
+      "data_sources": {
+        "exams": "quick_exams table: title, subject, topic, learner stage, level, exam length, exercise types, status, visibility, creation timestamp, and exam_data content.",
+        "learning_program_topics": "learning_program_topics table: program_id, unit/topic order, title, subtopic, lesson focus, lesson purpose, objectives, success criteria, can-do statements, suggested worksheet/exam types, homework idea, teacher notes, student summary, estimated lessons, and timestamps.",
+        "learning_programs": "learning_programs table: title, subject/custom subject, learner stage, level/band, overview, status, visibility, unit/topic counts, sequence order, timestamps, and program_data content.",
+        "lesson_plans": "lesson_plans table: title, subject, topic, learner stage, level/band, lesson purpose, source/planner metadata, language fields, status, visibility, creation/update timestamps, and plan_json content.",
+        "videos": "videos table: title, subject/custom subject, topic, description, learner stage, level/band, status, visibility, creation/update timestamps.",
+        "worksheets": "worksheets table: title, subject, topic, learner stage, level/band, worksheet type, language fields, status, visibility, creation timestamp, and worksheet_json content."
+      },
+      "inclusion_rules": [
+        "Archived rows are excluded before model development.",
+        "Rows without a stable resource id are excluded.",
+        "Rows with fewer than three profile tokens are excluded.",
+        "Duplicate rows with the same resource key and profile hash are excluded after the first occurrence."
+      ],
+      "language": "Python",
+      "model_pipeline": [
+        "Build a pandas DataFrame of frozen resource profiles.",
+        "Vectorize profile_text with scikit-learn TfidfVectorizer using unigrams and bigrams.",
+        "When matrix shape permits, reduce TF-IDF features with TruncatedSVD.",
+        "Normalize vectors with scikit-learn Normalizer using L2 normalization.",
+        "Train candidate KMeans, AgglomerativeClustering, and DBSCAN configurations.",
+        "Evaluate each successful configuration with Silhouette, Calinski-Harabasz, Davies-Bouldin, noise ratio, cluster-size diagnostics, and cross-subject/cross-language contamination.",
+        "Select the winner by the transparent balanced selection_score formula.",
+        "Generate pairwise semantic neighbors with cosine similarity.",
+        "Generate the human-review sample from program_topic anchors to candidate resources.",
+        "Persist the fitted vectorizer, SVD, normalizer, vector matrix, ordered resource keys, frozen dataset, model comparison, cluster assignments, and audit files."
+      ],
+      "profile_construction": [
+        "Each included row becomes one canonical text profile.",
+        "program_topic rows are assigned resource_role=curricular_anchor.",
+        "worksheet, exam, video, lesson_plan, and program rows are assigned resource_role=candidate_resource.",
+        "Lesson-plan topics are extracted from plan_json keys related to topic, title, objective, focus, vocabulary, success, and assessment, plus the fallback topic field.",
+        "Program topics inherit parent learning-program metadata when the parent program is available, so topic anchors carry subject, level, and stage context."
+      ],
+      "reproducibility_controls": [
+        "Random seed is fixed at 20260726.",
+        "The run stores a dataset fingerprint built from profile hashes.",
+        "The run stores a configuration hash for the model grid and preprocessing settings.",
+        "The fitted representation is serialized so runtime scoring does not refit TF-IDF from live data."
+      ]
+    },
+    "representation_manifest": {
+      "configuration_hash": "1988736e2961b4c1c702212e",
+      "dataset_fingerprint": "ec9e0fa4f474c425277db4b2",
+      "embedding_method": "tfidf_truncated_svd",
+      "explained_variance_ratio_sum": 0.5399456060536588,
+      "feature_count": 1600,
+      "feature_schema_version": "resource_affinity_unsupervised.v4",
+      "file_checksums": {
+        "normalizer": "0f9a9eb405bc8ca2f23c18311282b2836d542758781fa3e7b1a5aa43e9222b78",
+        "resource_keys": "84505db2a1ed002b95769698aff24dfdba15aa88b4650946cd81ed784b81ab2a",
+        "svd": "1d731b3951d1ab46dcaf20f1bd2362dbfbffc64bbf72c51b7343a7d43944bc83",
+        "vectorizer": "ab61c77da4062c70b8986f8f0bd837e0f7078dcb25cb77f2db50d8c1a6d124c9",
+        "vectors": "2f45beee255c351dbbfef105273b1c7873ebb67a05d5fc533a99d8ff3a664a00"
+      },
+      "files": {
+        "normalizer": "reports/ml_architecture/resource_affinity_unsupervised/runs/0e24a03e66ed/resource_affinity_normalizer.pkl",
+        "resource_keys": "reports/ml_architecture/resource_affinity_unsupervised/runs/0e24a03e66ed/resource_affinity_ordered_resource_keys.json",
+        "svd": "reports/ml_architecture/resource_affinity_unsupervised/runs/0e24a03e66ed/resource_affinity_svd.pkl",
+        "vectorizer": "reports/ml_architecture/resource_affinity_unsupervised/runs/0e24a03e66ed/resource_affinity_vectorizer.pkl",
+        "vectors": "reports/ml_architecture/resource_affinity_unsupervised/runs/0e24a03e66ed/resource_affinity_vectors.npz"
+      },
+      "ngram_range": "1,2",
+      "ordered_resource_key_count": 451,
+      "resource_count": 451,
+      "run_id": "0e24a03e66ed",
+      "vector_dimensions": 64,
+      "vectorizer": "TfidfVectorizer"
+    },
+    "run_id": "0e24a03e66ed",
+    "selected_candidate_for_human_review": "KMeans k=24",
+    "selection_scoring_methodology": {
+      "component_definitions": {
+        "cluster_size_2_rate": "Share of clusters with exactly two rows, used as a fragmentation warning.",
+        "cluster_size_le_3_rate": "Share of clusters with three or fewer rows, used as a broader fragmentation warning.",
+        "cross_subject_contamination_rate": "Share of evaluated clusters containing more than one normalized subject among rows with known subject metadata.",
+        "noise_ratio": "Share of rows assigned to DBSCAN noise label -1.",
+        "silhouette_score": "Primary unsupervised cohesion/separation metric calculated with cosine distance on non-noise observations."
+      },
+      "formula": "selection_score = silhouette_score - 0.35 * cross_subject_contamination_rate - 0.20 * noise_ratio - 0.12 * cluster_size_2_rate - 0.08 * cluster_size_le_3_rate",
+      "sort_order": [
+        "highest selection_score",
+        "highest silhouette_score as tie-breaker",
+        "lowest cross_subject_contamination_rate as tie-breaker"
+      ],
+      "weight_rationale": [
+        "Silhouette remains the positive base because the experiment is unsupervised and has no human relevance labels yet.",
+        "Cross-subject contamination receives the largest penalty because Classio's recommendation rules treat subject boundaries as business-critical.",
+        "Noise receives a moderate penalty because a model that leaves many rows unassigned is less useful for candidate generation.",
+        "Tiny-cluster penalties discourage models that look clean only because they fragment the catalog into very small groups.",
+        "The weights are heuristic and transparent; they are intended for exploratory model triage, not as proof of recommendation impact."
+      ],
+      "why_not_silhouette_only": "The highest Silhouette model can over-reward small, isolated, or noisy clusters. The balanced score prefers a model that is coherent enough while still preserving coverage and useful cluster structure for downstream heuristics."
+    },
+    "target_definition": "Learning-program topics are curricular anchors. Worksheets, exams, videos, lesson plans, and learning programs are candidate resources tested for semantic alignment with those anchors.",
+    "winner": "KMeans k=24",
+    "winner_explanation": {
+      "metric_leader": "KMeans k=3",
+      "metric_leader_selection_score": 0.052806,
+      "reason": "The winner is the top balanced selection-score candidate. The metric leader is reported separately because a higher Silhouette score alone can over-reward fragmented, noisy, or business-contaminated cluster structures.",
+      "winner": "KMeans k=24",
+      "winner_selection_score": 0.182343
+    }
+  },
+  "generated_at": "2026-07-28T19:11:14.436015+00:00",
+  "review": {
+    "label_reconciliation": {
+      "limitations": [
+        "No human-labeled semantic relevance labels are used in this unsupervised phase.",
+        "Small or imbalanced resource catalogs can make clustering metrics unstable.",
+        "Program topics are curricular anchors, not standalone resources; candidate-resource alignment must be reviewed separately from topic-to-topic similarity.",
+        "Business rules must still filter by subject, language, teacher, student, level, and archive state.",
+        "Cross-language contamination is calculated only from non-empty known language values. Missing language metadata limits interpretation."
+      ],
+      "summary": "Unsupervised experiment: no supervised label construction was used."
+    }
+  }
+}
