@@ -12,7 +12,7 @@ import pandas as pd
 import streamlit as st
 from core.database import clear_app_caches, get_sb, insert_row_with_retries, load_table, register_cache, show_data_load_error
 from core.i18n import t
-from core.navigation import clear_open_resource_previews, go_to
+from core.navigation import clear_open_resource_previews, clear_smart_tool_result_state, go_to
 from core.state import get_current_user_id, with_owner
 from core.timezone import get_app_tz, today_local
 from services.ai_usage_service import log_ai_usage_event
@@ -43,6 +43,7 @@ from helpers.resource_deletion import render_archive_delete_button, render_archi
 from helpers.recommendation_models import log_teacher_material_open
 from helpers.visual_support import generate_resource_cover_image, preserve_generated_media_fields
 from reportlab.lib.enums import TA_CENTER
+from services.permissions_service import get_feature_usage_status
 
 
 _LESSON_PLAN_LIST_COLUMNS = ",".join([
@@ -878,6 +879,7 @@ def _open_plan_library_record(
     require_signup: bool = False,
     expand_assign: bool = False,
 ) -> None:
+    clear_smart_tool_result_state(clear_selection=True)
     clear_open_resource_previews(except_kind="plan", clear_dialogs=not expand_assign)
     if not expand_assign:
         st.session_state.pop("_resource_bulk_assign_dialog", None)
@@ -1175,11 +1177,14 @@ def get_ai_planner_usage_status() -> dict:
     df = _safe_ai_logs_df()
     now_utc = _dt.now(timezone.utc)
     today_start_utc = _dt.combine(today_local(), _dt.min.time()).replace(tzinfo=get_app_tz()).astimezone(timezone.utc)
+    usage_status = get_feature_usage_status(get_current_user_id(), "ai_generations")
+    limit = usage_status["limit"] if usage_status["limit"] is not None else _lp().AI_DAILY_LIMIT
 
     if df.empty:
         return {
-            "used_today": 0,
-            "remaining_today": _lp().AI_DAILY_LIMIT,
+            "used_today": int(usage_status["used"] or 0),
+            "remaining_today": max(0, limit - int(usage_status["used"] or 0)),
+            "limit": limit,
             "cooldown_ok": True,
             "seconds_left": 0,
             "last_request_at": None,
@@ -1202,8 +1207,9 @@ def get_ai_planner_usage_status() -> dict:
             seconds_left = int(math.ceil(_lp().AI_COOLDOWN_SECONDS - delta))
 
     return {
-        "used_today": used_today,
-        "remaining_today": max(0, _lp().AI_DAILY_LIMIT - used_today),
+        "used_today": int(usage_status["used"] or used_today),
+        "remaining_today": max(0, limit - int(usage_status["used"] or used_today)),
+        "limit": limit,
         "cooldown_ok": cooldown_ok,
         "seconds_left": max(0, seconds_left),
         "last_request_at": last_request_at,
@@ -1231,6 +1237,7 @@ def render_quick_lesson_plan_result(
     comparison_mode: bool = False,
     allow_image_generation: bool | None = None,
     on_image_update=None,
+    show_clear_result: bool = False,
 ) -> None:
     _inject_planner_result_css()
     plan = _clean_plan_data(plan)
@@ -1425,7 +1432,53 @@ def render_quick_lesson_plan_result(
             st.session_state["files_selected_plan"] = updated_plan
         return True
 
+    def _render_plan_editor() -> None:
+        if not edit_allowed:
+            return
+        from helpers.resource_editor import render_resource_editor
+
+        render_resource_editor(
+            resource_label="lesson_plan",
+            payload=plan,
+            action_key_prefix=f"{action_key_prefix}_edit",
+            on_apply=_apply_plan_edit,
+            normalize_payload=_clean_plan_data,
+            context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
+        )
+
+    def _render_plan_assignment() -> None:
+        if not allow_assign:
+            return
+        with st.expander(t("assign_to_student"), expanded=assign_expanded):
+            from helpers.teacher_student_integration import render_assignment_panel_for_lesson_plan
+
+            render_assignment_panel_for_lesson_plan(
+                prefix=f"{action_key_prefix}_assign",
+                plan=plan,
+                subject=subject,
+                topic=topic,
+                lesson_purpose=lesson_purpose,
+                source_record_id=resource_record_id,
+            )
+
     if read_only:
+        if signup_required_actions:
+            st.caption(t("explore_resource_action_signup_note"))
+            if st.button(
+                t("assign_to_student"),
+                key=f"{action_key_prefix}_assign_signup",
+            ):
+                st.session_state["_explore_go_signup"] = True
+                st.session_state["_show_signup_invite_dialog"] = True
+                if str(action_key_prefix).startswith("explore_selected"):
+                    st.session_state["explore_teaching_resources_keep_open"] = True
+                elif str(action_key_prefix).startswith("explore_"):
+                    st.session_state["explore_ai_tools_keep_open"] = True
+                st.rerun()
+        else:
+            _render_plan_editor()
+            _render_plan_assignment()
+
         dc1, dc2 = st.columns(2)
         with dc1:
             st.download_button(
@@ -1459,68 +1512,33 @@ def render_quick_lesson_plan_result(
                     key=f"{action_key_prefix}_download_docx",
                     use_container_width=True,
                 )
-        if signup_required_actions:
-            st.caption(t("explore_resource_action_signup_note"))
-            if st.button(
-                t("assign_to_student"),
-                key=f"{action_key_prefix}_assign_signup",
-            ):
-                st.session_state["_explore_go_signup"] = True
-                st.session_state["_show_signup_invite_dialog"] = True
-                if str(action_key_prefix).startswith("explore_selected"):
-                    st.session_state["explore_teaching_resources_keep_open"] = True
-                elif str(action_key_prefix).startswith("explore_"):
-                    st.session_state["explore_ai_tools_keep_open"] = True
-                st.rerun()
-        elif allow_assign:
-            with st.expander(t("assign_to_student"), expanded=assign_expanded):
-                from helpers.teacher_student_integration import render_assignment_panel_for_lesson_plan
-
-                render_assignment_panel_for_lesson_plan(
-                    prefix=f"{action_key_prefix}_assign",
-                    plan=plan,
-                    subject=subject,
-                    topic=topic,
-                    lesson_purpose=lesson_purpose,
-                    source_record_id=resource_record_id,
-                )
-            if edit_allowed:
-                from helpers.resource_editor import render_resource_editor
-
-                render_resource_editor(
-                    resource_label="lesson_plan",
-                    payload=plan,
-                    action_key_prefix=f"{action_key_prefix}_edit",
-                    on_apply=_apply_plan_edit,
-                    normalize_payload=_clean_plan_data,
-                    context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
-                )
         return
 
     if resolved_mode == "template":
+        if st.button(t("save_template_plan"), key="btn_save_template_plan", use_container_width=True):
+            ok = save_lesson_plan_record(
+                subject=subject,
+                learner_stage=learner_stage,
+                level_or_band=level_or_band,
+                lesson_purpose=lesson_purpose,
+                topic=topic,
+                mode="template",
+                plan=plan,
+            )
+            if ok:
+                if ok is not True:
+                    st.session_state["quick_lesson_plan_record_id"] = ok
+                st.session_state["quick_lesson_plan_kept"] = True
+                log_user_activity(
+                    activity_type="planner_save",
+                    feature_name="quick_lesson_planner",
+                    meta={"source_type": "template", "subject": subject, "topic": topic},
+                )
+                st.success(t("template_plan_saved"))
+        _render_plan_editor()
+        _render_plan_assignment()
         a1, a2 = st.columns(2)
         with a1:
-            if st.button(t("save_template_plan"), key="btn_save_template_plan", use_container_width=True):
-                ok = save_lesson_plan_record(
-                    subject=subject,
-                    learner_stage=learner_stage,
-                    level_or_band=level_or_band,
-                    lesson_purpose=lesson_purpose,
-                    topic=topic,
-                    mode="template",
-                    plan=plan,
-                )
-                if ok:
-                    if ok is not True:
-                        st.session_state["quick_lesson_plan_record_id"] = ok
-                    st.session_state["quick_lesson_plan_kept"] = True
-                    log_user_activity(
-                        activity_type="planner_save",
-                        feature_name="quick_lesson_planner",
-                        meta={"source_type": "template", "subject": subject, "topic": topic},
-                    )
-                    st.success(t("template_plan_saved"))
-        with a2:
             st.download_button(
                 label=t("download_pdf"),
                 data=pdf_bytes,
@@ -1529,37 +1547,18 @@ def render_quick_lesson_plan_result(
                 key=f"{action_key_prefix}_download_pdf_inline",
                 use_container_width=True,
             )
-        st.download_button(
-            label=t("download_word"),
-            data=docx_bytes,
-            file_name=f"{safe_title}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key=f"{action_key_prefix}_download_docx_inline",
-            use_container_width=True,
-        )
-        with st.expander(t("assign_to_student"), expanded=assign_expanded):
-            from helpers.teacher_student_integration import render_assignment_panel_for_lesson_plan
-
-            render_assignment_panel_for_lesson_plan(
-                prefix=f"{action_key_prefix}_assign",
-                plan=plan,
-                subject=subject,
-                topic=topic,
-                lesson_purpose=lesson_purpose,
-                source_record_id=resource_record_id,
+        with a2:
+            st.download_button(
+                label=t("download_word"),
+                data=docx_bytes,
+                file_name=f"{safe_title}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key=f"{action_key_prefix}_download_docx_inline",
+                use_container_width=True,
             )
-        if edit_allowed:
-            from helpers.resource_editor import render_resource_editor
-
-            render_resource_editor(
-                resource_label="lesson_plan",
-                payload=plan,
-                action_key_prefix=f"{action_key_prefix}_edit",
-                on_apply=_apply_plan_edit,
-                normalize_payload=_clean_plan_data,
-            context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
-        )
     else:
+        _render_plan_editor()
+        _render_plan_assignment()
         a1, a2 = st.columns(2)
         with a1:
             st.download_button(
@@ -1579,29 +1578,7 @@ def render_quick_lesson_plan_result(
                 key=f"{action_key_prefix}_download_docx_inline2",
                 use_container_width=True,
             )
-        with st.expander(t("assign_to_student"), expanded=assign_expanded):
-            from helpers.teacher_student_integration import render_assignment_panel_for_lesson_plan
-
-            render_assignment_panel_for_lesson_plan(
-                prefix=f"{action_key_prefix}_assign",
-                plan=plan,
-                subject=subject,
-                topic=topic,
-                lesson_purpose=lesson_purpose,
-                source_record_id=resource_record_id,
-            )
-        if edit_allowed:
-            from helpers.resource_editor import render_resource_editor
-
-            render_resource_editor(
-                resource_label="lesson_plan",
-                payload=plan,
-                action_key_prefix=f"{action_key_prefix}_edit",
-                on_apply=_apply_plan_edit,
-                normalize_payload=_clean_plan_data,
-                context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
-            )
-    if not read_only:
+    if show_clear_result and not read_only:
         if st.button(
             "🗑️ " + (t("clear_result") if t("clear_result") != "clear_result" else "Clear result"),
             key="btn_close_quick_plan",
@@ -2008,7 +1985,7 @@ def render_quick_lesson_planner_expander() -> None:
         )
 
         if quick_plan_mode == "ai":
-            st.caption(t("ai_plans_left_today", remaining=usage["remaining_today"], limit=_lp().AI_DAILY_LIMIT))
+            st.caption(t("ai_plans_left_today", remaining=usage["remaining_today"], limit=usage.get("limit", _lp().AI_DAILY_LIMIT)))
 
         subject = st.selectbox(
             t("subject_label"),
@@ -2275,6 +2252,7 @@ def render_quick_lesson_planner_expander() -> None:
 
             render_quick_lesson_plan_result(
                 st.session_state["quick_lesson_plan_result"],
+                allow_assign=True,
                 subject=other_subject_name if subject == "other" else subject,
                 learner_stage=learner_stage,
                 level_or_band=level_or_band,
@@ -2282,6 +2260,7 @@ def render_quick_lesson_planner_expander() -> None:
                 topic=st.session_state.get("quick_plan_effective_topic") or topic,
                 assign_expanded=bool(st.session_state.get("quick_lesson_plan_assign_expanded", False)),
                 resource_record_id=st.session_state.get("quick_lesson_plan_record_id"),
+                show_clear_result=True,
             )
 
         compare_payload = st.session_state.get("quick_plan_ab_debug_compare") or {}

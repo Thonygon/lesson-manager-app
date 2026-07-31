@@ -15,6 +15,7 @@ from helpers.native_language import native_language_label, normalize_native_lang
 from core.timezone import today_local, get_app_tz
 from core.database import clear_app_caches, get_sb, insert_row_with_retries, load_table
 from services.ai_usage_service import log_ai_usage_event, with_provider_chain
+from services.permissions_service import can_use_ai_tool, get_feature_usage_status, increment_usage
 from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
 from helpers.resource_deletion import render_archive_delete_button, render_archive_delete_confirmation
 
@@ -281,8 +282,16 @@ def get_ai_cv_usage_status() -> dict:
     today_start_utc = _dt.combine(
         today_local(), _dt.min.time()
     ).replace(tzinfo=get_app_tz()).astimezone(timezone.utc)
+    usage_status = get_feature_usage_status(get_current_user_id(), "ai_generations")
+    limit = usage_status["limit"] if usage_status["limit"] is not None else AI_CV_DAILY_LIMIT
 
-    _empty = {"used_today": 0, "remaining_today": AI_CV_DAILY_LIMIT, "cooldown_ok": True, "seconds_left": 0}
+    _empty = {
+        "used_today": int(usage_status["used"] or 0),
+        "remaining_today": max(0, limit - int(usage_status["used"] or 0)),
+        "limit": limit,
+        "cooldown_ok": True,
+        "seconds_left": 0,
+    }
     if df.empty:
         return _empty
 
@@ -300,8 +309,9 @@ def get_ai_cv_usage_status() -> dict:
             seconds_left = int(math.ceil(AI_CV_COOLDOWN_SECONDS - delta))
 
     return {
-        "used_today": used_today,
-        "remaining_today": max(0, AI_CV_DAILY_LIMIT - used_today),
+        "used_today": int(usage_status["used"] or used_today),
+        "remaining_today": max(0, limit - int(usage_status["used"] or used_today)),
+        "limit": limit,
         "cooldown_ok": cooldown_ok,
         "seconds_left": max(0, seconds_left),
     }
@@ -945,7 +955,7 @@ def render_quick_cv_builder_expander() -> None:
         )
 
         if cv_mode == "ai":
-            st.caption(t("ai_plans_left_today", remaining=usage["remaining_today"], limit=AI_CV_DAILY_LIMIT))
+            st.caption(t("ai_plans_left_today", remaining=usage["remaining_today"], limit=usage.get("limit", AI_CV_DAILY_LIMIT)))
 
         # ── Profile picture toggle ───────────────────────────────────────
         _avatar = str(st.session_state.get("avatar_url") or "").strip()
@@ -1207,7 +1217,9 @@ def render_quick_cv_builder_expander() -> None:
             if not cv_langs:
                 validation_errors.append(t("cv_language_required"))
 
-            if cv_mode == "ai" and usage["used_today"] >= AI_CV_DAILY_LIMIT:
+            if cv_mode == "ai" and not can_use_ai_tool():
+                validation_errors.append(t("ai_limit_reached"))
+            elif cv_mode == "ai" and usage["remaining_today"] <= 0:
                 validation_errors.append(t("ai_limit_reached"))
 
             if cv_mode == "ai" and not usage["cooldown_ok"]:
@@ -1273,6 +1285,7 @@ def render_quick_cv_builder_expander() -> None:
                                 user_prompt=cv_ai_prompt,
                             )
                             _log_ai_cv("success", {"doc": "cv", "provider": str(generated_cv.pop('_ai_provider', '') or '')})
+                            increment_usage(None, "ai_generations")
                         else:
                             _log_ai_cv("success", {"doc": "cv", "used_ai": False, "generation_mode": "template_only"})
                             generated_cv = _cv().build_template_cv(**_kwargs)
@@ -1319,6 +1332,7 @@ def render_quick_cv_builder_expander() -> None:
                                 user_prompt=cv_cl_prompt,
                             )
                             _log_ai_cv("success", {"doc": "cover_letter", "provider": provider})
+                            increment_usage(None, "ai_generations")
                             st.session_state["quick_cl_result"] = cl_text
                             _cl_title = (
                                 f"{t('cover_letter')} – {cv_full_name.strip()}"

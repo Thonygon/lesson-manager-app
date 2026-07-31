@@ -9,72 +9,299 @@ from core.timezone import now_local
 from helpers.language import translate_status, translate_modality_value, translate_language_value
 
 
-def inject_loading_screen():
-    st.markdown(
-        """
-        <style>
-        #app-preloader {
+def _loading_overlay_style() -> str:
+    return """
+        .classio-loading-overlay {
             position: fixed;
             inset: 0;
             z-index: 999999;
             display: flex;
             align-items: center;
             justify-content: center;
-            flex-direction: column;
-            gap: 14px;
+            padding: 24px;
             background:
-                radial-gradient(circle at top left, rgba(59,130,246,0.16), transparent 35%),
-                radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 30%),
-                linear-gradient(180deg, #0f172a 0%, #111827 100%);
-            color: #f8fafc;
-            animation: classio-preloader-fade 0.35s ease 0.9s forwards;
+                radial-gradient(circle at 12% 14%, color-mix(in srgb, var(--primary, #2563EB) 16%, transparent), transparent 28%),
+                radial-gradient(circle at 85% 18%, color-mix(in srgb, var(--success, #10B981) 12%, transparent), transparent 24%),
+                linear-gradient(
+                    180deg,
+                    color-mix(in srgb, var(--bg-2, #f8faff) 92%, transparent),
+                    color-mix(in srgb, var(--bg-1, #f5f7fb) 96%, transparent)
+                );
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
         }
 
-        #app-preloader.hide {
+        .classio-loading-card {
+            min-width: 240px;
+            max-width: min(92vw, 360px);
+            padding: 18px 20px;
+            border-radius: 18px;
+            border: 1px solid color-mix(in srgb, var(--border-strong, rgba(17,24,39,0.12)) 82%, var(--primary, #2563EB) 18%);
+            background: linear-gradient(
+                180deg,
+                color-mix(in srgb, var(--panel, rgba(255,255,255,0.92)) 96%, white 4%),
+                color-mix(in srgb, var(--panel-2, rgba(255,255,255,0.84)) 98%, transparent)
+            );
+            box-shadow: var(--shadow-lg, 0 22px 55px rgba(15,23,42,0.10));
+            text-align: center;
+        }
+
+        .classio-loading-spinner {
+            width: 36px;
+            height: 36px;
+            margin: 0 auto 12px auto;
+            border-radius: 999px;
+            border: 3px solid color-mix(in srgb, var(--border-strong, rgba(17,24,39,0.12)) 80%, transparent);
+            border-top-color: var(--primary, #2563EB);
+            animation: classio-loading-spin 0.82s linear infinite;
+        }
+
+        .classio-loading-title {
+            font-size: 0.98rem;
+            font-weight: 700;
+            color: var(--text, #0f172a);
+            margin-bottom: 4px;
+        }
+
+        .classio-loading-copy {
+            font-size: 0.84rem;
+            color: var(--muted, #64748b);
+            line-height: 1.45;
+        }
+
+        .classio-loading-overlay.is-hiding {
             opacity: 0;
+            visibility: hidden;
             pointer-events: none;
         }
 
-        .preloader-spinner {
-            width: 54px;
-            height: 54px;
-            border-radius: 50%;
-            border: 4px solid rgba(255,255,255,0.12);
-            border-top-color: #60A5FA;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
+        @keyframes classio-loading-spin {
             to { transform: rotate(360deg); }
         }
 
-        @keyframes classio-preloader-fade {
-            to {
-                opacity: 0;
-                visibility: hidden;
-                pointer-events: none;
+        @media (prefers-color-scheme: dark) {
+            .classio-loading-overlay {
+                background:
+                    radial-gradient(circle at 12% 14%, rgba(59,130,246,0.18), transparent 28%),
+                    radial-gradient(circle at 85% 18%, rgba(52,211,153,0.14), transparent 24%),
+                    linear-gradient(180deg, rgba(26,38,64,0.94), rgba(15,23,42,0.97));
+            }
+
+            .classio-loading-card {
+                border-color: rgba(255,255,255,0.12);
+                background: linear-gradient(180deg, rgba(30,41,59,0.92), rgba(20,30,48,0.88));
+                box-shadow: 0 22px 55px rgba(0,0,0,0.36);
+            }
+
+            .classio-loading-spinner {
+                border-color: rgba(255,255,255,0.14);
+                border-top-color: #60A5FA;
+            }
+
+            .classio-loading-title { color: #f1f5f9; }
+            .classio-loading-copy { color: #94a3b8; }
+        }
+    """
+
+
+def render_loading_overlay_markup(
+    *,
+    overlay_id: str,
+    title: str,
+    copy: str,
+) -> str:
+    return f"""
+        <style>
+        {_loading_overlay_style()}
+        </style>
+        <div id="{overlay_id}" class="classio-loading-overlay" aria-live="polite">
+            <div class="classio-loading-card">
+                <div class="classio-loading-spinner"></div>
+                <div class="classio-loading-title">{title}</div>
+                <div class="classio-loading-copy">{copy}</div>
+            </div>
+        </div>
+    """
+
+
+def mount_loading_overlay_hide_script(overlay_id: str, *, auto_hide_ms: int = 500) -> None:
+    delay_ms = max(0, int(auto_hide_ms))
+    fallback_ms = delay_ms + 700
+    components.html(
+        f"""
+        <script>
+        (function() {{
+            function hideOverlay() {{
+                const hostDoc = window.parent?.document || document;
+                const overlay = hostDoc.getElementById("{overlay_id}");
+                if (overlay) {{
+                    overlay.classList.add("is-hiding");
+                }}
+            }}
+
+            window.addEventListener("load", function() {{
+                window.setTimeout(hideOverlay, {delay_ms});
+            }});
+
+            window.setTimeout(hideOverlay, {fallback_ms});
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+
+def inject_modern_section_switcher_styles() -> None:
+    if st.session_state.get("_classio_modern_section_switcher_styles_injected"):
+        return
+    st.session_state["_classio_modern_section_switcher_styles_injected"] = True
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stRadio"] div[role="radiogroup"][aria-label="Section"] {
+            display: flex;
+            flex-wrap: nowrap;
+            align-items: stretch;
+            gap: 0.2rem;
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 0 0 0.35rem 0;
+            margin: 0 0 0.55rem 0;
+            border-bottom: 1px solid color-mix(in srgb, var(--border, rgba(148,163,184,0.28)) 84%, transparent);
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        div[data-testid="stRadio"] div[role="radiogroup"][aria-label="Section"]::-webkit-scrollbar {
+            display: none;
+        }
+        div[data-testid="stRadio"] div[role="radiogroup"][aria-label="Section"] label[data-baseweb="radio"] {
+            display: inline-flex !important;
+            align-items: center;
+            min-width: max-content;
+            margin: 0 !important;
+            padding: 0.1rem 0.15rem 0.7rem 0.15rem !important;
+            border-radius: 0 !important;
+            border: none !important;
+            border-bottom: 2px solid transparent !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            color: var(--muted, #64748b) !important;
+            font-weight: 800 !important;
+            transition: color .16s ease, border-color .16s ease, background-color .16s ease;
+        }
+        div[data-testid="stRadio"] div[role="radiogroup"][aria-label="Section"] label[data-baseweb="radio"] > div:first-child {
+            display: none !important;
+        }
+        div[data-testid="stRadio"] div[role="radiogroup"][aria-label="Section"] label[data-baseweb="radio"] > div:last-child {
+            padding: 0 !important;
+        }
+        div[data-testid="stRadio"] div[role="radiogroup"][aria-label="Section"] label[data-baseweb="radio"]:hover {
+            color: var(--text, #0f172a) !important;
+        }
+        div[data-testid="stRadio"] div[role="radiogroup"][aria-label="Section"] label[data-baseweb="radio"]:has(input:checked) {
+            color: var(--text, #0f172a) !important;
+            border-bottom-color: var(--primary, #2563EB) !important;
+        }
+        div[data-testid="stRadio"] div[role="radiogroup"][aria-label="Section"] label[data-baseweb="radio"]:has(input:focus-visible) {
+            outline: none !important;
+            box-shadow: inset 0 -2px 0 var(--primary, #2563EB) !important;
+        }
+        @media (max-width: 768px) {
+            div[data-testid="stRadio"] div[role="radiogroup"][aria-label="Section"] {
+                gap: 0.1rem;
+            }
+            div[data-testid="stRadio"] div[role="radiogroup"][aria-label="Section"] label[data-baseweb="radio"] {
+                padding-bottom: 0.65rem !important;
+                font-size: 0.98rem !important;
             }
         }
-
-        .preloader-title {
-            font-weight: 700;
-            font-size: 18px;
-        }
-
-        .preloader-sub {
-            font-size: 13px;
-            opacity: 0.7;
-        }
         </style>
-
-        <div id="app-preloader">
-            <div class="preloader-spinner"></div>
-            <div class="preloader-title">Classio</div>
-            <div class="preloader-sub">Loading your workspace...</div>
-        </div>
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_section_switcher(state_key: str, options: list[tuple[str, str]]) -> str:
+    option_keys = [key for key, _label in options]
+    label_map = {key: label for key, label in options}
+    reverse_label_map = {label: key for key, label in options}
+    current_value = st.session_state.get(state_key)
+    if current_value not in option_keys:
+        current_value = option_keys[0]
+
+    try:
+        from streamlit_option_menu import option_menu
+
+        selected_label = option_menu(
+            None,
+            [label_map[key] for key in option_keys],
+            default_index=option_keys.index(current_value),
+            orientation="horizontal",
+            key=f"{state_key}__option_menu",
+            styles={
+                "container": {
+                    "padding": "0",
+                    "margin": "0 0 .55rem 0",
+                    "background-color": "transparent",
+                },
+                "nav": {
+                    "flex-wrap": "nowrap",
+                    "overflow-x": "auto",
+                    "overflow-y": "hidden",
+                    "white-space": "nowrap",
+                    "gap": ".15rem",
+                    "padding": "0 0 .35rem 0",
+                    "border-bottom": "1px solid color-mix(in srgb, var(--border, rgba(148,163,184,0.28)) 84%, transparent)",
+                },
+                "nav-link": {
+                    "padding": ".15rem .15rem .7rem .15rem",
+                    "margin": "0 .45rem 0 0",
+                    "border-radius": "0",
+                    "border-bottom": "2px solid transparent",
+                    "background-color": "transparent",
+                    "color": "var(--muted, #64748b)",
+                    "font-size": "1rem",
+                    "font-weight": "800",
+                    "line-height": "1.2",
+                },
+                "nav-link-selected": {
+                    "padding": ".15rem .15rem .7rem .15rem",
+                    "border-radius": "0",
+                    "border-bottom": "2px solid var(--primary, #2563EB)",
+                    "background-color": "transparent",
+                    "color": "var(--text, #0f172a)",
+                    "font-weight": "900",
+                },
+            },
+        )
+        resolved_value = reverse_label_map.get(selected_label, current_value)
+        st.session_state[state_key] = resolved_value
+        return str(resolved_value)
+    except Exception:
+        inject_modern_section_switcher_styles()
+        return str(
+            st.radio(
+                "Section",
+                options=option_keys,
+                index=option_keys.index(current_value),
+                format_func=lambda key: label_map.get(key, key),
+                key=state_key,
+                horizontal=True,
+                label_visibility="collapsed",
+            )
+        )
+
+
+def inject_loading_screen():
+    st.markdown(
+        render_loading_overlay_markup(
+            overlay_id="app-preloader",
+            title="Classio",
+            copy="Loading your workspace...",
+        ),
+        unsafe_allow_html=True,
+    )
+    mount_loading_overlay_hide_script("app-preloader", auto_hide_ms=500)
 
 # 08) UI COMPONENTS
 # =========================

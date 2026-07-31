@@ -15,6 +15,30 @@ FEATURE_DEFAULTS = {
 }
 
 
+def get_feature_limit(user_id: str | None, feature: str) -> int | None:
+    plan = get_user_plan(user_id)
+    limits = plan.get("limits_json") or {}
+    limit = limits.get(feature)
+    if limit is None:
+        return None
+    try:
+        return int(limit)
+    except Exception:
+        return None
+
+
+def get_feature_usage_status(user_id: str | None, feature: str) -> dict:
+    usage = get_usage(user_id)
+    used = int(usage.get(feature) or 0)
+    limit = get_feature_limit(user_id, feature)
+    remaining = None if limit is None else max(0, limit - used)
+    return {
+        "used": used,
+        "limit": limit,
+        "remaining": remaining,
+    }
+
+
 def user_has_feature(user_id: str | None, feature: str) -> bool:
     plan = get_user_plan(user_id)
     features = plan.get("features_json") or {}
@@ -25,17 +49,10 @@ def user_has_feature(user_id: str | None, feature: str) -> bool:
 
 
 def check_usage_limit(user_id: str | None, feature: str) -> bool:
-    plan = get_user_plan(user_id)
-    limits = plan.get("limits_json") or {}
-    limit = limits.get(feature)
-    if limit is None:
+    status = get_feature_usage_status(user_id, feature)
+    if status["limit"] is None:
         return True
-    try:
-        numeric_limit = int(limit)
-    except Exception:
-        return True
-    usage = get_usage(user_id)
-    return int(usage.get(feature) or 0) < numeric_limit
+    return status["used"] < int(status["limit"])
 
 
 def increment_usage(user_id: str | None, feature: str, amount: int = 1) -> bool:

@@ -203,12 +203,38 @@ def _open_practice_item(exercise_data: dict, meta: dict | None = None, *, demo_i
     return True
 
 
+def _open_video_item(video_payload: dict, meta: dict | None = None, *, assignment_id: int = 0) -> bool:
+    combined_payload = dict(video_payload or {})
+    video_id = combined_payload.get("id")
+    if video_id:
+        full_row = load_video_record(video_id) or {}
+        combined_payload = {**combined_payload, **full_row}
+    watch_url = str(combined_payload.get("watch_url") or combined_payload.get("youtube_url") or "").strip()
+    if not watch_url:
+        st.info(_ui_text("video_unavailable", "This video is not available right now."))
+        return False
+    st.session_state["practice_video_payload"] = combined_payload
+    st.session_state["practice_meta"] = meta or {}
+    st.session_state["_practice_video_assignment_id"] = int(assignment_id or 0)
+    st.session_state["_practice_video_logged"] = False
+    st.session_state.pop("practice_exercise_data", None)
+    st.session_state.pop("_practice_resume_session_id", None)
+    st.session_state.pop("_practice_resume_answers", None)
+    st.session_state.pop("_practice_resume_notice", None)
+    return True
+
+
 def render_student_practice():
     st.markdown(f"## 🧠 {t('smart_practice')}")
     _inject_student_practice_styles()
     inject_resource_gallery_styles()
 
     # ── Active practice session ─────────────────────────────────
+    video_payload = st.session_state.get("practice_video_payload")
+    if video_payload:
+        _render_active_video_session(video_payload)
+        return
+
     exercise_data = st.session_state.get("practice_exercise_data")
     if exercise_data:
         _render_active_session(exercise_data)
@@ -226,10 +252,8 @@ def render_student_practice():
 
     with tab_browse:
         _render_browse_tab()
-
     with tab_history:
         _render_history_tab()
-
     with tab_progress:
         _render_progress_tab()
 
@@ -591,18 +615,15 @@ def _render_browse_tab():
 
     _render_recommended_materials(pub_ws, pub_ex, pub_videos if video_feature_enabled else None)
 
-    tab_labels = [
-        f"📋 {t('community_worksheets')}",
-        f"📄 {t('community_exams')}",
+    practice_source_options = [
+        ("worksheets", f"📋 {t('community_worksheets')}"),
+        ("exams", f"📄 {t('community_exams')}"),
     ]
     if video_feature_enabled:
-        tab_labels.append(f"🎬 {_ui_text('videos_label', 'Videos')}")
-    tabs = st.tabs(tab_labels)
-    src_tab_ws = tabs[0]
-    src_tab_exam = tabs[1]
-    src_tab_videos = tabs[2] if video_feature_enabled and len(tabs) > 2 else None
+        practice_source_options.append(("videos", f"🎬 {_ui_text('videos_label', 'Videos')}"))
+    practice_source_tabs = st.tabs([label for _key, label in practice_source_options])
 
-    with src_tab_ws:
+    with practice_source_tabs[0]:
         practice_search_query, _effective_subject, sp_level, sp_stage = _render_resource_controls("ws")
 
         # Apply subject/level/stage filters
@@ -757,7 +778,7 @@ def _render_browse_tab():
                                 st.session_state["sp_filter_ws_type"] = cat_key
                                 st.rerun()
 
-    with src_tab_exam:
+    with practice_source_tabs[1]:
         practice_search_query, _effective_subject, sp_level, sp_stage = _render_resource_controls("exam")
 
         # Apply subject/level/stage filters
@@ -827,8 +848,8 @@ def _render_browse_tab():
                                         st.rerun()
                 _render_practice_pagination(rows, "student_practice_exams_page")
 
-    if src_tab_videos is not None:
-        with src_tab_videos:
+    if video_feature_enabled and len(practice_source_tabs) > 2:
+        with practice_source_tabs[2]:
             practice_search_query, _effective_subject, sp_level, sp_stage = _render_resource_controls("videos")
 
             filtered_videos = pub_videos.copy()
@@ -983,26 +1004,19 @@ def _render_practice_card(
             use_container_width=True,
         ):
             assignment_id = int(row.get("_recommended_assignment_id") or 0)
-            if assignment_id > 0:
-                record_video_assignment_watch(assignment_id)
-            else:
-                record_video_practice_interaction(
-                    combined_payload,
-                    meta={
-                        "subject": subject,
-                        "topic": topic,
-                        "learner_stage": str(row.get("learner_stage") or ""),
-                        "level": level,
-                    },
-                )
-            if recommendation_item:
-                log_student_recommendation_open(recommendation_item, surface="student_practice")
-            st.session_state[f"_start_{btn_key}"] = True
-            st.rerun()
-        if st.session_state.get(f"_start_{btn_key}"):
-            watch_url = str(combined_payload.get("watch_url") or combined_payload.get("youtube_url") or "")
-            if watch_url:
-                st.video(watch_url)
+            if _open_video_item(
+                combined_payload,
+                {
+                    "subject": subject,
+                    "topic": topic,
+                    "learner_stage": str(row.get("learner_stage") or ""),
+                    "level": level,
+                },
+                assignment_id=assignment_id,
+            ):
+                if recommendation_item:
+                    log_student_recommendation_open(recommendation_item, surface="student_practice")
+                st.rerun()
         return
 
     if st.button(f"▶ {t('start_practice')}", key=btn_key, use_container_width=True):
@@ -1298,7 +1312,7 @@ def _render_history_tab(history_override=None, *, scope_key: str = ""):
             )
         subject_groups = _practice_subject_groups(history)
         if len(subject_groups) > 1:
-            tabs = st.tabs([f"📚 {label}" for _key, label, _frame in subject_groups])
+            tabs = st.tabs([f"📚 {label}" for subject_key, label, _frame in subject_groups])
             for tab, (subject_key, _label, scoped_history) in zip(tabs, subject_groups):
                 with tab:
                     _render_history_tab(scoped_history, scope_key=subject_key)
@@ -1462,8 +1476,55 @@ def _render_history_tab(history_override=None, *, scope_key: str = ""):
                     }):
                         st.session_state["_practice_retry_session_id"] = session_id
                         st.rerun()
+
         st.markdown("<div style='height:0.8rem;'></div>", unsafe_allow_html=True)
     _render_practice_pagination(history_rows, page_state_key)
+
+
+def _render_active_video_session(video_payload: dict) -> None:
+    watch_url = str(video_payload.get("watch_url") or video_payload.get("youtube_url") or "").strip()
+    if st.button(f"← {t('back')}", key="practice_video_back"):
+        st.session_state.pop("practice_video_payload", None)
+        st.session_state.pop("practice_meta", None)
+        st.session_state.pop("_practice_video_assignment_id", None)
+        st.session_state.pop("_practice_video_logged", None)
+        st.rerun()
+
+    title = str(video_payload.get("title") or _ui_text("video_label", "Video")).strip()
+    topic = str(video_payload.get("topic") or "").strip()
+    subject = str(video_payload.get("subject") or "").strip()
+    level = str(video_payload.get("level_or_band") or video_payload.get("level") or "").strip()
+    meta_bits = []
+    if subject:
+        meta_bits.append(t(f"subject_{subject.lower().replace(' ', '_')}") if t(f"subject_{subject.lower().replace(' ', '_')}") != f"subject_{subject.lower().replace(' ', '_')}" else subject)
+    if topic:
+        meta_bits.append(topic)
+    if level:
+        meta_bits.append(level)
+
+    st.markdown(f"### {title}")
+    if meta_bits:
+        st.caption(" · ".join(meta_bits))
+    if watch_url:
+        st.video(watch_url)
+        st.link_button(t("open_on_youtube"), watch_url, use_container_width=True)
+    else:
+        st.info(_ui_text("video_unavailable", "This video is not available right now."))
+    description = str(video_payload.get("description") or "").strip()
+    if description:
+        st.caption(description)
+
+    if not st.session_state.get("_practice_video_logged"):
+        st.session_state["_practice_video_logged"] = True
+        assignment_id = _safe_int(st.session_state.get("_practice_video_assignment_id"))
+        meta = st.session_state.get("practice_meta") or {}
+        try:
+            if assignment_id > 0:
+                record_video_assignment_watch(assignment_id)
+            else:
+                record_video_practice_interaction(video_payload, meta=meta)
+        except Exception:
+            pass
 
 
 # ── Progress tab ────────────────────────────────────────────────
@@ -1548,7 +1609,7 @@ def _render_progress_tab(progress_override=None, *, scope_key: str = ""):
         )
         subject_groups = _practice_subject_groups(progress)
         if len(subject_groups) > 1:
-            tabs = st.tabs([f"📚 {label}" for _key, label, _frame in subject_groups])
+            tabs = st.tabs([f"📚 {label}" for subject_key, label, _frame in subject_groups])
             for tab, (subject_key, _label, scoped_progress) in zip(tabs, subject_groups):
                 with tab:
                     _render_progress_tab(scoped_progress, scope_key=subject_key)

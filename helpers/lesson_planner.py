@@ -2378,7 +2378,7 @@ def generate_quick_lesson_plan_with_fallback(
         return template_plan, "template", t("ai_limit_reached")
 
     usage = get_ai_planner_usage_status()
-    if usage["used_today"] >= AI_DAILY_LIMIT:
+    if usage["remaining_today"] <= 0:
         log_ai_usage("quick_lesson_ai", "success", {**template_meta, "reason": "daily_limit_reached"})
         return template_plan, "template", t("ai_limit_reached")
 

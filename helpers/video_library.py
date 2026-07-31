@@ -10,7 +10,7 @@ import streamlit as st
 
 from core.database import clear_app_caches, get_sb, load_profile_row, register_cache
 from core.i18n import t
-from core.navigation import clear_open_resource_previews, go_to
+from core.navigation import clear_open_resource_previews, clear_smart_tool_result_state, go_to
 from core.state import get_current_user_id
 from helpers.archive_utils import filter_archived_rows, is_archived_status
 from helpers.resource_deletion import render_archive_delete_button, render_archive_delete_confirmation
@@ -347,6 +347,7 @@ def _open_video_library_record(
     require_signup: bool = False,
     expand_assign: bool = False,
 ) -> None:
+    clear_smart_tool_result_state(clear_selection=True)
     clear_open_resource_previews(except_kind="video", clear_dialogs=not expand_assign)
     if not expand_assign:
         st.session_state.pop("_resource_bulk_assign_dialog", None)

@@ -28,7 +28,7 @@ from helpers.resource_gallery import (
 from helpers.recommendation_models import log_teacher_material_open
 from helpers.video_library import load_topic_video_links, render_topic_video_manager
 from helpers.visual_support import generate_resource_cover_image
-from core.navigation import clear_open_resource_previews
+from core.navigation import clear_open_resource_previews, clear_smart_tool_result_state
 
 AI_PROGRAM_DAILY_LIMIT = 1
 AI_PROGRAM_COOLDOWN_SECONDS = 10
@@ -1978,11 +1978,15 @@ def _run_learning_program_json_generation(
     raise ValueError(" | ".join(errors) if errors else "Unknown AI generation error")
 
 
-def _merge_program_unit(base_unit: dict, enriched_unit: dict) -> dict:
+def _merge_program_unit(base_unit: dict, enriched_unit: dict, *, prefer_enriched_topics: bool = False) -> dict:
     base_topics = list(base_unit.get("topics") or [])
     enriched_topics = list(enriched_unit.get("topics") or [])
     merged_topics = []
-    target_count = max(len(base_topics), len(enriched_topics))
+    target_count = (
+        len(enriched_topics)
+        if prefer_enriched_topics and enriched_topics
+        else max(len(base_topics), len(enriched_topics))
+    )
 
     for idx in range(target_count):
         merged = {}
@@ -1999,7 +2003,7 @@ def _merge_program_unit(base_unit: dict, enriched_unit: dict) -> dict:
         merged["unit_number"] = int(base_unit.get("unit_number") or enriched_unit.get("unit_number") or 1)
         merged_topics.append(merged)
 
-    if len(base_topics) > len(merged_topics):
+    if not prefer_enriched_topics and len(base_topics) > len(merged_topics):
         for idx in range(len(merged_topics), len(base_topics)):
             topic = dict(base_topics[idx] or {})
             topic["topic_number"] = idx + 1
@@ -3434,17 +3438,29 @@ def load_learning_program(program_id: int) -> dict:
             ),
             "units": units,
         }
-        if _count_ready_program_units(program_data) > _count_ready_program_units(loaded_program):
+        if _count_ready_program_units(program_data) > 0:
             db_units_by_number = {
                 int(unit.get("unit_number") or 0): unit
                 for unit in units
                 if int(unit.get("unit_number") or 0) > 0
             }
             merged_units = []
+            seen_unit_numbers: set[int] = set()
             for program_data_unit in program_data.get("units") or []:
                 unit_number = int(program_data_unit.get("unit_number") or 0)
+                seen_unit_numbers.add(unit_number)
                 base_unit = db_units_by_number.get(unit_number, program_data_unit)
-                merged_units.append(_merge_program_unit(base_unit, program_data_unit))
+                merged_units.append(
+                    _merge_program_unit(
+                        base_unit,
+                        program_data_unit,
+                        prefer_enriched_topics=True,
+                    )
+                )
+            for unit in units:
+                unit_number = int(unit.get("unit_number") or 0)
+                if unit_number > 0 and unit_number not in seen_unit_numbers:
+                    merged_units.append(unit)
             loaded_program["units"] = merged_units
         return _sanitize_loaded_program_identifiers(loaded_program)
     except Exception as exc:
@@ -3979,6 +3995,7 @@ def render_learning_program_library_cards(
                 action_cols = st.columns([1, 1, 1, 1, 1] if show_delete_control else ([1, 1, 1, 1] if show_owner_controls else [1, 1]))
                 with action_cols[0]:
                     if program_id > 0 and st.button(t("open_program"), key=f"{prefix}_open_{program_id}_{idx}_{col_idx}"):
+                        clear_smart_tool_result_state(clear_selection=True)
                         clear_open_resource_previews()
                         log_teacher_material_open(
                             row,
@@ -5585,32 +5602,25 @@ def render_quick_learning_program_builder_expander() -> None:
                 edit_meta=meta,
             )
 
-            save_col, clear_col = st.columns(2)
-            with save_col:
-                _already_saved = st.session_state.get(f"{ns}_saved_program_id")
-                if _already_saved:
-                    st.success(t("learning_program_saved_success", program_id=_already_saved))
-                elif st.button(t("save_learning_program"), key=f"{ns}_save", use_container_width=True):
-                    ok, program_id, msg = _save_generated_learning_program_from_builder(
-                        result=result,
-                        meta=meta,
-                        subject=subject,
-                        learner_stage=learner_stage,
-                        level_or_band=level_or_band,
-                        custom_subject_name=custom_subject_name,
-                        visibility=visibility,
-                        mode_used=mode_used,
-                    )
-                    if ok:
-                        st.session_state[f"{ns}_saved_program_id"] = program_id
-                        st.success(t("learning_program_saved_success", program_id=program_id))
-                    else:
-                        st.error(t("learning_program_save_failed", error=msg))
-            with clear_col:
-                if st.button(t("clear_builder"), key=f"{ns}_clear", use_container_width=True):
-                    for key in [f"{ns}_result", f"{ns}_mode_used", f"{ns}_warning", f"{ns}_meta", f"{ns}_payload", f"{ns}_pending_unit", f"{ns}_saved_program_id"]:
-                        st.session_state.pop(key, None)
-                    st.rerun()
+            _already_saved = st.session_state.get(f"{ns}_saved_program_id")
+            if _already_saved:
+                st.success(t("learning_program_saved_success", program_id=_already_saved))
+            elif st.button(t("save_learning_program"), key=f"{ns}_save", use_container_width=True):
+                ok, program_id, msg = _save_generated_learning_program_from_builder(
+                    result=result,
+                    meta=meta,
+                    subject=subject,
+                    learner_stage=learner_stage,
+                    level_or_band=level_or_band,
+                    custom_subject_name=custom_subject_name,
+                    visibility=visibility,
+                    mode_used=mode_used,
+                )
+                if ok:
+                    st.session_state[f"{ns}_saved_program_id"] = program_id
+                    st.success(t("learning_program_saved_success", program_id=program_id))
+                else:
+                    st.error(t("learning_program_save_failed", error=msg))
 
             if _program_is_complete(result):
                 st.markdown(f"### {t('assign_to_student')}")
@@ -5667,3 +5677,8 @@ def render_quick_learning_program_builder_expander() -> None:
                             st.success(t("learning_program_assigned_success", student=selected_student_name, assignment_id=assignment_id))
                         else:
                             st.error(t("learning_program_assigned_failed", error=msg))
+
+            if st.button(t("clear_builder"), key=f"{ns}_clear", use_container_width=True):
+                for key in [f"{ns}_result", f"{ns}_mode_used", f"{ns}_warning", f"{ns}_meta", f"{ns}_payload", f"{ns}_pending_unit", f"{ns}_saved_program_id"]:
+                    st.session_state.pop(key, None)
+                st.rerun()

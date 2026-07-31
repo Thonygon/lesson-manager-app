@@ -15,7 +15,7 @@ from core.database import (
     profile_can_study,
 )
 from auth.auth import render_profile_dialog, sign_out_user
-from helpers.ui_components import trigger_book_rain
+from helpers.ui_components import render_loading_overlay_markup, trigger_book_rain
 from services.auth_service import current_user_is_admin
 from services.authorization_service import current_user_can_access_developer_workspace
 
@@ -152,11 +152,24 @@ def _render_page_error_fallback(page_key: str) -> None:
 def _render_page_with_loading(page_key: str, render_fn: Callable[[], None]) -> None:
     label = _page_loading_label(page_key)
     loading_slot = st.empty()
-    progress = loading_slot.progress(0.12, text=t("section_loading_start", section=label))
-    progress.progress(0.42, text=t("section_loading_data", section=label))
+    use_page_overlay = bool(st.session_state.pop("_page_loading_transition_pending", False))
+    if use_page_overlay:
+        loading_slot.markdown(
+            render_loading_overlay_markup(
+                overlay_id=f"classio-route-loading-{page_key}",
+                title=t("section_loading_data", section=label),
+                copy=t("section_loading_ready", section=label),
+            ),
+            unsafe_allow_html=True,
+        )
+        progress = None
+    else:
+        progress = loading_slot.progress(0.12, text=t("section_loading_start", section=label))
+        progress.progress(0.42, text=t("section_loading_data", section=label))
     try:
         render_fn()
-        progress.progress(1.0, text=t("section_loading_ready", section=label))
+        if progress is not None:
+            progress.progress(1.0, text=t("section_loading_ready", section=label))
     except Exception:
         logger.exception(
             "Page render failed",
@@ -168,6 +181,7 @@ def _render_page_with_loading(page_key: str, render_fn: Callable[[], None]) -> N
         )
         _render_page_error_fallback(page_key)
     finally:
+        st.session_state["_last_rendered_page"] = page_key
         loading_slot.empty()
 
 

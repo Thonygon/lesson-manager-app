@@ -1994,6 +1994,18 @@ def _normalize_practice_source_type(value: object) -> str:
     return aliases.get(source_type, source_type or "custom")
 
 
+def _normalize_practice_source_id(value: object) -> str | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    text = str(value).strip()
+    return text or None
+
+
 def save_practice_session(
     exercise_data: dict,
     total: int,
@@ -2013,9 +2025,8 @@ def save_practice_session(
         now = _dt.now(timezone.utc).isoformat()
         payload = {
             "user_id": uid,
-            "owner_id": uid,
             "source_type": _normalize_practice_source_type(exercise_data.get("source_type")),
-            "source_id": exercise_data.get("source_id"),
+            "source_id": _normalize_practice_source_id(exercise_data.get("source_id")),
             "title": str(exercise_data.get("title") or ""),
             "subject": str(meta.get("subject") or ""),
             "topic": str(meta.get("topic") or ""),
@@ -2040,11 +2051,11 @@ def save_practice_session(
         # Retry without columns that may not exist yet
         err_str = str(e)
         retry_payload = dict(payload)
-        if "owner_id" in err_str:
-            retry_payload.pop("owner_id", None)
         if "best_streak" in err_str or "xp_earned" in err_str:
             retry_payload.pop("xp_earned", None)
             retry_payload.pop("best_streak", None)
+        if "source_id" in err_str:
+            retry_payload.pop("source_id", None)
         if retry_payload != payload:
             try:
                 res = get_sb().table("practice_sessions").insert(retry_payload).execute()
@@ -2136,9 +2147,8 @@ def save_practice_draft(
     now = _dt.now(timezone.utc).isoformat()
     payload = {
         "user_id": uid,
-        "owner_id": uid,
         "source_type": _normalize_practice_source_type(exercise_data.get("source_type")),
-        "source_id": exercise_data.get("source_id"),
+        "source_id": _normalize_practice_source_id(exercise_data.get("source_id")),
         "title": str(exercise_data.get("title") or ""),
         "subject": str(meta.get("subject") or ""),
         "topic": str(meta.get("topic") or ""),
@@ -2160,7 +2170,6 @@ def save_practice_draft(
         if session_id:
             update_payload = dict(payload)
             update_payload.pop("user_id", None)
-            update_payload.pop("owner_id", None)
             update_payload.pop("created_at", None)
             get_sb().table("practice_sessions").update(update_payload).eq("id", session_id).eq("user_id", uid).execute()
             saved_session_id = session_id
@@ -2169,8 +2178,8 @@ def save_practice_draft(
                 res = get_sb().table("practice_sessions").insert(payload).execute()
             except Exception as e:
                 retry_payload = dict(payload)
-                if "owner_id" in str(e):
-                    retry_payload.pop("owner_id", None)
+                if "source_id" in str(e):
+                    retry_payload.pop("source_id", None)
                 res = get_sb().table("practice_sessions").insert(retry_payload).execute()
             rows = res.data or []
             saved_session_id = rows[0]["id"] if rows else None
@@ -2301,7 +2310,6 @@ def update_practice_progress(
                 pct = round(stats["correct"] / stats["attempted"] * 100, 1) if stats["attempted"] else 0
                 insert_data = {
                     "user_id":         uid,
-                    "owner_id":        uid,
                     "subject":         subject,
                     "topic":           topic,
                     "source_type":      source_type,
@@ -2324,8 +2332,6 @@ def update_practice_progress(
                 except Exception as ins_err:
                     # Retry without columns that may not exist
                     err_str = str(ins_err)
-                    if "owner_id" in err_str:
-                        insert_data.pop("owner_id", None)
                     if "total_xp" in err_str or "best_streak" in err_str:
                         insert_data.pop("total_xp", None)
                         insert_data.pop("best_streak", None)
@@ -2394,9 +2400,8 @@ def record_video_engagement_session(
     event_xp = max(0, int(XP_PER_CORRECT + XP_PER_ATTEMPT))
     payload = {
         "user_id": uid,
-        "owner_id": uid,
         "source_type": "video",
-        "source_id": safe_source_id,
+        "source_id": _normalize_practice_source_id(safe_source_id),
         "title": clean_title,
         "subject": clean_subject,
         "topic": clean_topic,
@@ -2426,8 +2431,9 @@ def record_video_engagement_session(
             res = sb.table("practice_sessions").insert(payload).execute()
         except Exception as exc:
             retry_payload = dict(payload)
-            if "owner_id" in str(exc):
-                retry_payload.pop("owner_id", None)
+            err_str = str(exc)
+            if "source_id" in err_str:
+                retry_payload.pop("source_id", None)
             res = sb.table("practice_sessions").insert(retry_payload).execute()
         rows = res.data or []
         session_id = int((rows[0] if rows else {}).get("id") or 0) or None
@@ -2485,7 +2491,6 @@ def record_video_engagement_session(
         else:
             insert_data = {
                 "user_id": uid,
-                "owner_id": uid,
                 "subject": clean_subject,
                 "topic": clean_topic,
                 "source_type": "video",
@@ -2507,8 +2512,6 @@ def record_video_engagement_session(
                 sb.table("practice_progress").insert(insert_data).execute()
             except Exception as exc:
                 err_str = str(exc)
-                if "owner_id" in err_str:
-                    insert_data.pop("owner_id", None)
                 if "source_type" in err_str:
                     insert_data.pop("source_type", None)
                 if "total_xp" in err_str or "best_streak" in err_str:
@@ -2715,8 +2718,6 @@ def rebuild_practice_progress_for_user(user_id: str | None = None) -> None:
                 for row in rows_to_insert:
                     retry_row = dict(row)
                     err_str = str(exc)
-                    if "owner_id" in err_str:
-                        retry_row.pop("owner_id", None)
                     if "total_xp" in err_str or "best_streak" in err_str:
                         retry_row.pop("total_xp", None)
                         retry_row.pop("best_streak", None)
@@ -2810,9 +2811,10 @@ def load_practice_history(limit: int = 50) -> pd.DataFrame:
     return _load_practice_history_cached(str(get_current_user_id() or "").strip(), limit=limit)
 
 
-def load_in_progress_practice_session(source_type: str, source_id: int | None) -> dict:
+def load_in_progress_practice_session(source_type: str, source_id: int | str | None) -> dict:
     uid = get_current_user_id()
-    if not uid or source_id is None:
+    safe_source_id = _normalize_practice_source_id(source_id)
+    if not uid or safe_source_id is None:
         return {}
     try:
         res = (
@@ -2821,7 +2823,7 @@ def load_in_progress_practice_session(source_type: str, source_id: int | None) -
             .select("*")
             .eq("user_id", uid)
             .eq("source_type", str(source_type or ""))
-            .eq("source_id", source_id)
+            .eq("source_id", safe_source_id)
             .eq("status", "in_progress")
             .order("created_at", desc=True)
             .limit(1)
@@ -2829,7 +2831,9 @@ def load_in_progress_practice_session(source_type: str, source_id: int | None) -
         )
         rows = res.data or []
         return rows[0] if rows else {}
-    except Exception:
+    except Exception as exc:
+        if "source_id" in str(exc):
+            return {}
         return {}
 
 
@@ -2863,9 +2867,11 @@ def get_completed_source_ids() -> dict[str, set]:
         return result
     for _, row in history.iterrows():
         src_type = str(row.get("source_type") or "").strip()
-        src_id = row.get("source_id")
+        src_id = _normalize_practice_source_id(row.get("source_id"))
         if src_type in result and src_id is not None:
             result[src_type].add(src_id)
+            if src_id.isdigit():
+                result[src_type].add(int(src_id))
     return result
 
 
@@ -2879,11 +2885,20 @@ def record_video_practice_interaction(
     """Persist a video watch as a completed practice session + progress event."""
     payload = dict(video_payload or {})
     meta = dict(meta or {})
+    def _safe_optional_int(value):
+        try:
+            if value in (None, "", "None"):
+                return None
+            return int(value)
+        except Exception:
+            return None
+
     source_id = (
-        int(payload.get("id") or 0)
-        or int(payload.get("video_id") or 0)
-        or int(payload.get("source_record_id") or 0)
-        or int(assignment_id or 0)
+        _safe_optional_int(payload.get("id"))
+        or _safe_optional_int(payload.get("video_id"))
+        or _safe_optional_int(payload.get("source_record_id"))
+        or _safe_optional_int(assignment_id)
+        or 0
     )
     title = str(payload.get("title") or t("video_label") or "Video").strip()
     event_xp = int(xp_earned if xp_earned is not None else (XP_PER_CORRECT + XP_PER_ATTEMPT))

@@ -93,10 +93,20 @@ _SMART_TOOL_RESULT_KEYS = {
     "worksheet_result",
     "worksheet_result_saved",
     "worksheet_record_id",
+    "worksheet_kept",
+    "worksheet_warning",
+    "worksheet_assign_expanded",
+    "ws_effective_topic",
+    "worksheet_ab_debug_compare",
     "exam_result",
     "exam_answer_key",
     "exam_result_saved",
     "exam_record_id",
+    "exam_kept",
+    "exam_warning",
+    "exam_assign_expanded",
+    "quick_exam_effective_topic",
+    "exam_ab_debug_compare",
     "quick_lesson_plan_result",
     "quick_lesson_plan_record_id",
     "quick_lesson_plan_kept",
@@ -104,6 +114,27 @@ _SMART_TOOL_RESULT_KEYS = {
     "quick_lesson_plan_warning",
     "quick_lesson_no_template",
     "quick_lesson_plan_assign_expanded",
+    "quick_plan_effective_topic",
+    "quick_plan_ab_debug_compare",
+    "quick_learning_program_result",
+    "quick_learning_program_mode_used",
+    "quick_learning_program_warning",
+    "quick_learning_program_meta",
+    "quick_learning_program_payload",
+    "quick_learning_program_pending_unit",
+    "quick_learning_program_saved_program_id",
+    "quick_learning_program_generate_requested",
+    "quick_learning_program_editing_unit",
+    "quick_cv_result",
+    "quick_cv_title",
+    "quick_cv_source_type",
+    "quick_cv_ai_prompt",
+    "quick_cv_record_id",
+    "_quick_cv_auto_saved",
+    "quick_cl_result",
+    "quick_cl_title",
+    "quick_cl_ai_prompt",
+    "cv_import_applied",
 }
 
 
@@ -113,6 +144,23 @@ def clear_resource_transient_state() -> None:
     for key in list(st.session_state.keys()):
         if str(key).startswith("show_assign_learning_program_"):
             st.session_state.pop(key, None)
+
+
+def clear_smart_tool_result_state(*, clear_selection: bool = False) -> None:
+    for key in _SMART_TOOL_RESULT_KEYS:
+        st.session_state.pop(key, None)
+    if clear_selection:
+        st.session_state["home_smart_tool_selected"] = ""
+        for key in (
+            "open_quick_learning_program_expander",
+            "open_quick_plan_expander",
+            "open_quick_ws_expander",
+            "open_quick_exam_expander",
+            "open_quick_cv_expander",
+            "open_income_goal_expander",
+        ):
+            st.session_state.pop(key, None)
+    st.session_state.pop("_home_smart_tool_scroll_toast", None)
 
 
 def clear_open_resource_previews(*, except_kind: str | None = None, clear_dialogs: bool = True) -> None:
@@ -137,6 +185,8 @@ def _clear_page_transient_state(next_page: str) -> None:
     current_page = str(st.session_state.get("page") or "")
     if next_page != "resources":
         clear_resource_transient_state()
+    if next_page == "resources":
+        clear_smart_tool_result_state(clear_selection=True)
     keys: set[str] = set()
     if current_page == "smart_tools" and next_page != "smart_tools":
         keys.update(_SMART_TOOL_RESULT_KEYS)
@@ -164,7 +214,9 @@ def _set_query(page: Optional[str] = None, lang: Optional[str] = None, panel: Op
 def go_to(page_name: str):
     if page_name not in PAGE_KEYS:
         page_name = "home"
+    current_page = str(st.session_state.get("page") or "")
     _clear_page_transient_state(page_name)
+    st.session_state["_page_loading_transition_pending"] = current_page != page_name
     st.session_state["page"] = page_name
     _set_query(page=page_name, lang=st.session_state.get("ui_lang", "en"))
 
@@ -172,7 +224,11 @@ def go_to(page_name: str):
 def home_go(page_name: str = "home", panel: Optional[str] = None):
     if page_name not in PAGE_KEYS:
         page_name = "home"
+    current_page = str(st.session_state.get("page") or "")
     _clear_page_transient_state(page_name)
+    if panel != "ai_tools":
+        clear_smart_tool_result_state(clear_selection=True)
+    st.session_state["_page_loading_transition_pending"] = current_page != page_name
     st.session_state["page"] = page_name
     _set_query(page=page_name, lang=st.session_state.get("ui_lang", "en"), panel=panel)
 
@@ -185,6 +241,8 @@ def init_navigation_defaults():
     """Initialize all navigation-related session state and sync from URL."""
     if "page" not in st.session_state:
         st.session_state["page"] = "home"
+    if "_page_loading_transition_pending" not in st.session_state:
+        st.session_state["_page_loading_transition_pending"] = False
     if "ui_lang" not in st.session_state:
         st.session_state["ui_lang"] = "en"
     if "show_profile_dialog" not in st.session_state:

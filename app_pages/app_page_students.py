@@ -55,7 +55,7 @@ from helpers.learning_programs import (
     render_learning_program_assign_dialog,
     set_assignment_topic_progress,
 )
-from helpers.material_recommendations import build_generation_request, find_similar_materials, load_material_pool, open_material_recommendation
+from helpers.material_recommendations import load_material_pool, open_material_recommendation
 from helpers.planner_storage import load_my_lesson_plans, load_public_lesson_plans
 from helpers.worksheet_storage import load_my_worksheets, load_public_worksheets
 from helpers.quick_exam_storage import load_my_exams, load_public_exams
@@ -104,12 +104,12 @@ def _recommendation_resource_query(item: dict) -> str:
     return _norm_search_text(" ".join([str(item.get("title") or ""), str(item.get("objective") or "")]))
 
 
-def _resource_match_band(score: float) -> str:
-    if score >= 12:
-        return t("recommended_resource_match_strong")
-    if score >= 7:
-        return t("recommended_resource_match_good")
-    return t("recommended_resource_match_related")
+def _teacher_resource_bucket_label(bucket: str) -> str:
+    return {
+        "very_close": t("material_similarity_very_close"),
+        "close": t("material_similarity_close"),
+        "related": t("material_similarity_related"),
+    }.get(str(bucket or ""), t("material_similarity_related"))
 
 
 def _recommended_resource_kind_label(kind: str) -> str:
@@ -238,13 +238,122 @@ def _localized_subject_display(subject_key, subject_label_text="") -> str:
     return str(subject_label_text or subject_key or "—").strip()
 
 
-def _score_resource_for_recommendation(row: dict, kind: str, source: str, item: dict) -> float:
+def _teacher_level_distance(request_level: str, resource_level: str) -> int | None:
+    request_level = _norm_search_text(request_level)
+    resource_level = _norm_search_text(resource_level)
+    if not request_level or not resource_level:
+        return None
+    if request_level == resource_level:
+        return 0
+    cefr = ["a1", "a2", "b1", "b2", "c1", "c2"]
+    generic = ["beginner_band", "intermediate_band", "advanced_band"]
+    if request_level in cefr and resource_level in cefr:
+        return abs(cefr.index(request_level) - cefr.index(resource_level))
+    if request_level in generic and resource_level in generic:
+        return abs(generic.index(request_level) - generic.index(resource_level))
+    return None
+
+
+def _teacher_stage_compatible(row: dict, item: dict) -> bool:
+    item_stage = _norm_search_text(item.get("learner_stage"))
+    row_stage = _norm_search_text(row.get("learner_stage"))
+    return not item_stage or not row_stage or item_stage == row_stage
+
+
+def _teacher_focus_kind_bonus(focus_kind: str, kind: str) -> float:
+    if focus_kind == "needs_practice":
+        return 1.9 if kind == "worksheet" else (1.1 if kind == "video" else 0.3)
+    if focus_kind == "reteach":
+        return 2.1 if kind == "video" else (1.7 if kind == "plan" else 0.3)
+    if focus_kind == "stretch":
+        return 1.8 if kind == "plan" else (1.1 if kind == "exam" else 0.2)
+    if focus_kind == "reinforce":
+        return 1.3 if kind in {"worksheet", "plan"} else (0.9 if kind == "video" else 0.3)
+    return 0.0
+
+
+def _teacher_resource_bucket(
+    row: dict,
+    kind: str,
+    item: dict,
+    features: dict[str, float],
+) -> str | None:
+    if _safe_float(features.get("subject_match")) < 1.0:
+        return None
+
+    stage_compatible = _teacher_stage_compatible(row, item)
+    if not stage_compatible:
+        return None
+
+    item_level = str(item.get("level_or_band") or "").strip()
+    row_level = str(row.get("level") if kind == "exam" else row.get("level_or_band") or "").strip()
+    level_distance = _teacher_level_distance(item_level, row_level)
+    exact_level = level_distance == 0
+    adjacent_level = level_distance in {0, 1}
+
+    direct_topic_link = _safe_float(features.get("direct_topic_link"))
+    exact_topic_match = _safe_float(features.get("exact_topic_match"))
+    exact_topic_support = _safe_float(features.get("exact_topic_support"))
+    topic_overlap = _safe_float(features.get("topic_overlap"))
+    semantic_affinity = _safe_float(features.get("semantic_affinity"))
+    unsupervised_affinity = _safe_float(features.get("unsupervised_affinity"))
+    title_match = _safe_float(features.get("title_match"))
+    objective_match = _safe_float(features.get("objective_match"))
+    topic_kind_prior = _safe_float(features.get("topic_kind_prior"))
+    topic_match_ambiguity = _safe_float(features.get("topic_match_ambiguity"))
+
+    very_strong_topic = bool(
+        direct_topic_link >= 1.0
+        or exact_topic_match >= 0.74
+        or topic_overlap >= 0.55
+        or semantic_affinity >= 0.8
+        or title_match >= 1.0
+        or objective_match >= 1.0
+    )
+    strong_topic = bool(
+        very_strong_topic
+        or exact_topic_match >= 0.48
+        or exact_topic_support >= 0.32
+        or topic_overlap >= 0.3
+        or semantic_affinity >= 0.64
+        or unsupervised_affinity >= 0.66
+    )
+    moderate_topic = bool(
+        strong_topic
+        or topic_kind_prior >= 0.34
+        or semantic_affinity >= 0.52
+        or unsupervised_affinity >= 0.54
+        or topic_overlap >= 0.18
+    )
+
+    if topic_match_ambiguity >= 0.8 and direct_topic_link < 1.0 and exact_topic_match < 0.45 and semantic_affinity < 0.7:
+        return None
+    if not moderate_topic:
+        return None
+
+    if very_strong_topic and (exact_level or direct_topic_link >= 1.0 or exact_topic_match >= 0.86):
+        return "very_close"
+    if strong_topic and (adjacent_level or level_distance is None):
+        return "close"
+    return "related"
+
+
+def _teacher_resource_bucket_priority(bucket: str) -> int:
+    return {"very_close": 0, "close": 1, "related": 2}.get(str(bucket or ""), 99)
+
+
+def _score_resource_for_recommendation(
+    row: dict,
+    kind: str,
+    source: str,
+    item: dict,
+) -> tuple[float, dict[str, float], str | None]:
     query = _recommendation_resource_query(item)
     title = _norm_search_text(item.get("title"))
     objective = _norm_search_text(item.get("objective"))
     blob = str(row.get("_recommended_search_blob") or "") or _resource_search_blob(row, kind)
     if not query or not blob:
-        return 0.0
+        return 0.0, {}, None
 
     score = 0.0
     if title and title in blob:
@@ -268,29 +377,19 @@ def _score_resource_for_recommendation(row: dict, kind: str, source: str, item: 
         score += 1.5
     if rec_level and rec_level == row_level:
         score += 1.5
-    if source == "own":
-        score += 1.2
 
     focus_kind = str(item.get("focus_kind") or "")
-    if focus_kind == "needs_practice" and kind == "worksheet":
-        score += 2.0
-    elif focus_kind == "needs_practice" and kind == "video":
-        score += 1.1
-    elif focus_kind == "reteach" and kind == "plan":
-        score += 2.0
-    elif focus_kind == "reteach" and kind == "video":
-        score += 2.4
-    elif focus_kind == "reinforce" and kind in {"worksheet", "plan"}:
-        score += 1.2
-    elif focus_kind == "reinforce" and kind == "video":
-        score += 1.0
+    score += _teacher_focus_kind_bonus(focus_kind, kind)
     ml_score, _features = score_teacher_resource_candidate(
         row=row,
         kind=kind,
         source=source,
         recommendation_item=item,
     )
-    return score + (5.0 * ml_score)
+    bucket = _teacher_resource_bucket(row, kind, item, _features)
+    if source == "own":
+        score += 0.8
+    return score + (5.4 * ml_score), _features, bucket
 
 
 def _load_recommendation_resource_pool() -> list[dict]:
@@ -299,32 +398,60 @@ def _load_recommendation_resource_pool() -> list[dict]:
 
 def _recommended_resources_for_item(item: dict, resource_pool: list[dict]) -> dict[str, list[dict]]:
     grouped: dict[str, list[dict]] = {"plan": [], "worksheet": [], "exam": [], "video": []}
-    base_kwargs = {
-        "subject": item.get("subject_key"),
-        "learner_stage": item.get("learner_stage"),
-        "level_or_band": item.get("level_or_band"),
-        "topic": item.get("title"),
-        "student_profile": {
-            "program_context": {
-                "next_topics": [item.get("title")],
-                "next_objectives": [item.get("objective")],
-            },
-            "weak_topics": [item.get("objective"), item.get("title")],
-        },
-    }
-    for kind in grouped:
-        request = build_generation_request(
-            kind=kind,
-            lesson_purpose=item.get("objective") if kind == "plan" else "",
-            worksheet_type=item.get("objective") if kind == "worksheet" else "",
-            exercise_types=[],
-            **base_kwargs,
+    candidates: list[dict] = []
+    requested_subject = _normalize_subject_key(item.get("subject_key") or "")
+
+    for resource in resource_pool:
+        kind = str(resource.get("kind") or "").strip()
+        if kind not in grouped:
+            continue
+        row = resource.get("row") or {}
+        row_subject = _normalize_subject_key(row.get("subject") or "")
+        if requested_subject and row_subject and requested_subject != row_subject:
+            continue
+        score, features, bucket = _score_resource_for_recommendation(
+            row,
+            kind,
+            str(resource.get("source") or ""),
+            item,
         )
-        grouped[kind] = find_similar_materials(
-            request,
-            limit=_RECOMMENDED_RESOURCE_GROUP_LIMIT,
-            min_score=5.0,
+        if not bucket:
+            continue
+        candidates.append(
+            {
+                **resource,
+                "score": score,
+                "teacher_features": features,
+                "recommendation_bucket": bucket,
+            }
         )
+
+    if not candidates:
+        return grouped
+
+    best_bucket_priority = min(
+        _teacher_resource_bucket_priority(str(candidate.get("recommendation_bucket") or ""))
+        for candidate in candidates
+    )
+    winning_candidates = [
+        candidate
+        for candidate in candidates
+        if _teacher_resource_bucket_priority(str(candidate.get("recommendation_bucket") or "")) == best_bucket_priority
+    ]
+    winning_candidates.sort(
+        key=lambda candidate: (
+            0 if str(candidate.get("source") or "") == "own" else 1,
+            -_safe_float(candidate.get("score")),
+        )
+    )
+
+    per_kind_counts: dict[str, int] = {kind: 0 for kind in grouped}
+    for candidate in winning_candidates:
+        kind = str(candidate.get("kind") or "")
+        if per_kind_counts.get(kind, 0) >= _RECOMMENDED_RESOURCE_GROUP_LIMIT:
+            continue
+        grouped.setdefault(kind, []).append(candidate)
+        per_kind_counts[kind] = per_kind_counts.get(kind, 0) + 1
     return grouped
 
 
@@ -1694,7 +1821,7 @@ def _render_recommended_resources_for_item(
                 chips = [
                     source_label,
                     _recommended_resource_kind_label(kind),
-                    _resource_match_band(float(resource.get("score") or 0.0)),
+                    _teacher_resource_bucket_label(str(resource.get("recommendation_bucket") or "")),
                 ]
                 if subject:
                     chips.append(t(f"subject_{subject.lower().replace(' ', '_')}"))
@@ -2026,12 +2153,14 @@ def _render_teacher_review_requests(
             toggle_key = f"teacher_review_panel_open_{row.get('id')}"
             if toggle_key not in st.session_state:
                 st.session_state[toggle_key] = str(row.get("status")) == "requested"
+            is_open = bool(st.session_state.get(toggle_key, False))
             if st.button(
-                t("teacher_review_open"),
+                t("close") if is_open else t("teacher_review_open"),
                 key=f"teacher_review_open_btn_{row.get('id')}",
                 use_container_width=True,
             ):
                 st.session_state[toggle_key] = not st.session_state.get(toggle_key, False)
+                st.rerun()
 
         if st.session_state.get(toggle_key):
             detail = load_teacher_review_request_detail(int(row.get("id") or 0))
