@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 import uuid
+import shutil
 
 import pandas as pd
 
@@ -154,6 +155,19 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 def _write_frame(path: Path, frame: pd.DataFrame) -> None:
     frame.to_csv(path, index=False)
+
+
+def _ensure_student_reco_frozen_dataset(
+    dataset_df: pd.DataFrame,
+    *,
+    run_id: str,
+    output_dir: Path,
+) -> tuple[Path, str]:
+    dataset_path, fingerprint = freeze_anonymized_dataset(dataset_df, run_id=run_id, output_dir=output_dir)
+    canonical_path = output_dir / FROZEN_DATASET_FILENAME
+    if dataset_path != canonical_path:
+        shutil.copyfile(dataset_path, canonical_path)
+    return canonical_path, fingerprint
 
 
 def _render_technical_report(summary: dict[str, Any]) -> str:
@@ -375,7 +389,11 @@ def generate_student_recommendation_open_7d_evaluation(
     safe_run_id = str(run_id or uuid.uuid4().hex[:12]).strip()
     snapshot = extract_operational_snapshot(extraction_time=extraction_time)
     dataset_df, dataset_diag = build_assignment_dataset(snapshot, extraction_time=extraction_time)
-    dataset_path, fingerprint = freeze_anonymized_dataset(dataset_df, run_id=safe_run_id, output_dir=resolved_output_dir)
+    dataset_path, fingerprint = _ensure_student_reco_frozen_dataset(
+        dataset_df,
+        run_id=safe_run_id,
+        output_dir=resolved_output_dir,
+    )
     mature_df = dataset_df[dataset_df["label_status"] == "included"].copy()
     dataset_summary = {
         "run_id": safe_run_id,
@@ -383,7 +401,7 @@ def generate_student_recommendation_open_7d_evaluation(
         "target_version": "opened_within_7d_v1",
         "extracted_at": _iso(extraction_time),
         "data_fingerprint": fingerprint,
-        "frozen_dataset_path": str(dataset_path),
+        "frozen_dataset_path": dataset_path.name,
         **dataset_diag,
         "positive_count": int((mature_df[TARGET_NAME] == 1).sum()) if not mature_df.empty else 0,
         "negative_count": int((mature_df[TARGET_NAME] == 0).sum()) if not mature_df.empty else 0,
@@ -409,7 +427,9 @@ def generate_student_recommendation_open_7d_evaluation(
 
     _write_json(resolved_output_dir / DATASET_SUMMARY_FILENAME, dataset_summary)
     _write_frame(resolved_output_dir / LABEL_AUDIT_FILENAME, build_label_audit(dataset_df))
-    _write_frame(resolved_output_dir / FEATURE_AUDIT_FILENAME, pd.DataFrame(evaluation.get("feature_audit") or []))
+    feature_audit_raw = evaluation.get("feature_audit")
+    feature_audit_df = feature_audit_raw.copy() if isinstance(feature_audit_raw, pd.DataFrame) else pd.DataFrame(feature_audit_raw or [])
+    _write_frame(resolved_output_dir / FEATURE_AUDIT_FILENAME, feature_audit_df)
     _write_frame(resolved_output_dir / MODEL_COMPARISON_FILENAME, pd.DataFrame(evaluation.get("model_rows") or []))
     _write_frame(resolved_output_dir / PREDICTIONS_FILENAME, pd.DataFrame(evaluation.get("predictions") or []))
     _write_json(resolved_output_dir / RUN_SUMMARY_FILENAME, run_summary)

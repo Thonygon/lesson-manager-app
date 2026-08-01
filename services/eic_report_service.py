@@ -2483,8 +2483,15 @@ def _unsupervised_metric_rows(summary: dict[str, Any], detail: dict[str, Any], l
     best = evaluation.get("best_model") or {}
     dataset = summary.get("dataset") or {}
     embedding = evaluation.get("embedding_manifest") or {}
+    current_validated = detail.get("current_validated_reference") or {}
+    automatic_winner = str((detail.get("model_results") or {}).get("automatic_winner") or evaluation.get("winner") or best.get("model_name") or detail.get("primary_metric_leader") or "—")
+    human_recommended = str((detail.get("model_results") or {}).get("human_review_recommended_model_name") or detail.get("human_review_recommended_model_name") or "—")
+    active_runtime_model = str(current_validated.get("human_review_recommended_model_name") or current_validated.get("overall_model_selection") or "—")
+    active_runtime_run = str(current_validated.get("run_id") or "—")
     return [
-        ["Best model" if lang == "en" else ("Mejor modelo" if lang == "es" else "En iyi model"), str(evaluation.get("winner") or best.get("model_name") or detail.get("primary_metric_leader") or "—")],
+        ["Automatic winner" if lang == "en" else ("Ganador automático" if lang == "es" else "Otomatik kazanan"), automatic_winner],
+        ["Human-reviewed recommendation" if lang == "en" else ("Recomendación revisada por humano" if lang == "es" else "İnsan incelemesi önerisi"), human_recommended],
+        ["Active runtime model" if lang == "en" else ("Modelo activo en runtime" if lang == "es" else "Aktif çalışma zamanı modeli"), f"{active_runtime_model} ({active_runtime_run})" if active_runtime_run != "—" else active_runtime_model],
         ["Primary metric" if lang == "en" else ("Métrica principal" if lang == "es" else "Ana metrik"), _AFFINITY_METRIC_LABELS.get(lang, {}).get(str(evaluation.get("primary_metric") or detail.get("primary_metric") or ""), str(evaluation.get("primary_metric") or detail.get("primary_metric") or "—"))],
         ["Silhouette score" if lang == "en" else ("Silhouette score" if lang == "es" else "Silhouette skoru"), _display_scalar(best.get("silhouette_score"))],
         ["Calinski-Harabasz" if lang == "en" else ("Calinski-Harabasz" if lang == "es" else "Calinski-Harabasz"), _display_scalar(best.get("calinski_harabasz"))],
@@ -2546,17 +2553,19 @@ def _unsupervised_normalization_rows(summary: dict[str, Any], lang: str) -> list
     ]
 
 
-def _unsupervised_scoring_rows(summary: dict[str, Any], lang: str) -> list[list[str]]:
+def _unsupervised_scoring_rows(summary: dict[str, Any], detail: dict[str, Any], lang: str) -> list[list[str]]:
     evaluation = summary.get("evaluation") or {}
     scoring = evaluation.get("selection_scoring_methodology") or {}
     winner = evaluation.get("winner_explanation") or {}
     components = scoring.get("component_definitions") or {}
     rationale = scoring.get("weight_rationale") or []
+    human_recommended = str((detail.get("model_results") or {}).get("human_review_recommended_model_name") or detail.get("human_review_recommended_model_name") or "n/a")
     if lang == "es":
         return [
             ["Fórmula", _display_scalar(scoring.get("formula"))],
             ["Orden de selección", " -> ".join(_localize_known_text(item, lang) for item in scoring.get("sort_order") or [])],
-            ["Ganador", f"{winner.get('winner') or 'n/a'}; selection_score={_display_scalar(winner.get('winner_selection_score'))}"],
+            ["Ganador automático", f"{winner.get('winner') or 'n/a'}; selection_score={_display_scalar(winner.get('winner_selection_score'))}"],
+            ["Recomendación humana", human_recommended],
             ["Líder por Silhouette", f"{winner.get('metric_leader') or 'n/a'}; selection_score={_display_scalar(winner.get('metric_leader_selection_score'))}"],
             ["Definición de componentes", _localized_json_map(components, lang, _AFFINITY_COMPONENT_LABELS)],
             ["Justificación de pesos", _localized_join(rationale, lang)],
@@ -2566,7 +2575,8 @@ def _unsupervised_scoring_rows(summary: dict[str, Any], lang: str) -> list[list[
         return [
             ["Formül", _display_scalar(scoring.get("formula"))],
             ["Seçim sırası", " -> ".join(_localize_known_text(item, lang) for item in scoring.get("sort_order") or [])],
-            ["Kazanan", f"{winner.get('winner') or 'n/a'}; selection_score={_display_scalar(winner.get('winner_selection_score'))}"],
+            ["Otomatik kazanan", f"{winner.get('winner') or 'n/a'}; selection_score={_display_scalar(winner.get('winner_selection_score'))}"],
+            ["İnsan önerisi", human_recommended],
             ["Silhouette lideri", f"{winner.get('metric_leader') or 'n/a'}; selection_score={_display_scalar(winner.get('metric_leader_selection_score'))}"],
             ["Bileşen tanımları", _localized_json_map(components, lang, _AFFINITY_COMPONENT_LABELS)],
             ["Ağırlık gerekçesi", _localized_join(rationale, lang)],
@@ -2575,7 +2585,8 @@ def _unsupervised_scoring_rows(summary: dict[str, Any], lang: str) -> list[list[
     return [
         ["Formula", _display_scalar(scoring.get("formula"))],
         ["Selection order", " -> ".join(scoring.get("sort_order") or [])],
-        ["Winner", f"{winner.get('winner') or 'n/a'}; selection_score={_display_scalar(winner.get('winner_selection_score'))}"],
+        ["Automatic winner", f"{winner.get('winner') or 'n/a'}; selection_score={_display_scalar(winner.get('winner_selection_score'))}"],
+        ["Human-reviewed recommendation", human_recommended],
         ["Silhouette leader", f"{winner.get('metric_leader') or 'n/a'}; selection_score={_display_scalar(winner.get('metric_leader_selection_score'))}"],
         ["Component definitions", json.dumps(components, ensure_ascii=False, sort_keys=True)],
         ["Weight rationale", " ".join(str(item) for item in rationale)],
@@ -2702,7 +2713,7 @@ def build_unsupervised_experiment_report_docx(run_id: str, language: str, *, rep
     _add_table(
         doc,
         [_copy(lang, "meta_field"), _copy(lang, "meta_value")],
-        _unsupervised_scoring_rows(run_summary, lang),
+        _unsupervised_scoring_rows(run_summary, detail, lang),
         [2.1, 4.6],
     )
     _add_picture_with_caption(

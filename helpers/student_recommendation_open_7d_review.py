@@ -58,6 +58,21 @@ def _parse_ci(raw: Any) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _resolve_frozen_dataset_path(base_dir: Path, raw_path: Any) -> Path:
+    text = str(raw_path or "").strip()
+    if not text:
+        return base_dir / "student_recommendation_open_7d_dataset_frozen.csv"
+    candidate = Path(text)
+    if candidate.is_absolute():
+        return candidate
+    if candidate.exists():
+        return candidate
+    direct_child = base_dir / candidate.name
+    if direct_child.exists():
+        return direct_child
+    return base_dir / candidate
+
+
 def _write_reconciliation(base_dir: Path, frozen_df: pd.DataFrame) -> dict[str, Any]:
     review_df = frozen_df.copy()
     review_df["source_label"] = review_df["label_status"].map(lambda value: "included" if str(value) == "included" else "excluded")
@@ -88,10 +103,11 @@ def review_student_recommendation_open_7d(base_dir: Path | str = DEFAULT_OUTPUT_
     resolved_dir = Path(base_dir)
     run_summary = _load_json(resolved_dir / RUN_SUMMARY_FILENAME)
     dataset_summary = _load_json(resolved_dir / DATASET_SUMMARY_FILENAME)
-    frozen_df = pd.read_csv(resolved_dir / dataset_summary.get("frozen_dataset_path", ""))
+    frozen_df = pd.read_csv(_resolve_frozen_dataset_path(resolved_dir, dataset_summary.get("frozen_dataset_path", "")))
     rerun_evaluation = evaluate_models(frozen_df)
 
-    feature_audit = pd.DataFrame(rerun_evaluation.get("feature_audit") or [])
+    feature_audit_raw = rerun_evaluation.get("feature_audit")
+    feature_audit = feature_audit_raw.copy() if isinstance(feature_audit_raw, pd.DataFrame) else pd.DataFrame(feature_audit_raw or [])
     feature_audit.to_csv(resolved_dir / FEATURE_AUDIT_FILENAME, index=False)
 
     model_rows_df = pd.DataFrame(rerun_evaluation.get("model_rows") or [])

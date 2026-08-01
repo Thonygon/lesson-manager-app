@@ -18,6 +18,7 @@ import pandas as pd
 
 from helpers.assigned_resource_open_7d_eval import _fetch_all_rows, _json_safe
 from helpers.archive_utils import is_archived_status
+from helpers.resource_gallery import extract_resource_language_value
 
 
 FEATURE_SCHEMA_VERSION = "resource_affinity_unsupervised.v5"
@@ -49,19 +50,19 @@ RESOURCE_TABLE_SPECS = {
     ),
     "exam": (
         "quick_exams",
-        "id,user_id,title,subject,topic,learner_stage,level,exam_length,exercise_types,is_public,status,created_at",
+        "id,user_id,title,subject,topic,learner_stage,level,exam_length,exercise_types,plan_language,student_material_language,is_public,status,created_at",
     ),
     "video": (
         "videos",
-        "id,user_id,title,subject,custom_subject_name,topic,description,learner_stage,level_or_band,is_public,status,created_at,updated_at",
+        "id,user_id,title,subject,custom_subject_name,topic,description,learner_stage,level_or_band,student_material_language,is_public,status,created_at,updated_at",
     ),
     "lesson_plan": (
         "lesson_plans",
-        "id,user_id,title,subject,topic,learner_stage,level_or_band,lesson_purpose,source_type,planner_mode,author_name,subject_display,is_public,status,created_at,updated_at,plan_json",
+        "id,user_id,title,subject,topic,learner_stage,level_or_band,lesson_purpose,source_type,planner_mode,author_name,subject_display,plan_language,student_material_language,is_public,status,created_at,updated_at,plan_json",
     ),
     "program": (
         "learning_programs",
-        "id,user_id,title,subject,custom_subject_name,learner_stage,level_or_band,program_overview,is_public,status,total_units,total_topics,sequence_order,created_at,updated_at,program_data",
+        "id,user_id,title,subject,custom_subject_name,learner_stage,level_or_band,program_language,student_material_language,program_overview,is_public,status,total_units,total_topics,sequence_order,created_at,updated_at,program_data",
     ),
     "program_topic": (
         "learning_program_topics",
@@ -76,7 +77,7 @@ RESOURCE_TABLE_FALLBACK_SPECS = {
     ),
     "exam": (
         "quick_exams",
-        "id,user_id,title,subject,topic,learner_stage,level,exam_length,exercise_types,is_public,status,created_at",
+        "id,user_id,title,subject,topic,learner_stage,level,exam_length,exercise_types,plan_language,student_material_language,is_public,status,created_at",
         "retry_without_exam_data_after_fetch_error",
     ),
 }
@@ -432,7 +433,7 @@ def _field(row: dict[str, Any], *names: str) -> str:
 
 
 def _resource_language(row: dict[str, Any]) -> str:
-    return _field(row, "student_material_language", "plan_language", "language", "lang").lower()
+    return extract_resource_language_value(row, resource_type=str(row.get("resource_type") or ""))
 
 
 def build_resource_profile(row: dict[str, Any], resource_type: str) -> dict[str, Any]:
@@ -666,7 +667,9 @@ def extract_resource_profiles(extraction_time: datetime | None = None) -> tuple[
                     "subject": _field(row, "subject", "custom_subject_name"),
                     "learner_stage": _field(row, "learner_stage"),
                     "level_or_band": _field(row, "level_or_band", "level"),
-                    "language": _resource_language(row),
+                    "student_material_language": _field(row, "student_material_language"),
+                    "program_language": _field(row, "program_language", "plan_language"),
+                    "language": extract_resource_language_value({**row, "resource_type": "program"}, resource_type="program"),
                     "program_title": _field(row, "title"),
                 }
             elif resource_type == "program_topic":
@@ -1075,6 +1078,7 @@ def evaluate_unsupervised_models(profile_df: pd.DataFrame, vectors: np.ndarray) 
         comparison["_selection_score"] = (
             comparison["silhouette_score"].fillna(-1)
             - comparison["cross_subject_contamination_rate"].fillna(1) * 0.35
+            - comparison["cross_language_contamination_rate"].fillna(1) * 0.30
             - comparison["noise_ratio"].fillna(1) * 0.20
             - comparison["cluster_size_2_rate"].fillna(1) * 0.12
             - comparison["cluster_size_le_3_rate"].fillna(1) * 0.08
@@ -1239,7 +1243,7 @@ def _normalization_methodology() -> dict[str, Any]:
 
 def _selection_scoring_methodology() -> dict[str, Any]:
     return {
-        "formula": "selection_score = silhouette_score - 0.35 * cross_subject_contamination_rate - 0.20 * noise_ratio - 0.12 * cluster_size_2_rate - 0.08 * cluster_size_le_3_rate",
+        "formula": "selection_score = silhouette_score - 0.35 * cross_subject_contamination_rate - 0.30 * cross_language_contamination_rate - 0.20 * noise_ratio - 0.12 * cluster_size_2_rate - 0.08 * cluster_size_le_3_rate",
         "sort_order": [
             "highest selection_score",
             "highest silhouette_score as tie-breaker",
@@ -1248,6 +1252,7 @@ def _selection_scoring_methodology() -> dict[str, Any]:
         "component_definitions": {
             "silhouette_score": "Primary unsupervised cohesion/separation metric calculated with cosine distance on non-noise observations.",
             "cross_subject_contamination_rate": "Share of evaluated clusters containing more than one normalized subject among rows with known subject metadata.",
+            "cross_language_contamination_rate": "Share of evaluated clusters containing more than one normalized language among rows with known language metadata.",
             "noise_ratio": "Share of rows assigned to DBSCAN noise label -1.",
             "cluster_size_2_rate": "Share of clusters with exactly two rows, used as a fragmentation warning.",
             "cluster_size_le_3_rate": "Share of clusters with three or fewer rows, used as a broader fragmentation warning.",
@@ -1255,6 +1260,7 @@ def _selection_scoring_methodology() -> dict[str, Any]:
         "weight_rationale": [
             "Silhouette remains the positive base because the experiment is unsupervised and has no human relevance labels yet.",
             "Cross-subject contamination receives the largest penalty because Classio's recommendation rules treat subject boundaries as business-critical.",
+            "Cross-language contamination receives the second-strongest penalty because wrong-language groupings can break pedagogical reuse even when semantic similarity looks high.",
             "Noise receives a moderate penalty because a model that leaves many rows unassigned is less useful for candidate generation.",
             "Tiny-cluster penalties discourage models that look clean only because they fragment the catalog into very small groups.",
             "The weights are heuristic and transparent; they are intended for exploratory model triage, not as proof of recommendation impact.",

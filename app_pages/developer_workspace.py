@@ -50,8 +50,10 @@ from services.ml_experiment_service import (
     APPROVED_EXPERIMENT_ID,
     EXPERIMENT_PARADIGM_SUPERVISED,
     EXPERIMENT_PARADIGM_UNSUPERVISED,
+    RESOURCE_AFFINITY_EXPERIMENT_ID,
     can_manually_rerun_integrity,
     get_run_artifact_retention_status,
+    get_current_validated_run,
     compute_experiment_eligibility_summary,
     get_environment_readiness,
     get_latest_validated_run_summary,
@@ -66,10 +68,20 @@ from services.ml_experiment_service import (
     list_run_models,
     mark_stale_experiment_jobs,
     rerun_integrity_review_for_run,
+    save_resource_affinity_human_review_recommendation,
 )
 
 
 logger = logging.getLogger(__name__)
+
+
+def _local_text(en: str, es: str, tr: str) -> str:
+    lang = str(st.session_state.get("ui_lang") or "en")
+    if lang == "es":
+        return es
+    if lang == "tr":
+        return tr
+    return en
 
 
 def _render_workspace_section_error(section_name: str, exc: Exception) -> None:
@@ -855,17 +867,19 @@ def _render_experiment_evidence() -> None:
     selected_experiment_id = str(selected_experiment.get("experiment_id") or APPROVED_EXPERIMENT_ID)
     selected_paradigm = str(selected_experiment.get("modeling_paradigm") or EXPERIMENT_PARADIGM_SUPERVISED)
     latest_validated = get_latest_validated_run_summary(experiment_id=selected_experiment_id, cache_bust=cache_bust) or {}
+    current_validated = get_current_validated_run(experiment_id=selected_experiment_id, cache_bust=cache_bust) or {}
+    active_run = current_validated or latest_validated
     validated_runs = eic_service.list_validated_experiment_summaries(limit=10, cache_bust=cache_bust, experiment_id=selected_experiment_id)
 
     st.markdown(f"### {t('developer_workspace_evidence_title')}")
     st.caption(t("developer_workspace_evidence_caption"))
 
-    if latest_validated:
+    if active_run:
         top_cards = [
-            (t("developer_workspace_evidence_current_validated_run"), str(latest_validated.get("run_id") or t("admin_eic_value_none"))),
-            (t("developer_workspace_detail_run_status"), get_run_status_display(str(latest_validated.get("run_status") or ""))),
-            (t("developer_workspace_detail_integrity"), get_integrity_status_display(str(latest_validated.get("integrity_status") or "not_run"))),
-            (t("developer_workspace_evidence_evidence"), get_evidence_display(str(latest_validated.get("evidence_level") or latest_validated.get("evidence_verdict") or "not_available"), lang=str(st.session_state.get("ui_lang") or "en"))),
+            (t("developer_workspace_evidence_current_validated_run"), str(active_run.get("run_id") or t("admin_eic_value_none"))),
+            (t("developer_workspace_detail_run_status"), get_run_status_display(str(active_run.get("run_status") or ""))),
+            (t("developer_workspace_detail_integrity"), get_integrity_status_display(str(active_run.get("integrity_status") or "not_run"))),
+            (t("developer_workspace_evidence_evidence"), get_evidence_display(str(active_run.get("evidence_level") or active_run.get("evidence_verdict") or "not_available"), lang=str(st.session_state.get("ui_lang") or "en"))),
         ]
         cols = st.columns(4, gap="small")
         for col, (label, value) in zip(cols, top_cards):
@@ -903,6 +917,20 @@ def _render_experiment_evidence() -> None:
                     model_df = _prepare_model_comparison_frame(model_rows)
                     st.markdown(f"#### {t('developer_workspace_model_comparison_title')}")
                     st.dataframe(model_df, use_container_width=True, hide_index=True)
+                if selected_experiment_id == RESOURCE_AFFINITY_EXPERIMENT_ID:
+                    runtime_model = str(current_validated.get("human_review_recommended_model_name") or current_validated.get("overall_model_selection") or "—")
+                    runtime_run = str(current_validated.get("run_id") or "—")
+                    review_model = str((business_detail.get("model_results") or {}).get("human_review_recommended_model_name") or "—")
+                    comparison_rows = [
+                        (_local_text("Automatic winner", "Ganador automático", "Otomatik kazanan"), str((business_detail.get("model_results") or {}).get("automatic_winner") or "—")),
+                        (_local_text("Human-reviewed recommendation", "Recomendación revisada por humano", "İnsan incelemesi önerisi"), review_model),
+                        (_local_text("Active runtime model", "Modelo activo en runtime", "Aktif çalışma zamanı modeli"), f"{runtime_model} ({runtime_run})" if runtime_run != "—" else runtime_model),
+                    ]
+                    st.dataframe(
+                        pd.DataFrame(comparison_rows, columns=[t("admin_field_label"), t("admin_value_label")]),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
         except Exception as exc:
             _render_workspace_section_error("Resumen validado", exc)
 
@@ -940,6 +968,8 @@ def _render_experiment_evidence() -> None:
                 selected_run = get_run(selected_run_id)
                 if selected_run:
                     retention = get_run_artifact_retention_status(selected_run_id)
+                    current_runtime_run_id = str(current_validated.get("run_id") or "")
+                    current_runtime_model = str(current_validated.get("human_review_recommended_model_name") or current_validated.get("overall_model_selection") or "")
                     detail_cols = st.columns(4, gap="small")
                     detail_cards = [
                         (t("developer_workspace_detail_run_status"), get_run_status_display(str(selected_run.get("run_status") or ""))),
@@ -951,6 +981,75 @@ def _render_experiment_evidence() -> None:
                         with col:
                             st.markdown(_card(label, value), unsafe_allow_html=True)
                     st.caption(t("developer_workspace_detail_artifact_retention", value=_translate_retention_reason(retention.reason)))
+                    if selected_experiment_id == RESOURCE_AFFINITY_EXPERIMENT_ID:
+                        model_rows = list_run_models(selected_run_id)
+                        model_names = [str(row.get("model_name") or "") for row in model_rows if str(row.get("model_name") or "").strip()]
+                        automatic_winner = str(selected_run.get("overall_model_selection") or selected_run.get("primary_metric_leader") or "—")
+                        reviewed_model = str(selected_run.get("human_review_recommended_model_name") or "")
+                        summary_rows = [
+                            (_local_text("Automatic winner", "Ganador automático", "Otomatik kazanan"), automatic_winner),
+                            (_local_text("Human-reviewed recommendation", "Recomendación revisada por humano", "İnsan incelemesi önerisi"), reviewed_model or "—"),
+                            (
+                                _local_text("Active runtime model", "Modelo activo en runtime", "Aktif çalışma zamanı modeli"),
+                                f"{current_runtime_model or '—'} ({current_runtime_run_id})" if current_runtime_run_id else (current_runtime_model or "—"),
+                            ),
+                        ]
+                        st.dataframe(
+                            pd.DataFrame(summary_rows, columns=[t("admin_field_label"), t("admin_value_label")]),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                        if model_names:
+                            default_index = model_names.index(reviewed_model) if reviewed_model in model_names else (model_names.index(automatic_winner) if automatic_winner in model_names else 0)
+                            st.markdown(f"##### {_local_text('Human review controls', 'Controles de revisión humana', 'İnsan inceleme kontrolleri')}")
+                            selected_model_name = st.selectbox(
+                                _local_text("Recommended model", "Modelo recomendado", "Önerilen model"),
+                                model_names,
+                                index=default_index,
+                                key=f"developer_workspace_resource_affinity_review_model_{selected_run_id}",
+                            )
+                            notes_key = f"developer_workspace_resource_affinity_review_notes_{selected_run_id}"
+                            st.text_area(
+                                _local_text("Review notes", "Notas de revisión", "İnceleme notları"),
+                                value=str(selected_run.get("human_review_notes") or ""),
+                                key=notes_key,
+                                height=100,
+                            )
+                            action_cols = st.columns(2, gap="small")
+                            with action_cols[0]:
+                                if st.button(
+                                    _local_text("Save recommendation", "Guardar recomendación", "Öneriyi kaydet"),
+                                    key=f"developer_workspace_save_review_model_{selected_run_id}",
+                                    use_container_width=True,
+                                ):
+                                    ok, message = save_resource_affinity_human_review_recommendation(
+                                        selected_run_id,
+                                        selected_model_name,
+                                        st.session_state.get(notes_key) or "",
+                                        activate_for_runtime=False,
+                                    )
+                                    if ok:
+                                        st.success(message)
+                                        st.session_state["developer_workspace_refresh_nonce"] = int(st.session_state.get("developer_workspace_refresh_nonce") or 0) + 1
+                                        st.rerun()
+                                    st.error(message)
+                            with action_cols[1]:
+                                if st.button(
+                                    _local_text("Set as active runtime model", "Activar como modelo de runtime", "Aktif çalışma zamanı modeli yap"),
+                                    key=f"developer_workspace_activate_review_model_{selected_run_id}",
+                                    use_container_width=True,
+                                ):
+                                    ok, message = save_resource_affinity_human_review_recommendation(
+                                        selected_run_id,
+                                        selected_model_name,
+                                        st.session_state.get(notes_key) or "",
+                                        activate_for_runtime=True,
+                                    )
+                                    if ok:
+                                        st.success(message)
+                                        st.session_state["developer_workspace_refresh_nonce"] = int(st.session_state.get("developer_workspace_refresh_nonce") or 0) + 1
+                                        st.rerun()
+                                    st.error(message)
                     artifact_rows = list_run_artifacts(selected_run_id)
                     _render_protected_artifacts(artifact_rows, key_prefix=f"evidence_{selected_run_id}")
         except Exception as exc:
