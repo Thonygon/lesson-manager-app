@@ -113,6 +113,8 @@ def get_student_material_language(subject: str) -> str:
         return "en"
     if s == "spanish":
         return "es"
+    if s == "turkish":
+        return "tr"
     return get_plan_language()
 
 

@@ -296,19 +296,21 @@ def extract_gallery_image_url(payload: Any) -> str:
     return ""
 
 
-def extract_gallery_language_label(payload: Any) -> str:
+def extract_resource_language_value(payload: Any, *, resource_type: str = "") -> str:
     payload = _parse_jsonish(payload)
+    normalized_type = normalize_resource_kind(resource_type)
+    preferred_keys = {
+        "program": ("student_material_language", "program_language", "plan_language", "language", "lang"),
+        "lesson_plan": ("student_material_language", "plan_language", "language", "lang"),
+        "worksheet": ("student_material_language", "plan_language", "language", "lang"),
+        "exam": ("student_material_language", "plan_language", "language", "lang"),
+        "video": ("student_material_language", "language", "lang", "plan_language"),
+    }.get(normalized_type, ("student_material_language", "plan_language", "program_language", "language", "lang"))
     if isinstance(payload, dict):
-        for key in (
-            "student_material_language",
-            "plan_language",
-            "program_language",
-            "language",
-            "lang",
-        ):
-            value = str(payload.get(key) or "").strip()
+        for key in preferred_keys:
+            value = str(payload.get(key) or "").strip().lower()
             if value:
-                return value.upper()
+                return value
         for key in (
             "cover_image",
             "hero_image",
@@ -321,15 +323,19 @@ def extract_gallery_language_label(payload: Any) -> str:
             "exam_data",
             "content_snapshot",
         ):
-            found = extract_gallery_language_label(payload.get(key))
+            found = extract_resource_language_value(payload.get(key), resource_type=resource_type)
             if found:
                 return found
     if isinstance(payload, list):
         for item in payload:
-            found = extract_gallery_language_label(item)
+            found = extract_resource_language_value(item, resource_type=resource_type)
             if found:
                 return found
     return ""
+
+
+def extract_gallery_language_label(payload: Any) -> str:
+    return extract_resource_language_value(payload).upper()
 
 
 def render_gallery_card_html(

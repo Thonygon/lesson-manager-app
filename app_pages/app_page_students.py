@@ -1663,9 +1663,14 @@ def _inject_recommendation_styles() -> None:
             padding: 11px 12px 11px 18px;
             border-radius: 14px;
             background:
-                linear-gradient(90deg, color-mix(in srgb, var(--reco-resource-accent) 8%, rgba(255,255,255,.72)), rgba(255,255,255,.72) 38%),
-                rgba(255,255,255,.72);
-            border: 1px solid color-mix(in srgb, rgba(148,163,184,.22) 78%, var(--reco-resource-accent) 22%);
+                linear-gradient(
+                    90deg,
+                    color-mix(in srgb, var(--reco-resource-accent) 16%, var(--panel, rgba(15,23,42,.92)) 84%),
+                    color-mix(in srgb, var(--reco-resource-accent) 8%, var(--panel, rgba(15,23,42,.92)) 92%) 38%
+                ),
+                color-mix(in srgb, var(--panel, rgba(15,23,42,.92)) 92%, var(--panel-soft, rgba(30,41,59,.92)) 8%);
+            border: 1px solid color-mix(in srgb, var(--border, rgba(148,163,184,.35)) 76%, var(--reco-resource-accent) 24%);
+            box-shadow: 0 10px 24px color-mix(in srgb, var(--shadow, rgba(15,23,42,.24)) 82%, transparent);
             min-height: 132px;
         }
         .classio-reco-resource-card::before {
