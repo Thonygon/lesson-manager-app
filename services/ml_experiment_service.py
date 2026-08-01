@@ -785,6 +785,14 @@ def get_run_artifact_readiness(run_id: str) -> ArtifactReadiness:
     for artifact_type, filename in _required_artifact_specs(experiment_id):
         path = run_dir / filename
         if not path.exists():
+            if (
+                experiment_id == STUDENT_RECOMMENDATION_EXPERIMENT_ID
+                and artifact_type == "frozen_dataset"
+            ):
+                legacy_student_reco_path = run_dir / FROZEN_DATASET_FILENAME
+                legacy_assigned_path = run_dir / "assigned_resource_open_7d_dataset_frozen.csv"
+                if legacy_student_reco_path.exists() or legacy_assigned_path.exists():
+                    continue
             missing_types.append(artifact_type)
             missing_paths.append(str(path))
     retention = get_run_artifact_retention_status(run_id)
@@ -1217,6 +1225,7 @@ def list_experiment_runs(
 def clear_experiment_cache() -> None:
     list_experiment_runs.clear()
     get_latest_validated_run_summary.clear()
+    get_current_validated_run.clear()
     get_workspace_overview.clear()
     list_experiment_catalog.clear()
 
@@ -1312,6 +1321,39 @@ def list_experiment_catalog(cache_bust: str = "") -> list[dict[str, Any]]:
 def get_latest_validated_run_summary(experiment_id: str | None = APPROVED_EXPERIMENT_ID, cache_bust: str = "") -> dict[str, Any]:
     rows = list_experiment_runs(experiment_id=experiment_id, limit=20, validated_only=True, cache_bust=cache_bust)
     return dict(rows[0]) if rows else {}
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def get_current_validated_run(experiment_id: str | None = APPROVED_EXPERIMENT_ID, cache_bust: str = "") -> dict[str, Any]:
+    safe_experiment_id = _clean_text(experiment_id) or APPROVED_EXPERIMENT_ID
+    try:
+        rows = (
+            get_sb()
+            .table(RUN_TABLE)
+            .select("*")
+            .eq("experiment_id", safe_experiment_id)
+            .order("human_reviewed_at", desc=True, nullsfirst=False)
+            .order("created_at", desc=True)
+            .limit(100)
+            .execute()
+        ).data or []
+        if not rows:
+            return {}
+        runtime_rows = [
+            row
+            for row in rows
+            if _clean_text(row.get("operational_use")) == "PRODUCTION_RUNTIME"
+            and _clean_text(row.get("run_status")) in FINAL_VALIDATED_RUN_STATES | {"SUPERSEDED"}
+        ]
+        if runtime_rows:
+            return dict(runtime_rows[0])
+        current_rows = [row for row in rows if bool(row.get("is_current_validated_run"))]
+        if current_rows:
+            return dict(current_rows[0])
+        validated_rows = [row for row in rows if _clean_text(row.get("run_status")) in FINAL_VALIDATED_RUN_STATES]
+        return dict(validated_rows[0]) if validated_rows else {}
+    except Exception:
+        return {}
 
 
 def launch_experiment(experiment_id: str) -> tuple[bool, dict[str, Any], str]:
@@ -1739,6 +1781,21 @@ def _promote_current_validated_run(run_id: str, experiment_id: str) -> None:
     _update_run_row(run_id, {"is_current_validated_run": True})
 
 
+def _deactivate_other_runtime_governance(run_id: str, experiment_id: str) -> None:
+    rows = list_experiment_runs(experiment_id=experiment_id, limit=200, cache_bust=f"deactivate-runtime-{run_id}")
+    for row in rows:
+        other_run_id = _clean_text(row.get("run_id"))
+        if not other_run_id or other_run_id == run_id:
+            continue
+        payload: dict[str, Any] = {}
+        if bool(row.get("is_current_validated_run")):
+            payload["is_current_validated_run"] = False
+        if _clean_text(row.get("operational_use")) == "PRODUCTION_RUNTIME":
+            payload["operational_use"] = "REVIEWED_NOT_ACTIVE" if _clean_text(row.get("human_review_recommended_model_name")) else "NONE"
+        if payload:
+            _update_run_row(other_run_id, payload)
+
+
 def _persist_run_results(run_id: str, job_id: str, run_dir: Path, review_result: dict[str, Any]) -> dict[str, Any]:
     run_row = get_run(run_id)
     experiment_id = _clean_text(run_row.get("experiment_id")) or APPROVED_EXPERIMENT_ID
@@ -1815,6 +1872,69 @@ def _persist_run_results(run_id: str, job_id: str, run_dir: Path, review_result:
         )
     clear_experiment_cache()
     return payload
+
+
+def save_resource_affinity_human_review_recommendation(
+    run_id: str,
+    recommended_model_name: str,
+    notes: str = "",
+    *,
+    activate_for_runtime: bool = False,
+) -> tuple[bool, str]:
+    safe_run_id = _clean_text(run_id)
+    safe_model = _clean_text(recommended_model_name)
+    if not safe_run_id or not safe_model:
+        return False, "Run and model are required."
+    run_row = get_run(safe_run_id)
+    if not run_row:
+        return False, "Run not found."
+    if _clean_text(run_row.get("experiment_id")) != RESOURCE_AFFINITY_EXPERIMENT_ID:
+        return False, "This control is only available for Experiment 3."
+    if _clean_text(run_row.get("run_status")) not in FINAL_VALIDATED_RUN_STATES:
+        return False, "Only validated Experiment 3 runs can be reviewed."
+
+    model_rows = list_run_models(safe_run_id)
+    valid_models = {_clean_text(row.get("model_name")) for row in model_rows}
+    if safe_model not in valid_models:
+        return False, "Selected model is not present in this run."
+
+    before = dict(run_row)
+    payload = {
+        "human_review_recommended_model_name": safe_model,
+        "human_review_notes": str(notes or "").strip(),
+        "human_reviewed_at": _utc_now_iso(),
+        "human_reviewed_by": str(get_current_user_id() or "") or None,
+        "operational_use": "PRODUCTION_RUNTIME" if activate_for_runtime else "REVIEWED_NOT_ACTIVE",
+        "is_current_validated_run": True if activate_for_runtime else bool(run_row.get("is_current_validated_run")),
+    }
+    _update_run_row(safe_run_id, payload)
+    if activate_for_runtime:
+        _deactivate_other_runtime_governance(safe_run_id, RESOURCE_AFFINITY_EXPERIMENT_ID)
+        _promote_current_validated_run(safe_run_id, RESOURCE_AFFINITY_EXPERIMENT_ID)
+        _update_run_row(
+            safe_run_id,
+            {
+                "human_review_recommended_model_name": safe_model,
+                "operational_use": "PRODUCTION_RUNTIME",
+                "is_current_validated_run": True,
+            },
+        )
+    record_privileged_action(
+        action_type="resource_affinity_human_review_recommendation_saved",
+        entity_type="ml_experiment_run",
+        entity_id=safe_run_id,
+        before_json=before,
+        after_json={**payload, "activate_for_runtime": activate_for_runtime},
+        reason="Developer selected the reviewed Experiment 3 model recommendation.",
+    )
+    try:
+        from helpers.resource_affinity_runtime import clear_resource_affinity_runtime_cache
+
+        clear_resource_affinity_runtime_cache()
+    except Exception:
+        pass
+    clear_experiment_cache()
+    return True, ("Runtime model updated." if activate_for_runtime else "Human review recommendation saved.")
 
 
 def launch_assigned_resource_open_experiment() -> tuple[bool, dict[str, Any], str]:

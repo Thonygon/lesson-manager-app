@@ -55,6 +55,8 @@ _QUICK_EXAM_LIST_COLUMNS = ",".join([
     "level",
     "exam_length",
     "exercise_types",
+    "plan_language",
+    "student_material_language",
     "is_public",
     "status",
     "created_at",
@@ -206,6 +208,17 @@ def save_exam_record(
         from helpers.branding import get_user_branding, resolve_is_public
         branding = get_user_branding()
         exam_data, answer_key = _eb().repair_exam_answer_key(exam_data, answer_key)
+        plan_language = str(exam_data.get("plan_language") or _eb().get_plan_language()).strip()
+        student_material_language = str(
+            exam_data.get("student_material_language") or _eb().get_student_material_language(subject)
+        ).strip()
+        exam_data, plan_language, student_material_language = _eb().attach_exam_language_metadata(
+            exam_data,
+            answer_key=answer_key,
+            subject=subject,
+            plan_language=plan_language,
+            student_material_language=student_material_language,
+        )
         exam_data = enrich_exam_with_visuals(
             exam_data,
             subject=subject,
@@ -220,6 +233,8 @@ def save_exam_record(
             "level": str(level_or_band).strip(),
             "exam_length": str(exam_length).strip(),
             "exercise_types": exercise_types,
+            "plan_language": plan_language,
+            "student_material_language": student_material_language,
             "exam_data": exam_data,
             "answer_key": answer_key,
             "is_public": resolve_is_public(branding),
@@ -1611,6 +1626,20 @@ def _persist_saved_exam_resource(exam_id: int | str, exam_data: dict, answer_key
     exam_data, answer_key = _eb().repair_exam_answer_key(dict(exam_data or {}), dict(answer_key or {}))
     existing_row = load_exam_record(safe_id) or {}
     exam_data = preserve_generated_media_fields(exam_data, existing_row.get("exam_data") or {})
+    plan_language_fallback = str(existing_row.get("plan_language") or _eb().get_plan_language()).strip()
+    student_material_language_fallback = str(
+        existing_row.get("student_material_language")
+        or _eb().get_student_material_language(existing_row.get("subject") or exam_data.get("subject") or "")
+    ).strip()
+    exam_data, plan_language, student_material_language = _eb().attach_exam_language_metadata(
+        exam_data,
+        answer_key=answer_key,
+        subject=existing_row.get("subject") or exam_data.get("subject") or "",
+        plan_language=str(exam_data.get("plan_language") or "").strip(),
+        student_material_language=str(exam_data.get("student_material_language") or "").strip(),
+        fallback_plan_language=plan_language_fallback,
+        fallback_student_language=student_material_language_fallback,
+    )
     try:
         (
             get_sb()
@@ -1620,6 +1649,8 @@ def _persist_saved_exam_resource(exam_id: int | str, exam_data: dict, answer_key
                     "exam_data": exam_data,
                     "answer_key": answer_key,
                     "title": str(exam_data.get("title") or "").strip(),
+                    "plan_language": plan_language,
+                    "student_material_language": student_material_language,
                 }
             )
             .eq("id", safe_id)

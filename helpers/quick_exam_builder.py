@@ -117,6 +117,58 @@ GROUP_RECOMMENDED_GROUPS = {
     "other": list(EXERCISE_GROUPS.keys()),
 }
 
+_SUPPORTED_EXAM_LANGUAGE_ALIASES = {
+    "en": "en",
+    "eng": "en",
+    "english": "en",
+    "ingles": "en",
+    "inglés": "en",
+    "ingilizce": "en",
+    "es": "es",
+    "spa": "es",
+    "spanish": "es",
+    "espanol": "es",
+    "español": "es",
+    "espanol": "es",
+    "ispanyolca": "es",
+    "tr": "tr",
+    "tur": "tr",
+    "turkish": "tr",
+    "turco": "tr",
+    "turkce": "tr",
+    "türkçe": "tr",
+}
+
+_LANGUAGE_SUBJECT_HINTS = {
+    "english": "en",
+    "spanish": "es",
+    "turkish": "tr",
+}
+
+_EXAM_LANGUAGE_STOPWORDS = {
+    "en": {
+        "the", "and", "is", "are", "was", "were", "with", "from", "that", "this",
+        "these", "those", "answer", "questions", "question", "choose", "correct",
+        "match", "read", "write", "student", "students", "true", "false", "about",
+    },
+    "es": {
+        "el", "la", "los", "las", "un", "una", "y", "es", "son", "con", "para",
+        "que", "esta", "este", "estas", "estos", "responde", "preguntas", "pregunta",
+        "elige", "correcta", "correcto", "relaciona", "lee", "escribe", "verdadero",
+        "falso", "sobre", "de", "del", "al",
+    },
+    "tr": {
+        "ve", "bir", "bu", "şu", "ile", "için", "doğru", "yanlış", "eşleştir",
+        "oku", "yaz", "soru", "sorular", "cevap", "öğrenci", "öğrenciler", "hakkında",
+        "olan", "olarak", "de", "da", "mi", "mı", "mu", "mü",
+    },
+}
+
+_EXAM_LANGUAGE_CHAR_HINTS = {
+    "es": set("áéíóúñ¿¡"),
+    "tr": set("çğıöşüİı"),
+}
+
 EXERCISE_TYPE_GROUP = {
     exercise_type: group
     for group, items in EXERCISE_GROUPS.items()
@@ -308,6 +360,102 @@ def repair_exam_answer_key(exam_data: dict, answer_key: dict | None) -> tuple[di
 
 def _subject_key(subject: str) -> str:
     return _clean_str(subject).lower().replace("&", "and")
+
+
+def normalize_exam_language_code(value) -> str:
+    key = _clean_str(value).casefold().replace(" ", "_")
+    return _SUPPORTED_EXAM_LANGUAGE_ALIASES.get(key, "")
+
+
+def _exam_subject_language_hint(subject: str) -> str:
+    return _LANGUAGE_SUBJECT_HINTS.get(_subject_key(subject), "")
+
+
+def _collect_exam_language_fragments(value, out: list[str]) -> None:
+    if isinstance(value, str):
+        text = _clean_str(value)
+        if text:
+            out.append(text)
+        return
+    if isinstance(value, dict):
+        for item in value.values():
+            _collect_exam_language_fragments(item, out)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _collect_exam_language_fragments(item, out)
+
+
+def infer_exam_language(exam_data: dict | None, answer_key: dict | None = None, *, subject: str = "") -> str:
+    fragments: list[str] = []
+    _collect_exam_language_fragments(exam_data or {}, fragments)
+    _collect_exam_language_fragments(answer_key or {}, fragments)
+    text = " ".join(fragments).strip()
+    subject_hint = _exam_subject_language_hint(subject)
+    if not text:
+        return subject_hint
+
+    lowered = text.casefold()
+    words = re.findall(r"[a-zA-ZÀ-ÿİıĞğŞşÇçÖöÜü]+", lowered)
+    scores = {"en": 0, "es": 0, "tr": 0}
+
+    for lang_code, chars in _EXAM_LANGUAGE_CHAR_HINTS.items():
+        scores[lang_code] += sum(2 for ch in lowered if ch in chars)
+
+    for word in words:
+        for lang_code, stopwords in _EXAM_LANGUAGE_STOPWORDS.items():
+            if word in stopwords:
+                scores[lang_code] += 3
+
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    best_code, best_score = ranked[0]
+    second_score = ranked[1][1] if len(ranked) > 1 else 0
+    if best_score >= 3 and best_score > second_score:
+        return best_code
+    return subject_hint
+
+
+def attach_exam_language_metadata(
+    exam_data: dict | None,
+    *,
+    answer_key: dict | None = None,
+    subject: str = "",
+    plan_language: str = "",
+    student_material_language: str = "",
+    fallback_plan_language: str = "",
+    fallback_student_language: str = "",
+) -> tuple[dict, str, str]:
+    exam_copy = dict(exam_data or {})
+    subject_hint = _exam_subject_language_hint(subject)
+    inferred_language = infer_exam_language(exam_copy, answer_key, subject=subject)
+
+    resolved_student = (
+        normalize_exam_language_code(student_material_language)
+        or normalize_exam_language_code(exam_copy.get("student_material_language"))
+        or normalize_exam_language_code(fallback_student_language)
+        or subject_hint
+        or inferred_language
+        or normalize_exam_language_code(plan_language)
+        or normalize_exam_language_code(exam_copy.get("plan_language"))
+        or normalize_exam_language_code(fallback_plan_language)
+    )
+    resolved_plan = (
+        normalize_exam_language_code(plan_language)
+        or normalize_exam_language_code(exam_copy.get("plan_language"))
+        or normalize_exam_language_code(fallback_plan_language)
+        or inferred_language
+        or resolved_student
+        or subject_hint
+        or normalize_exam_language_code(fallback_student_language)
+    )
+    if not resolved_student:
+        resolved_student = resolved_plan
+    if not resolved_plan:
+        resolved_plan = resolved_student
+
+    exam_copy["plan_language"] = resolved_plan
+    exam_copy["student_material_language"] = resolved_student
+    return exam_copy, resolved_plan, resolved_student
 
 
 def get_subject_group(subject: str) -> str:
@@ -684,6 +832,8 @@ def normalize_exam_output(raw: dict) -> tuple[dict, dict]:
     exam_data = {
         "title": _clean_str(raw.get("title", "")),
         "instructions": _clean_str(raw.get("instructions", "")),
+        "plan_language": normalize_exam_language_code(plan_lang),
+        "student_material_language": normalize_exam_language_code(student_lang),
         "sections": [],
     }
 
@@ -743,6 +893,15 @@ def normalize_exam_output(raw: dict) -> tuple[dict, dict]:
         student_lang,
         subject_group=subject_group,
     )
+    exam_data, resolved_plan_language, resolved_student_language = attach_exam_language_metadata(
+        exam_data,
+        answer_key=answer_key,
+        subject=_clean_str(raw.get("subject", "")),
+        plan_language=plan_lang,
+        student_material_language=student_lang,
+    )
+    answer_key["plan_language"] = resolved_plan_language
+    answer_key["student_material_language"] = resolved_student_language
     return repair_exam_answer_key(exam_data, answer_key)
 
 

@@ -57,6 +57,8 @@ from helpers.video_library import (
     render_video_detail,
     render_video_library_cards,
     save_video_resource,
+    video_material_language_label,
+    video_material_language_options,
 )
 from helpers.worksheet_builder import normalize_worksheet_output
 from helpers.worksheet_storage import (
@@ -527,6 +529,7 @@ def _render_selected_file_resource_detail(kind: str, *, scope: str = "files") ->
         selected_video = st.session_state.get("files_selected_video")
         if not selected_video:
             return
+        selected_video_key = re.sub(r"[^A-Za-z0-9_]+", "_", str((selected_video or {}).get("id") or "video")) or "video"
         st.markdown("---")
         detail_l, detail_r = st.columns([6, 1])
         with detail_l:
@@ -538,7 +541,7 @@ def _render_selected_file_resource_detail(kind: str, *, scope: str = "files") ->
                 st.rerun()
         render_video_detail(
             selected_video,
-            action_key_prefix=f"selected_video_{scope_key}",
+            action_key_prefix=f"selected_video_{scope_key}_{selected_video_key}",
             allow_assign=not is_archived_status((selected_video or {}).get("status")),
             assign_expanded=bool(st.session_state.get("files_selected_video_assign_expanded")),
         )
@@ -1777,6 +1780,14 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 inferred_level = str(selected_program.get("level_or_band") or "").strip()
                 inferred_topic = str(selected_topic.get("title") or selected_topic.get("lesson_focus") or "").strip()
 
+                inferred_language = str(
+                    selected_program.get("student_material_language")
+                    or selected_program.get("program_language")
+                    or ""
+                ).strip().lower()
+                if inferred_language not in video_material_language_options():
+                    inferred_language = "en"
+
                 video_col1, video_col2 = st.columns(2)
                 with video_col1:
                     video_url = st.text_input(t("youtube_link_label"), key="my_video_url", placeholder=t("youtube_link_placeholder"))
@@ -1818,11 +1829,27 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                             format_func=_lp_video._level_label,
                             key="my_video_level",
                         )
+                    current_video_language = str(st.session_state.get("my_video_language") or inferred_language).strip().lower()
+                    if current_video_language not in video_material_language_options():
+                        current_video_language = inferred_language
+                    language_options = list(video_material_language_options())
+                    if st.session_state.get("my_video_language") not in language_options:
+                        st.session_state["my_video_language"] = current_video_language
+                    video_language = st.selectbox(
+                        t("video_language"),
+                        language_options,
+                        index=language_options.index(current_video_language),
+                        format_func=video_material_language_label,
+                        key="my_video_language",
+                    )
                 video_description = st.text_area(t("video_description_optional"), key="my_video_description", height=90)
                 video_public = st.checkbox(t("share_video_with_community"), key="my_video_public")
                 if st.button(t("save_video_button"), key="my_video_save_btn", use_container_width=True):
                     if selected_program_id > 0 and selected_topic_id <= 0:
                         st.warning(t("select_topic_placeholder"))
+                        st.stop()
+                    if not str(video_language or "").strip():
+                        st.warning(t("video_language_required"))
                         st.stop()
                     final_topic = inferred_topic if selected_program_id > 0 else st.session_state.get("my_video_topic", "")
                     final_stage = inferred_stage if selected_program_id > 0 else st.session_state.get("my_video_stage", "")
@@ -1836,6 +1863,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         learner_stage=final_stage,
                         level_or_band=final_level,
                         topic=final_topic,
+                        student_material_language=video_language,
                         is_public=video_public,
                     )
                     if ok:

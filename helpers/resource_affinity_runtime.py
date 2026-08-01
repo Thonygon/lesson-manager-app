@@ -10,6 +10,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from core.database import get_sb
+from helpers.resource_gallery import extract_resource_language_value
+
 
 RUNS_ROOT = Path("reports") / "ml_architecture" / "resource_affinity_unsupervised" / "runs"
 MIN_QUERY_ANCHOR_SIMILARITY = 0.38
@@ -17,6 +20,8 @@ REPRESENTATION_MANIFEST_FILENAME = "resource_affinity_representation_manifest.js
 MIN_FEATURE_SCHEMA_VERSION = "resource_affinity_unsupervised.v5"
 PREFERRED_RUNTIME_MODEL_FAMILY = "kmeans"
 ALLOW_NON_KMEANS_RUNTIME_FALLBACK = False
+RUN_TABLE = "ml_experiment_runs"
+RESOURCE_AFFINITY_EXPERIMENT_ID = "resource_affinity_unsupervised_discovery"
 
 
 def _clean_text(value: Any) -> str:
@@ -86,7 +91,7 @@ def _resource_id_from_row(row: dict[str, Any]) -> str:
 def _profile_text_for_candidate(row: dict[str, Any], kind: Any) -> str:
     resource_type = _kind_to_resource_type(kind)
     subject = _clean_text(row.get("subject") or row.get("subject_display"))
-    language = _clean_text(row.get("language") or row.get("student_material_language") or row.get("plan_language"))
+    language = _clean_text(extract_resource_language_value(row, resource_type=resource_type))
     level = _clean_text(row.get("level_or_band") or row.get("level"))
     parts = [
         f"Resource type: {resource_type}",
@@ -111,7 +116,7 @@ def _profile_text_for_context(context: dict[str, Any], *, kind: Any = "") -> str
         f"Resource type: {resource_type}",
         f"Title: {_clean_text(context.get('title'))}",
         f"Subject: {_clean_text(context.get('subject') or context.get('subject_key'))}",
-        f"Language: {_clean_text(context.get('language') or context.get('student_material_language') or context.get('plan_language'))}",
+        f"Language: {_clean_text(extract_resource_language_value(context, resource_type=resource_type))}",
         f"Level: {_clean_text(context.get('level_or_band') or context.get('level'))}",
         f"Learner stage: {_clean_text(context.get('learner_stage'))}",
         f"Topic: {_clean_text(context.get('topic'))}",
@@ -132,6 +137,36 @@ def _read_json(path: Path) -> dict[str, Any]:
     except Exception:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _current_validated_run_row() -> dict[str, Any]:
+    try:
+        rows = (
+            get_sb()
+            .table(RUN_TABLE)
+            .select("run_id,run_status,overall_model_selection,human_review_recommended_model_name,is_current_validated_run,operational_use,human_reviewed_at,created_at")
+            .eq("experiment_id", RESOURCE_AFFINITY_EXPERIMENT_ID)
+            .order("human_reviewed_at", desc=True, nullsfirst=False)
+            .order("created_at", desc=True)
+            .limit(100)
+            .execute()
+        ).data or []
+        if not rows:
+            return {}
+        runtime_rows = [
+            row
+            for row in rows
+            if _clean_text(row.get("operational_use")) == "PRODUCTION_RUNTIME"
+            and _clean_text(row.get("run_status")) in {"VALIDATED_EXPLORATORY_RUN", "VALIDATED_NO_ROBUST_WINNER", "SUPERSEDED"}
+        ]
+        if runtime_rows:
+            return dict(runtime_rows[0])
+        current_rows = [row for row in rows if bool(row.get("is_current_validated_run"))]
+        if current_rows:
+            return dict(current_rows[0])
+        return {}
+    except Exception:
+        return {}
 
 
 def _load_pickle(path: Path) -> Any:
@@ -203,7 +238,12 @@ def _best_run_dir() -> Path | None:
 
 @lru_cache(maxsize=1)
 def load_resource_affinity_index() -> dict[str, Any]:
-    run_dir = _best_run_dir()
+    pinned_row = _current_validated_run_row()
+    run_dir = RUNS_ROOT / _clean_text(pinned_row.get("run_id")) if _clean_text(pinned_row.get("run_id")) else None
+    if run_dir and (not run_dir.exists() or not run_dir.is_dir()):
+        run_dir = None
+    if run_dir is None:
+        run_dir = _best_run_dir()
     if not run_dir:
         return {"available": False, "reason": "no_validated_artifacts"}
     try:
@@ -235,8 +275,9 @@ def load_resource_affinity_index() -> dict[str, Any]:
         return {"available": False, "reason": "vector_row_count_mismatch"}
     summary = _read_json(run_dir / "resource_affinity_run_summary.json")
     best_row = {}
+    pinned_model_name = _clean_text(pinned_row.get("human_review_recommended_model_name")) if pinned_row else ""
     if not comparison.empty:
-        winner_name = _run_winner(summary, comparison)
+        winner_name = pinned_model_name or _run_winner(summary, comparison)
         matches = comparison[comparison.get("model_name", pd.Series(dtype=str)).astype(str) == winner_name] if winner_name else pd.DataFrame()
         if not matches.empty:
             best_row = matches.iloc[0].to_dict()
@@ -248,10 +289,12 @@ def load_resource_affinity_index() -> dict[str, Any]:
         "run_dir": str(run_dir),
         "winner": _clean_text(best_row.get("model_name")),
         "model_family": _model_family(best_row.get("model_name")),
+        "selection_source": "human_review_runtime_pin" if pinned_model_name else "artifact_winner_scan",
         "runtime_model_policy": f"preferred_family={PREFERRED_RUNTIME_MODEL_FAMILY}; fallback={'allowed' if ALLOW_NON_KMEANS_RUNTIME_FALLBACK else 'disabled'}",
         "silhouette_score": _safe_float(best_row.get("silhouette_score")),
         "selection_score": _safe_float(best_row.get("selection_score")),
         "cross_subject_contamination_rate": _safe_float(best_row.get("cross_subject_contamination_rate")),
+        "cross_language_contamination_rate": _safe_float(best_row.get("cross_language_contamination_rate")),
         "resources": merged.to_dict("records"),
         "resource_key_to_index": {str(key): idx for idx, key in enumerate(merged["resource_key"].astype(str).tolist())},
         "vectorizer": vectorizer,

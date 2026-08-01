@@ -63,6 +63,7 @@ def _rows_for_table(table_name: str) -> list[dict]:
                 "level_or_band": "A2",
                 "lesson_purpose": "review_topic",
                 "plan_language": "en",
+                "student_material_language": "en",
                 "status": "active",
                 "is_public": True,
                 "plan_json": {
@@ -114,9 +115,26 @@ def _rows_for_table(table_name: str) -> list[dict]:
                 "level": "A2",
                 "exam_length": "short",
                 "exercise_types": ["multiple_choice", "short_answer"],
+                "plan_language": "en",
+                "student_material_language": "en",
                 "status": "active",
                 "is_public": True,
                 "exam_data": {"questions": ["Choose the correct past tense verb"]},
+            }
+        ]
+    if table_name == "videos":
+        return [
+            {
+                "id": "video1",
+                "title": "Past tense recap video",
+                "subject": "English",
+                "topic": "Past tense narratives",
+                "description": "Short recap video for yesterday stories",
+                "learner_stage": "adult_stage",
+                "level_or_band": "A2",
+                "student_material_language": "en",
+                "status": "active",
+                "is_public": True,
             }
         ]
     if table_name == "learning_programs":
@@ -127,6 +145,8 @@ def _rows_for_table(table_name: str) -> list[dict]:
                 "subject": "English",
                 "learner_stage": "adult_stage",
                 "level_or_band": "A2",
+                "program_language": "en",
+                "student_material_language": "en",
                 "program_overview": "Narrative speaking and grammar sequence",
                 "status": "active",
                 "is_public": True,
@@ -187,12 +207,16 @@ class ResourceAffinityExperiment3UpgradeTests(unittest.TestCase):
         self.assertNotIn("worksheet_json", requested_columns["worksheets"])
         self.assertNotIn("updated_at", requested_columns["quick_exams"])
         self.assertNotIn("exam_data", requested_columns["quick_exams"])
-        self.assertEqual(11, summary["source_row_count"])
-        self.assertEqual(10, summary["included_row_count"])
+        self.assertIn("plan_language", requested_columns["quick_exams"])
+        self.assertIn("student_material_language", requested_columns["videos"])
+        self.assertIn("program_language", requested_columns["learning_programs"])
+        self.assertEqual(12, summary["source_row_count"])
+        self.assertEqual(11, summary["included_row_count"])
         self.assertEqual(1, summary["excluded_row_count"])
         self.assertEqual({"archived_status": 1}, summary["excluded_counts_by_reason"])
         self.assertEqual(2, summary["curricular_anchor_count"])
-        self.assertEqual(8, summary["candidate_resource_count"])
+        self.assertEqual(9, summary["candidate_resource_count"])
+        self.assertEqual(11, summary["completeness"]["language"]["known_count"])
         lesson = profiles[profiles["resource_key"] == "lesson_plan:lp1"].iloc[0].to_dict()
         self.assertIn("Use past tense verbs", lesson["topics_extracted"])
         topic = profiles[profiles["resource_key"] == "program_topic:topic1"].iloc[0].to_dict()
@@ -203,6 +227,8 @@ class ResourceAffinityExperiment3UpgradeTests(unittest.TestCase):
         worksheet = profiles[profiles["resource_key"] == "worksheet:1"].iloc[0].to_dict()
         self.assertIn("short story", worksheet["content_excerpt"])
         self.assertEqual("sanitized_worksheet_json_view", worksheet["content_excerpt_source"])
+        video = profiles[profiles["resource_key"] == "video:video1"].iloc[0].to_dict()
+        self.assertEqual("en", video["language"])
 
     def test_extraction_does_not_fetch_large_json_when_excerpt_view_unavailable(self):
         calls = []

@@ -15,13 +15,19 @@ from core.state import get_current_user_id
 from helpers.archive_utils import filter_archived_rows, is_archived_status
 from helpers.resource_deletion import render_archive_delete_button, render_archive_delete_confirmation
 from helpers.recommendation_models import log_teacher_material_open
-from helpers.resource_gallery import inject_resource_gallery_styles, render_gallery_card_html
+from helpers.resource_gallery import extract_resource_language_value, inject_resource_gallery_styles, render_gallery_card_html
 
 YOUTUBE_HOST_MARKERS = (
     "youtube.com",
     "youtu.be",
     "youtube-nocookie.com",
 )
+VIDEO_MATERIAL_LANGUAGE_OPTIONS = ("en", "es", "tr")
+_VIDEO_LANGUAGE_TRANSLATION_KEYS = {
+    "en": "native_language_english",
+    "es": "native_language_spanish",
+    "tr": "native_language_turkish",
+}
 
 _SUBJECT_NORMALIZE = {
     "english": "english",
@@ -54,6 +60,7 @@ _SUBJECT_NORMALIZE = {
     "diğer": "other",
     "otra": "other",
 }
+VIDEO_SUBJECT_OPTIONS = ["english", "spanish", "mathematics", "science", "music", "study_skills", "other"]
 
 
 def _rows(result) -> list[dict]:
@@ -91,6 +98,31 @@ def _clean_display_text(value: Any) -> str:
     if text:
         return text[0].upper() + text[1:]
     return ""
+
+
+def _video_schema_unavailable_error(exc: Exception) -> bool:
+    text = str(exc or "").strip().lower()
+    if not text:
+        return False
+    schema_markers = (
+        "column",
+        "does not exist",
+        "undefined column",
+        "undefined table",
+        "relation",
+        "schema cache",
+        "could not find the 'student_material_language' column",
+    )
+    return "videos" in text and any(marker in text for marker in schema_markers)
+
+
+def _video_duplicate_error(exc: Exception) -> bool:
+    text = str(exc or "").strip().lower()
+    return (
+        "videos_owner_video_unique" in text
+        or "duplicate key value violates unique constraint" in text
+        or "23505" in text
+    )
 
 
 def normalize_subject(raw: Any) -> str:
@@ -160,16 +192,93 @@ def _normalize_video_row(row: dict) -> dict:
     row["subject_display"] = subject_label(row["subject"]) if row["subject"] else _clean_display_text(row.get("custom_subject_name") or "")
     row["description"] = _clean_text(row.get("description"))
     row["author_name"] = _clean_display_text(row.get("author_name"))
+    row["student_material_language"] = extract_resource_language_value(row, resource_type="video")
     return row
+
+
+def video_material_language_options() -> tuple[str, ...]:
+    return VIDEO_MATERIAL_LANGUAGE_OPTIONS
+
+
+def video_material_language_label(value: Any) -> str:
+    key = str(value or "").strip().lower()
+    translation_key = _VIDEO_LANGUAGE_TRANSLATION_KEYS.get(key, "")
+    if translation_key:
+        translated = t(translation_key)
+        if translated != translation_key:
+            return translated
+    return key.upper() if key else ""
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def load_video_topic_links(video_record_id: int | str) -> list[dict]:
+    safe_id = str(video_record_id or "").strip()
+    if not safe_id:
+        return []
+    try:
+        link_rows = _rows(
+            get_sb()
+            .table("learning_program_topic_videos")
+            .select("id,program_id,topic_id,created_at")
+            .eq("video_id", int(safe_id) if safe_id.isdigit() else safe_id)
+            .order("created_at", desc=False)
+            .execute()
+        )
+    except Exception:
+        return []
+    if not link_rows:
+        return []
+    program_ids = sorted({int(row.get("program_id") or 0) for row in link_rows if int(row.get("program_id") or 0) > 0})
+    topic_ids = sorted({int(row.get("topic_id") or 0) for row in link_rows if int(row.get("topic_id") or 0) > 0})
+    program_lookup: dict[int, dict] = {}
+    topic_lookup: dict[int, dict] = {}
+    if program_ids:
+        try:
+            program_rows = _rows(
+                get_sb()
+                .table("learning_programs")
+                .select("id,title,subject,custom_subject_name,learner_stage,level_or_band,student_material_language,program_language")
+                .in_("id", program_ids)
+                .execute()
+            )
+            program_lookup = {int(row.get("id") or 0): row for row in program_rows if int(row.get("id") or 0) > 0}
+        except Exception:
+            program_lookup = {}
+    if topic_ids:
+        try:
+            topic_rows = _rows(
+                get_sb()
+                .table("learning_program_topics")
+                .select("id,title,lesson_focus,unit_number,topic_number")
+                .in_("id", topic_ids)
+                .execute()
+            )
+            topic_lookup = {int(row.get("id") or 0): row for row in topic_rows if int(row.get("id") or 0) > 0}
+        except Exception:
+            topic_lookup = {}
+    contexts: list[dict] = []
+    for row in link_rows:
+        program_id = int(row.get("program_id") or 0)
+        topic_id = int(row.get("topic_id") or 0)
+        contexts.append(
+            {
+                **row,
+                "program": program_lookup.get(program_id, {}),
+                "topic": topic_lookup.get(topic_id, {}),
+            }
+        )
+    return contexts
 
 
 def _video_row_to_card(row: dict) -> str:
     row = _normalize_video_row(row)
+    language_label = video_material_language_label(row.get("student_material_language"))
     chips = "".join(
         [
             f'<span class="cm-resource-chip">🎬 {html.escape(t("video_label"))}</span>',
             f'<span class="cm-resource-chip">📚 {html.escape(row.get("subject_display") or t("subject_other"))}</span>' if row.get("subject_display") else "",
             f'<span class="cm-resource-chip">🏷️ {html.escape(str(row.get("level_or_band") or ""))}</span>' if row.get("level_or_band") else "",
+            f'<span class="cm-resource-chip">🌐 {html.escape(language_label)}</span>' if language_label else "",
         ]
     )
     meta = "".join(
@@ -199,6 +308,7 @@ def save_video_resource(
     learner_stage: str = "",
     level_or_band: str = "",
     topic: str = "",
+    student_material_language: str = "",
     is_public: bool = False,
 ) -> tuple[bool, int | None, str]:
     import helpers.lesson_planner as _lp
@@ -217,6 +327,9 @@ def save_video_resource(
     normalized_level = _clean_text(level_or_band)
     if normalized_level not in level_options:
         normalized_level = _lp.recommend_default_level(normalized_subject, normalized_stage or _lp.LEARNER_STAGES[0])
+    normalized_language = _clean_text(student_material_language).lower()
+    if normalized_language not in VIDEO_MATERIAL_LANGUAGE_OPTIONS:
+        return False, None, "video_language_required"
     payload = {
         "user_id": user_id,
         "video_id": video_id,
@@ -229,6 +342,7 @@ def save_video_resource(
         "learner_stage": normalized_stage,
         "level_or_band": normalized_level,
         "topic": _clean_display_text(topic),
+        "student_material_language": normalized_language,
         "is_public": bool(is_public),
         "status": "active",
         "updated_at": _now_iso(),
@@ -250,13 +364,131 @@ def save_video_resource(
             return True, video_id_value, "video_saved_success"
 
         payload["created_at"] = _now_iso()
-        inserted = _rows(get_sb().table("videos").insert(payload).execute())
+        try:
+            inserted = _rows(get_sb().table("videos").insert(payload).execute())
+        except Exception as exc:
+            if _video_duplicate_error(exc):
+                existing_after_conflict = _rows(
+                    get_sb()
+                    .table("videos")
+                    .select("id")
+                    .eq("user_id", user_id)
+                    .eq("video_id", video_id)
+                    .limit(1)
+                    .execute()
+                )
+                if existing_after_conflict:
+                    video_id_value = int(existing_after_conflict[0].get("id") or 0)
+                    get_sb().table("videos").update(payload).eq("id", video_id_value).eq("user_id", user_id).execute()
+                    clear_app_caches()
+                    return True, video_id_value, "video_saved_success"
+            raise
         clear_app_caches()
         return True, int((inserted[0] if inserted else {}).get("id") or 0) or None, "video_saved_success"
     except Exception as exc:
-        if "videos" in str(exc or "").lower():
+        if _video_schema_unavailable_error(exc):
             return False, None, "video_table_unavailable"
         return False, None, "save_failed"
+
+
+def update_video_resource(
+    *,
+    video_record_id: int | str,
+    youtube_url: str,
+    title: str = "",
+    description: str = "",
+    subject: str = "",
+    custom_subject_name: str = "",
+    learner_stage: str = "",
+    level_or_band: str = "",
+    topic: str = "",
+    student_material_language: str = "",
+    is_public: bool = False,
+) -> tuple[bool, str]:
+    import helpers.lesson_planner as _lp
+
+    user_id = str(get_current_user_id() or "").strip()
+    safe_id = str(video_record_id or "").strip()
+    if not user_id or not safe_id:
+        return False, "save_failed"
+    if not is_supported_youtube_url(youtube_url):
+        return False, "video_invalid_url"
+    video_id = parse_youtube_video_id(youtube_url)
+    normalized_subject = normalize_subject(subject)
+    normalized_stage = _clean_text(learner_stage)
+    if normalized_stage not in _lp.LEARNER_STAGES:
+        normalized_stage = ""
+    level_options = _lp.get_level_options(normalized_subject)
+    normalized_level = _clean_text(level_or_band)
+    if normalized_level not in level_options:
+        normalized_level = _lp.recommend_default_level(normalized_subject, normalized_stage or _lp.LEARNER_STAGES[0])
+    normalized_language = _clean_text(student_material_language).lower()
+    if normalized_language not in VIDEO_MATERIAL_LANGUAGE_OPTIONS:
+        return False, "video_language_required"
+    existing_row = load_video_record(safe_id) or {}
+    existing_video_id = parse_youtube_video_id(existing_row.get("video_id") or existing_row.get("youtube_url") or "")
+    link_changed = bool(existing_video_id and existing_video_id != video_id)
+    if not existing_video_id:
+        link_changed = True
+
+    payload = {
+        "title": _clean_display_text(title) or t("video_default_title"),
+        "description": _clean_text(description),
+        "subject": normalized_subject,
+        "custom_subject_name": _clean_display_text(custom_subject_name),
+        "learner_stage": normalized_stage,
+        "level_or_band": normalized_level,
+        "topic": _clean_display_text(topic),
+        "student_material_language": normalized_language,
+        "is_public": bool(is_public),
+        "updated_at": _now_iso(),
+    }
+    try:
+        if link_changed:
+            duplicate_rows = _rows(
+                get_sb()
+                .table("videos")
+                .select("id")
+                .eq("user_id", user_id)
+                .eq("video_id", video_id)
+                .limit(2)
+                .execute()
+            )
+            conflicting_duplicate = any(str(row.get("id") or "").strip() != safe_id for row in duplicate_rows)
+            if conflicting_duplicate:
+                return False, "video_already_saved"
+            payload.update(
+                {
+                    "video_id": video_id,
+                    "youtube_url": youtube_watch_url(video_id) or _clean_text(youtube_url),
+                    "thumbnail_url": youtube_thumbnail_url(video_id),
+                }
+            )
+        (
+            get_sb()
+            .table("videos")
+            .update(payload)
+            .eq("id", int(safe_id) if safe_id.isdigit() else safe_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        clear_app_caches()
+        try:
+            load_video_record.clear()
+        except Exception:
+            pass
+        try:
+            _load_my_videos_cached.clear()
+            _load_public_videos_cached.clear()
+        except Exception:
+            pass
+        return True, "video_saved_success"
+    except Exception as exc:
+        if _video_duplicate_error(exc):
+            return False, "video_already_saved"
+        if _video_schema_unavailable_error(exc):
+            return False, "video_table_unavailable"
+        return False, "save_failed"
 
 
 @st.cache_data(ttl=45, show_spinner=False)
@@ -548,6 +780,8 @@ def render_video_detail(
         meta_bits.append(f"🏷️ {html.escape(str(video.get('level_or_band') or ''))}")
     if video.get("topic"):
         meta_bits.append(f"🧠 {html.escape(str(video.get('topic') or ''))}")
+    if video.get("student_material_language"):
+        meta_bits.append(f"🌐 {html.escape(video_material_language_label(video.get('student_material_language')))}")
     if meta_bits:
         st.caption(" · ".join(meta_bits))
     if video.get("watch_url"):
@@ -568,6 +802,162 @@ def render_video_detail(
                 level_or_band=str(video.get("level_or_band") or ""),
                 source_record_id=video.get("id"),
             )
+    is_owner = str(video.get("user_id") or "").strip() == str(get_current_user_id() or "").strip()
+    if is_owner:
+        linked_contexts = load_video_topic_links(video.get("id"))
+        linked_context = linked_contexts[0] if linked_contexts else {}
+        linked_program = dict(linked_context.get("program") or {})
+        linked_topic = dict(linked_context.get("topic") or {})
+        is_linked = bool(linked_program and linked_topic)
+        with st.expander(t("edit_resource_expander"), expanded=False):
+            import helpers.lesson_planner as _lp_video
+
+            locked_subject = str(linked_program.get("subject") or video.get("subject") or "").strip()
+            locked_stage = str(linked_program.get("learner_stage") or video.get("learner_stage") or "").strip()
+            locked_level = str(linked_program.get("level_or_band") or video.get("level_or_band") or "").strip()
+            locked_topic = str(linked_topic.get("title") or linked_topic.get("lesson_focus") or video.get("topic") or "").strip()
+            edit_subject = locked_subject if is_linked else str(video.get("subject") or "").strip()
+            edit_custom_subject = str(video.get("custom_subject_name") or "").strip()
+            if not is_linked:
+                edit_subject = st.selectbox(
+                    t("subject_label"),
+                    VIDEO_SUBJECT_OPTIONS,
+                    index=VIDEO_SUBJECT_OPTIONS.index(edit_subject) if edit_subject in VIDEO_SUBJECT_OPTIONS else 0,
+                    format_func=subject_label,
+                    key=f"{action_key_prefix}_edit_video_subject",
+                )
+                if edit_subject == "other":
+                    edit_custom_subject = st.text_input(
+                        t("other_subject_label"),
+                        value=str(video.get("custom_subject_name") or ""),
+                        key=f"{action_key_prefix}_edit_video_custom_subject",
+                    ).strip()
+            else:
+                st.selectbox(
+                    t("subject_label"),
+                    [locked_subject or str(video.get("subject") or "")],
+                    index=0,
+                    format_func=subject_label,
+                    disabled=True,
+                    key=f"{action_key_prefix}_edit_video_subject_locked",
+                )
+                program_options = [int(linked_program.get("id") or 0)]
+                st.selectbox(
+                    t("learning_program"),
+                    program_options,
+                    index=0,
+                    format_func=lambda _pid: str(linked_program.get("title") or t("learning_program")),
+                    disabled=True,
+                    key=f"{action_key_prefix}_edit_video_program_locked",
+                )
+                topic_options = [int(linked_topic.get("id") or 0)]
+                st.selectbox(
+                    t("topic_label"),
+                    topic_options,
+                    index=0,
+                    format_func=lambda _tid: str(linked_topic.get("title") or linked_topic.get("lesson_focus") or t("topic_label")),
+                    disabled=True,
+                    key=f"{action_key_prefix}_edit_video_topic_locked",
+                )
+                st.caption(t("video_linked_topic_edit_notice"))
+
+            level_options = _lp_video.get_level_options(edit_subject)
+            current_level = locked_level if is_linked else str(video.get("level_or_band") or "").strip()
+            if current_level not in level_options:
+                current_level = _lp_video.recommend_default_level(edit_subject, str((locked_stage if is_linked else video.get("learner_stage")) or _lp_video.LEARNER_STAGES[0]))
+            edit_col1, edit_col2 = st.columns(2)
+            with edit_col1:
+                edit_url = st.text_input(
+                    t("youtube_link_label"),
+                    value=str(video.get("youtube_url") or ""),
+                    key=f"{action_key_prefix}_edit_video_url",
+                    placeholder=t("youtube_link_placeholder"),
+                )
+                edit_title = st.text_input(
+                    t("video_title_optional"),
+                    value=str(video.get("title") or ""),
+                    key=f"{action_key_prefix}_edit_video_title",
+                )
+                if not is_linked:
+                    edit_topic = st.text_input(
+                        t("topic_label"),
+                        value=str(video.get("topic") or ""),
+                        key=f"{action_key_prefix}_edit_video_topic",
+                    )
+                else:
+                    edit_topic = locked_topic
+            with edit_col2:
+                if is_linked:
+                    st.text_input(
+                        t("learner_stage"),
+                        value=t(locked_stage) if locked_stage else "",
+                        disabled=True,
+                        key=f"{action_key_prefix}_edit_video_stage_locked",
+                    )
+                    st.text_input(
+                        t("level_or_band"),
+                        value=locked_level,
+                        disabled=True,
+                        key=f"{action_key_prefix}_edit_video_level_locked",
+                    )
+                else:
+                    edit_stage = st.selectbox(
+                        t("learner_stage"),
+                        _lp_video.LEARNER_STAGES,
+                        index=_lp_video.LEARNER_STAGES.index(video.get("learner_stage")) if video.get("learner_stage") in _lp_video.LEARNER_STAGES else 0,
+                        format_func=_lp_video._stage_label,
+                        key=f"{action_key_prefix}_edit_video_stage",
+                    )
+                    edit_level = st.selectbox(
+                        t("level_or_band"),
+                        level_options,
+                        index=level_options.index(current_level) if current_level in level_options else 0,
+                        format_func=_lp_video._level_label,
+                        key=f"{action_key_prefix}_edit_video_level",
+                    )
+                current_language = str(video.get("student_material_language") or linked_program.get("student_material_language") or "").strip().lower()
+                if current_language not in VIDEO_MATERIAL_LANGUAGE_OPTIONS:
+                    current_language = VIDEO_MATERIAL_LANGUAGE_OPTIONS[0]
+                edit_language = st.selectbox(
+                    t("video_language"),
+                    list(VIDEO_MATERIAL_LANGUAGE_OPTIONS),
+                    index=list(VIDEO_MATERIAL_LANGUAGE_OPTIONS).index(current_language),
+                    format_func=video_material_language_label,
+                    key=f"{action_key_prefix}_edit_video_language",
+                )
+            edit_stage = locked_stage if is_linked else edit_stage
+            edit_level = locked_level if is_linked else edit_level
+            edit_description = st.text_area(
+                t("video_description_optional"),
+                value=str(video.get("description") or ""),
+                height=90,
+                key=f"{action_key_prefix}_edit_video_description",
+            )
+            edit_public = st.checkbox(
+                t("share_video_with_community"),
+                value=bool(video.get("is_public")),
+                key=f"{action_key_prefix}_edit_video_public",
+            )
+            if st.button(t("save_video_button"), key=f"{action_key_prefix}_edit_video_save", use_container_width=True):
+                ok, message_key = update_video_resource(
+                    video_record_id=video.get("id"),
+                    youtube_url=edit_url,
+                    title=edit_title,
+                    description=edit_description,
+                    subject=edit_subject,
+                    custom_subject_name=edit_custom_subject,
+                    learner_stage=edit_stage,
+                    level_or_band=edit_level,
+                    topic=edit_topic,
+                    student_material_language=edit_language,
+                    is_public=edit_public,
+                )
+                if ok:
+                    refreshed = load_video_record(video.get("id")) or {}
+                    st.session_state["files_selected_video"] = refreshed
+                    st.success(t(message_key))
+                    st.rerun()
+                st.warning(t(message_key))
 
 
 def _topic_link_payload(program_id: int, topic_id: int, video_id: int) -> dict:
@@ -754,6 +1144,16 @@ def render_topic_video_manager(
             value=str(topic.get("student_summary") or topic.get("lesson_focus") or ""),
             height=80,
         )
+        topic_language_default = str(topic.get("student_material_language") or "").strip().lower()
+        if topic_language_default not in VIDEO_MATERIAL_LANGUAGE_OPTIONS:
+            topic_language_default = VIDEO_MATERIAL_LANGUAGE_OPTIONS[0]
+        video_language = st.selectbox(
+            t("video_language"),
+            list(VIDEO_MATERIAL_LANGUAGE_OPTIONS),
+            index=list(VIDEO_MATERIAL_LANGUAGE_OPTIONS).index(topic_language_default),
+            format_func=video_material_language_label,
+            key=f"{prefix}_video_language_{topic_id}",
+        )
         public_toggle = st.checkbox(t("share_video_with_community"), key=f"{prefix}_video_public_{topic_id}")
         if st.button(t("save_and_attach_video"), key=f"{prefix}_save_attach_video_{topic_id}", use_container_width=True):
             ok, video_record_id, key = save_video_resource(
@@ -764,6 +1164,7 @@ def render_topic_video_manager(
                 learner_stage=learner_stage,
                 level_or_band=level_or_band,
                 topic=str(topic.get("title") or ""),
+                student_material_language=video_language,
                 is_public=public_toggle,
             )
             if not ok or not video_record_id:
