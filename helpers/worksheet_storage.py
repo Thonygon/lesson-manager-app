@@ -967,7 +967,13 @@ def load_worksheet_record(worksheet_id) -> dict:
         stripped = worksheet_id.strip()
         if not stripped:
             return {}
+        if stripped.endswith(".0") and stripped[:-2].strip().lstrip("-").isdigit():
+            stripped = stripped[:-2].strip()
         safe_worksheet_id = int(stripped) if stripped.isdigit() else stripped
+    elif isinstance(worksheet_id, float):
+        if math.isnan(worksheet_id):
+            return {}
+        safe_worksheet_id = int(worksheet_id) if worksheet_id.is_integer() else worksheet_id
     elif worksheet_id is None:
         return {}
     try:
@@ -1881,6 +1887,28 @@ def _persist_saved_worksheet_visuals(worksheet_id: int | str, worksheet: dict) -
             .eq("user_id", uid)
             .execute()
         )
+        try:
+            from helpers.practice_engine import rescore_practice_sessions_for_resource, worksheet_to_exercises
+            from helpers.teacher_student_integration import sync_assignment_copies_for_resource
+
+            rescored_exercise_data = worksheet_to_exercises(worksheet, row_id=safe_id)
+            rescore_practice_sessions_for_resource("worksheet", safe_id, rescored_exercise_data)
+            sync_assignment_copies_for_resource(
+                kind="worksheet",
+                source_record_id=safe_id,
+                row={
+                    **existing_row,
+                    "id": safe_id,
+                    "worksheet_json": worksheet,
+                    "title": _clean_display_text(worksheet.get("title") or existing_row.get("title") or ""),
+                    "topic": _clean_display_text(worksheet.get("topic") or existing_row.get("topic") or ""),
+                    "subject": _clean_display_text(worksheet.get("subject") or existing_row.get("subject") or ""),
+                    "learner_stage": _clean_display_text(worksheet.get("learner_stage") or existing_row.get("learner_stage") or ""),
+                    "level_or_band": _clean_display_text(worksheet.get("level_or_band") or existing_row.get("level_or_band") or ""),
+                },
+            )
+        except Exception:
+            pass
         clear_app_caches()
         try:
             load_worksheet_record.clear()
@@ -1906,6 +1934,7 @@ def _persist_saved_worksheet_resource(worksheet_id: int | str, worksheet: dict) 
             return False
         safe_id = int(stripped) if stripped.isdigit() else stripped
     worksheet = _clean_worksheet_data(_normalize_worksheet_unicode(dict(worksheet or {})))
+    existing_row = load_worksheet_record(safe_id) or {}
     try:
         (
             get_sb()
@@ -1920,6 +1949,28 @@ def _persist_saved_worksheet_resource(worksheet_id: int | str, worksheet: dict) 
             .eq("user_id", uid)
             .execute()
         )
+        try:
+            from helpers.teacher_student_integration import sync_assignment_copies_for_resource
+            from helpers.practice_engine import rescore_practice_sessions_for_resource, worksheet_to_exercises
+
+            rescored_exercise_data = worksheet_to_exercises(worksheet, row_id=safe_id)
+            rescore_practice_sessions_for_resource("worksheet", safe_id, rescored_exercise_data)
+            sync_assignment_copies_for_resource(
+                kind="worksheet",
+                source_record_id=safe_id,
+                row={
+                    **existing_row,
+                    "id": safe_id,
+                    "worksheet_json": worksheet,
+                    "title": _clean_display_text(worksheet.get("title") or existing_row.get("title") or ""),
+                    "topic": _clean_display_text(worksheet.get("topic") or existing_row.get("topic") or ""),
+                    "subject": _clean_display_text(worksheet.get("subject") or existing_row.get("subject") or ""),
+                    "learner_stage": _clean_display_text(worksheet.get("learner_stage") or existing_row.get("learner_stage") or ""),
+                    "level_or_band": _clean_display_text(worksheet.get("level_or_band") or existing_row.get("level_or_band") or ""),
+                },
+            )
+        except Exception:
+            pass
         clear_app_caches()
         try:
             load_worksheet_record.clear()

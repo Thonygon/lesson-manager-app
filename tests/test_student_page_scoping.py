@@ -1,4 +1,5 @@
 import unittest
+import importlib
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -349,6 +350,7 @@ from app_pages import app_page_students as students_page
 students_page.attach_teacher_objective_exposures = lambda rows, **_kwargs: rows
 students_page._load_recommendation_resource_pool = lambda: []
 students_page._load_assigned_resource_keys_for_student = lambda *_args, **_kwargs: set()
+students_page._load_done_resource_keys_for_student = lambda *_args, **_kwargs: set()
 students_page._inject_recommendation_styles = lambda: None
 
 def recommendation_for_subject(*, selected_subject, **_kwargs):
@@ -388,6 +390,118 @@ students_page._render_recommendations_tab(
         ).run(timeout=10)
 
         self.assertEqual([], list(app.exception))
+
+    def test_teacher_done_resource_keys_exclude_assignment_attempts(self):
+        from app_pages import app_page_students as students_page
+        students_page = importlib.reload(students_page)
+
+        class FilteringQuery:
+            def __init__(self, rows):
+                self.rows = list(rows)
+                self.filters = []
+
+            def select(self, *_args, **_kwargs):
+                return self
+
+            def eq(self, column, value):
+                self.filters.append(("eq", column, value))
+                return self
+
+            def in_(self, column, values):
+                self.filters.append(("in", column, set(values)))
+                return self
+
+            def order(self, *_args, **_kwargs):
+                return self
+
+            def limit(self, value):
+                self.limit_value = value
+                return self
+
+            def execute(self):
+                rows = self.rows
+                for op, column, value in self.filters:
+                    if op == "eq":
+                        rows = [row for row in rows if str(row.get(column) or "") == str(value)]
+                    elif op == "in":
+                        rows = [row for row in rows if row.get(column) in value]
+                return SimpleNamespace(data=rows[: getattr(self, "limit_value", len(rows))])
+
+        class FilteringSupabase:
+            def __init__(self):
+                self.tables = {
+                    "practice_sessions": [
+                        {"id": 1, "user_id": "student-1", "source_type": "worksheet", "source_id": "42", "status": "completed"},
+                        {"id": 2, "user_id": "student-1", "source_type": "exam", "source_id": "99", "status": "completed"},
+                        {"id": 3, "user_id": "student-1", "source_type": "worksheet", "source_id": "77", "status": "in_progress"},
+                    ],
+                    "teacher_assignment_attempts": [
+                        {"practice_session_id": 2, "student_id": "student-1"},
+                    ],
+                }
+
+            def table(self, table_name):
+                return FilteringQuery(self.tables.get(table_name, []))
+
+        with patch.object(students_page, "get_sb", return_value=FilteringSupabase()):
+            keys = students_page._load_done_resource_keys_for_student({"student_id": "student-1"})
+
+        self.assertIn(("worksheet", "42"), keys)
+        self.assertNotIn(("exam", "99"), keys)
+        self.assertNotIn(("worksheet", "77"), keys)
+
+    def test_teacher_recommendation_resource_card_shows_done_signal(self):
+        app = AppTest.from_string(
+            """
+from app_pages import app_page_students as students_page
+
+students_page.attach_teacher_resource_recommendation_exposures = lambda resources, **_kwargs: resources
+students_page.render_learning_program_assign_dialog = lambda: None
+students_page._recommended_resources_for_item = lambda *_args, **_kwargs: {
+    "worksheet": [{
+        "kind": "worksheet",
+        "source": "own",
+        "recommendation_bucket": "very_close",
+        "row": {
+            "id": 42,
+            "title": "Fractions review",
+            "subject": "english",
+            "topic": "Fractions",
+            "level_or_band": "A1",
+        },
+    }],
+    "exam": [],
+    "plan": [],
+    "video": [],
+}
+
+students_page._render_recommended_resources_for_item(
+    {
+        "title": "Fractions",
+        "objective": "Review fractions",
+        "focus_kind": "reinforce",
+        "subject_key": "english",
+    },
+    [],
+    key_prefix="done_signal_test",
+    assigned_resource_keys=set(),
+    done_resource_keys={("worksheet", "42")},
+)
+"""
+        ).run(timeout=10)
+
+        self.assertEqual([], list(app.exception))
+        rendered = "\n".join(str(markdown.value) for markdown in app.markdown)
+        self.assertIn("classio-reco-resource-done", rendered)
+        self.assertIn("Done", rendered)
+
+    def test_resource_record_key_normalizes_float_ids_for_done_matching(self):
+        from app_pages import app_page_students as students_page
+
+        self.assertEqual(
+            ("exam", "99"),
+            students_page._resource_record_key("exam", 99.0),
+        )
 
     def test_program_unit_expanders_have_invisible_assignment_scope(self):
         first = _scoped_expander_label("Unit 1: Introduction", "english:assignment-1")
@@ -673,6 +787,88 @@ practice._render_progress_tab(progress)
         self.assertIn("Watched", rendered)
         self.assertIn("Views", rendered)
         self.assertNotIn("2 questions attempted", rendered)
+
+    def test_recommended_worksheet_open_failure_shows_friendly_message(self):
+        app = AppTest.from_string(
+            """
+from app_pages import student_practice as practice
+import helpers.worksheet_storage as worksheet_storage
+
+def fail_load(_worksheet_id):
+    raise RuntimeError("raw supabase/httpx traceback")
+
+worksheet_storage.load_worksheet_record = fail_load
+practice.log_student_recommendation_open = lambda *_args, **_kwargs: None
+practice.load_student_assignment_by_id = lambda _assignment_id: {}
+practice.st.session_state["_start_sp_reco_english_worksheet_7_0_0"] = True
+
+practice._render_recommendation_subject_group(
+    [
+        {
+            "resource_type": "worksheet",
+            "id": 7,
+            "title": "Fractions review",
+            "subject": "english",
+            "topic": "Fractions",
+            "level": "A1",
+            "exercise_type": "multiple_choice",
+            "row": {"id": 7, "title": "Fractions review", "subject": "english", "topic": "Fractions"},
+        }
+    ],
+    group_key="english",
+)
+"""
+        ).run(timeout=10)
+
+        self.assertEqual([], list(app.exception))
+        rendered_errors = "\n".join(str(error.value) for error in app.error)
+        self.assertIn("couldn't open this practice activity", rendered_errors)
+        self.assertNotIn("raw supabase/httpx traceback", rendered_errors)
+
+    def test_practice_card_uses_full_record_image_when_list_row_is_lightweight(self):
+        app = AppTest.from_string(
+            """
+from types import SimpleNamespace
+from app_pages import student_practice as practice
+
+class Query:
+    def select(self, *_args, **_kwargs):
+        return self
+    def eq(self, *_args, **_kwargs):
+        return self
+    def limit(self, *_args, **_kwargs):
+        return self
+    def execute(self):
+        return SimpleNamespace(data=[{
+            "id": 7,
+            "worksheet_json": {
+                "title": "Image worksheet",
+                "visual_supports": [{"image_url": "https://example.com/card-image.png"}],
+            },
+        }])
+
+class Supabase:
+    def table(self, name):
+        assert name == "worksheets"
+        return Query()
+
+practice.get_sb = lambda: Supabase()
+practice._render_practice_card(
+    title="Image worksheet",
+    subject="english",
+    topic="Images",
+    level="A1",
+    ws_type="multiple_choice",
+    btn_key="image_card",
+    row={"id": 7, "title": "Image worksheet", "subject": "english", "topic": "Images"},
+    resource_type="worksheet",
+)
+"""
+        ).run(timeout=10)
+
+        self.assertEqual([], list(app.exception))
+        rendered = "\n".join(str(markdown.value) for markdown in app.markdown)
+        self.assertIn("https://example.com/card-image.png", rendered)
 
 
 if __name__ == "__main__":

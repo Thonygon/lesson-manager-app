@@ -1,0 +1,98 @@
+{
+  "dataset": {
+    "data_fingerprint": "bec721611d3bf4263b1178441495e79299d3aa3135936c78a16ea6a8fa34ed47",
+    "date_range": {
+      "assigned_at_max": "2026-08-01T07:46:24.644226+00:00",
+      "assigned_at_min": "2026-07-17T12:46:02.438526+00:00"
+    },
+    "excluded_row_count": 563,
+    "exclusion_reasons": {
+      "included": 403,
+      "observation_window_open": 563
+    },
+    "extracted_at": "2026-08-01T14:03:46.953608+00:00",
+    "feature_schema_version": "student_recommendation_open_7d.v1",
+    "frozen_dataset_path": "assigned_resource_open_7d_dataset_frozen.csv",
+    "included_row_count": 403,
+    "negative_count": 360,
+    "positive_count": 43,
+    "resource_count": 53,
+    "run_id": "06762d2a88a4",
+    "source_row_count": 966,
+    "student_count": 6,
+    "surface_count": 2,
+    "target_version": "opened_within_7d_v1",
+    "teacher_count": 2,
+    "telemetry_source": "resource_exposures/resource_exposure_events"
+  },
+  "evaluation": {
+    "best_precision_recall_ranking": "RandomForestClassifier",
+    "best_thresholded_classifier": "LogisticRegression",
+    "calibration_leader": "RandomForestClassifier",
+    "cutoff_timestamp": "2026-07-23T08:59:45.226331+00:00",
+    "development_count": 322,
+    "development_negative_count": 312,
+    "development_positive_count": 10,
+    "feature_names": [
+      "assignment_type",
+      "source_type",
+      "subject_key",
+      "topic",
+      "assignment_weekday",
+      "assignment_hour_bucket",
+      "resource_topic",
+      "resource_type",
+      "resource_learner_stage",
+      "resource_level",
+      "resource_language",
+      "recommendation_bucket",
+      "recommendation_focus_kind",
+      "assignment_hour",
+      "assignment_is_weekend",
+      "is_program_assignment",
+      "student_stage_known",
+      "student_level_known",
+      "resource_title_length",
+      "resource_public_flag",
+      "prior_student_mature_assignment_count",
+      "prior_student_assignment_open_rate",
+      "prior_student_completion_rate",
+      "prior_student_practice_session_count",
+      "prior_student_avg_practice_score",
+      "prior_days_since_student_activity",
+      "prior_teacher_mature_assignment_count",
+      "prior_teacher_assignment_open_rate",
+      "prior_resource_mature_assignment_count",
+      "prior_resource_open_rate"
+    ],
+    "holdout_count": 81,
+    "holdout_negative_count": 48,
+    "holdout_positive_count": 33,
+    "limitations": [
+      "At least one supervised candidate collapsed to single-class predictions on the holdout set."
+    ],
+    "maturity_verdict": "EXPLORATORY_ONLY",
+    "overall_evidence_strength": "exploratory_leader_identified",
+    "primary_metric_leader": "RandomForestClassifier",
+    "sklearn_available": true,
+    "sklearn_error": "",
+    "status": "ok",
+    "threshold_analysis_post_hoc_exploratory": true,
+    "winner": "RandomForestClassifier"
+  },
+  "feature_schema_version": "student_recommendation_open_7d.v1",
+  "generated_at": "2026-08-01T14:03:46.953608+00:00",
+  "review": {
+    "all_artifacts_share_data_fingerprint": true,
+    "all_artifacts_share_run_id": true,
+    "feature_health": [],
+    "final_verdict": "VALIDATED_EXPLORATORY_RUN",
+    "label_reconciliation": {
+      "exact_row_level_reconciliation_available": true,
+      "legacy_audit_reconciliation_applicable": false,
+      "likely_difference_explanation": "Not applicable. This run was generated from current first-party recommendation telemetry."
+    },
+    "no_production_decision_recommendation": true
+  },
+  "run_id": "06762d2a88a4"
+}

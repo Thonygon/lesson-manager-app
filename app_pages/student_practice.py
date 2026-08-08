@@ -1,8 +1,10 @@
 import streamlit as st
 import json
+import logging
 import math
 from core.i18n import t
 from core.navigation import go_to
+from core.database import get_sb
 from core.state import get_current_user_id
 from helpers.practice_engine import (
     autosave_practice_draft_if_needed,
@@ -59,6 +61,7 @@ from helpers.video_library import load_public_videos, load_video_record
 from services.permissions_service import user_has_feature
 
 _STUDENT_PRACTICE_PAGE_SIZE = 6
+logger = logging.getLogger(__name__)
 
 
 def _ui_text(key: str, fallback: str) -> str:
@@ -75,6 +78,58 @@ def _safe_int(value, default: int = 0) -> int:
         return int(value)
     except Exception:
         return default
+
+
+def _show_practice_resource_unavailable(exc: Exception | None = None) -> None:
+    if exc:
+        logger.exception("Student practice resource open failed: %s", exc)
+    st.error(
+        _ui_text(
+            "student_practice_resource_unavailable",
+            "We couldn't open this practice activity right now. Please try again in a moment or choose another resource.",
+        )
+    )
+
+
+def _row_embedded_payload(row: dict, resource_type: str) -> dict:
+    if resource_type == "exam":
+        for key in ("exam_data", "answer_key"):
+            payload = row.get(key)
+            if isinstance(payload, dict):
+                return payload
+        return {}
+    if resource_type == "worksheet":
+        payload = row.get("worksheet_json")
+        return payload if isinstance(payload, dict) else {}
+    return dict(row or {})
+
+
+def _load_card_gallery_payload(row: dict, resource_type: str) -> dict:
+    combined_payload = {**dict(row or {}), **_row_embedded_payload(row, resource_type)}
+    if extract_gallery_image_url(combined_payload) or not row.get("id"):
+        return combined_payload
+    if resource_type not in {"worksheet", "exam"}:
+        return combined_payload
+
+    try:
+        table_name = "quick_exams" if resource_type == "exam" else "worksheets"
+        rows = (
+            get_sb()
+            .table(table_name)
+            .select("*")
+            .eq("id", row.get("id"))
+            .limit(1)
+            .execute()
+        ).data or []
+        full_row = dict(rows[0]) if rows else {}
+    except Exception as exc:
+        logger.warning("Student practice card gallery payload unavailable: %s", exc)
+        return combined_payload
+
+    combined_payload = {**combined_payload, **full_row}
+    nested_key = "exam_data" if resource_type == "exam" else "worksheet_json"
+    nested_payload = full_row.get(nested_key) if isinstance(full_row.get(nested_key), dict) else {}
+    return {**combined_payload, **nested_payload}
 
 
 def _practice_resource_kind(row_or_kind) -> str:
@@ -177,7 +232,7 @@ def _open_practice_item(exercise_data: dict, meta: dict | None = None, *, demo_i
         (exercise_data or {}).get("source_id"),
     )
     if draft:
-        draft_exercise_data = draft.get("exercise_data") or exercise_data
+        draft_exercise_data = exercise_data
         if isinstance(draft_exercise_data, str):
             try:
                 draft_exercise_data = json.loads(draft_exercise_data)
@@ -203,6 +258,55 @@ def _open_practice_item(exercise_data: dict, meta: dict | None = None, *, demo_i
     return True
 
 
+def _open_worksheet_practice_from_row(row: dict) -> bool:
+    try:
+        ws_json, resolved_row = _resolve_worksheet_payload(dict(row or {}))
+        if not ws_json:
+            _show_practice_resource_unavailable()
+            return False
+        from helpers.worksheet_builder import normalize_worksheet_output
+
+        ws_json = normalize_worksheet_output(ws_json)
+        ex_data = worksheet_to_exercises(ws_json, row_id=resolved_row.get("id"))
+        return _open_practice_item(
+            ex_data,
+            {
+                "subject": resolved_row.get("subject", ""),
+                "topic": resolved_row.get("topic", ""),
+                "learner_stage": resolved_row.get("learner_stage", ""),
+                "level": resolved_row.get("level_or_band", ""),
+            },
+        )
+    except Exception as exc:
+        _show_practice_resource_unavailable(exc)
+        return False
+
+
+def _open_exam_practice_from_row(row: dict) -> bool:
+    try:
+        exam_data, answer_key, resolved_row = _resolve_exam_payload(dict(row or {}))
+        if not exam_data:
+            _show_practice_resource_unavailable()
+            return False
+        if isinstance(exam_data, dict):
+            exam_data.setdefault("subject", resolved_row.get("subject", ""))
+            exam_data.setdefault("topic", resolved_row.get("topic", ""))
+            exam_data.setdefault("learner_stage", resolved_row.get("learner_stage", ""))
+        ex_data = exam_to_exercises(exam_data, answer_key, row_id=resolved_row.get("id"))
+        return _open_practice_item(
+            ex_data,
+            {
+                "subject": resolved_row.get("subject", ""),
+                "topic": resolved_row.get("topic", ""),
+                "learner_stage": resolved_row.get("learner_stage", ""),
+                "level": resolved_row.get("level", ""),
+            },
+        )
+    except Exception as exc:
+        _show_practice_resource_unavailable(exc)
+        return False
+
+
 def _open_video_item(video_payload: dict, meta: dict | None = None, *, assignment_id: int = 0) -> bool:
     combined_payload = dict(video_payload or {})
     video_id = combined_payload.get("id")
@@ -222,6 +326,40 @@ def _open_video_item(video_payload: dict, meta: dict | None = None, *, assignmen
     st.session_state.pop("_practice_resume_answers", None)
     st.session_state.pop("_practice_resume_notice", None)
     return True
+
+
+def _open_history_practice_row(row: dict, *, assignment_state: dict | None = None) -> bool:
+    assignment_state = assignment_state or {}
+    source_type = str(row.get("source_type") or "").strip()
+    source_id = _safe_int(row.get("source_id"))
+    if source_type in {"worksheet", "exam"} and assignment_state and source_id > 0:
+        assignment_row = load_student_assignment_by_id(source_id)
+        if assignment_row:
+            from app_pages.student_assignments import _open_assignment_practice
+
+            _open_assignment_practice(assignment_row)
+            return True
+    if source_type == "worksheet":
+        return _open_worksheet_practice_from_row({"id": source_id} if source_id > 0 else row)
+    if source_type == "exam":
+        return _open_exam_practice_from_row({"id": source_id} if source_id > 0 else row)
+    exercise_data = row.get("exercise_data")
+    if isinstance(exercise_data, str):
+        try:
+            exercise_data = json.loads(exercise_data)
+        except Exception:
+            exercise_data = None
+    if not exercise_data:
+        return False
+    return _open_practice_item(
+        exercise_data,
+        {
+            "subject": str(row.get("subject") or ""),
+            "topic": str(row.get("topic") or ""),
+            "learner_stage": str(row.get("learner_stage") or ""),
+            "level": str(row.get("level") or ""),
+        },
+    )
 
 
 def render_student_practice():
@@ -696,18 +834,8 @@ def _render_browse_tab():
                                     resource_type="worksheet",
                                 )
                                 if st.session_state.pop(f"_start_sp_ws_search_{row.get('id', idx)}_{idx}_{col_i}", False):
-                                    ws_json, row = _resolve_worksheet_payload(row)
-                                    if ws_json:
-                                        from helpers.worksheet_builder import normalize_worksheet_output
-                                        ws_json = normalize_worksheet_output(ws_json)
-                                        ex_data = worksheet_to_exercises(ws_json, row_id=row.get("id"))
-                                        if _open_practice_item(ex_data, {
-                                            "subject": row.get("subject", ""),
-                                            "topic": row.get("topic", ""),
-                                            "learner_stage": row.get("learner_stage", ""),
-                                            "level": row.get("level_or_band", ""),
-                                        }):
-                                            st.rerun()
+                                    if _open_worksheet_practice_from_row(row):
+                                        st.rerun()
                     _render_practice_pagination(ws_search_rows, "student_practice_ws_search_page")
                 return
 
@@ -754,18 +882,8 @@ def _render_browse_tab():
                                     resource_type="worksheet",
                                 )
                                 if st.session_state.pop(f"_start_sp_ws_{row.get('id', idx)}_{idx}_{col_i}", False):
-                                    ws_json, row = _resolve_worksheet_payload(row)
-                                    if ws_json:
-                                        from helpers.worksheet_builder import normalize_worksheet_output
-                                        ws_json = normalize_worksheet_output(ws_json)
-                                        ex_data = worksheet_to_exercises(ws_json, row_id=row.get("id"))
-                                        if _open_practice_item(ex_data, {
-                                            "subject": row.get("subject", ""),
-                                            "topic": row.get("topic", ""),
-                                            "learner_stage": row.get("learner_stage", ""),
-                                            "level": row.get("level_or_band", ""),
-                                        }):
-                                            st.rerun()
+                                    if _open_worksheet_practice_from_row(row):
+                                        st.rerun()
                     _render_practice_pagination(_ws_rows, f"student_practice_ws_cat_{active_cat}")
             else:
                 # ── Collapsed: show all category cards in 3-col grid ─
@@ -832,20 +950,8 @@ def _render_browse_tab():
                                 resource_type="exam",
                             )
                             if st.session_state.pop(f"_start_sp_ex_{row.get('id', idx)}_{idx}_{col_i}", False):
-                                exam_data, answer_key, row = _resolve_exam_payload(row)
-                                if exam_data:
-                                    if isinstance(exam_data, dict):
-                                        exam_data.setdefault("subject", row.get("subject", ""))
-                                        exam_data.setdefault("topic", row.get("topic", ""))
-                                        exam_data.setdefault("learner_stage", row.get("learner_stage", ""))
-                                    ex_data = exam_to_exercises(exam_data, answer_key, row_id=row.get("id"))
-                                    if _open_practice_item(ex_data, {
-                                        "subject": row.get("subject", ""),
-                                        "topic": row.get("topic", ""),
-                                        "learner_stage": row.get("learner_stage", ""),
-                                        "level": row.get("level", ""),
-                                    }):
-                                        st.rerun()
+                                if _open_exam_practice_from_row(row):
+                                    st.rerun()
                 _render_practice_pagination(rows, "student_practice_exams_page")
 
     if video_feature_enabled and len(practice_source_tabs) > 2:
@@ -928,31 +1034,7 @@ def _render_practice_card(
     level_label = level if level in ("A1", "A2", "B1", "B2", "C1", "C2") else (t(level) if level else "")
     type_label = t(ws_type) if ws_type and t(ws_type) != ws_type else ws_type
     row = dict(row or {})
-    payload = {}
-    if resource_type == "exam":
-        payload, _answer_key, _row = _resolve_exam_payload(row)
-    elif resource_type == "worksheet":
-        payload, _row = _resolve_worksheet_payload(row)
-    else:
-        payload = dict(row or {})
-        _row = row
-    full_payload = dict(payload or {})
-    combined_payload = {**row, **full_payload}
-    if not extract_gallery_image_url(combined_payload) and row.get("id"):
-        if resource_type == "exam":
-            from helpers.quick_exam_storage import load_exam_record
-
-            full_row = load_exam_record(row.get("id")) or {}
-            combined_payload = {**combined_payload, **full_row}
-            exam_data = full_row.get("exam_data") if isinstance(full_row.get("exam_data"), dict) else {}
-            combined_payload = {**combined_payload, **exam_data}
-        else:
-            from helpers.worksheet_storage import load_worksheet_record
-
-            full_row = load_worksheet_record(row.get("id")) or {}
-            combined_payload = {**combined_payload, **full_row}
-            worksheet_json = full_row.get("worksheet_json") if isinstance(full_row.get("worksheet_json"), dict) else {}
-            combined_payload = {**combined_payload, **worksheet_json}
+    combined_payload = _load_card_gallery_payload(row, resource_type)
     hero_image = extract_gallery_image_url(combined_payload)
     language_label = extract_gallery_language_label(combined_payload)
 
@@ -1456,24 +1538,13 @@ def _render_history_tab(history_override=None, *, scope_key: str = ""):
                         st.video(watch_url)
                     else:
                         st.info(_ui_text("video_unavailable", "This video is not available right now."))
-            elif exercise_data:
-                if isinstance(exercise_data, str):
-                    try:
-                        exercise_data = json.loads(exercise_data)
-                    except Exception:
-                        exercise_data = None
-                if exercise_data and st.button(
+            elif (exercise_data or str(row.get("source_type") or "").strip() in {"worksheet", "exam"}) and st.button(
                     t("try_again"),
                     key=f"hist_retry_{session_id}_{h_idx}",
                     use_container_width=True,
                     type="primary",
                 ):
-                    if _open_practice_item(exercise_data, {
-                        "subject": str(row.get("subject") or ""),
-                        "topic": str(row.get("topic") or ""),
-                        "learner_stage": str(row.get("learner_stage") or ""),
-                        "level": str(row.get("level") or ""),
-                    }):
+                    if _open_history_practice_row(row, assignment_state=assignment_state):
                         st.session_state["_practice_retry_session_id"] = session_id
                         st.rerun()
 
@@ -1779,49 +1850,23 @@ def _render_recommendation_subject_group(
 
                 trigger_key = f"_start_sp_reco_{item_key}"
                 if st.session_state.pop(trigger_key, False):
-                    assignment_id = _safe_int(item.get("assignment_id"))
-                    if assignment_id > 0 and resource_type in {"worksheet", "exam"}:
-                        assignment_row = load_student_assignment_by_id(assignment_id)
-                        if assignment_row:
-                            from app_pages.student_assignments import _open_assignment_practice
+                    try:
+                        assignment_id = _safe_int(item.get("assignment_id"))
+                        if assignment_id > 0 and resource_type in {"worksheet", "exam"}:
+                            assignment_row = load_student_assignment_by_id(assignment_id)
+                            if assignment_row:
+                                from app_pages.student_assignments import _open_assignment_practice
 
-                            _open_assignment_practice(assignment_row)
-                            st.rerun()
-                    if resource_type == "worksheet":
-                        ws_json, row = _resolve_worksheet_payload(row)
-                        if ws_json:
-                            from helpers.worksheet_builder import normalize_worksheet_output
-
-                            ws_json = normalize_worksheet_output(ws_json)
-                            ex_data = worksheet_to_exercises(ws_json, row_id=row.get("id"))
-                            if _open_practice_item(
-                                ex_data,
-                                {
-                                    "subject": row.get("subject", ""),
-                                    "topic": row.get("topic", ""),
-                                    "learner_stage": row.get("learner_stage", ""),
-                                    "level": row.get("level_or_band", ""),
-                                },
-                            ):
+                                _open_assignment_practice(assignment_row)
                                 st.rerun()
-                    elif resource_type == "exam":
-                        exam_data, answer_key, row = _resolve_exam_payload(row)
-                        if exam_data:
-                            if isinstance(exam_data, dict):
-                                exam_data.setdefault("subject", row.get("subject", ""))
-                                exam_data.setdefault("topic", row.get("topic", ""))
-                                exam_data.setdefault("learner_stage", row.get("learner_stage", ""))
-                            ex_data = exam_to_exercises(exam_data, answer_key, row_id=row.get("id"))
-                            if _open_practice_item(
-                                ex_data,
-                                {
-                                    "subject": row.get("subject", ""),
-                                    "topic": row.get("topic", ""),
-                                    "learner_stage": row.get("learner_stage", ""),
-                                    "level": row.get("level", ""),
-                                },
-                            ):
+                        if resource_type == "worksheet":
+                            if _open_worksheet_practice_from_row(row):
                                 st.rerun()
+                        elif resource_type == "exam":
+                            if _open_exam_practice_from_row(row):
+                                st.rerun()
+                    except Exception as exc:
+                        _show_practice_resource_unavailable(exc)
 
 
 def _render_recommended_materials(pub_ws, pub_ex, pub_videos) -> None:

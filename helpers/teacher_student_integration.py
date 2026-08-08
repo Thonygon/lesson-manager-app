@@ -60,7 +60,8 @@ _REVIEW_REQUEST_COLUMNS = (
     "requested_at,reviewed_at,created_at,updated_at"
 )
 _PRACTICE_SESSION_COLUMNS = (
-    "id,user_id,exercise_data,completed_at,correct_count,score_pct,created_at"
+    "id,user_id,source_type,source_id,title,subject,topic,exercise_data,"
+    "completed_at,correct_count,score_pct,created_at"
 )
 _PRACTICE_ANSWER_COLUMNS = (
     "id,session_id,user_id,exercise_idx,question_idx,exercise_type,student_answer,"
@@ -193,6 +194,14 @@ def _slugify_subject(value: str) -> str:
 
 def _rows(result) -> list[dict]:
     return getattr(result, "data", None) or []
+
+
+def _optional_positive_int(value: Any) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
 
 
 def _schema_missing_column(exc: Exception, column_name: str) -> bool:
@@ -1848,6 +1857,100 @@ def _display_answer_text(value: Any) -> str:
     return _clean_display_text(value)
 
 
+def _load_assignment_review_exercise_data(review: dict, session_row: dict) -> dict:
+    assignment_id = int(review.get("assignment_id") or 0)
+    student_id = str(review.get("student_id") or "").strip()
+    if assignment_id <= 0 or not student_id:
+        exercise_data = session_row.get("exercise_data") or {}
+        if isinstance(exercise_data, str):
+            try:
+                import json
+
+                exercise_data = json.loads(exercise_data)
+            except Exception:
+                exercise_data = {}
+        exercise_data = exercise_data if isinstance(exercise_data, dict) else {}
+        source_type = str(session_row.get("source_type") or "").strip()
+        source_id = session_row.get("source_id")
+        if source_type == "worksheet" and source_id not in (None, "", "None"):
+            try:
+                from helpers.practice_engine import worksheet_to_exercises
+                from helpers.worksheet_builder import normalize_worksheet_output
+                from helpers.worksheet_storage import load_worksheet_record
+
+                source_row = load_worksheet_record(source_id) or {}
+                worksheet = normalize_worksheet_output(dict(source_row.get("worksheet_json") or {}))
+                if worksheet:
+                    return worksheet_to_exercises(worksheet, row_id=source_id)
+            except Exception:
+                pass
+        if source_type == "exam" and source_id not in (None, "", "None"):
+            try:
+                from helpers.practice_engine import exam_to_exercises
+                from helpers.quick_exam_storage import load_exam_record
+
+                source_row = load_exam_record(source_id) or {}
+                exam_data = dict(source_row.get("exam_data") or {})
+                answer_key = dict(source_row.get("answer_key") or {})
+                if exam_data:
+                    return exam_to_exercises(exam_data, answer_key, row_id=source_id)
+            except Exception:
+                pass
+        return exercise_data
+
+    try:
+        assignment_rows = _rows(
+            get_sb()
+            .table("teacher_assignments")
+            .select("id,assignment_type,source_record_id,content_snapshot,subject_key,topic")
+            .eq("id", assignment_id)
+            .eq("student_id", student_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        assignment_rows = []
+    if not assignment_rows:
+        return {}
+
+    assignment = assignment_rows[0]
+    assignment_type = str(assignment.get("assignment_type") or "").strip()
+    snapshot = assignment.get("content_snapshot") or {}
+    source_record_id = assignment.get("source_record_id")
+
+    if assignment_type == "worksheet":
+        from helpers.practice_engine import worksheet_to_exercises
+        from helpers.worksheet_builder import normalize_worksheet_output
+        from helpers.worksheet_storage import load_worksheet_record
+
+        worksheet = normalize_worksheet_output(dict((snapshot or {}).get("worksheet") or {}))
+        source_row = load_worksheet_record(source_record_id) if source_record_id else {}
+        source_worksheet = normalize_worksheet_output(dict(source_row.get("worksheet_json") or {}))
+        if source_worksheet:
+            worksheet = source_worksheet
+        if worksheet:
+            return worksheet_to_exercises(worksheet, row_id=assignment_id)
+        return {}
+
+    if assignment_type == "exam":
+        from helpers.practice_engine import exam_to_exercises
+        from helpers.quick_exam_storage import load_exam_record
+
+        exam_data = dict((snapshot or {}).get("exam_data") or {})
+        answer_key = dict((snapshot or {}).get("answer_key") or {})
+        source_row = load_exam_record(source_record_id) if source_record_id else {}
+        source_exam_data = dict(source_row.get("exam_data") or {})
+        source_answer_key = dict(source_row.get("answer_key") or {})
+        if source_exam_data:
+            exam_data = source_exam_data
+            answer_key = source_answer_key
+        if exam_data:
+            return exam_to_exercises(exam_data, answer_key, row_id=assignment_id)
+        return {}
+
+    return {}
+
+
 def _serialize_review_item(exercise: dict, question: Any, answer_row: dict, correct_answer: Any, ex_idx: int, q_idx: int) -> dict:
     prompt = _question_prompt_text(str(exercise.get("type") or ""), question)
     section_title = _clean_display_text(exercise.get("title") or "") or t("untitled_plan")
@@ -1902,6 +2005,9 @@ def create_teacher_review_request(
     if not chosen_link:
         return False, "teacher_review_not_connected"
 
+    safe_assignment_id = _optional_positive_int(assignment_id)
+    source_id = _clean_text(session_row.get("source_id"))
+
     try:
         existing = _rows(
             get_sb()
@@ -1924,9 +2030,9 @@ def create_teacher_review_request(
         "subject_key": subject_key,
         "subject_label": _clean_display_text(subject_label(subject_key) if subject_key else session_row.get("subject")),
         "practice_session_id": int(practice_session_id),
-        "assignment_id": assignment_id,
+        "assignment_id": safe_assignment_id,
         "source_type": source_type,
-        "source_id": session_row.get("source_id"),
+        "source_id": source_id,
         "title": _clean_display_text(session_row.get("title")) or t("smart_practice"),
         "status": "requested",
         "request_note": _clean_text(request_note),
@@ -2120,14 +2226,7 @@ def load_teacher_review_request_detail(review_id: int) -> dict:
     except Exception:
         session_rows = []
     session_row = session_rows[0] if session_rows else {}
-    exercise_data = session_row.get("exercise_data") or {}
-    if isinstance(exercise_data, str):
-        try:
-            import json
-
-            exercise_data = json.loads(exercise_data)
-        except Exception:
-            exercise_data = {}
+    exercise_data = _load_assignment_review_exercise_data(review, session_row)
     answers_map = _load_practice_answers_map(int(review.get("practice_session_id") or 0), student_id)
     items: list[dict] = []
     for ex_idx, exercise in enumerate(exercise_data.get("exercises") or []):
@@ -2635,6 +2734,77 @@ def _source_type_for_resource_assignment(kind: str) -> str:
     }.get(_resource_assignment_kind(kind), "resource_library")
 
 
+def sync_assignment_copies_for_resource(
+    *,
+    kind: str,
+    source_record_id: int | str | None,
+    row: dict,
+) -> int:
+    safe_kind = _resource_assignment_kind(kind)
+    if safe_kind not in {"worksheet", "exam"}:
+        return 0
+    source_text = str(source_record_id or "").strip()
+    if not source_text or source_text in {"0", "None"}:
+        return 0
+
+    full_row = _load_full_resource_row(safe_kind, dict(row or {}))
+    if not full_row:
+        return 0
+
+    payload = {
+        "title": _resource_assignment_title(safe_kind, full_row),
+        "topic": _resource_assignment_topic(full_row),
+        "content_snapshot": _resource_assignment_snapshot(safe_kind, full_row),
+        "updated_at": _now_iso(),
+    }
+    query_values: list[int | str] = [source_text]
+    if source_text.lstrip("-").isdigit():
+        query_values.insert(0, int(source_text))
+
+    matched_assignment_ids: set[int] = set()
+    for value in query_values:
+        try:
+            matched_rows = _rows(
+                get_sb()
+                .table("teacher_assignments")
+                .select("id")
+                .eq("assignment_type", safe_kind)
+                .eq("source_record_id", value)
+                .execute()
+            )
+            for matched in matched_rows:
+                assignment_id = int(matched.get("id") or 0)
+                if assignment_id > 0:
+                    matched_assignment_ids.add(assignment_id)
+            if matched_rows:
+                (
+                    get_sb()
+                    .table("teacher_assignments")
+                    .update(payload)
+                    .eq("assignment_type", safe_kind)
+                    .eq("source_record_id", value)
+                    .execute()
+                )
+        except Exception:
+            continue
+
+    if matched_assignment_ids:
+        try:
+            (
+                get_sb()
+                .table("teacher_review_requests")
+                .update({"title": payload["title"], "updated_at": payload["updated_at"]})
+                .in_("assignment_id", sorted(matched_assignment_ids))
+                .execute()
+            )
+        except Exception:
+            pass
+    return len(matched_assignment_ids)
+
+
+_RESOURCE_BULK_ASSIGN_DIALOG_VERSION = 2
+
+
 def _assignment_targets_for_resource(row: dict, links: list[dict]) -> list[dict]:
     desired_subject = normalize_subject(_resource_assignment_subject(row))
     targets: list[dict] = []
@@ -2671,6 +2841,107 @@ def _render_multi_assignment_duplicates(
     if not duplicate_names:
         return True, []
     return _render_duplicate_student_confirmation(prefix=prefix, duplicate_names=duplicate_names)
+
+
+def _completed_proactive_resource_sessions(
+    *,
+    student_id: str,
+    assignment_type: str,
+    source_record_id: int | str | None,
+) -> list[dict]:
+    safe_student_id = _clean_text(student_id)
+    safe_assignment_type = _resource_assignment_kind(assignment_type)
+    source_text = str(source_record_id or "").strip()
+    if (
+        not safe_student_id
+        or safe_assignment_type not in {"worksheet", "exam", "video"}
+        or not source_text
+        or source_text in {"0", "None"}
+    ):
+        return []
+    try:
+        session_rows = _rows(
+            get_sb()
+            .table("practice_sessions")
+            .select("id,source_type,source_id,status,score_pct,completed_at,created_at,title")
+            .eq("user_id", safe_student_id)
+            .eq("source_type", safe_assignment_type)
+            .eq("source_id", source_text)
+            .eq("status", "completed")
+            .order("completed_at", desc=True)
+            .limit(10)
+            .execute()
+        )
+    except Exception:
+        return []
+    if not session_rows:
+        return []
+
+    session_ids = [
+        int(row.get("id") or 0)
+        for row in session_rows
+        if int(row.get("id") or 0) > 0
+    ]
+    assigned_session_ids: set[int] = set()
+    if session_ids:
+        try:
+            attempt_rows = _rows(
+                get_sb()
+                .table("teacher_assignment_attempts")
+                .select("practice_session_id")
+                .eq("student_id", safe_student_id)
+                .in_("practice_session_id", session_ids)
+                .execute()
+            )
+            assigned_session_ids = {
+                int(row.get("practice_session_id") or 0)
+                for row in attempt_rows
+                if int(row.get("practice_session_id") or 0) > 0
+            }
+        except Exception:
+            assigned_session_ids = set()
+    return [
+        row
+        for row in session_rows
+        if int(row.get("id") or 0) not in assigned_session_ids
+    ]
+
+
+def _render_multi_proactive_completion_confirmation(
+    *,
+    prefix: str,
+    selected_targets: list[dict],
+    assignment_type: str,
+    source_record_id: int | str | None,
+) -> tuple[bool, list[str]]:
+    if _resource_assignment_kind(assignment_type) not in {"worksheet", "exam", "video"}:
+        return True, []
+    completed_names: list[str] = []
+    for target in selected_targets:
+        link = target.get("link") or {}
+        student_id = _clean_text(link.get("student_id"))
+        if _completed_proactive_resource_sessions(
+            student_id=student_id,
+            assignment_type=assignment_type,
+            source_record_id=source_record_id,
+        ):
+            completed_names.append(_clean_text(link.get("student_name")) or target.get("label") or student_id)
+    names = sorted({_clean_text(name) for name in completed_names if _clean_text(name)})
+    if not names:
+        return True, []
+    warning_key = (
+        "assignment_proactive_completion_warning"
+        if len(names) == 1
+        else "assignment_proactive_completion_warning_students"
+    )
+    st.warning(t(warning_key, student=names[0], students=", ".join(names)))
+    confirmed = bool(
+        st.checkbox(
+            t("assignment_proactive_completion_confirm"),
+            key=f"{prefix}_proactive_completion_confirm",
+        )
+    )
+    return confirmed, names
 
 
 def _render_duplicate_student_confirmation(*, prefix: str, duplicate_names: list[str]) -> tuple[bool, list[str]]:
@@ -2747,6 +3018,7 @@ def render_resource_bulk_assign_panel(
         )
 
     duplicate_confirmed = True
+    proactive_completion_confirmed = True
     if selected_targets:
         if safe_kind == "plan":
             duplicate_names: list[str] = []
@@ -2774,6 +3046,12 @@ def render_resource_bulk_assign_panel(
                 title=title,
                 topic=topic,
             )
+            proactive_completion_confirmed, _completed_names = _render_multi_proactive_completion_confirmation(
+                prefix=prefix,
+                selected_targets=selected_targets,
+                assignment_type=safe_kind,
+                source_record_id=source_record_id,
+            )
 
     if st.button(t("create_assignment"), key=f"{prefix}_assign_btn", use_container_width=True):
         if not selected_targets:
@@ -2784,6 +3062,9 @@ def render_resource_bulk_assign_panel(
             return False
         if not duplicate_confirmed:
             st.error(t("assignment_duplicate_confirm_required"))
+            return False
+        if not proactive_completion_confirmed:
+            st.error(t("assignment_proactive_completion_confirm_required"))
             return False
         created = 0
         failures = 0
@@ -2882,21 +3163,29 @@ def open_resource_bulk_assign_dialog(kind: str, row: dict, *, fixed_link_id: int
     ):
         st.session_state.pop(key, None)
     st.session_state["_resource_bulk_assign_dialog"] = {
+        "version": _RESOURCE_BULK_ASSIGN_DIALOG_VERSION,
         "kind": safe_kind,
         "row": dict(row or {}),
         "fixed_link_id": fixed_link_id,
     }
 
 
+def _clear_resource_bulk_assign_dialog() -> None:
+    st.session_state.pop("_resource_bulk_assign_dialog", None)
+
+
 def render_resource_bulk_assign_dialog(kind_filter: str | None = None) -> None:
     state = st.session_state.get("_resource_bulk_assign_dialog")
     if not isinstance(state, dict):
+        return
+    if state.get("version") != _RESOURCE_BULK_ASSIGN_DIALOG_VERSION:
+        st.session_state.pop("_resource_bulk_assign_dialog", None)
         return
     safe_kind = _resource_assignment_kind(state.get("kind"))
     if kind_filter and safe_kind != _resource_assignment_kind(kind_filter):
         return
 
-    @st.dialog(t("assign_to_student"))
+    @st.dialog(t("assign_to_student"), on_dismiss=_clear_resource_bulk_assign_dialog)
     def _dialog():
         created = render_resource_bulk_assign_panel(
             kind=safe_kind,

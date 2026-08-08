@@ -87,6 +87,7 @@ _TEACHER_PAGE_SIZE = 6
 
 _RECOMMENDED_RESOURCE_GROUP_LIMIT = 24
 _RECOMMENDED_RESOURCE_PAGE_SIZE = 2
+_RECOMMENDED_RESOURCE_PREVIEW_DIALOG_VERSION = 1
 
 _RECOMMENDED_RESOURCE_ASSIGNMENT_TYPES = {
     "lesson_plan_topic": "plan",
@@ -126,7 +127,18 @@ def _resource_source_label(source: str) -> str:
 
 
 def _resource_record_key(kind: str, record_id) -> tuple[str, str] | None:
+    try:
+        if pd.isna(record_id):
+            return None
+    except Exception:
+        pass
+    if isinstance(record_id, float) and record_id.is_integer():
+        record_id = int(record_id)
     record_text = str(record_id or "").strip()
+    if record_text.endswith(".0"):
+        whole_part = record_text[:-2].strip()
+        if whole_part.lstrip("-").isdigit():
+            record_text = whole_part
     if not kind or not record_text or record_text in {"0", "None", "nan"}:
         return None
     return str(kind).strip(), record_text
@@ -142,6 +154,14 @@ def _resource_preview_text(row: dict, kind: str) -> str:
     if kind == "video":
         return str(row.get("topic") or row.get("description") or "").strip()
     return ""
+
+
+def _normalized_resource_record_id(record_id):
+    key = _resource_record_key("resource", record_id)
+    if not key:
+        return None
+    record_text = key[1]
+    return int(record_text) if record_text.lstrip("-").isdigit() else None
 
 
 def _resource_search_blob(row: dict, kind: str) -> str:
@@ -472,10 +492,73 @@ def _load_assigned_resource_keys_for_student(selected_link: dict, program_rows: 
     return assigned
 
 
+def _load_done_resource_keys_for_student(selected_link: dict) -> set[tuple[str, str]]:
+    done: set[tuple[str, str]] = set()
+
+    student_id = str((selected_link or {}).get("student_id") or "").strip()
+    if not student_id:
+        return done
+
+    try:
+        response = (
+            get_sb()
+            .table("practice_sessions")
+            .select("id,source_type,source_id,status,completed_at")
+            .eq("user_id", student_id)
+            .eq("status", "completed")
+            .in_("source_type", ["worksheet", "exam", "video"])
+            .order("completed_at", desc=True)
+            .limit(500)
+            .execute()
+        )
+        session_rows = getattr(response, "data", None) or []
+    except Exception:
+        return done
+
+    session_ids = [
+        int(row.get("id") or 0)
+        for row in session_rows
+        if int(row.get("id") or 0) > 0
+    ]
+    assigned_session_ids: set[int] = set()
+    if session_ids:
+        try:
+            response = (
+                get_sb()
+                .table("teacher_assignment_attempts")
+                .select("practice_session_id")
+                .eq("student_id", student_id)
+                .in_("practice_session_id", session_ids)
+                .execute()
+            )
+            assigned_session_ids = {
+                int(row.get("practice_session_id") or 0)
+                for row in (getattr(response, "data", None) or [])
+                if int(row.get("practice_session_id") or 0) > 0
+            }
+        except Exception:
+            assigned_session_ids = set()
+
+    for row in session_rows:
+        session_id = int(row.get("id") or 0)
+        if session_id in assigned_session_ids:
+            continue
+        key = _resource_record_key(str(row.get("source_type") or "").strip(), row.get("source_id"))
+        if key:
+            done.add(key)
+    return done
+
+
 def _recommended_resource_is_assigned(resource: dict, assigned_resource_keys: set[tuple[str, str]]) -> bool:
     row = resource.get("row") or {}
     key = _resource_record_key(str(resource.get("kind") or ""), row.get("id"))
     return bool(key and key in assigned_resource_keys)
+
+
+def _recommended_resource_is_done(resource: dict, done_resource_keys: set[tuple[str, str]]) -> bool:
+    row = resource.get("row") or {}
+    key = _resource_record_key(str(resource.get("kind") or ""), row.get("id"))
+    return bool(key and key in done_resource_keys)
 
 
 def _recommended_resource_kind_order(focus_kind: str) -> list[str]:
@@ -514,7 +597,7 @@ def _open_recommended_resource(resource: dict, recommendation_item: dict | None 
             recommendation_bucket=str(recommendation_item.get("recommendation_bucket") or "").strip(),
             recommendation_focus_kind=str(recommendation_item.get("focus_kind") or "").strip(),
             resource_kind=str(kind or ""),
-            resource_record_id=int(row.get("id") or 0) or None,
+            resource_record_id=_normalized_resource_record_id(row.get("id")),
             event_weight=0.3 if assign else 0.12,
             metadata={"source": source, "title": str(row.get("title") or "").strip()},
         )
@@ -548,12 +631,135 @@ def _open_recommended_resource(resource: dict, recommendation_item: dict | None 
         st.rerun()
 
     if kind in {"plan", "worksheet", "exam", "video"}:
-        open_material_recommendation(
-            resource,
-            assign=assign,
-            open_in_files=True,
-            fixed_link_id=recommendation_item.get("link_id"),
-        )
+        if assign:
+            open_material_recommendation(
+                resource,
+                assign=True,
+                open_in_files=True,
+                fixed_link_id=recommendation_item.get("link_id"),
+            )
+            return
+        st.session_state["_recommended_resource_preview_dialog"] = {
+            "version": _RECOMMENDED_RESOURCE_PREVIEW_DIALOG_VERSION,
+            "resource": resource,
+            "recommendation_item": recommendation_item,
+        }
+
+
+def _clear_recommended_resource_preview_dialog() -> None:
+    st.session_state.pop("_recommended_resource_preview_dialog", None)
+
+
+def _resolve_recommended_preview_row(resource: dict) -> tuple[str, dict]:
+    safe_resource = dict(resource or {})
+    kind = str(safe_resource.get("kind") or "").strip()
+    row = dict(safe_resource.get("row") or {})
+    row_id = row.get("id")
+    try:
+        if kind == "worksheet" and row_id and not row.get("worksheet_json"):
+            from helpers.worksheet_storage import load_worksheet_record
+
+            row = {**row, **(load_worksheet_record(row_id) or {})}
+        elif kind == "exam" and row_id and (not row.get("exam_data") or not row.get("answer_key")):
+            from helpers.quick_exam_storage import load_exam_record
+
+            row = {**row, **(load_exam_record(row_id) or {})}
+        elif kind == "plan" and row_id and not row.get("plan_json"):
+            from helpers.planner_storage import load_lesson_plan_record
+
+            row = {**row, **(load_lesson_plan_record(row_id) or {})}
+        elif kind == "video" and row_id:
+            from helpers.video_library import load_video_record
+
+            row = {**row, **(load_video_record(row_id) or {})}
+    except Exception:
+        pass
+    if kind == "exam":
+        for field in ("exam_data", "answer_key"):
+            payload = row.get(field)
+            if isinstance(payload, str):
+                try:
+                    row[field] = json.loads(payload)
+                except Exception:
+                    row[field] = {}
+    return kind, row
+
+
+def render_recommended_resource_preview_dialog() -> None:
+    state = st.session_state.get("_recommended_resource_preview_dialog")
+    if not isinstance(state, dict):
+        return
+    if state.get("version") != _RECOMMENDED_RESOURCE_PREVIEW_DIALOG_VERSION:
+        _clear_recommended_resource_preview_dialog()
+        return
+
+    @st.dialog(t("recommended_resource_preview"), on_dismiss=_clear_recommended_resource_preview_dialog)
+    def _dialog():
+        resource = state.get("resource") if isinstance(state.get("resource"), dict) else {}
+        kind, row = _resolve_recommended_preview_row(resource)
+        if kind == "worksheet":
+            from helpers.worksheet_storage import render_worksheet_result
+
+            render_worksheet_result(
+                dict(row.get("worksheet_json") or {}),
+                read_only=True,
+                allow_assign=False,
+                resource_record_id=row.get("id"),
+                action_key_prefix=f"teacher_reco_preview_ws_{row.get('id') or 'unknown'}",
+                subject=str(row.get("subject") or ""),
+                topic=str(row.get("topic") or ""),
+                learner_stage=str(row.get("learner_stage") or ""),
+                level_or_band=str(row.get("level_or_band") or ""),
+                worksheet_type=str(row.get("worksheet_type") or ""),
+                allow_auto_image_generation=False,
+            )
+        elif kind == "exam":
+            from helpers.quick_exam_storage import render_exam_result
+
+            render_exam_result(
+                dict(row.get("exam_data") or {}),
+                dict(row.get("answer_key") or {}),
+                read_only=True,
+                allow_assign=False,
+                resource_record_id=row.get("id"),
+                action_key_prefix=f"teacher_reco_preview_exam_{row.get('id') or 'unknown'}",
+                subject=str(row.get("subject") or ""),
+                topic=str(row.get("topic") or ""),
+                learner_stage=str(row.get("learner_stage") or ""),
+                level_or_band=str(row.get("level") or row.get("level_or_band") or ""),
+                allow_auto_image_generation=False,
+            )
+        elif kind == "plan":
+            from helpers.planner_storage import render_quick_lesson_plan_result
+
+            render_quick_lesson_plan_result(
+                dict(row.get("plan_json") or {}),
+                subject=str(row.get("subject") or ""),
+                learner_stage=str(row.get("learner_stage") or ""),
+                level_or_band=str(row.get("level_or_band") or ""),
+                lesson_purpose=str(row.get("lesson_purpose") or ""),
+                topic=str(row.get("topic") or ""),
+                read_only=True,
+                allow_assign=False,
+                resource_record_id=row.get("id"),
+                action_key_prefix=f"teacher_reco_preview_plan_{row.get('id') or 'unknown'}",
+                allow_image_generation=False,
+            )
+        elif kind == "video":
+            from helpers.video_library import render_video_detail
+
+            render_video_detail(
+                row,
+                action_key_prefix=f"teacher_reco_preview_video_{row.get('id') or 'unknown'}",
+                allow_assign=False,
+            )
+        else:
+            st.info(t("no_data"))
+        if st.button(t("close"), key="teacher_reco_preview_close", use_container_width=True):
+            _clear_recommended_resource_preview_dialog()
+            st.rerun()
+
+    _dialog()
 
 
 def _current_teacher_teaches_languages() -> bool:
@@ -1706,6 +1912,25 @@ def _inject_recommendation_styles() -> None:
             border: 1px solid color-mix(in srgb, var(--success, #10b981) 28%, transparent);
             white-space: nowrap;
         }
+        .classio-reco-resource-signals {
+            flex: 0 0 auto;
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            max-width: 42%;
+        }
+        .classio-reco-resource-done {
+            flex: 0 0 auto;
+            border-radius: 999px;
+            padding: 4px 8px;
+            font-size: .68rem;
+            font-weight: 900;
+            color: var(--primary, #2563eb);
+            background: color-mix(in srgb, var(--primary, #2563eb) 14%, transparent);
+            border: 1px solid color-mix(in srgb, var(--primary, #2563eb) 26%, transparent);
+            white-space: nowrap;
+        }
         .classio-reco-resource-preview {
             margin-top: 4px;
             color: var(--muted, #64748b);
@@ -1759,11 +1984,13 @@ def _render_recommended_resources_for_item(
     *,
     key_prefix: str,
     assigned_resource_keys: set[tuple[str, str]] | None = None,
+    done_resource_keys: set[tuple[str, str]] | None = None,
 ) -> None:
     grouped_resources = _recommended_resources_for_item(item, resource_pool)
     ordered_kinds = _recommended_resource_kind_order(str(item.get("focus_kind") or ""))
     total_matches = sum(len(grouped_resources.get(kind) or []) for kind in ordered_kinds)
     assigned_resource_keys = assigned_resource_keys or set()
+    done_resource_keys = done_resource_keys or set()
 
     expander_label = f"{t('recommended_resources_title')} · {t('recommended_resources_count', count=total_matches)}"
     with st.expander(
@@ -1823,6 +2050,7 @@ def _render_recommended_resources_for_item(
                 level = str(row.get("level") if kind == "exam" else row.get("level_or_band") or "").strip()
                 source_label = _resource_source_label(str(resource.get("source") or ""))
                 is_assigned = _recommended_resource_is_assigned(resource, assigned_resource_keys)
+                is_done = _recommended_resource_is_done(resource, done_resource_keys)
                 chips = [
                     source_label,
                     _recommended_resource_kind_label(kind),
@@ -1838,6 +2066,16 @@ def _render_recommended_resources_for_item(
                     if is_assigned
                     else ""
                 )
+                done_html = (
+                    f"<span class='classio-reco-resource-done'>{_html.escape(t('recommended_resource_done'))}</span>"
+                    if is_done
+                    else ""
+                )
+                signal_html = (
+                    f"<div class='classio-reco-resource-signals'>{assigned_html}{done_html}</div>"
+                    if assigned_html or done_html
+                    else ""
+                )
                 button_key = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{state_key}_{resource.get('source')}_{row.get('id')}_{resource_idx}")
                 card_accent = resource_kind_accent("lesson_plan" if kind == "plan" else kind)
                 with resource_col:
@@ -1845,7 +2083,7 @@ def _render_recommended_resources_for_item(
                         f"<div class='classio-reco-resource-card' style='--reco-resource-accent:{card_accent};'>"
                         "<div class='classio-reco-resource-card-top'>"
                         f"<div class='classio-reco-resource-card-title'>{_html.escape(title)}</div>"
-                        f"{assigned_html}"
+                        f"{signal_html}"
                         "</div>"
                         f"<div class='classio-reco-resource-preview'>{_html.escape(preview[:150])}</div>"
                         f"<div class='classio-reco-resource-chiprow'>{chip_html}</div>"
@@ -1865,6 +2103,7 @@ def _render_recommended_resources_for_item(
         for kind in ("worksheet", "exam", "plan", "video"):
             render_resource_bulk_assign_dialog(kind_filter=kind)
         render_learning_program_assign_dialog()
+        render_recommended_resource_preview_dialog()
 
 
 def _render_recommendations_tab(
@@ -1940,6 +2179,7 @@ def _render_recommendations_tab(
         return
 
     assigned_resource_keys = _load_assigned_resource_keys_for_student(selected_link, program_rows)
+    done_resource_keys = _load_done_resource_keys_for_student(selected_link)
 
     for idx in range(0, len(recommendations), 2):
         pair = recommendations[idx: idx + 2]
@@ -2015,6 +2255,7 @@ def _render_recommendations_tab(
                     resource_pool,
                     key_prefix=f"reco_resources_{recommendation_widget_scope}",
                     assigned_resource_keys=assigned_resource_keys,
+                    done_resource_keys=done_resource_keys,
                 )
 
                 action_cols = st.columns(4, gap="small")

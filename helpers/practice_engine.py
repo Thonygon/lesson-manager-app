@@ -11,6 +11,7 @@ import re
 import json
 import ast
 import html
+import copy
 import unicodedata
 import streamlit as st
 import pandas as pd
@@ -965,6 +966,22 @@ def _clear_practice_widget_state(session_key: str) -> None:
             st.session_state.pop(key, None)
 
 
+def _prepare_retry_attempt(session_key: str) -> None:
+    last_session_id = st.session_state.get("_practice_last_session_id")
+    if st.session_state.get("_practice_review_mode") and last_session_id:
+        st.session_state["_practice_retry_session_id"] = last_session_id
+    st.session_state.pop("_practice_review_mode", None)
+    _clear_practice_widget_state(session_key)
+    st.session_state.pop(f"_practice_answers_{session_key}", None)
+    st.session_state.pop(f"_practice_submitted_{session_key}", None)
+    st.session_state.pop(f"_practice_saved_{session_key}", None)
+    st.session_state.pop("_practice_resume_session_id", None)
+    st.session_state.pop("_practice_resume_answers", None)
+    st.session_state.pop(f"_practice_last_autosave_payload_{session_key}", None)
+    st.session_state.pop(f"_practice_last_autosave_at_{session_key}", None)
+    st.session_state.pop(f"_practice_last_autosave_failed_{session_key}", None)
+
+
 def _practice_answer_has_content(value) -> bool:
     if isinstance(value, list):
         return bool(_normalize_wordsearch_words(value))
@@ -1412,15 +1429,7 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
                 key=f"{session_key}_retry",
                 use_container_width=True,
             ):
-                _clear_practice_widget_state(session_key)
-                st.session_state.pop(answers_key, None)
-                st.session_state.pop(submitted_key, None)
-                st.session_state.pop(f"_practice_saved_{session_key}", None)
-                st.session_state.pop("_practice_resume_session_id", None)
-                st.session_state.pop("_practice_resume_answers", None)
-                st.session_state.pop(f"_practice_last_autosave_payload_{session_key}", None)
-                st.session_state.pop(f"_practice_last_autosave_at_{session_key}", None)
-                st.session_state.pop(f"_practice_last_autosave_failed_{session_key}", None)
+                _prepare_retry_attempt(session_key)
                 st.rerun()
         with col2:
             if st.button(
@@ -2979,6 +2988,357 @@ def update_practice_session(
         return True
     except Exception:
         return False
+
+
+def _canonical_resource_id_text(value: object) -> str:
+    text = _normalize_practice_source_id(value) or ""
+    if text.endswith(".0") and text[:-2].strip().lstrip("-").isdigit():
+        return text[:-2].strip()
+    return text
+
+
+def _exercise_data_for_rescored_session(base_exercise_data: dict, session_row: dict) -> dict:
+    payload = copy.deepcopy(base_exercise_data or {})
+    payload["source_type"] = str(session_row.get("source_type") or payload.get("source_type") or "").strip()
+    payload["source_id"] = session_row.get("source_id")
+    payload["title"] = str(payload.get("title") or session_row.get("title") or "").strip()
+    return payload
+
+
+def _evaluate_saved_practice_answers(exercise_data: dict, answer_rows: list[dict]) -> tuple[list[dict], dict]:
+    answers_by_position = {
+        (int(row.get("exercise_idx") or 0), int(row.get("question_idx") or 0)): row
+        for row in (answer_rows or [])
+    }
+    user_id = str((answer_rows[0] if answer_rows else {}).get("user_id") or "").strip()
+    session_id = int((answer_rows[0] if answer_rows else {}).get("session_id") or 0)
+
+    total_q = 0
+    correct_q = 0
+    cur_streak = 0
+    best_streak = 0
+    rescored_rows: list[dict] = []
+
+    for ex_idx, exercise in enumerate(exercise_data.get("exercises") or []):
+        ex_type = str(exercise.get("type") or "")
+        questions = exercise.get("questions") or []
+        correct_answers = exercise.get("answers") or []
+
+        if ex_type == "word_search_vocab":
+            old_row = answers_by_position.get((ex_idx, 0), {})
+            student_ans = str(old_row.get("student_answer") or "")
+            correct = correct_answers[0] if correct_answers else []
+            evaluation = _evaluate_answer(ex_type, student_ans, correct)
+            found_count = int(evaluation.get("correct_count", 0))
+            total_count = int(evaluation.get("total_count", len(_normalize_wordsearch_words(correct))))
+            total_q += total_count
+            correct_q += found_count
+            if found_count:
+                cur_streak += found_count
+                best_streak = max(best_streak, cur_streak)
+            else:
+                cur_streak = 0
+            rescored_rows.append(
+                {
+                    "session_id": session_id,
+                    "user_id": user_id,
+                    "exercise_idx": ex_idx,
+                    "question_idx": 0,
+                    "exercise_type": ex_type,
+                    "student_answer": student_ans,
+                    "correct_answer": _display_answer_text(correct),
+                    "is_correct": bool(evaluation.get("is_correct")),
+                    "answered_at": str(old_row.get("answered_at") or _dt.now(timezone.utc).isoformat()),
+                }
+            )
+            continue
+
+        for q_idx in range(len(questions)):
+            old_row = answers_by_position.get((ex_idx, q_idx), {})
+            student_ans = str(old_row.get("student_answer") or "")
+            correct = correct_answers[q_idx] if q_idx < len(correct_answers) else ""
+            evaluation = _evaluate_answer(ex_type, student_ans, correct)
+            total_q += 1
+            if ex_type == "true_false" and not _canonical_true_false(_comparison_answer_text(correct)):
+                cur_streak = 0
+            elif evaluation["is_correct"]:
+                correct_q += 1
+                cur_streak += 1
+                best_streak = max(best_streak, cur_streak)
+            else:
+                cur_streak = 0
+            rescored_rows.append(
+                {
+                    "session_id": session_id,
+                    "user_id": user_id,
+                    "exercise_idx": ex_idx,
+                    "question_idx": q_idx,
+                    "exercise_type": ex_type,
+                    "student_answer": student_ans,
+                    "correct_answer": _display_answer_text(correct),
+                    "is_correct": bool(evaluation.get("is_correct")),
+                    "answered_at": str(old_row.get("answered_at") or _dt.now(timezone.utc).isoformat()),
+                }
+            )
+
+    score_pct = round(correct_q / total_q * 100) if total_q else 0
+    xp_earned = calculate_session_xp(correct_q, total_q, best_streak)
+    return rescored_rows, {
+        "total_questions": total_q,
+        "correct_count": correct_q,
+        "score_pct": score_pct,
+        "best_streak": best_streak,
+        "xp_earned": xp_earned,
+    }
+
+
+def _rows_for_resource_assignments(source_type: str, resource_id) -> list[dict]:
+    safe_type = _normalize_practice_source_type(source_type)
+    resource_text = _canonical_resource_id_text(resource_id)
+    if safe_type not in {"worksheet", "exam"} or not resource_text:
+        return []
+    rows: list[dict] = []
+    query_values: list[object] = [resource_text]
+    if resource_text.lstrip("-").isdigit():
+        query_values.insert(0, int(resource_text))
+    for value in query_values:
+        try:
+            result = (
+                get_sb()
+                .table("teacher_assignments")
+                .select("id,student_id,source_record_id,assignment_type")
+                .eq("assignment_type", safe_type)
+                .eq("source_record_id", value)
+                .execute()
+            )
+            rows.extend(result.data or [])
+        except Exception:
+            continue
+        if rows:
+            break
+    deduped: dict[int, dict] = {}
+    for row in rows:
+        assignment_id = int(row.get("id") or 0)
+        if assignment_id > 0:
+            deduped.setdefault(assignment_id, row)
+    return list(deduped.values())
+
+
+def rescore_practice_sessions_for_resource(source_type: str, resource_id, exercise_data: dict) -> int:
+    safe_type = _normalize_practice_source_type(source_type)
+    resource_text = _canonical_resource_id_text(resource_id)
+    if safe_type not in {"worksheet", "exam"} or not resource_text or not isinstance(exercise_data, dict):
+        return 0
+
+    session_rows_by_id: dict[int, dict] = {}
+    try:
+        direct_rows = (
+            get_sb()
+            .table("practice_sessions")
+            .select("id,user_id,source_type,source_id,title,status")
+            .eq("source_type", safe_type)
+            .eq("source_id", resource_text)
+            .eq("status", "completed")
+            .execute()
+        ).data or []
+        for row in direct_rows:
+            session_id = int(row.get("id") or 0)
+            if session_id > 0:
+                session_rows_by_id[session_id] = row
+    except Exception:
+        pass
+
+    assignment_rows = _rows_for_resource_assignments(safe_type, resource_text)
+    assignment_ids = [int(row.get("id") or 0) for row in assignment_rows if int(row.get("id") or 0) > 0]
+    attempt_rows: list[dict] = []
+    if assignment_ids:
+        try:
+            attempt_rows = (
+                get_sb()
+                .table("teacher_assignment_attempts")
+                .select("id,assignment_id,student_id,practice_session_id,created_at,submission_payload,status")
+                .in_("assignment_id", assignment_ids)
+                .execute()
+            ).data or []
+        except Exception:
+            attempt_rows = []
+        linked_session_ids = sorted(
+            {
+                int(row.get("practice_session_id") or 0)
+                for row in attempt_rows
+                if int(row.get("practice_session_id") or 0) > 0
+            }
+        )
+        if linked_session_ids:
+            try:
+                linked_sessions = (
+                    get_sb()
+                    .table("practice_sessions")
+                    .select("id,user_id,source_type,source_id,title,status")
+                    .in_("id", linked_session_ids)
+                    .eq("status", "completed")
+                    .execute()
+                ).data or []
+                for row in linked_sessions:
+                    session_id = int(row.get("id") or 0)
+                    if session_id > 0:
+                        session_rows_by_id[session_id] = row
+            except Exception:
+                pass
+
+    session_ids = sorted(session_rows_by_id.keys())
+    if not session_ids:
+        return 0
+
+    try:
+        answer_rows = (
+            get_sb()
+            .table("practice_answers")
+            .select("session_id,user_id,exercise_idx,question_idx,exercise_type,student_answer,answered_at")
+            .in_("session_id", session_ids)
+            .execute()
+        ).data or []
+    except Exception:
+        answer_rows = []
+
+    answers_by_session: dict[int, list[dict]] = {}
+    for row in answer_rows:
+        answers_by_session.setdefault(int(row.get("session_id") or 0), []).append(row)
+
+    attempts_by_session: dict[int, list[dict]] = {}
+    for row in attempt_rows:
+        session_id = int(row.get("practice_session_id") or 0)
+        if session_id > 0:
+            attempts_by_session.setdefault(session_id, []).append(row)
+
+    rescored_session_ids: list[int] = []
+    impacted_user_ids: set[str] = set()
+    affected_assignment_ids: set[int] = set()
+
+    for session_id in session_ids:
+        session_row = session_rows_by_id.get(session_id) or {}
+        user_id = str(session_row.get("user_id") or "").strip()
+        if not user_id:
+            continue
+        rescored_exercise_data = _exercise_data_for_rescored_session(exercise_data, session_row)
+        rescored_rows, stats = _evaluate_saved_practice_answers(
+            rescored_exercise_data,
+            answers_by_session.get(session_id, []),
+        )
+        try:
+            (
+                get_sb()
+                .table("practice_answers")
+                .delete()
+                .eq("session_id", session_id)
+                .eq("user_id", user_id)
+                .execute()
+            )
+            if rescored_rows:
+                get_sb().table("practice_answers").insert(rescored_rows).execute()
+            get_sb().table("practice_sessions").update(
+                {
+                    "exercise_data": rescored_exercise_data,
+                    "title": str(rescored_exercise_data.get("title") or session_row.get("title") or ""),
+                    "total_questions": int(stats.get("total_questions") or 0),
+                    "correct_count": int(stats.get("correct_count") or 0),
+                    "score_pct": float(stats.get("score_pct") or 0),
+                    "xp_earned": int(stats.get("xp_earned") or 0),
+                    "best_streak": int(stats.get("best_streak") or 0),
+                }
+            ).eq("id", session_id).eq("user_id", user_id).execute()
+            rescored_session_ids.append(session_id)
+            impacted_user_ids.add(user_id)
+        except Exception:
+            continue
+
+        session_attempts = attempts_by_session.get(session_id, [])
+        for attempt in session_attempts:
+            attempt_id = int(attempt.get("id") or 0)
+            assignment_id = int(attempt.get("assignment_id") or 0)
+            if assignment_id > 0:
+                affected_assignment_ids.add(assignment_id)
+            if attempt_id <= 0:
+                continue
+            submission_payload = attempt.get("submission_payload")
+            if not isinstance(submission_payload, dict):
+                submission_payload = {}
+            existing_result = submission_payload.get("result") if isinstance(submission_payload.get("result"), dict) else {}
+            updated_result = {
+                **existing_result,
+                "total": int(stats.get("total_questions") or 0),
+                "correct": int(stats.get("correct_count") or 0),
+                "score_pct": float(stats.get("score_pct") or 0),
+                "xp_earned": int(stats.get("xp_earned") or 0),
+                "best_streak": int(stats.get("best_streak") or 0),
+            }
+            submission_payload["result"] = updated_result
+            try:
+                get_sb().table("teacher_assignment_attempts").update(
+                    {
+                        "score_pct": float(stats.get("score_pct") or 0),
+                        "total_questions": int(stats.get("total_questions") or 0),
+                        "correct_count": int(stats.get("correct_count") or 0),
+                        "submission_payload": submission_payload,
+                    }
+                ).eq("id", attempt_id).execute()
+            except Exception:
+                try:
+                    get_sb().table("teacher_assignment_attempts").update(
+                        {
+                            "score_pct": float(stats.get("score_pct") or 0),
+                            "total_questions": int(stats.get("total_questions") or 0),
+                            "correct_count": int(stats.get("correct_count") or 0),
+                        }
+                    ).eq("id", attempt_id).execute()
+                except Exception:
+                    pass
+
+    if affected_assignment_ids:
+        try:
+            assignment_attempt_rows = (
+                get_sb()
+                .table("teacher_assignment_attempts")
+                .select("id,assignment_id,score_pct,total_questions,correct_count,created_at")
+                .in_("assignment_id", sorted(affected_assignment_ids))
+                .execute()
+            ).data or []
+        except Exception:
+            assignment_attempt_rows = []
+        latest_by_assignment: dict[int, dict] = {}
+        for row in assignment_attempt_rows:
+            assignment_id = int(row.get("assignment_id") or 0)
+            if assignment_id <= 0:
+                continue
+            current = latest_by_assignment.get(assignment_id)
+            sort_key = (str(row.get("created_at") or ""), int(row.get("id") or 0))
+            current_key = (
+                str(current.get("created_at") or ""),
+                int(current.get("id") or 0),
+            ) if current else ("", 0)
+            if current is None or sort_key >= current_key:
+                latest_by_assignment[assignment_id] = row
+        for assignment_id, latest in latest_by_assignment.items():
+            try:
+                get_sb().table("teacher_assignments").update(
+                    {
+                        "score_pct": latest.get("score_pct"),
+                        "total_questions": latest.get("total_questions"),
+                        "correct_count": latest.get("correct_count"),
+                    }
+                ).eq("id", assignment_id).execute()
+            except Exception:
+                pass
+
+    for user_id in impacted_user_ids:
+        try:
+            rebuild_practice_progress_for_user(user_id)
+        except Exception:
+            pass
+
+    if rescored_session_ids:
+        clear_app_caches()
+    return len(rescored_session_ids)
 
 
 @st.cache_data(ttl=45, show_spinner=False)
