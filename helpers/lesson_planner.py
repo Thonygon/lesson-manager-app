@@ -17,6 +17,7 @@ from helpers.generation_guidance import (
 )
 from helpers.student_personalization import build_student_profile_prompt_block
 from services.ai_usage_service import with_provider_chain
+from services.operational_diagnostics_service import capture_exception
 
 # ============================================================
 # Planner constants
@@ -2421,6 +2422,15 @@ def generate_quick_lesson_plan_with_fallback(
         return ai_plan, "ai", None
 
     except Exception as e:
+        capture_exception(
+            e,
+            component="helpers.lesson_planner",
+            operation="generate_quick_lesson_plan",
+            severity="warning",
+            page_key="smart_tools",
+            user_face="teacher",
+            context={"fallback_used": True, "resource_type": "lesson_plan"},
+        )
         log_ai_usage(
             request_kind="quick_lesson_ai",
             status="failed",

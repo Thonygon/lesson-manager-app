@@ -10,7 +10,7 @@ from io import BytesIO
 from core.i18n import t
 from core.state import get_current_user_id, with_owner
 from core.timezone import now_local, today_local, get_app_tz
-from core.database import get_sb, load_table, clear_app_caches, insert_row_with_retries, register_cache, show_data_load_error
+from core.database import clear_cache_domains, get_sb, load_table, insert_row_with_retries, register_cache, show_data_load_error
 from services.ai_usage_service import log_ai_usage_event
 import math
 import html
@@ -26,6 +26,10 @@ from styles.pdf_styles import (
     get_pdf_layout_constants,
     C as _C,
 )
+
+
+def _clear_worksheet_caches() -> None:
+    clear_cache_domains("worksheets", "resources", "assignments", "practice", "reviews", "recommendations")
 from helpers.visual_support import (
     enrich_worksheet_with_visuals,
     regenerate_worksheet_visuals,
@@ -931,7 +935,7 @@ def _load_my_worksheets_cached(uid: str, limit: int = 120) -> pd.DataFrame:
     return _normalize_worksheet_frame(getattr(res, "data", None) or [])
 
 
-register_cache(_load_my_worksheets_cached)
+register_cache(_load_my_worksheets_cached, "worksheets", "resources")
 
 
 @st.cache_data(ttl=180, show_spinner=False)
@@ -948,7 +952,7 @@ def _load_public_worksheets_cached(limit: int = 120) -> pd.DataFrame:
     return _normalize_worksheet_frame(getattr(res, "data", None) or [])
 
 
-register_cache(_load_public_worksheets_cached)
+register_cache(_load_public_worksheets_cached, "worksheets", "resources")
 
 
 def load_public_worksheets(*, show_errors: bool = True) -> pd.DataFrame:
@@ -992,7 +996,7 @@ def load_worksheet_record(worksheet_id) -> dict:
         return {}
 
 
-register_cache(load_worksheet_record)
+register_cache(load_worksheet_record, "worksheets", "resources")
 
 
 # ── AI usage tracking ────────────────────────────────────────────────
@@ -1030,7 +1034,7 @@ def update_worksheet_visibility(worksheet_id, is_public: bool) -> tuple[bool, st
             .eq("user_id", uid)
             .execute()
         )
-        clear_app_caches()
+        _clear_worksheet_caches()
         return True, "ok"
     except Exception as exc:
         return False, str(exc)
@@ -1069,7 +1073,7 @@ def update_worksheet_archive(worksheet_id, archived: bool) -> tuple[bool, str]:
             source_record_id=safe_worksheet_id,
             archived=archived,
         )
-        clear_app_caches()
+        _clear_worksheet_caches()
         return True, "ok"
     except Exception as exc:
         return False, str(exc)
@@ -1909,7 +1913,7 @@ def _persist_saved_worksheet_visuals(worksheet_id: int | str, worksheet: dict) -
             )
         except Exception:
             pass
-        clear_app_caches()
+        _clear_worksheet_caches()
         try:
             load_worksheet_record.clear()
         except Exception:
@@ -1971,7 +1975,7 @@ def _persist_saved_worksheet_resource(worksheet_id: int | str, worksheet: dict) 
             )
         except Exception:
             pass
-        clear_app_caches()
+        _clear_worksheet_caches()
         try:
             load_worksheet_record.clear()
         except Exception:

@@ -28,6 +28,7 @@ from services.ml_experiment_service import (
     list_experiment_catalog,
     list_run_artifacts,
 )
+from core.runtime import resolve_utc_datetime
 
 
 RUN_SUMMARY_COLUMNS = ",".join(
@@ -482,10 +483,10 @@ def _telemetry_status_from_counts(exposures: int, matched: int, unmatched: int) 
 
 
 @st.cache_data(ttl=30, show_spinner=False)
-def get_business_telemetry_health(*, days: int = 30, cache_bust: str = "") -> dict[str, Any]:
+def get_business_telemetry_health(*, days: int = 30, cache_bust: str = "", as_of_iso: str = "") -> dict[str, Any]:
     started = time.perf_counter()
     window_days = max(7, min(int(days or 30), 90))
-    end_dt = _utc_now()
+    end_dt = resolve_utc_datetime(as_of_iso, clock=_utc_now)
     start_dt = end_dt - timedelta(days=window_days)
     start_iso = start_dt.isoformat()
     end_iso = end_dt.isoformat()

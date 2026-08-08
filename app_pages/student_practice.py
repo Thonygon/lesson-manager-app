@@ -1378,8 +1378,17 @@ def _render_active_session(exercise_data: dict):
                         result,
                         exercise_data,
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    from services.operational_diagnostics_service import capture_exception
+
+                    capture_exception(
+                        exc,
+                        component="app_pages.student_practice",
+                        operation="record_assignment_attempt",
+                        page_key="student_practice",
+                        user_face="student",
+                        context={"resource_type": exercise_data.get("source_type")},
+                    )
             # Always save progress (even if session save failed)
             update_practice_progress(
                 exercise_data, result["answers"],

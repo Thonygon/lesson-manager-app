@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 import sys
 import types
@@ -436,7 +437,11 @@ class ExposureTelemetryTests(unittest.TestCase):
             patch.object(telemetry, "get_sb", return_value=fake_sb),
             patch.object(telemetry, "get_current_user_role", return_value="teacher"),
         ):
-            snapshot = telemetry.load_telemetry_health_snapshot(teacher_id="teacher-1", days=30)
+            snapshot = telemetry.load_telemetry_health_snapshot(
+                teacher_id="teacher-1",
+                days=30,
+                as_of_iso="2026-07-15T00:00:00+00:00",
+            )
 
         self.assertEqual(1, snapshot["summary"]["total_exposures"])
         self.assertEqual(1, snapshot["summary"]["events_without_exposures"])

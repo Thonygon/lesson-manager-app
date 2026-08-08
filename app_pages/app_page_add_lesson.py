@@ -10,10 +10,10 @@ from core.navigation import go_to, page_header
 from core.database import (
     LESSON_NOTE_DEFAULT_TOKEN,
     get_sb,
-    load_table,
+    load_table_filtered,
     load_students,
     add_class,
-    clear_app_caches,
+    clear_cache_domains,
 )
 from helpers.language import LANG_EN, LANG_ES, allowed_lesson_language_from_package, translate_language_value
 from core.database import delete_row, update_class_row
@@ -21,6 +21,9 @@ from helpers.package_lang_lookups import latest_payment_languages_for_student
 from helpers.lesson_planner import QUICK_SUBJECTS
 from helpers.planner_storage import render_quick_lesson_planner_expander
 from helpers.empty_states import render_empty_state
+
+
+_LESSON_PAGE_COLUMNS = "id,student,lesson_date,number_of_lesson,modality,subject,subject_custom,note"
 
 # 12.3) PAGE: ADD LESSON
 # =========================
@@ -206,7 +209,13 @@ def _render_lesson_editor(student: str) -> None:
 
         st.divider()
 
-        classes = load_table("classes")
+        classes = load_table_filtered(
+            "classes",
+            columns=_LESSON_PAGE_COLUMNS,
+            filters=[("eq", "student", student)],
+            order_by="lesson_date",
+            order_desc=True,
+        )
         if classes.empty:
             st.info(t("no_data"))
             return
@@ -314,11 +323,11 @@ def _render_lesson_editor(student: str) -> None:
                     "subject_custom": subject_custom,
                 }
 
-                if not update_class_row(cid, updates):
+                if not update_class_row(cid, updates, invalidate_cache=False):
                     ok_all = False
 
             if ok_all:
-                clear_app_caches()
+                clear_cache_domains("classes", "dashboard", "notifications")
                 st.success(t("done_ok"))
                 st.rerun()
             else:
@@ -326,7 +335,12 @@ def _render_lesson_editor(student: str) -> None:
 
 
 def _render_view_lessons() -> None:
-    classes = load_table("classes")
+    classes = load_table_filtered(
+        "classes",
+        columns=_LESSON_PAGE_COLUMNS,
+        order_by="lesson_date",
+        order_desc=True,
+    )
 
     if classes.empty:
         render_empty_state(

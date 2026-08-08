@@ -15,6 +15,7 @@ PAGES = [
     ("account", "account", "👤"),
     ("admin", "admin", "🛡️"),
     ("developer_workspace", "Developer Workspace", "🧪"),
+    ("operational_diagnostics", "Operational Diagnostics", "🩺"),
 ]
 
 STUDENT_PAGES = [
@@ -150,6 +151,7 @@ def clear_smart_tool_result_state(*, clear_selection: bool = False) -> None:
     for key in _SMART_TOOL_RESULT_KEYS:
         st.session_state.pop(key, None)
     if clear_selection:
+        st.session_state.pop("_home_smart_tool_dialog", None)
         st.session_state["home_smart_tool_selected"] = ""
         for key in (
             "open_quick_learning_program_expander",

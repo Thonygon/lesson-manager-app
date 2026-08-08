@@ -8,7 +8,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from core.database import clear_app_caches, get_sb, load_profile_row, register_cache
+from core.database import clear_cache_domains, get_sb, load_profile_row, register_cache
 from core.i18n import t
 from core.navigation import clear_open_resource_previews, clear_smart_tool_result_state, go_to
 from core.state import get_current_user_id
@@ -66,6 +66,7 @@ _VIDEO_LIST_COLUMNS = ",".join([
     "user_id",
     "title",
     "subject",
+    "custom_subject_name",
     "topic",
     "description",
     "video_id",
@@ -85,6 +86,10 @@ _VIDEO_LIST_COLUMNS = ",".join([
     "created_at",
     "updated_at",
 ])
+
+
+def _clear_video_caches() -> None:
+    clear_cache_domains("videos", "resources", "assignments", "practice", "recommendations")
 
 
 def _rows(result) -> list[dict]:
@@ -384,7 +389,7 @@ def save_video_resource(
         if existing:
             video_id_value = int(existing[0].get("id") or 0)
             get_sb().table("videos").update(payload).eq("id", video_id_value).eq("user_id", user_id).execute()
-            clear_app_caches()
+            _clear_video_caches()
             return True, video_id_value, "video_saved_success"
 
         payload["created_at"] = _now_iso()
@@ -404,10 +409,10 @@ def save_video_resource(
                 if existing_after_conflict:
                     video_id_value = int(existing_after_conflict[0].get("id") or 0)
                     get_sb().table("videos").update(payload).eq("id", video_id_value).eq("user_id", user_id).execute()
-                    clear_app_caches()
+                    _clear_video_caches()
                     return True, video_id_value, "video_saved_success"
             raise
-        clear_app_caches()
+        _clear_video_caches()
         return True, int((inserted[0] if inserted else {}).get("id") or 0) or None, "video_saved_success"
     except Exception as exc:
         if _video_schema_unavailable_error(exc):
@@ -496,7 +501,7 @@ def update_video_resource(
             .eq("user_id", user_id)
             .execute()
         )
-        clear_app_caches()
+        _clear_video_caches()
         try:
             load_video_record.clear()
         except Exception:
@@ -515,26 +520,32 @@ def update_video_resource(
         return False, "save_failed"
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+def _load_video_list_rows(scope_column: str, scope_value: Any, limit: int) -> list[dict]:
+    for columns in (_VIDEO_LIST_COLUMNS, "*"):
+        try:
+            return _rows(
+                get_sb()
+                .table("videos")
+                .select(columns)
+                .eq(scope_column, scope_value)
+                .order("updated_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+        except Exception:
+            continue
+    return []
+
+
+@st.cache_data(ttl=45, show_spinner=False)
 def _load_my_videos_cached(uid: str, limit: int = 120) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
-    try:
-        rows = _rows(
-            get_sb()
-            .table("videos")
-            .select("*")
-            .eq("user_id", uid)
-            .order("updated_at", desc=True)
-            .limit(limit)
-            .execute()
-        )
-        return pd.DataFrame([_normalize_video_row(row) for row in rows])
-    except Exception:
-        return pd.DataFrame()
+    rows = _load_video_list_rows("user_id", uid, limit)
+    return pd.DataFrame([_normalize_video_row(row) for row in rows])
 
 
-register_cache(_load_my_videos_cached)
+register_cache(_load_my_videos_cached, "videos", "resources")
 
 
 def load_my_videos(*, include_archived: bool = False, archived_only: bool = False) -> pd.DataFrame:
@@ -550,33 +561,11 @@ def load_my_videos(*, include_archived: bool = False, archived_only: bool = Fals
 
 @st.cache_data(ttl=180, show_spinner=False)
 def _load_public_videos_cached(limit: int = 120) -> pd.DataFrame:
-    try:
-        try:
-            rows = _rows(
-                get_sb()
-                .table("videos")
-                .select(_VIDEO_LIST_COLUMNS)
-                .eq("is_public", True)
-                .order("updated_at", desc=True)
-                .limit(limit)
-                .execute()
-            )
-        except Exception:
-            rows = _rows(
-                get_sb()
-                .table("videos")
-                .select("*")
-                .eq("is_public", True)
-                .order("updated_at", desc=True)
-                .limit(limit)
-                .execute()
-            )
-    except Exception:
-        return pd.DataFrame()
+    rows = _load_video_list_rows("is_public", True, limit)
     profiles = _profile_name_map([str(row.get("user_id") or "") for row in rows])
     normalized_rows = []
     for row in rows:
-        profile = profiles.get(str(row.get("user_id") or "").strip(), {})
+        profile = profiles.get(str(row.get("user_id") or "").strip()) or {}
         normalized_rows.append(
             _normalize_video_row(
                 {
@@ -588,7 +577,7 @@ def _load_public_videos_cached(limit: int = 120) -> pd.DataFrame:
     return pd.DataFrame(normalized_rows)
 
 
-register_cache(_load_public_videos_cached)
+register_cache(_load_public_videos_cached, "videos", "resources")
 
 
 def load_public_videos() -> pd.DataFrame:
@@ -605,6 +594,9 @@ def load_video_record(video_record_id: int | str) -> dict:
         return _normalize_video_row(rows[0]) if rows else {}
     except Exception:
         return {}
+
+
+register_cache(load_video_record, "videos", "resources")
 
 
 def _open_video_library_record(
@@ -658,7 +650,7 @@ def update_video_visibility(video_id: int, is_public: bool) -> tuple[bool, str]:
         return False, "save_failed"
     try:
         get_sb().table("videos").update({"is_public": bool(is_public), "updated_at": _now_iso()}).eq("id", int(video_id)).eq("user_id", uid).execute()
-        clear_app_caches()
+        _clear_video_caches()
         return True, "video_visibility_updated"
     except Exception:
         return False, "save_failed"
@@ -684,7 +676,7 @@ def update_video_archive(video_id: int, archived: bool) -> tuple[bool, str]:
             )
         except Exception:
             pass
-        clear_app_caches()
+        _clear_video_caches()
         return True, "video_archive_updated"
     except Exception:
         return False, "save_failed"
@@ -1025,7 +1017,7 @@ def attach_video_to_topic(program_id: int, topic_id: int, video_id: int) -> tupl
         )
         if not existing:
             get_sb().table("learning_program_topic_videos").insert(_topic_link_payload(program_id, topic_id, video_id)).execute()
-        clear_app_caches()
+        _clear_video_caches()
         return True, "video_attached_success"
     except Exception:
         return False, "video_topic_link_failed"
@@ -1037,7 +1029,7 @@ def detach_video_from_topic(link_id: int) -> tuple[bool, str]:
         return False, "save_failed"
     try:
         get_sb().table("learning_program_topic_videos").delete().eq("id", int(link_id)).eq("teacher_id", uid).execute()
-        clear_app_caches()
+        _clear_video_caches()
         return True, "video_detached_success"
     except Exception:
         return False, "save_failed"
@@ -1073,7 +1065,7 @@ def _load_topic_video_links_cached(program_ids_key: tuple[int, ...]) -> dict[int
     return topic_map
 
 
-register_cache(_load_topic_video_links_cached)
+register_cache(_load_topic_video_links_cached, "videos", "resources", "learning_programs")
 
 
 def load_videos_by_ids(video_ids: list[int]) -> list[dict]:

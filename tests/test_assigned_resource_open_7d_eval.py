@@ -6,6 +6,7 @@ import unittest
 import pandas as pd
 
 from helpers import assigned_resource_open_7d_eval as eval7d
+from core.runtime import without_nondeterministic_fields
 
 
 def _assignment(
@@ -275,7 +276,7 @@ class AssignedResourceOpenWithin7DaysTests(unittest.TestCase):
             self.assertNotIn("source_record_id", frozen.columns)
             self.assertEqual(first_path.read_text(encoding="utf-8"), second_path.read_text(encoding="utf-8"))
 
-    def test_evaluation_is_deterministic_without_sklearn(self):
+    def test_evaluation_is_deterministic_except_runtime_measurements(self):
         rows = []
         for idx in range(12):
             rows.append(
@@ -324,10 +325,69 @@ class AssignedResourceOpenWithin7DaysTests(unittest.TestCase):
         second = eval7d.evaluate_models(df)
         self.assertEqual(first["winner"], second["winner"])
         self.assertEqual(first["maturity_verdict"], second["maturity_verdict"])
+
         self.assertEqual(
-            json.dumps(first["model_rows"], sort_keys=True, default=str),
-            json.dumps(second["model_rows"], sort_keys=True, default=str),
+            json.dumps(
+                without_nondeterministic_fields(
+                    first["model_rows"],
+                    {"train_duration_seconds", "inference_duration_seconds"},
+                ),
+                sort_keys=True,
+                default=str,
+            ),
+            json.dumps(
+                without_nondeterministic_fields(
+                    second["model_rows"],
+                    {"train_duration_seconds", "inference_duration_seconds"},
+                ),
+                sort_keys=True,
+                default=str,
+            ),
         )
+
+    def test_injected_timer_makes_runtime_measurements_deterministic(self):
+        class StepTimer:
+            def __init__(self):
+                self.value = 0.0
+
+            def __call__(self):
+                self.value += 0.25
+                return self.value
+
+        rows = []
+        for idx in range(12):
+            rows.append(
+                {
+                    "assignment_id": idx + 1,
+                    "teacher_id": "teacher-1",
+                    "student_id": f"student-{idx % 3}",
+                    "resource_key": f"worksheet:{idx % 4}",
+                    "assignment_type": "worksheet",
+                    "source_type": "worksheet_builder",
+                    "subject_key": "english",
+                    "topic": f"topic-{idx % 4}",
+                    "assigned_at": f"2026-06-{idx + 1:02d}T00:00:00+00:00",
+                    "label_status": "included",
+                    "opened_within_7d": idx % 2,
+                    "assignment_weekday": "Monday",
+                    "assignment_hour_bucket": "10:00",
+                    "resource_topic": f"topic-{idx % 4}",
+                    "resource_type": "worksheet",
+                    "resource_learner_stage": "middle_school",
+                    "resource_level": "B1",
+                    "resource_language": "en",
+                    **{name: 1.0 for name in eval7d.NUMERIC_FEATURES},
+                }
+            )
+
+        result = eval7d.evaluate_models(pd.DataFrame(rows), timer=StepTimer())
+
+        successful = [row for row in result["model_rows"] if row.get("status") == "success"]
+        measured = [row for row in successful if row.get("model_name") != "MajorityClassRule"]
+        self.assertTrue(successful)
+        self.assertTrue(measured)
+        self.assertTrue(all(row["train_duration_seconds"] == 0.25 for row in measured))
+        self.assertTrue(all(row["inference_duration_seconds"] == 0.25 for row in measured))
 
 
 if __name__ == "__main__":

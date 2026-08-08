@@ -7,7 +7,11 @@ from core.timezone import now_local, today_local
 from core.database import get_sb, load_table, load_students
 from typing import Optional
 from core.state import with_owner
-from core.database import ensure_student, clear_app_caches
+from core.database import clear_cache_domains, ensure_student
+
+
+def _clear_operational_caches(*domains: str) -> None:
+    clear_cache_domains(*domains, "dashboard", "notifications")
 # 07.5) CLASSES / PAYMENTS HELPERS
 # =========================
 def add_class(
@@ -31,7 +35,7 @@ def add_class(
     })
 
     get_sb().table("classes").insert(payload).execute()
-    clear_app_caches()
+    _clear_operational_caches("classes")
 
 def add_payment(
     student: str,
@@ -68,7 +72,7 @@ def add_payment(
     })
 
     get_sb().table("payments").insert(payload).execute()
-    clear_app_caches()
+    _clear_operational_caches("payments")
 
 def delete_row(table_name: str, row_id: int) -> None:
     uid = get_current_user_id()
@@ -76,7 +80,7 @@ def delete_row(table_name: str, row_id: int) -> None:
     if uid:
         q = q.eq("user_id", uid)
     q.execute()
-    clear_app_caches()
+    _clear_operational_caches(table_name)
 
 def normalize_latest_package(student: str, payment_id: int, note: str = "") -> bool:
     try:
@@ -90,7 +94,7 @@ def normalize_latest_package(student: str, payment_id: int, note: str = "") -> b
         if uid:
             q = q.eq("user_id", uid)
         q.execute()
-        clear_app_caches()
+        _clear_operational_caches("payments")
         return True
     except Exception:
         return False
@@ -111,29 +115,31 @@ def update_student_profile(student: str, email: str, zoom_link: str, notes: str,
         q = q.eq("user_id", uid)
 
     q.execute()
-    clear_app_caches()
+    _clear_operational_caches("students", "calendar")
 
-def update_payment_row(payment_id: int, updates: dict) -> bool:
+def update_payment_row(payment_id: int, updates: dict, *, invalidate_cache: bool = True) -> bool:
     try:
         uid = get_current_user_id()
         q = get_sb().table("payments").update(updates).eq("id", int(payment_id))
         if uid:
             q = q.eq("user_id", uid)
         q.execute()
-        clear_app_caches()
+        if invalidate_cache:
+            _clear_operational_caches("payments")
         return True
     except Exception:
         return False
 
 
-def update_class_row(class_id: int, updates: dict) -> bool:
+def update_class_row(class_id: int, updates: dict, *, invalidate_cache: bool = True) -> bool:
     try:
         uid = get_current_user_id()
         q = get_sb().table("classes").update(updates).eq("id", int(class_id))
         if uid:
             q = q.eq("user_id", uid)
         q.execute()
-        clear_app_caches()
+        if invalidate_cache:
+            _clear_operational_caches("classes")
         return True
     except Exception:
         return False

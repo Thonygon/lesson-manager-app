@@ -1,0 +1,22 @@
+# Direct application dependencies. Keep this list aligned with requirements.txt.
+streamlit
+Authlib
+pandas
+supabase
+httpx
+matplotlib
+plotly
+streamlit-extras
+streamlit-option-menu
+pycountry
+openai
+google-genai
+reportlab
+pypdf
+python-docx
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
+stripe
+scipy
+scikit-learn

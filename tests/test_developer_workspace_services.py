@@ -216,6 +216,8 @@ class DeveloperWorkspaceServiceTests(unittest.TestCase):
         self.assertIn(authz.CAPABILITY_MANAGE_STAFF_ROLES, context.capabilities)
         self.assertIn(authz.CAPABILITY_RUN_APPROVED_EXPERIMENTS, context.capabilities)
         self.assertIn(authz.CAPABILITY_VIEW_JOB_DIAGNOSTICS, context.capabilities)
+        self.assertIn(authz.CAPABILITY_VIEW_OPERATIONAL_DIAGNOSTICS, context.capabilities)
+        self.assertIn(authz.CAPABILITY_MANAGE_OPERATIONAL_DIAGNOSTICS, context.capabilities)
 
     def test_authorization_context_does_not_send_demo_profile_to_uuid_staff_table(self):
         fake_sb = _FakeSupabase(

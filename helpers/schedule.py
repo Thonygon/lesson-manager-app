@@ -152,7 +152,7 @@ def load_schedules() -> pd.DataFrame:
     uid = get_current_user_id()
     return _load_schedules_cached(uid)
 
-register_cache(_load_schedules_cached)
+register_cache(_load_schedules_cached, "schedule", "calendar")
 
 def add_schedule(student: str, weekday: int, time_str: str, duration_minutes: int, active: bool = True) -> None:
     student = str(student).strip()
@@ -230,7 +230,7 @@ def load_overrides() -> pd.DataFrame:
     tz_name = getattr(get_app_tz(), "key", "") or DEFAULT_TZ_NAME
     return _load_overrides_cached(uid, tz_name)
 
-register_cache(_load_overrides_cached)
+register_cache(_load_overrides_cached, "schedule", "calendar")
 
 @st.cache_data(ttl=45, show_spinner=False)
 def _load_schedule_freezes_cached(uid: str) -> pd.DataFrame:
@@ -281,7 +281,7 @@ def load_schedule_freezes() -> pd.DataFrame:
     return _load_schedule_freezes_cached(uid or "")
 
 
-register_cache(_load_schedule_freezes_cached)
+register_cache(_load_schedule_freezes_cached, "schedule", "calendar")
 
 
 def add_schedule_freeze(

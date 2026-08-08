@@ -14,6 +14,7 @@ import streamlit as st
 
 from core.database import _execute_query_with_diagnostics, clear_app_caches, get_sb, register_cache
 from core.state import get_current_user_id, get_current_user_role
+from core.runtime import resolve_utc_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -760,7 +761,7 @@ def _legacy_surface_unmatched_opens(
 
 
 @st.cache_data(ttl=120, show_spinner=False)
-def load_telemetry_health_snapshot(*, teacher_id: str, days: int = 30) -> dict[str, Any]:
+def load_telemetry_health_snapshot(*, teacher_id: str, days: int = 30, as_of_iso: str = "") -> dict[str, Any]:
     safe_teacher_id = _clean_text(teacher_id)
     if not safe_teacher_id:
         return {
@@ -769,7 +770,7 @@ def load_telemetry_health_snapshot(*, teacher_id: str, days: int = 30) -> dict[s
             "date_range": {"start": "", "end": ""},
         }
     window_days = max(7, min(int(days or 30), _observation_window_days()))
-    end_dt = _now()
+    end_dt = resolve_utc_datetime(as_of_iso, clock=_now)
     start_dt = end_dt - timedelta(days=window_days)
     start_iso = start_dt.isoformat()
     end_iso = end_dt.isoformat()
@@ -863,7 +864,7 @@ def load_telemetry_health_snapshot(*, teacher_id: str, days: int = 30) -> dict[s
         ) if not surface_events.empty else pd.Series(dtype=bool)
         downstream_count = int(downstream_mask.sum()) if not surface_events.empty else 0
         shown_values = pd.to_datetime(group.get("shown_at", pd.Series(dtype=str)), errors="coerce", utc=True)
-        mature_cutoff = _now() - timedelta(days=7)
+        mature_cutoff = end_dt - timedelta(days=7)
         mature_count = int((shown_values <= mature_cutoff).sum()) if len(shown_values) else 0
         total = int(len(group))
         open_rate = (matched_opens / total) if total else 0.0
@@ -920,7 +921,7 @@ def load_telemetry_health_snapshot(*, teacher_id: str, days: int = 30) -> dict[s
         "exposure_maturity_7d": int(
             (
                 pd.to_datetime(exposure_df.get("shown_at", pd.Series(dtype=str)), errors="coerce", utc=True)
-                <= (_now() - timedelta(days=7))
+                <= (end_dt - timedelta(days=7))
             ).sum()
         ) if len(exposure_df) else 0,
     }
@@ -931,4 +932,4 @@ def load_telemetry_health_snapshot(*, teacher_id: str, days: int = 30) -> dict[s
     }
 
 
-register_cache(load_telemetry_health_snapshot)
+register_cache(load_telemetry_health_snapshot, "telemetry", "recommendations", "assignments", "practice")

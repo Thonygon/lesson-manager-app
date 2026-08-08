@@ -5,7 +5,7 @@ from datetime import datetime as _dt, timezone
 import pandas as pd
 from core.i18n import t
 from core.navigation import go_to, page_header
-from core.database import get_sb, load_table, load_students, add_payment, clear_app_caches, recalculate_package_dates
+from core.database import clear_cache_domains, get_sb, load_table_filtered, load_students, add_payment, recalculate_package_dates
 from helpers.language import LANG_EN, LANG_ES, LANG_BOTH, ALLOWED_LANGS, DEFAULT_PACKAGE_LANGS, pack_languages, allowed_lesson_language_from_package, translate_language_value
 from core.database import delete_row, update_payment_row, update_class_row
 from helpers.pricing import render_pricing_editor
@@ -13,6 +13,14 @@ from helpers.package_lang_lookups import latest_payment_languages_for_student
 from helpers.currency import CURRENCIES, CURRENCY_CODES, get_preferred_currency, currency_symbol, guess_currency_from_timezone
 from helpers.lesson_planner import QUICK_SUBJECTS
 from helpers.empty_states import render_empty_state
+
+
+_PAYMENT_PAGE_COLUMNS = (
+    "id,student,number_of_lesson,payment_date,paid_amount,modality,subject,subject_custom,"
+    "currency,package_start_date,package_expiry_date,lesson_adjustment_units,"
+    "package_normalized,normalized_note,normalized_at"
+)
+_PAYMENT_CLASS_COLUMNS = "id,student,subject"
 
 # 12.4) PAGE: ADD PAYMENT
 # =========================
@@ -242,7 +250,13 @@ def _render_add_payment_form():
 
             st.divider()
 
-            payments = load_table("payments")
+            payments = load_table_filtered(
+                "payments",
+                columns=_PAYMENT_PAGE_COLUMNS,
+                filters=[("eq", "student", student_p)],
+                order_by="payment_date",
+                order_desc=True,
+            )
             if payments.empty:
                 st.info(t("no_data"))
             else:
@@ -398,7 +412,7 @@ def _render_add_payment_form():
                                 else None,
                             }
 
-                            if not update_payment_row(pid, updates):
+                            if not update_payment_row(pid, updates, invalidate_cache=False):
                                 ok_all = False
 
                         # Auto-fill missing subject when package becomes single-language
@@ -406,7 +420,11 @@ def _render_add_payment_form():
                         _, single_default = allowed_lesson_language_from_package(latest_lang)
                         if single_default is not None:
                             try:
-                                cls = load_table("classes")
+                                cls = load_table_filtered(
+                                    "classes",
+                                    columns=_PAYMENT_CLASS_COLUMNS,
+                                    filters=[("eq", "student", student_p)],
+                                )
                                 if not cls.empty:
                                     cls["student"] = cls.get("student", "").astype(str).str.strip()
                                     cls = cls[cls["student"] == student_p].copy()
@@ -418,10 +436,15 @@ def _render_add_payment_form():
                                         (cls["subject"].str.strip() == "") | (cls["subject"].isna())
                                     ]
                                     for _, rr in missing.iterrows():
-                                        update_class_row(int(rr["id"]), {"subject": single_default})
+                                        update_class_row(
+                                            int(rr["id"]),
+                                            {"subject": single_default},
+                                            invalidate_cache=False,
+                                        )
                             except Exception:
                                 pass
 
+                        clear_cache_domains("payments", "classes", "dashboard", "notifications")
                         if ok_all:
                             st.success(t("updated"))
                             st.rerun()
@@ -431,7 +454,12 @@ def _render_add_payment_form():
 
 def _render_view_payments():
     """View all payments sorted by year, displayed as informative cards."""
-    payments = load_table("payments")
+    payments = load_table_filtered(
+        "payments",
+        columns=_PAYMENT_PAGE_COLUMNS,
+        order_by="payment_date",
+        order_desc=True,
+    )
 
     if payments.empty:
         render_empty_state(

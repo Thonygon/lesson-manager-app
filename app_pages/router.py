@@ -113,6 +113,7 @@ def _page_loading_label(page_key: str) -> str:
         "student_study_plan": "smart_study_plan",
         "student_assignments": "student_assignments_title",
         "student_find_teacher": "find_my_teacher",
+        "operational_diagnostics": "operational_diagnostics_title",
     }
     label_key = label_keys.get(page_key, page_key)
     label = t(label_key)
@@ -140,10 +141,14 @@ def _page_render_error_copy() -> tuple[str, str, str]:
     )
 
 
-def _render_page_error_fallback(page_key: str) -> None:
+def _render_page_error_fallback(page_key: str, event_id: str = "") -> None:
     title, body, retry_label = _page_render_error_copy()
     st.error(title)
     st.caption(body)
+    if event_id:
+        from services.operational_diagnostics_service import short_event_reference
+
+        st.caption(t("operational_diagnostics_user_reference", reference=short_event_reference(event_id)))
     if st.button(retry_label, key=f"{page_key}_render_retry", use_container_width=False):
         clear_app_caches()
         st.rerun()
@@ -170,16 +175,26 @@ def _render_page_with_loading(page_key: str, render_fn: Callable[[], None]) -> N
         render_fn()
         if progress is not None:
             progress.progress(1.0, text=t("section_loading_ready", section=label))
-    except Exception:
-        logger.exception(
-            "Page render failed",
+    except Exception as exc:
+        from services.operational_diagnostics_service import capture_exception
+
+        event_id = capture_exception(
+            exc,
+            component="app_pages.router",
+            operation="render_page",
+            page_key=page_key,
+            user_face=str(get_current_user_role() or ""),
+        )
+        logger.error(
+            "Page render failed event_id=%s exception_type=%s",
+            event_id,
+            type(exc).__name__,
             extra={
                 "page_key": page_key,
                 "role": str(get_current_user_role() or ""),
-                "user_id": str(get_current_user_id() or ""),
             },
         )
-        _render_page_error_fallback(page_key)
+        _render_page_error_fallback(page_key, event_id)
     finally:
         st.session_state["_last_rendered_page"] = page_key
         loading_slot.empty()
@@ -557,6 +572,32 @@ def render_admin_top_nav(active_page: str):
             st.rerun()
 
 
+def _developer_workspace_nav_items(
+    diagnostics_label: str,
+    *,
+    can_teach: bool,
+    can_study: bool,
+    is_admin: bool,
+) -> list[tuple[str, str, str]]:
+    items = [
+        ("developer_workspace", "Developer Workspace", "cpu"),
+        ("operational_diagnostics", diagnostics_label, "activity"),
+    ]
+    if can_teach:
+        items.append(("switch_teacher", t("switch_to_teacher"), "arrow-left-right"))
+    if can_study:
+        items.append(("switch_student", t("switch_to_student"), "arrow-left-right"))
+    if is_admin:
+        items.append(("switch_admin", t("admin"), "shield-lock"))
+    items.extend(
+        [
+            ("profile", t("profile"), "person-circle"),
+            ("sign_out", t("sign_out"), "box-arrow-right"),
+        ]
+    )
+    return items
+
+
 def render_developer_workspace_top_nav(active_page: str):
     _inject_scrollable_top_nav_styles()
     current_lang = st.session_state.get("ui_lang", "en")
@@ -567,19 +608,22 @@ def render_developer_workspace_top_nav(active_page: str):
     can_teach = profile_can_teach(current_profile)
     can_study = profile_can_study(current_profile)
 
-    items = [
-        ("developer_workspace", "Developer Workspace", "cpu"),
-        ("profile", t("profile"), "person-circle"),
-        ("sign_out", t("sign_out"), "box-arrow-right"),
-    ]
-    if can_teach:
-        items.insert(1, ("switch_teacher", t("switch_to_teacher"), "arrow-left-right"))
-    if can_study:
-        insert_at = 2 if can_teach else 1
-        items.insert(insert_at, ("switch_student", t("switch_to_student"), "arrow-left-right"))
-    if current_user_is_admin():
-        insert_at = len(items) - 2
-        items.insert(insert_at, ("switch_admin", t("admin"), "shield-lock"))
+    diagnostics_label = t("operational_diagnostics_nav")
+    try:
+        from services.operational_diagnostics_service import count_active_critical_diagnostics
+
+        critical_count = count_active_critical_diagnostics()
+        if critical_count:
+            diagnostics_label = f"{diagnostics_label} ({critical_count})"
+    except Exception:
+        pass
+
+    items = _developer_workspace_nav_items(
+        diagnostics_label,
+        can_teach=can_teach,
+        can_study=can_study,
+        is_admin=current_user_is_admin(),
+    )
 
     keys = [k for k, _, _ in items]
     labels = [label for _, label, _ in items]
@@ -671,7 +715,7 @@ def _switch_role(target_role: str):
 def route_app_pages(page: str):
     role = get_current_user_role()
 
-    if page == "developer_workspace":
+    if page in {"developer_workspace", "operational_diagnostics"}:
         _route_developer_workspace(page)
         return
 
@@ -819,13 +863,19 @@ def _route_admin_pages(page: str):
 
 def _route_developer_workspace(page: str):
     from app_pages.developer_workspace import render_developer_workspace
+    from app_pages.operational_diagnostics import render_operational_diagnostics
+    from services.authorization_service import CAPABILITY_VIEW_DEVELOPER_WORKSPACE, require_capability
     from styles.theme import load_css_app
 
-    if page != "developer_workspace":
+    require_capability(CAPABILITY_VIEW_DEVELOPER_WORKSPACE, message=t("developer_workspace_access_required"))
+    if page not in {"developer_workspace", "operational_diagnostics"}:
         page = "developer_workspace"
 
     load_css_app(compact=bool(st.session_state.get("compact_mode", False)))
     render_developer_workspace_top_nav(page)
     _render_profile_dialog_if_requested()
-    _render_page_with_loading("developer_workspace", render_developer_workspace)
+    if page == "operational_diagnostics":
+        _render_page_with_loading("operational_diagnostics", render_operational_diagnostics)
+    else:
+        _render_page_with_loading("developer_workspace", render_developer_workspace)
     _render_global_page_divider()

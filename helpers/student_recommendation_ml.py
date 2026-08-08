@@ -403,7 +403,7 @@ def student_recommendation_blend_weight(student_id: str, profile_snapshot: dict[
     return float(diagnostics.get("blend_weight") or 0.42)
 
 
-register_cache(evaluate_student_recommendation_pipeline)
+register_cache(evaluate_student_recommendation_pipeline, "recommendations", "practice", "assignments")
 
 
 def _student_reco_meta(item: dict[str, Any], surface: str) -> dict[str, Any]:

@@ -7,7 +7,7 @@ from typing import Any
 
 import streamlit as st
 
-from core.database import clear_app_caches, get_sb, register_cache
+from core.database import clear_cache_domains, get_sb, register_cache
 from core.i18n import t
 from core.state import get_current_user_id
 from helpers.archive_utils import truthy_flag
@@ -21,6 +21,7 @@ from helpers.exposure_telemetry import (
     record_assignment_exposure_from_assignment_row,
     record_exposure_event,
 )
+from services.operational_diagnostics_service import capture_exception
 
 
 _TEACHER_STUDENT_LINK_COLUMNS = (
@@ -67,6 +68,19 @@ _PRACTICE_ANSWER_COLUMNS = (
     "id,session_id,user_id,exercise_idx,question_idx,exercise_type,student_answer,"
     "correct_answer,is_correct,answered_at"
 )
+
+
+def _clear_teacher_student_caches() -> None:
+    clear_cache_domains(
+        "teacher_student_links",
+        "assignments",
+        "reviews",
+        "practice",
+        "learning_programs",
+        "recommendations",
+        "notifications",
+        "telemetry",
+    )
 
 
 def _lesson_planner():
@@ -305,7 +319,7 @@ def _load_active_linked_students_for_teacher_cached(uid: str) -> list[dict]:
     return linked
 
 
-register_cache(_load_active_linked_students_for_teacher_cached)
+register_cache(_load_active_linked_students_for_teacher_cached, "teacher_student_links", "students")
 
 
 def _load_profiles_map(user_ids: list[str]) -> dict[str, dict]:
@@ -670,7 +684,7 @@ def _load_student_teacher_links_cached(uid: str, statuses_key: tuple[str, ...]) 
     return enriched
 
 
-register_cache(_load_student_teacher_links_cached)
+register_cache(_load_student_teacher_links_cached, "teacher_student_links", "students")
 
 
 def load_student_teacher_links(statuses: list[str] | None = None) -> list[dict]:
@@ -762,7 +776,7 @@ def create_teacher_request(teacher_id: str, requested_subjects: list[str], note:
         else:
             payload["created_at"] = now
             sb.table("teacher_student_links").insert(payload).execute()
-        clear_app_caches()
+        _clear_teacher_student_caches()
         return True, "teacher_request_sent"
     except Exception:
         return False, "teacher_request_failed"
@@ -801,7 +815,7 @@ def respond_to_teacher_request(
                     "updated_at": now,
                 }
             ).eq("id", link_id).execute()
-            clear_app_caches()
+            _clear_teacher_student_caches()
             return True, "teacher_request_rejected"
 
         scopes = _serialize_subject_scopes(active_subjects)
@@ -868,7 +882,7 @@ def respond_to_teacher_request(
         if not sync_ok:
             return False, sync_msg
 
-        clear_app_caches()
+        _clear_teacher_student_caches()
         return True, sync_msg
     except Exception:
         return False, "teacher_request_failed"
@@ -899,7 +913,7 @@ def archive_teacher_student_link(link_id: int) -> tuple[bool, str]:
         get_sb().table("teacher_student_subjects").update(
             {"status": "archived", "deactivated_at": now, "updated_at": now}
         ).eq("link_id", link_id).execute()
-        clear_app_caches()
+        _clear_teacher_student_caches()
         return True, "teacher_relationship_archived"
     except Exception:
         return False, "teacher_relationship_failed"
@@ -1041,7 +1055,7 @@ def create_teacher_assignment(
         if assignment_rows:
             created_row = {**payload, **assignment_rows[0]}
             record_assignment_exposure_from_assignment_row(created_row)
-        clear_app_caches()
+        _clear_teacher_student_caches()
         return True, "assignment_created"
     except Exception:
         return False, "assignment_create_failed"
@@ -1087,7 +1101,45 @@ def _load_student_assignments_cached(uid: str, statuses_key: tuple[str, ...]) ->
     return grouped_rows
 
 
-register_cache(_load_student_assignments_cached)
+register_cache(_load_student_assignments_cached, "assignments")
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_student_assignments_by_ids_cached(uid: str, assignment_ids_key: tuple[int, ...]) -> list[dict]:
+    if not uid or not assignment_ids_key:
+        return []
+    try:
+        rows = _rows(
+            get_sb()
+            .table("teacher_assignments")
+            .select(_ASSIGNMENT_LIST_COLUMNS)
+            .eq("student_id", uid)
+            .in_("id", list(assignment_ids_key))
+            .execute()
+        )
+    except Exception:
+        return []
+    profiles = _load_profiles_map([str(row.get("teacher_id")) for row in rows if row.get("teacher_id")])
+    return [
+        {
+            **row,
+            "teacher_note": _clean_teacher_feedback_text(row.get("teacher_note")),
+            "source_archived": truthy_flag(row.get("source_archived")),
+            "teacher_profile": profiles.get(str(row.get("teacher_id")), {}),
+            "teacher_name": _profile_label(profiles.get(str(row.get("teacher_id")), {})),
+            "subject_display": _localized_subject_display(row.get("subject_key"), row.get("subject_label")),
+        }
+        for row in rows
+    ]
+
+
+register_cache(_load_student_assignments_by_ids_cached, "assignments")
+
+
+def load_student_assignments_by_ids(assignment_ids: list[int]) -> list[dict]:
+    uid = str(get_current_user_id() or "").strip()
+    cleaned_ids = tuple(sorted({int(item) for item in assignment_ids if int(item or 0) > 0}))
+    return _load_student_assignments_by_ids_cached(uid, cleaned_ids)
 
 
 def load_student_assignments(statuses: list[str] | None = None) -> list[dict]:
@@ -1157,7 +1209,7 @@ def archive_teacher_assignment_for_teacher(assignment_id: int) -> tuple[bool, st
                 "updated_at": _now_iso(),
             }
         ).eq("id", int(assignment_id)).eq("teacher_id", teacher_id).execute()
-        clear_app_caches()
+        _clear_teacher_student_caches()
         return True, "assignment_archived"
     except Exception:
         return False, "assignment_archive_failed"
@@ -1192,7 +1244,7 @@ def update_assignment_source_archive_state(
             .eq("source_record_id", safe_source_id)
             .execute()
         )
-        clear_app_caches()
+        _clear_teacher_student_caches()
     except Exception:
         # Additive migration safety: the resource can still archive cleanly even
         # if the assignment table has not received source_archived columns yet.
@@ -1358,9 +1410,16 @@ def mark_assignment_started(assignment_id: int) -> None:
                 event_weight=0.16,
                 metadata={"title": str(assignment.get("title") or "").strip()},
             )
-        clear_app_caches()
-    except Exception:
-        pass
+        _clear_teacher_student_caches()
+    except Exception as exc:
+        capture_exception(
+            exc,
+            component="helpers.teacher_student_integration",
+            operation="mark_assignment_started",
+            page_key="student_practice",
+            user_face="student",
+            context={"resource_type": assignment.get("assignment_type") if "assignment" in locals() else "assignment"},
+        )
 
 
 def persist_assignment_content_snapshot(assignment_id: int, snapshot: dict) -> None:
@@ -1374,9 +1433,16 @@ def persist_assignment_content_snapshot(assignment_id: int, snapshot: dict) -> N
                 "updated_at": _now_iso(),
             }
         ).eq("id", int(assignment_id)).eq("student_id", uid).execute()
-        clear_app_caches()
-    except Exception:
-        pass
+        _clear_teacher_student_caches()
+    except Exception as exc:
+        capture_exception(
+            exc,
+            component="helpers.teacher_student_integration",
+            operation="persist_assignment_content_snapshot",
+            page_key="student_practice",
+            user_face="student",
+            context={"resource_type": "assignment"},
+        )
 
 
 def update_topic_assignment_status(assignment_id: int, status: str) -> None:
@@ -1394,7 +1460,7 @@ def update_topic_assignment_status(assignment_id: int, status: str) -> None:
         payload["completed_at"] = now
     try:
         get_sb().table("teacher_assignments").update(payload).eq("id", assignment_id).eq("student_id", uid).execute()
-        clear_app_caches()
+        _clear_teacher_student_caches()
     except Exception:
         pass
 
@@ -1546,7 +1612,7 @@ def record_video_assignment_watch(assignment_id: int) -> None:
                 event_weight=0.38 if attempt_number == 1 else 0.18,
                 metadata={"score_pct": 100.0, "attempt_number": attempt_number},
             )
-        clear_app_caches()
+        _clear_teacher_student_caches()
     except Exception:
         pass
 
@@ -1703,11 +1769,26 @@ def record_assignment_attempt_from_practice(
                     topic_id=linked_topic_id,
                     done_by_student=False,
                 )
-            except Exception:
-                pass
-        clear_app_caches()
-    except Exception:
-        pass
+            except Exception as progress_exc:
+                capture_exception(
+                    progress_exc,
+                    component="helpers.teacher_student_integration",
+                    operation="update_learning_program_progress",
+                    severity="warning",
+                    page_key="student_practice",
+                    user_face="student",
+                    context={"resource_type": exercise_data.get("source_type")},
+                )
+        _clear_teacher_student_caches()
+    except Exception as exc:
+        capture_exception(
+            exc,
+            component="helpers.teacher_student_integration",
+            operation="record_assignment_attempt",
+            page_key="student_practice",
+            user_face="student",
+            context={"resource_type": exercise_data.get("source_type")},
+        )
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -1770,7 +1851,7 @@ def _load_teacher_assignment_progress_cached(teacher_id: str, student_id: str = 
     return enriched
 
 
-register_cache(_load_teacher_assignment_progress_cached)
+register_cache(_load_teacher_assignment_progress_cached, "assignments", "practice")
 
 
 def load_teacher_assignment_progress(student_id: str | None = None, subject_key: str | None = None) -> list[dict]:
@@ -2086,7 +2167,7 @@ def create_teacher_review_request(
     }
     try:
         get_sb().table("teacher_review_requests").insert(payload).execute()
-        clear_app_caches()
+        _clear_teacher_student_caches()
         return True, "teacher_review_requested"
     except Exception:
         return False, "teacher_review_request_failed"
@@ -2149,7 +2230,7 @@ def ensure_teacher_review_request_for_attempt(
     }
     try:
         res = get_sb().table("teacher_review_requests").insert(payload).execute()
-        clear_app_caches()
+        _clear_teacher_student_caches()
         rows = _rows(res)
         review_id = int(rows[0].get("id") or 0) if rows else None
         return True, "teacher_review_started", review_id
@@ -2220,7 +2301,7 @@ def _load_teacher_review_requests_cached(teacher_id: str, student_id: str = "", 
     ]
 
 
-register_cache(_load_teacher_review_requests_cached)
+register_cache(_load_teacher_review_requests_cached, "reviews", "assignments", "practice")
 
 
 def load_teacher_review_requests(student_id: str | None = None, subject_key: str | None = None) -> list[dict]:
@@ -2406,7 +2487,7 @@ def submit_teacher_review(
         except Exception:
             pass
 
-        clear_app_caches()
+        _clear_teacher_student_caches()
         return True, "teacher_review_saved"
     except Exception:
         return False, "teacher_review_save_failed"

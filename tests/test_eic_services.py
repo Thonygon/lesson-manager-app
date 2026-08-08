@@ -219,7 +219,7 @@ class EICServiceTests(unittest.TestCase):
             value
             for rows in [
                 eic_report_service._unsupervised_normalization_rows(summary, "es"),
-                eic_report_service._unsupervised_scoring_rows(summary, "es"),
+                eic_report_service._unsupervised_scoring_rows(summary, {}, "es"),
                 eic_report_service._unsupervised_python_methodology_rows(summary, "es"),
             ]
             for _, value in rows

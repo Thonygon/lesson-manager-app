@@ -6,6 +6,9 @@ from helpers import teacher_student_integration as tsi
 from helpers import quick_exam_storage, worksheet_storage
 from helpers import video_library
 
+_load_exam_record = quick_exam_storage.load_exam_record
+_load_worksheet_record = worksheet_storage.load_worksheet_record
+
 
 class _FakeResult:
     def __init__(self, data):
@@ -140,7 +143,6 @@ class TeacherStudentIntegrationQueryTests(unittest.TestCase):
                 ]
             }
         )
-
         with (
             patch.object(tsi, "get_sb", return_value=fake_sb),
             patch.object(tsi, "get_current_user_id", return_value="student-1"),
@@ -247,7 +249,7 @@ class TeacherStudentIntegrationQueryTests(unittest.TestCase):
             patch.object(tsi, "_practice_session_row", return_value=session_row),
             patch.object(tsi, "get_reviewable_teacher_links_for_subject", return_value=link_rows),
             patch.object(tsi, "get_sb", return_value=InsertSupabase()),
-            patch.object(tsi, "clear_app_caches", return_value=None),
+            patch.object(tsi, "_clear_teacher_student_caches", return_value=None),
         ):
             ok, msg = tsi.create_teacher_review_request(
                 practice_session_id=55,
@@ -284,12 +286,13 @@ class TeacherStudentIntegrationQueryTests(unittest.TestCase):
             def table(self, _table_name):
                 return Query()
 
-        quick_exam_storage.load_exam_record.clear()
+        clear_record_cache = getattr(_load_exam_record, "clear", lambda: None)
+        clear_record_cache()
         try:
             with patch.object(quick_exam_storage, "get_sb", return_value=Supabase()):
-                row = quick_exam_storage.load_exam_record(99.0)
+                row = _load_exam_record(99.0)
         finally:
-            quick_exam_storage.load_exam_record.clear()
+            clear_record_cache()
 
         self.assertEqual(99, captured["id"])
 
@@ -324,7 +327,6 @@ class TeacherStudentIntegrationQueryTests(unittest.TestCase):
                 ]
             }
         )
-
         video_library._load_public_videos_cached.clear()
         try:
             with (
@@ -339,6 +341,8 @@ class TeacherStudentIntegrationQueryTests(unittest.TestCase):
         self.assertEqual("https://img.youtube.com/vi/abcdefghijk/hqdefault.jpg", df.iloc[0]["thumbnail_url"])
         query = fake_sb.table_log[0]
         self.assertEqual(video_library._VIDEO_LIST_COLUMNS, query.ops[0][1])
+        self.assertIn("thumbnail_url", query.ops[0][1])
+        self.assertNotEqual("*", query.ops[0][1])
         self.assertIn(("eq", "is_public", True), query.ops)
         self.assertIn(("order", "updated_at", True), query.ops)
         self.assertIn(("limit", 5), query.ops)
@@ -364,12 +368,13 @@ class TeacherStudentIntegrationQueryTests(unittest.TestCase):
             def table(self, _table_name):
                 return Query()
 
-        worksheet_storage.load_worksheet_record.clear()
+        clear_record_cache = getattr(_load_worksheet_record, "clear", lambda: None)
+        clear_record_cache()
         try:
             with patch.object(worksheet_storage, "get_sb", return_value=Supabase()):
-                row = worksheet_storage.load_worksheet_record(42.0)
+                row = _load_worksheet_record(42.0)
         finally:
-            worksheet_storage.load_worksheet_record.clear()
+            clear_record_cache()
 
         self.assertEqual(42, captured["id"])
         self.assertEqual(42, row["id"])

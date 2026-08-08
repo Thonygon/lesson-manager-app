@@ -20,9 +20,26 @@ from typing import Optional
 
 from core.i18n import t
 from core.state import get_current_user_id, with_owner
-from core.database import get_sb, load_table, clear_app_caches, register_cache
+from core.database import clear_cache_domains, get_sb, register_cache
 from helpers.answer_key_utils import clean_answer_key_item, split_answer_key_items
 from helpers.visual_support import enrich_worksheet_with_visuals, enrich_exam_with_visuals, render_streamlit_visual_support
+from services.operational_diagnostics_service import capture_exception, short_event_reference
+
+
+_PRACTICE_HISTORY_COLUMNS = (
+    "id,user_id,source_type,source_id,title,subject,topic,learner_stage,level,"
+    "exercise_data,total_questions,correct_count,score_pct,xp_earned,best_streak,"
+    "status,started_at,completed_at,created_at"
+)
+_PRACTICE_PROGRESS_COLUMNS = (
+    "id,user_id,scope_key,teacher_id,assignment_id,learning_program_assignment_id,"
+    "source_type,subject,topic,exercise_type,level,total_attempted,total_correct,"
+    "accuracy_pct,total_xp,best_streak,last_practiced,created_at"
+)
+
+
+def _clear_practice_caches() -> None:
+    clear_cache_domains("practice", "assignments", "reviews", "recommendations", "telemetry")
 
 
 # ════════════════════════════════════════════════════════════════
@@ -2107,7 +2124,7 @@ def save_practice_session(
             "created_at": now,
         }
         res = get_sb().table("practice_sessions").insert(payload).execute()
-        clear_app_caches()
+        _clear_practice_caches()
         rows = res.data or []
         return rows[0]["id"] if rows else None
     except Exception as e:
@@ -2122,13 +2139,31 @@ def save_practice_session(
         if retry_payload != payload:
             try:
                 res = get_sb().table("practice_sessions").insert(retry_payload).execute()
-                clear_app_caches()
+                _clear_practice_caches()
                 rows = res.data or []
                 return rows[0]["id"] if rows else None
             except Exception as e2:
-                st.warning(f"Could not save practice session: {e2}")
+                reference = capture_exception(
+                    e2,
+                    component="helpers.practice_engine",
+                    operation="save_practice_session",
+                    page_key="student_practice",
+                    user_face="student",
+                    context={"resource_type": exercise_data.get("source_type")},
+                )
+                st.warning(t("practice_save_failed"))
+                st.caption(t("operational_diagnostics_user_reference", reference=short_event_reference(reference)))
                 return None
-        st.warning(f"Could not save practice session: {e}")
+        reference = capture_exception(
+            e,
+            component="helpers.practice_engine",
+            operation="save_practice_session",
+            page_key="student_practice",
+            user_face="student",
+            context={"resource_type": exercise_data.get("source_type")},
+        )
+        st.warning(t("practice_save_failed"))
+        st.caption(t("operational_diagnostics_user_reference", reference=short_event_reference(reference)))
         return None
 
 
@@ -2188,8 +2223,24 @@ def save_practice_answers(
                     if replace_existing:
                         get_sb().table("practice_answers").delete().eq("session_id", session_id).eq("user_id", uid).execute()
                     get_sb().table("practice_answers").insert(rows).execute()
-                except Exception:
-                    pass
+                except Exception as retry_exc:
+                    capture_exception(
+                        retry_exc,
+                        component="helpers.practice_engine",
+                        operation="save_practice_answers",
+                        page_key="student_practice",
+                        user_face="student",
+                        context={"resource_type": exercise_data.get("source_type")},
+                    )
+            else:
+                capture_exception(
+                    e,
+                    component="helpers.practice_engine",
+                    operation="save_practice_answers",
+                    page_key="student_practice",
+                    user_face="student",
+                    context={"resource_type": exercise_data.get("source_type")},
+                )
             # else silently skip
 
 
@@ -2258,7 +2309,7 @@ def save_practice_draft(
                 session_key=session_key,
                 replace_existing=True,
             )
-            clear_app_caches()
+            _clear_practice_caches()
         return saved_session_id
     except Exception:
         return None
@@ -2421,12 +2472,26 @@ def update_practice_progress(
                         insert_data.pop("learning_program_assignment_id", None)
                     try:
                         sb.table("practice_progress").insert(insert_data).execute()
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                    except Exception as retry_exc:
+                        capture_exception(
+                            retry_exc,
+                            component="helpers.practice_engine",
+                            operation="update_practice_progress",
+                            page_key="student_practice",
+                            user_face="student",
+                            context={"resource_type": source_type},
+                        )
+        except Exception as exc:
+            capture_exception(
+                exc,
+                component="helpers.practice_engine",
+                operation="update_practice_progress",
+                page_key="student_practice",
+                user_face="student",
+                context={"resource_type": source_type},
+            )
 
-    clear_app_caches()
+    _clear_practice_caches()
 
 
 def record_video_engagement_session(
@@ -2598,7 +2663,7 @@ def record_video_engagement_session(
                     sb.table("practice_progress").insert(insert_data).execute()
                 except Exception:
                     pass
-        clear_app_caches()
+        _clear_practice_caches()
     except Exception:
         pass
     return session_id
@@ -2637,7 +2702,7 @@ def rebuild_practice_progress_for_user(user_id: str | None = None) -> None:
                 sb.table("practice_progress").delete().eq("user_id", uid).execute()
             except Exception:
                 pass
-            clear_app_caches()
+            _clear_practice_caches()
             return
 
         session_ids = [int(row.get("id") or 0) for row in session_rows if int(row.get("id") or 0) > 0]
@@ -2810,7 +2875,7 @@ def rebuild_practice_progress_for_user(user_id: str | None = None) -> None:
                     sb.table("practice_progress").insert(retry_rows).execute()
                 except Exception:
                     pass
-        clear_app_caches()
+        _clear_practice_caches()
     except Exception:
         pass
 
@@ -2856,17 +2921,17 @@ def _load_practice_history_cached(uid: str, limit: int = 50) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
     try:
+        query = (
+            get_sb()
+            .table("practice_sessions")
+            .select(_PRACTICE_HISTORY_COLUMNS)
+            .eq("user_id", uid)
+            .eq("status", "completed")
+            .order("created_at", desc=True)
+            .limit(max(1, int(limit or 50)))
+        )
         try:
-            rows = (
-                get_sb()
-                .table("practice_sessions")
-                .select(_PRACTICE_HISTORY_COLUMNS)
-                .eq("user_id", uid)
-                .eq("status", "completed")
-                .order("created_at", desc=True)
-                .limit(max(1, int(limit or 50)))
-                .execute()
-            ).data or []
+            rows = query.execute().data or []
         except Exception:
             rows = (
                 get_sb()
@@ -2878,18 +2943,17 @@ def _load_practice_history_cached(uid: str, limit: int = 50) -> pd.DataFrame:
                 .limit(max(1, int(limit or 50)))
                 .execute()
             ).data or []
-        if not rows:
-            return pd.DataFrame()
         df = pd.DataFrame(rows)
+        if df.empty:
+            return df
         if "created_at" in df.columns:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-            df = df.sort_values("created_at", ascending=False)
-        return df.head(limit).reset_index(drop=True)
+        return df.reset_index(drop=True)
     except Exception:
         return pd.DataFrame()
 
 
-register_cache(_load_practice_history_cached)
+register_cache(_load_practice_history_cached, "practice")
 
 
 def load_practice_history(limit: int = 50) -> pd.DataFrame:
@@ -3064,9 +3128,17 @@ def update_practice_session(
             "completed_at": now,
         }
         get_sb().table("practice_sessions").update(payload).eq("id", session_id).eq("user_id", uid).execute()
-        clear_app_caches()
+        _clear_practice_caches()
         return True
-    except Exception:
+    except Exception as exc:
+        capture_exception(
+            exc,
+            component="helpers.practice_engine",
+            operation="update_practice_session",
+            page_key="student_practice",
+            user_face="student",
+            context={"resource_type": exercise_data.get("source_type")},
+        )
         return False
 
 
@@ -3423,7 +3495,7 @@ def rescore_practice_sessions_for_resource(source_type: str, resource_id, exerci
             pass
 
     if rescored_session_ids:
-        clear_app_caches()
+        _clear_practice_caches()
     return len(rescored_session_ids)
 
 
@@ -3432,30 +3504,17 @@ def _load_practice_progress_cached(uid: str) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
     try:
+        query = get_sb().table("practice_progress").select(_PRACTICE_PROGRESS_COLUMNS).eq("user_id", uid)
         try:
-            rows = (
-                get_sb()
-                .table("practice_progress")
-                .select(_PRACTICE_PROGRESS_COLUMNS)
-                .eq("user_id", uid)
-                .execute()
-            ).data or []
+            rows = query.execute().data or []
         except Exception:
-            rows = (
-                get_sb()
-                .table("practice_progress")
-                .select("*")
-                .eq("user_id", uid)
-                .execute()
-            ).data or []
-        if not rows:
-            return pd.DataFrame()
+            rows = get_sb().table("practice_progress").select("*").eq("user_id", uid).execute().data or []
         return pd.DataFrame(rows).reset_index(drop=True)
     except Exception:
         return pd.DataFrame()
 
 
-register_cache(_load_practice_progress_cached)
+register_cache(_load_practice_progress_cached, "practice")
 
 
 def load_practice_progress() -> pd.DataFrame:

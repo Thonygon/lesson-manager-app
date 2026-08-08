@@ -107,6 +107,7 @@ class StudentAssignmentContentFallbackTests(unittest.TestCase):
             "source_id": 21,
             "exercises": [{"answers": ["A"]}],
         }
+        session_state = {}
 
         with (
             patch.object(student_assignments, "exam_has_ready_visuals", return_value=True),
@@ -116,19 +117,19 @@ class StudentAssignmentContentFallbackTests(unittest.TestCase):
             patch.object(student_assignments, "normalize_exercise_data_for_web", side_effect=lambda value: value),
             patch.object(student_assignments, "go_to"),
             patch.object(student_assignments.st, "rerun", create=True),
-            patch.object(student_assignments.st, "session_state", {}),
+            patch.object(student_assignments.st, "session_state", session_state),
         ):
             student_assignments._open_assignment_practice(assignment_row, review_completed=True)
 
         self.assertEqual(
             rebuilt_exercise_data,
-            student_assignments.st.session_state["practice_exercise_data"],
+            session_state["practice_exercise_data"],
         )
         self.assertEqual(
             {"sp_0_0": "A"},
-            student_assignments.st.session_state["_practice_resume_answers"],
+            session_state["_practice_resume_answers"],
         )
-        self.assertTrue(student_assignments.st.session_state["_practice_review_mode"])
+        self.assertTrue(session_state["_practice_review_mode"])
 
     def test_assignment_practice_prefers_latest_exam_source_over_stale_snapshot(self):
         assignment_row = {
@@ -200,6 +201,7 @@ class StudentAssignmentContentFallbackTests(unittest.TestCase):
                 "exercises": [{"answers": [""]}],
             },
         }
+        session_state = {}
 
         with (
             patch.object(student_assignments, "exam_has_ready_visuals", return_value=True),
@@ -219,13 +221,13 @@ class StudentAssignmentContentFallbackTests(unittest.TestCase):
             patch.object(student_assignments, "go_to"),
             patch.object(student_assignments.st, "rerun", create=True),
             patch.object(student_assignments.st, "warning", create=True) as warning_mock,
-            patch.object(student_assignments.st, "session_state", {}),
+            patch.object(student_assignments.st, "session_state", session_state),
         ):
             student_assignments._open_assignment_practice(assignment_row)
 
         warning_mock.assert_not_called()
-        self.assertEqual(latest_exercise_data, student_assignments.st.session_state["practice_exercise_data"])
-        self.assertEqual({"sp_0_0": "A"}, student_assignments.st.session_state["_practice_resume_answers"])
+        self.assertEqual(latest_exercise_data, session_state["practice_exercise_data"])
+        self.assertEqual({"sp_0_0": "A"}, session_state["_practice_resume_answers"])
 
 
 if __name__ == "__main__":

@@ -492,7 +492,7 @@ def _load_topic_resource_reference_rows(
     return payload
 
 
-register_cache(_load_topic_resource_reference_rows)
+register_cache(_load_topic_resource_reference_rows, "recommendations", "resources", "learning_programs")
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -566,7 +566,7 @@ def build_explicit_topic_resource_model(
     }
 
 
-register_cache(build_explicit_topic_resource_model)
+register_cache(build_explicit_topic_resource_model, "recommendations", "resources", "learning_programs")
 
 
 def topic_resource_alignment_features(
@@ -644,7 +644,7 @@ def _load_teacher_material_activity_rows(teacher_id: str) -> list[dict]:
         return []
 
 
-register_cache(_load_teacher_material_activity_rows)
+register_cache(_load_teacher_material_activity_rows, "recommendations", "resources")
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -679,7 +679,7 @@ def _load_teacher_recommendation_events(teacher_id: str) -> list[dict]:
         return []
 
 
-register_cache(_load_teacher_recommendation_events)
+register_cache(_load_teacher_recommendation_events, "recommendations", "assignments")
 
 
 def _teacher_event_target(row: dict) -> float:
@@ -793,7 +793,7 @@ def build_teacher_recommendation_model(teacher_id: str | None = None) -> dict[st
     return {"weights": weights, "priors": priors}
 
 
-register_cache(build_teacher_recommendation_model)
+register_cache(build_teacher_recommendation_model, "recommendations", "resources", "assignments")
 
 
 def score_teacher_resource_candidate(
@@ -1033,7 +1033,7 @@ def build_teacher_material_feed_profile(teacher_id: str | None = None) -> dict[s
     return profile
 
 
-register_cache(build_teacher_material_feed_profile)
+register_cache(build_teacher_material_feed_profile, "recommendations", "resources", "assignments")
 
 
 def score_teacher_feed_resource(
@@ -1295,7 +1295,7 @@ def _load_student_history_rows(student_id: str) -> dict[str, list[dict]]:
     return rows
 
 
-register_cache(_load_student_history_rows)
+register_cache(_load_student_history_rows, "recommendations", "practice", "assignments")
 
 
 def build_student_recommendation_model(

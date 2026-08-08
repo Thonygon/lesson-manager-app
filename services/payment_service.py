@@ -4,6 +4,7 @@ import os
 import streamlit as st
 
 from services.subscription_service import get_user_subscription
+from services.operational_diagnostics_service import capture_exception
 
 CHECKOUT_PRICE_SECRETS = {
     "teacher_pro": "STRIPE_PRICE_TEACHER_PRO",
@@ -45,15 +46,26 @@ def create_checkout_session(user_id: str, email: str, plan_id: str) -> str:
         raise RuntimeError(f"Missing Stripe price secret for plan: {plan_id}")
 
     app_url = _get_secret("APP_BASE_URL", "http://localhost:8501").rstrip("/")
-    session = stripe.checkout.Session.create(
-        mode="subscription",
-        customer_email=email or None,
-        line_items=[{"price": price_id, "quantity": 1}],
-        success_url=f"{app_url}/?page=account&checkout=success",
-        cancel_url=f"{app_url}/?page=pricing&checkout=cancelled",
-        metadata={"user_id": str(user_id), "plan_id": str(plan_id)},
-        subscription_data={"metadata": {"user_id": str(user_id), "plan_id": str(plan_id)}},
-    )
+    try:
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            customer_email=email or None,
+            line_items=[{"price": price_id, "quantity": 1}],
+            success_url=f"{app_url}/?page=account&checkout=success",
+            cancel_url=f"{app_url}/?page=pricing&checkout=cancelled",
+            metadata={"user_id": str(user_id), "plan_id": str(plan_id)},
+            subscription_data={"metadata": {"user_id": str(user_id), "plan_id": str(plan_id)}},
+        )
+    except Exception as exc:
+        capture_exception(
+            exc,
+            component="services.payment_service",
+            operation="create_checkout_session",
+            page_key="pricing",
+            user_face="teacher",
+            context={"resource_type": "subscription"},
+        )
+        raise
     return str(session.url)
 
 
@@ -66,21 +78,44 @@ def create_customer_portal_session(user_id: str) -> str:
     if not customer_id:
         raise RuntimeError("No Stripe customer is linked to this account yet.")
     app_url = _get_secret("APP_BASE_URL", "http://localhost:8501").rstrip("/")
-    portal = stripe.billing_portal.Session.create(customer=customer_id, return_url=f"{app_url}/?page=account")
+    try:
+        portal = stripe.billing_portal.Session.create(customer=customer_id, return_url=f"{app_url}/?page=account")
+    except Exception as exc:
+        capture_exception(
+            exc,
+            component="services.payment_service",
+            operation="create_customer_portal_session",
+            page_key="account",
+            user_face="teacher",
+            context={"resource_type": "subscription"},
+        )
+        raise
     return str(portal.url)
 
 
 def record_payment_event(provider: str, event_type: str, payload: dict, processed: bool = False) -> None:
     from core.database import get_sb
 
-    get_sb().table("payment_events").insert(
-        {
-            "provider": provider,
-            "event_type": event_type,
-            "payload": payload,
-            "processed": bool(processed),
-        }
-    ).execute()
+    try:
+        get_sb().table("payment_events").insert(
+            {
+                "provider": provider,
+                "event_type": event_type,
+                "payload": payload,
+                "processed": bool(processed),
+            }
+        ).execute()
+    except Exception as exc:
+        capture_exception(
+            exc,
+            component="services.payment_service",
+            operation="record_payment_event",
+            severity="critical",
+            page_key="account",
+            user_face="teacher",
+            context={"resource_type": "payment_event"},
+        )
+        raise
 
 
 def apply_stripe_subscription_update(subscription: dict, status: str | None = None) -> None:
@@ -108,7 +143,19 @@ def apply_stripe_subscription_update(subscription: dict, status: str | None = No
         "cancel_at_period_end": bool(subscription.get("cancel_at_period_end") or False),
         "manual_override": False,
     }
-    get_sb().table("user_subscriptions").upsert(payload, on_conflict="user_id").execute()
-    get_sb().table("profiles").update(
-        {"current_plan": plan_id, "subscription_status": payload["subscription_status"]}
-    ).eq("user_id", user_id).execute()
+    try:
+        get_sb().table("user_subscriptions").upsert(payload, on_conflict="user_id").execute()
+        get_sb().table("profiles").update(
+            {"current_plan": plan_id, "subscription_status": payload["subscription_status"]}
+        ).eq("user_id", user_id).execute()
+    except Exception as exc:
+        capture_exception(
+            exc,
+            component="services.payment_service",
+            operation="apply_subscription_update",
+            severity="critical",
+            page_key="account",
+            user_face="teacher",
+            context={"resource_type": "subscription"},
+        )
+        raise

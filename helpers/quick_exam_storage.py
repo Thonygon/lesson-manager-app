@@ -11,7 +11,7 @@ from core.i18n import t
 from core.navigation import clear_open_resource_previews, clear_smart_tool_result_state, go_to
 from core.state import get_current_user_id, with_owner
 from core.timezone import now_local, today_local, get_app_tz
-from core.database import get_sb, load_table, clear_app_caches, insert_row_with_retries, register_cache, show_data_load_error
+from core.database import clear_cache_domains, get_sb, load_table, insert_row_with_retries, register_cache, show_data_load_error
 from services.ai_usage_service import log_ai_usage_event
 from xml.sax.saxutils import escape as xml_escape
 import unicodedata
@@ -43,6 +43,10 @@ from helpers.resource_gallery import (
 from helpers.resource_deletion import render_archive_delete_button, render_archive_delete_confirmation
 from helpers.recommendation_models import log_teacher_material_open
 from services.permissions_service import get_feature_usage_status
+
+
+def _clear_exam_caches() -> None:
+    clear_cache_domains("exams", "resources", "assignments", "practice", "reviews", "recommendations")
 
 
 _QUICK_EXAM_LIST_COLUMNS = ",".join([
@@ -295,7 +299,7 @@ def _load_my_exams_cached(uid: str, limit: int = 120) -> pd.DataFrame:
     return _normalize_exam_frame(getattr(res, "data", None) or [])
 
 
-register_cache(_load_my_exams_cached)
+register_cache(_load_my_exams_cached, "exams", "resources")
 
 
 def load_my_exams(*, include_archived: bool = False, archived_only: bool = False) -> pd.DataFrame:
@@ -327,7 +331,7 @@ def _load_public_exams_cached(limit: int = 120) -> pd.DataFrame:
     return _normalize_exam_frame(getattr(res, "data", None) or [])
 
 
-register_cache(_load_public_exams_cached)
+register_cache(_load_public_exams_cached, "exams", "resources")
 
 
 def load_public_exams(*, show_errors: bool = True) -> pd.DataFrame:
@@ -371,7 +375,7 @@ def load_exam_record(exam_id) -> dict:
         return {}
 
 
-register_cache(load_exam_record)
+register_cache(load_exam_record, "exams", "resources")
 
 
 def _format_exam_dt(value) -> str:
@@ -422,7 +426,7 @@ def update_exam_visibility(exam_id, is_public: bool) -> tuple[bool, str]:
             .eq("user_id", uid)
             .execute()
         )
-        clear_app_caches()
+        _clear_exam_caches()
         return True, "ok"
     except Exception as exc:
         return False, str(exc)
@@ -461,7 +465,7 @@ def update_exam_archive(exam_id, archived: bool) -> tuple[bool, str]:
             source_record_id=safe_exam_id,
             archived=archived,
         )
-        clear_app_caches()
+        _clear_exam_caches()
         return True, "ok"
     except Exception as exc:
         return False, str(exc)
@@ -1630,7 +1634,7 @@ def _persist_saved_exam_visuals(exam_id: int | str, exam_data: dict) -> bool:
             )
         except Exception:
             pass
-        clear_app_caches()
+        _clear_exam_caches()
         try:
             load_exam_record.clear()
         except Exception:
@@ -1711,7 +1715,7 @@ def _persist_saved_exam_resource(exam_id: int | str, exam_data: dict, answer_key
             )
         except Exception:
             pass
-        clear_app_caches()
+        _clear_exam_caches()
         try:
             load_exam_record.clear()
         except Exception:

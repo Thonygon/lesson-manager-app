@@ -36,7 +36,7 @@ def load_dashboard_source_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
     return classes, payments
 
 
-register_cache(load_dashboard_source_frames)
+register_cache(load_dashboard_source_frames, "dashboard", "classes", "payments")
 
 # 07.13) DASHBOARD (PACKAGE STATUS) ✅ + chart-translation helper
 # =========================
