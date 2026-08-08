@@ -15,6 +15,10 @@ from helpers import practice_engine
 
 
 class PracticeSessionResilienceTests(unittest.TestCase):
+    def tearDown(self):
+        practice_engine._load_practice_history_cached.clear()
+        practice_engine._load_practice_progress_cached.clear()
+
     def test_invalid_multiple_choice_answer_is_dropped_before_widget_restore(self):
         exercise_data = {
             "exercises": [
@@ -72,6 +76,95 @@ class PracticeSessionResilienceTests(unittest.TestCase):
             self.assertNotIn("_practice_saved_sp", practice_engine.st.session_state)
             self.assertNotIn("sp_0_0", practice_engine.st.session_state)
             self.assertNotIn("_practice_resume_answers", practice_engine.st.session_state)
+
+    def test_practice_history_loader_queries_completed_rows_with_explicit_columns(self):
+        class FakeResult:
+            def __init__(self, data):
+                self.data = data
+
+        class FakeQuery:
+            def __init__(self, log):
+                self.log = log
+                self.ops = []
+                self.log.append(self)
+
+            def select(self, value):
+                self.ops.append(("select", value))
+                return self
+
+            def eq(self, column, value):
+                self.ops.append(("eq", column, value))
+                return self
+
+            def order(self, column, desc=False):
+                self.ops.append(("order", column, desc))
+                return self
+
+            def limit(self, value):
+                self.ops.append(("limit", value))
+                return self
+
+            def execute(self):
+                return FakeResult([{"id": 1, "status": "completed", "created_at": "2026-08-01T00:00:00+00:00"}])
+
+        class FakeSupabase:
+            def __init__(self):
+                self.log = []
+
+            def table(self, _name):
+                return FakeQuery(self.log)
+
+        fake_sb = FakeSupabase()
+        practice_engine._load_practice_history_cached.clear()
+        with patch.object(practice_engine, "get_sb", return_value=fake_sb):
+            df = practice_engine._load_practice_history_cached("student-1", limit=25)
+
+        self.assertEqual(1, len(df))
+        query = fake_sb.log[0]
+        self.assertEqual(practice_engine._PRACTICE_HISTORY_COLUMNS, query.ops[0][1])
+        self.assertIn(("eq", "user_id", "student-1"), query.ops)
+        self.assertIn(("eq", "status", "completed"), query.ops)
+        self.assertIn(("order", "created_at", True), query.ops)
+        self.assertIn(("limit", 25), query.ops)
+
+    def test_practice_progress_loader_queries_current_user_rows_with_explicit_columns(self):
+        class FakeResult:
+            def __init__(self, data):
+                self.data = data
+
+        class FakeQuery:
+            def __init__(self, log):
+                self.log = log
+                self.ops = []
+                self.log.append(self)
+
+            def select(self, value):
+                self.ops.append(("select", value))
+                return self
+
+            def eq(self, column, value):
+                self.ops.append(("eq", column, value))
+                return self
+
+            def execute(self):
+                return FakeResult([{"id": 1, "user_id": "student-1", "total_xp": 15}])
+
+        class FakeSupabase:
+            def __init__(self):
+                self.log = []
+
+            def table(self, _name):
+                return FakeQuery(self.log)
+
+        fake_sb = FakeSupabase()
+        practice_engine._load_practice_progress_cached.clear()
+        with patch.object(practice_engine, "get_sb", return_value=fake_sb):
+            df = practice_engine._load_practice_progress_cached("student-1")
+
+        self.assertEqual(1, len(df))
+        query = fake_sb.log[0]
+        self.assertEqual(practice_engine._PRACTICE_PROGRESS_COLUMNS, query.ops[0][1])
+        self.assertIn(("eq", "user_id", "student-1"), query.ops)
 
     def test_rescore_practice_sessions_for_resource_refreshes_saved_scores(self):
         class FakeResult:

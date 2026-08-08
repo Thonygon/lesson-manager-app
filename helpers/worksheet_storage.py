@@ -915,7 +915,7 @@ def _normalize_worksheet_frame(rows: list[dict] | None) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def _load_my_worksheets_cached(uid: str, limit: int = 120) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
@@ -934,7 +934,7 @@ def _load_my_worksheets_cached(uid: str, limit: int = 120) -> pd.DataFrame:
 register_cache(_load_my_worksheets_cached)
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def _load_public_worksheets_cached(limit: int = 120) -> pd.DataFrame:
     res = (
         get_sb()
@@ -960,7 +960,7 @@ def load_public_worksheets(*, show_errors: bool = True) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def load_worksheet_record(worksheet_id) -> dict:
     safe_worksheet_id = worksheet_id
     if isinstance(worksheet_id, str):

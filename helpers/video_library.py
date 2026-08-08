@@ -61,6 +61,30 @@ _SUBJECT_NORMALIZE = {
     "otra": "other",
 }
 VIDEO_SUBJECT_OPTIONS = ["english", "spanish", "mathematics", "science", "music", "study_skills", "other"]
+_VIDEO_LIST_COLUMNS = ",".join([
+    "id",
+    "user_id",
+    "title",
+    "subject",
+    "topic",
+    "description",
+    "video_id",
+    "youtube_url",
+    "watch_url",
+    "thumbnail_url",
+    "image_url",
+    "cover_image_url",
+    "hero_image_url",
+    "learner_stage",
+    "level_or_band",
+    "level",
+    "student_material_language",
+    "author_name",
+    "is_public",
+    "status",
+    "created_at",
+    "updated_at",
+])
 
 
 def _rows(result) -> list[dict]:
@@ -491,7 +515,7 @@ def update_video_resource(
         return False, "save_failed"
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def _load_my_videos_cached(uid: str, limit: int = 120) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
@@ -524,24 +548,35 @@ def load_my_videos(*, include_archived: bool = False, archived_only: bool = Fals
     return filter_archived_rows(df).reset_index(drop=True)
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def _load_public_videos_cached(limit: int = 120) -> pd.DataFrame:
     try:
-        rows = _rows(
-            get_sb()
-            .table("videos")
-            .select("*")
-            .eq("is_public", True)
-            .order("updated_at", desc=True)
-            .limit(limit)
-            .execute()
-        )
+        try:
+            rows = _rows(
+                get_sb()
+                .table("videos")
+                .select(_VIDEO_LIST_COLUMNS)
+                .eq("is_public", True)
+                .order("updated_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+        except Exception:
+            rows = _rows(
+                get_sb()
+                .table("videos")
+                .select("*")
+                .eq("is_public", True)
+                .order("updated_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
     except Exception:
         return pd.DataFrame()
     profiles = _profile_name_map([str(row.get("user_id") or "") for row in rows])
     normalized_rows = []
     for row in rows:
-        profile = profiles.get(str(row.get("user_id") or "").strip()) or load_profile_row(str(row.get("user_id") or ""))
+        profile = profiles.get(str(row.get("user_id") or "").strip(), {})
         normalized_rows.append(
             _normalize_video_row(
                 {
@@ -560,7 +595,7 @@ def load_public_videos() -> pd.DataFrame:
     return filter_archived_rows(_load_public_videos_cached()).reset_index(drop=True)
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def load_video_record(video_record_id: int | str) -> dict:
     safe_id = str(video_record_id or "").strip()
     if not safe_id:

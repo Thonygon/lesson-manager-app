@@ -1,5 +1,6 @@
 from datetime import date
 import html as _html
+import re
 
 import streamlit as st
 
@@ -18,12 +19,30 @@ from app_pages.student_assignments import (
 )
 from helpers.lesson_planner import QUICK_SUBJECTS, normalize_subject, subject_label as _subject_label
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student
+from helpers.exposure_telemetry import attach_student_recommendation_exposures
+from helpers.quick_exam_storage import load_exam_record
+from helpers.resource_gallery import (
+    extract_gallery_image_url,
+    extract_gallery_language_label,
+    inject_resource_gallery_styles,
+    render_gallery_card_html,
+)
+from helpers.material_recommendations import find_similar_materials
+from helpers.student_recommendation_ml import log_student_recommendation_impressions, log_student_recommendation_open
 from helpers.teacher_student_integration import get_student_assignment_summary, has_active_teacher_relationships, load_student_assignments
+from helpers.worksheet_storage import load_worksheet_record
 from helpers.empty_states import render_empty_state
 
 
 _SMART_PLAN_NS = "student_smart_plan"
 _LESSON_TOPIC_PAGE_SIZE = 6
+_SMART_PLAN_STOPWORDS = {
+    "about", "after", "again", "always", "around", "because", "before", "being", "between",
+    "daily", "during", "each", "from", "have", "into", "just", "learn", "lesson", "make",
+    "more", "most", "plan", "practice", "review", "smart", "study", "that", "their", "them",
+    "these", "they", "this", "today", "topic", "topics", "unit", "using", "what", "when",
+    "where", "which", "with", "your",
+}
 
 
 def _smart_plan_user_key(suffix: str) -> str:
@@ -225,6 +244,75 @@ def _safe_ui_label(key: str, fallback: str | None = None) -> str:
         if fallback_value != fallback:
             return fallback_value
     return key.replace("_", " ").strip().title()
+
+
+def _smart_plan_tokens(*values: object) -> set[str]:
+    tokens: set[str] = set()
+    for value in values:
+        text = str(value or "").strip().casefold()
+        if not text:
+            continue
+        for token in re.findall(r"[a-z0-9]+", text):
+            if len(token) < 3 or token in _SMART_PLAN_STOPWORDS:
+                continue
+            tokens.add(token)
+    return tokens
+
+
+def _smart_plan_goal_profile(goal: str) -> dict[str, object]:
+    profiles = {
+        "exam_preparation": {
+            "resource_weights": {"exam": 1.8, "worksheet": 0.85, "video": 0.25},
+            "keywords": {"exam", "test", "quiz", "mock", "questions"},
+        },
+        "review_mistakes": {
+            "resource_weights": {"worksheet": 1.35, "exam": 0.95, "video": 0.35},
+            "keywords": {"review", "mistakes", "correction", "revision"},
+        },
+        "improve_reading": {
+            "resource_weights": {"worksheet": 1.2, "exam": 0.8, "video": 0.45},
+            "keywords": {"reading", "text", "comprehension", "story"},
+        },
+        "improve_vocabulary": {
+            "resource_weights": {"worksheet": 1.15, "video": 0.8, "exam": 0.55},
+            "keywords": {"vocabulary", "words", "verbs", "phrases"},
+        },
+        "improve_grammar": {
+            "resource_weights": {"worksheet": 1.2, "exam": 0.7, "video": 0.25},
+            "keywords": {"grammar", "tense", "sentence", "structure"},
+        },
+        "improve_speaking": {
+            "resource_weights": {"video": 1.45, "worksheet": 0.7, "exam": 0.2},
+            "keywords": {"speaking", "conversation", "dialogue", "pronunciation"},
+        },
+        "problem_solving": {
+            "resource_weights": {"worksheet": 1.25, "exam": 0.9, "video": 0.25},
+            "keywords": {"problems", "solve", "operations", "strategy"},
+        },
+        "equation_confidence": {
+            "resource_weights": {"worksheet": 1.2, "exam": 0.8, "video": 0.2},
+            "keywords": {"equation", "algebra", "expressions", "solve"},
+        },
+        "concept_understanding": {
+            "resource_weights": {"video": 1.0, "worksheet": 1.0, "exam": 0.45},
+            "keywords": {"concept", "understanding", "explain", "science"},
+        },
+        "general_practice": {
+            "resource_weights": {"worksheet": 1.0, "exam": 0.8, "video": 0.6},
+            "keywords": {"practice", "general", "skills"},
+        },
+        "homework_support": {
+            "resource_weights": {"worksheet": 1.1, "exam": 0.8, "video": 0.55},
+            "keywords": {"homework", "support", "classwork"},
+        },
+    }
+    return profiles.get(
+        goal,
+        {
+            "resource_weights": {"worksheet": 1.0, "exam": 0.75, "video": 0.55},
+            "keywords": set(),
+        },
+    )
 
 
 def _default_subject_from_profile() -> str:
@@ -605,44 +693,30 @@ def _generate_smart_plan_weekly_preview(subject: str, goal: str, minutes: int, t
     return rows
 
 
-def _generate_smart_plan_recommendations(subject: str, goal: str, progress_state: dict, program_anchor: dict | None = None) -> list[dict]:
-    if program_anchor:
-        recommendation_topics = (program_anchor.get("next_topics") or program_anchor.get("recent_topics") or [])[:3]
-        if recommendation_topics:
-            return [
-                {
-                    "label": t(
-                        "smart_plan_program_recommendation",
-                        number=int(topic.get("global_number") or idx + 1),
-                        title=str(topic.get("title") or t("assigned_learning_program")),
-                    )
-                }
-                for idx, topic in enumerate(recommendation_topics)
-            ]
-    subject = normalize_subject(subject)
-    by_subject = {
-        "english": ["review_mistakes", "improve_vocabulary", "improve_reading"],
-        "spanish": ["improve_vocabulary", "improve_speaking", "review_mistakes"],
-        "mathematics": ["problem_solving", "equation_confidence", "review_mistakes"],
-        "science": ["concept_understanding", "science_terminology", "review_mistakes"],
-        "music": ["theory_review", "rhythm_practice", "symbol_identification"],
-        "study_skills": ["focus_and_routine", "organization_skills", "reflection_and_planning"],
-        "other": ["general_practice", "review_mistakes", "exam_preparation"],
-    }
-    ordered = [goal] + [item for item in by_subject.get(subject, by_subject["other"]) if item != goal]
-    if progress_state.get("all_done"):
-        ordered = ["exam_preparation", "review_mistakes"] + [item for item in ordered if item not in {"exam_preparation", "review_mistakes"}]
-    return [{"goal_key": item} for item in ordered[:3]]
+def _generate_smart_plan_recommendations(
+    state: dict,
+    progress_state: dict,
+    program_anchor: dict | None = None,
+) -> list[dict]:
+    return _recommend_smart_plan_resources(state, progress_state, program_anchor)
 
 
 def _generate_smart_plan(subject: str, goal: str, minutes: int, program_anchor: dict | None = None) -> dict:
     tasks = _generate_smart_plan_tasks(subject, goal, minutes, program_anchor)
     progress = _calculate_smart_plan_progress(tasks)
+    weekly_preview = _generate_smart_plan_weekly_preview(subject, goal, minutes, tasks, program_anchor)
+    recommendation_state = {
+        "subject": subject,
+        "goal": goal,
+        "minutes_per_day": minutes,
+        "tasks": tasks,
+        "weekly_preview": weekly_preview,
+    }
     return {
         "generated_for": _today_iso(),
         "tasks": tasks,
-        "weekly_preview": _generate_smart_plan_weekly_preview(subject, goal, minutes, tasks, program_anchor),
-        "recommendations": _generate_smart_plan_recommendations(subject, goal, progress, program_anchor),
+        "weekly_preview": weekly_preview,
+        "recommendations": _generate_smart_plan_recommendations(recommendation_state, progress, program_anchor),
         "program_anchor_signature": _smart_plan_anchor_signature(program_anchor),
     }
 
@@ -671,6 +745,220 @@ def _task_subtitle(task: dict) -> str:
     else:
         subtitle = t(task.get("subtitle_key", ""))
     return t("smart_plan_task_meta", subtitle=subtitle, minutes=task.get("minutes", 0))
+
+
+def _smart_plan_focus_topics(
+    state: dict,
+    program_anchor: dict | None = None,
+) -> list[str]:
+    topic_labels: list[str] = []
+    if program_anchor:
+        for topic in (program_anchor.get("next_topics") or [])[:5]:
+            title = str(topic.get("title") or "").strip()
+            if title:
+                topic_labels.append(title)
+    if not topic_labels:
+        for row in (state.get("weekly_preview") or [])[:5]:
+            label = str(row.get("focus_label") or "").strip()
+            if label:
+                topic_labels.append(label)
+    if not topic_labels:
+        for task in state.get("tasks", []) or []:
+            title = _task_title(task)
+            if title:
+                topic_labels.append(title)
+    return topic_labels
+
+
+def _smart_plan_focus_topic_ids(program_anchor: dict | None = None) -> list[int]:
+    topic_ids: list[int] = []
+    for topic in (program_anchor or {}).get("next_topics") or []:
+        topic_id = int(topic.get("topic_id") or 0)
+        if topic_id > 0:
+            topic_ids.append(topic_id)
+    return topic_ids
+
+
+def _smart_plan_request_context(state: dict, program_anchor: dict | None = None) -> dict[str, str]:
+    user_id = get_current_user_id()
+    profile = load_profile_row(user_id) if user_id else {}
+    return {
+        "subject": str(state.get("subject") or ""),
+        "learner_stage": str(program_anchor.get("learner_stage") or profile.get("learner_stage") or "").strip() if program_anchor else str(profile.get("learner_stage") or "").strip(),
+        "level_or_band": str(program_anchor.get("level_or_band") or profile.get("level_or_band") or "").strip() if program_anchor else str(profile.get("level_or_band") or "").strip(),
+    }
+
+
+def _smart_plan_material_requests(
+    state: dict,
+    program_anchor: dict | None = None,
+) -> list[dict[str, object]]:
+    context = _smart_plan_request_context(state, program_anchor)
+    focus_topics = _smart_plan_focus_topics(state, program_anchor)
+    topic_requests: list[dict[str, object]] = []
+    seen_topics: set[str] = set()
+    task_subtitles = [_task_subtitle(task) for task in (state.get("tasks") or [])]
+    next_topics = list((program_anchor or {}).get("next_topics") or [])
+
+    for idx, topic_text in enumerate(focus_topics[:4]):
+        normalized_topic = str(topic_text or "").strip()
+        if not normalized_topic:
+            continue
+        topic_key = normalized_topic.casefold()
+        if topic_key in seen_topics:
+            continue
+        seen_topics.add(topic_key)
+        topic_requests.append(
+            {
+                "kind": "",
+                "subject": context["subject"],
+                "learner_stage": context["learner_stage"],
+                "level_or_band": context["level_or_band"],
+                "topic": normalized_topic,
+                "objective": task_subtitles[idx] if idx < len(task_subtitles) else "",
+                "next_topics": focus_topics[:4],
+                "goal": str(state.get("goal") or ""),
+                "learning_program_topic_id": int((next_topics[idx].get("topic_id") or 0)) if idx < len(next_topics) else 0,
+            }
+        )
+    return topic_requests
+
+
+def _smart_plan_resource_reason_lines(
+    match: dict,
+    *,
+    plan_topic: str,
+) -> list[str]:
+    reasons: list[str] = []
+    bucket = str(match.get("recommendation_bucket") or "")
+    if bucket == "very_close":
+        reasons.append(f"Direct match for your plan topic: {plan_topic}.")
+    elif bucket == "close":
+        reasons.append(f"Strongly aligned with your plan topic: {plan_topic}.")
+    elif bucket == "related":
+        reasons.append(f"Related support for your plan topic: {plan_topic}.")
+    topic_focus = match.get("topic_focus") or {}
+    requested_type = str(topic_focus.get("requested_type") or "").strip()
+    row_type = str(topic_focus.get("row_type") or "").strip()
+    if requested_type and row_type and requested_type == row_type:
+        reasons.append("Matches the same activity format.")
+    if int(match.get("learning_program_topic_id") or 0) > 0:
+        reasons.append("Linked to your learning-program progression.")
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for reason in reasons:
+        key = reason.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(reason)
+    return deduped[:3]
+
+
+def _recommend_smart_plan_resources(
+    state: dict,
+    progress_state: dict,
+    program_anchor: dict | None = None,
+) -> list[dict]:
+    goal = str(state.get("goal") or "").strip()
+    goal_profile = _smart_plan_goal_profile(goal)
+    requests = _smart_plan_material_requests(state, program_anchor)
+    candidates: list[dict] = []
+
+    for request in requests:
+        matches = find_similar_materials(request, limit=4, min_score=7.5)
+        if not matches:
+            continue
+        for match in matches:
+            kind = str(match.get("kind") or "").strip()
+            row = dict(match.get("row") or {})
+            score = float(match.get("score") or 0.0)
+            score += float((goal_profile.get("resource_weights") or {}).get(kind, 0.0))
+            if progress_state.get("all_done") and kind == "exam":
+                score += 0.5
+            bucket = str(match.get("recommendation_bucket") or "")
+            if bucket == "very_close":
+                score += 2.0
+            elif bucket == "close":
+                score += 1.0
+            elif bucket == "related":
+                score -= 0.75
+            candidates.append(
+                {
+                    "resource_type": kind,
+                    "id": row.get("id"),
+                    "title": str(row.get("title") or "").strip(),
+                    "subject": str(row.get("subject") or "").strip(),
+                    "topic": str(row.get("topic") or "").strip(),
+                    "learner_stage": str(row.get("learner_stage") or "").strip(),
+                    "level": str(row.get("level_or_band") or row.get("level") or "").strip(),
+                    "exercise_type": str(row.get("worksheet_type") or row.get("lesson_purpose") or row.get("exam_length") or "").strip(),
+                    "score": round(score, 4),
+                    "reasons": _smart_plan_resource_reason_lines(
+                        match,
+                        plan_topic=str(request.get("topic") or "").strip(),
+                    ),
+                    "assigned_resource": False,
+                    "assignment_id": 0,
+                    "assignment_status": "",
+                    "assignment_attempt_count": 0,
+                    "assignment_teacher_name": "",
+                    "learning_program_assignment_id": int((program_anchor or {}).get("assignment_id") or 0),
+                    "learning_program_topic_id": int(request.get("learning_program_topic_id") or 0),
+                    "program_id": int((program_anchor or {}).get("program_id") or 0),
+                    "program_teacher_name": str((program_anchor or {}).get("teacher_name") or "").strip(),
+                    "program_teacher_id": "",
+                    "subject_display": str((program_anchor or {}).get("subject_display") or row.get("subject") or "").strip(),
+                    "program_level": str((program_anchor or {}).get("level_or_band") or "").strip(),
+                    "row": row,
+                    "recommendation_bucket": bucket,
+                    "matched_plan_topic": str(request.get("topic") or "").strip(),
+                }
+            )
+
+    if not candidates:
+        return []
+
+    candidates.sort(
+        key=lambda item: (
+            {"very_close": 0, "close": 1, "related": 2}.get(str(item.get("recommendation_bucket") or ""), 9),
+            -float(item.get("score") or 0.0),
+            str(item.get("topic") or "").casefold(),
+            str(item.get("title") or "").casefold(),
+        )
+    )
+
+    strongest_bucket = str(candidates[0].get("recommendation_bucket") or "")
+    if strongest_bucket in {"very_close", "close"}:
+        candidates = [
+            item
+            for item in candidates
+            if str(item.get("recommendation_bucket") or "") in {"very_close", "close"}
+        ]
+
+    selected: list[dict] = []
+    seen_keys: set[tuple[str, object]] = set()
+    covered_topics: set[str] = set()
+    for item in candidates:
+        unique_key = (str(item.get("resource_type") or ""), item.get("id"))
+        matched_topic = str(item.get("matched_plan_topic") or "").casefold()
+        if unique_key in seen_keys:
+            continue
+        if matched_topic and matched_topic not in covered_topics:
+            selected.append(item)
+            seen_keys.add(unique_key)
+            covered_topics.add(matched_topic)
+        if len(selected) >= 3:
+            break
+    for item in candidates:
+        if len(selected) >= 6:
+            break
+        unique_key = (str(item.get("resource_type") or ""), item.get("id"))
+        if unique_key in seen_keys:
+            continue
+        selected.append(item)
+        seen_keys.add(unique_key)
+    return selected[:6]
 
 
 def _status_badge(status: str) -> tuple[str, str]:
@@ -916,6 +1204,54 @@ def _render_smart_plan_weekly(state: dict) -> None:
         )
 
 
+def _smart_plan_resource_label(resource_type: str) -> str:
+    if resource_type == "worksheet":
+        return _safe_ui_label("worksheet_label")
+    if resource_type == "exam":
+        return _safe_ui_label("exam_label")
+    if resource_type == "video":
+        return _safe_ui_label("video_label")
+    return resource_type.replace("_", " ").title()
+
+
+def _open_smart_plan_recommendation(item: dict) -> bool:
+    resource_type = str(item.get("resource_type") or "").strip()
+    assignment_id = int(item.get("assignment_id") or 0)
+    if assignment_id > 0 and resource_type in {"worksheet", "exam"}:
+        from app_pages.student_assignments import _open_assignment_practice
+        from helpers.teacher_student_integration import load_student_assignment_by_id
+
+        assignment_row = load_student_assignment_by_id(assignment_id)
+        if assignment_row:
+            _open_assignment_practice(assignment_row)
+            return True
+
+    row = dict(item.get("row") or {})
+    if resource_type == "worksheet":
+        from app_pages.student_practice import _open_worksheet_practice_from_row
+
+        return _open_worksheet_practice_from_row(row, return_page="student_study_plan")
+    if resource_type == "exam":
+        from app_pages.student_practice import _open_exam_practice_from_row
+
+        return _open_exam_practice_from_row(row, return_page="student_study_plan")
+    if resource_type == "video":
+        from app_pages.student_practice import _open_video_item
+
+        return _open_video_item(
+            row,
+            {
+                "subject": str(item.get("subject") or row.get("subject") or ""),
+                "topic": str(item.get("topic") or row.get("topic") or ""),
+                "learner_stage": str(row.get("learner_stage") or ""),
+                "level": str(item.get("level") or row.get("level_or_band") or row.get("level") or ""),
+            },
+            assignment_id=assignment_id,
+            return_page="student_study_plan",
+        )
+    return False
+
+
 def _render_smart_plan_recommendations(state: dict) -> None:
     st.markdown(f"### {t('smart_plan_recommendations_title')}")
     recommendations = state.get("recommendations", [])
@@ -923,19 +1259,58 @@ def _render_smart_plan_recommendations(state: dict) -> None:
         st.info(t("smart_plan_generate_recommendations_hint"))
         return
 
-    cols = st.columns(len(recommendations))
-    for col, item in zip(cols, recommendations):
-        with col:
-            label = _smart_plan_focus_label(item.get("goal_key")) if item.get("goal_key") else str(item.get("label") or "—")
-            st.markdown(
-                f"""
-                <div style="height:100%;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:16px;">
-                    <div style="font-size:0.82rem;color:var(--muted);font-weight:700;">{t('smart_plan_recommended_label')}</div>
-                    <div style="margin-top:6px;font-size:1rem;font-weight:800;">{label}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    recommendations = attach_student_recommendation_exposures(recommendations, surface="student_smart_plan")
+    log_student_recommendation_impressions(recommendations, surface="student_smart_plan")
+
+    for idx in range(0, len(recommendations), 3):
+        group = recommendations[idx:idx + 3]
+        cols = st.columns(len(group))
+        for col, item in zip(cols, group):
+            with col:
+                row = item.get("row") or {}
+                resource_type = str(item.get("resource_type") or "worksheet")
+                payload = dict(row)
+                if resource_type in {"worksheet", "exam"} and not extract_gallery_image_url(payload) and row.get("id"):
+                    full_row = load_worksheet_record(row.get("id")) if resource_type == "worksheet" else load_exam_record(row.get("id"))
+                    payload = full_row or payload
+                hero_image = extract_gallery_image_url(payload)
+                language_label = extract_gallery_language_label(payload)
+                resource_label = _smart_plan_resource_label(resource_type)
+                chips = "".join(
+                    [
+                        f'<span class="cm-resource-chip">{_html.escape(resource_label)}</span>',
+                        f'<span class="cm-resource-chip">🌐 {_html.escape(language_label)}</span>' if language_label else "",
+                        f'<span class="cm-resource-chip">🏷️ {_html.escape(str(item.get("level") or ""))}</span>' if item.get("level") else "",
+                        f'<span class="cm-resource-chip">📌 {_html.escape(t("assignment_status_assigned"))}</span>' if item.get("assigned_resource") else "",
+                    ]
+                )
+                meta = "".join(
+                    f"<div class='cm-resource-meta'>✨ {_html.escape(reason)}</div>"
+                    for reason in (item.get("reasons") or [])[:2]
+                )
+                st.markdown(
+                    render_gallery_card_html(
+                        kind="video" if resource_type == "video" else "exam" if resource_type == "exam" else "worksheet",
+                        title=str(item.get("title") or "—"),
+                        chips_html=chips,
+                        description=str(item.get("topic") or t("no_description_available")),
+                        meta_html=meta,
+                        image_url=hero_image,
+                        placeholder_label=resource_label,
+                    ),
+                    unsafe_allow_html=True,
+                )
+                action_label = _safe_ui_label("watch_video") if resource_type == "video" else t("start_practice")
+                if st.button(
+                    f"▶ {action_label}",
+                    key=f"student_smart_plan_recommendation_{resource_type}_{item.get('id', idx)}",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    if _open_smart_plan_recommendation(item):
+                        log_student_recommendation_open(item, surface="student_smart_plan")
+                        go_to("student_practice")
+                        st.rerun()
 
 
 def _render_smart_plan_teacher_summary(
@@ -1117,8 +1492,7 @@ def _render_smart_plan_scope(
             program_anchor,
         )
         state["recommendations"] = _generate_smart_plan_recommendations(
-            state["subject"],
-            state["goal"],
+            state,
             _calculate_smart_plan_progress(state.get("tasks", [])),
             program_anchor,
         )
@@ -1207,6 +1581,7 @@ def _render_lesson_plan_topics_tab(topic_rows: list[dict]) -> None:
 def render_student_study_plan():
     _inject_smart_plan_styles()
     _inject_assignment_page_styles()
+    inject_resource_gallery_styles()
     program_assignments = load_enriched_program_assignments_for_current_student()
     topic_assignments = [
         row

@@ -297,6 +297,93 @@ def _normalize_level(value: Any) -> str:
     return str(value or "").strip()
 
 
+_CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
+_BAND_LEVELS = ["beginner_band", "intermediate_band", "advanced_band"]
+_LEARNER_STAGES = [
+    "early_primary",
+    "upper_primary",
+    "lower_secondary",
+    "upper_secondary",
+    "adult_stage",
+]
+
+
+def _canonical_level(value: Any) -> str:
+    raw = _normalize_level(value)
+    if not raw:
+        return ""
+    upper = raw.upper()
+    if upper in _CEFR_LEVELS:
+        return upper
+    lowered = raw.casefold()
+    band_aliases = {
+        "beginner": "beginner_band",
+        "beginner_band": "beginner_band",
+        "elementary": "beginner_band",
+        "intermediate": "intermediate_band",
+        "intermediate_band": "intermediate_band",
+        "upper_intermediate": "intermediate_band",
+        "advanced": "advanced_band",
+        "advanced_band": "advanced_band",
+        "proficient": "advanced_band",
+    }
+    return band_aliases.get(lowered, raw)
+
+
+def _level_distance(target_level: Any, resource_level: Any) -> int | None:
+    target = _canonical_level(target_level)
+    resource = _canonical_level(resource_level)
+    if not target or not resource:
+        return None
+    if target in _CEFR_LEVELS and resource in _CEFR_LEVELS:
+        return _CEFR_LEVELS.index(resource) - _CEFR_LEVELS.index(target)
+    if target in _BAND_LEVELS and resource in _BAND_LEVELS:
+        return _BAND_LEVELS.index(resource) - _BAND_LEVELS.index(target)
+    return None
+
+
+def _is_beginner_safe_level(resource_level: Any) -> bool:
+    canonical = _canonical_level(resource_level)
+    if not canonical:
+        return True
+    return canonical in {"A1", "beginner_band"}
+
+
+def _canonical_stage(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    lowered = raw.casefold().replace(" ", "_")
+    aliases = {
+        "pre_primary": "early_primary",
+        "early_primary": "early_primary",
+        "lower_primary": "early_primary",
+        "primary_lower": "early_primary",
+        "upper_primary": "upper_primary",
+        "primary_upper": "upper_primary",
+        "lower_secondary": "lower_secondary",
+        "secondary_lower": "lower_secondary",
+        "middle_school": "lower_secondary",
+        "upper_secondary": "upper_secondary",
+        "secondary_upper": "upper_secondary",
+        "high_school": "upper_secondary",
+        "adult": "adult_stage",
+        "adult_stage": "adult_stage",
+        "professional": "adult_stage",
+    }
+    return aliases.get(lowered, raw)
+
+
+def _stage_distance(target_stage: Any, resource_stage: Any) -> int | None:
+    target = _canonical_stage(target_stage)
+    resource = _canonical_stage(resource_stage)
+    if not target or not resource:
+        return None
+    if target in _LEARNER_STAGES and resource in _LEARNER_STAGES:
+        return _LEARNER_STAGES.index(resource) - _LEARNER_STAGES.index(target)
+    return None
+
+
 def _resource_level(row: dict, resource_type: str) -> str:
     if resource_type == "worksheet":
         return _normalize_level(row.get("level_or_band") or row.get("level"))
@@ -766,20 +853,18 @@ def _scope_adjusted_resource_score(
 
 
 def _level_similarity(target_level: str, resource_level: str) -> float:
-    target_level = _normalize_level(target_level)
-    resource_level = _normalize_level(resource_level)
+    target_level = _canonical_level(target_level)
+    resource_level = _canonical_level(resource_level)
     if not target_level or not resource_level:
         return 0.55
     if target_level == resource_level:
         return 1.0
 
-    cefr = ["A1", "A2", "B1", "B2", "C1", "C2"]
-    bands = ["beginner_band", "intermediate_band", "advanced_band"]
-    if target_level in cefr and resource_level in cefr:
-        distance = abs(cefr.index(target_level) - cefr.index(resource_level))
+    if target_level in _CEFR_LEVELS and resource_level in _CEFR_LEVELS:
+        distance = abs(_CEFR_LEVELS.index(target_level) - _CEFR_LEVELS.index(resource_level))
         return {1: 0.82, 2: 0.6}.get(distance, 0.25)
-    if target_level in bands and resource_level in bands:
-        distance = abs(bands.index(target_level) - bands.index(resource_level))
+    if target_level in _BAND_LEVELS and resource_level in _BAND_LEVELS:
+        distance = abs(_BAND_LEVELS.index(target_level) - _BAND_LEVELS.index(resource_level))
         return {1: 0.8, 2: 0.45}.get(distance, 0.25)
     return 0.4
 
@@ -839,6 +924,7 @@ def _build_student_need_profile() -> dict[str, Any]:
         "exercise_need": {},
         "subject_level": {},
         "subject_stage": {},
+        "default_stage": _canonical_stage(profile_row.get("learner_stage") or ""),
         "overall_accuracy": {},
         "weights": _fit_need_weights(progress) if not progress.empty else [-0.1, 2.2, 0.7, 0.9],
     }
@@ -903,6 +989,98 @@ def _build_student_need_profile() -> dict[str, Any]:
     return profile
 
 
+def _recommendation_policy(
+    resource_type: str,
+    subject: str,
+    level: str,
+    stage: str,
+    student_profile: dict[str, Any],
+    *,
+    accuracy: float,
+    topic_need: float,
+    next_topic_overlap: float = 0.0,
+    pending_topic_overlap: float = 0.0,
+    review_topic_overlap: float = 0.0,
+    direct_topic_link: float = 0.0,
+    explicit_topic_match: float = 0.0,
+) -> dict[str, Any]:
+    program_signals = student_profile.get("program_signals", {}) or {}
+    program_subjects = set(program_signals.get("subjects") or set())
+    target_level = (
+        student_profile.get("subject_level", {}).get(subject, "")
+        or (program_signals.get("subject_levels", {}) or {}).get(subject, "")
+    )
+    target_stage = (
+        student_profile.get("subject_stage", {}).get(subject, "")
+        or (program_signals.get("subject_stages", {}) or {}).get(subject, "")
+        or student_profile.get("default_stage", "")
+    )
+    subject_attempts = _safe_float(student_profile.get("subject_attempts", {}).get(subject, 0.0))
+    total_attempts = sum(
+        _safe_float(value, 0.0)
+        for value in (student_profile.get("subject_attempts", {}) or {}).values()
+    )
+    level_distance = _level_distance(target_level, level)
+    stage_distance = _stage_distance(target_stage, stage)
+    has_program = bool(program_subjects)
+    in_program_subject = bool(subject) and subject in program_subjects
+    cold_start = (not has_program) and total_attempts < 3.0
+
+    policy = {
+        "allowed": True,
+        "cold_start": cold_start,
+        "stretch_allowed": False,
+        "stretch_candidate": False,
+        "level_distance": level_distance,
+        "target_level": target_level,
+        "stage_distance": stage_distance,
+        "target_stage": target_stage,
+    }
+
+    if target_stage and stage_distance is not None and abs(stage_distance) >= 2:
+        policy["allowed"] = False
+        return policy
+
+    if cold_start and not _is_beginner_safe_level(level):
+        policy["allowed"] = False
+        return policy
+
+    if not has_program:
+        return policy
+
+    if not in_program_subject:
+        policy["allowed"] = False
+        return policy
+
+    if not target_level or level_distance is None:
+        return policy
+
+    if level_distance >= 2:
+        policy["allowed"] = False
+        return policy
+
+    if level_distance <= 0:
+        return policy
+
+    topic_alignment_strength = max(
+        next_topic_overlap,
+        pending_topic_overlap,
+        review_topic_overlap,
+        direct_topic_link,
+        explicit_topic_match,
+    )
+    stretch_signal = (
+        subject_attempts >= 5.0
+        and accuracy >= 0.82
+        and topic_need < 0.35
+        and topic_alignment_strength >= 0.34
+    )
+    policy["stretch_candidate"] = True
+    policy["stretch_allowed"] = stretch_signal
+    policy["allowed"] = stretch_signal
+    return policy
+
+
 def _resource_feature_score(row: dict, resource_type: str, student_profile: dict[str, Any]) -> tuple[float, list[str], dict[str, float]]:
     subject = _resource_subject(row)
     topic = _resource_topic(row)
@@ -918,9 +1096,12 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
     program_levels = student_profile.get("program_signals", {}).get("subject_levels", {}) or {}
     program_stages = student_profile.get("program_signals", {}).get("subject_stages", {}) or {}
     subject_attempts = _safe_float(student_profile.get("subject_attempts", {}).get(subject, 0.0))
-    bootstrap_mode = bool(program_subjects) and subject_attempts < 5.0
     target_level = student_profile.get("subject_level", {}).get(subject, "") or program_levels.get(subject, "")
-    target_stage = student_profile.get("subject_stage", {}).get(subject, "") or program_stages.get(subject, "")
+    target_stage = (
+        student_profile.get("subject_stage", {}).get(subject, "")
+        or program_stages.get(subject, "")
+        or student_profile.get("default_stage", "")
+    )
     accuracy = _safe_float(student_profile.get("overall_accuracy", {}).get(subject, 0.0))
     program_signals = student_profile.get("program_signals", {}) or {}
     behavior_profile = student_profile.get("assignment_behavior", {}) or {}
@@ -955,21 +1136,22 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
         },
     )
 
-    if bootstrap_mode and program_subjects and subject not in program_subjects:
-        return -1.0, [], {}
-    if bootstrap_mode and target_level and level and _normalize_level(level) != _normalize_level(target_level):
-        return -1.0, [], {}
-
     subject_focus = 1.0 if subject_need > 0 else (0.8 if subject in primary_subjects else 0.45)
     if program_subjects:
         if subject in program_subjects:
-            subject_focus = max(subject_focus, 1.0 if bootstrap_mode else 0.92)
+            subject_focus = max(subject_focus, 0.96 if subject_attempts < 5.0 else 0.92)
         else:
             subject_focus = min(subject_focus, 0.2)
     topic_support = max(topic_need, subject_need * 0.55)
     type_support = max(exercise_need, subject_need * 0.45)
     level_fit = _level_similarity(target_level, level)
-    stage_fit = 1.0 if target_stage and stage and target_stage == stage else (0.65 if not target_stage or not stage else 0.35)
+    canonical_target_stage = _canonical_stage(target_stage)
+    canonical_resource_stage = _canonical_stage(stage)
+    stage_fit = (
+        1.0
+        if canonical_target_stage and canonical_resource_stage and canonical_target_stage == canonical_resource_stage
+        else (0.65 if not canonical_target_stage or not canonical_resource_stage else 0.35)
+    )
     program_topic_overlap = 0.0
     if resource_tokens and program_signals.get("topic_tokens"):
         overlap = len(resource_tokens & set(program_signals.get("topic_tokens") or set()))
@@ -979,6 +1161,22 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
     review_topic_overlap = _topic_overlap_score(resource_tokens, set(program_signals.get("review_topic_tokens") or set()))
     assigned_topic_overlap = _topic_overlap_score(resource_tokens, set(assignment_signals.get("active_assigned_topic_tokens") or set()), scale=2.0)
     unseen_video_overlap = _topic_overlap_score(resource_tokens, set(assignment_signals.get("unseen_video_topic_tokens") or set()), scale=2.0)
+    policy = _recommendation_policy(
+        resource_type,
+        subject,
+        level,
+        stage,
+        student_profile,
+        accuracy=accuracy,
+        topic_need=topic_need,
+        next_topic_overlap=next_topic_overlap,
+        pending_topic_overlap=pending_topic_overlap,
+        review_topic_overlap=review_topic_overlap,
+        direct_topic_link=topic_alignment["direct_topic_link"],
+        explicit_topic_match=topic_alignment["explicit_topic_match"],
+    )
+    if not bool(policy.get("allowed")):
+        return -1.0, [], {}
     program_subject_fit = 1.0 if subject and subject in (program_signals.get("subjects") or set()) else 0.0
     program_type_fit = 0.0
     if resource_type == "worksheet" and exercise_type and exercise_type in (program_signals.get("worksheet_types") or set()):
@@ -996,10 +1194,11 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
         review_boost = 0.18
     if review_topic_overlap >= 0.34:
         review_boost = max(review_boost, 0.16)
-    if accuracy >= 0.82 and level_fit >= 0.8 and topic_need < 0.35:
+    if bool(policy.get("stretch_allowed")) and level_fit >= 0.8:
         stretch_boost = 0.1
-    if next_topic_overlap >= 0.34:
+    if bool(policy.get("stretch_allowed")) and next_topic_overlap >= 0.34:
         stretch_boost = max(stretch_boost, 0.12)
+    cold_start_level_penalty = 0.04 if bool(policy.get("cold_start")) and level_fit < 0.95 else 0.0
     assignment_boost = 0.0
     if assigned_active:
         assignment_boost += 0.14
@@ -1045,6 +1244,7 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
         + stretch_boost
         + assignment_boost
     )
+    score -= cold_start_level_penalty
     score -= 0.04 * topic_alignment["topic_match_ambiguity"]
     if topic_success >= 0.82 and topic_need < 0.28:
         score -= 0.08

@@ -190,6 +190,188 @@ class StudentRecommendationScopingTests(unittest.TestCase):
         self.assertEqual(201, matched["learning_program_assignment_id"])
         self.assertEqual({}, mismatched)
 
+    def test_program_students_do_not_receive_two_levels_above_target(self):
+        policy = recommendations._recommendation_policy(
+            "worksheet",
+            "english",
+            "B1",
+            "lower_secondary",
+            {
+                "program_signals": {
+                    "subjects": {"english"},
+                    "subject_levels": {"english": "A1"},
+                    "subject_stages": {"english": "lower_secondary"},
+                },
+                "subject_attempts": {"english": 9.0},
+            },
+            accuracy=0.94,
+            topic_need=0.1,
+            next_topic_overlap=0.8,
+            explicit_topic_match=1.0,
+        )
+
+        self.assertFalse(policy["allowed"])
+
+    def test_program_students_can_receive_one_level_stretch_with_strong_signal(self):
+        policy = recommendations._recommendation_policy(
+            "worksheet",
+            "english",
+            "A2",
+            "upper_secondary",
+            {
+                "program_signals": {
+                    "subjects": {"english"},
+                    "subject_levels": {"english": "A1"},
+                    "subject_stages": {"english": "lower_secondary"},
+                },
+                "subject_attempts": {"english": 7.0},
+            },
+            accuracy=0.9,
+            topic_need=0.2,
+            next_topic_overlap=0.5,
+            explicit_topic_match=1.0,
+        )
+
+        self.assertTrue(policy["allowed"])
+        self.assertTrue(policy["stretch_allowed"])
+
+    def test_program_students_do_not_receive_one_level_stretch_without_enough_signal(self):
+        policy = recommendations._recommendation_policy(
+            "worksheet",
+            "english",
+            "A2",
+            "upper_secondary",
+            {
+                "program_signals": {
+                    "subjects": {"english"},
+                    "subject_levels": {"english": "A1"},
+                    "subject_stages": {"english": "lower_secondary"},
+                },
+                "subject_attempts": {"english": 2.0},
+            },
+            accuracy=0.74,
+            topic_need=0.2,
+            next_topic_overlap=0.5,
+            explicit_topic_match=1.0,
+        )
+
+        self.assertFalse(policy["allowed"])
+
+    def test_cold_start_students_are_limited_to_beginner_safe_levels(self):
+        blocked = recommendations._recommendation_policy(
+            "worksheet",
+            "english",
+            "B1",
+            "adult_stage",
+            {
+                "program_signals": {"subjects": set()},
+                "subject_attempts": {},
+                "default_stage": "upper_primary",
+            },
+            accuracy=0.0,
+            topic_need=0.0,
+        )
+        allowed = recommendations._recommendation_policy(
+            "worksheet",
+            "english",
+            "A1",
+            "lower_secondary",
+            {
+                "program_signals": {"subjects": set()},
+                "subject_attempts": {},
+                "default_stage": "upper_primary",
+            },
+            accuracy=0.0,
+            topic_need=0.0,
+        )
+
+        self.assertFalse(blocked["allowed"])
+        self.assertTrue(blocked["cold_start"])
+        self.assertTrue(allowed["allowed"])
+        self.assertTrue(allowed["cold_start"])
+
+    def test_stage_policy_blocks_resources_two_stages_away(self):
+        too_far_ahead = recommendations._recommendation_policy(
+            "worksheet",
+            "english",
+            "A1",
+            "adult_stage",
+            {
+                "program_signals": {
+                    "subjects": {"english"},
+                    "subject_levels": {"english": "A1"},
+                    "subject_stages": {"english": "lower_secondary"},
+                },
+                "subject_attempts": {"english": 10.0},
+            },
+            accuracy=0.95,
+            topic_need=0.1,
+            next_topic_overlap=0.8,
+            explicit_topic_match=1.0,
+        )
+        too_far_behind = recommendations._recommendation_policy(
+            "worksheet",
+            "english",
+            "A1",
+            "early_primary",
+            {
+                "program_signals": {
+                    "subjects": {"english"},
+                    "subject_levels": {"english": "A1"},
+                    "subject_stages": {"english": "upper_secondary"},
+                },
+                "subject_attempts": {"english": 10.0},
+            },
+            accuracy=0.95,
+            topic_need=0.1,
+            next_topic_overlap=0.8,
+            explicit_topic_match=1.0,
+        )
+
+        self.assertFalse(too_far_ahead["allowed"])
+        self.assertFalse(too_far_behind["allowed"])
+
+    def test_stage_policy_allows_adjacent_stages(self):
+        below = recommendations._recommendation_policy(
+            "worksheet",
+            "english",
+            "A1",
+            "upper_primary",
+            {
+                "program_signals": {
+                    "subjects": {"english"},
+                    "subject_levels": {"english": "A1"},
+                    "subject_stages": {"english": "lower_secondary"},
+                },
+                "subject_attempts": {"english": 10.0},
+            },
+            accuracy=0.95,
+            topic_need=0.4,
+            next_topic_overlap=0.2,
+            explicit_topic_match=0.2,
+        )
+        above = recommendations._recommendation_policy(
+            "worksheet",
+            "english",
+            "A1",
+            "adult_stage",
+            {
+                "program_signals": {
+                    "subjects": {"english"},
+                    "subject_levels": {"english": "A1"},
+                    "subject_stages": {"english": "upper_secondary"},
+                },
+                "subject_attempts": {"english": 10.0},
+            },
+            accuracy=0.95,
+            topic_need=0.4,
+            next_topic_overlap=0.2,
+            explicit_topic_match=0.2,
+        )
+
+        self.assertTrue(below["allowed"])
+        self.assertTrue(above["allowed"])
+
 
 if __name__ == "__main__":
     unittest.main()

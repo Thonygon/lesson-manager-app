@@ -279,7 +279,7 @@ def _normalize_exam_frame(rows: list[dict] | None) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def _load_my_exams_cached(uid: str, limit: int = 120) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
@@ -313,7 +313,7 @@ def load_my_exams(*, include_archived: bool = False, archived_only: bool = False
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def _load_public_exams_cached(limit: int = 120) -> pd.DataFrame:
     res = (
         get_sb()
@@ -339,7 +339,7 @@ def load_public_exams(*, show_errors: bool = True) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def load_exam_record(exam_id) -> dict:
     safe_exam_id = exam_id
     if isinstance(exam_id, str):

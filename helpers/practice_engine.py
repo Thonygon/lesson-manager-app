@@ -33,6 +33,50 @@ XP_PER_ATTEMPT     = 1
 XP_PERFECT_BONUS   = 15
 XP_STREAK_BONUS    = 2       # per consecutive correct beyond 2
 
+_PRACTICE_HISTORY_COLUMNS = ",".join([
+    "id",
+    "user_id",
+    "source_type",
+    "source_id",
+    "title",
+    "subject",
+    "topic",
+    "learner_stage",
+    "level",
+    "exercise_data",
+    "total_questions",
+    "correct_count",
+    "score_pct",
+    "xp_earned",
+    "best_streak",
+    "status",
+    "started_at",
+    "completed_at",
+    "created_at",
+])
+
+_PRACTICE_PROGRESS_COLUMNS = ",".join([
+    "id",
+    "user_id",
+    "scope_key",
+    "source_type",
+    "teacher_id",
+    "assignment_id",
+    "learning_program_assignment_id",
+    "subject",
+    "topic",
+    "exercise_type",
+    "learner_stage",
+    "level",
+    "total_attempted",
+    "total_correct",
+    "accuracy_pct",
+    "total_xp",
+    "best_streak",
+    "last_practiced",
+    "created_at",
+])
+
 RANKS = [
     (0,     "newcomer",    "🌱"),
     (200,   "learner",     "📖"),
@@ -1062,6 +1106,16 @@ def _sanitize_practice_answer_value(
     if allowed_values is None:
         return text_value
     return text_value if text_value in allowed_values else ""
+
+
+def _serialize_saved_student_answer(value, *, ex_type: str = "") -> str:
+    if value is None:
+        return ""
+    if ex_type == "true_false":
+        canonical = _canonical_true_false(_comparison_answer_text(value))
+        if canonical in {"true", "false"}:
+            return canonical
+    return str(value)
 
 
 def _sanitize_practice_widget_state(
@@ -2101,7 +2155,10 @@ def save_practice_answers(
 
         for q_idx in range(len(questions)):
             q_key = f"{session_key}_{ex_idx}_{q_idx}"
-            student_ans = str(student_answers.get(q_key, ""))
+            student_ans = _serialize_saved_student_answer(
+                student_answers.get(q_key, ""),
+                ex_type=ex_type,
+            )
             correct_ans = correct_answers[q_idx] if q_idx < len(correct_answers) else ""
             correct_str = _display_answer_text(correct_ans)
             is_correct = _evaluate_answer(ex_type, student_ans, correct_ans)["is_correct"]
@@ -2244,7 +2301,10 @@ def update_practice_progress(
 
         for q_idx in range(len(questions)):
             q_key = f"{session_key}_{ex_idx}_{q_idx}"
-            student_ans = str(student_answers.get(q_key, ""))
+            student_ans = _serialize_saved_student_answer(
+                student_answers.get(q_key, ""),
+                ex_type=ex_type,
+            )
             correct_ans = correct_answers[q_idx] if q_idx < len(correct_answers) else ""
             is_right = _evaluate_answer(ex_type, student_ans, correct_ans)["is_correct"]
 
@@ -2796,14 +2856,31 @@ def _load_practice_history_cached(uid: str, limit: int = 50) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
     try:
-        df = load_table("practice_sessions")
-        if df is None or df.empty:
+        try:
+            rows = (
+                get_sb()
+                .table("practice_sessions")
+                .select(_PRACTICE_HISTORY_COLUMNS)
+                .eq("user_id", uid)
+                .eq("status", "completed")
+                .order("created_at", desc=True)
+                .limit(max(1, int(limit or 50)))
+                .execute()
+            ).data or []
+        except Exception:
+            rows = (
+                get_sb()
+                .table("practice_sessions")
+                .select("*")
+                .eq("user_id", uid)
+                .eq("status", "completed")
+                .order("created_at", desc=True)
+                .limit(max(1, int(limit or 50)))
+                .execute()
+            ).data or []
+        if not rows:
             return pd.DataFrame()
-        df = df.copy()
-        if "user_id" in df.columns:
-            df = df[df["user_id"].astype(str) == str(uid)].copy()
-        if "status" in df.columns:
-            df = df[df["status"].fillna("completed").astype(str) == "completed"].copy()
+        df = pd.DataFrame(rows)
         if "created_at" in df.columns:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
             df = df.sort_values("created_at", ascending=False)
@@ -2861,7 +2938,10 @@ def load_practice_draft_answers(session_id: int) -> dict[str, str]:
         )
         rows = res.data or []
         return {
-            f"sp_{int(row.get('exercise_idx') or 0)}_{int(row.get('question_idx') or 0)}": str(row.get("student_answer") or "")
+            f"sp_{int(row.get('exercise_idx') or 0)}_{int(row.get('question_idx') or 0)}": _serialize_saved_student_answer(
+                row.get("student_answer"),
+                ex_type=str(row.get("exercise_type") or ""),
+            )
             for row in rows
         }
     except Exception:
@@ -3026,7 +3106,10 @@ def _evaluate_saved_practice_answers(exercise_data: dict, answer_rows: list[dict
 
         if ex_type == "word_search_vocab":
             old_row = answers_by_position.get((ex_idx, 0), {})
-            student_ans = str(old_row.get("student_answer") or "")
+            student_ans = _serialize_saved_student_answer(
+                old_row.get("student_answer"),
+                ex_type=ex_type,
+            )
             correct = correct_answers[0] if correct_answers else []
             evaluation = _evaluate_answer(ex_type, student_ans, correct)
             found_count = int(evaluation.get("correct_count", 0))
@@ -3055,7 +3138,10 @@ def _evaluate_saved_practice_answers(exercise_data: dict, answer_rows: list[dict
 
         for q_idx in range(len(questions)):
             old_row = answers_by_position.get((ex_idx, q_idx), {})
-            student_ans = str(old_row.get("student_answer") or "")
+            student_ans = _serialize_saved_student_answer(
+                old_row.get("student_answer"),
+                ex_type=ex_type,
+            )
             correct = correct_answers[q_idx] if q_idx < len(correct_answers) else ""
             evaluation = _evaluate_answer(ex_type, student_ans, correct)
             total_q += 1
@@ -3346,10 +3432,25 @@ def _load_practice_progress_cached(uid: str) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
     try:
-        df = load_table("practice_progress")
-        if df is None or df.empty:
+        try:
+            rows = (
+                get_sb()
+                .table("practice_progress")
+                .select(_PRACTICE_PROGRESS_COLUMNS)
+                .eq("user_id", uid)
+                .execute()
+            ).data or []
+        except Exception:
+            rows = (
+                get_sb()
+                .table("practice_progress")
+                .select("*")
+                .eq("user_id", uid)
+                .execute()
+            ).data or []
+        if not rows:
             return pd.DataFrame()
-        return df.reset_index(drop=True)
+        return pd.DataFrame(rows).reset_index(drop=True)
     except Exception:
         return pd.DataFrame()
 

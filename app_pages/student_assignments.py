@@ -310,7 +310,13 @@ def _load_source_video(source_record_id):
     return dict(row or {})
 
 
-def _open_assignment_practice(row: dict, *, review_completed: bool = False) -> None:
+def _open_assignment_practice(
+    row: dict,
+    *,
+    review_completed: bool = False,
+    return_page: str = "student_assignments",
+    return_section: str = "",
+) -> None:
     assignment_id = row.get("id")
     snapshot = row.get("content_snapshot") or {}
     assignment_type = str(row.get("assignment_type") or "").strip()
@@ -413,7 +419,11 @@ def _open_assignment_practice(row: dict, *, review_completed: bool = False) -> N
         st.session_state.pop("_practice_resume_notice", None)
         st.session_state.pop("_practice_review_mode", None)
         st.session_state.pop("_practice_submitted_sp", None)
-    st.session_state["practice_meta"] = meta
+    st.session_state["practice_meta"] = {
+        **dict(meta or {}),
+        "return_page": return_page,
+        "return_section": return_section,
+    }
     st.session_state["_practice_assignment_id"] = assignment_id
     st.session_state["_practice_assignment_type"] = assignment_type
     if not review_completed:

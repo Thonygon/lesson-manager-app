@@ -4,6 +4,7 @@ from streamlit.testing.v1 import AppTest
 
 from helpers import teacher_student_integration as tsi
 from helpers import quick_exam_storage, worksheet_storage
+from helpers import video_library
 
 
 class _FakeResult:
@@ -61,8 +62,10 @@ class TeacherStudentIntegrationQueryTests(unittest.TestCase):
         tsi._load_active_linked_students_for_teacher_cached.clear()
         tsi._load_student_teacher_links_cached.clear()
         tsi._load_student_assignments_cached.clear()
+        tsi._load_student_assignments_by_ids_cached.clear()
         tsi._load_teacher_assignment_progress_cached.clear()
         tsi._load_teacher_review_requests_cached.clear()
+        video_library._load_public_videos_cached.clear()
 
     def test_teacher_student_rows_use_explicit_student_columns(self):
         fake_sb = _FakeSupabase(
@@ -119,6 +122,37 @@ class TeacherStudentIntegrationQueryTests(unittest.TestCase):
         self.assertEqual(tsi._ASSIGNMENT_LIST_COLUMNS, query.ops[0][1])
         self.assertIn(("eq", "student_id", "student-1"), query.ops)
         self.assertIn(("neq", "status", "archived"), query.ops)
+
+    def test_student_assignment_by_id_uses_direct_scoped_lookup(self):
+        fake_sb = _FakeSupabase(
+            table_data={
+                "teacher_assignments": [
+                    {
+                        "id": 41,
+                        "teacher_id": "teacher-1",
+                        "student_id": "student-1",
+                        "title": "Review worksheet",
+                        "status": "assigned",
+                        "subject_key": "english",
+                        "subject_label": "English",
+                        "teacher_note": "Great effort",
+                    }
+                ]
+            }
+        )
+
+        with (
+            patch.object(tsi, "get_sb", return_value=fake_sb),
+            patch.object(tsi, "get_current_user_id", return_value="student-1"),
+            patch.object(tsi, "_load_profiles_map", return_value={"teacher-1": {"display_name": "Teacher One"}}),
+        ):
+            row = tsi.load_student_assignment_by_id(41)
+
+        self.assertEqual(41, row["id"])
+        query = fake_sb.table_log[0]
+        self.assertEqual(tsi._ASSIGNMENT_LIST_COLUMNS, query.ops[0][1])
+        self.assertIn(("eq", "student_id", "student-1"), query.ops)
+        self.assertIn(("in", "id", (41,)), query.ops)
 
     def test_review_detail_uses_explicit_review_session_and_answer_columns(self):
         fake_sb = _FakeSupabase(
@@ -258,7 +292,56 @@ class TeacherStudentIntegrationQueryTests(unittest.TestCase):
             quick_exam_storage.load_exam_record.clear()
 
         self.assertEqual(99, captured["id"])
-        self.assertEqual(99, row["id"])
+
+    def test_public_video_loader_uses_lightweight_columns_and_preserves_image_fields(self):
+        fake_sb = _FakeSupabase(
+            table_data={
+                "videos": [
+                    {
+                        "id": 9,
+                        "user_id": "teacher-1",
+                        "title": "Travel verbs",
+                        "subject": "english",
+                        "topic": "Travel",
+                        "description": "Useful verbs",
+                        "video_id": "abcdefghijk",
+                        "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
+                        "watch_url": "https://www.youtube.com/watch?v=abcdefghijk",
+                        "thumbnail_url": "https://img.youtube.com/vi/abcdefghijk/hqdefault.jpg",
+                        "image_url": "https://example.com/image.png",
+                        "cover_image_url": "https://example.com/cover.png",
+                        "hero_image_url": "https://example.com/hero.png",
+                        "learner_stage": "lower_secondary",
+                        "level_or_band": "A2",
+                        "level": "A2",
+                        "student_material_language": "en",
+                        "author_name": "",
+                        "is_public": True,
+                        "status": "active",
+                        "created_at": "2026-08-01T00:00:00+00:00",
+                        "updated_at": "2026-08-02T00:00:00+00:00",
+                    }
+                ]
+            }
+        )
+
+        video_library._load_public_videos_cached.clear()
+        try:
+            with (
+                patch.object(video_library, "get_sb", return_value=fake_sb),
+                patch.object(video_library, "_profile_name_map", return_value={"teacher-1": {"display_name": "Teacher One"}}),
+            ):
+                df = video_library._load_public_videos_cached(limit=5)
+        finally:
+            video_library._load_public_videos_cached.clear()
+
+        self.assertEqual(1, len(df))
+        self.assertEqual("https://img.youtube.com/vi/abcdefghijk/hqdefault.jpg", df.iloc[0]["thumbnail_url"])
+        query = fake_sb.table_log[0]
+        self.assertEqual(video_library._VIDEO_LIST_COLUMNS, query.ops[0][1])
+        self.assertIn(("eq", "is_public", True), query.ops)
+        self.assertIn(("order", "updated_at", True), query.ops)
+        self.assertIn(("limit", 5), query.ops)
 
     def test_load_worksheet_record_normalizes_float_identifier(self):
         captured = {}

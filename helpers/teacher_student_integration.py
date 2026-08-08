@@ -1096,14 +1096,54 @@ def load_student_assignments(statuses: list[str] | None = None) -> list[dict]:
     return _load_student_assignments_cached(uid, statuses_key)
 
 
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_student_assignments_by_ids_cached(uid: str, assignment_ids_key: tuple[int, ...]) -> list[dict]:
+    cleaned_ids = [int(item) for item in assignment_ids_key if int(item or 0) > 0]
+    if not uid or not cleaned_ids:
+        return []
+    try:
+        rows = _rows(
+            get_sb()
+            .table("teacher_assignments")
+            .select(_ASSIGNMENT_LIST_COLUMNS)
+            .eq("student_id", uid)
+            .in_("id", cleaned_ids)
+            .execute()
+        )
+    except Exception:
+        return []
+    if not rows:
+        return []
+
+    teacher_profiles = _load_profiles_map([str(row.get("teacher_id")) for row in rows if row.get("teacher_id")])
+    return [
+        {
+            **row,
+            "teacher_note": _clean_teacher_feedback_text(row.get("teacher_note")),
+            "source_archived": truthy_flag(row.get("source_archived")),
+            "teacher_profile": teacher_profiles.get(str(row.get("teacher_id")), {}),
+            "teacher_name": _profile_label(teacher_profiles.get(str(row.get("teacher_id")), {})),
+            "subject_display": _localized_subject_display(row.get("subject_key"), row.get("subject_label")),
+        }
+        for row in rows
+    ]
+
+
+register_cache(_load_student_assignments_by_ids_cached)
+
+
+def load_student_assignments_by_ids(assignment_ids: list[int]) -> list[dict]:
+    uid = str(get_current_user_id() or "").strip()
+    assignment_ids_key = tuple(sorted({int(item) for item in assignment_ids if int(item or 0) > 0}))
+    return _load_student_assignments_by_ids_cached(uid, assignment_ids_key)
+
+
 def load_student_assignment_by_id(assignment_id: int) -> dict:
     safe_assignment_id = int(assignment_id or 0)
     if safe_assignment_id <= 0:
         return {}
-    for row in load_student_assignments():
-        if int(row.get("id") or 0) == safe_assignment_id:
-            return row
-    return {}
+    rows = load_student_assignments_by_ids([safe_assignment_id])
+    return rows[0] if rows else {}
 
 
 def archive_teacher_assignment_for_teacher(assignment_id: int) -> tuple[bool, str]:
@@ -1213,9 +1253,10 @@ def load_practice_assignment_scope_map(practice_session_ids: list[int]) -> dict[
     except Exception:
         return {}
 
+    assignment_ids = sorted({int(item.get("assignment_id") or 0) for item in attempts if int(item.get("assignment_id") or 0) > 0})
     assignments_by_id = {
         int(row.get("id") or 0): row
-        for row in load_student_assignments()
+        for row in load_student_assignments_by_ids(assignment_ids)
         if int(row.get("id") or 0) > 0
     }
     result: dict[int, dict] = {}
