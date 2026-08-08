@@ -85,6 +85,7 @@ def _open_home_recommendation_practice(item: dict) -> None:
             "learner_stage": row.get("learner_stage", ""),
             "level": row.get("level_or_band", "") or row.get("level", ""),
         },
+        return_page="student_home",
     )
     if not opened:
         return
@@ -192,6 +193,7 @@ def _render_home_recommendation_group(items: list[dict], *, group_key: str) -> N
                             "level": str(item.get("level") or row.get("level_or_band") or ""),
                         },
                         assignment_id=int(item.get("assignment_id") or 0),
+                        return_page="student_home",
                     )
                     if opened:
                         log_student_recommendation_open(item, surface="student_home")

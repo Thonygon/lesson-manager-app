@@ -2,8 +2,10 @@
 __pycache__/
 *.pyc
 *.csv
+.streamlit/*
+!.streamlit/config.toml
 .streamlit/secrets.toml
-.streamlit/
+.streamlit/secrets.toml.save
 .env
 .venv/
 .venv-2/

@@ -375,7 +375,7 @@ def clear_recommendation_model_caches() -> None:
         pass
 
 
-@st.cache_data(ttl=90, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _load_topic_resource_reference_rows(
     *,
     teacher_id: str = "",
@@ -495,7 +495,7 @@ def _load_topic_resource_reference_rows(
 register_cache(_load_topic_resource_reference_rows)
 
 
-@st.cache_data(ttl=90, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def build_explicit_topic_resource_model(
     *,
     teacher_id: str | None = None,
@@ -614,7 +614,7 @@ def topic_resource_alignment_features(
     }
 
 
-@st.cache_data(ttl=90, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _load_teacher_material_activity_rows(teacher_id: str) -> list[dict]:
     teacher_id = str(teacher_id or "").strip()
     if not teacher_id:
@@ -647,7 +647,7 @@ def _load_teacher_material_activity_rows(teacher_id: str) -> list[dict]:
 register_cache(_load_teacher_material_activity_rows)
 
 
-@st.cache_data(ttl=90, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _load_teacher_recommendation_events(teacher_id: str) -> list[dict]:
     teacher_id = str(teacher_id or "").strip()
     if not teacher_id:
@@ -697,7 +697,7 @@ def _teacher_event_target(row: dict) -> float:
     return score_map.get(event_type, 0.1)
 
 
-@st.cache_data(ttl=90, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def build_teacher_recommendation_model(teacher_id: str | None = None) -> dict[str, Any]:
     safe_teacher_id = str(teacher_id or get_current_user_id() or "").strip()
     rows = _load_teacher_recommendation_events(safe_teacher_id)
@@ -873,7 +873,7 @@ def _normalize_signal_map(values: dict[str, float]) -> dict[str, float]:
     return {key: _clamp(_safe_float(value) / top) for key, value in values.items()}
 
 
-@st.cache_data(ttl=90, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def build_teacher_material_feed_profile(teacher_id: str | None = None) -> dict[str, Any]:
     safe_teacher_id = str(teacher_id or get_current_user_id() or "").strip()
     profile: dict[str, Any] = {
@@ -1222,7 +1222,7 @@ def log_teacher_material_open(
         pass
 
 
-@st.cache_data(ttl=90, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def _load_student_history_rows(student_id: str) -> dict[str, list[dict]]:
     safe_student_id = str(student_id or "").strip()
     if not safe_student_id:

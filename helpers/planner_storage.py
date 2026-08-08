@@ -634,7 +634,7 @@ def _normalize_lesson_plan_frame(rows: list[dict] | None) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def _load_my_lesson_plans_cached(uid: str, limit: int = 120) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
@@ -653,7 +653,7 @@ def _load_my_lesson_plans_cached(uid: str, limit: int = 120) -> pd.DataFrame:
 register_cache(_load_my_lesson_plans_cached)
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def _load_public_lesson_plans_cached(limit: int = 120) -> pd.DataFrame:
     res = (
         get_sb()
@@ -678,7 +678,7 @@ def load_public_lesson_plans() -> pd.DataFrame:
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def load_lesson_plan_record(plan_id) -> dict:
     safe_plan_id = plan_id
     if isinstance(plan_id, str):

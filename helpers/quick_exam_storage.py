@@ -279,7 +279,7 @@ def _normalize_exam_frame(rows: list[dict] | None) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def _load_my_exams_cached(uid: str, limit: int = 120) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
@@ -313,7 +313,7 @@ def load_my_exams(*, include_archived: bool = False, archived_only: bool = False
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def _load_public_exams_cached(limit: int = 120) -> pd.DataFrame:
     res = (
         get_sb()
@@ -339,14 +339,20 @@ def load_public_exams(*, show_errors: bool = True) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def load_exam_record(exam_id) -> dict:
     safe_exam_id = exam_id
     if isinstance(exam_id, str):
         stripped = exam_id.strip()
         if not stripped:
             return {}
+        if stripped.endswith(".0") and stripped[:-2].strip().lstrip("-").isdigit():
+            stripped = stripped[:-2].strip()
         safe_exam_id = int(stripped) if stripped.isdigit() else stripped
+    elif isinstance(exam_id, float):
+        if math.isnan(exam_id):
+            return {}
+        safe_exam_id = int(exam_id) if exam_id.is_integer() else exam_id
     elif exam_id is None:
         return {}
     try:
@@ -1599,6 +1605,31 @@ def _persist_saved_exam_visuals(exam_id: int | str, exam_data: dict) -> bool:
             .eq("user_id", uid)
             .execute()
         )
+        try:
+            saved_row = load_exam_record(safe_id) or {}
+            from helpers.practice_engine import exam_to_exercises, rescore_practice_sessions_for_resource
+            from helpers.teacher_student_integration import sync_assignment_copies_for_resource
+
+            answer_key = saved_row.get("answer_key") or {}
+            rescored_exercise_data = exam_to_exercises(exam_data, answer_key, row_id=safe_id)
+            rescore_practice_sessions_for_resource("exam", safe_id, rescored_exercise_data)
+            sync_assignment_copies_for_resource(
+                kind="exam",
+                source_record_id=safe_id,
+                row={
+                    **saved_row,
+                    "id": safe_id,
+                    "exam_data": exam_data,
+                    "answer_key": answer_key,
+                    "title": str(exam_data.get("title") or saved_row.get("title") or "").strip(),
+                    "topic": str(exam_data.get("topic") or saved_row.get("topic") or "").strip(),
+                    "subject": str(exam_data.get("subject") or saved_row.get("subject") or "").strip(),
+                    "learner_stage": str(exam_data.get("learner_stage") or saved_row.get("learner_stage") or "").strip(),
+                    "level": str(exam_data.get("level") or saved_row.get("level") or "").strip(),
+                },
+            )
+        except Exception:
+            pass
         clear_app_caches()
         try:
             load_exam_record.clear()
@@ -1657,6 +1688,29 @@ def _persist_saved_exam_resource(exam_id: int | str, exam_data: dict, answer_key
             .eq("user_id", uid)
             .execute()
         )
+        try:
+            from helpers.practice_engine import exam_to_exercises, rescore_practice_sessions_for_resource
+            from helpers.teacher_student_integration import sync_assignment_copies_for_resource
+
+            rescored_exercise_data = exam_to_exercises(exam_data, answer_key, row_id=safe_id)
+            rescore_practice_sessions_for_resource("exam", safe_id, rescored_exercise_data)
+            sync_assignment_copies_for_resource(
+                kind="exam",
+                source_record_id=safe_id,
+                row={
+                    **existing_row,
+                    "id": safe_id,
+                    "exam_data": exam_data,
+                    "answer_key": answer_key,
+                    "title": str(exam_data.get("title") or existing_row.get("title") or "").strip(),
+                    "topic": str(exam_data.get("topic") or existing_row.get("topic") or "").strip(),
+                    "subject": str(exam_data.get("subject") or existing_row.get("subject") or "").strip(),
+                    "learner_stage": str(exam_data.get("learner_stage") or existing_row.get("learner_stage") or "").strip(),
+                    "level": str(exam_data.get("level") or existing_row.get("level") or "").strip(),
+                },
+            )
+        except Exception:
+            pass
         clear_app_caches()
         try:
             load_exam_record.clear()

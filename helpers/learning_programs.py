@@ -3285,7 +3285,7 @@ def _normalize_learning_program_frame(rows: list[dict] | None) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def _load_my_learning_programs_cached(uid: str, limit: int = 120) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
@@ -3304,7 +3304,7 @@ def _load_my_learning_programs_cached(uid: str, limit: int = 120) -> pd.DataFram
 register_cache(_load_my_learning_programs_cached)
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def _load_public_learning_programs_cached(limit: int = 120) -> pd.DataFrame:
     res = (
         get_sb()
@@ -3343,7 +3343,7 @@ def load_progression_candidates(subject: str, learner_stage: str, custom_subject
     return out.reset_index(drop=True)
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def load_learning_program(program_id: int) -> dict:
     try:
         sb = get_sb()

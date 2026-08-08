@@ -310,7 +310,13 @@ def _load_source_video(source_record_id):
     return dict(row or {})
 
 
-def _open_assignment_practice(row: dict, *, review_completed: bool = False) -> None:
+def _open_assignment_practice(
+    row: dict,
+    *,
+    review_completed: bool = False,
+    return_page: str = "student_assignments",
+    return_section: str = "",
+) -> None:
     assignment_id = row.get("id")
     snapshot = row.get("content_snapshot") or {}
     assignment_type = str(row.get("assignment_type") or "").strip()
@@ -325,7 +331,13 @@ def _open_assignment_practice(row: dict, *, review_completed: bool = False) -> N
     exercise_data = {}
     if assignment_type == "worksheet":
         worksheet = normalize_worksheet_output(dict(snapshot.get("worksheet") or {}))
-        if not worksheet_has_ready_visuals(worksheet):
+        source_row = load_worksheet_record(source_record_id) if source_record_id else {}
+        source_worksheet = normalize_worksheet_output(dict(source_row.get("worksheet_json") or {}))
+        if source_worksheet:
+            worksheet = source_worksheet
+            snapshot["worksheet"] = source_worksheet
+            persist_assignment_content_snapshot(int(assignment_id), snapshot)
+        elif not worksheet_has_ready_visuals(worksheet):
             source_worksheet = _load_source_worksheet(source_record_id)
             if worksheet_has_ready_visuals(source_worksheet):
                 worksheet = normalize_worksheet_output(source_worksheet)
@@ -334,7 +346,7 @@ def _open_assignment_practice(row: dict, *, review_completed: bool = False) -> N
         # Visuals are generated once at creation time; no re-enrichment here
         exercise_data = worksheet_to_exercises(worksheet, row_id=assignment_id)
         if not exercise_data.get("exercises") and source_record_id:
-            source_row = load_worksheet_record(source_record_id) or {}
+            source_row = source_row or load_worksheet_record(source_record_id) or {}
             source_worksheet = normalize_worksheet_output(dict(source_row.get("worksheet_json") or {}))
             if source_worksheet:
                 exercise_data = worksheet_to_exercises(source_worksheet, row_id=assignment_id)
@@ -343,6 +355,14 @@ def _open_assignment_practice(row: dict, *, review_completed: bool = False) -> N
                     persist_assignment_content_snapshot(int(assignment_id), snapshot)
     elif assignment_type == "exam":
         exam_data = dict(snapshot.get("exam_data") or {})
+        answer_key = dict(snapshot.get("answer_key") or {})
+        source_exam_data, source_answer_key = _load_source_exam_bundle(source_record_id) if source_record_id else ({}, {})
+        if source_exam_data:
+            exam_data = source_exam_data
+            answer_key = source_answer_key
+            snapshot["exam_data"] = source_exam_data
+            snapshot["answer_key"] = source_answer_key
+            persist_assignment_content_snapshot(int(assignment_id), snapshot)
         if not exam_has_ready_visuals(exam_data):
             source_exam = _load_source_exam(source_record_id)
             if exam_has_ready_visuals(source_exam):
@@ -350,10 +370,8 @@ def _open_assignment_practice(row: dict, *, review_completed: bool = False) -> N
                 snapshot["exam_data"] = exam_data
                 persist_assignment_content_snapshot(int(assignment_id), snapshot)
         # Visuals are generated once at creation time; no re-enrichment here
-        answer_key = dict(snapshot.get("answer_key") or {})
         exercise_data = exam_to_exercises(exam_data, answer_key, row_id=assignment_id)
         if not exercise_data.get("exercises") and source_record_id:
-            source_exam_data, source_answer_key = _load_source_exam_bundle(source_record_id)
             if source_exam_data:
                 exercise_data = exam_to_exercises(source_exam_data, source_answer_key, row_id=assignment_id)
                 if exercise_data.get("exercises"):
@@ -368,7 +386,7 @@ def _open_assignment_practice(row: dict, *, review_completed: bool = False) -> N
     completed_session = _latest_completed_assignment_session(int(assignment_id or 0)) if review_completed else {}
     draft = {} if completed_session else load_in_progress_practice_session(assignment_type, assignment_id)
     if completed_session:
-        completed_exercise_data = completed_session.get("exercise_data") or exercise_data
+        completed_exercise_data = exercise_data
         if isinstance(completed_exercise_data, str):
             try:
                 completed_exercise_data = json.loads(completed_exercise_data)
@@ -383,7 +401,7 @@ def _open_assignment_practice(row: dict, *, review_completed: bool = False) -> N
         st.session_state.pop("_practice_resume_session_id", None)
         st.session_state.pop("_practice_resume_notice", None)
     elif draft:
-        draft_exercise_data = draft.get("exercise_data") or exercise_data
+        draft_exercise_data = exercise_data
         if isinstance(draft_exercise_data, str):
             try:
                 draft_exercise_data = json.loads(draft_exercise_data)
@@ -401,7 +419,11 @@ def _open_assignment_practice(row: dict, *, review_completed: bool = False) -> N
         st.session_state.pop("_practice_resume_notice", None)
         st.session_state.pop("_practice_review_mode", None)
         st.session_state.pop("_practice_submitted_sp", None)
-    st.session_state["practice_meta"] = meta
+    st.session_state["practice_meta"] = {
+        **dict(meta or {}),
+        "return_page": return_page,
+        "return_section": return_section,
+    }
     st.session_state["_practice_assignment_id"] = assignment_id
     st.session_state["_practice_assignment_type"] = assignment_type
     if not review_completed:

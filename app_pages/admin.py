@@ -2316,6 +2316,7 @@ def _render_overview(df: pd.DataFrame, subscriptions: list[dict]) -> None:
             (t("admin_metric_exams"), str(content["exams"])),
             (t("admin_metric_lesson_plans"), str(content["lesson_plans"])),
             (t("admin_ai_metric_videos"), str(content["videos"])),
+            (t("admin_metric_learning_programs"), str(content["learning_programs"])),
         ]
     )
 

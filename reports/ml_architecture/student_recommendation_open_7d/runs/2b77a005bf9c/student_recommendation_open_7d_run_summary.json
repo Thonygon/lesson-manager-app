@@ -1,0 +1,89 @@
+{
+  "dataset": {
+    "data_fingerprint": "e6f17b6b34a856583b6834e4dd348035215996dc938ec25ae2170234ffabe7a3",
+    "date_range": {
+      "assigned_at_max": "2026-08-01T07:46:24.644226+00:00",
+      "assigned_at_min": "2026-07-17T12:46:02.438526+00:00"
+    },
+    "excluded_row_count": 563,
+    "exclusion_reasons": {
+      "included": 403,
+      "observation_window_open": 563
+    },
+    "extracted_at": "2026-08-01T13:56:40.353608+00:00",
+    "feature_schema_version": "student_recommendation_open_7d.v1",
+    "frozen_dataset_path": "reports/ml_architecture/student_recommendation_open_7d/runs/2b77a005bf9c/assigned_resource_open_7d_dataset_frozen.csv",
+    "included_row_count": 403,
+    "negative_count": 360,
+    "positive_count": 43,
+    "resource_count": 53,
+    "run_id": "2b77a005bf9c",
+    "source_row_count": 966,
+    "student_count": 6,
+    "surface_count": 2,
+    "target_version": "opened_within_7d_v1",
+    "teacher_count": 2,
+    "telemetry_source": "resource_exposures/resource_exposure_events"
+  },
+  "evaluation": {
+    "cutoff_timestamp": "2026-07-23T08:59:45.226331+00:00",
+    "development_count": 322,
+    "development_negative_count": 312,
+    "development_positive_count": 10,
+    "dropped_run_features": {
+      "prior_resource_open_rate": "fully_missing_in_training_frame",
+      "prior_student_assignment_open_rate": "fully_missing_in_training_frame",
+      "prior_student_completion_rate": "fully_missing_in_training_frame",
+      "prior_teacher_assignment_open_rate": "fully_missing_in_training_frame",
+      "recommendation_bucket": "fully_missing_in_training_frame",
+      "recommendation_focus_kind": "fully_missing_in_training_frame"
+    },
+    "feature_names": [
+      "assignment_type",
+      "source_type",
+      "subject_key",
+      "topic",
+      "assignment_weekday",
+      "assignment_hour_bucket",
+      "resource_topic",
+      "resource_type",
+      "resource_learner_stage",
+      "resource_level",
+      "resource_language",
+      "recommendation_bucket",
+      "recommendation_focus_kind",
+      "assignment_hour",
+      "assignment_is_weekend",
+      "is_program_assignment",
+      "student_stage_known",
+      "student_level_known",
+      "resource_title_length",
+      "resource_public_flag",
+      "prior_student_mature_assignment_count",
+      "prior_student_assignment_open_rate",
+      "prior_student_completion_rate",
+      "prior_student_practice_session_count",
+      "prior_student_avg_practice_score",
+      "prior_days_since_student_activity",
+      "prior_teacher_mature_assignment_count",
+      "prior_teacher_assignment_open_rate",
+      "prior_resource_mature_assignment_count",
+      "prior_resource_open_rate"
+    ],
+    "holdout_count": 81,
+    "holdout_negative_count": 48,
+    "holdout_positive_count": 33,
+    "limitations": [
+      "At least one supervised candidate collapsed to single-class predictions on the holdout set."
+    ],
+    "maturity_verdict": "EXPLORATORY_ONLY",
+    "sklearn_available": true,
+    "sklearn_error": "",
+    "status": "ok",
+    "winner": "no credible winner"
+  },
+  "feature_schema_version": "student_recommendation_open_7d.v1",
+  "generated_at": "2026-08-01T13:56:40.353608+00:00",
+  "review": {},
+  "run_id": "2b77a005bf9c"
+}

@@ -77,6 +77,7 @@ _RESOURCE_PAGE_SIZE = 6
 _VIDEO_SUBJECT_OPTIONS = ["english", "spanish", "mathematics", "science", "music", "study_skills", "other"]
 _LEVEL_SEQUENCE_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
 _ACADEMIC_SEQUENCE_ORDER = ["beginner_band", "intermediate_band", "advanced_band"]
+_HOME_SMART_TOOL_DIALOG_VERSION = 1
 
 _RESOURCE_SEARCH_WEIGHTS = {
     "program": {
@@ -1234,23 +1235,67 @@ def _render_smart_tools_hub():
         )
         return st.button(f"**{t(title_key)}**  \n{t(body_key)}", key=button_key, use_container_width=True)
 
+    def _open_smart_tool_dialog(flag: str) -> None:
+        clear_smart_tool_result_state()
+        st.session_state["_home_smart_tool_dialog"] = {
+            "version": _HOME_SMART_TOOL_DIALOG_VERSION,
+            "flag": str(flag or "").strip(),
+        }
+        st.session_state[flag] = True
+
     for row_start in range(0, len(tool_specs), 3):
         cols = st.columns(3, gap="medium")
         for col, (flag, icon, accent, title_key, body_key, badge_key) in zip(cols, tool_specs[row_start:row_start + 3]):
             with col:
                 if _render_smart_tool_open_card(flag, icon, accent, title_key, body_key, badge_key):
-                    current_selected = str(st.session_state.get("home_smart_tool_selected") or "")
-                    clear_smart_tool_result_state()
-                    if current_selected == flag:
-                        st.session_state["home_smart_tool_selected"] = ""
-                    else:
-                        st.session_state["home_smart_tool_selected"] = flag
-                        st.session_state[flag] = True
-                        st.session_state["_home_smart_tool_scroll_toast"] = True
+                    _open_smart_tool_dialog(flag)
                     st.rerun()
 
-    if st.session_state.get("home_smart_tool_selected"):
-        st.markdown(f"<div class='smart-tools-section-label'>{t('smart_tools_workspace_title')}</div>", unsafe_allow_html=True)
+
+def _clear_home_smart_tool_dialog() -> None:
+    st.session_state.pop("_home_smart_tool_dialog", None)
+    st.session_state["home_smart_tool_selected"] = ""
+
+
+def _render_home_smart_tool_dialog() -> None:
+    state = st.session_state.get("_home_smart_tool_dialog")
+    if not isinstance(state, dict):
+        return
+    if state.get("version") != _HOME_SMART_TOOL_DIALOG_VERSION:
+        _clear_home_smart_tool_dialog()
+        return
+
+    tool_flag = str(state.get("flag") or "").strip()
+    title_by_flag = {
+        "open_quick_learning_program_expander": t("quick_learning_program_maker"),
+        "open_quick_plan_expander": t("quick_lesson_planner"),
+        "open_quick_ws_expander": t("worksheet_maker"),
+        "open_quick_exam_expander": t("quick_exam_builder"),
+        "open_quick_cv_expander": t("quick_cv_builder"),
+        "open_income_goal_expander": t("income_goal_calculator"),
+    }
+    renderer_by_flag = {
+        "open_quick_learning_program_expander": render_quick_learning_program_builder_expander,
+        "open_quick_plan_expander": render_quick_lesson_planner_expander,
+        "open_quick_ws_expander": render_quick_worksheet_maker_expander,
+        "open_quick_exam_expander": render_quick_exam_builder_expander,
+        "open_quick_cv_expander": render_quick_cv_builder_expander,
+        "open_income_goal_expander": render_income_goal_calculator,
+    }
+    renderer = renderer_by_flag.get(tool_flag)
+    if renderer is None:
+        _clear_home_smart_tool_dialog()
+        return
+
+    @st.dialog(title_by_flag.get(tool_flag, t("smart_tools_command_center")), on_dismiss=_clear_home_smart_tool_dialog)
+    def _dialog():
+        st.session_state[tool_flag] = True
+        renderer()
+        if st.button(t("close"), key=f"{tool_flag}_dialog_close", use_container_width=True):
+            _clear_home_smart_tool_dialog()
+            st.rerun()
+
+    _dialog()
 
 # 10) HOME SCREEN UI (DARK)
 # =========================
@@ -2785,30 +2830,18 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
         with ai_head_mid:
             if st.button(t("files"), key="open_resources_from_ai_tools", use_container_width=True):
                 clear_smart_tool_result_state(clear_selection=True)
+                _clear_home_smart_tool_dialog()
                 go_to("resources")
                 st.rerun()
         with ai_head_right:
             if st.button(t("close"), key="close_ai_tools_panel_top", use_container_width=True):
                 clear_smart_tool_result_state(clear_selection=True)
+                _clear_home_smart_tool_dialog()
                 home_go("home", panel=None)
                 st.rerun()
 
         _render_smart_tools_hub()
-
-        selected_tool = str(st.session_state.get("home_smart_tool_selected") or "")
-        tool_renderers = {
-            "open_quick_learning_program_expander": render_quick_learning_program_builder_expander,
-            "open_quick_plan_expander": render_quick_lesson_planner_expander,
-            "open_quick_ws_expander": render_quick_worksheet_maker_expander,
-            "open_quick_exam_expander": render_quick_exam_builder_expander,
-            "open_quick_cv_expander": render_quick_cv_builder_expander,
-            "open_income_goal_expander": render_income_goal_calculator,
-        }
-        if selected_tool in tool_renderers:
-            if st.session_state.pop("_home_smart_tool_scroll_toast", False):
-                st.toast(t("scroll_down_to_view"))
-            st.session_state[selected_tool] = True
-            tool_renderers[selected_tool]()
+        _render_home_smart_tool_dialog()
 
         st.markdown('<div class="home-bottom-space"></div>', unsafe_allow_html=True)
 

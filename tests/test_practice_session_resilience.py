@@ -3,15 +3,22 @@ import sys
 from unittest.mock import patch
 from types import ModuleType
 
-if "streamlit" not in sys.modules:
+try:
+    import streamlit  # noqa: F401
+except Exception:
     fake_streamlit = ModuleType("streamlit")
     fake_streamlit.session_state = {}
+    fake_streamlit.cache_data = lambda *args, **kwargs: (lambda func: func)
     sys.modules["streamlit"] = fake_streamlit
 
 from helpers import practice_engine
 
 
 class PracticeSessionResilienceTests(unittest.TestCase):
+    def tearDown(self):
+        practice_engine._load_practice_history_cached.clear()
+        practice_engine._load_practice_progress_cached.clear()
+
     def test_invalid_multiple_choice_answer_is_dropped_before_widget_restore(self):
         exercise_data = {
             "exercises": [
@@ -47,6 +54,306 @@ class PracticeSessionResilienceTests(unittest.TestCase):
                 "sp",
             )
             self.assertEqual(practice_engine.st.session_state.get("sp_0_0"), "B")
+
+    def test_retry_from_review_mode_becomes_real_retry_attempt(self):
+        state = {
+            "_practice_review_mode": True,
+            "_practice_last_session_id": 55,
+            "_practice_answers_sp": {"sp_0_0": "A"},
+            "_practice_submitted_sp": True,
+            "_practice_saved_sp": True,
+            "sp_0_0": "A",
+            "_practice_resume_answers": {"sp_0_0": "A"},
+        }
+
+        with patch.object(practice_engine.st, "session_state", state):
+            practice_engine._prepare_retry_attempt("sp")
+
+            self.assertNotIn("_practice_review_mode", practice_engine.st.session_state)
+            self.assertEqual(55, practice_engine.st.session_state.get("_practice_retry_session_id"))
+            self.assertNotIn("_practice_answers_sp", practice_engine.st.session_state)
+            self.assertNotIn("_practice_submitted_sp", practice_engine.st.session_state)
+            self.assertNotIn("_practice_saved_sp", practice_engine.st.session_state)
+            self.assertNotIn("sp_0_0", practice_engine.st.session_state)
+            self.assertNotIn("_practice_resume_answers", practice_engine.st.session_state)
+
+    def test_practice_history_loader_queries_completed_rows_with_explicit_columns(self):
+        class FakeResult:
+            def __init__(self, data):
+                self.data = data
+
+        class FakeQuery:
+            def __init__(self, log):
+                self.log = log
+                self.ops = []
+                self.log.append(self)
+
+            def select(self, value):
+                self.ops.append(("select", value))
+                return self
+
+            def eq(self, column, value):
+                self.ops.append(("eq", column, value))
+                return self
+
+            def order(self, column, desc=False):
+                self.ops.append(("order", column, desc))
+                return self
+
+            def limit(self, value):
+                self.ops.append(("limit", value))
+                return self
+
+            def execute(self):
+                return FakeResult([{"id": 1, "status": "completed", "created_at": "2026-08-01T00:00:00+00:00"}])
+
+        class FakeSupabase:
+            def __init__(self):
+                self.log = []
+
+            def table(self, _name):
+                return FakeQuery(self.log)
+
+        fake_sb = FakeSupabase()
+        practice_engine._load_practice_history_cached.clear()
+        with patch.object(practice_engine, "get_sb", return_value=fake_sb):
+            df = practice_engine._load_practice_history_cached("student-1", limit=25)
+
+        self.assertEqual(1, len(df))
+        query = fake_sb.log[0]
+        self.assertEqual(practice_engine._PRACTICE_HISTORY_COLUMNS, query.ops[0][1])
+        self.assertIn(("eq", "user_id", "student-1"), query.ops)
+        self.assertIn(("eq", "status", "completed"), query.ops)
+        self.assertIn(("order", "created_at", True), query.ops)
+        self.assertIn(("limit", 25), query.ops)
+
+    def test_practice_progress_loader_queries_current_user_rows_with_explicit_columns(self):
+        class FakeResult:
+            def __init__(self, data):
+                self.data = data
+
+        class FakeQuery:
+            def __init__(self, log):
+                self.log = log
+                self.ops = []
+                self.log.append(self)
+
+            def select(self, value):
+                self.ops.append(("select", value))
+                return self
+
+            def eq(self, column, value):
+                self.ops.append(("eq", column, value))
+                return self
+
+            def execute(self):
+                return FakeResult([{"id": 1, "user_id": "student-1", "total_xp": 15}])
+
+        class FakeSupabase:
+            def __init__(self):
+                self.log = []
+
+            def table(self, _name):
+                return FakeQuery(self.log)
+
+        fake_sb = FakeSupabase()
+        practice_engine._load_practice_progress_cached.clear()
+        with patch.object(practice_engine, "get_sb", return_value=fake_sb):
+            df = practice_engine._load_practice_progress_cached("student-1")
+
+        self.assertEqual(1, len(df))
+        query = fake_sb.log[0]
+        self.assertEqual(practice_engine._PRACTICE_PROGRESS_COLUMNS, query.ops[0][1])
+        self.assertIn(("eq", "user_id", "student-1"), query.ops)
+
+    def test_rescore_practice_sessions_for_resource_refreshes_saved_scores(self):
+        class FakeResult:
+            def __init__(self, data):
+                self.data = data
+
+        class FakeQuery:
+            def __init__(self, supabase, table_name):
+                self.supabase = supabase
+                self.table_name = table_name
+                self.filters = []
+                self.pending_update = None
+                self.pending_insert = None
+                self.pending_delete = False
+
+            def select(self, *_args, **_kwargs):
+                return self
+
+            def eq(self, column, value):
+                self.filters.append(("eq", column, value))
+                return self
+
+            def in_(self, column, values):
+                self.filters.append(("in", column, list(values)))
+                return self
+
+            def update(self, payload):
+                self.pending_update = payload
+                return self
+
+            def insert(self, payload):
+                self.pending_insert = payload
+                return self
+
+            def delete(self):
+                self.pending_delete = True
+                return self
+
+            def execute(self):
+                rows = self.supabase.tables.setdefault(self.table_name, [])
+
+                def matches(row):
+                    for op, column, value in self.filters:
+                        row_value = row.get(column)
+                        if op == "eq":
+                            if str(row_value) != str(value):
+                                return False
+                        elif op == "in":
+                            if not any(str(row_value) == str(item) for item in value):
+                                return False
+                    return True
+
+                matched = [row for row in rows if matches(row)]
+
+                if self.pending_delete:
+                    self.supabase.tables[self.table_name] = [row for row in rows if not matches(row)]
+                    return FakeResult([])
+
+                if self.pending_update is not None:
+                    for row in rows:
+                        if matches(row):
+                            row.update(self.pending_update)
+                    return FakeResult(matched)
+
+                if self.pending_insert is not None:
+                    payloads = self.pending_insert if isinstance(self.pending_insert, list) else [self.pending_insert]
+                    for payload in payloads:
+                        rows.append(dict(payload))
+                    return FakeResult(payloads)
+
+                return FakeResult(matched)
+
+        class FakeSupabase:
+            def __init__(self):
+                self.tables = {
+                    "practice_sessions": [
+                        {
+                            "id": 1,
+                            "user_id": "student-1",
+                            "source_type": "worksheet",
+                            "source_id": "7",
+                            "title": "Fractions",
+                            "status": "completed",
+                            "correct_count": 0,
+                            "total_questions": 1,
+                            "score_pct": 0,
+                        },
+                        {
+                            "id": 2,
+                            "user_id": "student-2",
+                            "source_type": "worksheet",
+                            "source_id": "101",
+                            "title": "Fractions",
+                            "status": "completed",
+                            "correct_count": 0,
+                            "total_questions": 1,
+                            "score_pct": 0,
+                        },
+                    ],
+                    "practice_answers": [
+                        {
+                            "session_id": 1,
+                            "user_id": "student-1",
+                            "exercise_idx": 0,
+                            "question_idx": 0,
+                            "exercise_type": "multiple_choice",
+                            "student_answer": "B",
+                            "correct_answer": "A",
+                            "is_correct": False,
+                            "answered_at": "2026-08-01T10:00:00+00:00",
+                        },
+                        {
+                            "session_id": 2,
+                            "user_id": "student-2",
+                            "exercise_idx": 0,
+                            "question_idx": 0,
+                            "exercise_type": "multiple_choice",
+                            "student_answer": "B",
+                            "correct_answer": "A",
+                            "is_correct": False,
+                            "answered_at": "2026-08-01T10:00:00+00:00",
+                        },
+                    ],
+                    "teacher_assignments": [
+                        {"id": 101, "student_id": "student-2", "assignment_type": "worksheet", "source_record_id": 7, "score_pct": 0, "correct_count": 0, "total_questions": 1},
+                    ],
+                    "teacher_assignment_attempts": [
+                        {
+                            "id": 201,
+                            "assignment_id": 101,
+                            "student_id": "student-2",
+                            "practice_session_id": 2,
+                            "score_pct": 0,
+                            "correct_count": 0,
+                            "total_questions": 1,
+                            "created_at": "2026-08-01T10:05:00+00:00",
+                            "submission_payload": {"result": {"score_pct": 0, "correct": 0, "total": 1}},
+                            "status": "graded",
+                        },
+                    ],
+                }
+
+            def table(self, table_name):
+                return FakeQuery(self, table_name)
+
+        fake_sb = FakeSupabase()
+        rebuilt_users = []
+        exercise_data = {
+            "title": "Fractions",
+            "source_type": "worksheet",
+            "source_id": 7,
+            "exercises": [
+                {
+                    "type": "multiple_choice",
+                    "questions": [{"stem": "1 + 1", "options": ["A", "B"]}],
+                    "answers": ["B"],
+                }
+            ],
+        }
+
+        with (
+            patch.object(practice_engine, "get_sb", return_value=fake_sb),
+            patch.object(practice_engine, "rebuild_practice_progress_for_user", side_effect=rebuilt_users.append),
+            patch.object(practice_engine, "clear_app_caches"),
+        ):
+            rescored = practice_engine.rescore_practice_sessions_for_resource("worksheet", 7, exercise_data)
+
+        self.assertEqual(2, rescored)
+        session_direct = next(row for row in fake_sb.tables["practice_sessions"] if row["id"] == 1)
+        session_assigned = next(row for row in fake_sb.tables["practice_sessions"] if row["id"] == 2)
+        self.assertEqual(100, session_direct["score_pct"])
+        self.assertEqual(100, session_assigned["score_pct"])
+        self.assertEqual(1, session_direct["correct_count"])
+        self.assertEqual(1, session_assigned["correct_count"])
+
+        direct_answer = next(row for row in fake_sb.tables["practice_answers"] if str(row["session_id"]) == "1")
+        assigned_answer = next(row for row in fake_sb.tables["practice_answers"] if str(row["session_id"]) == "2")
+        self.assertTrue(direct_answer["is_correct"])
+        self.assertEqual("B", direct_answer["correct_answer"])
+        self.assertTrue(assigned_answer["is_correct"])
+        self.assertEqual("B", assigned_answer["correct_answer"])
+
+        attempt_row = fake_sb.tables["teacher_assignment_attempts"][0]
+        assignment_row = fake_sb.tables["teacher_assignments"][0]
+        self.assertEqual(100, attempt_row["score_pct"])
+        self.assertEqual(1, attempt_row["correct_count"])
+        self.assertEqual(100, assignment_row["score_pct"])
+        self.assertEqual(1, assignment_row["correct_count"])
+        self.assertCountEqual(["student-1", "student-2"], rebuilt_users)
 
 
 if __name__ == "__main__":
