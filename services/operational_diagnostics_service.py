@@ -48,7 +48,7 @@ _JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{
 _SECRET_RE = re.compile(
     r"(?i)\b(api[_-]?key|authorization|bearer|password|secret|token)\b\s*[:=]\s*([^\s,;]+)"
 )
-_URL_QUERY_RE = re.compile(r"(https?://[^\s?]+)\?[^\s]+", re.IGNORECASE)
+_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 _UUID_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b", re.IGNORECASE)
 
 
@@ -73,12 +73,19 @@ def _release_version() -> str:
     return "unknown"
 
 
+def _redact_url_query(match: re.Match[str]) -> str:
+    url = match.group(0)
+    if "?" not in url:
+        return url
+    return f"{url.split('?', 1)[0]}?[redacted-query]"
+
+
 def sanitize_text(value: Any, *, limit: int = 1000) -> str:
     text = str(value or "")
     text = _EMAIL_RE.sub("[redacted-email]", text)
     text = _JWT_RE.sub("[redacted-token]", text)
     text = _SECRET_RE.sub(lambda match: f"{match.group(1)}=[redacted]", text)
-    text = _URL_QUERY_RE.sub(r"\1?[redacted-query]", text)
+    text = _URL_RE.sub(_redact_url_query, text)
     text = _UUID_RE.sub("[redacted-id]", text)
     return text[: max(0, int(limit))]
 
