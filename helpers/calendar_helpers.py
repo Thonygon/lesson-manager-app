@@ -235,7 +235,7 @@ def build_calendar_events(start_day: date, end_day: date, tz_name: str | None = 
 
     return events_df
 
-register_cache(build_calendar_events)
+register_cache(build_calendar_events, "calendar", "schedule", "students")
 
 
 def render_fullcalendar(events: pd.DataFrame, height: int = 750):

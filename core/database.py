@@ -58,6 +58,17 @@ def _normalize_lesson_note(note) -> str:
 _sb = None
 
 
+def _create_supabase_client(url: str, key: str):
+    try:
+        import httpx
+        from supabase import ClientOptions
+
+        options = ClientOptions(httpx_client=httpx.Client(timeout=120.0))
+        return create_client(url, key, options=options)
+    except (ImportError, AttributeError):
+        return create_client(url, key)
+
+
 def get_sb():
     global _sb
     if _sb is None:
@@ -66,18 +77,22 @@ def get_sb():
         if not url or not key:
             st.error("Missing Supabase secrets: SUPABASE_URL / SUPABASE_KEY")
             st.stop()
-        _sb = create_client(url, key)
+        _sb = _create_supabase_client(url, key)
     return _sb
 
 
 # ---- Cache registry for clear_app_caches ----
 _CACHE_REGISTRY = []
+_CACHE_DOMAINS: dict[Any, set[str]] = {}
 
 
-def register_cache(func):
-    """Register a cached function so clear_app_caches() can clear it."""
+def register_cache(func, *domains: str):
+    """Register a cache and the data domains that make its contents stale."""
     if func not in _CACHE_REGISTRY:
         _CACHE_REGISTRY.append(func)
+    normalized = {str(domain or "").strip().lower() for domain in domains if str(domain or "").strip()}
+    if normalized:
+        _CACHE_DOMAINS.setdefault(func, set()).update(normalized)
     return func
 
 
@@ -97,6 +112,26 @@ def clear_specific_caches(*funcs) -> None:
             fn.clear()
         except Exception:
             pass
+
+
+def clear_cache_domains(*domains: str, include_data_cache: bool = True) -> None:
+    """Clear only caches derived from the supplied data domains.
+
+    The generic table cache is included by default because it can contain rows
+    from any mutated domain. Expensive unrelated derived caches remain warm.
+    """
+    requested = {str(domain or "").strip().lower() for domain in domains if str(domain or "").strip()}
+    if include_data_cache:
+        requested.add("database")
+    if not requested:
+        return
+    clear_specific_caches(
+        *[
+            fn
+            for fn, cache_domains in _CACHE_DOMAINS.items()
+            if requested.intersection(cache_domains)
+        ]
+    )
 
 
 def _db_diagnostics_enabled() -> bool:
@@ -133,7 +168,19 @@ def _apply_query_filter(query, operator: str, column_name: str, value: Any):
 
 def _execute_query_with_diagnostics(query, *, function_name: str, source_name: str):
     started_at = time.perf_counter()
-    result = query.execute()
+    try:
+        result = query.execute()
+    except Exception as exc:
+        from services.operational_diagnostics_service import capture_exception
+
+        capture_exception(
+            exc,
+            component="core.database",
+            operation=function_name,
+            page_key=str(st.session_state.get("page") or ""),
+            context={"query_name": source_name},
+        )
+        raise
     if _db_diagnostics_enabled():
         rows = getattr(result, "data", None)
         row_count = len(rows) if isinstance(rows, list) else (1 if rows else 0)
@@ -244,10 +291,28 @@ def is_query_timeout_error(exc: Exception | str | None) -> bool:
 
 
 def show_data_load_error(exc: Exception | str | None = None) -> None:
+    event_id = ""
     if exc:
-        logger.exception("Data load failed: %s", exc)
+        from services.operational_diagnostics_service import capture_exception
+
+        safe_exc = exc if isinstance(exc, BaseException) else RuntimeError(str(exc))
+        event_id = capture_exception(
+            safe_exc,
+            component="core.database",
+            operation="load_page_data",
+            page_key=str(st.session_state.get("page") or ""),
+        )
+        logger.error(
+            "Data load failed event_id=%s exception_type=%s",
+            event_id,
+            type(safe_exc).__name__,
+        )
     message_key = "data_load_timeout" if is_query_timeout_error(exc) else "data_load_temporarily_unavailable"
     st.error(t(message_key))
+    if event_id:
+        from services.operational_diagnostics_service import short_event_reference
+
+        st.caption(t("operational_diagnostics_user_reference", reference=short_event_reference(event_id)))
 
 
 # ---- Auth helpers (OIDC-compatible) ----
@@ -486,7 +551,7 @@ def _load_table_cached(
         return pd.DataFrame()
 
 
-register_cache(_load_table_cached)
+register_cache(_load_table_cached, "database")
 
 
 def load_table(name: str, limit: int = 10000, page_size: int = 1000) -> pd.DataFrame:
@@ -552,7 +617,7 @@ def _load_students_cached(uid: str) -> List[str]:
     return sorted([n for n in names if str(n).lower() != "nan"])
 
 
-register_cache(_load_students_cached)
+register_cache(_load_students_cached, "students")
 
 
 def rename_student_everywhere(old_name: str, new_name: str) -> None:
@@ -1079,8 +1144,22 @@ def recalculate_package_dates(student: Optional[str] = None) -> dict:
     - active / unfinished packages keep a blank expiry date
     - lessons after expiry still count for mismatch detection elsewhere, so expiry is descriptive
     """
-    payments = load_table("payments")
-    classes = load_table("classes")
+    filters = [("eq", "student", str(student).strip())] if student else None
+    payments = load_table_filtered(
+        "payments",
+        columns=(
+            "id,student,number_of_lesson,payment_date,package_start_date,"
+            "package_expiry_date,lesson_adjustment_units,modality"
+        ),
+        filters=filters,
+        order_by="payment_date",
+    )
+    classes = load_table_filtered(
+        "classes",
+        columns="id,student,lesson_date,number_of_lesson,modality,note",
+        filters=filters,
+        order_by="lesson_date",
+    )
     result = {"updated": 0, "students": 0, "mismatches": 0}
 
     if payments is None or payments.empty:
@@ -1204,7 +1283,7 @@ def recalculate_package_dates(student: Optional[str] = None) -> dict:
         q.execute()
         result["updated"] += 1
 
-    clear_app_caches()
+    clear_cache_domains("payments", "classes", "dashboard", "notifications")
     return result
 
 

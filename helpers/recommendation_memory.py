@@ -284,4 +284,4 @@ def load_recommendation_event_summary(
     return summary
 
 
-register_cache(load_recommendation_event_summary)
+register_cache(load_recommendation_event_summary, "recommendations", "assignments")

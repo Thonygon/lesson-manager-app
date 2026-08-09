@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import re
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import uuid4
@@ -3301,7 +3302,7 @@ def _load_my_learning_programs_cached(uid: str, limit: int = 120) -> pd.DataFram
     return _normalize_learning_program_frame(_rows(res))
 
 
-register_cache(_load_my_learning_programs_cached)
+register_cache(_load_my_learning_programs_cached, "learning_programs", "resources")
 
 
 @st.cache_data(ttl=180, show_spinner=False)
@@ -3319,7 +3320,7 @@ def _load_public_learning_programs_cached(limit: int = 120) -> pd.DataFrame:
     return _normalize_learning_program_frame(_rows(res))
 
 
-register_cache(_load_public_learning_programs_cached)
+register_cache(_load_public_learning_programs_cached, "learning_programs", "resources")
 
 
 def load_progression_candidates(subject: str, learner_stage: str, custom_subject_name: str = "", limit: int = 200) -> pd.DataFrame:
@@ -3468,7 +3469,7 @@ def load_learning_program(program_id: int) -> dict:
         return {}
 
 
-register_cache(load_learning_program)
+register_cache(load_learning_program, "learning_programs", "resources")
 
 
 def assign_learning_program(
@@ -3763,7 +3764,7 @@ def _load_program_assignments_for_teacher_cached(teacher_id: str, limit: int = 1
         return pd.DataFrame()
 
 
-register_cache(_load_program_assignments_for_teacher_cached)
+register_cache(_load_program_assignments_for_teacher_cached, "learning_programs", "assignments")
 
 
 def load_program_assignments_for_teacher(limit: int = 120) -> pd.DataFrame:
@@ -3807,7 +3808,7 @@ def _load_program_assignments_for_student_cached(student_user_id: str = "", stud
         return pd.DataFrame()
 
 
-register_cache(_load_program_assignments_for_student_cached)
+register_cache(_load_program_assignments_for_student_cached, "learning_programs", "assignments")
 
 
 def load_program_assignments_for_student(student_user_id: str = "", student_name: str = "", limit: int = 120) -> pd.DataFrame:
@@ -3834,7 +3835,7 @@ def load_assignment_progress_map(assignment_id: int) -> dict[int, dict]:
         return {}
 
 
-register_cache(load_assignment_progress_map)
+register_cache(load_assignment_progress_map, "learning_programs", "assignments", "practice")
 
 
 def set_assignment_topic_progress(
@@ -5230,7 +5231,7 @@ def _load_enriched_program_assignments_for_student_cached(student_id: str) -> li
     return enriched
 
 
-register_cache(_load_enriched_program_assignments_for_student_cached)
+register_cache(_load_enriched_program_assignments_for_student_cached, "learning_programs", "assignments", "practice")
 
 
 def load_enriched_program_assignments_for_current_student() -> list[dict]:
@@ -5238,13 +5239,15 @@ def load_enriched_program_assignments_for_current_student() -> list[dict]:
     return _load_enriched_program_assignments_for_student_cached(student_id)
 
 
-def render_quick_learning_program_builder_expander() -> None:
+def render_quick_learning_program_builder_expander(*, embedded: bool = False) -> None:
     ns = "quick_learning_program"
+    should_expand = bool(st.session_state.pop("open_quick_learning_program_expander", False))
 
-    with st.expander(
+    panel = nullcontext() if embedded else st.expander(
         f"📚 {t('quick_learning_program_maker')}",
-        expanded=bool(st.session_state.pop("open_quick_learning_program_expander", False)),
-    ):
+        expanded=should_expand,
+    )
+    with panel:
         st.caption(t("quick_learning_program_maker_caption"))
 
         usage = get_ai_learning_program_usage_status()

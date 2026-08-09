@@ -112,3 +112,66 @@ tests/                  # Automated tests
 static/                 # Logos, fonts, PWA assets
 reports/                # Generated ML/report artifacts
 translations_*.py       # English, Spanish, Turkish dictionaries
+```
+
+## Development checks
+
+Classio targets Python 3.11. Install `requirements.lock.txt` to reproduce the
+dependency set used by CI, then run the same checks locally:
+
+```bash
+python -m pip install --requirement requirements.lock.txt
+python -m compileall -q app.py app_pages auth core helpers services styles
+python -m unittest discover -s tests
+```
+
+`requirements.in` lists direct dependencies, `requirements.txt` pins their
+production versions, and `requirements.lock.txt` freezes the complete resolved
+environment. Update all three together when dependencies are intentionally
+changed.
+
+## Operational diagnostics
+
+Apply `migrations/add_operational_diagnostics.sql` before enabling structured
+production diagnostics. The migration creates the deduplicated event store,
+privacy redaction, retention, rate limiting, RLS policies, and constrained
+capture/status RPCs.
+
+Set `CLASSIO_RELEASE` to the deployed commit SHA or release identifier so issue
+groups can be traced to a deployment. `CLASSIO_ENVIRONMENT` defaults to
+`production`; set `CLASSIO_DIAGNOSTICS_ENABLED=false` only when capture must be
+disabled temporarily. Diagnostic capture is best-effort and does not interrupt
+student, teacher, or admin workflows when storage is unavailable.
+
+## Database migrations
+
+Every SQL file in `migrations/` is recorded in `migrations/ledger.json` with a
+SHA-256 checksum. CI rejects empty, missing, untracked, duplicated, or modified
+migrations:
+
+```bash
+python scripts/check_migrations.py
+```
+
+Apply `migrations/add_application_migration_ledger.sql`, then establish the
+production baseline only after verifying that each historical migration is
+already present. Deployment automation should record each applied migration in
+`app_schema_migrations`; it must never mark migrations as applied without
+executing or independently verifying them. Compare a deployment with the local
+ledger using service-role credentials:
+
+```bash
+python scripts/check_migrations.py --require-applied
+```
+
+Record a successful application with its exact local checksum and release:
+
+```sql
+insert into public.app_schema_migrations (name, checksum, release_version, applied_by)
+values ('migration.sql', '<sha256>', '<release>', '<deployer>')
+on conflict (name) do update
+set checksum = excluded.checksum,
+    release_version = excluded.release_version,
+    applied_by = excluded.applied_by,
+    applied_at = timezone('utc', now());
+```

@@ -9,6 +9,7 @@ import pickle
 import platform
 import re
 import sys
+import time
 from typing import Any
 import unicodedata
 import uuid
@@ -19,6 +20,7 @@ import pandas as pd
 from helpers.assigned_resource_open_7d_eval import _fetch_all_rows, _json_safe
 from helpers.archive_utils import is_archived_status
 from helpers.resource_gallery import extract_resource_language_value
+from core.runtime import MonotonicTimer, configure_joblib_cpu_count, elapsed_seconds
 
 
 FEATURE_SCHEMA_VERSION = "resource_affinity_unsupervised.v5"
@@ -774,6 +776,7 @@ def extract_resource_profiles(extraction_time: datetime | None = None) -> tuple[
 
 
 def _sklearn_imports():
+    configure_joblib_cpu_count()
     from sklearn.cluster import AgglomerativeClustering, DBSCAN, KMeans
     from sklearn.decomposition import TruncatedSVD
     from sklearn.feature_extraction.text import TfidfVectorizer
@@ -998,7 +1001,12 @@ def _candidate_display_name(model_name: str, params: dict[str, Any]) -> str:
     return model_name
 
 
-def evaluate_unsupervised_models(profile_df: pd.DataFrame, vectors: np.ndarray) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
+def evaluate_unsupervised_models(
+    profile_df: pd.DataFrame,
+    vectors: np.ndarray,
+    *,
+    timer: MonotonicTimer = time.perf_counter,
+) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
     sk = _sklearn_imports()
     rows: list[dict[str, Any]] = []
     labels_by_model: dict[str, np.ndarray] = {}
@@ -1006,7 +1014,7 @@ def evaluate_unsupervised_models(profile_df: pd.DataFrame, vectors: np.ndarray) 
         status = "ok"
         failure_reason = ""
         labels = np.array([], dtype=int)
-        started = datetime.now()
+        started = timer()
         try:
             if model_name == "KMeans":
                 model = sk["KMeans"](n_init=10, random_state=DEFAULT_SEED, **params)
@@ -1022,7 +1030,7 @@ def evaluate_unsupervised_models(profile_df: pd.DataFrame, vectors: np.ndarray) 
         except Exception as exc:
             status = "failed"
             failure_reason = str(exc)
-        elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
+        elapsed_ms = int(elapsed_seconds(started, timer) * 1000)
         if labels.size:
             quality = _label_quality(labels, vectors, profile_df)
             model_key = f"{model_name}:{json.dumps(params, sort_keys=True)}"

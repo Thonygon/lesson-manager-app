@@ -1287,10 +1287,14 @@ def _render_home_smart_tool_dialog() -> None:
         _clear_home_smart_tool_dialog()
         return
 
-    @st.dialog(title_by_flag.get(tool_flag, t("smart_tools_command_center")), on_dismiss=_clear_home_smart_tool_dialog)
+    @st.dialog(
+        title_by_flag.get(tool_flag, t("smart_tools_command_center")),
+        width="large",
+        on_dismiss=_clear_home_smart_tool_dialog,
+    )
     def _dialog():
         st.session_state[tool_flag] = True
-        renderer()
+        renderer(embedded=True)
         if st.button(t("close"), key=f"{tool_flag}_dialog_close", use_container_width=True):
             _clear_home_smart_tool_dialog()
             st.rerun()

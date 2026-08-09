@@ -246,7 +246,7 @@ def _load_explorer_moves_cached(limit: int = 120) -> pd.DataFrame:
     return _normalize_move_frame(getattr(response, "data", None) or [])
 
 
-register_cache(_load_explorer_moves_cached)
+register_cache(_load_explorer_moves_cached, "explorer")
 
 
 def load_explorer_moves_admin(limit: int = 120) -> pd.DataFrame:

@@ -751,7 +751,7 @@ practice._render_progress_tab()
         self.assertEqual("#ec4899", resource_kind_accent("exam_builder"))
         self.assertEqual("#1e3a8a", resource_kind_accent("video_library"))
         self.assertEqual("#60a5fa", resource_kind_accent("learning_program"))
-        self.assertEqual("#60a5fa", resource_kind_accent("lesson_plan_topic"))
+        self.assertEqual("#eab308", resource_kind_accent("lesson_plan_topic"))
         self.assertEqual("#eab308", resource_kind_accent("lesson_plan"))
 
     def test_video_progress_renders_as_engagement_not_correctness(self):

@@ -129,7 +129,7 @@ def load_students_df() -> pd.DataFrame:
     return df
 
 
-register_cache(load_students_df)
+register_cache(load_students_df, "students")
 
 def student_meta_maps():
     s = load_students_df()
@@ -145,6 +145,6 @@ def student_meta_maps():
 
 
 student_meta_maps = st.cache_data(ttl=45, show_spinner=False)(student_meta_maps)
-register_cache(student_meta_maps)
+register_cache(student_meta_maps, "students", "calendar")
 
 # =========================

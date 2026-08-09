@@ -294,7 +294,7 @@ def _load_material_pool_cached(uid: str) -> list[dict]:
     return pool
 
 
-register_cache(_load_material_pool_cached)
+register_cache(_load_material_pool_cached, "recommendations", "resources")
 
 
 def load_material_pool() -> list[dict]:

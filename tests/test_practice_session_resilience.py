@@ -1,5 +1,4 @@
 import unittest
-import sys
 from unittest.mock import patch
 from types import ModuleType
 
@@ -14,7 +13,55 @@ except Exception:
 from helpers import practice_engine
 
 
+class _Result:
+    def __init__(self, data):
+        self.data = data
+
+
+class _Query:
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls = []
+
+    def select(self, columns):
+        self.calls.append(("select", columns))
+        return self
+
+    def eq(self, column, value):
+        self.calls.append(("eq", column, value))
+        return self
+
+    def order(self, column, desc=False):
+        self.calls.append(("order", column, desc))
+        return self
+
+    def limit(self, value):
+        self.calls.append(("limit", value))
+        return self
+
+    def execute(self):
+        return _Result(self.rows)
+
+
+class _Supabase:
+    def __init__(self, rows):
+        self.query = _Query(rows)
+        self.table_name = ""
+
+    def table(self, table_name):
+        self.table_name = table_name
+        return self.query
+
+
 class PracticeSessionResilienceTests(unittest.TestCase):
+    def setUp(self):
+        for cache in (
+            practice_engine._load_practice_history_cached,
+            practice_engine._load_practice_progress_cached,
+        ):
+            if hasattr(cache, "clear"):
+                cache.clear()
+
     def tearDown(self):
         practice_engine._load_practice_history_cached.clear()
         practice_engine._load_practice_progress_cached.clear()
@@ -328,7 +375,7 @@ class PracticeSessionResilienceTests(unittest.TestCase):
         with (
             patch.object(practice_engine, "get_sb", return_value=fake_sb),
             patch.object(practice_engine, "rebuild_practice_progress_for_user", side_effect=rebuilt_users.append),
-            patch.object(practice_engine, "clear_app_caches"),
+            patch.object(practice_engine, "_clear_practice_caches"),
         ):
             rescored = practice_engine.rescore_practice_sessions_for_resource("worksheet", 7, exercise_data)
 
@@ -354,6 +401,29 @@ class PracticeSessionResilienceTests(unittest.TestCase):
         self.assertEqual(100, assignment_row["score_pct"])
         self.assertEqual(1, assignment_row["correct_count"])
         self.assertCountEqual(["student-1", "student-2"], rebuilt_users)
+
+    def test_history_loader_filters_orders_and_limits_in_supabase(self):
+        sb = _Supabase([{"id": 7, "user_id": "student-1", "status": "completed"}])
+        with patch.object(practice_engine, "get_sb", return_value=sb):
+            result = practice_engine._load_practice_history_cached("student-1", limit=25)
+
+        self.assertEqual("practice_sessions", sb.table_name)
+        self.assertEqual(1, len(result))
+        self.assertIn(("select", practice_engine._PRACTICE_HISTORY_COLUMNS), sb.query.calls)
+        self.assertIn(("eq", "user_id", "student-1"), sb.query.calls)
+        self.assertIn(("eq", "status", "completed"), sb.query.calls)
+        self.assertIn(("order", "created_at", True), sb.query.calls)
+        self.assertIn(("limit", 25), sb.query.calls)
+
+    def test_progress_loader_selects_only_current_user_rows(self):
+        sb = _Supabase([{"id": 8, "user_id": "student-1", "total_xp": 40}])
+        with patch.object(practice_engine, "get_sb", return_value=sb):
+            result = practice_engine._load_practice_progress_cached("student-1")
+
+        self.assertEqual("practice_progress", sb.table_name)
+        self.assertEqual(1, len(result))
+        self.assertIn(("select", practice_engine._PRACTICE_PROGRESS_COLUMNS), sb.query.calls)
+        self.assertIn(("eq", "user_id", "student-1"), sb.query.calls)
 
 
 if __name__ == "__main__":

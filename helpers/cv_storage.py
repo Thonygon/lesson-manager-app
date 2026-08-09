@@ -3,6 +3,7 @@
 
 import streamlit as st
 import re, math
+from contextlib import nullcontext
 import pandas as pd
 from io import BytesIO
 from datetime import datetime as _dt, timezone
@@ -825,7 +826,7 @@ def _sex_label(value: str) -> str:
     }
     return mapping.get(str(value or "").strip(), str(value or ""))
 
-def render_quick_cv_builder_expander() -> None:
+def render_quick_cv_builder_expander(*, embedded: bool = False) -> None:
     from core.database import load_profile_row, upsert_profile_row
 
     user_id = get_current_user_id()
@@ -849,10 +850,12 @@ def render_quick_cv_builder_expander() -> None:
 
         st.session_state["_quick_cv_owner"] = _current_user_id
 
-    with st.expander(
+    should_expand = bool(st.session_state.pop("open_quick_cv_expander", False))
+    panel = nullcontext() if embedded else st.expander(
         f"💼 {t('quick_cv_builder')}",
-        expanded=bool(st.session_state.pop("open_quick_cv_expander", False)),
-    ):
+        expanded=should_expand,
+    )
+    with panel:
         st.caption(t("quick_cv_caption"))
         usage = get_ai_cv_usage_status()
 

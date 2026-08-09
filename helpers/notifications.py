@@ -215,7 +215,7 @@ def _load_notification_classes_frame(uid: str, start_date_iso: str) -> pd.DataFr
     )
 
 
-register_cache(_load_notification_classes_frame)
+register_cache(_load_notification_classes_frame, "notifications", "classes")
 
 
 @st.cache_data(ttl=45, show_spinner=False)
@@ -233,7 +233,7 @@ def _load_notification_payments_frame(uid: str, start_date_iso: str) -> pd.DataF
     )
 
 
-register_cache(_load_notification_payments_frame)
+register_cache(_load_notification_payments_frame, "notifications", "payments")
 
 
 def _future_events_students_from_events(events: pd.DataFrame | None) -> set[str]:

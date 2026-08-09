@@ -3,6 +3,7 @@
 import html as _html
 import json
 import math
+from contextlib import nullcontext
 import streamlit as st
 from core.i18n import t
 from helpers.currency import CURRENCIES, currency_symbol
@@ -1852,6 +1853,24 @@ def _inject_explore_premium_styles() -> None:
     )
 
 
+def _render_explore_ai_tool_dialog(tool_key: str, title: str) -> None:
+    renderers = {
+        "planner": _render_explore_lesson_planner,
+        "worksheet": _render_explore_worksheet_maker,
+        "exam": _render_explore_exam_builder,
+        "program": _render_explore_program_maker,
+    }
+    renderer = renderers.get(str(tool_key or "").strip())
+    if renderer is None:
+        return
+
+    @st.dialog(title, width="large")
+    def _dialog():
+        renderer()
+
+    _dialog()
+
+
 def _render_explore_ai_tools() -> None:
     """AI Tools section for the explore page: Lesson Planner + Worksheet Maker."""
     if _render_explore_section_hero_button(
@@ -1870,10 +1889,14 @@ def _render_explore_ai_tools() -> None:
         if section_is_open:
             _queue_explore_scroll_toast()
         if not section_is_open:
-            st.session_state["explore_ai_tool_selected"] = ""
+            st.session_state.pop("explore_ai_tool_selected", None)
+            st.session_state.pop("_explore_ai_tool_dialog", None)
         st.rerun()
 
-    selected = st.session_state.get("explore_ai_tool_selected", "")
+    dialog_tool = str(st.session_state.pop("_explore_ai_tool_dialog", "") or "").strip()
+    legacy_selected = str(st.session_state.pop("explore_ai_tool_selected", "") or "").strip()
+    if not dialog_tool:
+        dialog_tool = legacy_selected
 
     cards = [
         {
@@ -1916,40 +1939,29 @@ def _render_explore_ai_tools() -> None:
 
     with st.expander(
         f"🧰 {t('explore_ai_tools_title')}",
-        expanded=_explore_section_is_open("explore_ai_tools_keep_open", ["explore_ai_tool_selected"]),
+        expanded=_explore_section_is_open("explore_ai_tools_keep_open"),
     ):
         cols = st.columns(4, gap="medium")
         for col, card in zip(cols, cards):
             with col:
-                is_active = selected == card["key"]
                 if _render_explore_native_card_button(
                     button_key=f"explore_ai_card_{card['key']}",
                     title=card["title"],
                     desc=card["desc"],
                     icon=card["icon"],
-                    badge=t("close") if is_active else card["badge"],
+                    badge=card["badge"],
                     accent=card["accent"],
                     rgb=card["rgb"],
-                    active=is_active,
+                    active=False,
                 ):
                     _keep_explore_section_open("explore_ai_tools_keep_open")
-                    if is_active:
-                        st.session_state["explore_ai_tool_selected"] = ""
-                    else:
-                        st.session_state["explore_ai_tool_selected"] = card["key"]
-                        _queue_explore_scroll_toast()
+                    st.session_state["_explore_ai_tool_dialog"] = card["key"]
                     st.rerun()
 
-        if selected:
-            st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
-            if selected == "planner":
-                _render_explore_lesson_planner()
-            elif selected == "worksheet":
-                _render_explore_worksheet_maker()
-            elif selected == "exam":
-                _render_explore_exam_builder()
-            elif selected == "program":
-                _render_explore_program_maker()
+    if dialog_tool:
+        card = next((item for item in cards if item["key"] == dialog_tool), None)
+        if card:
+            _render_explore_ai_tool_dialog(dialog_tool, f"{card['icon']} {card['title']}")
 
 # ─────────────────────────────────────────────────────────────
 # Explore-page worksheet maker (AI-powered, 1-use limit for anon)
@@ -2534,12 +2546,14 @@ def _render_plan_preview(plan: dict, meta: dict) -> None:
 # ─────────────────────────────────────────────────────────────
 # Income Goal Calculator — logged-in version (no CTA / signup)
 # ─────────────────────────────────────────────────────────────
-def render_income_goal_calculator() -> None:
-    """Render the income goal calculator for logged-in users (expander)."""
-    with st.expander(
+def render_income_goal_calculator(*, embedded: bool = False) -> None:
+    """Render the income goal calculator for logged-in users."""
+    should_expand = bool(st.session_state.pop("open_income_goal_expander", False))
+    panel = nullcontext() if embedded else st.expander(
         f"🎯 {t('income_goal_calculator')}",
-        expanded=bool(st.session_state.pop("open_income_goal_expander", False)),
-    ):
+        expanded=should_expand,
+    )
+    with panel:
         st.markdown(
             f"<p style='color:#475569;font-size:0.93rem;margin:0 0 8px 0;'>{t('explore_goal_subtitle')}</p>",
             unsafe_allow_html=True,

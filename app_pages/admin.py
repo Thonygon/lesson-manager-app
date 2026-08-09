@@ -644,6 +644,38 @@ def _minimal_rows(table: str, columns: str = "id,created_at", limit: int = 5000)
         return []
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _exact_table_count(
+    table: str,
+    cache_bust: str = "",
+    *,
+    contains_filters: tuple[tuple[str, dict[str, Any]], ...] = (),
+) -> int | None:
+    del cache_bust
+    try:
+        query = get_sb().table(table).select("id", count="exact", head=True).limit(1)
+        for column, value in contains_filters:
+            query = query.contains(column, value)
+        result = query.execute()
+        return int(getattr(result, "count", 0) or 0)
+    except Exception:
+        return None
+
+
+def _exact_ai_usage_event_count(cache_bust: str = "") -> int:
+    total = _exact_table_count("ai_usage_logs", cache_bust)
+    if total is None:
+        return len(_minimal_rows("ai_usage_logs"))
+    non_ai = _exact_table_count(
+        "ai_usage_logs",
+        cache_bust,
+        contains_filters=(("meta_json", {"used_ai": False}),),
+    )
+    if non_ai is None:
+        return total
+    return max(0, total - non_ai)
+
+
 def _fallback_label(value: str) -> str:
     parts = [part for part in str(value or "").strip().replace("-", "_").split("_") if part]
     return " ".join(part.capitalize() for part in parts) if parts else "—"
@@ -1031,19 +1063,19 @@ def _business_metrics(df: pd.DataFrame) -> dict[str, int]:
 
 
 def _content_metrics() -> dict[str, int]:
-    worksheet_rows = _minimal_rows("worksheets")
-    exam_rows = _minimal_rows("quick_exams")
-    plan_rows = _minimal_rows("lesson_plans")
-    video_rows = _minimal_rows("videos")
-    program_rows = _minimal_rows("learning_programs")
-    ai_rows = _minimal_rows("ai_usage_logs")
+    worksheet_count = _exact_table_count("worksheets")
+    exam_count = _exact_table_count("quick_exams")
+    plan_count = _exact_table_count("lesson_plans")
+    video_count = _exact_table_count("videos")
+    program_count = _exact_table_count("learning_programs")
+    ai_count = _exact_table_count("ai_usage_logs")
     return {
-        "worksheets": len(worksheet_rows),
-        "exams": len(exam_rows),
-        "lesson_plans": len(plan_rows),
-        "videos": len(video_rows),
-        "learning_programs": len(program_rows),
-        "ai_events": len(ai_rows),
+        "worksheets": int(worksheet_count if worksheet_count is not None else len(_minimal_rows("worksheets"))),
+        "exams": int(exam_count if exam_count is not None else len(_minimal_rows("quick_exams"))),
+        "lesson_plans": int(plan_count if plan_count is not None else len(_minimal_rows("lesson_plans"))),
+        "videos": int(video_count if video_count is not None else len(_minimal_rows("videos"))),
+        "learning_programs": int(program_count if program_count is not None else len(_minimal_rows("learning_programs"))),
+        "ai_events": int(ai_count if ai_count is not None else len(_minimal_rows("ai_usage_logs"))),
     }
 
 
@@ -1522,7 +1554,7 @@ def _build_admin_ai_snapshot() -> dict[str, Any]:
             "multi_subject_links": multi_subject_links,
             "program_assignments": active_program_assignments,
             "videos": int(len(videos_df)),
-            "ai_events": int(len(actual_ai_df)),
+            "ai_events": int(_exact_ai_usage_event_count()),
             "recommendation_events": int(len(recommendation_df)),
             "program_alignment_score": program_alignment_score,
             "topic_linkage_score": topic_linkage_score,

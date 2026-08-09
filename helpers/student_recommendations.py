@@ -262,7 +262,7 @@ def group_recommendations_for_subject_tabs(
     return groups
 
 
-register_cache(_build_recommended_materials_cached)
+register_cache(_build_recommended_materials_cached, "recommendations", "resources", "practice", "assignments", "learning_programs")
 
 
 def _now_utc() -> datetime:
@@ -497,7 +497,7 @@ def _load_student_assignment_signal_rows(student_id: str) -> list[dict[str, Any]
     ]
 
 
-register_cache(_load_student_assignment_signal_rows)
+register_cache(_load_student_assignment_signal_rows, "recommendations", "assignments", "practice")
 
 
 def _load_assignment_exclusions() -> dict[str, set]:

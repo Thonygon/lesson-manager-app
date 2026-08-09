@@ -4,13 +4,14 @@ import html
 import math
 import os
 import re
+from contextlib import nullcontext
 from datetime import datetime as _dt, timezone
 from io import BytesIO
 from typing import Optional
 
 import pandas as pd
 import streamlit as st
-from core.database import clear_app_caches, get_sb, insert_row_with_retries, load_table, register_cache, show_data_load_error
+from core.database import clear_cache_domains, get_sb, insert_row_with_retries, load_table, register_cache, show_data_load_error
 from core.i18n import t
 from core.navigation import clear_open_resource_previews, clear_smart_tool_result_state, go_to
 from core.state import get_current_user_id, with_owner
@@ -43,6 +44,10 @@ from helpers.resource_deletion import render_archive_delete_button, render_archi
 from helpers.recommendation_models import log_teacher_material_open
 from helpers.visual_support import generate_resource_cover_image, preserve_generated_media_fields
 from reportlab.lib.enums import TA_CENTER
+
+
+def _clear_lesson_plan_caches() -> None:
+    clear_cache_domains("lesson_plans", "resources", "assignments", "practice", "recommendations")
 from services.permissions_service import get_feature_usage_status
 
 
@@ -650,7 +655,7 @@ def _load_my_lesson_plans_cached(uid: str, limit: int = 120) -> pd.DataFrame:
     return _normalize_lesson_plan_frame(getattr(res, "data", None) or [])
 
 
-register_cache(_load_my_lesson_plans_cached)
+register_cache(_load_my_lesson_plans_cached, "lesson_plans", "resources")
 
 
 @st.cache_data(ttl=180, show_spinner=False)
@@ -667,7 +672,7 @@ def _load_public_lesson_plans_cached(limit: int = 120) -> pd.DataFrame:
     return _normalize_lesson_plan_frame(getattr(res, "data", None) or [])
 
 
-register_cache(_load_public_lesson_plans_cached)
+register_cache(_load_public_lesson_plans_cached, "lesson_plans", "resources")
 
 
 def load_public_lesson_plans() -> pd.DataFrame:
@@ -704,7 +709,7 @@ def load_lesson_plan_record(plan_id) -> dict:
         return {}
 
 
-register_cache(load_lesson_plan_record)
+register_cache(load_lesson_plan_record, "lesson_plans", "resources")
 
 
 def _persist_lesson_plan_cover(plan_id: int | str, plan: dict) -> bool:
@@ -727,7 +732,7 @@ def _persist_lesson_plan_cover(plan_id: int | str, plan: dict) -> bool:
             get_sb().table("lesson_plans").update(
                 {"plan_json": clean_plan}
             ).eq("id", safe_id).eq("user_id", uid).execute()
-        clear_app_caches()
+        _clear_lesson_plan_caches()
         try:
             load_lesson_plan_record.clear()
         except Exception:
@@ -762,7 +767,7 @@ def _persist_lesson_plan_resource(plan_id: int | str, plan: dict) -> bool:
                     "title": _clean_display_text(clean_plan.get("title") or ""),
                 }
             ).eq("id", safe_id).eq("user_id", uid).execute()
-        clear_app_caches()
+        _clear_lesson_plan_caches()
         try:
             load_lesson_plan_record.clear()
         except Exception:
@@ -827,7 +832,7 @@ def update_lesson_plan_visibility(plan_id, is_public: bool) -> tuple[bool, str]:
             .eq("user_id", uid)
             .execute()
         )
-        clear_app_caches()
+        _clear_lesson_plan_caches()
         return True, "ok"
     except Exception as exc:
         return False, str(exc)
@@ -866,7 +871,7 @@ def update_lesson_plan_archive(plan_id, archived: bool) -> tuple[bool, str]:
             source_record_id=safe_plan_id,
             archived=archived,
         )
-        clear_app_caches()
+        _clear_lesson_plan_caches()
         return True, "ok"
     except Exception as exc:
         return False, str(exc)
@@ -1965,8 +1970,13 @@ def build_lesson_plan_pdf_bytes(
 # ============================================================
 
 
-def render_quick_lesson_planner_expander() -> None:
-    with st.expander(f"📝 {t('quick_lesson_planner')}", expanded=bool(st.session_state.pop("open_quick_plan_expander", False))):
+def render_quick_lesson_planner_expander(*, embedded: bool = False) -> None:
+    should_expand = bool(st.session_state.pop("open_quick_plan_expander", False))
+    panel = nullcontext() if embedded else st.expander(
+        f"📝 {t('quick_lesson_planner')}",
+        expanded=should_expand,
+    )
+    with panel:
         st.caption(t("quick_lesson_caption"))
         st.caption(t("plan_language_note"))
 

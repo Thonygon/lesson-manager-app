@@ -72,8 +72,9 @@ from helpers import dashboard
 
 
 class _FakeResult:
-    def __init__(self, data):
+    def __init__(self, data, count=None):
         self.data = data
+        self.count = count
 
 
 class _FakeQuery:
@@ -84,12 +85,16 @@ class _FakeQuery:
         self.ops = []
         self.log.append(self)
 
-    def select(self, value):
-        self.ops.append(("select", value))
+    def select(self, value, **kwargs):
+        self.ops.append(("select", value, kwargs))
         return self
 
     def order(self, column, desc=False):
         self.ops.append(("order", column, desc))
+        return self
+
+    def contains(self, column, value):
+        self.ops.append(("contains", column, value))
         return self
 
     def in_(self, column, values):
@@ -101,7 +106,12 @@ class _FakeQuery:
         return self
 
     def execute(self):
-        return _FakeResult(self.data)
+        count = None
+        for op in self.ops:
+            if op[0] == "select" and op[2].get("count") == "exact":
+                count = len(self.data)
+                break
+        return _FakeResult(self.data, count=count)
 
 
 class _FakeSupabase:
@@ -203,6 +213,36 @@ class DashboardAdminQueryOptimizationTests(unittest.TestCase):
             self.assertNotIn("last_used_at", selected)
             in_operation = next(op for op in query.ops if op[0] == "in")
             self.assertEqual((valid_user_id,), in_operation[2])
+
+    def test_content_metrics_use_exact_counts_for_kpis(self):
+        fake_sb = _FakeSupabase(
+            table_data={
+                "worksheets": [{"id": "w1"}, {"id": "w2"}],
+                "quick_exams": [{"id": "e1"}],
+                "lesson_plans": [{"id": "l1"}, {"id": "l2"}, {"id": "l3"}],
+                "videos": [{"id": "v1"}],
+                "learning_programs": [{"id": "p1"}],
+                "ai_usage_logs": [{"id": "a1"}, {"id": "a2"}, {"id": "a3"}, {"id": "a4"}],
+            }
+        )
+
+        with patch.object(admin, "get_sb", return_value=fake_sb):
+            metrics = admin._content_metrics()
+
+        self.assertEqual(
+            {
+                "worksheets": 2,
+                "exams": 1,
+                "lesson_plans": 3,
+                "videos": 1,
+                "learning_programs": 1,
+                "ai_events": 4,
+            },
+            metrics,
+        )
+        for query in fake_sb.table_log:
+            self.assertEqual(("select", "id", {"count": "exact", "head": True}), query.ops[0])
+            self.assertIn(("limit", 1), query.ops)
 
 
 if __name__ == "__main__":

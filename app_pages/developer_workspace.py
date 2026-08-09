@@ -85,9 +85,25 @@ def _local_text(en: str, es: str, tr: str) -> str:
 
 
 def _render_workspace_section_error(section_name: str, exc: Exception) -> None:
-    logger.exception("Developer Workspace section failed", extra={"section_name": section_name})
+    from services.operational_diagnostics_service import capture_exception, sanitize_text, short_event_reference
+
+    event_id = capture_exception(
+        exc,
+        component="app_pages.developer_workspace",
+        operation="render_workspace_section",
+        page_key="developer_workspace",
+        user_face="developer",
+        context={"resource_type": "workspace_section"},
+    )
+    logger.error(
+        "Developer Workspace section failed event_id=%s exception_type=%s",
+        event_id,
+        type(exc).__name__,
+        extra={"section_name": section_name},
+    )
     st.error(t("developer_workspace_section_error") if t("developer_workspace_section_error") != "developer_workspace_section_error" else "No pudimos abrir esta sección del panel.")
-    st.caption(f"{section_name}: {type(exc).__name__}: {exc}")
+    st.caption(f"{section_name}: {type(exc).__name__}: {sanitize_text(exc, limit=500)}")
+    st.caption(t("operational_diagnostics_user_reference", reference=short_event_reference(event_id)))
 
 
 def _prepare_model_comparison_frame(model_rows: list[dict]) -> pd.DataFrame:

@@ -263,8 +263,8 @@ def load_resource_affinity_index() -> dict[str, Any]:
         normalizer = _load_pickle(Path(str(files.get("normalizer") or "")))
         svd_path = _clean_text(files.get("svd"))
         svd = _load_pickle(Path(svd_path)) if svd_path else None
-        vectors_payload = np.load(Path(str(files.get("vectors") or "")))
-        matrix = np.asarray(vectors_payload["vectors"], dtype=float)
+        with np.load(Path(str(files.get("vectors") or ""))) as vectors_payload:
+            matrix = np.asarray(vectors_payload["vectors"], dtype=float).copy()
         ordered_keys = json.loads(Path(str(files.get("resource_keys") or "")).read_text(encoding="utf-8"))
     except Exception as exc:
         return {"available": False, "reason": f"fitted_representation_load_failed:{exc}"}

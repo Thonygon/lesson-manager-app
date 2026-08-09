@@ -38,6 +38,25 @@ class _FakeQuery:
 
 
 class DatabaseQueryFilterTests(unittest.TestCase):
+    def test_supabase_client_uses_explicit_http_transport(self):
+        sentinel_options = object()
+        sentinel_client = object()
+        with (
+            patch("httpx.Client") as http_client,
+            patch("supabase.ClientOptions", return_value=sentinel_options) as options_factory,
+            patch.object(database, "create_client", return_value=sentinel_client) as create_client,
+        ):
+            result = database._create_supabase_client("https://example.supabase.co", "key")
+
+        self.assertIs(sentinel_client, result)
+        http_client.assert_called_once_with(timeout=120.0)
+        options_factory.assert_called_once_with(httpx_client=http_client.return_value)
+        create_client.assert_called_once_with(
+            "https://example.supabase.co",
+            "key",
+            options=sentinel_options,
+        )
+
     def test_clear_specific_caches_only_clears_requested_functions(self):
         class _Cache:
             def __init__(self):
@@ -53,6 +72,36 @@ class DatabaseQueryFilterTests(unittest.TestCase):
 
         self.assertEqual(1, cache_a.cleared)
         self.assertEqual(1, cache_b.cleared)
+
+    def test_clear_cache_domains_only_clears_matching_and_table_caches(self):
+        class _Cache:
+            def __init__(self):
+                self.cleared = 0
+
+            def clear(self):
+                self.cleared += 1
+
+        practice_cache = _Cache()
+        resource_cache = _Cache()
+        table_cache = _Cache()
+        original_registry = list(database._CACHE_REGISTRY)
+        original_domains = dict(database._CACHE_DOMAINS)
+        try:
+            database._CACHE_REGISTRY[:] = []
+            database._CACHE_DOMAINS.clear()
+            database.register_cache(practice_cache, "practice")
+            database.register_cache(resource_cache, "resources")
+            database.register_cache(table_cache, "database")
+
+            database.clear_cache_domains("practice")
+
+            self.assertEqual(1, practice_cache.cleared)
+            self.assertEqual(0, resource_cache.cleared)
+            self.assertEqual(1, table_cache.cleared)
+        finally:
+            database._CACHE_REGISTRY[:] = original_registry
+            database._CACHE_DOMAINS.clear()
+            database._CACHE_DOMAINS.update(original_domains)
 
     def test_apply_query_filter_dispatches_supported_operators(self):
         query = _FakeQuery()

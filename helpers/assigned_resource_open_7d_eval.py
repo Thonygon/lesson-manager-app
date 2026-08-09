@@ -14,6 +14,8 @@ import uuid
 import numpy as np
 import pandas as pd
 
+from core.runtime import MonotonicTimer, UtcClock, configure_joblib_cpu_count, elapsed_seconds, utc_now
+
 
 FEATURE_SCHEMA_VERSION = "assigned_resource_open_7d.v1"
 OBSERVATION_DAYS = 7
@@ -198,8 +200,8 @@ class LabelOutcome:
     observation_window_closed_at: str
 
 
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+def _utc_now(clock: UtcClock | None = None) -> datetime:
+    return utc_now(clock)
 
 
 def _json_safe(value: Any) -> Any:
@@ -915,6 +917,7 @@ def _majority_baseline_predictions(y_train: np.ndarray, holdout_size: int) -> tu
 
 def _sklearn_available() -> tuple[bool, str]:
     try:
+        configure_joblib_cpu_count()
         import sklearn  # noqa: F401
         return True, ""
     except Exception as exc:
@@ -936,6 +939,7 @@ def _build_model_specs() -> list[dict[str, Any]]:
 
 
 def _instantiate_sklearn_pipeline(model_name: str, feature_names: list[str], scaled: bool):
+    configure_joblib_cpu_count()
     from sklearn.compose import ColumnTransformer
     from sklearn.dummy import DummyClassifier
     from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
@@ -1030,7 +1034,11 @@ def _predict_scores(pipeline, frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarr
     return preds, preds.astype(float)
 
 
-def evaluate_models(dataset_df: pd.DataFrame) -> dict[str, Any]:
+def evaluate_models(
+    dataset_df: pd.DataFrame,
+    *,
+    timer: MonotonicTimer = time.perf_counter,
+) -> dict[str, Any]:
     split = build_chronological_split(dataset_df)
     development_df = split["development_df"]
     holdout_df = split["holdout_df"]
@@ -1206,12 +1214,12 @@ def evaluate_models(dataset_df: pd.DataFrame) -> dict[str, Any]:
             else:
                 cv_status = fold_issue or "skipped"
 
-            started = time.perf_counter()
+            started = timer()
             fitted_pipeline = pipeline.fit(feature_frame_dev[used_feature_names], y_dev)
-            train_duration = time.perf_counter() - started
-            started = time.perf_counter()
+            train_duration = elapsed_seconds(started, timer)
+            started = timer()
             y_pred, y_prob = _predict_scores(fitted_pipeline, feature_frame_holdout[used_feature_names])
-            inference_duration = time.perf_counter() - started
+            inference_duration = elapsed_seconds(started, timer)
             metrics = _metric_dict(y_holdout, y_pred, y_prob, y_prob)
             confidence_intervals = _bootstrap_metric_intervals(y_holdout, y_pred, y_prob, y_prob, seed=DEFAULT_SEED + len(model_rows))
             params = {}
@@ -1566,10 +1574,12 @@ def generate_assigned_resource_open_7d_evaluation(
     output_dir: Path | str = DEFAULT_OUTPUT_DIR,
     *,
     run_id: str | None = None,
+    clock: UtcClock | None = None,
+    timer: MonotonicTimer = time.perf_counter,
 ) -> dict[str, Any]:
     resolved_output_dir = Path(output_dir)
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
-    extraction_time = _utc_now()
+    extraction_time = _utc_now(clock)
     run_id = str(run_id or uuid.uuid4().hex[:12]).strip()
     snapshot = extract_operational_snapshot(extraction_time=extraction_time)
     dataset_df, dataset_diag = build_assignment_dataset(snapshot, extraction_time=extraction_time)
@@ -1588,7 +1598,7 @@ def generate_assigned_resource_open_7d_evaluation(
         "student_count": int(mature_df["student_id"].replace("", pd.NA).nunique()) if not mature_df.empty else 0,
         "resource_count": int(mature_df["resource_key"].replace("", pd.NA).nunique()) if not mature_df.empty else 0,
     }
-    evaluation = evaluate_models(dataset_df)
+    evaluation = evaluate_models(dataset_df, timer=timer)
     run_summary = {
         "run_id": run_id,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
