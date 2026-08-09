@@ -35,7 +35,7 @@ class TeacherSmartToolDialogTests(unittest.TestCase):
         self.assertEqual(1, len(dialog_calls))
         self.assertEqual("large", dialog_calls[0][1])
         self.assertIs(home._clear_home_smart_tool_dialog, dialog_calls[0][2])
-        renderer.assert_called_once_with()
+        renderer.assert_called_once_with(embedded=True)
 
     def test_invalid_dialog_state_is_cleared_without_rendering(self):
         home.st.session_state["_home_smart_tool_dialog"] = {

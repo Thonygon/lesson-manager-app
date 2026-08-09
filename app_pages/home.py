@@ -1294,7 +1294,7 @@ def _render_home_smart_tool_dialog() -> None:
     )
     def _dialog():
         st.session_state[tool_flag] = True
-        renderer()
+        renderer(embedded=True)
         if st.button(t("close"), key=f"{tool_flag}_dialog_close", use_container_width=True):
             _clear_home_smart_tool_dialog()
             st.rerun()

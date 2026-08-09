@@ -3,6 +3,7 @@
 import streamlit as st
 import json, re, math, os
 import ast
+from contextlib import nullcontext
 from typing import Optional
 from datetime import datetime as _dt, timezone
 import pandas as pd
@@ -2618,8 +2619,13 @@ def build_worksheet_pdf_bytes(
 
 
 # ── Expander UI ──────────────────────────────────────────────────────
-def render_quick_worksheet_maker_expander() -> None:
-    with st.expander(f"📋 {t('worksheet_maker')}", expanded=bool(st.session_state.pop("open_quick_ws_expander", False))):
+def render_quick_worksheet_maker_expander(*, embedded: bool = False) -> None:
+    should_expand = bool(st.session_state.pop("open_quick_ws_expander", False))
+    panel = nullcontext() if embedded else st.expander(
+        f"📋 {t('worksheet_maker')}",
+        expanded=should_expand,
+    )
+    with panel:
         st.caption(t("worksheet_maker_caption"))
 
         usage = get_ai_worksheet_usage_status()

@@ -3,6 +3,7 @@
 import html as _html
 import json
 import math
+from contextlib import nullcontext
 import streamlit as st
 from core.i18n import t
 from helpers.currency import CURRENCIES, currency_symbol
@@ -2545,12 +2546,14 @@ def _render_plan_preview(plan: dict, meta: dict) -> None:
 # ─────────────────────────────────────────────────────────────
 # Income Goal Calculator — logged-in version (no CTA / signup)
 # ─────────────────────────────────────────────────────────────
-def render_income_goal_calculator() -> None:
-    """Render the income goal calculator for logged-in users (expander)."""
-    with st.expander(
+def render_income_goal_calculator(*, embedded: bool = False) -> None:
+    """Render the income goal calculator for logged-in users."""
+    should_expand = bool(st.session_state.pop("open_income_goal_expander", False))
+    panel = nullcontext() if embedded else st.expander(
         f"🎯 {t('income_goal_calculator')}",
-        expanded=bool(st.session_state.pop("open_income_goal_expander", False)),
-    ):
+        expanded=should_expand,
+    )
+    with panel:
         st.markdown(
             f"<p style='color:#475569;font-size:0.93rem;margin:0 0 8px 0;'>{t('explore_goal_subtitle')}</p>",
             unsafe_allow_html=True,

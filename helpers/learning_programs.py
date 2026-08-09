@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import re
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import uuid4
@@ -5238,13 +5239,15 @@ def load_enriched_program_assignments_for_current_student() -> list[dict]:
     return _load_enriched_program_assignments_for_student_cached(student_id)
 
 
-def render_quick_learning_program_builder_expander() -> None:
+def render_quick_learning_program_builder_expander(*, embedded: bool = False) -> None:
     ns = "quick_learning_program"
+    should_expand = bool(st.session_state.pop("open_quick_learning_program_expander", False))
 
-    with st.expander(
+    panel = nullcontext() if embedded else st.expander(
         f"📚 {t('quick_learning_program_maker')}",
-        expanded=bool(st.session_state.pop("open_quick_learning_program_expander", False)),
-    ):
+        expanded=should_expand,
+    )
+    with panel:
         st.caption(t("quick_learning_program_maker_caption"))
 
         usage = get_ai_learning_program_usage_status()

@@ -13,7 +13,7 @@ from uuid import uuid4
 import streamlit as st
 
 from core.database import get_sb
-from core.state import get_current_user_role
+from core.state import get_current_user_id, get_current_user_role
 from services.authorization_service import (
     CAPABILITY_MANAGE_OPERATIONAL_DIAGNOSTICS,
     CAPABILITY_VIEW_OPERATIONAL_DIAGNOSTICS,
@@ -189,8 +189,11 @@ def capture_exception(
     safe_message = sanitize_text(exc, limit=1000)
     safe_context = dict(context or {})
     safe_context.setdefault("correlation_id", _correlation_id())
+    current_user_id = _clean_text(get_current_user_id(), limit=80)
 
     if not diagnostics_enabled() or getattr(_CAPTURE_STATE, "active", False):
+        return event_id
+    if not current_user_id:
         return event_id
     recent_reference = _recent_reference(fingerprint, event_id)
     if recent_reference:
@@ -222,6 +225,9 @@ def capture_exception(
     except Exception as reporting_exc:
         with _CAPTURE_LOCK:
             _RECENT_FINGERPRINTS.pop(fingerprint, None)
+        if "authentication_required" in sanitize_text(reporting_exc, limit=240).lower():
+            _remember_persisted_reference(fingerprint, event_id)
+            return event_id
         logger.error(
             "Operational diagnostic capture unavailable event_id=%s reporter_error=%s",
             event_id,

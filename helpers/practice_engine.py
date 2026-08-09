@@ -83,7 +83,6 @@ _PRACTICE_PROGRESS_COLUMNS = ",".join([
     "subject",
     "topic",
     "exercise_type",
-    "learner_stage",
     "level",
     "total_attempted",
     "total_correct",

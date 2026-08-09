@@ -3071,6 +3071,8 @@ EN: Dict[str, str] = {
     "video_default_title": "YouTube video",
     "video_default_description": "Topic-based support video",
     "watch_video": "Watch video",
+    "watch_again": "Watch again",
+    "watched_label": "Watched",
     "student_home_review_now_eyebrow": "Review now",
     "student_home_review_now_button": "Open Smart Practice",
     "student_home_view_assignments_button": "View my assignments",

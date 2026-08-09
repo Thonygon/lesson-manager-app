@@ -4,6 +4,7 @@ import html
 import math
 import os
 import re
+from contextlib import nullcontext
 from datetime import datetime as _dt, timezone
 from io import BytesIO
 from typing import Optional
@@ -1969,8 +1970,13 @@ def build_lesson_plan_pdf_bytes(
 # ============================================================
 
 
-def render_quick_lesson_planner_expander() -> None:
-    with st.expander(f"📝 {t('quick_lesson_planner')}", expanded=bool(st.session_state.pop("open_quick_plan_expander", False))):
+def render_quick_lesson_planner_expander(*, embedded: bool = False) -> None:
+    should_expand = bool(st.session_state.pop("open_quick_plan_expander", False))
+    panel = nullcontext() if embedded else st.expander(
+        f"📝 {t('quick_lesson_planner')}",
+        expanded=should_expand,
+    )
+    with panel:
         st.caption(t("quick_lesson_caption"))
         st.caption(t("plan_language_note"))
 

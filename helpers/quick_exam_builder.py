@@ -3,6 +3,7 @@ from __future__ import annotations
 # CLASSIO — Quick Exam Builder (AI generation)
 # ============================================================
 import ast
+from contextlib import nullcontext
 import json
 import re
 from collections import OrderedDict
@@ -1450,14 +1451,16 @@ def reset_exam_builder_state():
         st.session_state.pop(key, None)
 
 
-def render_quick_exam_builder_expander() -> None:
+def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
     import streamlit as st
     from helpers.quick_exam_storage import get_ai_exam_usage_status
 
-    with st.expander(
+    should_expand = bool(st.session_state.pop("open_quick_exam_expander", False))
+    panel = nullcontext() if embedded else st.expander(
         f"🧪 {t('quick_exam_builder') if t('quick_exam_builder') != 'quick_exam_builder' else 'Quick Exam Builder'}",
-        expanded=bool(st.session_state.pop("open_quick_exam_expander", False)),
-    ):
+        expanded=should_expand,
+    )
+    with panel:
         st.caption(
             t("quick_exam_builder_caption")
             if t("quick_exam_builder_caption") != "quick_exam_builder_caption"

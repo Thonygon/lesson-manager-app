@@ -1582,12 +1582,12 @@ def render_exam_result(
             st.rerun()
 
     # ── Builder proxy ────────────────────────────────────────────────────
-def render_quick_exam_builder_expander() -> None:
+def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
     """
     Delegate to the builder module so the UI logic stays in one place.
     This keeps storage aligned with the upgraded exam builder.
     """
-    return _eb().render_quick_exam_builder_expander()
+    return _eb().render_quick_exam_builder_expander(embedded=embedded)
 
 
 def _persist_saved_exam_visuals(exam_id: int | str, exam_data: dict) -> bool:

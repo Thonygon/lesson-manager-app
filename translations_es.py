@@ -3071,6 +3071,8 @@ ES: Dict[str, str] = {
     "video_default_title": "Video de YouTube",
     "video_default_description": "Video de apoyo vinculado al tema",
     "watch_video": "Ver video",
+    "watch_again": "Ver de nuevo",
+    "watched_label": "Visto",
     "student_home_review_now_eyebrow": "Repasa ahora",
     "student_home_review_now_button": "Abrir Smart Practice",
     "student_home_view_assignments_button": "Ver mis tareas",

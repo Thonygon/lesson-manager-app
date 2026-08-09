@@ -3057,6 +3057,8 @@ TR: Dict[str, str] = {
     "video_default_title": "YouTube videosu",
     "video_default_description": "Konuya bağlı destek videosu",
     "watch_video": "Videoyu izle",
+    "watch_again": "Tekrar izle",
+    "watched_label": "İzlendi",
     "student_home_review_now_eyebrow": "Şimdi tekrar et",
     "student_home_review_now_button": "Akıllı Pratik'i aç",
     "student_home_view_assignments_button": "Ödevlerimi gör",
