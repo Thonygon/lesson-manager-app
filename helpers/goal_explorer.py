@@ -1,6 +1,7 @@
 # CLASSIO — Pre-login Goal Explorer
 # ============================================================
 import html as _html
+import hashlib
 import json
 import math
 from contextlib import nullcontext
@@ -25,6 +26,8 @@ from helpers.resource_gallery import resource_kind_accent
 from styles.theme import load_css_home
 import re
 import pandas as pd
+from helpers.recommendation_models import resource_semantic_affinity
+from helpers.resource_affinity_runtime import resource_affinity_score
 
 # ── Hourly rate ranges by subject and modality (USD) ──
 # (min, default, max) — based on current private-tutoring market data.
@@ -96,6 +99,109 @@ def _resource_rgb(kind: str) -> str:
 _TEACHING_WEEKS_PER_YEAR = 44        # ~8 weeks of holidays / breaks
 _LESSONS_PER_STUDENT_PER_WEEK = 1.5  # avg mix of weekly and biweekly
 _EXPLORE_DEMO_DONE_KEY = "_completed_demo_ids"
+_EXPLORE_RESOURCE_PAGE_SIZE = 6
+_EXPLORE_ACTIVE_SECTION_KEY = "_explore_active_section"
+_SHARED_RESOURCE_SEARCH_WEIGHTS_RAW = {
+    "program": {
+        "title": 6,
+        "program_overview": 4,
+        "custom_subject_name": 4,
+        "subject": 3,
+        "learner_stage": 2,
+        "level_or_band": 2,
+        "author_name": 1,
+    },
+    "plan": {
+        "title": 6,
+        "topic": 5,
+        "lesson_purpose": 4,
+        "subject": 3,
+        "learner_stage": 2,
+        "level_or_band": 2,
+        "author_name": 1,
+    },
+    "worksheet": {
+        "title": 6,
+        "topic": 5,
+        "worksheet_type": 4,
+        "subject": 3,
+        "learner_stage": 2,
+        "level_or_band": 2,
+        "author_name": 1,
+    },
+    "exam": {
+        "title": 6,
+        "topic": 5,
+        "subject": 3,
+        "learner_stage": 2,
+        "level": 2,
+        "exam_length": 2,
+        "author_name": 1,
+    },
+    "video": {
+        "title": 6,
+        "topic": 5,
+        "description": 3,
+        "subject": 3,
+        "learner_stage": 2,
+        "level_or_band": 2,
+        "author_name": 1,
+    },
+}
+_SHARED_RESOURCE_SEARCH_WEIGHTS_PREPARED = {
+    "program": {
+        "title": 6,
+        "program_overview": 4,
+        "custom_subject_name": 4,
+        "_search_subject": 3,
+        "_search_stage": 2,
+        "_search_level": 2,
+        "_search_overview": 2,
+        "author_name": 1,
+    },
+    "plan": {
+        "title": 6,
+        "topic": 5,
+        "_search_type": 4,
+        "_search_subject": 3,
+        "_search_stage": 2,
+        "_search_level": 2,
+        "author_name": 1,
+    },
+    "worksheet": {
+        "title": 6,
+        "topic": 5,
+        "_search_type": 4,
+        "_search_subject": 3,
+        "_search_stage": 2,
+        "_search_level": 2,
+        "author_name": 1,
+    },
+    "exam": {
+        "title": 6,
+        "topic": 5,
+        "_search_type": 2,
+        "_search_subject": 3,
+        "_search_stage": 2,
+        "_search_level": 2,
+        "author_name": 1,
+    },
+    "video": {
+        "title": 6,
+        "topic": 5,
+        "description": 3,
+        "_search_subject": 3,
+        "_search_stage": 2,
+        "_search_level": 2,
+        "author_name": 1,
+    },
+}
+
+
+def get_shared_resource_search_weights(kind: str, *, prepared: bool = False) -> dict[str, int]:
+    key = str(kind or "").strip().lower()
+    source = _SHARED_RESOURCE_SEARCH_WEIGHTS_PREPARED if prepared else _SHARED_RESOURCE_SEARCH_WEIGHTS_RAW
+    return dict(source.get(key, {}))
 
 
 def _session_resource_id(key: str):
@@ -247,6 +353,50 @@ def _normalize(text: str) -> str:
 def _tokens(query: str) -> list[str]:
     return [t for t in re.split(r"[^a-zA-Z0-9]+", _normalize(query)) if t]
 
+
+_SEARCH_TOPIC_ALIASES: dict[str, tuple[str, ...]] = {
+    "clothes": ("clothing", "outfit", "outfits", "wear", "wearing"),
+    "clothing": ("clothes", "outfit", "outfits", "wear", "wearing"),
+    "family": ("families", "family members", "relatives", "parents", "siblings"),
+    "house": ("home", "homes", "room", "rooms", "furniture"),
+    "home": ("house", "houses", "room", "rooms", "furniture"),
+    "food": ("meal", "meals", "breakfast", "lunch", "dinner", "restaurant"),
+    "school": ("classroom", "teacher", "teachers", "student", "students"),
+    "animals": ("animal", "pets", "pet", "farm", "zoo"),
+    "weather": ("season", "seasons", "rain", "sunny", "cloudy"),
+    "jobs": ("job", "work", "career", "careers", "occupations"),
+}
+
+
+def _token_variants(token: str) -> set[str]:
+    tok = _normalize(token)
+    variants = {tok}
+    if len(tok) < 3:
+        return variants
+    if tok.endswith("ies") and len(tok) > 4:
+        variants.add(tok[:-3] + "y")
+    if tok.endswith("ing") and len(tok) > 5:
+        variants.add(tok[:-3])
+        variants.add(tok[:-3] + "e")
+    if tok.endswith("es") and len(tok) > 4:
+        variants.add(tok[:-2])
+    if tok.endswith("s") and len(tok) > 3:
+        variants.add(tok[:-1])
+    if not tok.endswith("s"):
+        variants.add(tok + "s")
+    if tok.endswith("y") and len(tok) > 3:
+        variants.add(tok[:-1] + "ies")
+    alias_values = _SEARCH_TOPIC_ALIASES.get(tok, ())
+    variants.update(_normalize(value) for value in alias_values if value)
+    return {value for value in variants if value}
+
+
+def _search_concepts(query: str) -> list[set[str]]:
+    concepts: list[set[str]] = []
+    for token in _tokens(query):
+        concepts.append(_token_variants(token))
+    return concepts
+
 def _prepare_searchable_resources(df: pd.DataFrame, kind: str) -> pd.DataFrame:
     out = df.copy()
 
@@ -298,48 +448,274 @@ def _prepare_searchable_resources(df: pd.DataFrame, kind: str) -> pd.DataFrame:
 
     return out
 
+
+def _merge_explore_filter_options(resource_frames: list[pd.DataFrame], columns: list[str]) -> list[str]:
+    values: list[str] = []
+    for frame in resource_frames:
+        if frame is None or frame.empty:
+            continue
+        for column in columns:
+            if column not in frame.columns:
+                continue
+            for raw_value in frame[column].dropna().astype(str):
+                value = str(raw_value or "").strip()
+                if value:
+                    values.append(value)
+    return sorted(set(values))
+
+
+def _render_explore_shared_resource_filters(resource_frames: list[pd.DataFrame]) -> tuple[str, str, str, str]:
+    search_query = st.text_input(
+        t("explore_resource_search"),
+        key="explore_shared_resource_search",
+        placeholder=t("explore_resource_search_placeholder"),
+    ).strip()
+
+    filter_col1, filter_col2, filter_col3 = st.columns(3)
+    subject_options = _merge_explore_filter_options(resource_frames, ["_search_subject"])
+    with filter_col1:
+        subject_filter = st.selectbox(
+            t("subject_label"),
+            [t("all")] + subject_options,
+            format_func=lambda x: t("all") if x == t("all") else x,
+            key="explore_shared_resource_subject_filter",
+        )
+    stage_options = _merge_explore_filter_options(resource_frames, ["_search_stage"])
+    with filter_col2:
+        stage_filter = st.selectbox(
+            t("learner_stage"),
+            [t("all")] + stage_options,
+            format_func=lambda x: t("all") if x == t("all") else x,
+            key="explore_shared_resource_stage_filter",
+        )
+    level_options = _merge_explore_filter_options(resource_frames, ["_search_level"])
+    with filter_col3:
+        level_filter = st.selectbox(
+            t("level_or_band"),
+            [t("all")] + level_options,
+            format_func=lambda x: t("all") if x == t("all") else x,
+            key="explore_shared_resource_level_filter",
+        )
+    return search_query, subject_filter, stage_filter, level_filter
+
+
+def _apply_explore_shared_filters(
+    searchable_df: pd.DataFrame,
+    *,
+    query: str,
+    subject_filter: str,
+    stage_filter: str,
+    level_filter: str,
+    weights: dict,
+) -> pd.DataFrame:
+    filtered = searchable_df.copy()
+    if subject_filter != t("all") and "_search_subject" in filtered.columns:
+        filtered = filtered[filtered["_search_subject"].astype(str) == subject_filter]
+    if stage_filter != t("all") and "_search_stage" in filtered.columns:
+        filtered = filtered[filtered["_search_stage"].astype(str) == stage_filter]
+    if level_filter != t("all") and "_search_level" in filtered.columns:
+        filtered = filtered[filtered["_search_level"].astype(str) == level_filter]
+    if query:
+        filtered = _rank_search(filtered, query, weights)
+    if "created_at" in filtered.columns:
+        filtered = filtered.sort_values("created_at", ascending=False)
+    return filtered.drop(
+        columns=[c for c in filtered.columns if c.startswith("_search")],
+        errors="ignore",
+    )
+
+
+def _slice_explore_resource_page(df: pd.DataFrame, state_key: str, *, page_size: int = _EXPLORE_RESOURCE_PAGE_SIZE):
+    total_items = len(df) if df is not None else 0
+    total_pages = max(1, math.ceil(total_items / page_size)) if total_items else 1
+    current_page = int(st.session_state.get(state_key, 1) or 1)
+    current_page = max(1, min(current_page, total_pages))
+    st.session_state[state_key] = current_page
+    start_idx = (current_page - 1) * page_size
+    end_idx = min(start_idx + page_size, total_items)
+    page_df = df.iloc[start_idx:end_idx].copy() if total_items else df
+    return page_df, current_page, total_pages, start_idx, end_idx, total_items
+
+
+def _render_explore_resource_pagination(df: pd.DataFrame, state_key: str, *, page_size: int = _EXPLORE_RESOURCE_PAGE_SIZE) -> None:
+    _, current_page, total_pages, start_idx, end_idx, total_items = _slice_explore_resource_page(
+        df,
+        state_key,
+        page_size=page_size,
+    )
+    if total_items <= page_size:
+        return
+    prev_col, info_col, next_col = st.columns([1, 3, 1])
+    with prev_col:
+        if st.button("←", key=f"{state_key}_prev", use_container_width=True, disabled=current_page <= 1):
+            _keep_explore_section_open("explore_teaching_resources_keep_open")
+            st.session_state[state_key] = max(1, current_page - 1)
+            st.rerun()
+    with info_col:
+        st.caption(f"{start_idx + 1}-{end_idx} / {total_items} · {current_page}/{total_pages}")
+    with next_col:
+        if st.button("→", key=f"{state_key}_next", use_container_width=True, disabled=current_page >= total_pages):
+            _keep_explore_section_open("explore_teaching_resources_keep_open")
+            st.session_state[state_key] = min(total_pages, current_page + 1)
+            st.rerun()
+
+
+def _infer_search_kind(df: pd.DataFrame, weights: dict) -> str:
+    columns = set(df.columns.astype(str)) if hasattr(df, "columns") else set()
+    weight_keys = {str(key) for key in (weights or {}).keys()}
+    if "program_overview" in columns or "_search_overview" in columns:
+        return "program"
+    if "lesson_purpose" in columns or "_search_type" in weight_keys and "lesson_purpose" in columns:
+        return "plan"
+    if "worksheet_type" in columns:
+        return "worksheet"
+    if "exam_length" in columns or "level" in columns:
+        return "exam"
+    if "video_id" in columns or "youtube_url" in columns or "thumbnail_url" in columns:
+        return "video"
+    return ""
+
+
+def _search_query_context(query: str, kind: str) -> dict:
+    clean_query = str(query or "").strip()
+    concept_terms = sorted({term for concept in _search_concepts(clean_query) for term in concept})
+    return {
+        "kind": kind,
+        "title": clean_query,
+        "topic": clean_query,
+        "objective": clean_query,
+        "lesson_focus": clean_query,
+        "focus_kind": clean_query,
+        "next_topics": concept_terms,
+        "weak_topics": concept_terms,
+    }
+
+
+def _search_bucket(
+    lexical_score: float,
+    semantic_score: float,
+    affinity_score: float,
+    *,
+    phrase_score: float,
+    token_score: float,
+    short_query: bool,
+) -> str:
+    blended = max(
+        lexical_score * 0.52 + semantic_score * 0.30 + affinity_score * 0.18,
+        lexical_score * 0.55 + semantic_score * 0.45,
+    )
+    if phrase_score >= 0.98 or blended >= 0.74:
+        return "very_close"
+    if phrase_score >= 0.34 and lexical_score >= 0.50:
+        return "close"
+    if short_query and phrase_score >= 0.26 and lexical_score >= 0.38:
+        return "close"
+    if blended >= 0.58 and (lexical_score >= 0.34 or semantic_score >= 0.52 or affinity_score >= 0.52):
+        return "close"
+    if phrase_score >= 0.24 and lexical_score >= 0.34:
+        return "related"
+    if short_query and token_score >= 0.24 and lexical_score >= 0.30:
+        return "related"
+    if blended >= 0.44 and (lexical_score >= 0.45 or semantic_score >= 0.44 or affinity_score >= 0.44):
+        return "related"
+    return ""
+
 def _rank_search(df: pd.DataFrame, query: str, weights: dict) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
 
     q = _normalize(query)
     toks = _tokens(query)
+    concepts = _search_concepts(query)
+    short_query = len(toks) <= 2 and len(q) <= 32
 
     if not q or not toks:
         if "created_at" in df.columns:
             return df.sort_values("created_at", ascending=False)
         return df.copy()
 
+    inferred_kind = _infer_search_kind(df, weights)
+    query_context = _search_query_context(query, inferred_kind)
+    max_weight = max(sum(float(value or 0) for value in (weights or {}).values()), 1.0)
+
     def score(row):
-        s = 0.0
+        raw_score = 0.0
         matched = False
+        max_phrase_weight = 0.0
+        matched_token_weight = 0.0
+        matched_concepts: set[int] = set()
 
         for field, w in weights.items():
+            safe_weight = float(w or 0)
             text = _normalize(row.get(field, ""))
 
             if not text:
                 continue
 
-            # strong full-phrase match
             if q in text:
-                s += w * 4
+                raw_score += safe_weight * 4
                 matched = True
+                max_phrase_weight = max(max_phrase_weight, safe_weight)
 
-            # token matches
+            field_matched_weight = 0.0
             for tok in toks:
                 if tok in text:
-                    s += w
+                    raw_score += safe_weight
                     matched = True
+                    field_matched_weight = safe_weight
+            matched_token_weight += field_matched_weight
 
-        # only give recency boost if there was at least one text match
+            for concept_idx, concept in enumerate(concepts):
+                if any(term and term in text for term in concept):
+                    raw_score += safe_weight * 0.75
+                    matched = True
+                    matched_concepts.add(concept_idx)
+
         if matched and pd.notna(row.get("created_at")):
-            s += 0.2
+            raw_score += 0.2
 
-        return s
+        phrase_score = min(1.0, max_phrase_weight / max_weight) if max_weight else 0.0
+        token_score = min(1.0, matched_token_weight / max_weight) if max_weight else 0.0
+        concept_score = min(1.0, len(matched_concepts) / max(len(concepts), 1)) if concepts else 0.0
+        lexical_score = max(
+            min(1.0, raw_score / max(max_weight * (len(toks) + 1.15), 1.0)),
+            max(
+                (0.50 * phrase_score) + (0.30 * token_score) + (0.20 * concept_score),
+                (0.42 * phrase_score) + (0.20 * token_score) + (0.38 * concept_score),
+            ),
+        )
+        semantic_score = resource_semantic_affinity(row, inferred_kind, query_context) if inferred_kind else 0.0
+        affinity_value, affinity_meta = resource_affinity_score(row, inferred_kind, query_context) if inferred_kind else (0.0, {})
+        if not bool((affinity_meta or {}).get("matched")):
+            affinity_value = 0.0
+        bucket = _search_bucket(
+            lexical_score,
+            semantic_score,
+            affinity_value,
+            phrase_score=phrase_score,
+            token_score=token_score,
+            short_query=short_query,
+        )
+        blended = max(
+            lexical_score * 0.52 + semantic_score * 0.30 + affinity_value * 0.18,
+            lexical_score * 0.55 + semantic_score * 0.45,
+        )
+        bucket_priority = {"very_close": 3.0, "close": 2.0, "related": 1.0}.get(bucket, 0.0)
+        final_score = blended + (0.08 * bucket_priority)
+
+        return pd.Series(
+            {
+                "_score": final_score,
+                "_search_bucket": bucket,
+                "_search_lexical": lexical_score,
+                "_search_semantic": semantic_score,
+                "_search_affinity": affinity_value,
+            }
+        )
 
     ranked = df.copy()
-    ranked["_score"] = ranked.apply(score, axis=1)
-    ranked = ranked[ranked["_score"] > 0]
+    ranked[["_score", "_search_bucket", "_search_lexical", "_search_semantic", "_search_affinity"]] = ranked.apply(score, axis=1)
+    ranked = ranked[ranked["_search_bucket"].astype(str) != ""]
 
     if ranked.empty:
         return ranked
@@ -391,9 +767,20 @@ def _explore_section_force_closed_key(keep_open_key: str) -> str:
     return f"_{keep_open_key}_force_closed"
 
 
+def _explore_section_name(keep_open_key: str) -> str:
+    return {
+        "explore_teaching_resources_keep_open": "resources",
+        "explore_manage_students_keep_open": "features",
+        "explore_ai_tools_keep_open": "ai_tools",
+    }.get(str(keep_open_key or "").strip(), str(keep_open_key or "").strip())
+
+
 def _explore_section_is_open(keep_open_key: str, state_keys: list[str] | None = None) -> bool:
     if st.session_state.get(_explore_section_force_closed_key(keep_open_key)):
         return False
+    active_section = str(st.session_state.get(_EXPLORE_ACTIVE_SECTION_KEY) or "").strip()
+    if active_section and active_section == _explore_section_name(keep_open_key):
+        return True
     return any(
         bool(st.session_state.get(key))
         for key in [keep_open_key, *(state_keys or [])]
@@ -402,16 +789,28 @@ def _explore_section_is_open(keep_open_key: str, state_keys: list[str] | None = 
 
 def _keep_explore_section_open(keep_open_key: str) -> None:
     st.session_state[keep_open_key] = True
+    st.session_state[_EXPLORE_ACTIVE_SECTION_KEY] = _explore_section_name(keep_open_key)
     st.session_state.pop(_explore_section_force_closed_key(keep_open_key), None)
 
 
 def _close_explore_section(keep_open_key: str) -> None:
     st.session_state[keep_open_key] = False
+    if str(st.session_state.get(_EXPLORE_ACTIVE_SECTION_KEY) or "").strip() == _explore_section_name(keep_open_key):
+        st.session_state[_EXPLORE_ACTIVE_SECTION_KEY] = ""
     st.session_state[_explore_section_force_closed_key(keep_open_key)] = True
 
 
 def _toggle_explore_section_open(keep_open_key: str, state_keys: list[str] | None = None) -> bool:
     if _explore_section_is_open(keep_open_key, state_keys):
+        _close_explore_section(keep_open_key)
+        return False
+    _keep_explore_section_open(keep_open_key)
+    return True
+
+
+def _toggle_explore_active_section(keep_open_key: str, state_keys: list[str] | None = None) -> bool:
+    is_open = _explore_section_is_open(keep_open_key, state_keys)
+    if is_open:
         _close_explore_section(keep_open_key)
         return False
     _keep_explore_section_open(keep_open_key)
@@ -581,7 +980,7 @@ def _render_explore_teaching_resources() -> bool:
         accent=resource_kind_accent("program"),
         rgb=_resource_rgb("program"),
     ):
-        section_is_open = _toggle_explore_section_open(
+        section_is_open = _toggle_explore_active_section(
             "explore_teaching_resources_keep_open",
             [
                 "explore_public_learning_programs_selected_program_id",
@@ -595,14 +994,33 @@ def _render_explore_teaching_resources() -> bool:
             _queue_explore_scroll_toast()
         st.rerun()
 
-    with st.expander(f"📚 {t('teaching_resources')}", expanded=_explore_teaching_resource_is_open()):
+    if _explore_teaching_resource_is_open():
         return _render_explore_teaching_resources_body()
 
     return False
 
 
 def _render_explore_teaching_resources_body() -> bool:
+    _keep_explore_section_open("explore_teaching_resources_keep_open")
     _render_explore_demo_section(wrap=False)
+
+    public_programs = _prepare_searchable_resources(load_public_learning_programs(), kind="program")
+    public_plans = _prepare_searchable_resources(load_public_lesson_plans(), kind="plan")
+    public_ws = _prepare_searchable_resources(load_public_worksheets(), kind="worksheet")
+    public_exams = _prepare_searchable_resources(load_public_exams(), kind="exam")
+    public_videos = _prepare_searchable_resources(load_public_videos(), kind="video")
+
+    shared_query, shared_subject_filter, shared_stage_filter, shared_level_filter = _render_explore_shared_resource_filters(
+        [public_programs, public_plans, public_ws, public_exams, public_videos]
+    )
+    has_active_resource_filters = any(
+        [
+            bool(shared_query),
+            shared_subject_filter != t("all"),
+            shared_stage_filter != t("all"),
+            shared_level_filter != t("all"),
+        ]
+    )
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         f"📚 {t('community_learning_programs')}",
@@ -613,110 +1031,63 @@ def _render_explore_teaching_resources_body() -> bool:
     ])
 
     with tab1:
-        public_programs = load_public_learning_programs()
-
         if public_programs.empty:
             st.info(t("community_library_empty"))
         else:
-            program_q = st.text_input(
-                t("explore_resource_search"),
-                key="explore_public_programs_q",
-                placeholder=t("explore_resource_search_placeholder"),
-            ).strip()
-
-            searchable_programs = _prepare_searchable_resources(public_programs, kind="program")
-            if program_q:
-                filtered_programs = _rank_search(
-                    searchable_programs,
-                    program_q,
-                    weights={
-                        "title": 5,
-                        "program_overview": 4,
-                        "_search_subject": 3,
-                        "_search_stage": 2,
-                        "_search_level": 2,
-                        "_search_overview": 2,
-                    },
-                )
-            else:
-                filtered_programs = searchable_programs.copy()
-
-            if "created_at" in filtered_programs.columns:
-                filtered_programs = filtered_programs.sort_values("created_at", ascending=False)
-
-            filtered_programs = filtered_programs.drop(
-                columns=[c for c in filtered_programs.columns if c.startswith("_search")],
-                errors="ignore",
+            filtered_programs = _apply_explore_shared_filters(
+                public_programs,
+                query=shared_query,
+                subject_filter=shared_subject_filter,
+                stage_filter=shared_stage_filter,
+                level_filter=shared_level_filter,
+                weights=get_shared_resource_search_weights("program", prepared=True),
             )
 
-            programs_to_show = filtered_programs if program_q else filtered_programs.head(6)
+            programs_to_show = filtered_programs if has_active_resource_filters else filtered_programs.head(_EXPLORE_RESOURCE_PAGE_SIZE)
 
             if programs_to_show.empty:
                 st.info(t("be_the_first_to_share"))
             else:
-                if program_q:
-                    st.caption(f"{len(programs_to_show)} {t('community_learning_programs').lower()}")
+                if has_active_resource_filters:
+                    st.caption(f"{len(filtered_programs)} {t('community_learning_programs').lower()}")
+                    programs_to_show, *_ = _slice_explore_resource_page(filtered_programs, "explore_programs_page")
                 else:
-                    st.caption(t("explore_latest_resources_note").format(count=6))
+                    st.caption(t("explore_latest_resources_note").format(count=_EXPLORE_RESOURCE_PAGE_SIZE))
                 render_learning_program_library_cards(
                     programs_to_show,
                     prefix="explore_public_learning_programs",
                     show_author=True,
                     require_signup=True,
                 )
+                if has_active_resource_filters:
+                    _render_explore_resource_pagination(filtered_programs, "explore_programs_page")
 
     # ---------------------------
     # LESSON PLANS
     # ---------------------------
     with tab2:
-        public_plans = load_public_lesson_plans()
-
         if public_plans.empty:
             st.info(t("community_library_empty"))
         else:
-            plan_q = st.text_input(
-                t("explore_resource_search"),
-                key="explore_public_plans_q",
-                placeholder=t("explore_resource_search_placeholder"),
-            ).strip()
-
-            searchable_plans = _prepare_searchable_resources(public_plans, kind="plan")
-
-            if plan_q:
-                filtered_plans = _rank_search(
-                    searchable_plans,
-                    plan_q,
-                    weights={
-                        "title": 5,
-                        "topic": 4,
-                        "_search_subject": 3,
-                        "_search_type": 3,
-                        "_search_stage": 2,
-                        "_search_level": 2,
-                        "author_name": 1,
-                    },
-                )
-            else:
-                filtered_plans = searchable_plans.copy()
-
-            if "created_at" in filtered_plans.columns:
-                filtered_plans = filtered_plans.sort_values("created_at", ascending=False)
-
-            # clean temporary search columns
-            filtered_plans = filtered_plans.drop(
-                columns=[c for c in filtered_plans.columns if c.startswith("_search")],
-                errors="ignore"
+            filtered_plans = _apply_explore_shared_filters(
+                public_plans,
+                query=shared_query,
+                subject_filter=shared_subject_filter,
+                stage_filter=shared_stage_filter,
+                level_filter=shared_level_filter,
+                weights=get_shared_resource_search_weights("plan", prepared=True),
             )
-            
-            plans_to_show = filtered_plans if plan_q else filtered_plans.head(6)
+
+            plans_to_show = filtered_plans if has_active_resource_filters else filtered_plans.head(_EXPLORE_RESOURCE_PAGE_SIZE)
 
             if plans_to_show.empty:
                 st.info(t("be_the_first_to_share"))
             else:
-                if plan_q:
-                    st.caption(f"{len(plans_to_show)} {t('community_plans').lower()}")
+                if has_active_resource_filters:
+                    st.caption(f"{len(filtered_plans)} {t('community_plans').lower()}")
+                    plans_to_show, *_ = _slice_explore_resource_page(filtered_plans, "explore_plans_page")
                 else:
-                    st.caption(t("explore_latest_resources_note").format(count=6))
+                    st.caption(t("explore_latest_resources_note").format(count=_EXPLORE_RESOURCE_PAGE_SIZE))
 
                 render_plan_library_cards(
                     plans_to_show,
@@ -725,59 +1096,35 @@ def _render_explore_teaching_resources_body() -> bool:
                     open_in_files=False,
                     require_signup=True,
                 )
+                if has_active_resource_filters:
+                    _render_explore_resource_pagination(filtered_plans, "explore_plans_page")
 
     # ---------------------------
     # WORKSHEETS
     # ---------------------------
     with tab3:
-        public_ws = load_public_worksheets()
-
         if public_ws.empty:
             st.info(t("community_library_empty"))
         else:
-            ws_q = st.text_input(
-                t("explore_resource_search"),
-                key="explore_public_ws_q",
-                placeholder=t("explore_resource_search_placeholder"),
-            ).strip()
-
-            searchable_ws = _prepare_searchable_resources(public_ws, kind="worksheet")
-
-            if ws_q:
-                filtered_ws = _rank_search(
-                    searchable_ws,
-                    ws_q,
-                    weights={
-                        "title": 5,
-                        "topic": 4,
-                        "_search_subject": 3,
-                        "_search_type": 3,
-                        "_search_stage": 2,
-                        "_search_level": 2,
-                        "author_name": 1,
-                    },
-                )
-            else:
-                filtered_ws = searchable_ws.copy()
-
-            if "created_at" in filtered_ws.columns:
-                filtered_ws = filtered_ws.sort_values("created_at", ascending=False)
-
-            # clean temporary search columns
-            filtered_ws = filtered_ws.drop(
-                columns=[c for c in filtered_ws.columns if c.startswith("_search")],
-                errors="ignore"
+            filtered_ws = _apply_explore_shared_filters(
+                public_ws,
+                query=shared_query,
+                subject_filter=shared_subject_filter,
+                stage_filter=shared_stage_filter,
+                level_filter=shared_level_filter,
+                weights=get_shared_resource_search_weights("worksheet", prepared=True),
             )
-            
-            ws_to_show = filtered_ws if ws_q else filtered_ws.head(6)
+
+            ws_to_show = filtered_ws if has_active_resource_filters else filtered_ws.head(_EXPLORE_RESOURCE_PAGE_SIZE)
 
             if ws_to_show.empty:
                 st.info(t("be_the_first_to_share"))
             else:
-                if ws_q:
-                    st.caption(f"{len(ws_to_show)} {t('community_worksheets').lower()}")
+                if has_active_resource_filters:
+                    st.caption(f"{len(filtered_ws)} {t('community_worksheets').lower()}")
+                    ws_to_show, *_ = _slice_explore_resource_page(filtered_ws, "explore_worksheets_page")
                 else:
-                    st.caption(t("explore_latest_resources_note").format(count=6))
+                    st.caption(t("explore_latest_resources_note").format(count=_EXPLORE_RESOURCE_PAGE_SIZE))
 
                 render_worksheet_library_cards(
                     ws_to_show,
@@ -786,54 +1133,32 @@ def _render_explore_teaching_resources_body() -> bool:
                     open_in_files=False,
                     require_signup=True,
                 )
+                if has_active_resource_filters:
+                    _render_explore_resource_pagination(filtered_ws, "explore_worksheets_page")
 
     with tab4:
-        public_exams = load_public_exams()
-
         if public_exams.empty:
             st.info(t("community_library_empty"))
         else:
-            exam_q = st.text_input(
-                t("explore_resource_search"),
-                key="explore_public_exam_q",
-                placeholder=t("explore_resource_search_placeholder"),
-            ).strip()
-
-            searchable_exams = _prepare_searchable_resources(public_exams, kind="exam")
-            if exam_q:
-                filtered_exams = _rank_search(
-                    searchable_exams,
-                    exam_q,
-                    weights={
-                        "title": 5,
-                        "topic": 4,
-                        "_search_subject": 3,
-                        "_search_type": 3,
-                        "_search_stage": 2,
-                        "_search_level": 2,
-                        "author_name": 1,
-                    },
-                )
-            else:
-                filtered_exams = searchable_exams.copy()
-
-            if "created_at" in filtered_exams.columns:
-                filtered_exams = filtered_exams.sort_values("created_at", ascending=False)
-
-            filtered_exams = filtered_exams.drop(
-                columns=[c for c in filtered_exams.columns if c.startswith("_search")],
-                errors="ignore",
+            filtered_exams = _apply_explore_shared_filters(
+                public_exams,
+                query=shared_query,
+                subject_filter=shared_subject_filter,
+                stage_filter=shared_stage_filter,
+                level_filter=shared_level_filter,
+                weights=get_shared_resource_search_weights("exam", prepared=True),
             )
 
-            exams_to_show = filtered_exams if exam_q else filtered_exams.head(6)
+            exams_to_show = filtered_exams if has_active_resource_filters else filtered_exams.head(_EXPLORE_RESOURCE_PAGE_SIZE)
 
             if exams_to_show.empty:
                 st.info(t("be_the_first_to_share"))
             else:
-                if exam_q:
-                    st.caption(f"{len(exams_to_show)} {t('community_exams').lower()}")
+                if has_active_resource_filters:
+                    st.caption(f"{len(filtered_exams)} {t('community_exams').lower()}")
+                    exams_to_show, *_ = _slice_explore_resource_page(filtered_exams, "explore_exams_page")
                 else:
-                    st.caption(t("explore_latest_resources_note").format(count=6))
+                    st.caption(t("explore_latest_resources_note").format(count=_EXPLORE_RESOURCE_PAGE_SIZE))
                 render_exam_library_cards(
                     exams_to_show,
                     prefix="explore_public_exams",
@@ -841,54 +1166,32 @@ def _render_explore_teaching_resources_body() -> bool:
                     open_in_files=False,
                     require_signup=True,
                 )
+                if has_active_resource_filters:
+                    _render_explore_resource_pagination(filtered_exams, "explore_exams_page")
 
     with tab5:
-        public_videos = load_public_videos()
-
         if public_videos.empty:
             st.info(t("community_library_empty"))
         else:
-            video_q = st.text_input(
-                t("explore_resource_search"),
-                key="explore_public_video_q",
-                placeholder=t("explore_resource_search_placeholder"),
-            ).strip()
-
-            searchable_videos = _prepare_searchable_resources(public_videos, kind="video")
-            if video_q:
-                filtered_videos = _rank_search(
-                    searchable_videos,
-                    video_q,
-                    weights={
-                        "title": 5,
-                        "topic": 4,
-                        "description": 3,
-                        "_search_subject": 3,
-                        "_search_stage": 2,
-                        "_search_level": 2,
-                        "author_name": 1,
-                    },
-                )
-            else:
-                filtered_videos = searchable_videos.copy()
-
-            if "created_at" in filtered_videos.columns:
-                filtered_videos = filtered_videos.sort_values("created_at", ascending=False)
-
-            filtered_videos = filtered_videos.drop(
-                columns=[c for c in filtered_videos.columns if c.startswith("_search")],
-                errors="ignore",
+            filtered_videos = _apply_explore_shared_filters(
+                public_videos,
+                query=shared_query,
+                subject_filter=shared_subject_filter,
+                stage_filter=shared_stage_filter,
+                level_filter=shared_level_filter,
+                weights=get_shared_resource_search_weights("video", prepared=True),
             )
 
-            videos_to_show = filtered_videos if video_q else filtered_videos.head(6)
+            videos_to_show = filtered_videos if has_active_resource_filters else filtered_videos.head(_EXPLORE_RESOURCE_PAGE_SIZE)
 
             if videos_to_show.empty:
                 st.info(t("be_the_first_to_share"))
             else:
-                if video_q:
-                    st.caption(f"{len(videos_to_show)} {t('community_videos').lower()}")
+                if has_active_resource_filters:
+                    st.caption(f"{len(filtered_videos)} {t('community_videos').lower()}")
+                    videos_to_show, *_ = _slice_explore_resource_page(filtered_videos, "explore_videos_page")
                 else:
-                    st.caption(t("explore_latest_resources_note").format(count=6))
+                    st.caption(t("explore_latest_resources_note").format(count=_EXPLORE_RESOURCE_PAGE_SIZE))
                 render_video_library_cards(
                     videos_to_show,
                     prefix="explore_public_videos",
@@ -896,6 +1199,8 @@ def _render_explore_teaching_resources_body() -> bool:
                     open_in_files=False,
                     require_signup=True,
                 )
+                if has_active_resource_filters:
+                    _render_explore_resource_pagination(filtered_videos, "explore_videos_page")
 
     selected_program_id = st.session_state.get("explore_public_learning_programs_selected_program_id")
     if selected_program_id:
@@ -1359,15 +1664,15 @@ def _render_feature_showcase() -> bool:
         emoji="👥",
         title=t("explore_features_title"),
         subtitle=t("explore_features_subtitle"),
-        accent="#059669",
-        rgb="5,150,105",
+        accent="#B45309",
+        rgb="180,83,9",
     ):
-        section_is_open = _toggle_explore_section_open("explore_manage_students_keep_open")
+        section_is_open = _toggle_explore_active_section("explore_manage_students_keep_open")
         if section_is_open:
             _queue_explore_scroll_toast()
         st.rerun()
 
-    with st.expander(f"👥 {t('explore_features_title')}", expanded=_explore_section_is_open("explore_manage_students_keep_open")):
+    if _explore_section_is_open("explore_manage_students_keep_open"):
         return _render_feature_cards()
 
     return False
@@ -1879,10 +2184,10 @@ def _render_explore_ai_tools() -> None:
         emoji="🧰",
         title=t("explore_ai_tools_title"),
         subtitle=t("explore_ai_tools_subtitle"),
-        accent=resource_kind_accent("program"),
-        rgb=_resource_rgb("program"),
+        accent="#0F766E",
+        rgb="15,118,110",
     ):
-        section_is_open = _toggle_explore_section_open(
+        section_is_open = _toggle_explore_active_section(
             "explore_ai_tools_keep_open",
             ["explore_ai_tool_selected"],
         )
@@ -1937,10 +2242,7 @@ def _render_explore_ai_tools() -> None:
         },
     ]
 
-    with st.expander(
-        f"🧰 {t('explore_ai_tools_title')}",
-        expanded=_explore_section_is_open("explore_ai_tools_keep_open"),
-    ):
+    if _explore_section_is_open("explore_ai_tools_keep_open"):
         cols = st.columns(4, gap="medium")
         for col, card in zip(cols, cards):
             with col:

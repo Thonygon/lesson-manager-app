@@ -1905,11 +1905,12 @@ def save_resource_affinity_human_review_recommendation(
         "human_reviewed_at": _utc_now_iso(),
         "human_reviewed_by": str(get_current_user_id() or "") or None,
         "operational_use": "PRODUCTION_RUNTIME" if activate_for_runtime else "REVIEWED_NOT_ACTIVE",
-        "is_current_validated_run": True if activate_for_runtime else bool(run_row.get("is_current_validated_run")),
+        "is_current_validated_run": bool(run_row.get("is_current_validated_run")) if not activate_for_runtime else False,
     }
-    _update_run_row(safe_run_id, payload)
     if activate_for_runtime:
         _deactivate_other_runtime_governance(safe_run_id, RESOURCE_AFFINITY_EXPERIMENT_ID)
+    _update_run_row(safe_run_id, payload)
+    if activate_for_runtime:
         _promote_current_validated_run(safe_run_id, RESOURCE_AFFINITY_EXPERIMENT_ID)
         _update_run_row(
             safe_run_id,

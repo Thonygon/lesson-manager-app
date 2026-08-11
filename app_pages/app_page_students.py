@@ -2098,14 +2098,6 @@ def _render_recommended_resources_for_item(
                         if st.button(t("recommended_resource_assign"), key=f"{button_key}_assign", use_container_width=True):
                             _open_recommended_resource(resource, item, assign=True)
             _render_teacher_pagination(resources, state_key, page_size=_RECOMMENDED_RESOURCE_PAGE_SIZE)
-        from helpers.teacher_student_integration import render_resource_bulk_assign_dialog
-
-        for kind in ("worksheet", "exam", "plan", "video"):
-            render_resource_bulk_assign_dialog(kind_filter=kind)
-        render_learning_program_assign_dialog()
-        render_recommended_resource_preview_dialog()
-
-
 def _render_recommendations_tab(
     progress_rows: list[dict],
     program_rows: list[dict],
@@ -2994,6 +2986,30 @@ def render_students():
             else:
                 hist_student = st.selectbox(t("select_student"), students, key="students_history_student")
                 lessons_df, payments_df = show_student_history(hist_student)
+                _dash = rebuild_dashboard()
+                _pkg_df = _dash[_dash["Student"] == hist_student].copy() if not _dash.empty else pd.DataFrame()
+
+                package_display_cols = [
+                    "Subject",
+                    "Modality",
+                    "Lessons_Paid_Total",
+                    "Lessons_Taken_Units",
+                    "Lessons_Left_Units",
+                    "Payment_Date",
+                    "Package_Start_Date",
+                    "Package_Expiry_Date",
+                ]
+                if not _pkg_df.empty:
+                    for col in package_display_cols:
+                        if col not in _pkg_df.columns:
+                            _pkg_df[col] = ""
+                    package_df = _pkg_df[package_display_cols].copy()
+                    if "Modality" in package_df.columns:
+                        from helpers.language import translate_modality_value
+
+                        package_df["Modality"] = package_df["Modality"].apply(translate_modality_value)
+                    st.markdown(f"### {t('current_package_balance')}")
+                    render_styled_dataframe(translate_df_headers(package_df))
 
                 colA, colB = st.columns(2)
                 with colA:
@@ -3004,9 +3020,6 @@ def render_students():
                     render_styled_dataframe(translate_df_headers(payments_df))
 
                 st.markdown(f"#### {t('report_actions')}")
-
-                _dash = rebuild_dashboard()
-                _pkg_df = _dash[_dash["Student"] == hist_student].copy() if not _dash.empty else pd.DataFrame()
 
                 pdf_bytes = build_student_report_pdf(hist_student, lessons_df, payments_df, _pkg_df)
                 safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", hist_student.strip()) or "student"
@@ -3497,5 +3510,12 @@ def render_students():
                         status_filter=review_status,
                         render_title=False,
                     )
+
+                from helpers.teacher_student_integration import render_resource_bulk_assign_dialog
+
+                for kind in ("worksheet", "exam", "plan", "video"):
+                    render_resource_bulk_assign_dialog(kind_filter=kind)
+                render_learning_program_assign_dialog()
+                render_recommended_resource_preview_dialog()
 
 # =========================

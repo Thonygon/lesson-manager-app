@@ -236,6 +236,7 @@ def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
                 "title": title,
                 "instructions": instructions,
                 "visual_support": visual_support,
+                "vocabulary_bank": list(ws.get("vocabulary_bank") or []),
                 "questions": questions,
                 "answers": answers,
             })
@@ -1301,6 +1302,11 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
         ex_title   = exercise.get("title", "")
         ex_instr   = exercise.get("instructions", "")
         source_txt = exercise.get("source_text", "")
+        vocabulary_bank = [
+            str(item or "").strip()
+            for item in (exercise.get("vocabulary_bank") or [])
+            if str(item or "").strip()
+        ]
         questions  = exercise.get("questions") or []
         correct_answers = exercise.get("answers") or []
 
@@ -1313,6 +1319,7 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
         if source_txt:
             with st.expander("📖 " + t("reading_passage"), expanded=True):
                 st.write(source_txt)
+        _render_practice_vocabulary_bank(vocabulary_bank)
 
         # For matching: build a shuffled list of right-side options (stable per session)
         extra = {}
@@ -1530,6 +1537,14 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
         }
 
     return None
+
+
+def _render_practice_vocabulary_bank(vocabulary_bank: list[str] | None) -> None:
+    words = [str(item or "").strip() for item in (vocabulary_bank or []) if str(item or "").strip()]
+    if not words:
+        return
+    st.markdown(f"**{t('ws_vocabulary_bank')}**")
+    st.write(", ".join(words))
 
 
 def _render_single_question(

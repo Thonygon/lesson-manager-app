@@ -40,8 +40,13 @@ class _TableCall:
         self.rows = rows
         self.filters = []
         self.row_limit = None
+        self.update_payload = None
 
     def select(self, columns, **kwargs):
+        return self
+
+    def update(self, payload):
+        self.update_payload = dict(payload or {})
         return self
 
     def eq(self, key, value):
@@ -53,11 +58,15 @@ class _TableCall:
         return self
 
     def execute(self):
-        rows = [
-            dict(row)
+        matched_rows = [
+            row
             for row in self.rows
             if all(row.get(key) == value for key, value in self.filters)
         ]
+        if self.update_payload is not None:
+            for row in matched_rows:
+                row.update(self.update_payload)
+        rows = [dict(row) for row in matched_rows]
         if self.row_limit is not None:
             rows = rows[: self.row_limit]
         return SimpleNamespace(data=rows)
@@ -132,6 +141,7 @@ class OperationalDiagnosticsTests(unittest.TestCase):
 
         with (
             patch.object(diagnostics, "get_sb", return_value=fake_sb),
+            patch.object(diagnostics, "get_current_user_id", return_value="student-1"),
             patch.object(diagnostics, "get_current_user_role", return_value="student"),
             patch.dict(os.environ, {"CLASSIO_DIAGNOSTICS_ENABLED": "true", "CLASSIO_RELEASE": "release-1"}),
         ):
@@ -183,7 +193,10 @@ class OperationalDiagnosticsTests(unittest.TestCase):
         fake_sb = _FakeSupabase()
         exc = _raised_error()
 
-        with patch.object(diagnostics, "get_sb", return_value=fake_sb):
+        with (
+            patch.object(diagnostics, "get_sb", return_value=fake_sb),
+            patch.object(diagnostics, "get_current_user_id", return_value="student-1"),
+        ):
             first = diagnostics.capture_exception(exc, component="router", operation="render_page")
             second = diagnostics.capture_exception(exc, component="router", operation="render_page")
 
@@ -196,15 +209,15 @@ class OperationalDiagnosticsTests(unittest.TestCase):
         self.assertEqual("ERR-1D170D96", reference)
         self.assertNotIn("6c61", reference)
 
-    def test_status_updates_use_the_restricted_rpc_and_are_audited(self):
+    def test_status_updates_use_the_restricted_update_and_are_audited(self):
         event_id = "1d170d96-6c61-4498-a81a-b2c8bd2ca560"
         fake_sb = _FakeSupabase(
-            rpc_data=True,
             table_rows=[{"event_id": event_id, "status": "open", "resolution_note": None}],
         )
 
         with (
             patch.object(diagnostics, "get_sb", return_value=fake_sb),
+            patch.object(diagnostics, "get_current_user_id", return_value="developer-1"),
             patch.object(diagnostics, "require_capability") as require_capability,
             patch.object(diagnostics, "record_privileged_action", return_value=True) as record_action,
         ):
@@ -216,8 +229,8 @@ class OperationalDiagnosticsTests(unittest.TestCase):
 
         self.assertTrue(ok)
         require_capability.assert_called_once_with(diagnostics.CAPABILITY_MANAGE_OPERATIONAL_DIAGNOSTICS)
-        self.assertEqual("update_application_diagnostic_status", fake_sb.calls[0][0])
-        self.assertEqual("resolved", fake_sb.calls[0][1]["p_status"])
+        self.assertEqual("resolved", fake_sb.table_rows[0]["status"])
+        self.assertEqual("developer-1", fake_sb.table_rows[0]["resolved_by"])
         record_action.assert_called_once()
 
     def test_diagnostics_page_requires_server_side_workspace_access(self):

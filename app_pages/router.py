@@ -234,10 +234,14 @@ def render_top_nav(active_page: str):
     labels = [label for _, label, _ in primary_items]
     icons  = [icon for _, _, icon in primary_items]
 
+    stored_primary_index = int(st.session_state.get("top_nav_last_primary_index", 0) or 0)
+    if stored_primary_index < 0 or stored_primary_index >= len(keys):
+        stored_primary_index = 0
+
     try:
         default_index = keys.index(active_page)
     except ValueError:
-        default_index = 0
+        default_index = stored_primary_index
 
     st.markdown(
         """
@@ -363,19 +367,45 @@ def render_top_nav(active_page: str):
                     st.markdown("---")
 
     selected_key = active_page
-    for key, label, _ in primary_items:
+    selected_index = default_index
+    for idx, (key, label, _) in enumerate(primary_items):
         if label == selected_label:
             selected_key = key
+            selected_index = idx
             break
 
-    previous_key = st.session_state.get("top_nav_prev", active_page)
+    previous_primary_label = st.session_state.get("top_nav_primary_label")
+    if active_page in keys:
+        st.session_state["top_nav_last_primary_index"] = keys.index(active_page)
+        st.session_state["top_nav_prev"] = active_page
 
+    if previous_primary_label is None:
+        st.session_state["top_nav_primary_label"] = selected_label
+        return
+
+    if active_page not in keys:
+        if selected_label != previous_primary_label and selected_key != active_page:
+            st.session_state["top_nav_primary_label"] = selected_label
+            st.session_state["top_nav_last_primary_index"] = selected_index
+            st.session_state["top_nav_prev"] = selected_key
+            st.session_state["top_nav_more_open"] = False
+            go_to(selected_key)
+            st.rerun()
+        st.session_state["top_nav_prev"] = active_page
+        st.session_state["top_nav_primary_label"] = selected_label
+        return
+
+    previous_key = st.session_state.get("top_nav_prev", active_page)
     if selected_key != previous_key:
         st.session_state["top_nav_prev"] = selected_key
+        st.session_state["top_nav_primary_label"] = selected_label
+        st.session_state["top_nav_last_primary_index"] = selected_index
         if selected_key != active_page:
             st.session_state["top_nav_more_open"] = False
             go_to(selected_key)
             st.rerun()
+    else:
+        st.session_state["top_nav_primary_label"] = selected_label
 
 
 def render_student_top_nav(active_page: str):

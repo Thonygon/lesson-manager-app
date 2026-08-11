@@ -59,6 +59,7 @@ from helpers.resource_gallery import (
     resource_kind_label,
 )
 from helpers.video_library import load_public_videos, load_video_record
+from helpers.goal_explorer import get_shared_resource_search_weights
 from services.permissions_service import user_has_feature
 
 _STUDENT_PRACTICE_PAGE_SIZE = 6
@@ -845,10 +846,10 @@ def _render_browse_tab():
             return t("all_subjects")
         return _subject_label(x)
 
-    def _render_resource_controls(panel_key: str) -> tuple[str, str, str, str]:
+    def _render_resource_controls() -> tuple[str, str, str, str]:
         search_query = st.text_input(
             t("explore_resource_search"),
-            key=f"sp_resource_search_{panel_key}",
+            key="sp_resource_search_global",
             placeholder=t("explore_resource_search_placeholder"),
         ).strip().lower()
         st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
@@ -859,14 +860,14 @@ def _render_browse_tab():
                 t("filter_by_subject"),
                 options=_sp_options,
                 format_func=_format_subject,
-                key=f"sp_filter_subject_{panel_key}",
+                key="sp_filter_subject_global",
             )
 
         sp_other_subject_local = ""
         if sp_subject_local == "other":
             sp_other_subject_local = st.text_input(
                 t("other_subject_label"),
-                key=f"sp_other_subject_{panel_key}",
+                key="sp_other_subject_global",
             ).strip()
 
         if sp_subject_local in ("__all__", "other"):
@@ -885,7 +886,7 @@ def _render_browse_tab():
                 t("level_cefr"),
                 options=["__all__"] + _all_levels,
                 format_func=_format_level,
-                key=f"sp_filter_level_{panel_key}",
+                key="sp_filter_level_global",
             )
 
         _stage_options = ["__all__"] + LEARNER_STAGES
@@ -894,12 +895,24 @@ def _render_browse_tab():
                 t("learner_stage"),
                 options=_stage_options,
                 format_func=lambda x: t("all_stages") if x == "__all__" else t(x),
-                key=f"sp_filter_stage_{panel_key}",
+                key="sp_filter_stage_global",
             )
 
         effective_subject_local = sp_other_subject_local if sp_subject_local == "other" else sp_subject_local
         st.markdown("<div style='height:0.35rem;'></div>", unsafe_allow_html=True)
         return search_query, effective_subject_local, sp_level_local, sp_stage_local
+
+    def _render_search_empty(icon: str) -> None:
+        render_empty_state(
+            title_key="student_practice_search_empty_title",
+            body_key="student_practice_search_empty_body",
+            steps=[
+                "student_practice_search_empty_step_terms",
+                "student_practice_search_empty_step_filters",
+                "student_practice_search_empty_step_return",
+            ],
+            icon=icon,
+        )
 
     # ── Pre-load data ────────────────────────────────────────────
     from helpers.worksheet_storage import load_public_worksheets
@@ -926,11 +939,10 @@ def _render_browse_tab():
     ]
     if video_feature_enabled:
         practice_source_options.append(("videos", f"🎬 {_ui_text('videos_label', 'Videos')}"))
+    practice_search_query, _effective_subject, sp_level, sp_stage = _render_resource_controls()
     practice_source_tabs = st.tabs([label for _key, label in practice_source_options])
 
     with practice_source_tabs[0]:
-        practice_search_query, _effective_subject, sp_level, sp_stage = _render_resource_controls("ws")
-
         # Apply subject/level/stage filters
         if not pub_ws.empty and _effective_subject and _effective_subject != "__all__" and "subject" in pub_ws.columns:
             pub_ws = pub_ws[pub_ws["subject"].str.lower() == _effective_subject.lower()].reset_index(drop=True)
@@ -968,12 +980,14 @@ def _render_browse_tab():
             # Pre-filter worksheets once
             _ws_base = pub_ws.copy()
             if practice_search_query and not _ws_base.empty:
-                from helpers.goal_explorer import _rank_search
-                _ws_base = _rank_search(_ws_base, practice_search_query, weights={
-                    "title": 5, "topic": 4, "subject": 3,
-                    "worksheet_type": 3, "learner_stage": 2,
-                    "level_or_band": 2, "author_name": 1,
-                })
+                from helpers.goal_explorer import _prepare_searchable_resources, _rank_search
+
+                _ws_base = _prepare_searchable_resources(_ws_base, kind="worksheet")
+                _ws_base = _rank_search(
+                    _ws_base,
+                    practice_search_query,
+                    weights=get_shared_resource_search_weights("worksheet", prepared=True),
+                ).drop(columns=[c for c in _ws_base.columns if str(c).startswith("_search")], errors="ignore")
             else:
                 _ws_base = _ws_base.head(24)
 
@@ -982,7 +996,7 @@ def _render_browse_tab():
                 ws_search_rows = _ws_base.reset_index(drop=True).to_dict("records")
                 ws_search_page_rows, *_ = _slice_practice_page(ws_search_rows, "student_practice_ws_search_page")
                 if not ws_search_page_rows:
-                    st.info(t("no_data"))
+                    _render_search_empty("📋")
                 else:
                     for idx in range(0, len(ws_search_page_rows), 3):
                         pair = ws_search_page_rows[idx:idx + 3]
@@ -1004,68 +1018,65 @@ def _render_browse_tab():
                                     if _open_worksheet_practice_from_row(row):
                                         st.rerun()
                     _render_practice_pagination(ws_search_rows, "student_practice_ws_search_page")
-                return
-
-            # Expander-like behaviour:
-            # - No category open -> show all category cards in a 2-col grid
-            # - Category open -> show only that card + its worksheets below
-            if active_cat is not None:
-                # ── Expanded: show active category + worksheets ──
-                _active_info = next(
-                    (c for c in _CATEGORY_CARDS if c[0] == active_cat),
-                    _CATEGORY_CARDS[0],
-                )
-                cat_key, _emoji, label, _rgb = _active_info
-                if st.button(f"**{label}**", key=f"sp_cat_active_{cat_key}", use_container_width=True):
-                    st.session_state["sp_filter_ws_type"] = None
-                    st.rerun()
-
-                st.markdown("---")
-
-                # Show worksheets for this category
-                _ws_cat = _ws_base.copy()
-                if active_cat != "__all__" and not _ws_cat.empty and "worksheet_type" in _ws_cat.columns:
-                    _ws_cat = _ws_cat[_ws_cat["worksheet_type"] == active_cat].reset_index(drop=True)
-
-                if _ws_cat.empty:
-                    st.info(t("no_data"))
-                else:
-                    _ws_rows = _ws_cat.reset_index(drop=True).to_dict("records")
-                    _ws_page_rows, *_ = _slice_practice_page(_ws_rows, f"student_practice_ws_cat_{active_cat}")
-                    for idx in range(0, len(_ws_page_rows), 3):
-                        pair = _ws_page_rows[idx:idx + 3]
-                        _ws_cols = st.columns(3, gap="medium")
-                        for col_i, row in enumerate(pair):
-                            with _ws_cols[col_i]:
-                                _render_practice_card(
-                                    title=str(row.get("title") or t("untitled_worksheet")),
-                                    subject=str(row.get("subject") or ""),
-                                    topic=str(row.get("topic") or ""),
-                                    level=str(row.get("level_or_band") or ""),
-                                    ws_type=str(row.get("worksheet_type") or ""),
-                                    btn_key=f"sp_ws_{row.get('id', idx)}_{idx}_{col_i}",
-                                    color=resource_kind_accent("worksheet"),
-                                    row=row,
-                                    resource_type="worksheet",
-                                )
-                                if st.session_state.pop(f"_start_sp_ws_{row.get('id', idx)}_{idx}_{col_i}", False):
-                                    if _open_worksheet_practice_from_row(row):
-                                        st.rerun()
-                    _render_practice_pagination(_ws_rows, f"student_practice_ws_cat_{active_cat}")
             else:
-                # ── Collapsed: show all category cards in 3-col grid ─
-                for row_start in range(0, len(_CATEGORY_CARDS), 3):
-                    pair = _CATEGORY_CARDS[row_start:row_start + 3]
-                    _cat_cols = st.columns(3, gap="medium")
-                    for ci, (cat_key, _emoji, label, _rgb) in enumerate(pair):
-                        with _cat_cols[ci]:
-                            if st.button(f"**{label}**", key=f"sp_cat_{cat_key}", use_container_width=True):
-                                st.session_state["sp_filter_ws_type"] = cat_key
-                                st.rerun()
+                # Expander-like behaviour:
+                # - No category open -> show all category cards in a 2-col grid
+                # - Category open -> show only that card + its worksheets below
+                if active_cat is not None:
+                    # ── Expanded: show active category + worksheets ──
+                    _active_info = next(
+                        (c for c in _CATEGORY_CARDS if c[0] == active_cat),
+                        _CATEGORY_CARDS[0],
+                    )
+                    cat_key, _emoji, label, _rgb = _active_info
+                    if st.button(f"**{label}**", key=f"sp_cat_active_{cat_key}", use_container_width=True):
+                        st.session_state["sp_filter_ws_type"] = None
+                        st.rerun()
+
+                    st.markdown("---")
+
+                    # Show worksheets for this category
+                    _ws_cat = _ws_base.copy()
+                    if active_cat != "__all__" and not _ws_cat.empty and "worksheet_type" in _ws_cat.columns:
+                        _ws_cat = _ws_cat[_ws_cat["worksheet_type"] == active_cat].reset_index(drop=True)
+
+                    if _ws_cat.empty:
+                        st.info(t("no_data"))
+                    else:
+                        _ws_rows = _ws_cat.reset_index(drop=True).to_dict("records")
+                        _ws_page_rows, *_ = _slice_practice_page(_ws_rows, f"student_practice_ws_cat_{active_cat}")
+                        for idx in range(0, len(_ws_page_rows), 3):
+                            pair = _ws_page_rows[idx:idx + 3]
+                            _ws_cols = st.columns(3, gap="medium")
+                            for col_i, row in enumerate(pair):
+                                with _ws_cols[col_i]:
+                                    _render_practice_card(
+                                        title=str(row.get("title") or t("untitled_worksheet")),
+                                        subject=str(row.get("subject") or ""),
+                                        topic=str(row.get("topic") or ""),
+                                        level=str(row.get("level_or_band") or ""),
+                                        ws_type=str(row.get("worksheet_type") or ""),
+                                        btn_key=f"sp_ws_{row.get('id', idx)}_{idx}_{col_i}",
+                                        color=resource_kind_accent("worksheet"),
+                                        row=row,
+                                        resource_type="worksheet",
+                                    )
+                                    if st.session_state.pop(f"_start_sp_ws_{row.get('id', idx)}_{idx}_{col_i}", False):
+                                        if _open_worksheet_practice_from_row(row):
+                                            st.rerun()
+                        _render_practice_pagination(_ws_rows, f"student_practice_ws_cat_{active_cat}")
+                else:
+                    # ── Collapsed: show all category cards in 3-col grid ─
+                    for row_start in range(0, len(_CATEGORY_CARDS), 3):
+                        pair = _CATEGORY_CARDS[row_start:row_start + 3]
+                        _cat_cols = st.columns(3, gap="medium")
+                        for ci, (cat_key, _emoji, label, _rgb) in enumerate(pair):
+                            with _cat_cols[ci]:
+                                if st.button(f"**{label}**", key=f"sp_cat_{cat_key}", use_container_width=True):
+                                    st.session_state["sp_filter_ws_type"] = cat_key
+                                    st.rerun()
 
     with practice_source_tabs[1]:
-        practice_search_query, _effective_subject, sp_level, sp_stage = _render_resource_controls("exam")
-
         # Apply subject/level/stage filters
         if not pub_ex.empty and _effective_subject and _effective_subject != "__all__" and "subject" in pub_ex.columns:
             pub_ex = pub_ex[pub_ex["subject"].str.lower() == _effective_subject.lower()].reset_index(drop=True)
@@ -1087,16 +1098,22 @@ def _render_browse_tab():
         else:
             filtered = pub_ex.copy()
             if practice_search_query:
-                from helpers.goal_explorer import _rank_search
-                filtered = _rank_search(filtered, practice_search_query, weights={
-                    "title": 5, "topic": 4, "subject": 3,
-                    "learner_stage": 2, "level": 2, "author_name": 1,
-                })
+                from helpers.goal_explorer import _prepare_searchable_resources, _rank_search
+
+                filtered = _prepare_searchable_resources(filtered, kind="exam")
+                filtered = _rank_search(
+                    filtered,
+                    practice_search_query,
+                    weights=get_shared_resource_search_weights("exam", prepared=True),
+                ).drop(columns=[c for c in filtered.columns if str(c).startswith("_search")], errors="ignore")
             else:
                 filtered = filtered.head(24)
 
             if filtered.empty:
-                st.info(t("no_data"))
+                if practice_search_query:
+                    _render_search_empty("📄")
+                else:
+                    st.info(t("no_data"))
             else:
                 rows = filtered.reset_index(drop=True).to_dict("records")
                 page_rows, *_ = _slice_practice_page(rows, "student_practice_exams_page")
@@ -1123,9 +1140,15 @@ def _render_browse_tab():
 
     if video_feature_enabled and len(practice_source_tabs) > 2:
         with practice_source_tabs[2]:
-            practice_search_query, _effective_subject, sp_level, sp_stage = _render_resource_controls("videos")
-
             filtered_videos = pub_videos.copy()
+            video_filters_active = any(
+                [
+                    bool(practice_search_query),
+                    bool(_effective_subject and _effective_subject != "__all__"),
+                    bool(sp_level != "__all__"),
+                    bool(sp_stage != "__all__"),
+                ]
+            )
             if not filtered_videos.empty and _effective_subject and _effective_subject != "__all__" and "subject" in filtered_videos.columns:
                 filtered_videos = filtered_videos[
                     filtered_videos["subject"].astype(str).str.lower() == _effective_subject.lower()
@@ -1151,22 +1174,25 @@ def _render_browse_tab():
                 )
             else:
                 if practice_search_query:
-                    from helpers.goal_explorer import _rank_search
+                    from helpers.goal_explorer import _prepare_searchable_resources, _rank_search
 
+                    filtered_videos = _prepare_searchable_resources(filtered_videos, kind="video")
                     filtered_videos = _rank_search(
                         filtered_videos,
                         practice_search_query,
-                        weights={
-                            "title": 5,
-                            "topic": 4,
-                            "subject": 3,
-                            "learner_stage": 2,
-                            "level_or_band": 2,
-                            "author_name": 1,
-                        },
-                    )
-                ranked_videos = rank_recommended_materials(videos_df=filtered_videos)
-                rows = [item.get("row") or {} for item in ranked_videos] if ranked_videos else filtered_videos.head(24).to_dict("records")
+                        weights=get_shared_resource_search_weights("video", prepared=True),
+                    ).drop(columns=[c for c in filtered_videos.columns if str(c).startswith("_search")], errors="ignore")
+                if filtered_videos.empty:
+                    if practice_search_query:
+                        _render_search_empty("🎬")
+                    else:
+                        st.info(t("no_data"))
+                    return
+                if video_filters_active:
+                    rows = filtered_videos.to_dict("records")
+                else:
+                    ranked_videos = rank_recommended_materials(videos_df=filtered_videos)
+                    rows = [item.get("row") or {} for item in ranked_videos] if ranked_videos else filtered_videos.head(24).to_dict("records")
                 page_rows, *_ = _slice_practice_page(rows, "student_practice_videos_page")
                 for idx in range(0, len(page_rows), 3):
                     trio = page_rows[idx:idx + 3]

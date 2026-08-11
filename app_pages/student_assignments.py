@@ -32,6 +32,30 @@ from helpers.worksheet_storage import load_worksheet_record
 _STUDENT_PAGE_SIZE = 6
 
 
+def _assignment_filter_state(row: dict) -> str:
+    assignment_type = str(row.get("assignment_type") or "").strip()
+    status = str(row.get("status") or "").strip()
+    attempts_value = int(row.get("attempt_count") or 0)
+
+    if assignment_type == "video":
+        return "done" if status in {"submitted", "graded", "completed"} or attempts_value > 0 else "not_started"
+
+    if assignment_type in {"worksheet", "exam"}:
+        if status in {"submitted", "graded", "completed", "cancelled"}:
+            return "done"
+        if status == "started" or bool(load_in_progress_practice_session(assignment_type, row.get("id"))):
+            return "in_progress"
+        return "not_started"
+
+    return "not_started"
+
+
+def _filter_assignment_rows(rows: list[dict], filter_key: str) -> list[dict]:
+    if filter_key == "all":
+        return list(rows or [])
+    return [row for row in rows or [] if _assignment_filter_state(row) == filter_key]
+
+
 def _assignment_action_label(row: dict, *, has_draft: bool = False) -> str:
     assignment_type = str(row.get("assignment_type") or "").strip()
     status = str(row.get("status") or "").strip()
@@ -963,18 +987,36 @@ def _render_assignment_rows(rows: list[dict], group_prefix: str) -> None:
     _render_student_pagination(rows, f"{group_prefix}_page")
 
 
-def _render_assignment_group(title: str, rows: list[dict], group_prefix: str) -> None:
+def _render_assignment_group(
+    title: str,
+    rows: list[dict],
+    group_prefix: str,
+    *,
+    filtered_empty: bool = False,
+) -> None:
     if not rows:
-        render_empty_state(
-            title_key="student_assignments_group_empty_title",
-            body_key="student_assignments_group_empty_body",
-            steps=[
-                "student_assignments_group_empty_step_teacher",
-                "student_assignments_group_empty_step_status",
-                "student_assignments_group_empty_step_practice",
-            ],
-            icon="🗂️",
-        )
+        if filtered_empty:
+            render_empty_state(
+                title_key="student_assignments_filtered_empty_title",
+                body_key="student_assignments_filtered_empty_body",
+                steps=[
+                    "student_assignments_filtered_empty_step_filter",
+                    "student_assignments_filtered_empty_step_other_tabs",
+                    "student_assignments_filtered_empty_step_return",
+                ],
+                icon="🔎",
+            )
+        else:
+            render_empty_state(
+                title_key="student_assignments_group_empty_title",
+                body_key="student_assignments_group_empty_body",
+                steps=[
+                    "student_assignments_group_empty_step_teacher",
+                    "student_assignments_group_empty_step_status",
+                    "student_assignments_group_empty_step_practice",
+                ],
+                icon="🗂️",
+            )
         return
 
     scope_groups = _assignment_scope_groups(rows)
@@ -1160,6 +1202,32 @@ def render_student_assignments() -> None:
     # Lesson-plan topics are informative study-plan items, not scored assignments.
     # They live in Smart Plan so students don't see duplicate topic lists here.
 
+    filter_options = {
+        "all": t("all"),
+        "not_started": t("student_assignments_filter_not_started"),
+        "in_progress": t("student_assignments_filter_continue"),
+        "done": _safe_ui_label("assignment_done", "Done"),
+    }
+    filter_col, _ = st.columns([1.2, 4], gap="medium")
+    with filter_col:
+        selected_filter_label = st.selectbox(
+            t("student_assignments_filter_label"),
+            list(filter_options.values()),
+            key="student_assignments_status_filter",
+        )
+    selected_filter = next(
+        (key for key, label in filter_options.items() if label == selected_filter_label),
+        "all",
+    )
+
+    original_worksheets = list(worksheets)
+    original_exams = list(exams)
+    original_videos = list(videos)
+
+    worksheets = _filter_assignment_rows(original_worksheets, selected_filter)
+    exams = _filter_assignment_rows(original_exams, selected_filter)
+    videos = _filter_assignment_rows(original_videos, selected_filter)
+
     tab_ws, tab_exams, tab_videos = st.tabs(
         [
             f"📋 {t('worksheet_assignments')}",
@@ -1169,8 +1237,23 @@ def render_student_assignments() -> None:
     )
 
     with tab_ws:
-        _render_assignment_group(t("worksheet_assignments"), worksheets, "student_assignments_ws")
+        _render_assignment_group(
+            t("worksheet_assignments"),
+            worksheets,
+            "student_assignments_ws",
+            filtered_empty=selected_filter != "all" and bool(original_worksheets) and not worksheets,
+        )
     with tab_exams:
-        _render_assignment_group(t("exam_assignments"), exams, "student_assignments_exam")
+        _render_assignment_group(
+            t("exam_assignments"),
+            exams,
+            "student_assignments_exam",
+            filtered_empty=selected_filter != "all" and bool(original_exams) and not exams,
+        )
     with tab_videos:
-        _render_assignment_group(t("video_assignments"), videos, "student_assignments_videos")
+        _render_assignment_group(
+            t("video_assignments"),
+            videos,
+            "student_assignments_videos",
+            filtered_empty=selected_filter != "all" and bool(original_videos) and not videos,
+        )

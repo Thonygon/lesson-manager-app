@@ -1,0 +1,28 @@
+{
+  "configuration_hash": "63dfa611df6cb713b0f87e4e",
+  "dataset_fingerprint": "306e640ebb98e767ca04bdc8",
+  "embedding_method": "tfidf_truncated_svd",
+  "explained_variance_ratio_sum": 0.5368084069189313,
+  "feature_count": 1600,
+  "feature_schema_version": "resource_affinity_unsupervised.v5",
+  "file_checksums": {
+    "normalizer": "0f9a9eb405bc8ca2f23c18311282b2836d542758781fa3e7b1a5aa43e9222b78",
+    "resource_keys": "a0bee165104f3487c31d08312d0962a9643d0095190252bc3fea838cedc44509",
+    "svd": "f086db882c6171859fe62c2537c3ff9493c5f6e4a5d90fcbb39d5b4e51ce9c58",
+    "vectorizer": "c03e32d6ad3f92415523b87d72afbd5e118bcb7979db52ee1c4554e1d66b7e21",
+    "vectors": "abae99c190524ce7a571f24ce148d832fe86a976ed8ecf0af2c703630eed5865"
+  },
+  "files": {
+    "normalizer": "reports/ml_architecture/resource_affinity_unsupervised/runs/56b9d5a5bcc1/resource_affinity_normalizer.pkl",
+    "resource_keys": "reports/ml_architecture/resource_affinity_unsupervised/runs/56b9d5a5bcc1/resource_affinity_ordered_resource_keys.json",
+    "svd": "reports/ml_architecture/resource_affinity_unsupervised/runs/56b9d5a5bcc1/resource_affinity_svd.pkl",
+    "vectorizer": "reports/ml_architecture/resource_affinity_unsupervised/runs/56b9d5a5bcc1/resource_affinity_vectorizer.pkl",
+    "vectors": "reports/ml_architecture/resource_affinity_unsupervised/runs/56b9d5a5bcc1/resource_affinity_vectors.npz"
+  },
+  "ngram_range": "1,2",
+  "ordered_resource_key_count": 600,
+  "resource_count": 600,
+  "run_id": "56b9d5a5bcc1",
+  "vector_dimensions": 64,
+  "vectorizer": "TfidfVectorizer"
+}

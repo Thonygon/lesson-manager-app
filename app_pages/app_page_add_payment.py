@@ -5,9 +5,9 @@ from datetime import datetime as _dt, timezone
 import pandas as pd
 from core.i18n import t
 from core.navigation import go_to, page_header
-from core.database import clear_cache_domains, get_sb, load_table_filtered, load_students, add_payment, recalculate_package_dates
+from core.database import clear_cache_domains, get_sb, load_table_filtered, load_students, recalculate_package_dates
 from helpers.language import LANG_EN, LANG_ES, LANG_BOTH, ALLOWED_LANGS, DEFAULT_PACKAGE_LANGS, pack_languages, allowed_lesson_language_from_package, translate_language_value
-from core.database import delete_row, update_payment_row, update_class_row
+from helpers.classes_payments import add_payment, delete_row, update_payment_row, update_class_row
 from helpers.pricing import render_pricing_editor
 from helpers.package_lang_lookups import latest_payment_languages_for_student
 from helpers.currency import CURRENCIES, CURRENCY_CODES, get_preferred_currency, currency_symbol, guess_currency_from_timezone
@@ -59,7 +59,33 @@ def normalize_subject_key_for_editor(value: str) -> str:
     return DB_TO_KEY_MAP.get(s, "")
 
 def _clean_subject_custom(text: str) -> str:
-    return " ".join(str(text or "").split()).strip()
+    if pd.isna(text):
+        return ""
+    return " ".join(str(text).split()).strip()
+
+
+def _safe_cell_str(value, default: str = "") -> str:
+    if pd.isna(value):
+        return default
+    return str(value).strip()
+
+
+def _safe_cell_int(value, default: int = 0) -> int:
+    if pd.isna(value):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_cell_float(value, default: float = 0.0) -> float:
+    if pd.isna(value):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 def render_add_payment():
     page_header(t("payment"))
@@ -367,9 +393,12 @@ def _render_add_payment_form():
                         ok_all = True
 
                         for _, r in edited.iterrows():
-                            pid = int(r["id"])
+                            pid = _safe_cell_int(r.get("id"), 0)
+                            if pid <= 0:
+                                ok_all = False
+                                continue
 
-                            subject_key = str(r.get("subject", "") or "").strip().lower()
+                            subject_key = _safe_cell_str(r.get("subject", "")).lower()
                             subject_custom = _clean_subject_custom(r.get("subject_custom", ""))
 
                             subject_db = SUBJECT_DB_MAP.get(subject_key) if subject_key else None
@@ -382,7 +411,7 @@ def _render_add_payment_form():
                             else:
                                 subject_custom = None
 
-                            modality_val = str(r.get("modality") or "Online").strip()
+                            modality_val = _safe_cell_str(r.get("modality"), "Online")
                             if modality_val not in ("Online", "Offline"):
                                 modality_val = "Online"
 
@@ -390,8 +419,8 @@ def _render_add_payment_form():
                                 "payment_date": pd.to_datetime(r["payment_date"]).date().isoformat()
                                 if pd.notna(r["payment_date"])
                                 else None,
-                                "number_of_lesson": int(r["number_of_lesson"]),
-                                "paid_amount": float(r["paid_amount"]),
+                                "number_of_lesson": _safe_cell_int(r.get("number_of_lesson"), 0),
+                                "paid_amount": _safe_cell_float(r.get("paid_amount"), 0.0),
                                 "modality": modality_val,
                                 "subject": subject_db,
                                 "subject_custom": subject_custom,
@@ -401,13 +430,13 @@ def _render_add_payment_form():
                                 "package_expiry_date": pd.to_datetime(r["package_expiry_date"]).date().isoformat()
                                 if pd.notna(r["package_expiry_date"])
                                 else None,
-                                "lesson_adjustment_units": int(r.get("lesson_adjustment_units", 0)),
+                                "lesson_adjustment_units": _safe_cell_int(r.get("lesson_adjustment_units", 0), 0),
                                 "package_normalized": bool(r.get("package_normalized", False)),
-                                "normalized_note": str(r.get("normalized_note", "") or "").strip(),
+                                "normalized_note": _safe_cell_str(r.get("normalized_note", "")),
                                 "normalized_at": _dt.now(timezone.utc).isoformat()
                                 if (
                                     bool(r.get("package_normalized", False))
-                                    or str(r.get("normalized_note", "") or "").strip()
+                                    or _safe_cell_str(r.get("normalized_note", ""))
                                 )
                                 else None,
                             }
@@ -444,6 +473,11 @@ def _render_add_payment_form():
                             except Exception:
                                 pass
 
+                        clear_cache_domains("payments", "classes", "dashboard", "notifications")
+                        try:
+                            recalculate_package_dates(student_p)
+                        except Exception:
+                            ok_all = False
                         clear_cache_domains("payments", "classes", "dashboard", "notifications")
                         if ok_all:
                             st.success(t("updated"))

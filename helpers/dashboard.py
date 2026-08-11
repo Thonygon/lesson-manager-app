@@ -298,8 +298,19 @@ def _rebuild_dashboard_from_frames(
     dash["Is_Active_6m"] = dash["Has_Recent_Lesson"] | dash["Has_Recent_Payment"]
 
     dash["Package_Expiry_Date"] = pd.to_datetime(dash["Package_Expiry_Date"], errors="coerce")
-    dash["Closed_By_Expiry"] = dash["Package_Expiry_Date"].notna() & (dash["Package_Expiry_Date"] <= today)
-    dash["Closed_By_Old_Payment"] = dash["Payment_Date_dt"].notna() & (dash["Payment_Date_dt"] <= expiry_cutoff)
+    dash["Closed_By_Expiry"] = (
+        dash["Package_Expiry_Date"].notna()
+        & (dash["Package_Expiry_Date"] <= today)
+        & (dash["Raw_Left_Units"] <= 0)
+    )
+    # Old payments are only treated as closed when there is no recent activity.
+    # Otherwise returning students can be incorrectly marked finished even when
+    # they still have units left in their current package.
+    dash["Closed_By_Old_Payment"] = (
+        dash["Payment_Date_dt"].notna()
+        & (dash["Payment_Date_dt"] <= expiry_cutoff)
+        & (~dash["Is_Active_6m"])
+    )
 
     dash["Is_Dropout"] = (~dash["Is_Active_6m"]) & (~dash["Closed_By_Expiry"])
     dash.loc[dash["Closed_By_Expiry"] | dash["Closed_By_Old_Payment"] | dash["Is_Dropout"], "Lessons_Left_Units"] = 0
