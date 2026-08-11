@@ -19,6 +19,7 @@ import textwrap
 from core.navigation import clear_open_resource_previews, clear_smart_tool_result_state, go_to
 import re
 import unicodedata
+import hashlib
 from xml.sax.saxutils import escape as xml_escape
 from styles.pdf_styles import (
     ensure_pdf_fonts_registered,
@@ -1427,6 +1428,11 @@ def render_worksheet_result(
     if not ws:
         return
 
+    def _scoped_expander_label(label: str, scope_key: str) -> str:
+        digest = hashlib.sha1(str(scope_key or "").encode("utf-8")).hexdigest()[:12]
+        invisible_scope = "".join(chr(0xFE00 + int(char, 16)) for char in digest)
+        return f"{label}{invisible_scope}"
+
     from helpers.worksheet_builder import normalize_worksheet_output
 
     subject = meta.get("subject", ws.get("subject", ""))
@@ -1592,28 +1598,46 @@ def render_worksheet_result(
             st.write(f"{idx}. {_strip_leading_number(_normalize_text(q))}")
 
     if ws.get("worksheet_type") == "word_search_vocab":
-        with st.expander(t("ws_answer_key"), expanded=False):
+        with st.expander(
+            _scoped_expander_label(t("ws_answer_key"), f"{action_key_prefix}_wordsearch_answer_key"),
+            expanded=False,
+        ):
             _render_wordsearch_answer_grid(wordsearch_grid, wordsearch_placements)
 
     elif ws.get("worksheet_type") == "matching":
-        with st.expander(t("ws_answer_key"), expanded=False):
+        with st.expander(
+            _scoped_expander_label(t("ws_answer_key"), f"{action_key_prefix}_matching_answer_key"),
+            expanded=False,
+        ):
             _render_matching_answer_key(ws)
 
     elif ws.get("worksheet_type") == "true_false":
-        with st.expander(t("ws_answer_key"), expanded=False):
+        with st.expander(
+            _scoped_expander_label(t("ws_answer_key"), f"{action_key_prefix}_true_false_answer_key"),
+            expanded=False,
+        ):
             _render_true_false_answer_key(ws)
 
     elif ws.get("worksheet_type") == "multiple_choice":
-        with st.expander(t("ws_answer_key"), expanded=False):
+        with st.expander(
+            _scoped_expander_label(t("ws_answer_key"), f"{action_key_prefix}_multiple_choice_answer_key"),
+            expanded=False,
+        ):
             _render_multiple_choice_answer_key(ws)
 
     elif ws.get("answer_key"):
-        with st.expander(t("ws_answer_key"), expanded=False):
+        with st.expander(
+            _scoped_expander_label(t("ws_answer_key"), f"{action_key_prefix}_answer_key"),
+            expanded=False,
+        ):
             for line in _split_answer_key(ws["answer_key"]):
                 st.write(_normalize_text(line))
 
     if ws.get("teacher_notes"):
-        with st.expander(t("ws_teacher_notes"), expanded=False):
+        with st.expander(
+            _scoped_expander_label(t("ws_teacher_notes"), f"{action_key_prefix}_teacher_notes"),
+            expanded=False,
+        ):
             for note in ws["teacher_notes"]:
                 st.write(f"- {_normalize_text(note)}")
 
@@ -1699,7 +1723,10 @@ def render_worksheet_result(
                 context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
             )
         if allow_assign:
-            with st.expander(t("assign_to_student"), expanded=assign_expanded):
+            with st.expander(
+                _scoped_expander_label(t("assign_to_student"), f"{action_key_prefix}_assign_to_student_readonly"),
+                expanded=assign_expanded,
+            ):
                 from helpers.teacher_student_integration import render_assignment_panel_for_worksheet
 
                 render_assignment_panel_for_worksheet(
@@ -1809,7 +1836,10 @@ def render_worksheet_result(
                 context={"subject": subject, "topic": topic, "learner_stage": learner_stage, "level_or_band": level_or_band},
             )
         if allow_assign:
-            with st.expander(t("assign_to_student"), expanded=assign_expanded):
+            with st.expander(
+                _scoped_expander_label(t("assign_to_student"), f"{action_key_prefix}_assign_to_student"),
+                expanded=assign_expanded,
+            ):
                 from helpers.teacher_student_integration import render_assignment_panel_for_worksheet
 
                 render_assignment_panel_for_worksheet(
@@ -1829,7 +1859,7 @@ def render_worksheet_result(
                 data=student_pdf,
                 file_name=f"{safe_title}_student.pdf",
                 mime="application/pdf",
-                key=f"dl_ws_stu_inline_{safe_title}",
+                key=f"{action_key_prefix}_dl_ws_stu_inline_{safe_title}",
                 use_container_width=True,
             )
         with dc2:
@@ -1838,7 +1868,7 @@ def render_worksheet_result(
                 data=teacher_pdf,
                 file_name=f"{safe_title}_teacher.pdf",
                 mime="application/pdf",
-                key=f"dl_ws_tch_inline_{safe_title}",
+                key=f"{action_key_prefix}_dl_ws_tch_inline_{safe_title}",
                 use_container_width=True,
             )
         dw1, dw2 = st.columns(2)
@@ -1848,7 +1878,7 @@ def render_worksheet_result(
                 data=student_docx,
                 file_name=f"{safe_title}_student.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key=f"dl_ws_stu_docx_inline_{safe_title}",
+                key=f"{action_key_prefix}_dl_ws_stu_docx_inline_{safe_title}",
                 use_container_width=True,
             )
         with dw2:
@@ -1857,13 +1887,13 @@ def render_worksheet_result(
                 data=teacher_docx,
                 file_name=f"{safe_title}_teacher.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key=f"dl_ws_tch_docx_inline_{safe_title}",
+                key=f"{action_key_prefix}_dl_ws_tch_docx_inline_{safe_title}",
                 use_container_width=True,
             )
         if show_clear_result:
             if st.button(
                 "🗑️ " + (t("clear_result") if t("clear_result") != "clear_result" else "Clear result"),
-                key="btn_clear_ws",
+                key=f"{action_key_prefix}_clear_ws",
                 use_container_width=True,
             ):
                 _wb().reset_worksheet_maker_state()

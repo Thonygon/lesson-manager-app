@@ -7,6 +7,7 @@ import re
 import threading
 import time
 import traceback
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 DIAGNOSTICS_TABLE = "application_diagnostic_events"
 DIAGNOSTICS_RPC = "record_application_diagnostic"
+DIAGNOSTICS_STATUS_RPC = "update_application_diagnostic_status"
 VALID_SEVERITIES = {"warning", "error", "critical"}
 VALID_STATUSES = {"open", "acknowledged", "resolved", "ignored"}
 SAFE_CONTEXT_KEYS = {
@@ -54,6 +56,10 @@ _UUID_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f
 
 def _clean_text(value: Any, *, limit: int) -> str:
     return " ".join(str(value or "").split()).strip()[:limit]
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def diagnostics_enabled() -> bool:
@@ -326,7 +332,7 @@ def update_diagnostic_status(event_id: str, *, status: str, resolution_note: str
     safe_event_id = _clean_text(event_id, limit=80)
     safe_status = _clean_text(status, limit=24).lower()
     if not safe_event_id or safe_status not in VALID_STATUSES:
-        return False, "Invalid diagnostic status update."
+        return False, "operational_diagnostics_invalid_status_update"
 
     existing = (
         get_sb()
@@ -337,30 +343,36 @@ def update_diagnostic_status(event_id: str, *, status: str, resolution_note: str
         .execute()
     ).data or []
     if not existing:
-        return False, "Diagnostic event was not found."
+        return False, "operational_diagnostics_event_not_found"
 
     safe_note = sanitize_text(resolution_note, limit=1000)
-    result = get_sb().rpc(
-        "update_application_diagnostic_status",
-        {
-            "p_event_id": safe_event_id,
-            "p_status": safe_status,
-            "p_resolution_note": safe_note,
-        },
-    ).execute()
-    if getattr(result, "data", None) is False:
-        return False, "Diagnostic event was not found."
+    current_row = dict(existing[0])
+    rpc_rows = (
+        get_sb()
+        .rpc(
+            DIAGNOSTICS_STATUS_RPC,
+            {
+                "p_event_id": safe_event_id,
+                "p_status": safe_status,
+                "p_resolution_note": safe_note or None,
+            },
+        )
+        .execute()
+    ).data or []
+    if rpc_rows and rpc_rows[0] is False:
+        return False, "operational_diagnostics_event_not_found"
+
     list_diagnostics.clear()
     count_active_critical_diagnostics.clear()
     record_privileged_action(
         action_type="operational_diagnostic_status_changed",
         entity_type="application_diagnostic_event",
         entity_id=safe_event_id,
-        before_json=dict(existing[0]),
+        before_json=current_row,
         after_json={"status": safe_status, "resolution_note": safe_note},
         reason=safe_note,
     )
-    return True, "Diagnostic status updated."
+    return True, "operational_diagnostics_update_success"
 
 
 def clear_diagnostics_cache() -> None:

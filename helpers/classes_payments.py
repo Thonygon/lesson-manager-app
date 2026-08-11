@@ -120,12 +120,26 @@ def update_student_profile(student: str, email: str, zoom_link: str, notes: str,
 def update_payment_row(payment_id: int, updates: dict, *, invalidate_cache: bool = True) -> bool:
     try:
         uid = get_current_user_id()
+        student_name = ""
+        try:
+            q0 = get_sb().table("payments").select("student").eq("id", int(payment_id))
+            if uid:
+                q0 = q0.eq("user_id", uid)
+            rows0 = getattr(q0.limit(1).execute(), "data", None) or []
+            if rows0:
+                student_name = str(rows0[0].get("student") or "").strip()
+        except Exception:
+            student_name = ""
+
         q = get_sb().table("payments").update(updates).eq("id", int(payment_id))
         if uid:
             q = q.eq("user_id", uid)
         q.execute()
         if invalidate_cache:
             _clear_operational_caches("payments")
+            if student_name:
+                recalculate_package_dates(student_name)
+                _clear_operational_caches("payments")
         return True
     except Exception:
         return False
@@ -134,12 +148,26 @@ def update_payment_row(payment_id: int, updates: dict, *, invalidate_cache: bool
 def update_class_row(class_id: int, updates: dict, *, invalidate_cache: bool = True) -> bool:
     try:
         uid = get_current_user_id()
+        student_name = ""
+        try:
+            q0 = get_sb().table("classes").select("student").eq("id", int(class_id))
+            if uid:
+                q0 = q0.eq("user_id", uid)
+            rows0 = getattr(q0.limit(1).execute(), "data", None) or []
+            if rows0:
+                student_name = str(rows0[0].get("student") or "").strip()
+        except Exception:
+            student_name = ""
+
         q = get_sb().table("classes").update(updates).eq("id", int(class_id))
         if uid:
             q = q.eq("user_id", uid)
         q.execute()
         if invalidate_cache:
-            _clear_operational_caches("classes")
+            _clear_operational_caches("classes", "payments")
+            if student_name:
+                recalculate_package_dates(student_name)
+                _clear_operational_caches("classes", "payments")
         return True
     except Exception:
         return False

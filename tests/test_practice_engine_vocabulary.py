@@ -1,5 +1,7 @@
 import unittest
+from unittest.mock import patch
 
+from helpers import practice_engine
 from helpers.practice_engine import _question_prompt_text, _strip_vocab_answer_leak
 
 
@@ -27,6 +29,29 @@ class PracticeEngineVocabularyTests(unittest.TestCase):
             options=["Antiguo", "Clasico", "Moderno", "Lento"],
         )
         self.assertEqual(visible, "It is something new.")
+
+    def test_worksheet_conversion_preserves_vocabulary_bank_for_fill_in_blank(self):
+        payload = practice_engine.worksheet_to_exercises(
+            {
+                "worksheet_type": "fill_in_the_blanks",
+                "title": "Daily routine",
+                "questions": ["I ___ breakfast at 7."],
+                "answer_key": "eat",
+                "vocabulary_bank": ["eat", "drink", "sleep"],
+            }
+        )
+
+        self.assertEqual(["eat", "drink", "sleep"], payload["exercises"][0]["vocabulary_bank"])
+
+    def test_render_practice_vocabulary_bank_shows_words_to_students(self):
+        with (
+            patch.object(practice_engine.st, "markdown") as markdown,
+            patch.object(practice_engine.st, "write") as write,
+        ):
+            practice_engine._render_practice_vocabulary_bank([" eat ", "", "drink"])
+
+        markdown.assert_called_once()
+        write.assert_called_once_with("eat, drink")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 # CLASSIO — Planner Storage (Full Replacement)
 # ============================================================
 import html
+import hashlib
 import math
 import os
 import re
@@ -1244,6 +1245,11 @@ def render_quick_lesson_plan_result(
     on_image_update=None,
     show_clear_result: bool = False,
 ) -> None:
+    def _scoped_expander_label(label: str, scope_key: str) -> str:
+        digest = hashlib.sha1(str(scope_key or "").encode("utf-8")).hexdigest()[:12]
+        invisible_scope = "".join(chr(0xFE00 + int(char, 16)) for char in digest)
+        return f"{label}{invisible_scope}"
+
     _inject_planner_result_css()
     plan = _clean_plan_data(plan)
 
@@ -1329,14 +1335,20 @@ def render_quick_lesson_plan_result(
             st.rerun()
 
     # Lesson Overview
-    with st.expander(f"📌 {t('lesson_overview')}", expanded=True):
+    with st.expander(
+        _scoped_expander_label(f"📌 {t('lesson_overview')}", f"{action_key_prefix}_lesson_overview"),
+        expanded=True,
+    ):
         _render_inline_box(t("lesson_objective"), plan.get("objective", ""))
         if _has_any_value(plan.get("success_criteria")):
             st.markdown(f"**{t('success_criteria')}**")
             _write_list(plan.get("success_criteria", []))
 
     # Lesson Flow
-    with st.expander(f"🧭 {t('lesson_flow')}", expanded=True):
+    with st.expander(
+        _scoped_expander_label(f"🧭 {t('lesson_flow')}", f"{action_key_prefix}_lesson_flow"),
+        expanded=True,
+    ):
         flow_sections = [
             (f"1. {t('warm_up')}", plan.get("warm_up", [])),
             (f"2. {t('main_activity')}", plan.get("main_activity", [])),
@@ -1359,7 +1371,10 @@ def render_quick_lesson_plan_result(
     ]
     teacher_blocks_present = [b for b in teacher_note_blocks if _has_any_value(b[1])]
     if teacher_blocks_present:
-        with st.expander(f"👩‍🏫 {t('teacher_notes')}", expanded=True):
+        with st.expander(
+            _scoped_expander_label(f"👩‍🏫 {t('teacher_notes')}", f"{action_key_prefix}_teacher_notes"),
+            expanded=True,
+        ):
             for label, value, style in teacher_blocks_present:
                 st.markdown(f"**{label}**")
                 if style == "list":
@@ -1370,7 +1385,10 @@ def render_quick_lesson_plan_result(
     # Teaching Materials — separate expander
     materials = [(key, value, style) for key, value, style in _material_groups(plan) if _has_any_value(value)]
     if materials:
-        with st.expander(f"📚 {t('lesson_materials')}", expanded=True):
+        with st.expander(
+            _scoped_expander_label(f"📚 {t('lesson_materials')}", f"{action_key_prefix}_lesson_materials"),
+            expanded=True,
+        ):
             for key, value, style in materials:
                 label = t(key)
                 if not label or label == key:
@@ -1454,7 +1472,10 @@ def render_quick_lesson_plan_result(
     def _render_plan_assignment() -> None:
         if not allow_assign:
             return
-        with st.expander(t("assign_to_student"), expanded=assign_expanded):
+        with st.expander(
+            _scoped_expander_label(t("assign_to_student"), f"{action_key_prefix}_assign_to_student"),
+            expanded=assign_expanded,
+        ):
             from helpers.teacher_student_integration import render_assignment_panel_for_lesson_plan
 
             render_assignment_panel_for_lesson_plan(
@@ -1520,7 +1541,7 @@ def render_quick_lesson_plan_result(
         return
 
     if resolved_mode == "template":
-        if st.button(t("save_template_plan"), key="btn_save_template_plan", use_container_width=True):
+        if st.button(t("save_template_plan"), key=f"{action_key_prefix}_save_template_plan", use_container_width=True):
             ok = save_lesson_plan_record(
                 subject=subject,
                 learner_stage=learner_stage,
@@ -1586,7 +1607,7 @@ def render_quick_lesson_plan_result(
     if show_clear_result and not read_only:
         if st.button(
             "🗑️ " + (t("clear_result") if t("clear_result") != "clear_result" else "Clear result"),
-            key="btn_close_quick_plan",
+            key=f"{action_key_prefix}_close_quick_plan",
             use_container_width=True,
         ):
             _lp().reset_quick_lesson_planner_state()

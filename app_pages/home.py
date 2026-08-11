@@ -11,7 +11,7 @@ from streamlit_option_menu import option_menu
 from auth.auth import render_choose_role_dialog, render_choose_username_dialog, render_logout_button, render_profile_dialog, sign_out_user
 from core.database import clear_app_caches, get_profile_avatar_url, load_community_profiles, load_profile_row, load_students, load_table, profile_can_teach
 from core.i18n import t
-from core.navigation import PAGES, clear_open_resource_previews, clear_smart_tool_result_state, go_to, home_go
+from core.navigation import PAGES, clear_open_resource_previews, clear_smart_tool_result_state, go_to, home_go, page_header
 from core.state import get_current_user_id
 from core.timezone import _get_qp
 from helpers.archive_utils import is_archived_status
@@ -25,7 +25,7 @@ from helpers.cv_storage import (
     render_quick_cv_builder_expander,
     update_professional_profile_archive,
 )
-from helpers.goal_explorer import _rank_search, render_income_goal_calculator
+from helpers.goal_explorer import _rank_search, get_shared_resource_search_weights, render_income_goal_calculator
 from helpers.empty_states import render_empty_state
 from helpers.learning_programs import (
     learning_program_is_complete,
@@ -79,56 +79,6 @@ _LEVEL_SEQUENCE_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
 _ACADEMIC_SEQUENCE_ORDER = ["beginner_band", "intermediate_band", "advanced_band"]
 _HOME_SMART_TOOL_DIALOG_VERSION = 1
 
-_RESOURCE_SEARCH_WEIGHTS = {
-    "program": {
-        "title": 6,
-        "program_overview": 4,
-        "custom_subject_name": 4,
-        "subject": 3,
-        "learner_stage": 2,
-        "level_or_band": 2,
-        "author_name": 1,
-    },
-    "plan": {
-        "title": 6,
-        "topic": 5,
-        "lesson_purpose": 4,
-        "subject": 3,
-        "learner_stage": 2,
-        "level_or_band": 2,
-        "source_type": 1,
-        "author_name": 1,
-    },
-    "worksheet": {
-        "title": 6,
-        "topic": 5,
-        "worksheet_type": 4,
-        "subject": 3,
-        "learner_stage": 2,
-        "level_or_band": 2,
-        "source_type": 1,
-        "author_name": 1,
-    },
-    "exam": {
-        "title": 6,
-        "topic": 5,
-        "subject": 3,
-        "learner_stage": 2,
-        "level": 2,
-        "exam_length": 2,
-        "author_name": 1,
-    },
-    "video": {
-        "title": 6,
-        "topic": 5,
-        "subject": 3,
-        "learner_stage": 2,
-        "level_or_band": 2,
-        "author_name": 1,
-    },
-}
-
-
 def _resource_filter_options(df, column: str, *, normalize=None) -> list[str]:
     if df is None or df.empty or column not in df.columns:
         return []
@@ -138,6 +88,63 @@ def _resource_filter_options(df, column: str, *, normalize=None) -> list[str]:
         if value:
             values.append(value)
     return sorted(set(values))
+
+
+def _merge_resource_filter_options(resource_frames: list, columns: list[str], *, normalize=None) -> list[str]:
+    values: list[str] = []
+    for frame in resource_frames:
+        if frame is None or getattr(frame, "empty", True):
+            continue
+        for column in columns:
+            if column not in frame.columns:
+                continue
+            for raw_value in frame[column].dropna().astype(str):
+                value = normalize(raw_value) if normalize else raw_value.strip()
+                if value:
+                    values.append(value)
+    return sorted(set(values))
+
+
+def _format_resource_level_option(value: str) -> str:
+    if value == t("all"):
+        return t("all")
+    return value if value in ("A1", "A2", "B1", "B2", "C1", "C2") else t(value)
+
+
+def _render_shared_resource_filters(state_prefix: str, resource_frames: list) -> tuple[str, str, str, str]:
+    search_query = st.text_input(
+        t("explore_resource_search"),
+        key=f"{state_prefix}_shared_query",
+        placeholder=t("explore_resource_search_placeholder"),
+    ).strip().lower()
+
+    filter_col1, filter_col2, filter_col3 = st.columns(3)
+    subject_options = _merge_resource_filter_options(resource_frames, ["subject"], normalize=_normalize_subject)
+    with filter_col1:
+        subject_filter = st.selectbox(
+            t("subject_label"),
+            [t("all")] + subject_options,
+            format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
+            key=f"{state_prefix}_shared_subject_filter",
+        )
+    with filter_col2:
+        stage_options = _merge_resource_filter_options(resource_frames, ["learner_stage"])
+        stage_filter = st.selectbox(
+            t("learner_stage"),
+            [t("all")] + stage_options,
+            format_func=lambda x: t(x) if x != t("all") else t("all"),
+            key=f"{state_prefix}_shared_stage_filter",
+        )
+    with filter_col3:
+        level_options = _merge_resource_filter_options(resource_frames, ["level_or_band", "level"])
+        level_filter = st.selectbox(
+            t("level_or_band"),
+            [t("all")] + level_options,
+            format_func=_format_resource_level_option,
+            key=f"{state_prefix}_shared_level_filter",
+        )
+
+    return search_query, subject_filter, stage_filter, level_filter
 
 
 def _video_program_candidates(subject_key: str, custom_subject_name: str = "") -> list[dict]:
@@ -196,14 +203,37 @@ def _apply_resource_filter(df, column: str, selected: str, *, normalize=None):
     return df[df[column].astype(str) == selected]
 
 
+def _apply_shared_resource_filters(
+    df,
+    *,
+    kind: str,
+    source: str,
+    query: str,
+    subject_filter: str,
+    stage_filter: str,
+    level_filter: str,
+):
+    if df is None or getattr(df, "empty", True):
+        return df
+    filtered = df.copy()
+    filtered = _apply_resource_filter(filtered, "subject", subject_filter, normalize=_normalize_subject)
+    filtered = _apply_resource_filter(filtered, "learner_stage", stage_filter)
+    level_column = "level" if kind == "exam" else "level_or_band"
+    filtered = _apply_resource_filter(filtered, level_column, level_filter)
+    return _rank_teacher_materials(filtered, kind, source, query=query)
+
+
 def _search_resources(df, query: str, kind: str):
     if df is None or df.empty:
         return df
     clean_query = str(query or "").strip()
     if not clean_query:
         return df.copy()
-    ranked = _rank_search(df, clean_query, _RESOURCE_SEARCH_WEIGHTS.get(kind, {}))
-    return ranked.drop(columns=["_score"], errors="ignore")
+    ranked = _rank_search(df, clean_query, get_shared_resource_search_weights(kind, prepared=False))
+    return ranked.drop(
+        columns=["_score", "_search_bucket", "_search_lexical", "_search_semantic", "_search_affinity"],
+        errors="ignore",
+    )
 
 
 def _rank_teacher_materials(df, kind: str, source: str, *, query: str = ""):
@@ -382,14 +412,18 @@ def queue_resources_tab_target(main_tab: str, *, nested_tab: str | None = None) 
 
 
 def queue_home_resources_overview_target(kind: str) -> None:
-    target_map = {
-        "program": t("my_programs"),
-        "plan": t("my_plans"),
-        "worksheet": t("my_worksheets"),
-        "exam": t("my_exams"),
-        "video": t("my_videos"),
+    safe_kind = str(kind or "").strip().lower()
+    nested_map = {
+        "program": f"📚 {t('learning_programs')}",
+        "plan": f"📝 {t('community_plans')}",
+        "worksheet": f"📋 {t('community_worksheets')}",
+        "exam": f"📄 {t('community_exams')}",
+        "video": f"🎬 {t('community_videos')}",
     }
-    queue_resources_tab_target(target_map.get(str(kind or "").strip().lower(), t("my_programs")))
+    queue_resources_tab_target(
+        t("community_library"),
+        nested_tab=nested_map.get(safe_kind, f"📚 {t('learning_programs')}"),
+    )
 
 
 def _render_resources_tab_target_script() -> None:
@@ -613,6 +647,7 @@ def _render_selected_file_resource_detail(kind: str, *, scope: str = "files") ->
             allow_assign=not is_archived_status(st.session_state.get("files_selected_worksheet_status")),
             assign_expanded=bool(st.session_state.get("files_selected_worksheet_assign_expanded", False)),
             resource_record_id=_session_resource_id("files_selected_worksheet_id"),
+            action_key_prefix=f"files_selected_worksheet_{scope_key}",
             subject=st.session_state.get("files_ws_subject", ""),
             learner_stage=st.session_state.get("files_ws_stage", ""),
             level_or_band=st.session_state.get("files_ws_level", ""),
@@ -659,6 +694,7 @@ def _render_selected_file_resource_detail(kind: str, *, scope: str = "files") ->
             allow_assign=not is_archived_status(st.session_state.get("files_selected_exam_status")),
             assign_expanded=bool(st.session_state.get("files_selected_exam_assign_expanded", False)),
             resource_record_id=_session_resource_id("files_selected_exam_id"),
+            action_key_prefix=f"files_selected_exam_{scope_key}",
             subject=st.session_state.get("files_exam_subject", ""),
             learner_stage=st.session_state.get("files_exam_stage", ""),
             level_or_band=st.session_state.get("files_exam_level", ""),
@@ -732,6 +768,25 @@ def render_home_teaching_resources_preview():
         unsafe_allow_html=True,
     )
 
+    public_program_df = load_public_learning_programs()
+    public_df = load_public_lesson_plans()
+    public_ws_df = load_public_worksheets()
+    public_exam_df = load_public_exams()
+    public_video_df = load_public_videos()
+
+    home_preview_query, home_preview_subject_filter, home_preview_stage_filter, home_preview_level_filter = _render_shared_resource_filters(
+        "home_preview_resources",
+        [public_program_df, public_df, public_ws_df, public_exam_df, public_video_df],
+    )
+    home_preview_has_active_filters = any(
+        [
+            bool(home_preview_query),
+            home_preview_subject_filter != t("all"),
+            home_preview_stage_filter != t("all"),
+            home_preview_level_filter != t("all"),
+        ]
+    )
+
     res_tab0, res_tab1, res_tab2, res_tab3, res_tab4 = st.tabs([
         "📚 Learning Programs",
         f"📝 {t('community_plans')}",
@@ -741,8 +796,6 @@ def render_home_teaching_resources_preview():
     ])
 
     with res_tab0:
-        public_program_df = load_public_learning_programs()
-
         if public_program_df.empty:
             render_empty_state(
                 title_key="community_resources_empty_title",
@@ -751,28 +804,34 @@ def render_home_teaching_resources_preview():
                 icon="📚",
             )
         else:
-            program_q = st.text_input(
-                t("explore_resource_search"),
-                key="home_public_learning_programs_q",
-                placeholder=t("explore_resource_search_placeholder"),
-            ).strip().lower()
+            filtered_programs = _apply_shared_resource_filters(
+                public_program_df,
+                kind="program",
+                source="community",
+                query=home_preview_query,
+                subject_filter=home_preview_subject_filter,
+                stage_filter=home_preview_stage_filter,
+                level_filter=home_preview_level_filter,
+            )
 
-            filtered_programs = _rank_teacher_materials(public_program_df.copy(), "program", "community", query=program_q)
-
-            programs_to_show = filtered_programs if program_q else filtered_programs.head(3)
+            if home_preview_has_active_filters:
+                programs_to_show, *_ = _slice_resource_page(filtered_programs, "home_preview_programs_page")
+                programs_to_show = programs_to_show.head(_RESOURCE_PAGE_SIZE)
+            else:
+                programs_to_show = filtered_programs.head(3)
 
             if programs_to_show.empty:
                 st.info(t("be_the_first_to_share"))
             else:
-                if program_q:
-                    st.caption(t("learning_programs_count", count=len(programs_to_show)))
+                if home_preview_has_active_filters:
+                    st.caption(t("learning_programs_count", count=len(filtered_programs)))
                 else:
-                    st.caption(t("explore_latest_resources_note").format(count=4))
+                    st.caption(t("explore_latest_resources_note").format(count=3))
                 log_teacher_material_impressions(
                     programs_to_show.to_dict("records"),
                     "program",
                     "community",
-                    surface="home_preview_learning_programs",
+                    surface=f"home_preview_learning_programs_page_{int(st.session_state.get('home_preview_programs_page', 1) or 1)}",
                 )
                 render_learning_program_library_cards(
                     programs_to_show,
@@ -780,6 +839,8 @@ def render_home_teaching_resources_preview():
                     show_author=True,
                     allow_visibility_toggle=False,
                 )
+                if home_preview_has_active_filters:
+                    _render_resource_pagination_controls(filtered_programs, "home_preview_programs_page")
 
             if st.button(t("see_all_learning_programs"), key="home_see_all_learning_programs", use_container_width=True):
                 queue_home_resources_overview_target("program")
@@ -790,8 +851,6 @@ def render_home_teaching_resources_preview():
     # LESSON PLANS
     # =========================
     with res_tab1:
-        public_df = load_public_lesson_plans()
-
         if public_df.empty:
             render_empty_state(
                 title_key="community_resources_empty_title",
@@ -800,28 +859,34 @@ def render_home_teaching_resources_preview():
                 icon="📝",
             )
         else:
-            plan_q = st.text_input(
-                t("explore_resource_search"),
-                key="home_public_plans_q",
-                placeholder=t("explore_resource_search_placeholder"),
-            ).strip()
+            filtered_plans = _apply_shared_resource_filters(
+                public_df,
+                kind="plan",
+                source="community",
+                query=home_preview_query,
+                subject_filter=home_preview_subject_filter,
+                stage_filter=home_preview_stage_filter,
+                level_filter=home_preview_level_filter,
+            )
 
-            filtered_plans = _rank_teacher_materials(public_df, "plan", "community", query=plan_q)
-
-            plans_to_show = filtered_plans if plan_q else filtered_plans.head(3)
+            if home_preview_has_active_filters:
+                plans_to_show, *_ = _slice_resource_page(filtered_plans, "home_preview_plans_page")
+                plans_to_show = plans_to_show.head(_RESOURCE_PAGE_SIZE)
+            else:
+                plans_to_show = filtered_plans.head(3)
 
             if plans_to_show.empty:
                 st.info(t("be_the_first_to_share"))
             else:
-                if plan_q:
-                    st.caption(f"{len(plans_to_show)} {t('community_plans').lower()}")
+                if home_preview_has_active_filters:
+                    st.caption(f"{len(filtered_plans)} {t('community_plans').lower()}")
                 else:
-                    st.caption(t("explore_latest_resources_note").format(count=4))
+                    st.caption(t("explore_latest_resources_note").format(count=3))
                 log_teacher_material_impressions(
                     plans_to_show.to_dict("records"),
                     "plan",
                     "community",
-                    surface="home_preview_plans",
+                    surface=f"home_preview_plans_page_{int(st.session_state.get('home_preview_plans_page', 1) or 1)}",
                 )
 
                 render_plan_library_cards(
@@ -830,6 +895,8 @@ def render_home_teaching_resources_preview():
                     show_author=True,
                     open_in_files=True,
                 )
+                if home_preview_has_active_filters:
+                    _render_resource_pagination_controls(filtered_plans, "home_preview_plans_page")
 
             if st.button(t("see_all_lesson_plans"), key="home_see_all_plans", use_container_width=True):
                 queue_home_resources_overview_target("plan")
@@ -840,8 +907,6 @@ def render_home_teaching_resources_preview():
     # WORKSHEETS
     # =========================
     with res_tab2:
-        public_ws_df = load_public_worksheets()
-
         if public_ws_df.empty:
             render_empty_state(
                 title_key="community_resources_empty_title",
@@ -850,28 +915,34 @@ def render_home_teaching_resources_preview():
                 icon="📋",
             )
         else:
-            ws_q = st.text_input(
-                t("explore_resource_search"),
-                key="home_public_ws_q",
-                placeholder=t("explore_resource_search_placeholder"),
-            ).strip()
+            filtered_ws = _apply_shared_resource_filters(
+                public_ws_df,
+                kind="worksheet",
+                source="community",
+                query=home_preview_query,
+                subject_filter=home_preview_subject_filter,
+                stage_filter=home_preview_stage_filter,
+                level_filter=home_preview_level_filter,
+            )
 
-            filtered_ws = _rank_teacher_materials(public_ws_df, "worksheet", "community", query=ws_q)
-
-            ws_to_show = filtered_ws if ws_q else filtered_ws.head(3)
+            if home_preview_has_active_filters:
+                ws_to_show, *_ = _slice_resource_page(filtered_ws, "home_preview_ws_page")
+                ws_to_show = ws_to_show.head(_RESOURCE_PAGE_SIZE)
+            else:
+                ws_to_show = filtered_ws.head(3)
 
             if ws_to_show.empty:
                 st.info(t("be_the_first_to_share"))
             else:
-                if ws_q:
-                    st.caption(f"{len(ws_to_show)} {t('community_worksheets').lower()}")
+                if home_preview_has_active_filters:
+                    st.caption(f"{len(filtered_ws)} {t('community_worksheets').lower()}")
                 else:
-                    st.caption(t("explore_latest_resources_note").format(count=4))
+                    st.caption(t("explore_latest_resources_note").format(count=3))
                 log_teacher_material_impressions(
                     ws_to_show.to_dict("records"),
                     "worksheet",
                     "community",
-                    surface="home_preview_worksheets",
+                    surface=f"home_preview_worksheets_page_{int(st.session_state.get('home_preview_ws_page', 1) or 1)}",
                 )
 
                 render_worksheet_library_cards(
@@ -880,6 +951,8 @@ def render_home_teaching_resources_preview():
                     show_author=True,
                     open_in_files=True,
                 )
+                if home_preview_has_active_filters:
+                    _render_resource_pagination_controls(filtered_ws, "home_preview_ws_page")
 
             if st.button(t("see_all_worksheets"), key="home_see_all_ws", use_container_width=True):
                 queue_home_resources_overview_target("worksheet")
@@ -890,8 +963,6 @@ def render_home_teaching_resources_preview():
     # EXAMS
     # =========================
     with res_tab3:
-        public_exam_df = load_public_exams()
-
         if public_exam_df.empty:
             render_empty_state(
                 title_key="community_resources_empty_title",
@@ -900,28 +971,34 @@ def render_home_teaching_resources_preview():
                 icon="📄",
             )
         else:
-            exam_q = st.text_input(
-                t("explore_resource_search"),
-                key="home_public_exam_q",
-                placeholder=t("explore_resource_search_placeholder"),
-            ).strip()
+            filtered_exams = _apply_shared_resource_filters(
+                public_exam_df,
+                kind="exam",
+                source="community",
+                query=home_preview_query,
+                subject_filter=home_preview_subject_filter,
+                stage_filter=home_preview_stage_filter,
+                level_filter=home_preview_level_filter,
+            )
 
-            filtered_exams = _rank_teacher_materials(public_exam_df, "exam", "community", query=exam_q)
-
-            exams_to_show = filtered_exams if exam_q else filtered_exams.head(3)
+            if home_preview_has_active_filters:
+                exams_to_show, *_ = _slice_resource_page(filtered_exams, "home_preview_exams_page")
+                exams_to_show = exams_to_show.head(_RESOURCE_PAGE_SIZE)
+            else:
+                exams_to_show = filtered_exams.head(3)
 
             if exams_to_show.empty:
                 st.info(t("be_the_first_to_share"))
             else:
-                if exam_q:
-                    st.caption(f"{len(exams_to_show)} {t('community_exams').lower()}")
+                if home_preview_has_active_filters:
+                    st.caption(f"{len(filtered_exams)} {t('community_exams').lower()}")
                 else:
-                    st.caption(t("explore_latest_resources_note").format(count=4))
+                    st.caption(t("explore_latest_resources_note").format(count=3))
                 log_teacher_material_impressions(
                     exams_to_show.to_dict("records"),
                     "exam",
                     "community",
-                    surface="home_preview_exams",
+                    surface=f"home_preview_exams_page_{int(st.session_state.get('home_preview_exams_page', 1) or 1)}",
                 )
 
                 render_exam_library_cards(
@@ -930,6 +1007,8 @@ def render_home_teaching_resources_preview():
                     show_author=True,
                     open_in_files=True,
                 )
+                if home_preview_has_active_filters:
+                    _render_resource_pagination_controls(filtered_exams, "home_preview_exams_page")
 
             if st.button(t("see_all_exams"), key="home_see_all_exams", use_container_width=True):
                 queue_home_resources_overview_target("exam")
@@ -937,8 +1016,6 @@ def render_home_teaching_resources_preview():
                 st.rerun()
 
     with res_tab4:
-        public_video_df = load_public_videos()
-
         if public_video_df.empty:
             render_empty_state(
                 title_key="community_resources_empty_title",
@@ -947,27 +1024,33 @@ def render_home_teaching_resources_preview():
                 icon="🎬",
             )
         else:
-            video_q = st.text_input(
-                t("explore_resource_search"),
-                key="home_public_video_q",
-                placeholder=t("explore_resource_search_placeholder"),
-            ).strip()
-
-            filtered_videos = _rank_teacher_materials(public_video_df, "video", "community", query=video_q)
-            videos_to_show = filtered_videos if video_q else filtered_videos.head(3)
+            filtered_videos = _apply_shared_resource_filters(
+                public_video_df,
+                kind="video",
+                source="community",
+                query=home_preview_query,
+                subject_filter=home_preview_subject_filter,
+                stage_filter=home_preview_stage_filter,
+                level_filter=home_preview_level_filter,
+            )
+            if home_preview_has_active_filters:
+                videos_to_show, *_ = _slice_resource_page(filtered_videos, "home_preview_videos_page")
+                videos_to_show = videos_to_show.head(_RESOURCE_PAGE_SIZE)
+            else:
+                videos_to_show = filtered_videos.head(3)
 
             if videos_to_show.empty:
                 st.info(t("be_the_first_to_share"))
             else:
-                if video_q:
-                    st.caption(f"{len(videos_to_show)} {t('community_videos').lower()}")
+                if home_preview_has_active_filters:
+                    st.caption(f"{len(filtered_videos)} {t('community_videos').lower()}")
                 else:
-                    st.caption(t("explore_latest_resources_note").format(count=4))
+                    st.caption(t("explore_latest_resources_note").format(count=3))
                 log_teacher_material_impressions(
                     videos_to_show.to_dict("records"),
                     "video",
                     "community",
-                    surface="home_preview_videos",
+                    surface=f"home_preview_videos_page_{int(st.session_state.get('home_preview_videos_page', 1) or 1)}",
                 )
                 render_video_library_cards(
                     videos_to_show,
@@ -975,6 +1058,8 @@ def render_home_teaching_resources_preview():
                     show_author=True,
                     open_in_files=True,
                 )
+                if home_preview_has_active_filters:
+                    _render_resource_pagination_controls(filtered_videos, "home_preview_videos_page")
 
             if st.button(t("see_all_videos"), key="home_see_all_videos", use_container_width=True):
                 queue_home_resources_overview_target("video")
@@ -1122,16 +1207,6 @@ def _render_smart_tools_hub():
             color: var(--text, #0f172a) !important;
         }}
         </style>
-        <div class="smart-tools-hero">
-          <div class="smart-tools-eyebrow">{t('smart_tools_eyebrow')}</div>
-          <div class="smart-tools-title">{t('smart_tools_hero_title')}</div>
-          <div class="smart-tools-copy">{t('smart_tools_hero_body')}</div>
-          <div class="smart-tools-stats">
-            <div class="smart-tools-stat"><b>{t('smart_tools_stat_create')}</b><span>{t('smart_tools_stat_create_hint')}</span></div>
-            <div class="smart-tools-stat"><b>{t('smart_tools_stat_save')}</b><span>{t('smart_tools_stat_save_hint')}</span></div>
-            <div class="smart-tools-stat"><b>{t('smart_tools_stat_reuse')}</b><span>{t('smart_tools_stat_reuse_hint')}</span></div>
-          </div>
-        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -1478,18 +1553,26 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
         go_to("resources")
         st.rerun()
 
+    if panel == "ai_tools" and show_home_actions:
+        go_to("smart_tools")
+        st.rerun()
+
     if panel == "files":
 
-        head_left, head_right = st.columns([6, 1], vertical_alignment="center")
+        with st.container():
+            page_header(t("files"))
 
-        with head_left:
-            st.markdown (f"### 🗂️ {t('files')}")
-        with head_right:
-            if st.button(t("close"), key="close_files_panel_top", help=t("close_files"), use_container_width=True):
-                st.session_state["home_action_menu_prev"] = t("home")
-                st.session_state["home_action_menu_nonce"] += 1
-                home_go("home", panel=None)
-                st.rerun()
+        own_filter_frames = [
+            load_my_learning_programs(),
+            load_my_lesson_plans(),
+            load_my_worksheets(),
+            load_my_exams(),
+            load_my_videos(),
+        ]
+        own_resources_query, own_resources_subject_filter, own_resources_stage_filter, own_resources_level_filter = _render_shared_resource_filters(
+            "resources_own",
+            own_filter_frames,
+        )
 
         tab_prog, tab1, tab2, tab_exams, tab_videos, tab3, tab4, tab_archive = st.tabs([
             t("my_programs"),
@@ -1513,40 +1596,15 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     icon="📚",
                 )
             else:
-                prog_q = st.text_input(
-                    t("search_learning_programs"),
-                    key="my_programs_q",
-                    placeholder=t("learning_program_search_placeholder"),
-                ).strip().lower()
-                prog_subj_opts = _resource_filter_options(prog_df, "subject", normalize=_normalize_subject)
-                prog_subj_filter = st.selectbox(
-                    t("subject_label"),
-                    [t("all")] + prog_subj_opts,
-                    format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
-                    key="my_programs_subject_filter",
+                prog_filtered = _apply_shared_resource_filters(
+                    prog_df,
+                    kind="program",
+                    source="own",
+                    query=own_resources_query,
+                    subject_filter=own_resources_subject_filter,
+                    stage_filter=own_resources_stage_filter,
+                    level_filter=own_resources_level_filter,
                 )
-                p_col1, p_col2 = st.columns(2)
-                with p_col1:
-                    prog_stage_opts = _resource_filter_options(prog_df, "learner_stage")
-                    prog_stage_filter = st.selectbox(
-                        t("learner_stage"),
-                        [t("all")] + prog_stage_opts,
-                        format_func=lambda x: t(x) if x != t("all") else t("all"),
-                        key="my_programs_stage_filter",
-                    )
-                with p_col2:
-                    prog_level_opts = _resource_filter_options(prog_df, "level_or_band")
-                    prog_level_filter = st.selectbox(
-                        t("level_or_band"),
-                        [t("all")] + prog_level_opts,
-                        format_func=lambda x: x if x in ("A1", "A2", "B1", "B2", "C1", "C2") else t(x) if x != t("all") else t("all"),
-                        key="my_programs_level_filter",
-                    )
-                prog_filtered = prog_df.copy()
-                prog_filtered = _apply_resource_filter(prog_filtered, "subject", prog_subj_filter, normalize=_normalize_subject)
-                prog_filtered = _apply_resource_filter(prog_filtered, "learner_stage", prog_stage_filter)
-                prog_filtered = _apply_resource_filter(prog_filtered, "level_or_band", prog_level_filter)
-                prog_filtered = _rank_teacher_materials(prog_filtered, "program", "own", query=prog_q)
                 prog_filtered_page_df, *_ = _slice_resource_page(prog_filtered, "my_programs_page")
                 log_teacher_material_impressions(
                     prog_filtered_page_df.to_dict("records"),
@@ -1575,44 +1633,15 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     icon="📝",
                 )
             else:
-                filter_col1, filter_col2 = st.columns([3, 1])
-                with filter_col1:
-                    topic_q = st.text_input(
-                        t("explore_resource_search"),
-                        key="my_plans_topic_q",
-                        placeholder=t("explore_resource_search_placeholder"),
-                    ).strip().lower()
-                subject_options = _resource_filter_options(my_df, "subject", normalize=_normalize_subject)
-                with filter_col2:
-                    subject_filter = st.selectbox(
-                        t("subject_label"),
-                        [t("all")] + subject_options,
-                        format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
-                        key="my_plans_subject_filter",
-                    )
-                filter_col3, filter_col4 = st.columns(2)
-                with filter_col3:
-                    stage_options = _resource_filter_options(my_df, "learner_stage")
-                    stage_filter = st.selectbox(
-                        t("learner_stage"),
-                        [t("all")] + stage_options,
-                        format_func=lambda x: t(x) if x != t("all") else t("all"),
-                        key="my_plans_stage_filter",
-                    )
-                with filter_col4:
-                    level_options = _resource_filter_options(my_df, "level_or_band")
-                    level_filter = st.selectbox(
-                        t("level_or_band"),
-                        [t("all")] + level_options,
-                        format_func=lambda x: x if x in ("A1", "A2", "B1", "B2", "C1", "C2") else t(x) if x != t("all") else t("all"),
-                        key="my_plans_level_filter",
-                    )
-
-                filtered = my_df.copy()
-                filtered = _apply_resource_filter(filtered, "subject", subject_filter, normalize=_normalize_subject)
-                filtered = _apply_resource_filter(filtered, "learner_stage", stage_filter)
-                filtered = _apply_resource_filter(filtered, "level_or_band", level_filter)
-                filtered = _rank_teacher_materials(filtered, "plan", "own", query=topic_q)
+                filtered = _apply_shared_resource_filters(
+                    my_df,
+                    kind="plan",
+                    source="own",
+                    query=own_resources_query,
+                    subject_filter=own_resources_subject_filter,
+                    stage_filter=own_resources_stage_filter,
+                    level_filter=own_resources_level_filter,
+                )
 
                 if filtered.empty:
                     st.info(t("no_data"))
@@ -1644,43 +1673,15 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     icon="📋",
                 )
             else:
-                filter_col1, filter_col2 = st.columns([3, 1])
-                with filter_col1:
-                    ws_topic_q = st.text_input(
-                        t("explore_resource_search"),
-                        key="my_ws_topic_q",
-                        placeholder=t("explore_resource_search_placeholder"),
-                    ).strip().lower()
-                ws_subj_opts = _resource_filter_options(ws_df, "subject", normalize=_normalize_subject)
-                with filter_col2:
-                    ws_subj_filter = st.selectbox(
-                        t("subject_label"),
-                        [t("all")] + ws_subj_opts,
-                        format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
-                        key="my_ws_subject_filter",
-                    )
-                filter_col3, filter_col4 = st.columns(2)
-                with filter_col3:
-                    ws_stage_opts = _resource_filter_options(ws_df, "learner_stage")
-                    ws_stage_filter = st.selectbox(
-                        t("learner_stage"),
-                        [t("all")] + ws_stage_opts,
-                        format_func=lambda x: t(x) if x != t("all") else t("all"),
-                        key="my_ws_stage_filter",
-                    )
-                with filter_col4:
-                    ws_level_opts = _resource_filter_options(ws_df, "level_or_band")
-                    ws_level_filter = st.selectbox(
-                        t("level_or_band"),
-                        [t("all")] + ws_level_opts,
-                        format_func=lambda x: x if x in ("A1", "A2", "B1", "B2", "C1", "C2") else t(x) if x != t("all") else t("all"),
-                        key="my_ws_level_filter",
-                    )
-                ws_filtered = ws_df.copy()
-                ws_filtered = _apply_resource_filter(ws_filtered, "subject", ws_subj_filter, normalize=_normalize_subject)
-                ws_filtered = _apply_resource_filter(ws_filtered, "learner_stage", ws_stage_filter)
-                ws_filtered = _apply_resource_filter(ws_filtered, "level_or_band", ws_level_filter)
-                ws_filtered = _rank_teacher_materials(ws_filtered, "worksheet", "own", query=ws_topic_q)
+                ws_filtered = _apply_shared_resource_filters(
+                    ws_df,
+                    kind="worksheet",
+                    source="own",
+                    query=own_resources_query,
+                    subject_filter=own_resources_subject_filter,
+                    stage_filter=own_resources_stage_filter,
+                    level_filter=own_resources_level_filter,
+                )
                 ws_filtered_page_df, *_ = _slice_resource_page(ws_filtered, "my_ws_page")
                 log_teacher_material_impressions(
                     ws_filtered_page_df.to_dict("records"),
@@ -1708,43 +1709,15 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     icon="📄",
                 )
             else:
-                filter_col1, filter_col2 = st.columns([3, 1])
-                with filter_col1:
-                    exam_topic_q = st.text_input(
-                        t("explore_resource_search"),
-                        key="my_exam_topic_q",
-                        placeholder=t("explore_resource_search_placeholder"),
-                    ).strip().lower()
-                exam_subj_opts = _resource_filter_options(exam_df, "subject", normalize=_normalize_subject)
-                with filter_col2:
-                    exam_subj_filter = st.selectbox(
-                        t("subject_label"),
-                        [t("all")] + exam_subj_opts,
-                        format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
-                        key="my_exam_subject_filter",
-                    )
-                filter_col3, filter_col4 = st.columns(2)
-                with filter_col3:
-                    exam_stage_opts = _resource_filter_options(exam_df, "learner_stage")
-                    exam_stage_filter = st.selectbox(
-                        t("learner_stage"),
-                        [t("all")] + exam_stage_opts,
-                        format_func=lambda x: t(x) if x != t("all") else t("all"),
-                        key="my_exam_stage_filter",
-                    )
-                with filter_col4:
-                    exam_level_opts = _resource_filter_options(exam_df, "level")
-                    exam_level_filter = st.selectbox(
-                        t("level_or_band"),
-                        [t("all")] + exam_level_opts,
-                        format_func=lambda x: x if x in ("A1", "A2", "B1", "B2", "C1", "C2") else t(x) if x != t("all") else t("all"),
-                        key="my_exam_level_filter",
-                    )
-                exam_filtered = exam_df.copy()
-                exam_filtered = _apply_resource_filter(exam_filtered, "subject", exam_subj_filter, normalize=_normalize_subject)
-                exam_filtered = _apply_resource_filter(exam_filtered, "learner_stage", exam_stage_filter)
-                exam_filtered = _apply_resource_filter(exam_filtered, "level", exam_level_filter)
-                exam_filtered = _rank_teacher_materials(exam_filtered, "exam", "own", query=exam_topic_q)
+                exam_filtered = _apply_shared_resource_filters(
+                    exam_df,
+                    kind="exam",
+                    source="own",
+                    query=own_resources_query,
+                    subject_filter=own_resources_subject_filter,
+                    stage_filter=own_resources_stage_filter,
+                    level_filter=own_resources_level_filter,
+                )
                 exam_filtered_page_df, *_ = _slice_resource_page(exam_filtered, "my_exams_page")
                 log_teacher_material_impressions(
                     exam_filtered_page_df.to_dict("records"),
@@ -1933,24 +1906,15 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     icon="🎬",
                 )
             else:
-                filter_col1, filter_col2 = st.columns([3, 1])
-                with filter_col1:
-                    video_q = st.text_input(
-                        t("explore_resource_search"),
-                        key="my_video_q",
-                        placeholder=t("explore_resource_search_placeholder"),
-                    ).strip().lower()
-                with filter_col2:
-                    video_subj_opts = _resource_filter_options(video_df, "subject", normalize=_normalize_subject)
-                    video_subj_filter = st.selectbox(
-                        t("subject_label"),
-                        [t("all")] + video_subj_opts,
-                        format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
-                        key="my_video_subject_filter",
-                    )
-                video_filtered = video_df.copy()
-                video_filtered = _apply_resource_filter(video_filtered, "subject", video_subj_filter, normalize=_normalize_subject)
-                video_filtered = _rank_teacher_materials(video_filtered, "video", "own", query=video_q)
+                video_filtered = _apply_shared_resource_filters(
+                    video_df,
+                    kind="video",
+                    source="own",
+                    query=own_resources_query,
+                    subject_filter=own_resources_subject_filter,
+                    stage_filter=own_resources_stage_filter,
+                    level_filter=own_resources_level_filter,
+                )
                 video_filtered_page_df, *_ = _slice_resource_page(video_filtered, "my_videos_page")
                 log_teacher_material_impressions(
                     video_filtered_page_df.to_dict("records"),
@@ -1987,44 +1951,15 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         icon="📚",
                     )
                 else:
-                    pf_col1, pf_col2 = st.columns([3, 1])
-                    with pf_col1:
-                        public_program_q = st.text_input(
-                            t("search_learning_programs"),
-                            key="public_learning_program_q",
-                            placeholder=t("learning_program_search_placeholder"),
-                        ).strip().lower()
-                    with pf_col2:
-                        public_program_subj_opts = _resource_filter_options(public_program_df, "subject", normalize=_normalize_subject)
-                        public_program_subj_filter = st.selectbox(
-                            t("subject_label"),
-                            [t("all")] + public_program_subj_opts,
-                            format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
-                            key="public_learning_program_subject_filter",
-                        )
-                    pf_col3, pf_col4 = st.columns(2)
-                    with pf_col3:
-                        public_program_stage_opts = _resource_filter_options(public_program_df, "learner_stage")
-                        public_program_stage_filter = st.selectbox(
-                            t("learner_stage"),
-                            [t("all")] + public_program_stage_opts,
-                            format_func=lambda x: t(x) if x != t("all") else t("all"),
-                            key="public_learning_program_stage_filter",
-                        )
-                    with pf_col4:
-                        public_program_level_opts = _resource_filter_options(public_program_df, "level_or_band")
-                        public_program_level_filter = st.selectbox(
-                            t("level_or_band"),
-                            [t("all")] + public_program_level_opts,
-                            format_func=lambda x: x if x in ("A1", "A2", "B1", "B2", "C1", "C2") else t(x) if x != t("all") else t("all"),
-                            key="public_learning_program_level_filter",
-                        )
-
-                    public_program_filtered = public_program_df.copy()
-                    public_program_filtered = _apply_resource_filter(public_program_filtered, "subject", public_program_subj_filter, normalize=_normalize_subject)
-                    public_program_filtered = _apply_resource_filter(public_program_filtered, "learner_stage", public_program_stage_filter)
-                    public_program_filtered = _apply_resource_filter(public_program_filtered, "level_or_band", public_program_level_filter)
-                    public_program_filtered = _rank_teacher_materials(public_program_filtered, "program", "community", query=public_program_q)
+                    public_program_filtered = _apply_shared_resource_filters(
+                        public_program_df,
+                        kind="program",
+                        source="community",
+                        query=own_resources_query,
+                        subject_filter=own_resources_subject_filter,
+                        stage_filter=own_resources_stage_filter,
+                        level_filter=own_resources_level_filter,
+                    )
 
                     if public_program_filtered.empty:
                         st.info(t("be_the_first_to_share"))
@@ -2053,39 +1988,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     )
                 else:
                     import helpers.lesson_planner as _lp_mod
-                    f_col1, f_col2 = st.columns([3, 1])
-                    with f_col1:
-                        topic_q_public = st.text_input(
-                            t("explore_resource_search"),
-                            key="public_plans_topic_q",
-                            placeholder=t("explore_resource_search_placeholder"),
-                        ).strip().lower()
-                    with f_col2:
-                        _pub_subj_opts = _resource_filter_options(public_df, "subject", normalize=_normalize_subject)
-                        subject_filter_public = st.selectbox(
-                            t("subject_label"),
-                            [t("all")] + _pub_subj_opts,
-                            format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
-                            key="public_plans_subject_filter",
-                        )
-
-                    f_col3, f_col4, f_col5, f_col6 = st.columns(4)
-                    with f_col3:
-                        _stage_opts = _resource_filter_options(public_df, "learner_stage")
-                        stage_filter_public = st.selectbox(
-                            t("learner_stage"),
-                            [t("all")] + _stage_opts,
-                            format_func=lambda x: _lp_mod._stage_label(x) if x != t("all") else t("all"),
-                            key="public_plans_stage_filter",
-                        )
-                    with f_col4:
-                        _level_opts = _resource_filter_options(public_df, "level_or_band")
-                        level_filter_public = st.selectbox(
-                            t("level_or_band"),
-                            [t("all")] + _level_opts,
-                            format_func=lambda x: _lp_mod._level_label(x) if x != t("all") else t("all"),
-                            key="public_plans_level_filter",
-                        )
+                    f_col5, f_col6 = st.columns(2)
                     with f_col5:
                         _purpose_opts = _resource_filter_options(public_df, "lesson_purpose")
                         purpose_filter_public = st.selectbox(
@@ -2104,13 +2007,17 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                             key="public_plans_source_filter",
                         )
 
-                    filtered_public = public_df.copy()
-                    filtered_public = _apply_resource_filter(filtered_public, "subject", subject_filter_public, normalize=_normalize_subject)
-                    filtered_public = _apply_resource_filter(filtered_public, "learner_stage", stage_filter_public)
-                    filtered_public = _apply_resource_filter(filtered_public, "level_or_band", level_filter_public)
+                    filtered_public = _apply_shared_resource_filters(
+                        public_df,
+                        kind="plan",
+                        source="community",
+                        query=own_resources_query,
+                        subject_filter=own_resources_subject_filter,
+                        stage_filter=own_resources_stage_filter,
+                        level_filter=own_resources_level_filter,
+                    )
                     filtered_public = _apply_resource_filter(filtered_public, "lesson_purpose", purpose_filter_public)
                     filtered_public = _apply_resource_filter(filtered_public, "source_type", source_filter_public)
-                    filtered_public = _rank_teacher_materials(filtered_public, "plan", "community", query=topic_q_public)
 
                     if filtered_public.empty:
                         st.info(t("be_the_first_to_share"))
@@ -2140,39 +2047,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 else:
                     from helpers.worksheet_builder import WORKSHEET_TYPES as _WS_TYPES
                     import helpers.lesson_planner as _lp_mod2
-                    wf_col1, wf_col2 = st.columns([3, 1])
-                    with wf_col1:
-                        pub_ws_topic_q = st.text_input(
-                            t("explore_resource_search"),
-                            key="pub_ws_topic_q",
-                            placeholder=t("explore_resource_search_placeholder"),
-                        ).strip().lower()
-                    with wf_col2:
-                        pub_ws_subj_opts = _resource_filter_options(pub_ws_df, "subject", normalize=_normalize_subject)
-                        pub_ws_subj_filter = st.selectbox(
-                            t("subject_label"),
-                            [t("all")] + pub_ws_subj_opts,
-                            format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
-                            key="pub_ws_subject_filter",
-                        )
-
-                    wf_col3, wf_col4, wf_col5, wf_col6 = st.columns(4)
-                    with wf_col3:
-                        _ws_stage_opts = _resource_filter_options(pub_ws_df, "learner_stage")
-                        pub_ws_stage_filter = st.selectbox(
-                            t("learner_stage"),
-                            [t("all")] + _ws_stage_opts,
-                            format_func=lambda x: _lp_mod2._stage_label(x) if x != t("all") else t("all"),
-                            key="pub_ws_stage_filter",
-                        )
-                    with wf_col4:
-                        _ws_level_opts = _resource_filter_options(pub_ws_df, "level_or_band")
-                        pub_ws_level_filter = st.selectbox(
-                            t("level_or_band"),
-                            [t("all")] + _ws_level_opts,
-                            format_func=lambda x: _lp_mod2._level_label(x) if x != t("all") else t("all"),
-                            key="pub_ws_level_filter",
-                        )
+                    wf_col5, wf_col6 = st.columns(2)
                     with wf_col5:
                         _ws_type_opts = _resource_filter_options(pub_ws_df, "worksheet_type")
                         pub_ws_type_filter = st.selectbox(
@@ -2191,13 +2066,17 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                             key="pub_ws_src_filter",
                         )
 
-                    pub_ws_filtered = pub_ws_df.copy()
-                    pub_ws_filtered = _apply_resource_filter(pub_ws_filtered, "subject", pub_ws_subj_filter, normalize=_normalize_subject)
-                    pub_ws_filtered = _apply_resource_filter(pub_ws_filtered, "learner_stage", pub_ws_stage_filter)
-                    pub_ws_filtered = _apply_resource_filter(pub_ws_filtered, "level_or_band", pub_ws_level_filter)
+                    pub_ws_filtered = _apply_shared_resource_filters(
+                        pub_ws_df,
+                        kind="worksheet",
+                        source="community",
+                        query=own_resources_query,
+                        subject_filter=own_resources_subject_filter,
+                        stage_filter=own_resources_stage_filter,
+                        level_filter=own_resources_level_filter,
+                    )
                     pub_ws_filtered = _apply_resource_filter(pub_ws_filtered, "worksheet_type", pub_ws_type_filter)
                     pub_ws_filtered = _apply_resource_filter(pub_ws_filtered, "source_type", pub_ws_src_filter)
-                    pub_ws_filtered = _rank_teacher_materials(pub_ws_filtered, "worksheet", "community", query=pub_ws_topic_q)
 
                     if pub_ws_filtered.empty:
                         st.info(t("be_the_first_to_share"))
@@ -2226,45 +2105,15 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     )
                 else:
                     import helpers.lesson_planner as _lp_mod3
-                    ef_col1, ef_col2 = st.columns([3, 1])
-                    with ef_col1:
-                        pub_exam_topic_q = st.text_input(
-                            t("explore_resource_search"),
-                            key="pub_exam_topic_q",
-                            placeholder=t("explore_resource_search_placeholder"),
-                        ).strip().lower()
-                    with ef_col2:
-                        pub_exam_subj_opts = _resource_filter_options(pub_exam_df, "subject", normalize=_normalize_subject)
-                        pub_exam_subj_filter = st.selectbox(
-                            t("subject_label"),
-                            [t("all")] + pub_exam_subj_opts,
-                            format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
-                            key="pub_exam_subject_filter",
-                        )
-
-                    ef_col3, ef_col4 = st.columns(2)
-                    with ef_col3:
-                        _exam_stage_opts = _resource_filter_options(pub_exam_df, "learner_stage")
-                        pub_exam_stage_filter = st.selectbox(
-                            t("learner_stage"),
-                            [t("all")] + _exam_stage_opts,
-                            format_func=lambda x: _lp_mod3._stage_label(x) if x != t("all") else t("all"),
-                            key="pub_exam_stage_filter",
-                        )
-                    with ef_col4:
-                        _exam_level_opts = _resource_filter_options(pub_exam_df, "level")
-                        pub_exam_level_filter = st.selectbox(
-                            t("level_or_band"),
-                            [t("all")] + _exam_level_opts,
-                            format_func=lambda x: _lp_mod3._level_label(x) if x != t("all") else t("all"),
-                            key="pub_exam_level_filter",
-                        )
-
-                    pub_exam_filtered = pub_exam_df.copy()
-                    pub_exam_filtered = _apply_resource_filter(pub_exam_filtered, "subject", pub_exam_subj_filter, normalize=_normalize_subject)
-                    pub_exam_filtered = _apply_resource_filter(pub_exam_filtered, "learner_stage", pub_exam_stage_filter)
-                    pub_exam_filtered = _apply_resource_filter(pub_exam_filtered, "level", pub_exam_level_filter)
-                    pub_exam_filtered = _rank_teacher_materials(pub_exam_filtered, "exam", "community", query=pub_exam_topic_q)
+                    pub_exam_filtered = _apply_shared_resource_filters(
+                        pub_exam_df,
+                        kind="exam",
+                        source="community",
+                        query=own_resources_query,
+                        subject_filter=own_resources_subject_filter,
+                        stage_filter=own_resources_stage_filter,
+                        level_filter=own_resources_level_filter,
+                    )
 
                     if pub_exam_filtered.empty:
                         st.info(t("be_the_first_to_share"))
@@ -2291,25 +2140,15 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                         icon="🎬",
                     )
                 else:
-                    vf_col1, vf_col2 = st.columns([3, 1])
-                    with vf_col1:
-                        public_video_q = st.text_input(
-                            t("explore_resource_search"),
-                            key="public_video_q",
-                            placeholder=t("explore_resource_search_placeholder"),
-                        ).strip().lower()
-                    with vf_col2:
-                        public_video_subj_opts = _resource_filter_options(public_video_df, "subject", normalize=_normalize_subject)
-                        public_video_subj_filter = st.selectbox(
-                            t("subject_label"),
-                            [t("all")] + public_video_subj_opts,
-                            format_func=lambda x: _subject_label_fn(x) if x != t("all") else t("all"),
-                            key="public_video_subject_filter",
-                        )
-
-                    public_video_filtered = public_video_df.copy()
-                    public_video_filtered = _apply_resource_filter(public_video_filtered, "subject", public_video_subj_filter, normalize=_normalize_subject)
-                    public_video_filtered = _rank_teacher_materials(public_video_filtered, "video", "community", query=public_video_q)
+                    public_video_filtered = _apply_shared_resource_filters(
+                        public_video_df,
+                        kind="video",
+                        source="community",
+                        query=own_resources_query,
+                        subject_filter=own_resources_subject_filter,
+                        stage_filter=own_resources_stage_filter,
+                        level_filter=own_resources_level_filter,
+                    )
 
                     if public_video_filtered.empty:
                         st.info(t("be_the_first_to_share"))
@@ -2828,21 +2667,19 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
 
     # ---------- AI TOOLS PANEL ----------
     if panel == "ai_tools":
-        ai_head_left, ai_head_mid, ai_head_right = st.columns([5, 1.5, 1], vertical_alignment="center")
+        ai_head_left = st.container()
         with ai_head_left:
-            st.markdown(f"### 🤖 {t('smart_tools_command_center')}")
-        with ai_head_mid:
-            if st.button(t("files"), key="open_resources_from_ai_tools", use_container_width=True):
-                clear_smart_tool_result_state(clear_selection=True)
-                _clear_home_smart_tool_dialog()
-                go_to("resources")
-                st.rerun()
-        with ai_head_right:
-            if st.button(t("close"), key="close_ai_tools_panel_top", use_container_width=True):
-                clear_smart_tool_result_state(clear_selection=True)
-                _clear_home_smart_tool_dialog()
-                home_go("home", panel=None)
-                st.rerun()
+            st.header(
+                t("smart_tools_command_center"),
+                help=(
+                    f"{t('smart_tools_eyebrow')}\n\n"
+                    f"{t('smart_tools_hero_title')}\n\n"
+                    f"{t('smart_tools_hero_body')}\n\n"
+                    f"- {t('smart_tools_stat_create')}: {t('smart_tools_stat_create_hint')}\n"
+                    f"- {t('smart_tools_stat_save')}: {t('smart_tools_stat_save_hint')}\n"
+                    f"- {t('smart_tools_stat_reuse')}: {t('smart_tools_stat_reuse_hint')}"
+                ),
+            )
 
         _render_smart_tools_hub()
         _render_home_smart_tool_dialog()
@@ -2891,6 +2728,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
         menu_items[0:4],
         menu_items[4:8],
     ]
+    pending_home_menu_target: tuple[str, str | None] | None = None
 
     for row in menu_rows:
         cols = st.columns(len(row), gap="medium")
@@ -2904,21 +2742,25 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     accent=accent,
                     rgb=rgb,
                 )
-                if key == "ai_tools":
-                    if clicked:
-                        home_go("home", panel="ai_tools")
-                        st.rerun()
-                elif key == "community":
-                    if clicked:
-                        home_go("home", panel="community")
-                        st.rerun()
-                else:
-                    if clicked:
-                        go_to(key)
-                        st.rerun()
+                if clicked:
+                    if key == "ai_tools":
+                        pending_home_menu_target = ("smart_tools", None)
+                    elif key == "community":
+                        pending_home_menu_target = ("home", "community")
+                    else:
+                        pending_home_menu_target = (key, None)
         st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
 
+    if pending_home_menu_target:
+        target_page, target_panel = pending_home_menu_target
+        if target_panel is not None:
+            home_go(target_page, panel=target_panel)
+        else:
+            go_to(target_page)
+        st.rerun()
+
     render_home_teaching_resources_preview()
+    render_learning_program_assign_dialog()
 
     st.markdown('<div class="home-bottom-space"></div>', unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)

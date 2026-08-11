@@ -15,6 +15,7 @@ from core.database import clear_cache_domains, get_sb, load_table, insert_row_wi
 from services.ai_usage_service import log_ai_usage_event
 from xml.sax.saxutils import escape as xml_escape
 import unicodedata
+import hashlib
 from styles.pdf_styles import (
     ensure_pdf_fonts_registered,
     get_student_pdf_styles,
@@ -1133,6 +1134,11 @@ def render_exam_result(
     if not exam_data or not exam_data.get("sections"):
         return
 
+    def _scoped_expander_label(label: str, scope_key: str) -> str:
+        digest = hashlib.sha1(str(scope_key or "").encode("utf-8")).hexdigest()[:12]
+        invisible_scope = "".join(chr(0xFE00 + int(char, 16)) for char in digest)
+        return f"{label}{invisible_scope}"
+
     from helpers.quick_exam_builder import _default_instruction_for_exam_type, _exam_instruction_needs_reset
     exam_data, answer_key = _eb().repair_exam_answer_key(exam_data, answer_key)
 
@@ -1330,7 +1336,10 @@ def render_exam_result(
                 text = _format_question_text(sec_type, q)
                 st.write(f"{idx}. {text}")
 
-    with st.expander(t("ws_answer_key"), expanded=False):
+    with st.expander(
+        _scoped_expander_label(t("ws_answer_key"), f"{action_key_prefix}_answer_key"),
+        expanded=False,
+    ):
         for sec in answer_key.get("sections", []):
             st.markdown(f"**{sec.get('title', '')}**")
             for idx, ans in enumerate(sec.get("answers", []), 1):
@@ -1450,7 +1459,10 @@ def render_exam_result(
             st.rerun()
     elif allow_assign:
         safe_assign_title = re.sub(r"[^A-Za-z0-9._-]+", "_", str(exam_data.get("title") or "exam").strip()) or "exam"
-        with st.expander(t("assign_to_student"), expanded=assign_expanded):
+        with st.expander(
+            _scoped_expander_label(t("assign_to_student"), f"{action_key_prefix}_assign_to_student"),
+            expanded=assign_expanded,
+        ):
             from helpers.teacher_student_integration import render_assignment_panel_for_exam
 
             render_assignment_panel_for_exam(

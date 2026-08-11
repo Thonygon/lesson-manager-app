@@ -4067,9 +4067,6 @@ def render_learning_program_library_cards(
                             key_prefix=delete_key_prefix,
                         )
 
-    render_learning_program_assign_dialog()
-
-
 def _inject_program_styles() -> None:
     st.markdown(
         """
@@ -4336,11 +4333,15 @@ def render_teacher_program_view(program: dict) -> None:
     topic_video_map = load_topic_video_links([program_id]) if program_id > 0 else {}
 
     for unit in program.get("units") or []:
-        with st.expander(t("unit_title_format", number=unit.get("unit_number"), title=unit.get("title")), expanded=unit.get("unit_number") == 1):
+        unit_label = t("unit_title_format", number=unit.get("unit_number"), title=unit.get("title"))
+        with st.expander(
+            _scoped_expander_label(unit_label, f"program_workspace_unit_{program_id}_{unit.get('unit_number') or 0}"),
+            expanded=unit.get("unit_number") == 1,
+        ):
             st.markdown(
                 f"""
                 <div class="classio-program-unit">
-                    <div class="classio-program-unit-title">{t("unit_title_format", number=unit.get("unit_number"), title=unit.get("title"))}</div>
+                    <div class="classio-program-unit-title">{unit_label}</div>
                     <div class="classio-program-unit-copy">{unit.get('overview') or ''}</div>
                 </div>
                 """,
@@ -4420,14 +4421,16 @@ def render_learning_program_assignment_panel(program: dict, prefix: str = "learn
         st.info(t("assignment_requires_relationship_message"))
         return False
 
-    labels = [_clean_text(row.get("student_name")) for row in student_options]
-    selected_student_name = st.selectbox(
-        t("student_name_label"),
-        labels,
-        key=f"{prefix}_student_name",
+    option_lookup = {
+        f"{_clean_text(row.get('student_name'))} | {_clean_text(row.get('student_email') or row.get('email') or row.get('student_id'))}": row
+        for row in student_options
+    }
+    selected_labels = st.multiselect(
+        t("select_student"),
+        list(option_lookup.keys()),
+        key=f"{prefix}_student_names",
     )
-    selected_row = next((row for row in student_options if _clean_text(row.get("student_name")) == selected_student_name), {})
-    student_user_id = _clean_text(selected_row.get("student_id"))
+    selected_rows = [option_lookup[label] for label in selected_labels if label in option_lookup]
 
     note = st.text_area(
         t("teacher_note"),
@@ -4435,10 +4438,14 @@ def render_learning_program_assignment_panel(program: dict, prefix: str = "learn
         placeholder=t("assignment_teacher_note_placeholder"),
     ).strip()
 
-    duplicate_count = learning_program_assignment_duplicate_count(program_id, student_user_id)
+    duplicate_names = [
+        _clean_text(row.get("student_name"))
+        for row in selected_rows
+        if learning_program_assignment_duplicate_count(program_id, _clean_text(row.get("student_id"))) > 0
+    ]
     duplicate_confirmed = True
-    if duplicate_count > 0:
-        st.warning(t("assignment_duplicate_warning"))
+    if duplicate_names:
+        st.warning(t("assignment_duplicate_warning_students", students=", ".join(sorted(set(name for name in duplicate_names if name)))))
         duplicate_confirmed = bool(
             st.checkbox(
                 t("assignment_duplicate_confirm"),
@@ -4447,20 +4454,46 @@ def render_learning_program_assignment_panel(program: dict, prefix: str = "learn
         )
 
     if st.button(t("assign"), key=f"{prefix}_assign_btn"):
-        if duplicate_count > 0 and not duplicate_confirmed:
+        if not selected_rows:
+            st.error(t("select_student"))
+            return False
+        if duplicate_names and not duplicate_confirmed:
             st.error(t("assignment_duplicate_confirm_required"))
             return False
-        ok, assignment_id, msg = assign_learning_program(
-            program_id=program_id,
-            student_name=selected_student_name,
-            student_user_id=student_user_id,
-            note=note,
-        )
-        if ok:
-            st.success(t("learning_program_assigned_success", student=selected_student_name, assignment_id=assignment_id))
-            return True
-        else:
-            st.error(t("learning_program_assigned_failed", error=msg))
+        created = 0
+        failures: list[str] = []
+        created_names: list[str] = []
+        created_assignment_ids: list[int] = []
+        for selected_row in selected_rows:
+            student_name = _clean_text(selected_row.get("student_name"))
+            student_user_id = _clean_text(selected_row.get("student_id"))
+            ok, assignment_id, msg = assign_learning_program(
+                program_id=program_id,
+                student_name=student_name,
+                student_user_id=student_user_id,
+                note=note,
+            )
+            if ok:
+                created += 1
+                created_names.append(student_name or str(assignment_id or ""))
+                if int(assignment_id or 0) > 0:
+                    created_assignment_ids.append(int(assignment_id))
+            else:
+                failures.append(f"{student_name or student_user_id}: {msg}")
+        if created:
+            if len(created_names) == 1:
+                st.success(
+                    t(
+                        "learning_program_assigned_success",
+                        student=created_names[0],
+                        assignment_id=created_assignment_ids[0] if created_assignment_ids else "",
+                    )
+                )
+            else:
+                st.success(t("learning_program_assignments_created", count=created))
+        if failures:
+            st.error(t("learning_program_assigned_failed", error="; ".join(failures)))
+        return created > 0 and not failures
     return False
 
 
@@ -4749,7 +4782,11 @@ def _render_learning_program_unit_editor(
         )
 
         for topic_idx, topic in enumerate(target_unit.get("topics") or [], start=1):
-            with st.expander(t("topic_title_format", number=topic_idx, title=topic.get("title")), expanded=topic_idx == 1):
+            topic_label = t("topic_title_format", number=topic_idx, title=topic.get("title"))
+            with st.expander(
+                _scoped_expander_label(topic_label, f"{ns}_manual_topic_{unit_number}_{topic_idx}"),
+                expanded=topic_idx == 1,
+            ):
                 st.text_input(
                     t("topic_title_label"),
                     value=topic.get("title") or "",
@@ -5632,24 +5669,39 @@ def render_quick_learning_program_builder_expander(*, embedded: bool = False) ->
                 if not assignable_students:
                     st.info(t("assignment_requires_relationship_message"))
                 else:
-                    student_options = [_clean_text(row.get("student_name")) for row in assignable_students]
+                    option_lookup = {
+                        f"{_clean_text(row.get('student_name'))} | {_clean_text(row.get('student_email') or row.get('email') or row.get('student_id'))}": row
+                        for row in assignable_students
+                    }
                     assign_col1, assign_col2 = st.columns([1.4, 1.0])
                     with assign_col1:
-                        selected_student_name = st.selectbox(
-                            t("student_name_label"),
-                            student_options,
-                            key=f"{ns}_assign_student_name",
+                        selected_labels = st.multiselect(
+                            t("select_student"),
+                            list(option_lookup.keys()),
+                            key=f"{ns}_assign_student_names",
                         )
-                    selected_row = next(
-                        (row for row in assignable_students if _clean_text(row.get("student_name")) == selected_student_name),
-                        {},
-                    )
+                    selected_rows = [option_lookup[label] for label in selected_labels if label in option_lookup]
                     with assign_col2:
                         assign_note = st.text_input(
                             t("teacher_note"),
                             key=f"{ns}_assign_note",
                             placeholder=t("assignment_teacher_note_placeholder"),
                         ).strip()
+
+                    duplicate_names = [
+                        _clean_text(row.get("student_name"))
+                        for row in selected_rows
+                        if learning_program_assignment_duplicate_count(int(st.session_state.get(f"{ns}_saved_program_id") or 0), _clean_text(row.get("student_id"))) > 0
+                    ]
+                    duplicate_confirmed = True
+                    if duplicate_names:
+                        st.warning(t("assignment_duplicate_warning_students", students=", ".join(sorted(set(name for name in duplicate_names if name)))))
+                        duplicate_confirmed = bool(
+                            st.checkbox(
+                                t("assignment_duplicate_confirm"),
+                                key=f"{ns}_assign_duplicate_confirm",
+                            )
+                        )
 
                     if st.button(t("assign_learning_program_and_save_button"), key=f"{ns}_assign_and_save", use_container_width=True):
                         program_id = st.session_state.get(f"{ns}_saved_program_id")
@@ -5669,17 +5721,47 @@ def render_quick_learning_program_builder_expander(*, embedded: bool = False) ->
                                 st.stop()
                             st.session_state[f"{ns}_saved_program_id"] = program_id
                             st.success(t("learning_program_saved_success", program_id=program_id))
+                        if not selected_rows:
+                            st.error(t("select_student"))
+                            st.stop()
+                        if duplicate_names and not duplicate_confirmed:
+                            st.error(t("assignment_duplicate_confirm_required"))
+                            st.stop()
 
-                        ok, assignment_id, msg = assign_learning_program(
-                            program_id=int(program_id),
-                            student_name=selected_student_name,
-                            student_user_id=_clean_text(selected_row.get("student_id")),
-                            note=assign_note,
-                        )
-                        if ok:
-                            st.success(t("learning_program_assigned_success", student=selected_student_name, assignment_id=assignment_id))
-                        else:
-                            st.error(t("learning_program_assigned_failed", error=msg))
+                        created = 0
+                        failures: list[str] = []
+                        created_names: list[str] = []
+                        created_assignment_ids: list[int] = []
+                        for selected_row in selected_rows:
+                            student_name = _clean_text(selected_row.get("student_name"))
+                            student_user_id = _clean_text(selected_row.get("student_id"))
+                            ok, assignment_id, msg = assign_learning_program(
+                                program_id=int(program_id),
+                                student_name=student_name,
+                                student_user_id=student_user_id,
+                                note=assign_note,
+                            )
+                            if ok:
+                                created += 1
+                                created_names.append(student_name)
+                                if int(assignment_id or 0) > 0:
+                                    created_assignment_ids.append(int(assignment_id))
+                            else:
+                                failures.append(f"{student_name}: {msg}")
+
+                        if created:
+                            if created == 1 and created_names:
+                                st.success(
+                                    t(
+                                        "learning_program_assigned_success",
+                                        student=created_names[0],
+                                        assignment_id=(created_assignment_ids[0] if created_assignment_ids else "—"),
+                                    )
+                                )
+                            else:
+                                st.success(t("learning_program_assignments_created", count=created))
+                        if failures:
+                            st.error(t("learning_program_assigned_failed", error="; ".join(failures)))
 
             if st.button(t("clear_builder"), key=f"{ns}_clear", use_container_width=True):
                 for key in [f"{ns}_result", f"{ns}_mode_used", f"{ns}_warning", f"{ns}_meta", f"{ns}_payload", f"{ns}_pending_unit", f"{ns}_saved_program_id"]:

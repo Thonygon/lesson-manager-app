@@ -345,6 +345,27 @@ def _render_today_lessons_cards(df: pd.DataFrame, color_map: dict, phone_map: di
 
 def _render_loaded_student_report(student: str, dashboard_df: pd.DataFrame) -> None:
     _rpt_lessons, _rpt_payments = show_student_history(student)
+    _pkg_df = dashboard_df[dashboard_df["Student"] == student].copy()
+
+    package_display_cols = [
+        "Subject",
+        "Modality",
+        "Lessons_Paid_Total",
+        "Lessons_Taken_Units",
+        "Lessons_Left_Units",
+        "Payment_Date",
+        "Package_Start_Date",
+        "Package_Expiry_Date",
+    ]
+    if not _pkg_df.empty:
+        for col in package_display_cols:
+            if col not in _pkg_df.columns:
+                _pkg_df[col] = ""
+        package_df = _pkg_df[package_display_cols].copy()
+        if "Modality" in package_df.columns:
+            package_df["Modality"] = package_df["Modality"].apply(translate_modality_value)
+        st.markdown(f"### {t('current_package_balance')}")
+        render_styled_dataframe(translate_df_headers(package_df))
 
     _rptA, _rptB = st.columns(2)
     with _rptA:
@@ -355,7 +376,6 @@ def _render_loaded_student_report(student: str, dashboard_df: pd.DataFrame) -> N
         render_styled_dataframe(translate_df_headers(_rpt_payments))
 
     st.markdown(f"#### {t('report_actions')}")
-    _pkg_df = dashboard_df[dashboard_df["Student"] == student].copy()
     _rpt_pdf = build_student_report_pdf(student, _rpt_lessons, _rpt_payments, _pkg_df)
     _safe_name = _re.sub(r"[^A-Za-z0-9._-]+", "_", student.strip()) or "student"
     _rpt_file = f"report_{_safe_name}.pdf"

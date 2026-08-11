@@ -240,10 +240,10 @@ def _render_detail(row: dict[str, Any]) -> None:
                     st.error(t("operational_diagnostics_update_failed", reference=short_event_reference(reference)))
                     return
                 if ok:
-                    st.success(t("operational_diagnostics_update_success"))
+                    st.success(t(message) if t(message) != message else t("operational_diagnostics_update_success"))
                     st.rerun()
                 else:
-                    st.error(message)
+                    st.error(t(message) if t(message) != message else message)
 
 
 def render_operational_diagnostics() -> None:

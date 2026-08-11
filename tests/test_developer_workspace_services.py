@@ -822,6 +822,52 @@ class DeveloperWorkspaceServiceTests(unittest.TestCase):
             self.assertFalse(allowed)
             self.assertIn("already validated", message)
 
+    def test_resource_affinity_runtime_activation_clears_existing_current_before_promoting_new_run(self):
+        fake_sb = _FakeSupabase(
+            {
+                "ml_experiment_runs": [
+                    {
+                        "run_id": "old-current",
+                        "experiment_id": ml.RESOURCE_AFFINITY_EXPERIMENT_ID,
+                        "run_status": "VALIDATED_NO_ROBUST_WINNER",
+                        "is_current_validated_run": True,
+                        "operational_use": "PRODUCTION_RUNTIME",
+                        "human_review_recommended_model_name": "kmeans_v1",
+                    },
+                    {
+                        "run_id": "new-run",
+                        "experiment_id": ml.RESOURCE_AFFINITY_EXPERIMENT_ID,
+                        "run_status": "VALIDATED_NO_ROBUST_WINNER",
+                        "is_current_validated_run": False,
+                        "operational_use": "REVIEWED_NOT_ACTIVE",
+                        "human_review_recommended_model_name": "",
+                    },
+                ],
+                "ml_run_models": [
+                    {"run_id": "new-run", "model_name": "kmeans_v2"},
+                ],
+            }
+        )
+        with (
+            patch.object(ml, "get_sb", return_value=fake_sb),
+            patch.object(ml, "get_current_user_id", return_value="dev-1"),
+            patch.object(ml, "record_privileged_action", return_value=True),
+        ):
+            ok, message = ml.save_resource_affinity_human_review_recommendation(
+                "new-run",
+                "kmeans_v2",
+                activate_for_runtime=True,
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual("Runtime model updated.", message)
+        rows = {row["run_id"]: row for row in fake_sb.store["ml_experiment_runs"]}
+        self.assertFalse(bool(rows["old-current"]["is_current_validated_run"]))
+        self.assertEqual("REVIEWED_NOT_ACTIVE", rows["old-current"]["operational_use"])
+        self.assertTrue(bool(rows["new-run"]["is_current_validated_run"]))
+        self.assertEqual("PRODUCTION_RUNTIME", rows["new-run"]["operational_use"])
+        self.assertEqual("kmeans_v2", rows["new-run"]["human_review_recommended_model_name"])
+
 
 if __name__ == "__main__":
     unittest.main()
