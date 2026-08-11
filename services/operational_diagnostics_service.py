@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 DIAGNOSTICS_TABLE = "application_diagnostic_events"
 DIAGNOSTICS_RPC = "record_application_diagnostic"
+DIAGNOSTICS_STATUS_RPC = "update_application_diagnostic_status"
 VALID_SEVERITIES = {"warning", "error", "critical"}
 VALID_STATUSES = {"open", "acknowledged", "resolved", "ignored"}
 SAFE_CONTEXT_KEYS = {
@@ -345,27 +346,22 @@ def update_diagnostic_status(event_id: str, *, status: str, resolution_note: str
         return False, "operational_diagnostics_event_not_found"
 
     safe_note = sanitize_text(resolution_note, limit=1000)
-    now_iso = _utc_now_iso()
-    actor_user_id = _clean_text(get_current_user_id(), limit=80) or None
     current_row = dict(existing[0])
-    update_payload: dict[str, Any] = {
-        "status": safe_status,
-        "resolution_note": safe_note or None,
-        "updated_at": now_iso,
-    }
-    if safe_status == "acknowledged":
-        update_payload["acknowledged_by"] = actor_user_id
-        update_payload["acknowledged_at"] = now_iso
-    elif safe_status in {"resolved", "ignored"}:
-        update_payload["resolved_by"] = actor_user_id
-        update_payload["resolved_at"] = now_iso
-    elif safe_status == "open":
-        update_payload["acknowledged_by"] = None
-        update_payload["acknowledged_at"] = None
-        update_payload["resolved_by"] = None
-        update_payload["resolved_at"] = None
+    rpc_rows = (
+        get_sb()
+        .rpc(
+            DIAGNOSTICS_STATUS_RPC,
+            {
+                "p_event_id": safe_event_id,
+                "p_status": safe_status,
+                "p_resolution_note": safe_note or None,
+            },
+        )
+        .execute()
+    ).data or []
+    if rpc_rows and rpc_rows[0] is False:
+        return False, "operational_diagnostics_event_not_found"
 
-    get_sb().table(DIAGNOSTICS_TABLE).update(update_payload).eq("event_id", safe_event_id).execute()
     list_diagnostics.clear()
     count_active_critical_diagnostics.clear()
     record_privileged_action(

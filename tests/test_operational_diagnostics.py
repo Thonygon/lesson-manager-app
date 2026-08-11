@@ -212,12 +212,12 @@ class OperationalDiagnosticsTests(unittest.TestCase):
     def test_status_updates_use_the_restricted_update_and_are_audited(self):
         event_id = "1d170d96-6c61-4498-a81a-b2c8bd2ca560"
         fake_sb = _FakeSupabase(
+            rpc_data=[True],
             table_rows=[{"event_id": event_id, "status": "open", "resolution_note": None}],
         )
 
         with (
             patch.object(diagnostics, "get_sb", return_value=fake_sb),
-            patch.object(diagnostics, "get_current_user_id", return_value="developer-1"),
             patch.object(diagnostics, "require_capability") as require_capability,
             patch.object(diagnostics, "record_privileged_action", return_value=True) as record_action,
         ):
@@ -229,8 +229,17 @@ class OperationalDiagnosticsTests(unittest.TestCase):
 
         self.assertTrue(ok)
         require_capability.assert_called_once_with(diagnostics.CAPABILITY_MANAGE_OPERATIONAL_DIAGNOSTICS)
-        self.assertEqual("resolved", fake_sb.table_rows[0]["status"])
-        self.assertEqual("developer-1", fake_sb.table_rows[0]["resolved_by"])
+        self.assertIn(
+            (
+                diagnostics.DIAGNOSTICS_STATUS_RPC,
+                {
+                    "p_event_id": event_id,
+                    "p_status": "resolved",
+                    "p_resolution_note": "Fixed in release 12",
+                },
+            ),
+            fake_sb.calls,
+        )
         record_action.assert_called_once()
 
     def test_diagnostics_page_requires_server_side_workspace_access(self):

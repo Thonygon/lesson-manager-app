@@ -5,9 +5,9 @@ from datetime import datetime as _dt, timezone
 import pandas as pd
 from core.i18n import t
 from core.navigation import go_to, page_header
-from core.database import clear_cache_domains, get_sb, load_table_filtered, load_students, recalculate_package_dates
+from core.database import add_payment, clear_cache_domains, delete_row, get_sb, load_table_filtered, load_students, recalculate_package_dates
 from helpers.language import LANG_EN, LANG_ES, LANG_BOTH, ALLOWED_LANGS, DEFAULT_PACKAGE_LANGS, pack_languages, allowed_lesson_language_from_package, translate_language_value
-from helpers.classes_payments import add_payment, delete_row, update_payment_row, update_class_row
+from helpers.classes_payments import update_payment_row, update_class_row
 from helpers.pricing import render_pricing_editor
 from helpers.package_lang_lookups import latest_payment_languages_for_student
 from helpers.currency import CURRENCIES, CURRENCY_CODES, get_preferred_currency, currency_symbol, guess_currency_from_timezone

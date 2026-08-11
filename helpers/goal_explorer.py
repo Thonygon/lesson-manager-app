@@ -517,7 +517,7 @@ def _apply_explore_shared_filters(
         filtered = filtered[filtered["_search_level"].astype(str) == level_filter]
     if query:
         filtered = _rank_search(filtered, query, weights)
-    if "created_at" in filtered.columns:
+    elif "created_at" in filtered.columns:
         filtered = filtered.sort_values("created_at", ascending=False)
     return filtered.drop(
         columns=[c for c in filtered.columns if c.startswith("_search")],
