@@ -2758,7 +2758,11 @@ def render_quick_worksheet_maker_expander(*, embedded: bool = False) -> None:
             worksheet_type=worksheet_type,
             student_profile=preview_profile,
         )
-        render_generation_recommendations(worksheet_request, state_prefix="quick_ws")
+        render_generation_recommendations(
+            worksheet_request,
+            state_prefix="quick_ws",
+            inline_actions=embedded,
+        )
         generate_button_label = (
             t("material_recommendations_generate_anyway")
             if is_generation_reuse_gate_pending(worksheet_request, state_prefix="quick_ws")

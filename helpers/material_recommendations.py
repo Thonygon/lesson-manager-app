@@ -622,6 +622,7 @@ def render_generation_recommendations(
     state_prefix: str,
     title_key: str = "material_recommendations_title",
     subtitle_key: str = "material_recommendations_subtitle",
+    inline_actions: bool = False,
 ) -> list[dict]:
     topic = str(request.get("topic") or "").strip()
     if not topic:
@@ -638,6 +639,10 @@ def render_generation_recommendations(
         st.session_state.pop(f"{state_prefix}_reuse_gate_pending", None)
         st.session_state.pop(f"{state_prefix}_reuse_gate_approved", None)
         pending_signature = ""
+    inline_state_key = f"{state_prefix}_inline_material_state"
+    inline_state = st.session_state.get(inline_state_key)
+    if isinstance(inline_state, dict) and str(inline_state.get("signature") or "") != signature:
+        st.session_state.pop(inline_state_key, None)
 
     card_html = [
         "<div style='margin:10px 0 14px 0;padding:14px 14px 8px;border-radius:18px;"
@@ -695,10 +700,30 @@ def render_generation_recommendations(
             st.caption(f"{str(row.get('title') or t('untitled_plan')).strip()}  |  {_score_label(str(match.get('recommendation_bucket') or ''))}")
         with columns[1]:
             if st.button(t("material_recommendations_open"), key=f"{state_prefix}_match_open_{idx}", use_container_width=True):
+                if inline_actions:
+                    st.toast(t("scroll_down_to_view"))
+                    st.session_state[inline_state_key] = {
+                        "signature": signature,
+                        "mode": "open",
+                        "resource": dict(match or {}),
+                    }
+                    st.rerun()
                 open_material_recommendation(match, assign=False, open_in_files=False)
         with columns[2]:
             if st.button(t("material_recommendations_assign"), key=f"{state_prefix}_match_assign_{idx}", use_container_width=True):
+                if inline_actions:
+                    st.toast(t("scroll_down_to_view"))
+                    st.session_state[inline_state_key] = {
+                        "signature": signature,
+                        "mode": "assign",
+                        "resource": dict(match or {}),
+                    }
+                    st.rerun()
                 open_material_recommendation(match, assign=True, open_in_files=False)
+
+    if inline_actions:
+        _render_inline_material_recommendation(state_prefix)
+        return matches
 
     from helpers.teacher_student_integration import render_resource_bulk_assign_dialog
 
@@ -712,6 +737,118 @@ def render_generation_recommendations(
         pass
 
     return matches
+
+
+def _load_inline_material_row(kind: str, row: dict) -> dict:
+    safe_kind = str(kind or "").strip()
+    loaded = dict(row or {})
+    resource_id = loaded.get("id")
+    if safe_kind == "worksheet" and resource_id and not loaded.get("worksheet_json"):
+        from helpers.worksheet_storage import load_worksheet_record
+
+        fresh = load_worksheet_record(resource_id) or {}
+        if fresh:
+            loaded = {**loaded, **fresh}
+    elif safe_kind == "exam" and resource_id and (not loaded.get("exam_data") or not loaded.get("answer_key")):
+        from helpers.quick_exam_storage import load_exam_record
+
+        fresh = load_exam_record(resource_id) or {}
+        if fresh:
+            loaded = {**loaded, **fresh}
+    elif safe_kind == "plan" and resource_id and not loaded.get("plan_json"):
+        from helpers.planner_storage import load_lesson_plan_record
+
+        fresh = load_lesson_plan_record(resource_id) or {}
+        if fresh:
+            loaded = {**loaded, **fresh}
+    return loaded
+
+
+def _render_inline_material_recommendation(state_prefix: str) -> None:
+    inline_state = st.session_state.get(f"{state_prefix}_inline_material_state")
+    if not isinstance(inline_state, dict):
+        return
+
+    mode = str(inline_state.get("mode") or "open").strip().lower()
+    resource = dict(inline_state.get("resource") or {})
+    kind = str(resource.get("kind") or "").strip()
+    row = _load_inline_material_row(kind, resource.get("row") or {})
+    if not kind or not row:
+        st.session_state.pop(f"{state_prefix}_inline_material_state", None)
+        return
+
+    row_title = str(row.get("title") or t("untitled_plan")).strip()
+    header_cols = st.columns([6, 1], gap="small")
+    with header_cols[0]:
+        st.markdown(f"### {t('material_recommendations_open') if mode != 'assign' else t('assign_to_student')}: {_html.escape(row_title)}")
+    with header_cols[1]:
+        if st.button(t("close"), key=f"{state_prefix}_inline_material_close", use_container_width=True):
+            st.session_state.pop(f"{state_prefix}_inline_material_state", None)
+            st.rerun()
+
+    if kind == "worksheet":
+        from helpers.worksheet_storage import render_worksheet_result
+
+        render_worksheet_result(
+            row.get("worksheet_json") or {},
+            read_only=True,
+            allow_assign=(mode == "assign"),
+            assign_expanded=(mode == "assign"),
+            resource_record_id=row.get("id"),
+            action_key_prefix=f"{state_prefix}_inline_ws",
+            subject=str(row.get("subject") or ""),
+            topic=str(row.get("topic") or ""),
+            learner_stage=str(row.get("learner_stage") or ""),
+            level_or_band=str(row.get("level_or_band") or ""),
+            worksheet_type=str(row.get("worksheet_type") or ""),
+        )
+        return
+
+    if kind == "exam":
+        from helpers.quick_exam_storage import render_exam_result
+
+        render_exam_result(
+            row.get("exam_data") or {},
+            row.get("answer_key") or {},
+            read_only=True,
+            allow_assign=(mode == "assign"),
+            assign_expanded=(mode == "assign"),
+            resource_record_id=row.get("id"),
+            action_key_prefix=f"{state_prefix}_inline_exam",
+            subject=str(row.get("subject") or ""),
+            topic=str(row.get("topic") or ""),
+            learner_stage=str(row.get("learner_stage") or ""),
+            level_or_band=str(row.get("level") or row.get("level_or_band") or ""),
+        )
+        return
+
+    if kind == "plan":
+        from helpers.planner_storage import render_quick_lesson_plan_result
+
+        render_quick_lesson_plan_result(
+            row.get("plan_json") or {},
+            read_only=True,
+            allow_assign=(mode == "assign"),
+            assign_expanded=(mode == "assign"),
+            resource_record_id=row.get("id"),
+            action_key_prefix=f"{state_prefix}_inline_plan",
+            subject=str(row.get("subject") or ""),
+            topic=str(row.get("topic") or ""),
+            learner_stage=str(row.get("learner_stage") or ""),
+            level_or_band=str(row.get("level_or_band") or ""),
+            lesson_purpose=str(row.get("lesson_purpose") or ""),
+        )
+        return
+
+    if kind == "video":
+        from helpers.video_library import render_video_detail
+
+        render_video_detail(
+            row,
+            action_key_prefix=f"{state_prefix}_inline_video",
+            allow_assign=(mode == "assign"),
+            assign_expanded=(mode == "assign"),
+        )
 
 
 def open_material_recommendation(
