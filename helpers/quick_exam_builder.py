@@ -1626,7 +1626,11 @@ def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
             exercise_types=_dedupe_keep_order(exercise_types),
             student_profile=preview_profile,
         )
-        render_generation_recommendations(exam_request, state_prefix="quick_exam")
+        render_generation_recommendations(
+            exam_request,
+            state_prefix="quick_exam",
+            inline_actions=embedded,
+        )
         generate_exam_label = (
             t("material_recommendations_generate_anyway")
             if is_generation_reuse_gate_pending(exam_request, state_prefix="quick_exam")

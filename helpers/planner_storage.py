@@ -2115,7 +2115,11 @@ def render_quick_lesson_planner_expander(*, embedded: bool = False) -> None:
             lesson_purpose=lesson_purpose,
             student_profile=preview_profile,
         )
-        render_generation_recommendations(plan_request, state_prefix="quick_plan")
+        render_generation_recommendations(
+            plan_request,
+            state_prefix="quick_plan",
+            inline_actions=embedded,
+        )
         generate_plan_label = (
             t("material_recommendations_generate_anyway")
             if quick_plan_mode == "ai" and is_generation_reuse_gate_pending(plan_request, state_prefix="quick_plan")
