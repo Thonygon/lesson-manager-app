@@ -91,11 +91,76 @@ _SUBJECT_NORMALIZE = {
     "diğer": "other", "otra": "other",
 }
 
+_LEARNER_STAGE_NORMALIZE = {
+    "early_primary": "early_primary",
+    "early primary": "early_primary",
+    "early primary (6–8)": "early_primary",
+    "early primary (6-8)": "early_primary",
+    "primaria inicial": "early_primary",
+    "primaria inicial (6–8)": "early_primary",
+    "primaria inicial (6-8)": "early_primary",
+    "ilkokul alt": "early_primary",
+    "ilkokul alt (6–8)": "early_primary",
+    "ilkokul alt (6-8)": "early_primary",
+    "upper_primary": "upper_primary",
+    "upper primary": "upper_primary",
+    "upper primary (9–11)": "upper_primary",
+    "upper primary (9-11)": "upper_primary",
+    "primaria superior": "upper_primary",
+    "primaria superior (9–11)": "upper_primary",
+    "primaria superior (9-11)": "upper_primary",
+    "ilkokul üst": "upper_primary",
+    "ilkokul üst (9–11)": "upper_primary",
+    "ilkokul üst (9-11)": "upper_primary",
+    "lower_secondary": "lower_secondary",
+    "lower secondary": "lower_secondary",
+    "lower secondary (12–14)": "lower_secondary",
+    "lower secondary (12-14)": "lower_secondary",
+    "secundaria baja": "lower_secondary",
+    "secundaria baja (12–14)": "lower_secondary",
+    "secundaria baja (12-14)": "lower_secondary",
+    "ortaokul": "lower_secondary",
+    "ortaokul (12–14)": "lower_secondary",
+    "ortaokul (12-14)": "lower_secondary",
+    "upper_secondary": "upper_secondary",
+    "upper secondary": "upper_secondary",
+    "upper secondary (15–18)": "upper_secondary",
+    "upper secondary (15-18)": "upper_secondary",
+    "secundaria alta": "upper_secondary",
+    "secundaria alta (15–18)": "upper_secondary",
+    "secundaria alta (15-18)": "upper_secondary",
+    "lise": "upper_secondary",
+    "lise (15–18)": "upper_secondary",
+    "lise (15-18)": "upper_secondary",
+    "adult_stage": "adult_stage",
+    "adult": "adult_stage",
+    "adults": "adult_stage",
+    "adult learner": "adult_stage",
+    "adult learners": "adult_stage",
+    "adulto": "adult_stage",
+    "adultos": "adult_stage",
+    "yetişkin": "adult_stage",
+}
+
 
 def normalize_subject(raw: str) -> str:
     """Normalize a subject value to its canonical key."""
     key = str(raw or "").strip().lower().replace(" ", "_")
     return _SUBJECT_NORMALIZE.get(key, key)
+
+
+def normalize_learner_stage(raw: str) -> str:
+    """Normalize learner-stage values and localized labels to canonical keys."""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    key = text.lower().replace("_", " ")
+    key = re.sub(r"\s+", " ", key).strip()
+    normalized = _LEARNER_STAGE_NORMALIZE.get(key)
+    if normalized:
+        return normalized
+    fallback = text.strip().lower().replace(" ", "_")
+    return fallback if fallback in LEARNER_STAGES else ""
 
 
 def get_subject_engine(subject: str) -> str:

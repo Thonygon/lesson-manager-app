@@ -9,7 +9,7 @@ from core.i18n import t
 from core.navigation import go_to
 from core.state import get_current_user_id
 from helpers.practice_engine import exam_to_exercises, worksheet_to_exercises
-from helpers.practice_engine import load_in_progress_practice_session, load_practice_draft_answers, normalize_exercise_data_for_web
+from helpers.practice_engine import load_in_progress_practice_session, load_practice_draft_answers, load_practice_review_state, normalize_exercise_data_for_web
 from helpers.visual_support import enrich_exam_with_visuals, enrich_worksheet_with_visuals, exam_has_ready_visuals, worksheet_has_ready_visuals
 from helpers.quick_exam_storage import load_exam_record
 from helpers.teacher_student_integration import (
@@ -69,7 +69,32 @@ def _assignment_action_label(row: dict, *, has_draft: bool = False) -> str:
     return t("open_assignment")
 
 
-def _latest_completed_assignment_session(assignment_id: int) -> dict:
+def _practice_session_matches_assignment(
+    session_row: dict,
+    *,
+    assignment_id: int,
+    source_record_id=None,
+    assignment_type: str = "",
+) -> bool:
+    if not session_row or int(assignment_id or 0) <= 0:
+        return False
+    session_type = str(session_row.get("source_type") or "").strip()
+    if assignment_type and session_type != str(assignment_type or "").strip():
+        return False
+    session_source = str(session_row.get("source_id") or "").strip()
+    valid_sources = {str(int(assignment_id))}
+    if source_record_id not in (None, "", 0, "0"):
+        valid_sources.add(str(source_record_id).strip())
+    return bool(session_source and session_source in valid_sources)
+
+
+def _latest_completed_assignment_session(
+    assignment_id: int,
+    *,
+    source_record_id=None,
+    assignment_type: str = "",
+    preferred_session_id: int | None = None,
+) -> dict:
     safe_assignment_id = int(assignment_id or 0)
     uid = str(get_current_user_id() or "").strip()
     if safe_assignment_id <= 0 or not uid:
@@ -85,23 +110,35 @@ def _latest_completed_assignment_session(assignment_id: int) -> dict:
             .limit(10)
             .execute()
         ).data or []
-        session_id = 0
-        for attempt_row in rows:
-            session_id = int((attempt_row or {}).get("practice_session_id") or 0)
-            if session_id > 0:
-                break
-        if session_id <= 0:
+        session_ids = [
+            int((attempt_row or {}).get("practice_session_id") or 0)
+            for attempt_row in rows
+            if int((attempt_row or {}).get("practice_session_id") or 0) > 0
+        ]
+        if int(preferred_session_id or 0) > 0:
+            preferred = int(preferred_session_id)
+            session_ids = [preferred] if preferred in session_ids else []
+        if not session_ids:
             return {}
         session_rows = (
             get_sb()
             .table("practice_sessions")
             .select("*")
-            .eq("id", session_id)
+            .in_("id", session_ids)
             .eq("user_id", uid)
-            .limit(1)
             .execute()
         ).data or []
-        return session_rows[0] if session_rows else {}
+        sessions_by_id = {int(row.get("id") or 0): row for row in session_rows}
+        for session_id in session_ids:
+            session_row = sessions_by_id.get(session_id) or {}
+            if _practice_session_matches_assignment(
+                session_row,
+                assignment_id=safe_assignment_id,
+                source_record_id=source_record_id,
+                assignment_type=assignment_type,
+            ):
+                return session_row
+        return {}
     except Exception:
         return {}
 
@@ -340,6 +377,7 @@ def _open_assignment_practice(
     review_completed: bool = False,
     return_page: str = "student_assignments",
     return_section: str = "",
+    review_session_id: int | None = None,
 ) -> None:
     assignment_id = row.get("id")
     snapshot = row.get("content_snapshot") or {}
@@ -407,7 +445,20 @@ def _open_assignment_practice(
         st.warning(t("no_exercises_available"))
         return
 
-    completed_session = _latest_completed_assignment_session(int(assignment_id or 0)) if review_completed else {}
+    exercise_data = dict(exercise_data)
+    exercise_data["assignment_id"] = int(assignment_id or 0)
+    exercise_data["resource_record_id"] = source_record_id
+
+    completed_session = (
+        _latest_completed_assignment_session(
+            int(assignment_id or 0),
+            source_record_id=source_record_id,
+            assignment_type=assignment_type,
+            preferred_session_id=review_session_id,
+        )
+        if review_completed
+        else {}
+    )
     draft = {} if completed_session else load_in_progress_practice_session(assignment_type, assignment_id)
     if completed_session:
         completed_exercise_data = exercise_data
@@ -417,11 +468,19 @@ def _open_assignment_practice(
             except Exception:
                 completed_exercise_data = exercise_data
         completed_session_id = int(completed_session.get("id") or 0)
-        st.session_state["practice_exercise_data"] = normalize_exercise_data_for_web(completed_exercise_data or exercise_data)
-        st.session_state["_practice_resume_answers"] = load_practice_draft_answers(completed_session_id)
+        normalized_completed_exercise_data = normalize_exercise_data_for_web(completed_exercise_data or exercise_data)
+        st.session_state["practice_exercise_data"] = normalized_completed_exercise_data
+        review_state = load_practice_review_state(
+            completed_session_id,
+            exercise_data=normalized_completed_exercise_data,
+            session_key="sp",
+            assignment_id=int(assignment_id or 0) or None,
+        )
+        st.session_state["_practice_resume_answers"] = dict(review_state.get("answers") or {})
         st.session_state["_practice_last_session_id"] = completed_session_id
         st.session_state["_practice_review_mode"] = True
         st.session_state["_practice_submitted_sp"] = True
+        st.session_state["_practice_review_state_sp"] = review_state
         st.session_state.pop("_practice_resume_session_id", None)
         st.session_state.pop("_practice_resume_notice", None)
     elif draft:
@@ -431,20 +490,28 @@ def _open_assignment_practice(
                 draft_exercise_data = json.loads(draft_exercise_data)
             except Exception:
                 draft_exercise_data = exercise_data
-        st.session_state["practice_exercise_data"] = normalize_exercise_data_for_web(draft_exercise_data or exercise_data)
+        normalized_draft_exercise_data = normalize_exercise_data_for_web(draft_exercise_data or exercise_data)
+        st.session_state["practice_exercise_data"] = normalized_draft_exercise_data
         st.session_state["_practice_resume_session_id"] = draft.get("id")
-        st.session_state["_practice_resume_answers"] = load_practice_draft_answers(int(draft.get("id")))
+        st.session_state["_practice_resume_answers"] = load_practice_draft_answers(
+            int(draft.get("id")),
+            exercise_data=normalized_draft_exercise_data,
+            session_key="sp",
+        )
         st.session_state["_practice_resume_notice"] = True
         st.session_state.pop("_practice_review_mode", None)
+        st.session_state.pop("_practice_review_state_sp", None)
     else:
         st.session_state["practice_exercise_data"] = exercise_data
         st.session_state.pop("_practice_resume_session_id", None)
         st.session_state.pop("_practice_resume_answers", None)
         st.session_state.pop("_practice_resume_notice", None)
         st.session_state.pop("_practice_review_mode", None)
+        st.session_state.pop("_practice_review_state_sp", None)
         st.session_state.pop("_practice_submitted_sp", None)
     st.session_state["practice_meta"] = {
         **dict(meta or {}),
+        "assignment_id": int(assignment_id or 0),
         "return_page": return_page,
         "return_section": return_section,
     }

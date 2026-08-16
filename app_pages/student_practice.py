@@ -28,6 +28,7 @@ from helpers.practice_engine import (
     get_rank,
     calculate_session_xp,
     record_video_practice_interaction,
+    load_practice_review_state,
 )
 from helpers.teacher_student_integration import (
     _clean_teacher_feedback_text,
@@ -307,6 +308,11 @@ def _open_practice_item(
         st.warning(t("no_exercises_available"))
         return False
 
+    # Proactive practice must never inherit assignment provenance from a
+    # previously completed assignment in the same Streamlit session.
+    st.session_state.pop("_practice_assignment_id", None)
+    st.session_state.pop("_practice_assignment_type", None)
+
     draft = load_in_progress_practice_session(
         str((exercise_data or {}).get("source_type") or ""),
         (exercise_data or {}).get("source_id"),
@@ -326,8 +332,13 @@ def _open_practice_item(
             return_section=return_section,
         )
         st.session_state["_practice_resume_session_id"] = draft.get("id")
-        st.session_state["_practice_resume_answers"] = load_practice_draft_answers(int(draft.get("id")))
+        st.session_state["_practice_resume_answers"] = load_practice_draft_answers(
+            int(draft.get("id")),
+            exercise_data=draft_exercise_data,
+            session_key="sp",
+        )
         st.session_state["_practice_resume_notice"] = True
+        st.session_state.pop("_practice_review_state_sp", None)
     else:
         st.session_state["practice_exercise_data"] = exercise_data
         st.session_state["practice_meta"] = _practice_meta_with_return_context(
@@ -338,6 +349,7 @@ def _open_practice_item(
         st.session_state.pop("_practice_resume_session_id", None)
         st.session_state.pop("_practice_resume_answers", None)
         st.session_state.pop("_practice_resume_notice", None)
+        st.session_state.pop("_practice_review_state_sp", None)
 
     if demo_id:
         st.session_state["_practice_demo_id"] = demo_id
@@ -445,8 +457,13 @@ def _open_history_practice_row(row: dict, *, assignment_state: dict | None = Non
     assignment_state = assignment_state or {}
     source_type = str(row.get("source_type") or "").strip()
     source_id = _safe_int(row.get("source_id"))
-    if source_type in {"worksheet", "exam"} and assignment_state and source_id > 0:
-        assignment_row = load_student_assignment_by_id(source_id)
+    assignment_id = _safe_int(
+        row.get("_assignment_id")
+        or assignment_state.get("assignment_id")
+        or row.get("assignment_id")
+    )
+    if source_type in {"worksheet", "exam"} and assignment_id > 0:
+        assignment_row = load_student_assignment_by_id(assignment_id)
         if assignment_row:
             from app_pages.student_assignments import _open_assignment_practice
 
@@ -480,9 +497,14 @@ def _open_history_review_row(row: dict, *, assignment_state: dict | None = None)
     source_type = str(row.get("source_type") or "").strip()
     source_id = _safe_int(row.get("source_id"))
     session_id = _safe_int(row.get("id"))
+    assignment_id = _safe_int(
+        row.get("_assignment_id")
+        or assignment_state.get("assignment_id")
+        or row.get("assignment_id")
+    )
 
-    if source_type in {"worksheet", "exam"} and assignment_state and source_id > 0:
-        assignment_row = load_student_assignment_by_id(source_id)
+    if source_type in {"worksheet", "exam"} and assignment_id > 0:
+        assignment_row = load_student_assignment_by_id(assignment_id)
         if assignment_row:
             from app_pages.student_assignments import _open_assignment_practice
 
@@ -491,6 +513,7 @@ def _open_history_review_row(row: dict, *, assignment_state: dict | None = None)
                 review_completed=True,
                 return_page="student_practice",
                 return_section="history",
+                review_session_id=session_id,
             )
             return True
 
@@ -500,6 +523,42 @@ def _open_history_review_row(row: dict, *, assignment_state: dict | None = None)
             exercise_data = json.loads(exercise_data)
         except Exception:
             exercise_data = None
+
+    if source_type == "worksheet" and source_id > 0 and assignment_id <= 0:
+        try:
+            worksheet_json, resolved_row = _resolve_worksheet_payload({"id": source_id})
+            if worksheet_json:
+                from helpers.worksheet_builder import normalize_worksheet_output
+
+                normalized_ws = normalize_worksheet_output(worksheet_json)
+                exercise_data = worksheet_to_exercises(normalized_ws, row_id=source_id)
+                row = {
+                    **dict(row or {}),
+                    "subject": resolved_row.get("subject") or row.get("subject"),
+                    "topic": resolved_row.get("topic") or row.get("topic"),
+                    "learner_stage": resolved_row.get("learner_stage") or row.get("learner_stage"),
+                    "level": resolved_row.get("level_or_band") or row.get("level"),
+                }
+        except Exception:
+            pass
+    elif source_type == "exam" and source_id > 0 and assignment_id <= 0:
+        try:
+            exam_data, answer_key, resolved_row = _resolve_exam_payload({"id": source_id})
+            if exam_data:
+                exam_data.setdefault("subject", resolved_row.get("subject", ""))
+                exam_data.setdefault("topic", resolved_row.get("topic", ""))
+                exam_data.setdefault("learner_stage", resolved_row.get("learner_stage", ""))
+                exercise_data = exam_to_exercises(exam_data, answer_key, row_id=source_id)
+                row = {
+                    **dict(row or {}),
+                    "subject": resolved_row.get("subject") or row.get("subject"),
+                    "topic": resolved_row.get("topic") or row.get("topic"),
+                    "learner_stage": resolved_row.get("learner_stage") or row.get("learner_stage"),
+                    "level": resolved_row.get("level") or row.get("level"),
+                }
+        except Exception:
+            pass
+
     if not exercise_data or session_id <= 0:
         return False
 
@@ -516,10 +575,17 @@ def _open_history_review_row(row: dict, *, assignment_state: dict | None = None)
         "return_page": "student_practice",
         "return_section": "history",
     }
-    st.session_state["_practice_resume_answers"] = load_practice_draft_answers(session_id)
+    review_state = load_practice_review_state(
+        session_id,
+        exercise_data=normalized,
+        session_key="sp",
+        assignment_id=assignment_id or None,
+    )
+    st.session_state["_practice_resume_answers"] = dict(review_state.get("answers") or {})
     st.session_state["_practice_last_session_id"] = session_id
     st.session_state["_practice_review_mode"] = True
     st.session_state["_practice_submitted_sp"] = True
+    st.session_state["_practice_review_state_sp"] = review_state
     st.session_state.pop("_practice_resume_session_id", None)
     st.session_state.pop("_practice_resume_notice", None)
     st.session_state.pop("_practice_retry_session_id", None)
@@ -1607,12 +1673,19 @@ def _render_history_tab(history_override=None, *, scope_key: str = ""):
     page_state_key = f"student_practice_history_page_{scope_key or 'all'}"
     history_page_rows, *_ = _slice_practice_page(history_rows, page_state_key)
 
+    session_scope_map = load_practice_assignment_scope_map(
+        [_safe_int(row.get("id")) for row in history_page_rows if _safe_int(row.get("id")) > 0]
+    )
+    for row in history_page_rows:
+        session_id = _safe_int(row.get("id"))
+        scope = session_scope_map.get(session_id, {})
+        row["_assignment_id"] = _safe_int(scope.get("assignment_id"))
+
     assignment_ids = []
     for row in history_page_rows:
-        source_type = str(row.get("source_type") or "").strip()
-        source_id = _safe_int(row.get("source_id"))
-        if source_type in {"worksheet", "exam"} and source_id > 0:
-            assignment_ids.append(source_id)
+        assignment_id = _safe_int(row.get("_assignment_id"))
+        if assignment_id > 0:
+            assignment_ids.append(assignment_id)
     assignment_state_map = load_assignment_state_map(assignment_ids)
 
     for h_idx, row in enumerate(history_page_rows):
@@ -1626,7 +1699,7 @@ def _render_history_tab(history_override=None, *, scope_key: str = ""):
         session_id = row.get("id")
         subject = str(row.get("subject") or "").strip()
         topic = str(row.get("topic") or "").strip()
-        assignment_state = assignment_state_map.get(_safe_int(row.get("source_id")), {})
+        assignment_state = assignment_state_map.get(_safe_int(row.get("_assignment_id")), {})
         assignment_removed = str(assignment_state.get("status") or "").strip() == "archived"
         source_archived = bool(assignment_state.get("source_archived"))
 

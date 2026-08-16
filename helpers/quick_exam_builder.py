@@ -338,6 +338,38 @@ def _recover_section_answers(section: dict, existing_answers: list) -> list:
     return recovered
 
 
+def _matching_answer_marker(value, option_count: int) -> int | None:
+    if isinstance(value, dict) and len(value) == 1:
+        _key, value = next(iter(value.items()))
+    marker = _clean_str(value)
+    if not marker or option_count <= 0:
+        return None
+    letter_match = re.fullmatch(r"(?:option\s+)?([A-Za-z])", marker, flags=re.IGNORECASE)
+    if letter_match:
+        index = ord(letter_match.group(1).upper()) - ord("A")
+        return index if 0 <= index < option_count else None
+    number_match = re.fullmatch(r"(?:option\s+)?(\d+)", marker, flags=re.IGNORECASE)
+    if number_match:
+        index = int(number_match.group(1)) - 1
+        return index if 0 <= index < option_count else None
+    return None
+
+
+def _canonical_matching_answers(section: dict, answers: list) -> list:
+    choices = [
+        _clean_str(question.get("right")) if isinstance(question, dict) else ""
+        for question in _ensure_list(section.get("questions"))
+    ]
+    canonical = []
+    for answer in answers or []:
+        marker_index = _matching_answer_marker(answer, len(choices))
+        if marker_index is not None and choices[marker_index]:
+            canonical.append(choices[marker_index])
+        else:
+            canonical.append(answer)
+    return canonical
+
+
 def repair_exam_answer_key(exam_data: dict, answer_key: dict | None) -> tuple[dict, dict]:
     """Backfill missing answer-key entries from question objects when possible."""
     exam_copy = dict(exam_data or {})
@@ -350,9 +382,12 @@ def repair_exam_answer_key(exam_data: dict, answer_key: dict | None) -> tuple[di
         if not isinstance(sec, dict):
             continue
         existing = ak_sections[idx] if idx < len(ak_sections) and isinstance(ak_sections[idx], dict) else {}
+        answers = _recover_section_answers(sec, existing.get("answers") or [])
+        if _clean_str(sec.get("type")) == "matching":
+            answers = _canonical_matching_answers(sec, answers)
         repaired_sections.append({
             "title": _clean_str(existing.get("title") or sec.get("title") or ""),
-            "answers": _recover_section_answers(sec, existing.get("answers") or []),
+            "answers": answers,
         })
 
     answer_copy["sections"] = repaired_sections

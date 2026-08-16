@@ -423,13 +423,7 @@ def exam_to_exercises(exam_data: dict, answer_key: dict, *, row_id: int | None =
         if sec.get("visual_support"):
             ex["visual_support"] = sec.get("visual_support")
         if sec_type == "matching":
-            ex["answers"] = [
-                _matching_answer_from_question(
-                    ex["questions"][ans_idx] if ans_idx < len(ex["questions"]) else {},
-                    answer,
-                )
-                for ans_idx, answer in enumerate(ex["answers"])
-            ]
+            ex["answers"] = _resolve_matching_answers(ex["questions"], ex["answers"])
         elif sec_type == "vocabulary":
             vocab_questions = []
             raw_questions = sec.get("questions") or []
@@ -498,13 +492,7 @@ def normalize_exercise_data_for_web(exercise_data: dict) -> dict:
         if ex_type == "matching":
             raw_questions = ex.get("questions") or []
             raw_answers = ex.get("answers") or []
-            ex["answers"] = [
-                _matching_answer_from_question(
-                    raw_questions[ans_idx] if ans_idx < len(raw_questions) else {},
-                    answer,
-                )
-                for ans_idx, answer in enumerate(raw_answers)
-            ]
+            ex["answers"] = _resolve_matching_answers(raw_questions, raw_answers)
 
         if ex_type == "vocabulary":
             raw_questions = ex.get("questions") or []
@@ -594,6 +582,46 @@ def _matching_answer_from_question(question, fallback) -> str:
             if re.fullmatch(r"[A-Za-z]", str(fallback_text).strip()):
                 return right_text
     return fallback_text
+
+
+def _matching_reference_index(value, option_count: int) -> int | None:
+    """Resolve a matching answer marker such as C or 3 to a zero-based index."""
+    marker = _comparison_answer_text(value).strip()
+    if not marker or option_count <= 0:
+        return None
+
+    letter_match = re.fullmatch(r"(?:option\s+)?([A-Za-z])", marker, flags=re.IGNORECASE)
+    if letter_match:
+        index = ord(letter_match.group(1).upper()) - ord("A")
+        return index if 0 <= index < option_count else None
+
+    number_match = re.fullmatch(r"(?:option\s+)?(\d+)", marker, flags=re.IGNORECASE)
+    if number_match:
+        index = int(number_match.group(1)) - 1
+        return index if 0 <= index < option_count else None
+
+    return None
+
+
+def _resolve_matching_answers(questions: list, raw_answers: list) -> list[str]:
+    """Resolve positional matching keys against the stored Column B ordering."""
+    choice_pool = [
+        _matching_choice_value(question)
+        for question in (questions or [])
+    ]
+    resolved: list[str] = []
+    for answer_idx, answer in enumerate(raw_answers or []):
+        reference_idx = _matching_reference_index(answer, len(choice_pool))
+        if reference_idx is not None and choice_pool[reference_idx]:
+            resolved.append(choice_pool[reference_idx])
+            continue
+        resolved.append(
+            _matching_answer_from_question(
+                questions[answer_idx] if answer_idx < len(questions) else {},
+                answer,
+            )
+        )
+    return resolved
 
 
 def _matching_choices_from_questions(questions: list) -> list[str]:
@@ -1032,6 +1060,7 @@ def _prepare_retry_attempt(session_key: str) -> None:
     if st.session_state.get("_practice_review_mode") and last_session_id:
         st.session_state["_practice_retry_session_id"] = last_session_id
     st.session_state.pop("_practice_review_mode", None)
+    st.session_state.pop(f"_practice_review_state_{session_key}", None)
     _clear_practice_widget_state(session_key)
     st.session_state.pop(f"_practice_answers_{session_key}", None)
     st.session_state.pop(f"_practice_submitted_{session_key}", None)
@@ -1108,17 +1137,31 @@ def _allowed_practice_answer_values(ex_type: str, question, *, extra: dict | Non
     return None
 
 
+def _review_choice_options(options: list, q_key: str, is_submitted: bool) -> list:
+    """Keep a submitted historical choice visible after the resource is edited."""
+    choices = list(options or [])
+    if not is_submitted:
+        return choices
+    saved_value = st.session_state.get(q_key)
+    if saved_value not in (None, "") and str(saved_value) not in {str(item) for item in choices}:
+        choices.append(saved_value)
+    return choices
+
+
 def _sanitize_practice_answer_value(
     ex_type: str,
     question,
     saved_value,
     *,
     extra: dict | None = None,
+    preserve_historical: bool = False,
 ) -> str:
     if saved_value is None:
         return ""
 
     text_value = str(saved_value)
+    if preserve_historical:
+        return text_value
     allowed_values = _allowed_practice_answer_values(ex_type, question, extra=extra)
     if allowed_values is None:
         return text_value
@@ -1141,6 +1184,7 @@ def _sanitize_practice_widget_state(
     q_key: str,
     *,
     extra: dict | None = None,
+    preserve_historical: bool = False,
 ) -> None:
     if q_key not in st.session_state:
         return
@@ -1150,6 +1194,7 @@ def _sanitize_practice_widget_state(
         question,
         st.session_state.get(q_key),
         extra=extra,
+        preserve_historical=preserve_historical,
     )
     if sanitized_value:
         st.session_state[q_key] = sanitized_value
@@ -1161,6 +1206,8 @@ def _restore_practice_widget_state_from_answers(
     exercise_data: dict,
     student_answers: dict[str, str],
     session_key: str,
+    *,
+    preserve_historical: bool = False,
 ) -> None:
     if not isinstance(student_answers, dict):
         return
@@ -1185,6 +1232,7 @@ def _restore_practice_widget_state_from_answers(
                     ex_type,
                     questions[q_idx] if q_idx < len(questions) else {},
                     student_answers[q_key],
+                    preserve_historical=preserve_historical,
                 )
                 if sanitized_value:
                     st.session_state[q_key] = sanitized_value
@@ -1286,11 +1334,20 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
     resume_answers = st.session_state.pop("_practice_resume_answers", None)
     if isinstance(resume_answers, dict):
         st.session_state[answers_key] = dict(resume_answers)
-        _restore_practice_widget_state_from_answers(exercise_data, resume_answers, session_key)
+        _restore_practice_widget_state_from_answers(
+            exercise_data,
+            resume_answers,
+            session_key,
+            preserve_historical=bool(st.session_state.get("_practice_review_mode")),
+        )
         st.session_state[f"_practice_last_autosave_payload_{session_key}"] = _practice_answers_fingerprint(resume_answers)
 
     is_submitted    = st.session_state[submitted_key]
     student_answers = st.session_state[answers_key]
+    review_mode = bool(st.session_state.get("_practice_review_mode"))
+    review_state = st.session_state.get(f"_practice_review_state_{session_key}") or {}
+    review_question_state = review_state.get("questions") if isinstance(review_state, dict) else {}
+    review_summary = review_state.get("summary") if isinstance(review_state, dict) else {}
 
     total_q    = 0
     correct_q  = 0
@@ -1348,6 +1405,10 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
 
             if is_submitted:
                 evaluation = _evaluate_answer(ex_type, student_ans, correct)
+                persisted_review = review_question_state.get(q_key) if isinstance(review_question_state, dict) else None
+                if review_mode and isinstance(persisted_review, dict):
+                    evaluation["is_correct"] = bool(persisted_review.get("is_correct"))
+                    evaluation["expected"] = str(persisted_review.get("expected") or evaluation.get("expected") or "")
                 found_count = int(evaluation.get("correct_count", 0))
                 total_count = int(evaluation.get("total_count", len(_normalize_wordsearch_words(correct))))
                 total_q += total_count
@@ -1376,7 +1437,13 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
             correct = correct_answers[q_idx] if q_idx < len(correct_answers) else ""
             total_q += 1
 
-            _sanitize_practice_widget_state(ex_type, question, q_key, extra=extra)
+            _sanitize_practice_widget_state(
+                ex_type,
+                question,
+                q_key,
+                extra=extra,
+                preserve_historical=bool(review_mode and is_submitted),
+            )
             student_ans = _render_single_question(
                 ex_type, question, correct, q_key, q_idx, is_submitted,
                 extra=extra,
@@ -1384,8 +1451,16 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
             student_answers[q_key] = student_ans
 
             if is_submitted:
-                evaluation = _evaluate_answer(ex_type, student_ans, correct)
-                if ex_type == "true_false" and not _canonical_true_false(_comparison_answer_text(correct)):
+                persisted_review = review_question_state.get(q_key) if isinstance(review_question_state, dict) else None
+                if review_mode and isinstance(persisted_review, dict):
+                    evaluation = {
+                        "is_correct": bool(persisted_review.get("is_correct")),
+                        "score": 1.0 if bool(persisted_review.get("is_correct")) else 0.0,
+                        "expected": str(persisted_review.get("expected") or _display_answer_text(correct)),
+                    }
+                else:
+                    evaluation = _evaluate_answer(ex_type, student_ans, correct)
+                if ex_type == "true_false" and not persisted_review and not _canonical_true_false(_comparison_answer_text(correct)):
                     cur_streak = 0
                     st.warning(t("true_false_feedback_missing_answer_key"))
                 elif evaluation["is_correct"]:
@@ -1494,8 +1569,15 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
                 st.rerun()
             st.error(t("practice_save_failed"))
     else:
-        pct = round(correct_q / total_q * 100) if total_q else 0
-        xp  = calculate_session_xp(correct_q, total_q, best_streak)
+        if review_mode and isinstance(review_summary, dict) and review_summary:
+            total_q = int(review_summary.get("total_questions") or total_q)
+            correct_q = int(review_summary.get("correct_count") or correct_q)
+            pct = round(float(review_summary.get("score_pct") or 0))
+            xp = int(review_summary.get("xp_earned") or 0)
+            best_streak = int(review_summary.get("best_streak") or best_streak)
+        else:
+            pct = round(correct_q / total_q * 100) if total_q else 0
+            xp  = calculate_session_xp(correct_q, total_q, best_streak)
 
         _render_score_card(correct_q, total_q, pct, xp, best_streak)
 
@@ -1520,8 +1602,11 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
                 st.session_state.pop(f"_practice_saved_{session_key}", None)
                 st.session_state.pop("practice_exercise_data", None)
                 st.session_state.pop("practice_meta", None)
+                st.session_state.pop("_practice_assignment_id", None)
+                st.session_state.pop("_practice_assignment_type", None)
                 st.session_state.pop("_practice_resume_session_id", None)
                 st.session_state.pop("_practice_resume_answers", None)
+                st.session_state.pop(f"_practice_review_state_{session_key}", None)
                 st.session_state.pop(f"_practice_last_autosave_payload_{session_key}", None)
                 st.session_state.pop(f"_practice_last_autosave_at_{session_key}", None)
                 st.session_state.pop(f"_practice_last_autosave_failed_{session_key}", None)
@@ -1562,7 +1647,11 @@ def _render_single_question(
 
     if ex_type == "multiple_choice":
         stem = question.get("stem", "") if isinstance(question, dict) else str(question)
-        options = question.get("options", []) if isinstance(question, dict) else []
+        options = _review_choice_options(
+            question.get("options", []) if isinstance(question, dict) else [],
+            q_key,
+            is_submitted,
+        )
         st.markdown(f"**{q_idx + 1}. {_strip_leading_number(stem)}**")
         choice = st.radio(
             "select",
@@ -1593,7 +1682,11 @@ def _render_single_question(
         return str(choice) if choice else ""
 
     elif ex_type == "matching":
-        shuffled_options = (extra or {}).get("shuffled_options") or []
+        shuffled_options = _review_choice_options(
+            (extra or {}).get("shuffled_options") or [],
+            q_key,
+            is_submitted,
+        )
         st.markdown(f"**{q_idx + 1}. {_sentence_case_fragment(prompt_text)}**")
         choice = st.selectbox(
             "match",
@@ -1608,10 +1701,11 @@ def _render_single_question(
         return str(choice) if choice else ""
 
     elif ex_type == "vocabulary" and isinstance(question, dict) and question.get("options"):
+        options = _review_choice_options(list(question.get("options") or []), q_key, is_submitted)
         st.markdown(f"**{q_idx + 1}. {prompt_text}**")
         choice = st.selectbox(
             "vocabulary",
-            options=[""] + list(question.get("options") or []),
+            options=[""] + options,
             format_func=_display_choice_text,
             key=q_key,
             label_visibility="collapsed",
@@ -2100,6 +2194,15 @@ def _normalize_practice_source_id(value: object) -> str | None:
     return text or None
 
 
+def _practice_resource_source_id(exercise_data: dict) -> str | None:
+    source_type = _normalize_practice_source_type(exercise_data.get("source_type"))
+    if source_type in {"worksheet", "exam"}:
+        resource_record_id = _normalize_practice_source_id(exercise_data.get("resource_record_id"))
+        if resource_record_id:
+            return resource_record_id
+    return _normalize_practice_source_id(exercise_data.get("source_id"))
+
+
 def save_practice_session(
     exercise_data: dict,
     total: int,
@@ -2120,7 +2223,7 @@ def save_practice_session(
         payload = {
             "user_id": uid,
             "source_type": _normalize_practice_source_type(exercise_data.get("source_type")),
-            "source_id": _normalize_practice_source_id(exercise_data.get("source_id")),
+            "source_id": _practice_resource_source_id(exercise_data),
             "title": str(exercise_data.get("title") or ""),
             "subject": str(meta.get("subject") or ""),
             "topic": str(meta.get("topic") or ""),
@@ -2279,7 +2382,7 @@ def save_practice_draft(
     payload = {
         "user_id": uid,
         "source_type": _normalize_practice_source_type(exercise_data.get("source_type")),
-        "source_id": _normalize_practice_source_id(exercise_data.get("source_id")),
+        "source_id": _practice_resource_source_id(exercise_data),
         "title": str(exercise_data.get("title") or ""),
         "subject": str(meta.get("subject") or ""),
         "topic": str(meta.get("topic") or ""),
@@ -3001,7 +3104,12 @@ def load_in_progress_practice_session(source_type: str, source_id: int | str | N
         return {}
 
 
-def load_practice_draft_answers(session_id: int) -> dict[str, str]:
+def load_practice_draft_answers(
+    session_id: int,
+    *,
+    exercise_data: dict | None = None,
+    session_key: str = "sp",
+) -> dict[str, str]:
     uid = get_current_user_id()
     if not uid or not session_id:
         return {}
@@ -3009,14 +3117,38 @@ def load_practice_draft_answers(session_id: int) -> dict[str, str]:
         res = (
             get_sb()
             .table("practice_answers")
-            .select("exercise_idx, question_idx, student_answer")
+            .select("exercise_idx, question_idx, exercise_type, student_answer")
             .eq("session_id", session_id)
             .eq("user_id", uid)
             .execute()
         )
         rows = res.data or []
+        rows_by_position = {
+            (int(row.get("exercise_idx") or 0), int(row.get("question_idx") or 0)): row
+            for row in rows
+        }
+        if isinstance(exercise_data, dict) and (exercise_data.get("exercises") or []):
+            restored: dict[str, str] = {}
+            for ex_idx, exercise in enumerate(exercise_data.get("exercises") or []):
+                ex_type = str(exercise.get("type") or "").strip()
+                questions = exercise.get("questions") or []
+                if ex_type == "word_search_vocab":
+                    row = rows_by_position.get((ex_idx, 0), {})
+                    restored[f"{session_key}_{ex_idx}_0"] = _serialize_saved_student_answer(
+                        row.get("student_answer"),
+                        ex_type=ex_type or str(row.get("exercise_type") or ""),
+                    )
+                    continue
+                for q_idx in range(len(questions)):
+                    row = rows_by_position.get((ex_idx, q_idx), {})
+                    restored[f"{session_key}_{ex_idx}_{q_idx}"] = _serialize_saved_student_answer(
+                        row.get("student_answer"),
+                        ex_type=ex_type or str(row.get("exercise_type") or ""),
+                    )
+            return restored
+
         return {
-            f"sp_{int(row.get('exercise_idx') or 0)}_{int(row.get('question_idx') or 0)}": _serialize_saved_student_answer(
+            f"{session_key}_{int(row.get('exercise_idx') or 0)}_{int(row.get('question_idx') or 0)}": _serialize_saved_student_answer(
                 row.get("student_answer"),
                 ex_type=str(row.get("exercise_type") or ""),
             )
@@ -3024,6 +3156,185 @@ def load_practice_draft_answers(session_id: int) -> dict[str, str]:
         }
     except Exception:
         return {}
+
+
+def load_practice_review_state(
+    session_id: int,
+    *,
+    exercise_data: dict | None = None,
+    session_key: str = "sp",
+    assignment_id: int | None = None,
+) -> dict:
+    uid = str(get_current_user_id() or "").strip()
+    if not uid or not session_id:
+        return {"answers": {}, "questions": {}, "summary": {}}
+
+    session_row: dict = {}
+    try:
+        session_rows = (
+            get_sb()
+            .table("practice_sessions")
+            .select("score_pct,correct_count,total_questions,xp_earned,best_streak,exercise_data")
+            .eq("id", int(session_id))
+            .eq("user_id", uid)
+            .limit(1)
+            .execute()
+        ).data or []
+        session_row = (session_rows[0] if session_rows else {}) or {}
+    except Exception:
+        session_row = {}
+
+    answer_rows: list[dict] = []
+    try:
+        answer_rows = (
+            get_sb()
+            .table("practice_answers")
+            .select("exercise_idx,question_idx,exercise_type,student_answer,correct_answer,is_correct")
+            .eq("session_id", int(session_id))
+            .eq("user_id", uid)
+            .order("exercise_idx")
+            .order("question_idx")
+            .execute()
+        ).data or []
+    except Exception:
+        answer_rows = []
+
+    current_exercise_data = exercise_data if isinstance(exercise_data, dict) else {}
+    reconciled_rows = _reconcile_saved_answer_rows(
+        current_exercise_data,
+        answer_rows,
+        _coerce_exercise_data(session_row.get("exercise_data")),
+    ) if current_exercise_data.get("exercises") else {
+        (int(row.get("exercise_idx") or 0), int(row.get("question_idx") or 0)): (
+            (int(row.get("exercise_idx") or 0), int(row.get("question_idx") or 0)),
+            row,
+        )
+        for row in answer_rows
+    }
+    answers: dict[str, str] = {}
+    questions: dict[str, dict] = {}
+    old_to_new_key: dict[tuple[int, int], str] = {}
+
+    if isinstance(exercise_data, dict) and (exercise_data.get("exercises") or []):
+        for ex_idx, exercise in enumerate(exercise_data.get("exercises") or []):
+            ex_type = str(exercise.get("type") or "").strip()
+            exercise_questions = exercise.get("questions") or []
+            correct_answers = exercise.get("answers") or []
+            if ex_type == "word_search_vocab":
+                old_position, row = reconciled_rows.get((ex_idx, 0), ((ex_idx, 0), {}))
+                q_key = f"{session_key}_{ex_idx}_0"
+                old_to_new_key[old_position] = q_key
+                answers[q_key] = _serialize_saved_student_answer(
+                    row.get("student_answer"),
+                    ex_type=ex_type or str(row.get("exercise_type") or ""),
+                )
+                if row:
+                    questions[q_key] = {
+                        "is_correct": bool(row.get("is_correct")),
+                        "expected": _display_answer_text(correct_answers[0] if correct_answers else row.get("correct_answer")),
+                    }
+                continue
+            for q_idx in range(len(exercise_questions)):
+                old_position, row = reconciled_rows.get((ex_idx, q_idx), ((ex_idx, q_idx), {}))
+                q_key = f"{session_key}_{ex_idx}_{q_idx}"
+                old_to_new_key[old_position] = q_key
+                answers[q_key] = _serialize_saved_student_answer(
+                    row.get("student_answer"),
+                    ex_type=ex_type or str(row.get("exercise_type") or ""),
+                )
+                if row:
+                    questions[q_key] = {
+                        "is_correct": bool(row.get("is_correct")),
+                        "expected": _display_answer_text(
+                            correct_answers[q_idx] if q_idx < len(correct_answers) else row.get("correct_answer")
+                        ),
+                    }
+    else:
+        for row in answer_rows:
+            old_position = (int(row.get("exercise_idx") or 0), int(row.get("question_idx") or 0))
+            q_key = f"{session_key}_{old_position[0]}_{old_position[1]}"
+            old_to_new_key[old_position] = q_key
+            answers[q_key] = _serialize_saved_student_answer(
+                row.get("student_answer"),
+                ex_type=str(row.get("exercise_type") or ""),
+            )
+            questions[q_key] = {
+                "is_correct": bool(row.get("is_correct")),
+                "expected": str(row.get("correct_answer") or ""),
+            }
+
+    attempt_rows: list[dict] = []
+    try:
+        query = (
+            get_sb()
+            .table("teacher_assignment_attempts")
+            .select("submission_payload")
+            .eq("student_id", uid)
+            .eq("practice_session_id", int(session_id))
+            .order("created_at", desc=True)
+            .limit(1)
+        )
+        if int(assignment_id or 0) > 0:
+            query = query.eq("assignment_id", int(assignment_id))
+        attempt_rows = query.execute().data or []
+    except Exception:
+        attempt_rows = []
+    submission_payload = ((attempt_rows[0] if attempt_rows else {}) or {}).get("submission_payload") or {}
+    result_payload = submission_payload.get("result") if isinstance(submission_payload, dict) else {}
+    fallback_answers = result_payload.get("answers") if isinstance(result_payload, dict) else {}
+    if isinstance(fallback_answers, dict):
+        for key, value in fallback_answers.items():
+            safe_key = str(key or "").strip()
+            position_match = re.search(r"_(\d+)_(\d+)$", safe_key)
+            if position_match:
+                old_position = (int(position_match.group(1)), int(position_match.group(2)))
+                target_key = old_to_new_key.get(old_position) or f"{session_key}_{old_position[0]}_{old_position[1]}"
+            else:
+                target_key = safe_key
+            if target_key and not _practice_answer_has_content(answers.get(target_key)):
+                answers[target_key] = "" if value is None else str(value)
+
+    # Explicit teacher decisions override automatic regrading in every student view.
+    try:
+        review_rows = (
+            get_sb()
+            .table("teacher_review_requests")
+            .select("review_payload,reviewed_at")
+            .eq("student_id", uid)
+            .eq("practice_session_id", int(session_id))
+            .eq("status", "reviewed")
+            .order("reviewed_at", desc=True)
+            .limit(1)
+            .execute()
+        ).data or []
+    except Exception:
+        review_rows = []
+    review_payload = ((review_rows[0] if review_rows else {}) or {}).get("review_payload") or {}
+    review_items = review_payload.get("items") if isinstance(review_payload, dict) else []
+    for item in review_items or []:
+        if not isinstance(item, dict) or str(item.get("override") or "").strip() not in {"correct", "incorrect"}:
+            continue
+        match = re.fullmatch(r"(\d+):(\d+)", str(item.get("question_key") or "").strip())
+        q_key = old_to_new_key.get((int(match.group(1)), int(match.group(2)))) if match else None
+        if q_key and q_key in questions:
+            questions[q_key]["is_correct"] = bool(item.get("final_correct"))
+
+    summary: dict = {}
+    try:
+        total_questions = int(session_row.get("total_questions") or 0)
+        if total_questions <= 0 and isinstance(exercise_data, dict):
+            total_questions = sum(len(ex.get("questions") or []) for ex in (exercise_data.get("exercises") or []))
+        summary = {
+            "score_pct": float(session_row.get("score_pct") or 0),
+            "correct_count": int(session_row.get("correct_count") or 0),
+            "total_questions": total_questions,
+            "xp_earned": int(session_row.get("xp_earned") or 0),
+            "best_streak": int(session_row.get("best_streak") or 0),
+        }
+    except Exception:
+        summary = {}
+
+    return {"answers": answers, "questions": questions, "summary": summary}
 
 
 def get_completed_source_ids() -> dict[str, set]:
@@ -3165,17 +3476,122 @@ def _canonical_resource_id_text(value: object) -> str:
 
 def _exercise_data_for_rescored_session(base_exercise_data: dict, session_row: dict) -> dict:
     payload = copy.deepcopy(base_exercise_data or {})
+    previous = _coerce_exercise_data(session_row.get("exercise_data"))
     payload["source_type"] = str(session_row.get("source_type") or payload.get("source_type") or "").strip()
-    payload["source_id"] = session_row.get("source_id")
+    for key in ("assignment_id", "resource_record_id"):
+        if previous.get(key) not in (None, "", 0, "0"):
+            payload[key] = previous.get(key)
     payload["title"] = str(payload.get("title") or session_row.get("title") or "").strip()
     return payload
 
 
-def _evaluate_saved_practice_answers(exercise_data: dict, answer_rows: list[dict]) -> tuple[list[dict], dict]:
-    answers_by_position = {
+def _coerce_exercise_data(value) -> dict:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _practice_question_identity(exercise_type: str, question) -> str:
+    prompt = _question_prompt_text(exercise_type, question)
+    normalized = unicodedata.normalize("NFKC", str(prompt or "")).casefold()
+    normalized = re.sub(r"\W+", " ", normalized, flags=re.UNICODE).strip()
+    return f"{str(exercise_type or '').strip().casefold()}::{normalized}"
+
+
+def _reconcile_saved_answer_rows(
+    exercise_data: dict,
+    answer_rows: list[dict],
+    previous_exercise_data: dict | None = None,
+) -> dict[tuple[int, int], tuple[tuple[int, int], dict]]:
+    """Map saved answers onto an edited resource without losing responses."""
+    rows_by_old_position = {
         (int(row.get("exercise_idx") or 0), int(row.get("question_idx") or 0)): row
         for row in (answer_rows or [])
     }
+    previous = _coerce_exercise_data(previous_exercise_data)
+    old_identity_by_position: dict[tuple[int, int], str] = {}
+    for ex_idx, exercise in enumerate(previous.get("exercises") or []):
+        ex_type = str(exercise.get("type") or "").strip()
+        for q_idx, question in enumerate(exercise.get("questions") or []):
+            old_identity_by_position[(ex_idx, q_idx)] = _practice_question_identity(ex_type, question)
+
+    new_slots: list[tuple[tuple[int, int], str, str]] = []
+    for ex_idx, exercise in enumerate(exercise_data.get("exercises") or []):
+        ex_type = str(exercise.get("type") or "").strip()
+        for q_idx, question in enumerate(exercise.get("questions") or []):
+            new_slots.append(((ex_idx, q_idx), ex_type, _practice_question_identity(ex_type, question)))
+
+    old_positions_by_identity: dict[str, list[tuple[int, int]]] = {}
+    for old_position, identity in old_identity_by_position.items():
+        if old_position in rows_by_old_position and identity:
+            old_positions_by_identity.setdefault(identity, []).append(old_position)
+
+    mapped: dict[tuple[int, int], tuple[tuple[int, int], dict]] = {}
+    consumed: set[tuple[int, int]] = set()
+
+    # Exact prompt/type matches survive section and question reordering.
+    for new_position, _ex_type, identity in new_slots:
+        candidates = old_positions_by_identity.get(identity) or []
+        old_position = next((item for item in candidates if item not in consumed), None)
+        if old_position is not None:
+            mapped[new_position] = (old_position, rows_by_old_position[old_position])
+            consumed.add(old_position)
+
+    # A prompt edit at the same position still represents the student's original response.
+    for new_position, ex_type, _identity in new_slots:
+        if new_position in mapped or new_position not in rows_by_old_position or new_position in consumed:
+            continue
+        row = rows_by_old_position[new_position]
+        old_type = str(row.get("exercise_type") or "").strip()
+        if not old_type or old_type == ex_type:
+            mapped[new_position] = (new_position, row)
+            consumed.add(new_position)
+
+    # Legacy sessions may not contain an exercise snapshot. Preserve remaining answers
+    # in order within the same exercise type instead of manufacturing blank rows.
+    remaining = [
+        (position, row)
+        for position, row in sorted(rows_by_old_position.items())
+        if position not in consumed
+    ]
+    for new_position, ex_type, _identity in new_slots:
+        if new_position in mapped:
+            continue
+        match_idx = next(
+            (
+                idx
+                for idx, (_position, row) in enumerate(remaining)
+                if not str(row.get("exercise_type") or "").strip()
+                or str(row.get("exercise_type") or "").strip() == ex_type
+            ),
+            None,
+        )
+        if match_idx is not None:
+            old_position, row = remaining.pop(match_idx)
+            mapped[new_position] = (old_position, row)
+
+    return mapped
+
+
+def _evaluate_saved_practice_answers(
+    exercise_data: dict,
+    answer_rows: list[dict],
+    *,
+    previous_exercise_data: dict | None = None,
+    teacher_overrides: dict[tuple[int, int], bool] | None = None,
+) -> tuple[list[dict], dict]:
+    answers_by_position = _reconcile_saved_answer_rows(
+        exercise_data,
+        answer_rows,
+        previous_exercise_data,
+    )
+    teacher_overrides = teacher_overrides or {}
     user_id = str((answer_rows[0] if answer_rows else {}).get("user_id") or "").strip()
     session_id = int((answer_rows[0] if answer_rows else {}).get("session_id") or 0)
 
@@ -3191,7 +3607,7 @@ def _evaluate_saved_practice_answers(exercise_data: dict, answer_rows: list[dict
         correct_answers = exercise.get("answers") or []
 
         if ex_type == "word_search_vocab":
-            old_row = answers_by_position.get((ex_idx, 0), {})
+            old_position, old_row = answers_by_position.get((ex_idx, 0), ((ex_idx, 0), {}))
             student_ans = _serialize_saved_student_answer(
                 old_row.get("student_answer"),
                 ex_type=ex_type,
@@ -3200,6 +3616,9 @@ def _evaluate_saved_practice_answers(exercise_data: dict, answer_rows: list[dict
             evaluation = _evaluate_answer(ex_type, student_ans, correct)
             found_count = int(evaluation.get("correct_count", 0))
             total_count = int(evaluation.get("total_count", len(_normalize_wordsearch_words(correct))))
+            if old_position in teacher_overrides:
+                evaluation["is_correct"] = bool(teacher_overrides[old_position])
+                found_count = total_count if evaluation["is_correct"] else 0
             total_q += total_count
             correct_q += found_count
             if found_count:
@@ -3223,13 +3642,15 @@ def _evaluate_saved_practice_answers(exercise_data: dict, answer_rows: list[dict
             continue
 
         for q_idx in range(len(questions)):
-            old_row = answers_by_position.get((ex_idx, q_idx), {})
+            old_position, old_row = answers_by_position.get((ex_idx, q_idx), ((ex_idx, q_idx), {}))
             student_ans = _serialize_saved_student_answer(
                 old_row.get("student_answer"),
                 ex_type=ex_type,
             )
             correct = correct_answers[q_idx] if q_idx < len(correct_answers) else ""
             evaluation = _evaluate_answer(ex_type, student_ans, correct)
+            if old_position in teacher_overrides:
+                evaluation["is_correct"] = bool(teacher_overrides[old_position])
             total_q += 1
             if ex_type == "true_false" and not _canonical_true_false(_comparison_answer_text(correct)):
                 cur_streak = 0
@@ -3296,18 +3717,95 @@ def _rows_for_resource_assignments(source_type: str, resource_id) -> list[dict]:
     return list(deduped.values())
 
 
+def _teacher_overrides_by_session(session_ids: list[int]) -> dict[int, dict[tuple[int, int], bool]]:
+    if not session_ids:
+        return {}
+    try:
+        review_rows = (
+            get_sb()
+            .table("teacher_review_requests")
+            .select("practice_session_id,review_payload,reviewed_at,status")
+            .in_("practice_session_id", session_ids)
+            .eq("status", "reviewed")
+            .execute()
+        ).data or []
+    except Exception:
+        return {}
+
+    latest_by_session: dict[int, dict] = {}
+    for row in review_rows:
+        session_id = int(row.get("practice_session_id") or 0)
+        if session_id <= 0:
+            continue
+        current = latest_by_session.get(session_id)
+        if current is None or str(row.get("reviewed_at") or "") >= str(current.get("reviewed_at") or ""):
+            latest_by_session[session_id] = row
+
+    result: dict[int, dict[tuple[int, int], bool]] = {}
+    for session_id, row in latest_by_session.items():
+        payload = row.get("review_payload") or {}
+        items = payload.get("items") if isinstance(payload, dict) else []
+        overrides: dict[tuple[int, int], bool] = {}
+        for item in items or []:
+            if not isinstance(item, dict) or str(item.get("override") or "").strip() not in {"correct", "incorrect"}:
+                continue
+            match = re.fullmatch(r"(\d+):(\d+)", str(item.get("question_key") or "").strip())
+            if match:
+                overrides[(int(match.group(1)), int(match.group(2)))] = bool(item.get("final_correct"))
+        if overrides:
+            result[session_id] = overrides
+    return result
+
+
+def _recover_attempt_answer_rows(session_row: dict, attempts: list[dict]) -> list[dict]:
+    if not attempts:
+        return []
+    latest = max(attempts, key=lambda row: (str(row.get("created_at") or ""), int(row.get("id") or 0)))
+    payload = latest.get("submission_payload") or {}
+    result = payload.get("result") if isinstance(payload, dict) else {}
+    answers = result.get("answers") if isinstance(result, dict) else {}
+    if not isinstance(answers, dict):
+        return []
+
+    previous = _coerce_exercise_data(session_row.get("exercise_data"))
+    types_by_position: dict[tuple[int, int], str] = {}
+    for ex_idx, exercise in enumerate(previous.get("exercises") or []):
+        ex_type = str(exercise.get("type") or "").strip()
+        for q_idx, _question in enumerate(exercise.get("questions") or []):
+            types_by_position[(ex_idx, q_idx)] = ex_type
+
+    recovered: list[dict] = []
+    for key, value in answers.items():
+        match = re.search(r"_(\d+)_(\d+)$", str(key or "").strip())
+        if not match:
+            continue
+        position = (int(match.group(1)), int(match.group(2)))
+        recovered.append(
+            {
+                "session_id": int(session_row.get("id") or 0),
+                "user_id": str(session_row.get("user_id") or "").strip(),
+                "exercise_idx": position[0],
+                "question_idx": position[1],
+                "exercise_type": types_by_position.get(position, ""),
+                "student_answer": "" if value is None else str(value),
+                "answered_at": str(session_row.get("completed_at") or session_row.get("created_at") or _dt.now(timezone.utc).isoformat()),
+            }
+        )
+    return recovered
+
+
 def rescore_practice_sessions_for_resource(source_type: str, resource_id, exercise_data: dict) -> int:
     safe_type = _normalize_practice_source_type(source_type)
     resource_text = _canonical_resource_id_text(resource_id)
     if safe_type not in {"worksheet", "exam"} or not resource_text or not isinstance(exercise_data, dict):
         return 0
 
-    session_rows_by_id: dict[int, dict] = {}
+    candidate_sessions_by_id: dict[int, dict] = {}
     try:
         direct_rows = (
             get_sb()
             .table("practice_sessions")
-            .select("id,user_id,source_type,source_id,title,status")
+            .select("id,user_id,source_type,source_id,title,status,exercise_data,created_at,completed_at")
             .eq("source_type", safe_type)
             .eq("source_id", resource_text)
             .eq("status", "completed")
@@ -3316,7 +3814,7 @@ def rescore_practice_sessions_for_resource(source_type: str, resource_id, exerci
         for row in direct_rows:
             session_id = int(row.get("id") or 0)
             if session_id > 0:
-                session_rows_by_id[session_id] = row
+                candidate_sessions_by_id[session_id] = row
     except Exception:
         pass
 
@@ -3346,7 +3844,7 @@ def rescore_practice_sessions_for_resource(source_type: str, resource_id, exerci
                 linked_sessions = (
                     get_sb()
                     .table("practice_sessions")
-                    .select("id,user_id,source_type,source_id,title,status")
+                    .select("id,user_id,source_type,source_id,title,status,exercise_data,created_at,completed_at")
                     .in_("id", linked_session_ids)
                     .eq("status", "completed")
                     .execute()
@@ -3354,9 +3852,113 @@ def rescore_practice_sessions_for_resource(source_type: str, resource_id, exerci
                 for row in linked_sessions:
                     session_id = int(row.get("id") or 0)
                     if session_id > 0:
-                        session_rows_by_id[session_id] = row
+                        candidate_sessions_by_id[session_id] = row
             except Exception:
                 pass
+
+    candidate_session_ids = sorted(candidate_sessions_by_id.keys())
+    if not candidate_session_ids:
+        return 0
+
+    # A historical assigned session may store its assignment id in source_id,
+    # while an independent session stores the resource id there. Resolve the
+    # canonical resource through assignment provenance before rescoring either.
+    try:
+        all_attempt_rows = (
+            get_sb()
+            .table("teacher_assignment_attempts")
+            .select("id,assignment_id,student_id,practice_session_id,created_at,submission_payload,status")
+            .in_("practice_session_id", candidate_session_ids)
+            .execute()
+        ).data or []
+        attempt_rows = all_attempt_rows
+    except Exception:
+        pass
+
+    assignment_ids_from_sessions = set(assignment_ids)
+    for row in attempt_rows:
+        assignment_id = int(row.get("assignment_id") or 0)
+        if assignment_id > 0:
+            assignment_ids_from_sessions.add(assignment_id)
+    for row in candidate_sessions_by_id.values():
+        embedded = _coerce_exercise_data(row.get("exercise_data"))
+        assignment_id = int(embedded.get("assignment_id") or 0)
+        if assignment_id > 0:
+            assignment_ids_from_sessions.add(assignment_id)
+
+    assignments_by_id: dict[int, dict] = {
+        int(row.get("id") or 0): row
+        for row in assignment_rows
+        if int(row.get("id") or 0) > 0
+    }
+    missing_assignment_ids = sorted(assignment_ids_from_sessions - set(assignments_by_id))
+    if missing_assignment_ids:
+        try:
+            identity_rows = (
+                get_sb()
+                .table("teacher_assignments")
+                .select("id,student_id,assignment_type,source_record_id")
+                .in_("id", missing_assignment_ids)
+                .execute()
+            ).data or []
+            for row in identity_rows:
+                assignment_id = int(row.get("id") or 0)
+                if assignment_id > 0:
+                    assignments_by_id[assignment_id] = row
+        except Exception:
+            pass
+
+    raw_attempts_by_session: dict[int, list[dict]] = {}
+    for row in attempt_rows:
+        session_id = int(row.get("practice_session_id") or 0)
+        if session_id > 0:
+            raw_attempts_by_session.setdefault(session_id, []).append(row)
+
+    session_rows_by_id: dict[int, dict] = {}
+    attempts_by_session: dict[int, list[dict]] = {}
+    for session_id, session_row in candidate_sessions_by_id.items():
+        user_id = str(session_row.get("user_id") or "").strip()
+        embedded = _coerce_exercise_data(session_row.get("exercise_data"))
+        embedded_resource_id = _canonical_resource_id_text(embedded.get("resource_record_id"))
+        evidence_assignment_ids: set[int] = set()
+        embedded_assignment_id = int(embedded.get("assignment_id") or 0)
+        if embedded_assignment_id > 0:
+            evidence_assignment_ids.add(embedded_assignment_id)
+        for attempt in raw_attempts_by_session.get(session_id, []):
+            assignment_id = int(attempt.get("assignment_id") or 0)
+            if assignment_id > 0:
+                evidence_assignment_ids.add(assignment_id)
+
+        resolved_resource_ids: set[str] = set()
+        valid_attempts: list[dict] = []
+        for assignment_id in evidence_assignment_ids:
+            assignment = assignments_by_id.get(assignment_id) or {}
+            if (
+                str(assignment.get("student_id") or "").strip() != user_id
+                or _normalize_practice_source_type(assignment.get("assignment_type")) != safe_type
+            ):
+                continue
+            assignment_resource_id = _canonical_resource_id_text(assignment.get("source_record_id"))
+            if assignment_resource_id:
+                resolved_resource_ids.add(assignment_resource_id)
+            valid_attempts.extend(
+                attempt
+                for attempt in raw_attempts_by_session.get(session_id, [])
+                if int(attempt.get("assignment_id") or 0) == assignment_id
+                and str(attempt.get("student_id") or "").strip() == user_id
+            )
+
+        if embedded_resource_id:
+            resolved_resource_ids.add(embedded_resource_id)
+        if not evidence_assignment_ids and not resolved_resource_ids:
+            session_source_id = _canonical_resource_id_text(session_row.get("source_id"))
+            if session_source_id:
+                resolved_resource_ids.add(session_source_id)
+
+        if resolved_resource_ids != {resource_text}:
+            continue
+        session_rows_by_id[session_id] = session_row
+        attempts_by_session[session_id] = valid_attempts
 
     session_ids = sorted(session_rows_by_id.keys())
     if not session_ids:
@@ -3377,11 +3979,7 @@ def rescore_practice_sessions_for_resource(source_type: str, resource_id, exerci
     for row in answer_rows:
         answers_by_session.setdefault(int(row.get("session_id") or 0), []).append(row)
 
-    attempts_by_session: dict[int, list[dict]] = {}
-    for row in attempt_rows:
-        session_id = int(row.get("practice_session_id") or 0)
-        if session_id > 0:
-            attempts_by_session.setdefault(session_id, []).append(row)
+    teacher_overrides = _teacher_overrides_by_session(session_ids)
 
     rescored_session_ids: list[int] = []
     impacted_user_ids: set[str] = set()
@@ -3392,10 +3990,23 @@ def rescore_practice_sessions_for_resource(source_type: str, resource_id, exerci
         user_id = str(session_row.get("user_id") or "").strip()
         if not user_id:
             continue
+        session_answer_rows = list(answers_by_session.get(session_id, []))
+        if not any(_practice_answer_has_content(row.get("student_answer")) for row in session_answer_rows):
+            recovered_rows = _recover_attempt_answer_rows(
+                session_row,
+                attempts_by_session.get(session_id, []),
+            )
+            if recovered_rows:
+                session_answer_rows = recovered_rows
+        if not session_answer_rows:
+            # Never replace a completed attempt with manufactured blank answers.
+            continue
         rescored_exercise_data = _exercise_data_for_rescored_session(exercise_data, session_row)
         rescored_rows, stats = _evaluate_saved_practice_answers(
             rescored_exercise_data,
-            answers_by_session.get(session_id, []),
+            session_answer_rows,
+            previous_exercise_data=_coerce_exercise_data(session_row.get("exercise_data")),
+            teacher_overrides=teacher_overrides.get(session_id),
         )
         try:
             (
@@ -3410,6 +4021,7 @@ def rescore_practice_sessions_for_resource(source_type: str, resource_id, exerci
                 get_sb().table("practice_answers").insert(rescored_rows).execute()
             get_sb().table("practice_sessions").update(
                 {
+                    "source_id": resource_text,
                     "exercise_data": rescored_exercise_data,
                     "title": str(rescored_exercise_data.get("title") or session_row.get("title") or ""),
                     "total_questions": int(stats.get("total_questions") or 0),
