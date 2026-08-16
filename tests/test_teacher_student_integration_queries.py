@@ -95,6 +95,63 @@ class TeacherStudentIntegrationQueryTests(unittest.TestCase):
         self.assertEqual(tsi._STUDENT_RECORD_COLUMNS, query.ops[0][1])
         self.assertIn(("eq", "user_id", "teacher-1"), query.ops)
 
+    def test_assignment_attempt_rejects_missing_assignment_provenance(self):
+        fake_sb = _FakeSupabase(
+            table_data={
+                "teacher_assignments": [
+                    {
+                        "id": 228,
+                        "teacher_id": "teacher-1",
+                        "student_id": "student-1",
+                        "assignment_type": "worksheet",
+                        "source_record_id": 175,
+                    }
+                ]
+            }
+        )
+        with (
+            patch.object(tsi, "get_sb", return_value=fake_sb),
+            patch.object(tsi, "get_current_user_id", return_value="student-1"),
+        ):
+            tsi.record_assignment_attempt_from_practice(
+                228,
+                229,
+                {"score_pct": 86, "total": 7, "correct": 6},
+                {"source_type": "worksheet", "source_id": 178, "title": "Reading"},
+            )
+
+        self.assertFalse(any(query.table_name == "teacher_assignment_attempts" for query in fake_sb.table_log))
+
+    def test_practice_scope_ignores_cross_resource_attempt_link(self):
+        fake_sb = _FakeSupabase(
+            table_data={
+                "teacher_assignment_attempts": [
+                    {"practice_session_id": 229, "assignment_id": 228},
+                ],
+                "teacher_assignments": [
+                    {
+                        "id": 228,
+                        "teacher_id": "teacher-1",
+                        "student_id": "student-1",
+                        "assignment_type": "worksheet",
+                        "source_record_id": 175,
+                        "title": "Daily Housework Verbs",
+                    }
+                ],
+                "practice_sessions": [
+                    {"id": 229, "user_id": "student-1", "source_type": "worksheet", "source_id": 178},
+                ],
+            }
+        )
+        with (
+            patch.object(tsi, "get_sb", return_value=fake_sb),
+            patch.object(tsi, "get_current_user_id", return_value="student-1"),
+            patch.object(tsi, "_load_profiles_map", return_value={}),
+        ):
+            scope = tsi.load_practice_assignment_scope_map([229])
+
+        self.assertEqual({}, scope)
+
     def test_student_assignments_loader_is_scoped_and_uses_summary_columns(self):
         fake_sb = _FakeSupabase(
             table_data={
@@ -423,6 +480,8 @@ class TeacherStudentIntegrationQueryTests(unittest.TestCase):
                         {
                             "id": 55,
                             "user_id": "student-1",
+                            "source_type": "exam",
+                            "source_id": 41,
                             "exercise_data": {"exercises": [{"questions": [{"text": "Old"}], "answers": [""]}]},
                             "completed_at": None,
                             "correct_count": 0,
@@ -472,6 +531,82 @@ class TeacherStudentIntegrationQueryTests(unittest.TestCase):
         self.assertEqual("B", detail["items"][0]["correct_answer"])
         self.assertEqual("Current", detail["items"][0]["prompt"])
         self.assertEqual(55, detail["session_row"]["id"])
+
+    def test_teacher_review_detail_rejects_stale_assignment_from_another_worksheet(self):
+        fake_sb = _FakeSupabase(
+            table_data={
+                "teacher_review_requests": [
+                    {
+                        "id": 35,
+                        "teacher_id": "teacher-1",
+                        "student_id": "student-1",
+                        "assignment_id": 228,
+                        "practice_session_id": 229,
+                        "source_type": "worksheet",
+                        "source_id": "175",
+                        "title": "Daily Housework Verbs",
+                    }
+                ],
+                "practice_sessions": [
+                    {
+                        "id": 229,
+                        "user_id": "student-1",
+                        "source_type": "worksheet",
+                        "source_id": "178",
+                        "title": "Daily Housework: Reading Comprehension",
+                        "exercise_data": {"exercises": []},
+                    }
+                ],
+                "teacher_assignments": [
+                    {
+                        "id": 228,
+                        "student_id": "student-1",
+                        "assignment_type": "worksheet",
+                        "source_record_id": "175",
+                        "content_snapshot": {},
+                    }
+                ],
+                "practice_answers": [
+                    {
+                        "id": 903,
+                        "session_id": 229,
+                        "user_id": "student-1",
+                        "exercise_idx": 0,
+                        "question_idx": 0,
+                        "exercise_type": "multiple_choice",
+                        "student_answer": "Marco",
+                        "correct_answer": "Marco",
+                        "is_correct": True,
+                    }
+                ],
+            }
+        )
+        current_reading = {
+            "exercises": [
+                {
+                    "type": "multiple_choice",
+                    "questions": [{"text": "Who is Maria married to?"}],
+                    "answers": ["Marco"],
+                }
+            ]
+        }
+
+        with (
+            patch.object(tsi, "get_sb", return_value=fake_sb),
+            patch.object(tsi, "get_current_user_id", return_value="teacher-1"),
+            patch.object(tsi, "_load_profiles_map", return_value={}),
+            patch("helpers.worksheet_storage.load_worksheet_record", return_value={"worksheet_json": {"title": "Reading"}}) as load_record,
+            patch("helpers.worksheet_builder.normalize_worksheet_output", side_effect=lambda value: value),
+            patch("helpers.practice_engine.worksheet_to_exercises", return_value=current_reading),
+        ):
+            detail = tsi.load_teacher_review_request_detail(35)
+
+        load_record.assert_called_once_with("178")
+        self.assertIsNone(detail["assignment_id"])
+        self.assertEqual("178", detail["source_id"])
+        self.assertEqual("Daily Housework: Reading Comprehension", detail["title"])
+        self.assertEqual("Who is Maria married to?", detail["items"][0]["prompt"])
+        self.assertEqual("Marco", detail["items"][0]["student_answer"])
 
     def test_teacher_review_detail_rebuilds_independent_exam_from_latest_source(self):
         class Query:

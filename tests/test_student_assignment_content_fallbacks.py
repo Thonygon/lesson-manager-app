@@ -2,9 +2,49 @@ import unittest
 from unittest.mock import patch
 
 from app_pages import student_assignments
+from app_pages import student_practice
 
 
 class StudentAssignmentContentFallbackTests(unittest.TestCase):
+    def test_assignment_session_match_rejects_a_different_resource(self):
+        self.assertTrue(
+            student_assignments._practice_session_matches_assignment(
+                {"source_type": "worksheet", "source_id": "228"},
+                assignment_id=228,
+                source_record_id=175,
+                assignment_type="worksheet",
+            )
+        )
+        self.assertFalse(
+            student_assignments._practice_session_matches_assignment(
+                {"source_type": "worksheet", "source_id": "178"},
+                assignment_id=228,
+                source_record_id=175,
+                assignment_type="worksheet",
+            )
+        )
+
+    def test_proactive_practice_clears_stale_assignment_context(self):
+        session_state = {
+            "_practice_assignment_id": 228,
+            "_practice_assignment_type": "worksheet",
+        }
+        exercise_data = {
+            "source_type": "worksheet",
+            "source_id": 178,
+            "exercises": [{"type": "short_answer", "questions": ["Question"], "answers": ["Answer"]}],
+        }
+        with (
+            patch.object(student_practice, "normalize_exercise_data_for_web", side_effect=lambda value: value),
+            patch.object(student_practice, "load_in_progress_practice_session", return_value={}),
+            patch.object(student_practice.st, "session_state", session_state),
+        ):
+            opened = student_practice._open_practice_item(exercise_data)
+
+        self.assertTrue(opened)
+        self.assertNotIn("_practice_assignment_id", session_state)
+        self.assertNotIn("_practice_assignment_type", session_state)
+
     def test_assignment_practice_falls_back_to_full_worksheet_record(self):
         assignment_row = {
             "id": 11,
@@ -113,7 +153,15 @@ class StudentAssignmentContentFallbackTests(unittest.TestCase):
             patch.object(student_assignments, "exam_has_ready_visuals", return_value=True),
             patch.object(student_assignments, "exam_to_exercises", return_value=rebuilt_exercise_data),
             patch.object(student_assignments, "_latest_completed_assignment_session", return_value=completed_session),
-            patch.object(student_assignments, "load_practice_draft_answers", return_value={"sp_0_0": "A"}),
+            patch.object(
+                student_assignments,
+                "load_practice_review_state",
+                return_value={
+                    "answers": {"sp_0_0": "A"},
+                    "questions": {"sp_0_0": {"is_correct": True, "expected": "A"}},
+                    "summary": {"score_pct": 100, "correct_count": 1, "total_questions": 1},
+                },
+            ),
             patch.object(student_assignments, "normalize_exercise_data_for_web", side_effect=lambda value: value),
             patch.object(student_assignments, "go_to"),
             patch.object(student_assignments.st, "rerun", create=True),
@@ -122,7 +170,11 @@ class StudentAssignmentContentFallbackTests(unittest.TestCase):
             student_assignments._open_assignment_practice(assignment_row, review_completed=True)
 
         self.assertEqual(
-            rebuilt_exercise_data,
+            {
+                **rebuilt_exercise_data,
+                "assignment_id": 21,
+                "resource_record_id": 88,
+            },
             session_state["practice_exercise_data"],
         )
         self.assertEqual(
@@ -226,7 +278,14 @@ class StudentAssignmentContentFallbackTests(unittest.TestCase):
             student_assignments._open_assignment_practice(assignment_row)
 
         warning_mock.assert_not_called()
-        self.assertEqual(latest_exercise_data, session_state["practice_exercise_data"])
+        self.assertEqual(
+            {
+                **latest_exercise_data,
+                "assignment_id": 41,
+                "resource_record_id": 99,
+            },
+            session_state["practice_exercise_data"],
+        )
         self.assertEqual({"sp_0_0": "A"}, session_state["_practice_resume_answers"])
 
 

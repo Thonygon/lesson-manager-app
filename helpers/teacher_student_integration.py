@@ -57,7 +57,7 @@ _ATTEMPT_LIST_COLUMNS = (
 _ATTEMPT_EVENT_COLUMNS = "id,score_pct"
 _REVIEW_REQUEST_COLUMNS = (
     "id,teacher_id,student_id,assignment_id,practice_session_id,subject_key,subject_label,"
-    "source_type,title,status,request_note,teacher_feedback,review_payload,override_score_pct,"
+    "source_type,source_id,title,status,request_note,teacher_feedback,review_payload,override_score_pct,"
     "requested_at,reviewed_at,created_at,updated_at"
 )
 _PRACTICE_SESSION_COLUMNS = (
@@ -1311,12 +1311,38 @@ def load_practice_assignment_scope_map(practice_session_ids: list[int]) -> dict[
         for row in load_student_assignments_by_ids(assignment_ids)
         if int(row.get("id") or 0) > 0
     }
+    try:
+        session_rows = _rows(
+            get_sb()
+            .table("practice_sessions")
+            .select("id,source_type,source_id")
+            .eq("user_id", student_id)
+            .in_("id", cleaned_ids)
+            .execute()
+        )
+    except Exception:
+        session_rows = []
+    sessions_by_id = {
+        int(row.get("id") or 0): row
+        for row in session_rows
+        if int(row.get("id") or 0) > 0
+    }
     result: dict[int, dict] = {}
     for attempt in attempts:
         session_id = int(attempt.get("practice_session_id") or 0)
         assignment_id = int(attempt.get("assignment_id") or 0)
         assignment = assignments_by_id.get(assignment_id)
-        if session_id <= 0 or not assignment:
+        session_row = sessions_by_id.get(session_id) or {}
+        if session_id <= 0 or assignment_id <= 0 or not assignment or not session_row:
+            continue
+        assignment_type = str(assignment.get("assignment_type") or "").strip()
+        session_type = str(session_row.get("source_type") or "").strip()
+        session_source = str(session_row.get("source_id") or "").strip()
+        valid_sources = {str(assignment_id)}
+        source_record_id = str(assignment.get("source_record_id") or "").strip()
+        if source_record_id:
+            valid_sources.add(source_record_id)
+        if session_type != assignment_type or session_source not in valid_sources:
             continue
         result[session_id] = {
             "assignment_id": assignment_id,
@@ -1639,6 +1665,11 @@ def record_assignment_attempt_from_practice(
         if not rows:
             return
         assignment = rows[0]
+        embedded_assignment_id = int(exercise_data.get("assignment_id") or 0)
+        assignment_type = str(assignment.get("assignment_type") or "").strip()
+        exercise_type = str(exercise_data.get("source_type") or "").strip()
+        if embedded_assignment_id != int(assignment_id) or exercise_type != assignment_type:
+            return
         now = _now_iso()
         score_pct = round(float(result.get("score_pct") or 0), 1)
         total = int(result.get("total") or 0)
@@ -1979,63 +2010,104 @@ def _display_answer_text(value: Any) -> str:
     return _clean_display_text(value)
 
 
-def _load_assignment_review_exercise_data(review: dict, session_row: dict) -> dict:
-    assignment_id = int(review.get("assignment_id") or 0)
-    student_id = str(review.get("student_id") or "").strip()
-    if assignment_id <= 0 or not student_id:
-        exercise_data = session_row.get("exercise_data") or {}
-        if isinstance(exercise_data, str):
-            try:
-                import json
+def _review_resource_id(value: Any) -> str:
+    text = str(value or "").strip()
+    if re.fullmatch(r"\d+\.0+", text):
+        return text.split(".", 1)[0]
+    return text
 
-                exercise_data = json.loads(exercise_data)
-            except Exception:
-                exercise_data = {}
-        exercise_data = exercise_data if isinstance(exercise_data, dict) else {}
-        source_type = str(session_row.get("source_type") or "").strip()
-        source_id = session_row.get("source_id")
-        if source_type == "worksheet" and source_id not in (None, "", "None"):
-            try:
-                from helpers.practice_engine import worksheet_to_exercises
-                from helpers.worksheet_builder import normalize_worksheet_output
-                from helpers.worksheet_storage import load_worksheet_record
 
-                source_row = load_worksheet_record(source_id) or {}
-                worksheet = normalize_worksheet_output(dict(source_row.get("worksheet_json") or {}))
-                if worksheet:
-                    return worksheet_to_exercises(worksheet, row_id=source_id)
-            except Exception:
-                pass
-        if source_type == "exam" and source_id not in (None, "", "None"):
-            try:
-                from helpers.practice_engine import exam_to_exercises
-                from helpers.quick_exam_storage import load_exam_record
+def _review_assignment_matches_session(assignment: dict, session_row: dict, student_id: str) -> bool:
+    if not assignment or not session_row:
+        return False
+    if str(assignment.get("student_id") or "").strip() != str(student_id or "").strip():
+        return False
+    assignment_type = str(assignment.get("assignment_type") or "").strip()
+    session_type = str(session_row.get("source_type") or "").strip()
+    if assignment_type not in {"worksheet", "exam"} or assignment_type != session_type:
+        return False
+    session_source_id = _review_resource_id(session_row.get("source_id"))
+    valid_source_ids = {
+        _review_resource_id(assignment.get("id")),
+        _review_resource_id(assignment.get("source_record_id")),
+    }
+    valid_source_ids.discard("")
+    return bool(session_source_id and session_source_id in valid_source_ids)
 
-                source_row = load_exam_record(source_id) or {}
-                exam_data = dict(source_row.get("exam_data") or {})
-                answer_key = dict(source_row.get("answer_key") or {})
-                if exam_data:
-                    return exam_to_exercises(exam_data, answer_key, row_id=source_id)
-            except Exception:
-                pass
-        return exercise_data
 
+def _review_assignment_row(assignment_id: int | None, student_id: str) -> dict:
+    safe_assignment_id = _optional_positive_int(assignment_id)
+    if not safe_assignment_id or not student_id:
+        return {}
     try:
-        assignment_rows = _rows(
+        rows = _rows(
             get_sb()
             .table("teacher_assignments")
-            .select("id,assignment_type,source_record_id,content_snapshot,subject_key,topic")
-            .eq("id", assignment_id)
+            .select("id,student_id,assignment_type,source_record_id,content_snapshot,subject_key,topic")
+            .eq("id", safe_assignment_id)
             .eq("student_id", student_id)
             .limit(1)
             .execute()
         )
+        return rows[0] if rows else {}
     except Exception:
-        assignment_rows = []
-    if not assignment_rows:
         return {}
 
-    assignment = assignment_rows[0]
+
+def _load_session_review_exercise_data(session_row: dict) -> dict:
+    exercise_data = session_row.get("exercise_data") or {}
+    if isinstance(exercise_data, str):
+        try:
+            import json
+
+            exercise_data = json.loads(exercise_data)
+        except Exception:
+            exercise_data = {}
+    exercise_data = exercise_data if isinstance(exercise_data, dict) else {}
+    source_type = str(session_row.get("source_type") or "").strip()
+    source_id = session_row.get("source_id")
+    if source_type == "worksheet" and source_id not in (None, "", "None"):
+        try:
+            from helpers.practice_engine import worksheet_to_exercises
+            from helpers.worksheet_builder import normalize_worksheet_output
+            from helpers.worksheet_storage import load_worksheet_record
+
+            source_row = load_worksheet_record(source_id) or {}
+            worksheet = normalize_worksheet_output(dict(source_row.get("worksheet_json") or {}))
+            if worksheet:
+                return worksheet_to_exercises(worksheet, row_id=source_id)
+        except Exception:
+            pass
+    if source_type == "exam" and source_id not in (None, "", "None"):
+        try:
+            from helpers.practice_engine import exam_to_exercises
+            from helpers.quick_exam_storage import load_exam_record
+
+            source_row = load_exam_record(source_id) or {}
+            exam_data = dict(source_row.get("exam_data") or {})
+            answer_key = dict(source_row.get("answer_key") or {})
+            if exam_data:
+                return exam_to_exercises(exam_data, answer_key, row_id=source_id)
+        except Exception:
+            pass
+    return exercise_data
+
+
+def _load_assignment_review_exercise_data(review: dict, session_row: dict) -> dict:
+    assignment_id = int(review.get("assignment_id") or 0)
+    student_id = str(review.get("student_id") or "").strip()
+    if assignment_id <= 0 or not student_id:
+        return _load_session_review_exercise_data(session_row)
+
+    assignment = _review_assignment_row(assignment_id, student_id)
+    if not _review_assignment_matches_session(assignment, session_row, student_id):
+        # Historical requests can contain a stale assignment link. Keep the
+        # review identity and content anchored to the exact completed session.
+        review["assignment_id"] = None
+        review["source_type"] = str(session_row.get("source_type") or "").strip()
+        review["source_id"] = session_row.get("source_id")
+        review["title"] = _clean_display_text(session_row.get("title")) or review.get("title")
+        return _load_session_review_exercise_data(session_row)
     assignment_type = str(assignment.get("assignment_type") or "").strip()
     snapshot = assignment.get("content_snapshot") or {}
     source_record_id = assignment.get("source_record_id")
@@ -2096,7 +2168,7 @@ def _serialize_review_item(exercise: dict, question: Any, answer_row: dict, corr
         "source_text": _clean_text(exercise.get("source_text")),
         "prompt": prompt,
         "student_answer": _display_answer_text(answer_row.get("student_answer")),
-        "correct_answer": _display_answer_text(answer_row.get("correct_answer")) or _display_answer_text(correct_answer) or embedded_answer,
+        "correct_answer": _display_answer_text(correct_answer) or embedded_answer or _display_answer_text(answer_row.get("correct_answer")),
         "auto_correct": bool(answer_row.get("is_correct")),
     }
 
@@ -2128,6 +2200,9 @@ def create_teacher_review_request(
         return False, "teacher_review_not_connected"
 
     safe_assignment_id = _optional_positive_int(assignment_id)
+    assignment = _review_assignment_row(safe_assignment_id, student_id)
+    if safe_assignment_id and not _review_assignment_matches_session(assignment, session_row, student_id):
+        safe_assignment_id = None
     source_id = _clean_text(session_row.get("source_id"))
 
     try:
@@ -2209,13 +2284,25 @@ def ensure_teacher_review_request_for_attempt(
     if not session_row:
         return False, "teacher_review_request_failed", None
 
+    safe_assignment_id = _optional_positive_int(assignment_id)
+    assignment = _review_assignment_row(safe_assignment_id, student_id)
+    assignment_matches = bool(
+        safe_assignment_id
+        and _review_assignment_matches_session(assignment, session_row, student_id)
+    )
+    if not assignment_matches:
+        safe_assignment_id = None
+        source_type = str(session_row.get("source_type") or "").strip()
+        source_id = session_row.get("source_id")
+        title = str(session_row.get("title") or "").strip()
+
     payload = {
         "teacher_id": teacher_id,
         "student_id": student_id,
         "subject_key": _clean_text(subject_key or session_row.get("subject")),
         "subject_label": _clean_display_text(subject_label_text or subject_label(subject_key or session_row.get("subject") or "")),
         "practice_session_id": int(practice_session_id),
-        "assignment_id": assignment_id,
+        "assignment_id": safe_assignment_id,
         "source_type": _clean_text(source_type or session_row.get("source_type")),
         "source_id": source_id if source_id is not None else session_row.get("source_id"),
         "title": _clean_display_text(title or session_row.get("title")) or t("smart_practice"),

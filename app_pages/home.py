@@ -40,7 +40,12 @@ from helpers.learning_programs import (
     render_teacher_program_view,
     update_learning_program_visibility,
 )
-from helpers.lesson_planner import normalize_planner_output, normalize_subject as _normalize_subject, subject_label as _subject_label_fn
+from helpers.lesson_planner import (
+    normalize_planner_output,
+    normalize_subject as _normalize_subject,
+    normalize_learner_stage as _normalize_learner_stage,
+    subject_label as _subject_label_fn,
+)
 from helpers.planner_storage import (
     load_my_lesson_plans,
     load_public_lesson_plans,
@@ -128,7 +133,7 @@ def _render_shared_resource_filters(state_prefix: str, resource_frames: list) ->
             key=f"{state_prefix}_shared_subject_filter",
         )
     with filter_col2:
-        stage_options = _merge_resource_filter_options(resource_frames, ["learner_stage"])
+        stage_options = _merge_resource_filter_options(resource_frames, ["learner_stage"], normalize=_normalize_learner_stage)
         stage_filter = st.selectbox(
             t("learner_stage"),
             [t("all")] + stage_options,
@@ -217,7 +222,7 @@ def _apply_shared_resource_filters(
         return df
     filtered = df.copy()
     filtered = _apply_resource_filter(filtered, "subject", subject_filter, normalize=_normalize_subject)
-    filtered = _apply_resource_filter(filtered, "learner_stage", stage_filter)
+    filtered = _apply_resource_filter(filtered, "learner_stage", stage_filter, normalize=_normalize_learner_stage)
     level_column = "level" if kind == "exam" else "level_or_band"
     filtered = _apply_resource_filter(filtered, level_column, level_filter)
     return _rank_teacher_materials(filtered, kind, source, query=query)

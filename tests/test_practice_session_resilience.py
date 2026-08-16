@@ -54,6 +54,19 @@ class _Supabase:
 
 
 class PracticeSessionResilienceTests(unittest.TestCase):
+    def test_assigned_practice_uses_canonical_resource_source_id(self):
+        self.assertEqual(
+            "64",
+            practice_engine._practice_resource_source_id(
+                {
+                    "source_type": "worksheet",
+                    "source_id": 174,
+                    "assignment_id": 174,
+                    "resource_record_id": 64,
+                }
+            ),
+        )
+
     def setUp(self):
         for cache in (
             practice_engine._load_practice_history_cached,
@@ -371,12 +384,32 @@ class PracticeSessionResilienceTests(unittest.TestCase):
                 }
             ],
         }
+        colliding_resource = {
+            "title": "Unrelated resource 101",
+            "source_type": "worksheet",
+            "source_id": 101,
+            "exercises": [
+                {
+                    "type": "multiple_choice",
+                    "questions": [{"stem": "Unrelated", "options": ["A", "B"]}],
+                    "answers": ["A"],
+                }
+            ],
+        }
 
         with (
             patch.object(practice_engine, "get_sb", return_value=fake_sb),
             patch.object(practice_engine, "rebuild_practice_progress_for_user", side_effect=rebuilt_users.append),
             patch.object(practice_engine, "_clear_practice_caches"),
         ):
+            collision_rescored = practice_engine.rescore_practice_sessions_for_resource(
+                "worksheet", 101, colliding_resource
+            )
+            self.assertEqual(0, collision_rescored)
+            self.assertEqual(
+                0,
+                next(row for row in fake_sb.tables["practice_sessions"] if row["id"] == 2)["score_pct"],
+            )
             rescored = practice_engine.rescore_practice_sessions_for_resource("worksheet", 7, exercise_data)
 
         self.assertEqual(2, rescored)
@@ -386,6 +419,7 @@ class PracticeSessionResilienceTests(unittest.TestCase):
         self.assertEqual(100, session_assigned["score_pct"])
         self.assertEqual(1, session_direct["correct_count"])
         self.assertEqual(1, session_assigned["correct_count"])
+        self.assertEqual("7", str(session_assigned["source_id"]))
 
         direct_answer = next(row for row in fake_sb.tables["practice_answers"] if str(row["session_id"]) == "1")
         assigned_answer = next(row for row in fake_sb.tables["practice_answers"] if str(row["session_id"]) == "2")
@@ -401,6 +435,173 @@ class PracticeSessionResilienceTests(unittest.TestCase):
         self.assertEqual(100, assignment_row["score_pct"])
         self.assertEqual(1, assignment_row["correct_count"])
         self.assertCountEqual(["student-1", "student-2"], rebuilt_users)
+
+    def test_rescore_reconciles_answers_when_questions_are_reordered(self):
+        previous = {
+            "exercises": [
+                {
+                    "type": "multiple_choice",
+                    "questions": [
+                        {"stem": "First question", "options": ["A", "B"]},
+                        {"stem": "Second question", "options": ["A", "B"]},
+                    ],
+                    "answers": ["A", "B"],
+                }
+            ]
+        }
+        edited = {
+            "exercises": [
+                {
+                    "type": "multiple_choice",
+                    "questions": [
+                        {"stem": "Second question", "options": ["A", "B"]},
+                        {"stem": "First question", "options": ["A", "B"]},
+                    ],
+                    "answers": ["B", "A"],
+                }
+            ]
+        }
+        rows = [
+            {"session_id": 5, "user_id": "student-1", "exercise_idx": 0, "question_idx": 0, "exercise_type": "multiple_choice", "student_answer": "A"},
+            {"session_id": 5, "user_id": "student-1", "exercise_idx": 0, "question_idx": 1, "exercise_type": "multiple_choice", "student_answer": "B"},
+        ]
+
+        rescored_rows, stats = practice_engine._evaluate_saved_practice_answers(
+            edited,
+            rows,
+            previous_exercise_data=previous,
+        )
+
+        self.assertEqual(["B", "A"], [row["student_answer"] for row in rescored_rows])
+        self.assertEqual(100, stats["score_pct"])
+
+    def test_rescore_preserves_explicit_teacher_override(self):
+        exercise_data = {
+            "exercises": [
+                {
+                    "type": "short_answer",
+                    "questions": [{"text": "Name a valid synonym"}],
+                    "answers": ["large"],
+                }
+            ]
+        }
+        rows = [
+            {
+                "session_id": 6,
+                "user_id": "student-1",
+                "exercise_idx": 0,
+                "question_idx": 0,
+                "exercise_type": "short_answer",
+                "student_answer": "big",
+            }
+        ]
+
+        rescored_rows, stats = practice_engine._evaluate_saved_practice_answers(
+            exercise_data,
+            rows,
+            previous_exercise_data=exercise_data,
+            teacher_overrides={(0, 0): True},
+        )
+
+        self.assertTrue(rescored_rows[0]["is_correct"])
+        self.assertEqual("large", rescored_rows[0]["correct_answer"])
+        self.assertEqual(100, stats["score_pct"])
+
+    def test_review_state_maps_legacy_answer_keys_to_current_widgets(self):
+        class Query:
+            def __init__(self, table_name, tables):
+                self.table_name = table_name
+                self.tables = tables
+                self.filters = []
+
+            def select(self, *_args, **_kwargs):
+                return self
+
+            def eq(self, column, value):
+                self.filters.append((column, value))
+                return self
+
+            def order(self, *_args, **_kwargs):
+                return self
+
+            def limit(self, *_args, **_kwargs):
+                return self
+
+            def execute(self):
+                rows = list(self.tables.get(self.table_name, []))
+                for column, value in self.filters:
+                    rows = [row for row in rows if str(row.get(column) or "") == str(value)]
+                return _Result(rows)
+
+        class Supabase:
+            def __init__(self):
+                self.tables = {
+                    "practice_sessions": [
+                        {
+                            "id": 11,
+                            "user_id": "student-1",
+                            "score_pct": 100,
+                            "correct_count": 1,
+                            "total_questions": 1,
+                            "exercise_data": {
+                                "exercises": [
+                                    {
+                                        "type": "multiple_choice",
+                                        "questions": [{"stem": "Choose", "options": ["wash", "cook"]}],
+                                        "answers": ["wash"],
+                                    }
+                                ]
+                            },
+                        }
+                    ],
+                    "practice_answers": [
+                        {
+                            "session_id": 11,
+                            "user_id": "student-1",
+                            "exercise_idx": 0,
+                            "question_idx": 0,
+                            "exercise_type": "multiple_choice",
+                            "student_answer": "",
+                            "correct_answer": "wash",
+                            "is_correct": True,
+                        }
+                    ],
+                    "teacher_assignment_attempts": [
+                        {
+                            "student_id": "student-1",
+                            "practice_session_id": 11,
+                            "assignment_id": 21,
+                            "submission_payload": {"result": {"answers": {"practice_0_0": "wash"}}},
+                        }
+                    ],
+                    "teacher_review_requests": [],
+                }
+
+            def table(self, table_name):
+                return Query(table_name, self.tables)
+
+        exercise_data = {
+            "exercises": [
+                {
+                    "type": "multiple_choice",
+                    "questions": [{"stem": "Choose", "options": ["wash", "cook"]}],
+                    "answers": ["wash"],
+                }
+            ]
+        }
+        with (
+            patch.object(practice_engine, "get_sb", return_value=Supabase()),
+            patch.object(practice_engine, "get_current_user_id", return_value="student-1"),
+        ):
+            state = practice_engine.load_practice_review_state(
+                11,
+                exercise_data=exercise_data,
+                session_key="sp",
+                assignment_id=21,
+            )
+
+        self.assertEqual("wash", state["answers"]["sp_0_0"])
+        self.assertEqual(100, state["summary"]["score_pct"])
 
     def test_history_loader_filters_orders_and_limits_in_supabase(self):
         sb = _Supabase([{"id": 7, "user_id": "student-1", "status": "completed"}])

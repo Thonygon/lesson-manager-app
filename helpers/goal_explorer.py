@@ -8,7 +8,11 @@ from contextlib import nullcontext
 import streamlit as st
 from core.i18n import t
 from helpers.currency import CURRENCIES, currency_symbol
-from helpers.lesson_planner import QUICK_SUBJECTS, subject_label as _subject_label
+from helpers.lesson_planner import (
+    QUICK_SUBJECTS,
+    normalize_learner_stage as _normalize_learner_stage,
+    subject_label as _subject_label,
+)
 from helpers.planner_storage import load_public_lesson_plans,render_plan_library_cards,render_quick_lesson_plan_result
 from helpers.worksheet_storage import load_public_worksheets, render_worksheet_library_cards, render_worksheet_result
 from helpers.quick_exam_storage import load_public_exams, render_exam_library_cards, render_exam_result
@@ -410,7 +414,13 @@ def _prepare_searchable_resources(df: pd.DataFrame, kind: str) -> pd.DataFrame:
         out["_search_subject"] = out["subject"].fillna("").astype(str)
 
     if "learner_stage" in out.columns:
-        out["_search_stage"] = out["learner_stage"].fillna("").astype(str).apply(_safe_t)
+        out["_search_stage"] = (
+            out["learner_stage"]
+            .fillna("")
+            .astype(str)
+            .apply(_normalize_learner_stage)
+            .apply(_safe_t)
+        )
 
     if "level_or_band" in out.columns:
         def _level_label(v: str) -> str:
@@ -449,7 +459,7 @@ def _prepare_searchable_resources(df: pd.DataFrame, kind: str) -> pd.DataFrame:
     return out
 
 
-def _merge_explore_filter_options(resource_frames: list[pd.DataFrame], columns: list[str]) -> list[str]:
+def _merge_explore_filter_options(resource_frames: list[pd.DataFrame], columns: list[str], *, normalize=None) -> list[str]:
     values: list[str] = []
     for frame in resource_frames:
         if frame is None or frame.empty:
@@ -458,7 +468,7 @@ def _merge_explore_filter_options(resource_frames: list[pd.DataFrame], columns: 
             if column not in frame.columns:
                 continue
             for raw_value in frame[column].dropna().astype(str):
-                value = str(raw_value or "").strip()
+                value = normalize(raw_value) if normalize else str(raw_value or "").strip()
                 if value:
                     values.append(value)
     return sorted(set(values))

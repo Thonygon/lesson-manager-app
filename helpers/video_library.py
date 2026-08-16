@@ -212,6 +212,8 @@ def _normalize_video_row(row: dict) -> dict:
     row["title"] = _clean_display_text(row.get("title") or t("video_default_title"))
     row["topic"] = _clean_display_text(row.get("topic") or row.get("title") or "")
     row["subject"] = normalize_subject(row.get("subject") or "")
+    import helpers.lesson_planner as _lp
+    row["learner_stage"] = _lp.normalize_learner_stage(row.get("learner_stage") or "")
     row["subject_display"] = subject_label(row["subject"]) if row["subject"] else _clean_display_text(row.get("custom_subject_name") or "")
     row["description"] = _clean_text(row.get("description"))
     row["author_name"] = _clean_display_text(row.get("author_name"))
@@ -343,7 +345,7 @@ def save_video_resource(
         return False, None, "video_invalid_url"
     video_id = parse_youtube_video_id(youtube_url)
     normalized_subject = normalize_subject(subject)
-    normalized_stage = _clean_text(learner_stage)
+    normalized_stage = _lp.normalize_learner_stage(learner_stage)
     if normalized_stage not in _lp.LEARNER_STAGES:
         normalized_stage = ""
     level_options = _lp.get_level_options(normalized_subject)
@@ -438,7 +440,7 @@ def update_video_resource(
         return False, "video_invalid_url"
     video_id = parse_youtube_video_id(youtube_url)
     normalized_subject = normalize_subject(subject)
-    normalized_stage = _clean_text(learner_stage)
+    normalized_stage = _lp.normalize_learner_stage(learner_stage)
     if normalized_stage not in _lp.LEARNER_STAGES:
         normalized_stage = ""
     level_options = _lp.get_level_options(normalized_subject)
