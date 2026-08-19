@@ -104,6 +104,137 @@ def _loading_overlay_style() -> str:
     """
 
 
+def _route_loading_style() -> str:
+    return """
+        .classio-route-loading {
+            position: fixed;
+            inset: 0;
+            z-index: 999998;
+            pointer-events: none;
+        }
+
+        .classio-route-loading__bar {
+            position: fixed;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: color-mix(in srgb, var(--border-strong, rgba(17,24,39,0.12)) 70%, transparent);
+            overflow: hidden;
+            box-shadow: 0 0 0 1px color-mix(in srgb, var(--border, rgba(17,24,39,0.08)) 82%, transparent);
+        }
+
+        .classio-route-loading__bar--top {
+            top: 0;
+        }
+
+        .classio-route-loading__bar--bottom {
+            bottom: 0;
+        }
+
+        .classio-route-loading__fill {
+            height: 100%;
+            width: var(--classio-route-progress, 42%);
+            background: linear-gradient(
+                90deg,
+                var(--primary, #2563EB) 0%,
+                color-mix(in srgb, var(--primary-strong, #1D4ED8) 68%, white 32%) 55%,
+                var(--success, #10B981) 100%
+            );
+            box-shadow: 0 0 18px color-mix(in srgb, var(--primary, #2563EB) 36%, transparent);
+            transition: width 180ms ease;
+        }
+
+        .classio-route-loading__pill {
+            position: fixed;
+            right: 16px;
+            bottom: 18px;
+            max-width: min(78vw, 320px);
+            padding: 10px 14px;
+            border-radius: 999px;
+            border: 1px solid color-mix(in srgb, var(--border-strong, rgba(17,24,39,0.12)) 78%, var(--primary, #2563EB) 22%);
+            background: linear-gradient(
+                180deg,
+                color-mix(in srgb, var(--panel, rgba(255,255,255,0.92)) 96%, white 4%),
+                color-mix(in srgb, var(--panel-2, rgba(255,255,255,0.84)) 98%, transparent)
+            );
+            color: var(--text, #0f172a);
+            box-shadow: var(--shadow-md, 0 12px 28px rgba(15,23,42,0.08));
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .classio-route-loading__title {
+            font-size: 0.84rem;
+            font-weight: 800;
+            line-height: 1.2;
+        }
+
+        .classio-route-loading__copy {
+            margin-top: 2px;
+            font-size: 0.75rem;
+            color: var(--muted, #64748b);
+            line-height: 1.35;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .classio-route-loading__bar {
+                background: rgba(255,255,255,0.08);
+                box-shadow: 0 0 0 1px rgba(255,255,255,0.04);
+            }
+
+            .classio-route-loading__pill {
+                border-color: rgba(255,255,255,0.12);
+                background: linear-gradient(180deg, rgba(30,41,59,0.92), rgba(20,30,48,0.88));
+                color: #f1f5f9;
+                box-shadow: 0 18px 40px rgba(0,0,0,0.32);
+            }
+
+            .classio-route-loading__copy {
+                color: #94a3b8;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .classio-route-loading__bar {
+                height: 5px;
+            }
+
+            .classio-route-loading__pill {
+                right: 12px;
+                bottom: 14px;
+                max-width: calc(100vw - 24px);
+                padding: 9px 12px;
+            }
+        }
+    """
+
+
+def render_route_loading_markup(
+    *,
+    title: str,
+    copy: str,
+    progress_ratio: float,
+) -> str:
+    progress_pct = max(0.0, min(float(progress_ratio or 0.0), 1.0)) * 100.0
+    return f"""
+        <style>
+        {_route_loading_style()}
+        </style>
+        <div class="classio-route-loading" style="--classio-route-progress: {progress_pct:.0f}%;" aria-live="polite">
+            <div class="classio-route-loading__bar classio-route-loading__bar--top">
+                <div class="classio-route-loading__fill"></div>
+            </div>
+            <div class="classio-route-loading__bar classio-route-loading__bar--bottom">
+                <div class="classio-route-loading__fill"></div>
+            </div>
+            <div class="classio-route-loading__pill">
+                <div class="classio-route-loading__title">{title}</div>
+                <div class="classio-route-loading__copy">{copy}</div>
+            </div>
+        </div>
+    """
+
+
 def render_loading_overlay_markup(
     *,
     overlay_id: str,

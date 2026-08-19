@@ -1596,6 +1596,9 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
                 key=f"{session_key}_finish",
                 use_container_width=True,
             ):
+                meta = dict(st.session_state.get("practice_meta") or {})
+                return_page = str(meta.get("return_page") or "").strip()
+                return_section = str(meta.get("return_section") or "").strip()
                 _clear_practice_widget_state(session_key)
                 st.session_state.pop(answers_key, None)
                 st.session_state.pop(submitted_key, None)
@@ -1610,6 +1613,14 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
                 st.session_state.pop(f"_practice_last_autosave_payload_{session_key}", None)
                 st.session_state.pop(f"_practice_last_autosave_at_{session_key}", None)
                 st.session_state.pop(f"_practice_last_autosave_failed_{session_key}", None)
+                if return_page:
+                    st.session_state["_practice_pending_return_page"] = return_page
+                else:
+                    st.session_state.pop("_practice_pending_return_page", None)
+                if return_section:
+                    st.session_state["_practice_pending_return_section"] = return_section
+                else:
+                    st.session_state.pop("_practice_pending_return_section", None)
                 st.rerun()
 
         return {
