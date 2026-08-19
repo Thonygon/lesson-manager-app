@@ -73,65 +73,6 @@ def _inject_scrollable_top_nav_styles() -> None:
     )
 
 
-def _inject_sticky_top_nav_shell_styles() -> None:
-    st.markdown(
-        """
-        <style>
-        .classio-sticky-top-nav-shell {
-            position: sticky;
-            top: 0;
-            z-index: 80;
-            padding-top: 0 !important;
-            margin-top: 0 !important;
-            background:
-                linear-gradient(
-                    180deg,
-                    color-mix(in srgb, var(--bg, #f5f7fb) 94%, transparent),
-                    color-mix(in srgb, var(--bg, #f5f7fb) 82%, transparent) 72%,
-                    transparent
-                );
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-        }
-
-        .classio-sticky-top-nav-inner {
-            padding-top: 0.2rem;
-            padding-bottom: 0.3rem;
-        }
-
-        @media (max-width: 768px) {
-            .classio-sticky-top-nav-inner {
-                padding-top: 0.1rem;
-                padding-bottom: 0.2rem;
-            }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _begin_sticky_top_nav() -> None:
-    _inject_sticky_top_nav_shell_styles()
-    st.markdown(
-        """
-        <div class="classio-sticky-top-nav-shell">
-          <div class="classio-sticky-top-nav-inner">
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _end_sticky_top_nav() -> None:
-    st.markdown(
-        """
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 def _render_profile_dialog_if_requested() -> None:
     if not st.session_state.get("show_profile_dialog"):
         return
@@ -316,112 +257,108 @@ def render_top_nav(active_page: str):
     except ValueError:
         default_index = stored_primary_index
 
-    _begin_sticky_top_nav()
-    try:
-        st.markdown(
-            """
-            <style>
-            @media (max-width: 768px){
-              .block-container{
-                padding-left: 0.85rem !important;
-                padding-right: 0.85rem !important;
-              }
-              .home-topbar{ padding: 8px 10px; }
-              .home-hero{ padding: 18px 14px; }
-              .home-menu-wrap{ padding: 12px; }
-            }
-                    .teacher-more-floating-anchor{display:none;}
+    st.markdown(
+        """
+        <style>
+        @media (max-width: 768px){
+          .block-container{
+            padding-left: 0.85rem !important;
+            padding-right: 0.85rem !important;
+          }
+          .home-topbar{ padding: 8px 10px; }
+          .home-hero{ padding: 18px 14px; }
+          .home-menu-wrap{ padding: 12px; }
+        }
+                .teacher-more-floating-anchor{display:none;}
+                div[data-testid="stVerticalBlockBorderWrapper"]:has(.teacher-more-floating-anchor){
+                    position:fixed;
+                    top:78px;
+                    right:0.95rem;
+                    width:min(280px, 92vw);
+                    margin:0;
+                    padding:12px;
+                    border-radius:20px;
+                    border:1px solid color-mix(in srgb, var(--border) 72%, var(--primary) 28%);
+                    background:linear-gradient(180deg, color-mix(in srgb, var(--panel) 97%, white 3%), color-mix(in srgb, var(--panel-soft) 94%, var(--primary) 6%));
+                    box-shadow:0 20px 44px rgba(15,23,42,.14);
+                    backdrop-filter:blur(18px);
+                    z-index:50;
+                }
+                div[data-testid="stVerticalBlockBorderWrapper"]:has(.teacher-more-floating-anchor) button[kind="secondary"]{
+                    justify-content:flex-start;
+                    border-radius:16px;
+                    border:1px solid color-mix(in srgb, var(--border) 78%, transparent);
+                    background:linear-gradient(180deg, rgba(255,255,255,.86), rgba(255,255,255,.64));
+                    box-shadow:0 10px 22px rgba(15,23,42,.06);
+                    font-weight:700;
+                }
+                div[data-testid="stVerticalBlockBorderWrapper"]:has(.teacher-more-floating-anchor) button[kind="secondary"]:hover{
+                    border-color:color-mix(in srgb, var(--primary) 26%, var(--border));
+                    background:linear-gradient(180deg, rgba(255,255,255,.96), rgba(255,255,255,.78));
+                }
+                @media (max-width: 768px){
                     div[data-testid="stVerticalBlockBorderWrapper"]:has(.teacher-more-floating-anchor){
-                        position:fixed;
-                        top:78px;
-                        right:0.95rem;
-                        width:min(280px, 92vw);
-                        margin:0;
-                        padding:12px;
-                        border-radius:20px;
-                        border:1px solid color-mix(in srgb, var(--border) 72%, var(--primary) 28%);
-                        background:linear-gradient(180deg, color-mix(in srgb, var(--panel) 97%, white 3%), color-mix(in srgb, var(--panel-soft) 94%, var(--primary) 6%));
-                        box-shadow:0 20px 44px rgba(15,23,42,.14);
-                        backdrop-filter:blur(18px);
-                        z-index:50;
+                        top:72px;
+                        right:0.75rem;
+                        width:min(260px, calc(100vw - 1.5rem));
                     }
-                    div[data-testid="stVerticalBlockBorderWrapper"]:has(.teacher-more-floating-anchor) button[kind="secondary"]{
-                        justify-content:flex-start;
-                        border-radius:16px;
-                        border:1px solid color-mix(in srgb, var(--border) 78%, transparent);
-                        background:linear-gradient(180deg, rgba(255,255,255,.86), rgba(255,255,255,.64));
-                        box-shadow:0 10px 22px rgba(15,23,42,.06);
-                        font-weight:700;
-                    }
-                    div[data-testid="stVerticalBlockBorderWrapper"]:has(.teacher-more-floating-anchor) button[kind="secondary"]:hover{
-                        border-color:color-mix(in srgb, var(--primary) 26%, var(--border));
-                        background:linear-gradient(180deg, rgba(255,255,255,.96), rgba(255,255,255,.78));
-                    }
-                    @media (max-width: 768px){
-                        div[data-testid="stVerticalBlockBorderWrapper"]:has(.teacher-more-floating-anchor){
-                            top:72px;
-                            right:0.75rem;
-                            width:min(260px, calc(100vw - 1.5rem));
-                        }
-                    }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
+                }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        nav_col, more_col = st.columns([12, 1.75], vertical_alignment="center")
-        with nav_col:
-            st.markdown("<div class='classio-top-nav-scroll-anchor'></div>", unsafe_allow_html=True)
-            selected_label = option_menu(
-                menu_title=None,
-                options=labels,
-                icons=icons,
-                orientation="horizontal",
-                default_index=default_index,
-                key="top_nav_option_menu",
-                styles={
-                    "container": {
-                        "padding": "0 !important",
-                        "margin": "0 0 1rem 0 !important",
-                        "background": "var(--panel)",
-                        "border": "1px solid var(--border)",
-                        "border-radius": "14px",
-                        "overflow-x": "auto",
-                        "white-space": "nowrap",
-                    },
-                    "nav-link": {
-                        "font-size": "14px",
-                        "text-align": "center",
-                        "padding": "6px 8px",
-                        "color": "var(--muted)",
-                        "--hover-color": "var(--panel-soft)",
-                    },
-                    "nav-link-selected": {
-                        "background": "var(--primary)",
-                        "color": "#f1f5f9",
-                    },
-                    "icon": {
-                        "font-size": "16px",
-                        "color": "var(--primary-light)",
-                    },
+    nav_col, more_col = st.columns([12, 1.75], vertical_alignment="center")
+    with nav_col:
+        st.markdown("<div class='classio-top-nav-scroll-anchor'></div>", unsafe_allow_html=True)
+        selected_label = option_menu(
+            menu_title=None,
+            options=labels,
+            icons=icons,
+            orientation="horizontal",
+            default_index=default_index,
+            key="top_nav_option_menu",
+            styles={
+                "container": {
+                    "padding": "0 !important",
+                    "margin": "0 0 1rem 0 !important",
+                    "background": "var(--panel)",
+                    "border": "1px solid var(--border)",
+                    "border-radius": "14px",
+                    "overflow-x": "auto",
+                    "white-space": "nowrap",
                 },
-            )
-        with more_col:
-            if "top_nav_more_open" not in st.session_state:
+                "nav-link": {
+                    "font-size": "14px",
+                    "text-align": "center",
+                    "padding": "6px 8px",
+                    "color": "var(--muted)",
+                    "--hover-color": "var(--panel-soft)",
+                },
+                "nav-link-selected": {
+                    "background": "var(--primary)",
+                    "color": "#f1f5f9",
+                },
+                "icon": {
+                    "font-size": "16px",
+                    "color": "var(--primary-light)",
+                },
+            },
+        )
+    with more_col:
+        if "top_nav_more_open" not in st.session_state:
+            st.session_state["top_nav_more_open"] = False
+        more_label = t("more") if t("more") != "more" else "More"
+        more_active = active_page in {key for key, _, _ in more_items}
+        if st.session_state.get("top_nav_more_open", False):
+            if st.button(t("close"), key="top_nav_more_toggle_close", use_container_width=True):
                 st.session_state["top_nav_more_open"] = False
-            more_label = t("more") if t("more") != "more" else "More"
-            more_active = active_page in {key for key, _, _ in more_items}
-            if st.session_state.get("top_nav_more_open", False):
-                if st.button(t("close"), key="top_nav_more_toggle_close", use_container_width=True):
-                    st.session_state["top_nav_more_open"] = False
-                    st.rerun()
-            else:
-                menu_label = f"⋯ {more_label}" + (" •" if more_active else "")
-                if st.button(menu_label, key="top_nav_more_toggle_open", use_container_width=True):
-                    st.session_state["top_nav_more_open"] = True
-                    st.rerun()
-    finally:
-        _end_sticky_top_nav()
+                st.rerun()
+        else:
+            menu_label = f"⋯ {more_label}" + (" •" if more_active else "")
+            if st.button(menu_label, key="top_nav_more_toggle_open", use_container_width=True):
+                st.session_state["top_nav_more_open"] = True
+                st.rerun()
 
     if st.session_state.get("top_nav_more_open", False):
         menu_box = st.container(border=True)
@@ -521,45 +458,41 @@ def render_student_top_nav(active_page: str):
     except ValueError:
         default_index = 0
 
-    _begin_sticky_top_nav()
-    try:
-        st.markdown("<div class='classio-student-top-nav-scroll-anchor'></div>", unsafe_allow_html=True)
-        selected_label = option_menu(
-            menu_title=None,
-            options=labels,
-            icons=icons,
-            orientation="horizontal",
-            default_index=default_index,
-            key="student_top_nav_option_menu",
-            styles={
-                "container": {
-                    "padding": "0 !important",
-                    "margin": "0 0 1rem 0 !important",
-                    "background": "var(--panel)",
-                    "border": "1px solid var(--border)",
-                    "border-radius": "14px",
-                    "overflow-x": "auto",
-                    "overflow-y": "hidden",
-                },
-                "nav-link": {
-                    "font-size": "14px",
-                    "text-align": "center",
-                    "padding": "6px 8px",
-                    "color": "var(--muted)",
-                    "--hover-color": "var(--panel-soft)",
-                },
-                "nav-link-selected": {
-                    "background": "var(--primary)",
-                    "color": "#f1f5f9",
-                },
-                "icon": {
-                    "font-size": "16px",
-                    "color": "var(--primary-light)",
-                },
+    st.markdown("<div class='classio-student-top-nav-scroll-anchor'></div>", unsafe_allow_html=True)
+    selected_label = option_menu(
+        menu_title=None,
+        options=labels,
+        icons=icons,
+        orientation="horizontal",
+        default_index=default_index,
+        key="student_top_nav_option_menu",
+        styles={
+            "container": {
+                "padding": "0 !important",
+                "margin": "0 0 1rem 0 !important",
+                "background": "var(--panel)",
+                "border": "1px solid var(--border)",
+                "border-radius": "14px",
+                "overflow-x": "auto",
+                "overflow-y": "hidden",
             },
-        )
-    finally:
-        _end_sticky_top_nav()
+            "nav-link": {
+                "font-size": "14px",
+                "text-align": "center",
+                "padding": "6px 8px",
+                "color": "var(--muted)",
+                "--hover-color": "var(--panel-soft)",
+            },
+            "nav-link-selected": {
+                "background": "var(--primary)",
+                "color": "#f1f5f9",
+            },
+            "icon": {
+                "font-size": "16px",
+                "color": "var(--primary-light)",
+            },
+        },
+    )
 
     selected_key = active_page
     for key, label, _ in items:
@@ -622,45 +555,41 @@ def render_admin_top_nav(active_page: str):
     except ValueError:
         default_index = 0
 
-    _begin_sticky_top_nav()
-    try:
-        st.markdown("<div class='classio-admin-top-nav-scroll-anchor'></div>", unsafe_allow_html=True)
-        selected_label = option_menu(
-            menu_title=None,
-            options=labels,
-            icons=icons,
-            orientation="horizontal",
-            default_index=default_index,
-            key="admin_top_nav_option_menu",
-            styles={
-                "container": {
-                    "padding": "0 !important",
-                    "margin": "0 0 1rem 0 !important",
-                    "background": "var(--panel)",
-                    "border": "1px solid var(--border)",
-                    "border-radius": "14px",
-                    "overflow-x": "auto",
-                    "overflow-y": "hidden",
-                },
-                "nav-link": {
-                    "font-size": "14px",
-                    "text-align": "center",
-                    "padding": "6px 8px",
-                    "color": "var(--muted)",
-                    "--hover-color": "var(--panel-soft)",
-                },
-                "nav-link-selected": {
-                    "background": "var(--primary)",
-                    "color": "#f1f5f9",
-                },
-                "icon": {
-                    "font-size": "16px",
-                    "color": "var(--primary-light)",
-                },
+    st.markdown("<div class='classio-admin-top-nav-scroll-anchor'></div>", unsafe_allow_html=True)
+    selected_label = option_menu(
+        menu_title=None,
+        options=labels,
+        icons=icons,
+        orientation="horizontal",
+        default_index=default_index,
+        key="admin_top_nav_option_menu",
+        styles={
+            "container": {
+                "padding": "0 !important",
+                "margin": "0 0 1rem 0 !important",
+                "background": "var(--panel)",
+                "border": "1px solid var(--border)",
+                "border-radius": "14px",
+                "overflow-x": "auto",
+                "overflow-y": "hidden",
             },
-        )
-    finally:
-        _end_sticky_top_nav()
+            "nav-link": {
+                "font-size": "14px",
+                "text-align": "center",
+                "padding": "6px 8px",
+                "color": "var(--muted)",
+                "--hover-color": "var(--panel-soft)",
+            },
+            "nav-link-selected": {
+                "background": "var(--primary)",
+                "color": "#f1f5f9",
+            },
+            "icon": {
+                "font-size": "16px",
+                "color": "var(--primary-light)",
+            },
+        },
+    )
 
     selected_key = active_page
     for key, label, _ in items:
@@ -749,44 +678,40 @@ def render_developer_workspace_top_nav(active_page: str):
     except ValueError:
         default_index = 0
 
-    _begin_sticky_top_nav()
-    try:
-        st.markdown("<div class='classio-admin-top-nav-scroll-anchor'></div>", unsafe_allow_html=True)
-        selected_label = option_menu(
-            menu_title=None,
-            options=labels,
-            icons=icons,
-            orientation="horizontal",
-            default_index=default_index,
-            key="developer_workspace_top_nav_option_menu",
-            styles={
-                "container": {
-                    "padding": "0 !important",
-                    "margin": "0 0 1rem 0 !important",
-                    "background": "var(--panel)",
-                    "border": "1px solid var(--border)",
-                    "border-radius": "14px",
-                    "overflow-x": "auto",
-                },
-                "nav-link": {
-                    "font-size": "14px",
-                    "text-align": "center",
-                    "padding": "6px 8px",
-                    "color": "var(--muted)",
-                    "--hover-color": "var(--panel-soft)",
-                },
-                "nav-link-selected": {
-                    "background": "var(--primary)",
-                    "color": "#f1f5f9",
-                },
-                "icon": {
-                    "font-size": "16px",
-                    "color": "var(--primary-light)",
-                },
+    st.markdown("<div class='classio-admin-top-nav-scroll-anchor'></div>", unsafe_allow_html=True)
+    selected_label = option_menu(
+        menu_title=None,
+        options=labels,
+        icons=icons,
+        orientation="horizontal",
+        default_index=default_index,
+        key="developer_workspace_top_nav_option_menu",
+        styles={
+            "container": {
+                "padding": "0 !important",
+                "margin": "0 0 1rem 0 !important",
+                "background": "var(--panel)",
+                "border": "1px solid var(--border)",
+                "border-radius": "14px",
+                "overflow-x": "auto",
             },
-        )
-    finally:
-        _end_sticky_top_nav()
+            "nav-link": {
+                "font-size": "14px",
+                "text-align": "center",
+                "padding": "6px 8px",
+                "color": "var(--muted)",
+                "--hover-color": "var(--panel-soft)",
+            },
+            "nav-link-selected": {
+                "background": "var(--primary)",
+                "color": "#f1f5f9",
+            },
+            "icon": {
+                "font-size": "16px",
+                "color": "var(--primary-light)",
+            },
+        },
+    )
 
     selected_key = active_page
     for key, label, _ in items:
