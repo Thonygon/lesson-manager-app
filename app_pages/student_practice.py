@@ -66,6 +66,9 @@ from services.permissions_service import user_has_feature
 _STUDENT_PRACTICE_PAGE_SIZE = 6
 logger = logging.getLogger(__name__)
 _PRACTICE_MAIN_SECTION_KEY = "student_practice_main_section"
+_ASSIGNMENTS_MAIN_SECTION_KEY = "student_assignments_main_section"
+_PRACTICE_PENDING_RETURN_PAGE_KEY = "_practice_pending_return_page"
+_PRACTICE_PENDING_RETURN_SECTION_KEY = "_practice_pending_return_section"
 
 
 def _ui_text(key: str, fallback: str) -> str:
@@ -215,6 +218,8 @@ def _return_from_active_practice(return_page: str | None = None) -> None:
     target_section = str((st.session_state.get("practice_meta") or {}).get("return_section") or "").strip()
     if target_page == "student_practice" and target_section:
         st.session_state[_PRACTICE_MAIN_SECTION_KEY] = target_section
+    elif target_page == "student_assignments" and target_section:
+        st.session_state[_ASSIGNMENTS_MAIN_SECTION_KEY] = target_section
     if target_page:
         go_to(target_page)
     st.rerun()
@@ -593,6 +598,16 @@ def _open_history_review_row(row: dict, *, assignment_state: dict | None = None)
 
 
 def render_student_practice():
+    pending_return_page = str(st.session_state.pop(_PRACTICE_PENDING_RETURN_PAGE_KEY, "") or "").strip()
+    pending_return_section = str(st.session_state.pop(_PRACTICE_PENDING_RETURN_SECTION_KEY, "") or "").strip()
+    if pending_return_page:
+        st.session_state["practice_meta"] = _practice_meta_with_return_context(
+            st.session_state.get("practice_meta") or {},
+            return_page=pending_return_page,
+            return_section=pending_return_section,
+        )
+        _return_from_active_practice(pending_return_page)
+
     st.markdown(f"## 🧠 {t('smart_practice')}")
     _inject_student_practice_styles()
     inject_resource_gallery_styles()

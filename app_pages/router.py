@@ -15,7 +15,7 @@ from core.database import (
     profile_can_study,
 )
 from auth.auth import render_profile_dialog, sign_out_user
-from helpers.ui_components import render_loading_overlay_markup, trigger_book_rain
+from helpers.ui_components import render_loading_overlay_markup, render_route_loading_markup, trigger_book_rain
 from services.auth_service import current_user_is_admin
 from services.authorization_service import current_user_can_access_developer_workspace
 
@@ -167,14 +167,28 @@ def _render_page_with_loading(page_key: str, render_fn: Callable[[], None]) -> N
             ),
             unsafe_allow_html=True,
         )
-        progress = None
+        uses_route_rails = False
     else:
-        progress = loading_slot.progress(0.12, text=t("section_loading_start", section=label))
-        progress.progress(0.42, text=t("section_loading_data", section=label))
+        uses_route_rails = True
+        loading_slot.markdown(
+            render_route_loading_markup(
+                title=t("section_loading_start", section=label),
+                copy=t("section_loading_data", section=label),
+                progress_ratio=0.42,
+            ),
+            unsafe_allow_html=True,
+        )
     try:
         render_fn()
-        if progress is not None:
-            progress.progress(1.0, text=t("section_loading_ready", section=label))
+        if uses_route_rails:
+            loading_slot.markdown(
+                render_route_loading_markup(
+                    title=t("section_loading_ready", section=label),
+                    copy=t("section_loading_data", section=label),
+                    progress_ratio=1.0,
+                ),
+                unsafe_allow_html=True,
+            )
     except Exception as exc:
         from services.operational_diagnostics_service import capture_exception
 

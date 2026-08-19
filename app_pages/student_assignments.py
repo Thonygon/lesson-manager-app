@@ -3,6 +3,7 @@ import json
 import math
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from core.database import get_sb
 from core.i18n import t
@@ -30,6 +31,49 @@ from helpers.worksheet_builder import normalize_worksheet_output
 from helpers.worksheet_storage import load_worksheet_record
 
 _STUDENT_PAGE_SIZE = 6
+_ASSIGNMENTS_MAIN_SECTION_KEY = "student_assignments_main_section"
+
+
+def _restore_assignment_main_tab(section: str) -> None:
+    tab_index = {"ws": 0, "exam": 1, "video": 2}.get(str(section or "").strip(), 0)
+    components.html(
+        f"""
+        <script>
+        (function() {{
+          const targetIndex = {tab_index};
+          const activate = () => {{
+            const hostDoc = window.parent?.document || document;
+            const tabLists = Array.from(hostDoc.querySelectorAll('div[role="tablist"]'));
+            if (!tabLists.length) {{
+              return false;
+            }}
+            for (const tabList of tabLists) {{
+              const tabs = Array.from(tabList.querySelectorAll('button[role="tab"]'));
+              if (tabs.length < 3 || !tabs[targetIndex]) {{
+                continue;
+              }}
+              tabs[targetIndex].click();
+              return true;
+            }}
+            return false;
+          }};
+
+          if (activate()) {{
+            return;
+          }}
+
+          const observer = new MutationObserver(() => {{
+            if (activate()) {{
+              observer.disconnect();
+            }}
+          }});
+          observer.observe(window.parent?.document?.body || document.body, {{ childList: true, subtree: true }});
+          setTimeout(() => observer.disconnect(), 3000);
+        }})();
+        </script>
+        """,
+        height=0,
+    )
 
 
 def _assignment_filter_state(row: dict) -> str:
@@ -796,7 +840,7 @@ def _inject_assignment_page_styles() -> None:
     )
 
 
-def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> None:
+def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False, section_key: str = "") -> None:
     title_raw = str(row.get("title") or "—")
     title = _html.escape(title_raw)
     status = str(row.get("status") or "").strip()
@@ -921,23 +965,28 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False) -> 
                     st.info(t("assignment_source_archived_notice"))
             elif is_finalized:
                 if st.button(_safe_ui_label("review_answers", "Review answers"), key=f"{key_prefix}_review", use_container_width=True, type="primary"):
-                    _open_assignment_practice(row, review_completed=True)
+                    _open_assignment_practice(row, review_completed=True, return_section=section_key)
             else:
                 action_text = t("continue_practice") if is_continue else t("open_assignment")
                 if st.button(action_text, key=f"{key_prefix}_open", use_container_width=True, type="primary"):
-                    _open_assignment_practice(row)
+                    _open_assignment_practice(row, return_section=section_key)
         elif assignment_type == "video":
+            watch_state_key = f"{key_prefix}_video_player_open"
+            is_video_open = bool(st.session_state.get(watch_state_key))
             if attempts_value > 0:
                 st.markdown(
                     f"<div class='classio-assign-action-done'>{_html.escape(_safe_ui_label('assignment_done', 'Done'))} · {_html.escape(_safe_ui_label('views_label', 'Views'))}: {attempts_value}</div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
-            video_action = _safe_ui_label("watch_again", "Watch again") if attempts_value > 0 else t("watch_video")
+            video_action = _safe_ui_label("close", "Close") if is_video_open else t("watch_video")
             if st.button(video_action, key=f"{key_prefix}_video_watch", use_container_width=True, type="primary"):
-                st.session_state[f"{key_prefix}_video_player_open"] = True
-                record_video_assignment_watch(int(row.get("id") or 0))
-                _log_video_assignment_event(row, "student_video_watched")
+                if is_video_open:
+                    st.session_state.pop(watch_state_key, None)
+                else:
+                    st.session_state[watch_state_key] = True
+                    record_video_assignment_watch(int(row.get("id") or 0))
+                    _log_video_assignment_event(row, "student_video_watched")
                 st.rerun()
         st.markdown("<div style='height:0.7rem;'></div>", unsafe_allow_html=True)
 
@@ -1031,7 +1080,7 @@ def _assignment_scope_groups(rows: list[dict]) -> list[dict]:
     return result
 
 
-def _render_assignment_rows(rows: list[dict], group_prefix: str) -> None:
+def _render_assignment_rows(rows: list[dict], group_prefix: str, *, section_key: str = "") -> None:
     page_rows, *_ = _slice_student_page(rows, f"{group_prefix}_page")
     if all(str(row.get("assignment_type") or "").strip() in {"worksheet", "exam", "video"} for row in page_rows):
         inject_resource_gallery_styles()
@@ -1040,7 +1089,12 @@ def _render_assignment_rows(rows: list[dict], group_prefix: str) -> None:
             cols = st.columns(3, gap="medium")
             for col_idx, row in enumerate(trio):
                 with cols[col_idx]:
-                    _assignment_card(row, f"{group_prefix}_{row.get('id', idx)}_{idx}_{col_idx}", grid_mode=True)
+                    _assignment_card(
+                        row,
+                        f"{group_prefix}_{row.get('id', idx)}_{idx}_{col_idx}",
+                        grid_mode=True,
+                        section_key=section_key,
+                    )
         _render_student_pagination(rows, f"{group_prefix}_page")
         return
 
@@ -1050,7 +1104,11 @@ def _render_assignment_rows(rows: list[dict], group_prefix: str) -> None:
         for subject_name, items in subject_groups:
             st.markdown(f"<div class='classio-assign-subject'>{_html.escape(subject_name)}</div>", unsafe_allow_html=True)
             for idx, row in enumerate(items):
-                _assignment_card(row, f"{group_prefix}_{teacher_name}_{subject_name}_{idx}")
+                _assignment_card(
+                    row,
+                    f"{group_prefix}_{teacher_name}_{subject_name}_{idx}",
+                    section_key=section_key,
+                )
     _render_student_pagination(rows, f"{group_prefix}_page")
 
 
@@ -1060,6 +1118,7 @@ def _render_assignment_group(
     group_prefix: str,
     *,
     filtered_empty: bool = False,
+    section_key: str = "",
 ) -> None:
     if not rows:
         if filtered_empty:
@@ -1094,12 +1153,14 @@ def _render_assignment_group(
                 _render_assignment_rows(
                     group.get("rows") or [],
                     f"{group_prefix}_{group.get('key') or 'scope'}",
+                    section_key=section_key,
                 )
         return
     group = scope_groups[0]
     _render_assignment_rows(
         group.get("rows") or [],
         f"{group_prefix}_{group.get('key') or 'scope'}",
+        section_key=section_key,
     )
 
 
@@ -1242,6 +1303,7 @@ def render_student_assignments() -> None:
     _inject_assignment_page_styles()
     st.markdown(f"## 🗂️ {t('student_assignments_title')}")
     st.caption(t("student_assignments_desc"))
+    preferred_section = str(st.session_state.pop(_ASSIGNMENTS_MAIN_SECTION_KEY, "") or "").strip()
 
     assignments = load_student_assignments()
     program_assignments = load_enriched_program_assignments_for_current_student()
@@ -1309,6 +1371,7 @@ def render_student_assignments() -> None:
             worksheets,
             "student_assignments_ws",
             filtered_empty=selected_filter != "all" and bool(original_worksheets) and not worksheets,
+            section_key="ws",
         )
     with tab_exams:
         _render_assignment_group(
@@ -1316,6 +1379,7 @@ def render_student_assignments() -> None:
             exams,
             "student_assignments_exam",
             filtered_empty=selected_filter != "all" and bool(original_exams) and not exams,
+            section_key="exam",
         )
     with tab_videos:
         _render_assignment_group(
@@ -1323,4 +1387,8 @@ def render_student_assignments() -> None:
             videos,
             "student_assignments_videos",
             filtered_empty=selected_filter != "all" and bool(original_videos) and not videos,
+            section_key="video",
         )
+
+    if preferred_section:
+        _restore_assignment_main_tab(preferred_section)
