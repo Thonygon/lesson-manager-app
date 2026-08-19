@@ -146,8 +146,9 @@ def _route_loading_style() -> str:
 
         .classio-route-loading__pill {
             position: fixed;
-            right: 16px;
-            bottom: 18px;
+            left: 16px;
+            right: auto;
+            bottom: calc(env(safe-area-inset-bottom, 0px) + 68px);
             max-width: min(78vw, 320px);
             padding: 10px 14px;
             border-radius: 999px;
@@ -200,8 +201,9 @@ def _route_loading_style() -> str:
             }
 
             .classio-route-loading__pill {
-                right: 12px;
-                bottom: 14px;
+                left: 12px;
+                right: auto;
+                bottom: calc(env(safe-area-inset-bottom, 0px) + 78px);
                 max-width: calc(100vw - 24px);
                 padding: 9px 12px;
             }

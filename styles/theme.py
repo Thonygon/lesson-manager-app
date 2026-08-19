@@ -1295,7 +1295,8 @@ def load_css_app(compact: bool = False):
         }}
 
         section[data-testid="stMain"] > div {{
-          padding-top: 1.2rem;
+          padding-top: 0rem !important;
+          margin-top: 0rem !important;
           padding-bottom: 2rem;
           max-width: 1200px;
         }}
