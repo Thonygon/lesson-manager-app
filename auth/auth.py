@@ -567,7 +567,9 @@ def render_google_auth_card(
     body_key=None,
     button_key=None,
     button_widget_key=None,
-    show_signup_note=False
+    show_signup_note=False,
+    accent_variant="signin",
+    eyebrow_key=None,
 ):
 
     google_svg = """
@@ -584,13 +586,54 @@ def render_google_auth_card(
     google_svg_data = quote(google_svg.strip())
     button_cta = t(button_key)
     body_text = t(body_key) if body_key else ""
-    eyebrow_text = t("sign_in") if not show_signup_note else t("sign_up")
+    eyebrow_text = t(eyebrow_key or ("sign_in" if not show_signup_note else "sign_up"))
+    if accent_variant == "signup":
+        accent_hex = "#8B5CF6"
+        accent_rgb = "139,92,246"
+        accent_soft = "#EC4899"
+        accent_dark = "#A78BFA"
+        accent_dark_rgb = "167,139,250"
+        accent_dark_soft = "#F472B6"
+    else:
+        accent_hex = "#14B8A6"
+        accent_rgb = "20,184,166"
+        accent_soft = "#38BDF8"
+        accent_dark = "#2DD4BF"
+        accent_dark_rgb = "45,212,191"
+        accent_dark_soft = "#60A5FA"
     st.markdown(
         f"""
         <style>
         .{wrapper_class} {{
-            --auth-google-border: color-mix(in srgb, var(--border-strong, rgba(17,24,39,.12)) 74%, rgba(66,133,244,.26) 26%);
+            --auth-google-accent: {accent_hex};
+            --auth-google-accent-rgb: {accent_rgb};
+            --auth-google-accent-soft: {accent_soft};
+            --auth-google-border: color-mix(in srgb, var(--border-strong, rgba(17,24,39,.12)) 74%, color-mix(in srgb, var(--auth-google-accent) 28%, transparent) 26%);
             --auth-google-shadow: 0 22px 52px rgba(15,23,42,.10), inset 0 1px 0 rgba(255,255,255,.82);
+            --auth-google-card-bg:
+                radial-gradient(circle at 100% 2%, color-mix(in srgb, var(--auth-google-accent) 14%, transparent), transparent 28%),
+                linear-gradient(135deg, color-mix(in srgb, var(--auth-google-accent) 14%, transparent), color-mix(in srgb, var(--auth-google-accent-soft) 8%, transparent)),
+                linear-gradient(
+                    180deg,
+                    color-mix(in srgb, var(--panel, #fff) 96%, white 4%),
+                    color-mix(in srgb, var(--panel-2, #f8fafc) 92%, var(--auth-google-accent) 8%)
+                );
+            --auth-google-pill-bg: linear-gradient(
+                180deg,
+                color-mix(in srgb, var(--panel, #fff) 94%, transparent),
+                color-mix(in srgb, var(--panel-2, #f8fafc) 90%, var(--auth-google-accent) 10%)
+            );
+            --auth-google-pill-text: var(--text, #0f172a);
+            --auth-google-chip-bg: linear-gradient(
+                180deg,
+                color-mix(in srgb, var(--panel, #fff) 92%, white 8%),
+                color-mix(in srgb, var(--panel-2, #f8fafc) 86%, var(--auth-google-accent) 14%)
+            );
+            --auth-google-chip-border: color-mix(in srgb, var(--border-strong, rgba(17,24,39,.12)) 78%, color-mix(in srgb, var(--auth-google-accent) 22%, transparent) 22%);
+            --auth-google-pill-shadow: 0 10px 24px rgba(15,23,42,.08);
+            --auth-google-chip-shadow: 0 14px 28px rgba(15,23,42,.10);
+            max-width: min(100%, 36rem);
+            margin: 0 auto;
         }}
         .{wrapper_class} div[data-testid="stButton"] {{
             margin-top: 0 !important;
@@ -599,15 +642,14 @@ def render_google_auth_card(
         .{wrapper_class} div[data-testid="stButton"] > button {{
             position: relative;
             overflow: hidden;
-            min-height: 224px;
+            min-height: 280px;
             margin: 0 !important;
-            padding: 24px 24px 78px !important;
-            border-radius: 24px !important;
+            width: 100%;
+            max-width: min(100%, 36rem);
+            padding: 24px 24px 80px !important;
+            border-radius: 28px !important;
             border: 1px solid var(--auth-google-border) !important;
-            background:
-                radial-gradient(circle at 100% 2%, rgba(66,133,244,.08), transparent 28%),
-                linear-gradient(135deg, color-mix(in srgb, rgba(66,133,244,.12) 72%, transparent 28%), rgba(20,184,166,.05)),
-                linear-gradient(180deg, color-mix(in srgb, var(--panel, #fff) 94%, white 6%), color-mix(in srgb, var(--panel-2, #f8fafc) 88%, rgba(66,133,244,.08) 12%)) !important;
+            background: var(--auth-google-card-bg) !important;
             box-shadow: var(--auth-google-shadow) !important;
             color: var(--text, #0f172a) !important;
             text-align: left !important;
@@ -617,7 +659,7 @@ def render_google_auth_card(
         .{wrapper_class} div[data-testid="stButton"] > button:hover,
         .{wrapper_class} div[data-testid="stButton"] > button:focus {{
             transform: translateY(-2px);
-            border-color: color-mix(in srgb, rgba(66,133,244,.48) 42%, var(--border-strong, rgba(17,24,39,.12)) 58%) !important;
+            border-color: color-mix(in srgb, color-mix(in srgb, var(--auth-google-accent) 48%, transparent) 42%, var(--border-strong, rgba(17,24,39,.12)) 58%) !important;
             box-shadow: 0 26px 58px rgba(15,23,42,.12), inset 0 1px 0 rgba(255,255,255,.88) !important;
         }}
         .{wrapper_class} div[data-testid="stButton"] > button:disabled {{
@@ -633,7 +675,7 @@ def render_google_auth_card(
             left: 24px;
             font-size: .74rem;
             font-weight: 900;
-            color: #4285F4;
+            color: var(--auth-google-accent);
             letter-spacing: 0;
             z-index: 2;
             pointer-events: none;
@@ -649,12 +691,12 @@ def render_google_auth_card(
             min-height: 40px;
             padding: 0 16px;
             border-radius: 999px;
-            background: linear-gradient(180deg, rgba(255,255,255,.86), rgba(255,255,255,.62));
-            border: 1px solid color-mix(in srgb, rgba(66,133,244,.28) 34%, var(--border-strong, rgba(17,24,39,.12)) 66%);
-            color: var(--text, #0f172a);
+            background: var(--auth-google-pill-bg);
+            border: 1px solid color-mix(in srgb, color-mix(in srgb, var(--auth-google-accent) 28%, transparent) 34%, var(--border-strong, rgba(17,24,39,.12)) 66%);
+            color: var(--auth-google-pill-text);
             font-size: .92rem;
             font-weight: 820;
-            box-shadow: 0 10px 24px rgba(15,23,42,.08);
+            box-shadow: var(--auth-google-pill-shadow);
             pointer-events: none;
         }}
         .{wrapper_class} div[data-testid="stButton"] > button > div {{
@@ -672,14 +714,13 @@ def render_google_auth_card(
             width: 62px;
             height: 62px;
             border-radius: 20px;
-            background:
-                linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.72));
+            background: var(--auth-google-chip-bg);
             background-image: url("data:image/svg+xml;utf8,{google_svg_data}");
             background-repeat: no-repeat;
             background-position: center;
             background-size: 38px 38px;
-            border: 1px solid color-mix(in srgb, var(--border-strong, rgba(17,24,39,.12)) 78%, rgba(66,133,244,.22) 22%);
-            box-shadow: 0 14px 28px rgba(15,23,42,.10);
+            border: 1px solid var(--auth-google-chip-border);
+            box-shadow: var(--auth-google-chip-shadow);
             pointer-events: none;
         }}
         .{wrapper_class} div[data-testid="stButton"] > button > div::after {{
@@ -690,7 +731,7 @@ def render_google_auth_card(
             top: 0;
             height: 4px;
             border-radius: 0 0 999px 999px;
-            background: linear-gradient(90deg, transparent, rgba(66,133,244,.72), transparent);
+            background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--auth-google-accent) 72%, transparent), transparent);
             opacity: .8;
             pointer-events: none;
         }}
@@ -698,8 +739,8 @@ def render_google_auth_card(
             position: relative;
             z-index: 1;
             display: block;
-            width: min(760px, calc(100% - 96px));
-            max-width: min(760px, calc(100% - 96px));
+            width: min(100%, 26rem);
+            max-width: calc(100% - 96px);
             margin: 78px 0 0;
             white-space: pre-line !important;
             text-align: left !important;
@@ -712,13 +753,43 @@ def render_google_auth_card(
             display: block;
             margin: 0 0 10px;
             color: var(--text, #0f172a) !important;
-            font-size: 1.45rem;
+            font-size: 1.42rem;
             line-height: 1.16;
             font-weight: 950;
         }}
+        @media (prefers-color-scheme: dark) {{
+            .{wrapper_class} {{
+                --auth-google-accent: {accent_dark};
+                --auth-google-accent-rgb: {accent_dark_rgb};
+                --auth-google-accent-soft: {accent_dark_soft};
+                --auth-google-shadow: 0 20px 48px rgba(0,0,0,.26), inset 0 1px 0 rgba(255,255,255,.03);
+                --auth-google-card-bg:
+                    radial-gradient(circle at 100% 2%, color-mix(in srgb, var(--auth-google-accent) 18%, transparent), transparent 28%),
+                    linear-gradient(135deg, color-mix(in srgb, var(--auth-google-accent) 16%, transparent), color-mix(in srgb, var(--auth-google-accent-soft) 10%, transparent)),
+                    linear-gradient(
+                        180deg,
+                        color-mix(in srgb, var(--panel, rgba(30,41,59,.92)) 94%, transparent),
+                        color-mix(in srgb, var(--panel-2, rgba(20,30,48,.90)) 90%, var(--auth-google-accent) 10%)
+                    );
+                --auth-google-pill-bg: linear-gradient(
+                    180deg,
+                    color-mix(in srgb, var(--panel, rgba(30,41,59,.94)) 92%, transparent),
+                    color-mix(in srgb, var(--panel-2, rgba(20,30,48,.92)) 88%, var(--auth-google-accent) 12%)
+                );
+                --auth-google-pill-text: #f8fafc;
+                --auth-google-chip-bg: linear-gradient(
+                    180deg,
+                    color-mix(in srgb, rgba(30,41,59,.94) 90%, var(--auth-google-accent) 10%),
+                    color-mix(in srgb, rgba(20,30,48,.92) 92%, var(--auth-google-accent-soft) 8%)
+                );
+                --auth-google-chip-border: rgba(255,255,255,.12);
+                --auth-google-pill-shadow: 0 12px 24px rgba(0,0,0,.24);
+                --auth-google-chip-shadow: 0 14px 28px rgba(0,0,0,.28);
+            }}
+        }}
         @media (max-width: 768px) {{
             .{wrapper_class} div[data-testid="stButton"] > button {{
-                min-height: 204px;
+                min-height: 252px;
                 padding: 22px 20px 72px !important;
                 border-radius: 22px !important;
             }}
@@ -742,7 +813,7 @@ def render_google_auth_card(
                 font-size: .88rem;
             }}
             .{wrapper_class} div[data-testid="stButton"] > button p {{
-                width: calc(100% - 84px);
+                width: min(100%, 21rem);
                 max-width: calc(100% - 84px);
                 margin-top: 70px;
                 font-size: .96rem;
@@ -821,17 +892,18 @@ def require_login():
             display: flex;
             justify-content: center;
             align-items: center;
+            width: 100%;
             margin-top: 0 !important;
             margin-bottom: -18px !important;
             padding: 0 !important;
         }
-        div[data-testid="stImage"] {
+        .login-logo-wrap div[data-testid="stImage"] {
             margin-top: -40px !important;
             margin-bottom: -24px !important;
             padding: 0 !important;
             text-align: center;
         }
-        div[data-testid="stImage"] img {
+        .login-logo-wrap div[data-testid="stImage"] img {
             display: block;
             margin: 0 auto !important;
             padding: 0 !important;
@@ -855,11 +927,9 @@ def require_login():
         unsafe_allow_html=True,
     )
 
-    col_logo_left, col_logo_center, col_logo_right = st.columns([1, 2, 1])
-    with col_logo_center:
-        st.markdown('<div class="login-logo-wrap">', unsafe_allow_html=True)
-        st.image(logo_bytes, width=500)
-        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown('<div class="login-logo-wrap">', unsafe_allow_html=True)
+    st.image(logo_bytes, width=500)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     if not auth_provider_configured:
         dev_login_email = _get_dev_login_email()
@@ -880,15 +950,14 @@ def require_login():
     _tab_specs = [
         ("explore", t("explore_tab")),
         ("income_goal", t("set_income_goal")),
-        ("login", t("sign_in")),
-        ("signup", t("sign_up")),
+        ("account", t("your_account")),
         ("lang", _lang_tab_label),
         ("theme", _theme_tab_label),
     ]
     if _focus_signup_tab:
-        _tab_specs = [spec for spec in _tab_specs if spec[0] == "signup"] + [spec for spec in _tab_specs if spec[0] != "signup"]
+        _tab_specs = [spec for spec in _tab_specs if spec[0] == "account"] + [spec for spec in _tab_specs if spec[0] != "account"]
     elif _focus_login_tab:
-        _tab_specs = [spec for spec in _tab_specs if spec[0] == "login"] + [spec for spec in _tab_specs if spec[0] != "login"]
+        _tab_specs = [spec for spec in _tab_specs if spec[0] == "account"] + [spec for spec in _tab_specs if spec[0] != "account"]
 
     st.markdown(
         """
@@ -912,8 +981,7 @@ def require_login():
     _tab_by_key = {key: tab for (key, _), tab in zip(_tab_specs, _tabs)}
     tab_explore = _tab_by_key["explore"]
     tab_income_goal = _tab_by_key["income_goal"]
-    tab_login = _tab_by_key["login"]
-    tab_signup = _tab_by_key["signup"]
+    tab_account = _tab_by_key["account"]
     tab_lang = _tab_by_key["lang"]
     tab_theme = _tab_by_key["theme"]
 
@@ -955,35 +1023,72 @@ def require_login():
             _set_query(lang=_selected)
             st.rerun()
 
-    with tab_login:
-        render_google_auth_card(
-            title_key="google_signin_title",
-            body_key="google_signin_body",
-            button_key="continue_with_google",
-            button_widget_key="btn_google_signin",
-        )
+    with tab_account:
         st.markdown(
             """
-            <div class="home-section-line"> 
-              <span>🤖</span>
-            </div>
+            <style>
+            .classio-auth-card-caption {
+                max-width: 32rem;
+                margin: 0 auto 0.85rem auto;
+                color: var(--muted, #64748b);
+                font-size: 0.92rem;
+                line-height: 1.45;
+                text-align: center;
+            }
+            .classio-auth-card-title {
+                margin: 0 0 0.35rem 0;
+                text-align: center;
+                font-size: 1.1rem;
+                font-weight: 800;
+                color: var(--text, #0f172a);
+                letter-spacing: -0.01em;
+            }
+            @media (max-width: 768px) {
+                .classio-auth-card-caption {
+                    margin-bottom: 0.75rem;
+                    font-size: 0.9rem;
+                }
+                .classio-auth-card-title {
+                    font-size: 1.05rem;
+                }
+            }
+            </style>
             """,
             unsafe_allow_html=True,
         )
-
-    with tab_signup:
-        render_google_auth_card(
-            title_key="google_signup_title",
-            body_key="account_managed_by_provider",
-            button_key="create_account_google",
-            button_widget_key="btn_google_signup",
-            show_signup_note=True,
+        outer_left, account_col_signup, center_gap, account_col_signin, outer_right = st.columns(
+            [1.15, 4.7, 0.4, 4.7, 1.15],
+            gap="small",
         )
-        st.markdown(f"#### {t('already_have_account')}")
-        st.caption(t("already_have_account_hint"))
-        if st.button(t("sign_in"), key="btn_signup_go_login", use_container_width=True):
-            st.session_state["_auth_focus_login"] = True
-            st.rerun()
+        with account_col_signup:
+            st.markdown(f"<div class='classio-auth-card-title'>{t('sign_up')}</div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div class='classio-auth-card-caption'>{t('google_auth_signup_note')}</div>",
+                unsafe_allow_html=True,
+            )
+            render_google_auth_card(
+                title_key="google_signup_title",
+                body_key="account_managed_by_provider",
+                button_key="create_account_google",
+                button_widget_key="btn_google_signup",
+                show_signup_note=False,
+                accent_variant="signup",
+                eyebrow_key="sign_up",
+            )
+        with account_col_signin:
+            st.markdown(f"<div class='classio-auth-card-title'>{t('sign_in')}</div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div class='classio-auth-card-caption'>{t('already_have_account_hint')}</div>",
+                unsafe_allow_html=True,
+            )
+            render_google_auth_card(
+                title_key="google_signin_title",
+                body_key="google_signin_body",
+                button_key="continue_with_google",
+                button_widget_key="btn_google_signin",
+                accent_variant="signin",
+                eyebrow_key="sign_in",
+            )
         st.markdown(
             """
             <div class="home-section-line"> 
