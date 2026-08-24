@@ -64,6 +64,13 @@ from helpers.material_recommendations import (
     maybe_pause_generation_for_matches,
     render_generation_recommendations,
 )
+from helpers.program_resource_context import (
+    apply_program_topic_form_defaults,
+    get_active_program_topic_context,
+    get_program_topic_recommendation_profile,
+    merge_program_topic_context_into_profile,
+    render_program_topic_picker,
+)
 from helpers.resource_gallery import (
     extract_gallery_language_label,
     extract_gallery_image_url,
@@ -2678,11 +2685,27 @@ def render_quick_worksheet_maker_expander(*, embedded: bool = False) -> None:
         if subject == "other":
             other_subject_name = st.text_input(t("other_subject_label"), key="ws_other_subject").strip()
 
+        effective_subject = other_subject_name if subject == "other" else subject
+        picked_program_topic_context = render_program_topic_picker(
+            state_prefix="quick_ws",
+            subject=effective_subject,
+            custom_subject_name=other_subject_name,
+        )
+        program_topic_context = picked_program_topic_context or get_active_program_topic_context()
+        apply_program_topic_form_defaults(
+            program_topic_context,
+            stage_key="ws_stage",
+            level_key="ws_level",
+            topic_key="ws_topic",
+            worksheet_type_key="ws_type",
+        )
+
         learner_stage = st.selectbox(
             t("learner_stage"),
             _lp().LEARNER_STAGES,
             format_func=_lp()._stage_label,
             key="ws_stage",
+            disabled=bool(program_topic_context),
         )
 
         default_level = _lp().recommend_default_level(subject, learner_stage)
@@ -2692,21 +2715,35 @@ def render_quick_worksheet_maker_expander(*, embedded: bool = False) -> None:
 
         c1, c2 = st.columns(2)
         with c1:
+            worksheet_recommendations = get_program_topic_recommendation_profile(program_topic_context)
+            worksheet_options = list(_wb().WORKSHEET_TYPES)
+            ranked_worksheet = [item for item in worksheet_recommendations.get("worksheet_ranked") or [] if item in worksheet_options]
+            if ranked_worksheet:
+                worksheet_options = ranked_worksheet + [item for item in worksheet_options if item not in ranked_worksheet]
             level_or_band = st.selectbox(
                 t("level_or_band"),
                 level_options,
                 format_func=_lp()._level_label,
                 key="ws_level",
+                disabled=bool(program_topic_context),
             )
         with c2:
             worksheet_type = st.selectbox(
                 t("worksheet_type_label"),
-                _wb().WORKSHEET_TYPES,
+                worksheet_options,
                 format_func=lambda x: t(x),
                 key="ws_type",
             )
-
-        topic = st.text_input(t("topic_label"), key="ws_topic")
+        topic = st.text_input(t("topic_label"), key="ws_topic", disabled=bool(program_topic_context))
+        if ranked_worksheet:
+            st.caption(
+                t(
+                    "program_topic_recommended_worksheet_types",
+                    items=", ".join(t(item) for item in ranked_worksheet[:4]),
+                )
+            )
+            if worksheet_type not in ranked_worksheet[: max(1, min(3, len(ranked_worksheet)))]:
+                st.info(t("program_topic_less_typical_worksheet_choice"))
         student_options = load_teacher_personalization_students()
         selected_student_label = st.selectbox(
             t("personalize_for_student") if t("personalize_for_student") != "personalize_for_student" else "Personalize for student",
@@ -2715,15 +2752,15 @@ def render_quick_worksheet_maker_expander(*, embedded: bool = False) -> None:
             help=t("personalize_for_student_help"),
         )
         selected_student = next((item for item in student_options if item["label"] == selected_student_label), None)
-        effective_subject = other_subject_name if subject == "other" else subject
         preview_profile = {}
         if selected_student:
             preview_profile = build_student_generation_profile(
                 selected_student["student_user_id"],
                 subject=effective_subject,
             )
-            if preview_profile.get("summary"):
-                st.caption(preview_profile["summary"])
+        preview_profile = merge_program_topic_context_into_profile(preview_profile, program_topic_context)
+        if preview_profile.get("summary"):
+            st.caption(preview_profile["summary"])
         native_language = ""
         show_native_language = is_language_subject(subject, other_subject_name)
         if show_native_language:
@@ -2779,6 +2816,7 @@ def render_quick_worksheet_maker_expander(*, embedded: bool = False) -> None:
                     if selected_student
                     else {}
                 )
+                student_profile = merge_program_topic_context_into_profile(student_profile, program_topic_context)
                 if show_native_language:
                     student_profile = apply_native_language_context(student_profile, native_language)
                 else:

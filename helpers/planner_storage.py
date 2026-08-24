@@ -35,6 +35,13 @@ from helpers.material_recommendations import (
     maybe_pause_generation_for_matches,
     render_generation_recommendations,
 )
+from helpers.program_resource_context import (
+    apply_program_topic_form_defaults,
+    get_active_program_topic_context,
+    get_program_topic_recommendation_profile,
+    merge_program_topic_context_into_profile,
+    render_program_topic_picker,
+)
 from helpers.resource_gallery import (
     extract_gallery_language_label,
     extract_gallery_image_url,
@@ -2029,11 +2036,27 @@ def render_quick_lesson_planner_expander(*, embedded: bool = False) -> None:
         if subject == "other":
             other_subject_name = st.text_input(t("other_subject_label"), key="quick_plan_other_subject").strip()
 
+        effective_subject = other_subject_name if subject == "other" else subject
+        picked_program_topic_context = render_program_topic_picker(
+            state_prefix="quick_plan",
+            subject=effective_subject,
+            custom_subject_name=other_subject_name,
+        )
+        program_topic_context = picked_program_topic_context or get_active_program_topic_context()
+        apply_program_topic_form_defaults(
+            program_topic_context,
+            stage_key="quick_plan_learner_stage",
+            level_key="quick_plan_level",
+            topic_key="quick_plan_topic",
+            purpose_key="quick_plan_purpose",
+        )
+
         learner_stage = st.selectbox(
             t("learner_stage"),
             _lp().LEARNER_STAGES,
             format_func=lambda x: t(x),
             key="quick_plan_learner_stage",
+            disabled=bool(program_topic_context),
         )
 
         default_level = _lp().recommend_default_level(subject, learner_stage)
@@ -2048,6 +2071,7 @@ def render_quick_lesson_planner_expander(*, embedded: bool = False) -> None:
                 level_options,
                 format_func=_lp()._level_label,
                 key="quick_plan_level",
+                disabled=bool(program_topic_context),
             )
         with c2:
             lesson_purpose = st.selectbox(
@@ -2056,8 +2080,18 @@ def render_quick_lesson_planner_expander(*, embedded: bool = False) -> None:
                 format_func=_lp()._purpose_label,
                 key="quick_plan_purpose",
             )
-
-        topic = st.text_input(t("topic_label"), key="quick_plan_topic")
+        topic = st.text_input(t("topic_label"), key="quick_plan_topic", disabled=bool(program_topic_context))
+        lesson_recommendations = get_program_topic_recommendation_profile(program_topic_context)
+        ranked_purposes = [item for item in (lesson_recommendations.get("lesson_purpose_ranked") or []) if item in _lp().LESSON_PURPOSES]
+        if ranked_purposes:
+            st.caption(
+                t(
+                    "program_topic_recommended_lesson_purpose",
+                    purpose=_lp()._purpose_label(ranked_purposes[0]),
+                )
+            )
+            if lesson_purpose != ranked_purposes[0]:
+                st.info(t("program_topic_less_typical_lesson_choice"))
         student_options = load_teacher_personalization_students()
         selected_student_label = st.selectbox(
             t("personalize_for_student") if t("personalize_for_student") != "personalize_for_student" else "Personalize for student",
@@ -2066,15 +2100,15 @@ def render_quick_lesson_planner_expander(*, embedded: bool = False) -> None:
             help=t("personalize_for_student_help"),
         )
         selected_student = next((item for item in student_options if item["label"] == selected_student_label), None)
-        effective_subject = other_subject_name if subject == "other" else subject
         preview_profile = {}
         if selected_student:
             preview_profile = build_student_generation_profile(
                 selected_student["student_user_id"],
                 subject=effective_subject,
             )
-            if preview_profile.get("summary"):
-                st.caption(preview_profile["summary"])
+        preview_profile = merge_program_topic_context_into_profile(preview_profile, program_topic_context)
+        if preview_profile.get("summary"):
+            st.caption(preview_profile["summary"])
         native_language = ""
         show_native_language = is_language_subject(subject, other_subject_name)
         if show_native_language:
@@ -2136,6 +2170,7 @@ def render_quick_lesson_planner_expander(*, embedded: bool = False) -> None:
                     if selected_student
                     else {}
                 )
+                student_profile = merge_program_topic_context_into_profile(student_profile, program_topic_context)
                 if show_native_language:
                     student_profile = apply_native_language_context(student_profile, native_language)
                 else:
@@ -2181,6 +2216,7 @@ def render_quick_lesson_planner_expander(*, embedded: bool = False) -> None:
                     if selected_student
                     else {}
                 )
+                student_profile = merge_program_topic_context_into_profile(student_profile, program_topic_context)
                 if show_native_language:
                     student_profile = apply_native_language_context(student_profile, native_language)
                 else:

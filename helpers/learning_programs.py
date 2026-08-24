@@ -20,6 +20,11 @@ from helpers.action_feedback import action_spinner
 from helpers.archive_utils import ARCHIVED_STATUS, DELETED_STATUS, filter_archived_rows, is_archived_status, truthy_flag
 from helpers.generation_guidance import build_expert_panel_prompt_blurb
 from helpers.native_language import NATIVE_LANGUAGE_OPTIONS, is_language_subject, native_language_label, normalize_native_language
+from helpers.program_resource_context import (
+    build_program_topic_generation_context,
+    infer_exam_prep_family,
+    prime_program_topic_smart_tool,
+)
 from helpers.resource_gallery import (
     extract_gallery_language_label,
     extract_gallery_image_url,
@@ -79,6 +84,87 @@ def _tsi():
     return tsi
 
 
+def _supports_exam_prep_builder(subject: str, custom_subject_name: str = "") -> bool:
+    subject_key = _lp().normalize_subject(subject or custom_subject_name)
+    return subject_key in _EXAM_PREP_TARGETS_BY_SUBJECT
+
+
+def _exam_prep_target_options(subject: str) -> list[str]:
+    subject_key = _lp().normalize_subject(subject)
+    return list(_EXAM_PREP_TARGETS_BY_SUBJECT.get(subject_key, []))
+
+
+def _exam_prep_target_label(target: str) -> str:
+    labels = {
+        "sat_rw": "Digital SAT Reading and Writing",
+        "ielts_academic": "IELTS Academic",
+        "ielts_general": "IELTS General Training",
+        "toefl_ibt": "TOEFL iBT",
+        "dele": "DELE",
+    }
+    return labels.get(str(target or "").strip(), str(target or "").replace("_", " ").title())
+
+
+def _infer_exam_prep_target(
+    *,
+    subject: str,
+    additional_notes: str = "",
+    previous_program: Optional[dict] = None,
+    program: Optional[dict] = None,
+    builder_config: Optional[dict] = None,
+) -> str:
+    direct = _clean_text((builder_config or {}).get("exam_prep_target"))
+    if direct:
+        return direct
+    track = _clean_text((builder_config or {}).get("program_track"))
+    if track == "exam_prep" and not direct:
+        inferred_from_config = infer_exam_prep_family(subject, program=program or previous_program or {}, topic={"title": additional_notes})
+        if inferred_from_config:
+            return inferred_from_config
+    inferred = infer_exam_prep_family(
+        subject,
+        program=program or previous_program or {},
+        topic={"title": additional_notes},
+    )
+    return inferred
+
+
+def _program_track_guidance(program_track: str, exam_prep_target: str) -> list[str]:
+    if str(program_track).strip() != "exam_prep":
+        return [
+            "Build a broad, level-appropriate language program rather than a narrow exam syllabus.",
+            "Balance skill development, communicative confidence, grammar, vocabulary, reading, and writing in a realistic progression.",
+        ]
+    guidance = {
+        "sat_rw": [
+            "Build an exam-prep program specifically for the Digital SAT Reading and Writing section.",
+            "Do not drift into generic ESL or essay-writing units that are not relevant to the Digital SAT Reading and Writing format.",
+            "Prioritize short-passage reading, revision and editing, vocabulary in context, rhetorical synthesis, and standard English conventions.",
+        ],
+        "ielts_academic": [
+            "Build an exam-prep program specifically for IELTS Academic.",
+            "Sequence the program around band-appropriate reading, writing, language control, coherence, and academic task performance.",
+            "Use realistic academic exam-style skill strands rather than generic conversation-only progression.",
+        ],
+        "ielts_general": [
+            "Build an exam-prep program specifically for IELTS General Training.",
+            "Sequence the program around practical reading, writing-task control, coherence, and band-oriented language accuracy.",
+            "Use realistic general-training exam-style skill strands rather than a generic A1-C2 pathway.",
+        ],
+        "toefl_ibt": [
+            "Build an exam-prep program specifically for TOEFL iBT.",
+            "Prioritize academic reading, evidence-based writing, integrated language use, source-grounded reasoning, and academic vocabulary.",
+            "Avoid overly casual topic progression that would not support TOEFL-style academic performance.",
+        ],
+        "dele": [
+            "Build an exam-prep program specifically for DELE.",
+            "Sequence the program around CEFR-aligned Spanish comprehension, production, interaction, register control, and authentic communicative tasks.",
+            "Avoid translated-from-English logic and keep the Spanish progression authentic and exam-relevant.",
+        ],
+    }
+    return guidance.get(exam_prep_target, ["Build an exam-prep program with a realistic, official-style skill progression."])
+
+
 PROGRAM_SOURCE_TYPES = ["classio", "ai", "custom"]
 PROGRAM_VISIBILITY_OPTIONS = ["private", "public"]
 PROGRAM_STATUS_OPTIONS = ["draft", "active", "archived"]
@@ -104,6 +190,11 @@ _LEARNING_PROGRAM_LIST_COLUMNS = ",".join([
 
 _LANGUAGE_LEVEL_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2"]
 _ACADEMIC_LEVEL_ORDER = ["beginner_band", "intermediate_band", "advanced_band"]
+
+_EXAM_PREP_TARGETS_BY_SUBJECT = {
+    "english": ["sat_rw", "ielts_academic", "ielts_general", "toefl_ibt"],
+    "spanish": ["dele"],
+}
 
 
 _STAGE_STRUCTURE_RULES = {
@@ -1611,12 +1702,18 @@ def _build_program_generation_payload(
     additional_notes: str = "",
     previous_program: Optional[dict] = None,
     student_native_language: str = "",
+    program_track: str = "general_language",
+    exam_prep_target: str = "",
 ) -> dict:
     guardrails = recommend_program_structure(subject, learner_stage)
     subject_family = infer_subject_family(subject, custom_subject_name)
     best_practice = _SUBJECT_GUIDANCE.get(subject_family, _SUBJECT_GUIDANCE["general"])
     progression_profile = _subject_progression_profile(subject, learner_stage, level_or_band, custom_subject_name)
     previous_context = summarize_previous_program_context(previous_program) if previous_program else {}
+    resolved_exam_target = _clean_text(exam_prep_target)
+    resolved_track = "exam_prep" if str(program_track or "").strip() == "exam_prep" or resolved_exam_target else "general_language"
+    if resolved_track != "exam_prep":
+        resolved_exam_target = ""
     return {
         "subject": subject,
         "subject_display": _subject_display(subject, custom_subject_name),
@@ -1627,6 +1724,10 @@ def _build_program_generation_payload(
         "program_language": _lp().get_plan_language(),
         "student_material_language": _lp().get_student_material_language(subject),
         "student_native_language": normalize_native_language(student_native_language),
+        "program_track": resolved_track,
+        "exam_prep_target": resolved_exam_target,
+        "exam_prep_target_label": _exam_prep_target_label(resolved_exam_target) if resolved_exam_target else "",
+        "program_track_guidance": _program_track_guidance(resolved_track, resolved_exam_target),
         "requested_units": units,
         "requested_lessons_per_unit": lessons_per_unit,
         "teaching_weeks": _ensure_int(teaching_weeks, units * lessons_per_unit, 1, 104) if teaching_weeks else None,
@@ -1647,6 +1748,7 @@ def _build_program_generation_payload(
             "If the subject is Other, infer the closest pedagogical family and adapt intelligently.",
             "For Classio-supported subjects, follow the subject progression profile closely so the scope and sequence feels production-ready.",
             "Use student_native_language as the support language for beginner-level scaffolding when it is pedagogically useful; do not force translation support into every activity.",
+            "If program_track is exam_prep, make the scope and sequence explicitly exam-aware instead of treating exam focus like a side note.",
         ],
         "progression_chain_context": previous_context,
         "additional_notes": _clean_text(additional_notes),
@@ -1704,6 +1806,133 @@ def _build_program_generation_payload(
     }
 
 
+def _language_display_name(code: str) -> str:
+    mapping = {
+        "en": "English",
+        "es": "Spanish",
+        "tr": "Turkish",
+    }
+    normalized = _clean_text(code).lower()
+    return mapping.get(normalized, normalized.upper() or "the requested language")
+
+
+def _program_language_instruction_block(program_language: str, student_material_language: str) -> str:
+    plan_code = _clean_text(program_language).lower() or "en"
+    student_code = _clean_text(student_material_language).lower() or plan_code
+    plan_name = _language_display_name(plan_code)
+    student_name = _language_display_name(student_code)
+    return "\n".join(
+        [
+            f'- program_language is "{plan_code}" ({plan_name}).',
+            f'- student_material_language is "{student_code}" ({student_name}).',
+            f"- Teacher-facing fields must be written in {plan_name}: title, program_overview, teacher_rationale, scope_and_sequence_rationale, entry_profile, exit_profile, prerequisite_summary, assessment_strategy, resource_strategy, unit titles, unit overviews, learning_objectives, success_criteria, delivery_notes, homework_idea, and teacher_notes.",
+            f"- Student-facing summaries must be written in {student_name}: student_summary and topic student_summary.",
+            "- If either requested language is not English, do not default to English for any narrative field unless the user explicitly asked for bilingual output.",
+            "- Preserve official exam names such as DELE, IELTS, TOEFL iBT, or Digital SAT when needed, but keep the surrounding explanation in the requested language.",
+        ]
+    )
+
+
+_LANGUAGE_HINT_MARKERS = {
+    "en": [" the ", " and ", " for ", " with ", " learners ", " through ", " skills ", " practice "],
+    "es": [" de ", " y ", " para ", " con ", " los ", " las ", " una ", " un ", " que ", " del ", " habilidades "],
+    "tr": [" ve ", " için ", " ile ", " bir ", " öğrenc", " beceri", " ders", " çünkü ", " olarak "],
+}
+
+
+def _looks_obviously_wrong_language(text: str, target_language: str) -> bool:
+    normalized = f" {_clean_text(text).lower()} "
+    if len(normalized) < 48:
+        return False
+    target = _clean_text(target_language).lower()
+    if target not in {"es", "tr"}:
+        return False
+    english_hits = sum(1 for marker in _LANGUAGE_HINT_MARKERS["en"] if marker in normalized)
+    target_hits = sum(1 for marker in _LANGUAGE_HINT_MARKERS[target] if marker in normalized)
+    return english_hits >= 3 and english_hits >= target_hits + 2
+
+
+def _program_language_quality_issues(
+    program: dict,
+    *,
+    program_language: str,
+    student_material_language: str,
+) -> list[str]:
+    issues: list[str] = []
+    teacher_texts = [
+        program.get("title"),
+        program.get("program_overview"),
+        program.get("teacher_rationale"),
+        program.get("scope_and_sequence_rationale"),
+        program.get("entry_profile"),
+        program.get("exit_profile"),
+        program.get("prerequisite_summary"),
+        program.get("assessment_strategy"),
+        program.get("resource_strategy"),
+        program.get("non_classio_support_strategy"),
+    ]
+    student_texts = [program.get("student_summary")]
+    for unit in program.get("units") or []:
+        teacher_texts.extend(
+            [
+                unit.get("title"),
+                unit.get("overview"),
+                *list(unit.get("unit_objectives") or []),
+                *list(unit.get("delivery_notes") or []),
+            ]
+        )
+        for topic in unit.get("topics") or []:
+            teacher_texts.extend(
+                [
+                    topic.get("title"),
+                    topic.get("subtopic"),
+                    topic.get("lesson_focus"),
+                    *list(topic.get("learning_objectives") or []),
+                    *list(topic.get("success_criteria") or []),
+                    *list(topic.get("student_can_do") or []),
+                    *list(topic.get("delivery_notes") or []),
+                    topic.get("homework_idea"),
+                    topic.get("teacher_notes"),
+                ]
+            )
+            student_texts.append(topic.get("student_summary"))
+
+    teacher_blob = " ".join(_clean_text(item) for item in teacher_texts if _clean_text(item))
+    student_blob = " ".join(_clean_text(item) for item in student_texts if _clean_text(item))
+    if _looks_obviously_wrong_language(teacher_blob, program_language):
+        issues.append(f"teacher-facing program fields are not in requested {program_language}")
+    if _looks_obviously_wrong_language(student_blob, student_material_language):
+        issues.append(f"student-facing summaries are not in requested {student_material_language}")
+    return issues
+
+
+def _unit_language_quality_issues(
+    unit: dict,
+    *,
+    program_language: str,
+    student_material_language: str,
+) -> list[str]:
+    temp_program = {
+        "title": "",
+        "program_overview": "",
+        "teacher_rationale": "",
+        "scope_and_sequence_rationale": "",
+        "entry_profile": "",
+        "exit_profile": "",
+        "prerequisite_summary": "",
+        "student_summary": "",
+        "assessment_strategy": "",
+        "resource_strategy": "",
+        "non_classio_support_strategy": "",
+        "units": [unit],
+    }
+    return _program_language_quality_issues(
+        temp_program,
+        program_language=program_language,
+        student_material_language=student_material_language,
+    )
+
+
 def _build_program_skeleton_prompts(prompt_payload: dict) -> tuple[str, str]:
     system_prompt = (
         f"{build_expert_panel_prompt_blurb('learning_program')} "
@@ -1729,6 +1958,7 @@ Rules:
 - Respect the requested unit count and lessons per unit exactly.
 - The result must be sequenced and pedagogically coherent from day 1 onward.
 - Follow the subject_progression_profile closely for supported Classio subjects.
+- Follow program_track_guidance closely. If program_track is exam_prep, the whole sequence must clearly behave like exam preparation rather than a generic language course.
 - Use focus_strands and sequence_expectations to decide what belongs early, middle, and later in the program.
 - If progression_chain_context is provided, build the new program as the next coherent step rather than starting from zero.
 - Use progression_chain_context.exit_profile as the starting point for the new program's entry_profile.
@@ -1743,9 +1973,12 @@ Rules:
 - If subject is Other, infer the closest subject family and build the best-fit curriculum logic.
 - lesson_purpose values must come from recommended_lesson_purposes.
 - Each topic must be concrete enough to generate a lesson plan, worksheet, or exam later.
+- If program_track is exam_prep, unit titles, topic titles, assessment strategy, and resource strategy must reflect the chosen exam target explicitly and predictably.
 - Keep student_summary simple and motivating.
 - If student_native_language is provided and the level is beginner/A1/A2 or the activity needs access support, use that language for brief support notes instead of assuming English or Spanish.
 - Do not over-translate higher-level topics; the program should stay in the requested student_material_language.
+- Do not hide exam focus only inside additional_notes. Surface it clearly in the program architecture when requested.
+{_program_language_instruction_block(prompt_payload.get("program_language", ""), prompt_payload.get("student_material_language", ""))}
 
 Required output shape:
 {{
@@ -1825,16 +2058,19 @@ Unit context:
 Rules:
 - Return JSON only.
 - Keep the existing unit title, overview, topic order, and topic titles coherent.
+- Follow program_track_guidance closely. If program_track is exam_prep, all enrichments must stay faithful to the chosen exam target.
 - Add unit_objectives, recommended resource types, recommended complementary activities, and delivery_notes.
 - For each topic, add learning_objectives, success_criteria, student_can_do, suggested_worksheet_types, suggested_exam_exercise_types, suggested_non_classio_activities, delivery_notes, homework_idea, teacher_notes, student_summary, and estimated_lessons.
 - Keep suggested_worksheet_types inside recommended_worksheet_types.
 - Keep suggested_exam_exercise_types inside recommended_exam_exercise_types.
 - Keep lesson_purpose values exactly as already defined in the unit skeleton.
+- If program_track is exam_prep, suggested exam exercise types and worksheet types should feel like realistic preparation for the selected exam, not a generic language mix.
 - Use non-Classio activities only when they genuinely improve pedagogy.
 - Respect online, offline, and blended feasibility.
 - If student_native_language is provided and the level is beginner/A1/A2 or the activity needs access support, use that language for brief support notes instead of assuming English or Spanish.
 - Do not over-translate higher-level topics; keep the requested student_material_language as the main student-facing language.
 - Keep each list concise and useful.
+{_program_language_instruction_block(prompt_payload.get("program_language", ""), prompt_payload.get("student_material_language", ""))}
 
 Required output shape:
 {{
@@ -1942,6 +2178,7 @@ def _run_learning_program_json_generation(
     generate_with_openai,
     log_ai_usage,
     meta: dict,
+    validator=None,
 ) -> tuple[dict, str, list[str]]:
     errors: list[str] = []
     for provider in providers:
@@ -1960,6 +2197,10 @@ def _run_learning_program_json_generation(
                 generate_with_openai,
             )
             parsed = extract_json_object_from_text(raw_text)
+            if validator:
+                validation_issues = validator(parsed) or []
+                if validation_issues:
+                    raise ValueError("; ".join(str(issue) for issue in validation_issues))
             log_ai_usage(
                 request_kind="learning_program_ai_stage",
                 status="success",
@@ -2157,6 +2398,8 @@ def generate_ai_learning_program_skeleton(
     additional_notes: str = "",
     previous_program: Optional[dict] = None,
     student_native_language: str = "",
+    program_track: str = "general_language",
+    exam_prep_target: str = "",
 ) -> tuple[dict, str, Optional[str], dict]:
     structure = clamp_program_structure(subject, learner_stage, requested_units, requested_lessons_per_unit)
     fallback = _fallback_program_payload(
@@ -2179,6 +2422,8 @@ def generate_ai_learning_program_skeleton(
         additional_notes=additional_notes,
         previous_program=previous_program,
         student_native_language=student_native_language,
+        program_track=program_track,
+        exam_prep_target=exam_prep_target,
     )
 
     try:
@@ -2221,6 +2466,11 @@ def generate_ai_learning_program_skeleton(
             generate_with_openai=_generate_with_openai,
             log_ai_usage=log_ai_usage,
             meta={"subject": subject, "learner_stage": learner_stage, "level_or_band": level_or_band, "stage": "skeleton"},
+            validator=lambda raw: _program_language_quality_issues(
+                normalize_learning_program_output(raw),
+                program_language=payload.get("program_language", ""),
+                student_material_language=payload.get("student_material_language", ""),
+            ),
         )
         parsed = normalize_learning_program_output(skeleton_raw)
         if not parsed.get("units"):
@@ -2260,6 +2510,8 @@ def generate_ai_learning_program_unit(
     additional_notes: str = "",
     previous_program: Optional[dict] = None,
     payload: Optional[dict] = None,
+    program_track: str = "general_language",
+    exam_prep_target: str = "",
 ) -> tuple[dict, str, Optional[str]]:
     program = normalize_learning_program_output(program)
     payload = payload or _build_program_generation_payload(
@@ -2271,6 +2523,8 @@ def generate_ai_learning_program_unit(
         custom_subject_name=custom_subject_name,
         additional_notes=additional_notes,
         previous_program=previous_program,
+        program_track=program_track,
+        exam_prep_target=exam_prep_target,
     )
 
     target_unit = None
@@ -2333,6 +2587,11 @@ def generate_ai_learning_program_unit(
             generate_with_openai=_generate_with_openai,
             log_ai_usage=log_ai_usage,
             meta={"subject": subject, "learner_stage": learner_stage, "level_or_band": level_or_band, "stage": "unit_enrichment", "unit_number": int(unit_number)},
+            validator=lambda raw: _unit_language_quality_issues(
+                _normalize_unit_record(raw, target_idx + 1),
+                program_language=payload.get("program_language", ""),
+                student_material_language=payload.get("student_material_language", ""),
+            ),
         )
         enriched_unit = _normalize_unit_record(enriched_raw, target_idx + 1)
         merged = _merge_program_unit(target_unit, enriched_unit)
@@ -2359,6 +2618,8 @@ def generate_ai_learning_program(
     additional_notes: str = "",
     previous_program: Optional[dict] = None,
     student_native_language: str = "",
+    program_track: str = "general_language",
+    exam_prep_target: str = "",
 ) -> tuple[dict, str, Optional[str]]:
     structure = clamp_program_structure(subject, learner_stage, requested_units, requested_lessons_per_unit)
     fallback = _fallback_program_payload(
@@ -2421,6 +2682,8 @@ def generate_ai_learning_program(
         additional_notes=additional_notes,
         previous_program=previous_program,
         student_native_language=student_native_language,
+        program_track=program_track,
+        exam_prep_target=exam_prep_target,
     )
     skeleton_system_prompt, skeleton_user_prompt = _build_program_skeleton_prompts(payload)
     provider_order = get_ai_provider_order()
@@ -2441,6 +2704,11 @@ def generate_ai_learning_program(
                 "level_or_band": level_or_band,
                 "stage": "skeleton",
             },
+            validator=lambda raw: _program_language_quality_issues(
+                normalize_learning_program_output(raw),
+                program_language=payload.get("program_language", ""),
+                student_material_language=payload.get("student_material_language", ""),
+            ),
         )
         parsed = normalize_learning_program_output(skeleton_raw)
         if not parsed.get("units"):
@@ -2487,6 +2755,11 @@ def generate_ai_learning_program(
                     "stage": "unit_enrichment",
                     "unit_number": int(unit.get("unit_number") or idx + 1),
                 },
+                validator=lambda raw, fallback_idx=idx: _unit_language_quality_issues(
+                    _normalize_unit_record(raw, fallback_idx + 1),
+                    program_language=payload.get("program_language", ""),
+                    student_material_language=payload.get("student_material_language", ""),
+                ),
             )
             partial_errors.extend(unit_errors)
             enriched_unit = _normalize_unit_record(enriched_raw, idx + 1)
@@ -4071,32 +4344,73 @@ def _inject_program_styles() -> None:
     st.markdown(
         """
         <style>
+        :root {
+            --classio-program-accent: #38bdf8;
+            --classio-program-accent-soft: rgba(56,189,248,.16);
+            --classio-program-success: #22c55e;
+            --classio-program-warm: #f59e0b;
+            --classio-program-shell-bg:
+              radial-gradient(circle at top left, rgba(56,189,248,.18), transparent 32%),
+              radial-gradient(circle at top right, rgba(34,197,94,.12), transparent 28%),
+              linear-gradient(180deg,
+                color-mix(in srgb, var(--panel) 88%, var(--text) 12%),
+                color-mix(in srgb, var(--panel) 94%, transparent)
+              );
+            --classio-program-unit-bg:
+              linear-gradient(180deg,
+                color-mix(in srgb, var(--panel-soft) 82%, var(--panel) 18%),
+                color-mix(in srgb, var(--panel) 90%, transparent)
+              );
+            --classio-program-unit-border: color-mix(in srgb, var(--border-strong) 68%, var(--classio-program-accent) 32%);
+            --classio-program-chip-bg: color-mix(in srgb, var(--panel-soft) 88%, var(--panel) 12%);
+            --classio-program-chip-border: color-mix(in srgb, var(--border-strong) 78%, var(--classio-program-accent) 22%);
+            --classio-program-chip-text: color-mix(in srgb, var(--text) 88%, var(--classio-program-accent) 12%);
+            --classio-program-topic-bg: color-mix(in srgb, var(--panel-soft) 86%, var(--panel) 14%);
+            --classio-program-topic-border: color-mix(in srgb, var(--border-strong) 72%, var(--classio-program-accent) 28%);
+            --classio-program-kicker-text: color-mix(in srgb, var(--classio-program-accent) 72%, var(--text) 28%);
+            --classio-program-shadow: 0 20px 44px rgba(15,23,42,.16);
+        }
+        [data-theme="light"], [data-base-theme="light"] {
+            --classio-program-shell-bg:
+              radial-gradient(circle at top left, rgba(14,165,233,.10), transparent 34%),
+              radial-gradient(circle at top right, rgba(16,185,129,.08), transparent 30%),
+              linear-gradient(180deg,
+                color-mix(in srgb, white 92%, var(--panel) 8%),
+                color-mix(in srgb, var(--panel) 82%, white 18%)
+              );
+            --classio-program-unit-bg:
+              linear-gradient(180deg,
+                color-mix(in srgb, white 90%, var(--panel-soft) 10%),
+                color-mix(in srgb, var(--panel) 88%, white 12%)
+              );
+            --classio-program-chip-bg: color-mix(in srgb, white 88%, var(--panel-soft) 12%);
+            --classio-program-topic-bg: color-mix(in srgb, white 90%, var(--panel-soft) 10%);
+            --classio-program-shadow: 0 18px 34px rgba(15,23,42,.08);
+        }
         .classio-program-shell {
             position: relative;
             overflow: hidden;
             border-radius: 28px;
             padding: 1.25rem 1.35rem 1.1rem;
-            background:
-              radial-gradient(circle at top left, rgba(56,189,248,.18), transparent 32%),
-              radial-gradient(circle at top right, rgba(34,197,94,.12), transparent 28%),
-              linear-gradient(180deg, color-mix(in srgb, var(--panel) 86%, white 14%), var(--panel));
-            border: 1px solid color-mix(in srgb, var(--border) 74%, rgba(56,189,248,.24) 26%);
-            box-shadow: 0 20px 44px rgba(15,23,42,.10);
+            background: var(--classio-program-shell-bg);
+            border: 1px solid color-mix(in srgb, var(--border-strong) 72%, var(--classio-program-accent) 28%);
+            box-shadow: var(--classio-program-shadow);
             margin-bottom: 1rem;
+            backdrop-filter: blur(14px);
         }
         .classio-program-shell::after {
             content: "";
             position: absolute;
             inset: 0;
             pointer-events: none;
-            background: linear-gradient(135deg, rgba(255,255,255,.08), transparent 35%);
+            background: linear-gradient(135deg, color-mix(in srgb, white 12%, transparent), transparent 38%);
         }
         .classio-program-kicker {
             font-size: .76rem;
             font-weight: 800;
             text-transform: uppercase;
             letter-spacing: .08em;
-            color: #0f766e;
+            color: var(--classio-program-kicker-text);
             margin-bottom: .55rem;
         }
         .classio-program-title {
@@ -4128,19 +4442,22 @@ def _inject_program_styles() -> None:
             align-items: center;
             padding: .38rem .72rem;
             border-radius: 999px;
-            background: rgba(255,255,255,.54);
-            border: 1px solid rgba(148,163,184,.18);
+            background: var(--classio-program-chip-bg);
+            border: 1px solid var(--classio-program-chip-border);
             font-size: .78rem;
             font-weight: 800;
-            color: var(--text);
+            color: var(--classio-program-chip-text);
+            box-shadow: inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
         }
         .classio-program-unit {
             margin-top: .85rem;
             border-radius: 22px;
             padding: 1rem 1rem .85rem;
-            background: rgba(255,255,255,.56);
-            border: 1px solid rgba(148,163,184,.14);
-            box-shadow: inset 0 1px 0 rgba(255,255,255,.4);
+            background: var(--classio-program-unit-bg);
+            border: 1px solid var(--classio-program-unit-border);
+            box-shadow:
+              inset 0 1px 0 color-mix(in srgb, white 10%, transparent),
+              0 14px 28px rgba(15,23,42,.08);
         }
         .classio-program-unit-title {
             font-size: 1.03rem;
@@ -4161,10 +4478,14 @@ def _inject_program_styles() -> None:
             background:
               radial-gradient(circle at top right, rgba(234,179,8,.18), transparent 30%),
               radial-gradient(circle at top left, rgba(59,130,246,.14), transparent 35%),
-              linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 82%, white 18%));
-            border: 1px solid color-mix(in srgb, var(--border) 76%, rgba(234,179,8,.18) 24%);
-            box-shadow: 0 18px 38px rgba(15,23,42,.10);
+              linear-gradient(180deg,
+                color-mix(in srgb, var(--panel) 90%, var(--text) 10%),
+                color-mix(in srgb, var(--panel-soft) 82%, var(--panel) 18%)
+              );
+            border: 1px solid color-mix(in srgb, var(--border-strong) 72%, rgba(234,179,8,.24) 28%);
+            box-shadow: var(--classio-program-shadow);
             margin-bottom: 1rem;
+            backdrop-filter: blur(14px);
         }
         .classio-student-program-grid {
             display: grid;
@@ -4195,15 +4516,19 @@ def _inject_program_styles() -> None:
         .classio-program-topic {
             border-radius: 18px;
             padding: .9rem .95rem;
-            background: rgba(255,255,255,.58);
-            border: 1px solid rgba(148,163,184,.14);
+            background: var(--classio-program-topic-bg);
+            border: 1px solid var(--classio-program-topic-border);
             margin-top: .6rem;
+            box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
         }
         .classio-program-topic-done {
             background:
               radial-gradient(circle at top right, rgba(16,185,129,.18), transparent 30%),
-              linear-gradient(180deg, rgba(16,185,129,.10), rgba(45,212,191,.06));
-            border-color: rgba(16,185,129,.24);
+              linear-gradient(180deg,
+                color-mix(in srgb, var(--panel-soft) 70%, rgba(16,185,129,.22) 30%),
+                color-mix(in srgb, var(--panel) 82%, rgba(45,212,191,.12) 18%)
+              );
+            border-color: color-mix(in srgb, var(--classio-program-success) 58%, var(--border-strong) 42%);
             box-shadow: 0 14px 24px rgba(16,185,129,.10);
         }
         .classio-program-topic-title {
@@ -4565,6 +4890,8 @@ def _save_generated_learning_program_from_builder(
         visibility=meta.get("visibility", visibility),
         source_type="ai" if mode_used == "ai" else "custom",
         generation_mode=mode_used,
+        program_language=meta.get("program_language"),
+        student_material_language=meta.get("student_material_language"),
         builder_config=meta.get("builder_config") or {},
         status=status,
         program=result,
@@ -4600,7 +4927,8 @@ def _sync_saved_learning_program_from_builder(
         custom_subject_name=meta.get("custom_subject_name", custom_subject_name),
         status="active" if _program_is_complete(result) else "draft",
         generation_mode=mode_used,
-        student_material_language=meta.get("student_native_language"),
+        program_language=meta.get("program_language"),
+        student_material_language=meta.get("student_material_language"),
         builder_config=meta.get("builder_config") or {},
         parent_program_id=meta.get("parent_program_id"),
         sequence_group_id=meta.get("sequence_group_id", ""),
@@ -4641,6 +4969,11 @@ def render_learning_program_builder_preview(
     )
 
     complete_program = _program_is_complete(program)
+
+    subject = _clean_text((edit_meta or {}).get("subject") or program.get("subject"))
+    custom_subject_name = _clean_text((edit_meta or {}).get("custom_subject_name") or program.get("custom_subject_name"))
+    learner_stage = _clean_text((edit_meta or {}).get("learner_stage") or program.get("learner_stage"))
+    level_or_band = _clean_text((edit_meta or {}).get("level_or_band") or program.get("level_or_band"))
 
     for idx, unit in enumerate(program.get("units") or []):
         unit_number = int(unit.get("unit_number") or idx + 1)
@@ -4713,6 +5046,41 @@ def render_learning_program_builder_preview(
                         st.caption(t("suggested_exam_exercises_label", items=", ".join(_localized_exam_type_label(x) for x in topic["suggested_exam_exercise_types"])))
                     if topic.get("suggested_non_classio_activities"):
                         st.caption(t("complementary_activities_label", items=", ".join(topic["suggested_non_classio_activities"])))
+                    topic_context = build_program_topic_generation_context(
+                        program,
+                        unit,
+                        topic,
+                        subject=subject,
+                        custom_subject_name=custom_subject_name,
+                        learner_stage=learner_stage,
+                        level_or_band=level_or_band,
+                    )
+                    st.caption(t("program_topic_smart_tools_caption"))
+                    tool_cols = st.columns(3)
+                    with tool_cols[0]:
+                        if st.button(
+                            t("program_topic_generate_plan"),
+                            key=f"{ns}_topic_plan_{unit.get('unit_number')}_{topic.get('topic_number')}",
+                            use_container_width=True,
+                        ):
+                            prime_program_topic_smart_tool("open_quick_plan_expander", topic_context)
+                            st.rerun()
+                    with tool_cols[1]:
+                        if st.button(
+                            t("program_topic_generate_worksheet"),
+                            key=f"{ns}_topic_ws_{unit.get('unit_number')}_{topic.get('topic_number')}",
+                            use_container_width=True,
+                        ):
+                            prime_program_topic_smart_tool("open_quick_ws_expander", topic_context)
+                            st.rerun()
+                    with tool_cols[2]:
+                        if st.button(
+                            t("program_topic_generate_exam"),
+                            key=f"{ns}_topic_exam_{unit.get('unit_number')}_{topic.get('topic_number')}",
+                            use_container_width=True,
+                        ):
+                            prime_program_topic_smart_tool("open_quick_exam_expander", topic_context)
+                            st.rerun()
 
     editing_unit = st.session_state.get(f"{ns}_editing_unit")
     if complete_program and editing_unit:
@@ -4882,6 +5250,12 @@ def _render_learning_program_unit_editor(
                             additional_notes=t("unit_refine_prompt_wrapped", prompt=refine_prompt),
                             previous_program=load_learning_program(int((saved_program_meta or {}).get("parent_program_id") or 0)) if int((saved_program_meta or {}).get("parent_program_id") or 0) > 0 else None,
                             payload=None,
+                            program_track=_clean_text(((saved_program_meta or {}).get("builder_config") or {}).get("program_track") or "general_language"),
+                            exam_prep_target=_infer_exam_prep_target(
+                                subject=(saved_program_meta or {}).get("subject", ""),
+                                program=program,
+                                builder_config=((saved_program_meta or {}).get("builder_config") or {}),
+                            ),
                         )
                         status.update(label=t("learning_program_loading_ready"), state="complete")
                 if saved_program_id and saved_program_meta:
@@ -5140,6 +5514,12 @@ def render_saved_learning_program_workspace(program: dict, program_id: int, *, n
                     custom_subject_name=original_program.get("custom_subject_name") or "",
                     previous_program=load_learning_program(int(original_program.get("parent_program_id") or 0)) if int(original_program.get("parent_program_id") or 0) > 0 else None,
                     payload=None,
+                    program_track=_clean_text((original_program.get("builder_config") or {}).get("program_track") or "general_language"),
+                    exam_prep_target=_infer_exam_prep_target(
+                        subject=original_program.get("subject"),
+                        program=program,
+                        builder_config=original_program.get("builder_config") or {},
+                    ),
                 )
                 status.update(label=t("learning_program_loading_ready"), state="complete")
         ok, msg = update_learning_program(
@@ -5426,6 +5806,38 @@ def render_quick_learning_program_builder_expander(*, embedded: bool = False) ->
                 key=f"{ns}_student_native_language",
                 help=t("student_native_language_generation_help"),
             )
+        program_track = "general_language"
+        exam_prep_target = ""
+        if _supports_exam_prep_builder(subject, custom_subject_name):
+            track_options = ["general_language", "exam_prep"]
+            program_track = st.radio(
+                t("learning_program_track_label"),
+                options=track_options,
+                horizontal=True,
+                format_func=lambda x: t(f"learning_program_track_{x}"),
+                key=f"{ns}_program_track",
+            )
+            st.caption(
+                t("learning_program_track_exam_prep_help")
+                if program_track == "exam_prep"
+                else t("learning_program_track_general_help")
+            )
+            if program_track == "exam_prep":
+                exam_options = _exam_prep_target_options(subject)
+                default_exam_target = _infer_exam_prep_target(
+                    subject=subject,
+                    additional_notes=st.session_state.get(f"{ns}_notes", ""),
+                )
+                if default_exam_target not in exam_options and exam_options:
+                    default_exam_target = exam_options[0]
+                if st.session_state.get(f"{ns}_exam_prep_target") not in exam_options:
+                    st.session_state[f"{ns}_exam_prep_target"] = default_exam_target
+                exam_prep_target = st.selectbox(
+                    t("learning_program_exam_target_label"),
+                    exam_options,
+                    format_func=_exam_prep_target_label,
+                    key=f"{ns}_exam_prep_target",
+                )
         additional_notes = st.text_area(
             t("learning_program_optional_notes"),
             key=f"{ns}_notes",
@@ -5461,6 +5873,8 @@ def render_quick_learning_program_builder_expander(*, embedded: bool = False) ->
                     "additional_notes": additional_notes,
                     "visibility": visibility,
                     "student_native_language": student_native_language,
+                    "program_track": program_track,
+                    "exam_prep_target": exam_prep_target,
                     "generation_path": generation_path,
                     "parent_program_id": parent_program_id,
                     "sequence_group_id": sequence_group_id,
@@ -5495,6 +5909,8 @@ def render_quick_learning_program_builder_expander(*, embedded: bool = False) ->
                         additional_notes=skeleton_request.get("additional_notes", additional_notes),
                         previous_program=skeleton_request.get("previous_program"),
                         student_native_language=skeleton_request.get("student_native_language", student_native_language),
+                        program_track=skeleton_request.get("program_track", program_track),
+                        exam_prep_target=skeleton_request.get("exam_prep_target", exam_prep_target),
                     )
                     status.update(label=t("learning_program_loading_ready"), state="complete")
             st.session_state[f"{ns}_result"] = program
@@ -5508,6 +5924,10 @@ def render_quick_learning_program_builder_expander(*, embedded: bool = False) ->
                 "custom_subject_name": skeleton_request.get("custom_subject_name", custom_subject_name),
                 "visibility": skeleton_request.get("visibility", visibility),
                 "student_native_language": skeleton_request.get("student_native_language", student_native_language),
+                "program_language": payload.get("program_language"),
+                "student_material_language": payload.get("student_material_language"),
+                "program_track": skeleton_request.get("program_track", program_track),
+                "exam_prep_target": skeleton_request.get("exam_prep_target", exam_prep_target),
                 "generation_path": skeleton_request.get("generation_path", generation_path),
                 "parent_program_id": skeleton_request.get("parent_program_id"),
                 "sequence_group_id": skeleton_request.get("sequence_group_id", ""),
@@ -5518,6 +5938,8 @@ def render_quick_learning_program_builder_expander(*, embedded: bool = False) ->
                     "requested_lessons_per_unit": skeleton_request.get("requested_lessons_per_unit", requested_lessons),
                     "additional_notes": skeleton_request.get("additional_notes", additional_notes),
                     "student_native_language": skeleton_request.get("student_native_language", student_native_language),
+                    "program_track": skeleton_request.get("program_track", program_track),
+                    "exam_prep_target": skeleton_request.get("exam_prep_target", exam_prep_target),
                     "generation_path": skeleton_request.get("generation_path", generation_path),
                     "parent_program_id": skeleton_request.get("parent_program_id"),
                 },
@@ -5581,6 +6003,8 @@ def render_quick_learning_program_builder_expander(*, embedded: bool = False) ->
                             additional_notes=meta.get("builder_config", {}).get("additional_notes", additional_notes),
                             previous_program=previous_program,
                             payload=payload,
+                            program_track=meta.get("builder_config", {}).get("program_track", meta.get("program_track", "general_language")),
+                            exam_prep_target=meta.get("builder_config", {}).get("exam_prep_target", meta.get("exam_prep_target", "")),
                         )
                         status.update(label=t("learning_program_loading_ready"), state="complete")
                 st.session_state[f"{ns}_result"] = updated_program

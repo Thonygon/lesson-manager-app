@@ -14,6 +14,7 @@ from helpers.generation_guidance import (
     build_generation_profile_guidance,
     infer_subject_family,
 )
+from helpers.program_resource_context import build_program_topic_prompt_block
 from helpers.student_personalization import build_student_profile_prompt_block
 from helpers.visual_support import enrich_worksheet_with_visuals
 
@@ -829,6 +830,11 @@ def _build_worksheet_prompts(payload: dict) -> tuple[str, str]:
         product="worksheet",
         selected_formats=[worksheet_type] if worksheet_type else [],
     )
+    program_context_block = build_program_topic_prompt_block(
+        payload.get("student_profile") or {},
+        product="worksheet",
+        selected_formats=[worksheet_type] if worksheet_type else [],
+    )
 
     user_prompt = f"""
 Create one complete, topic-based teaching worksheet as JSON.
@@ -863,6 +869,8 @@ Profile quality guidance:
 {_worksheet_profile_guidance(payload)}
 
 {student_profile_block}
+
+{program_context_block}
 
 {type_rules}
 

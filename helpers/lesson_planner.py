@@ -15,6 +15,7 @@ from helpers.generation_guidance import (
     build_generation_profile_guidance,
     infer_subject_family,
 )
+from helpers.program_resource_context import build_program_topic_prompt_block
 from helpers.student_personalization import build_student_profile_prompt_block
 from services.ai_usage_service import with_provider_chain
 from services.operational_diagnostics_service import capture_exception
@@ -2012,10 +2013,54 @@ def _lesson_plan_quality_issues(
     learner_stage: str,
     level_or_band: str,
     lesson_purpose: str,
+    student_profile: dict | None = None,
 ) -> list[str]:
     issues: list[str] = []
     subject_family = infer_subject_family(subject)
     core_material = dict(plan.get("core_material") or {})
+    reading_passage = str(plan.get("reading_passage") or "").strip()
+    listening_script = str(plan.get("listening_script") or "").strip()
+    program_context = dict((student_profile or {}).get("program_context") or {})
+    lesson_signal_blob = " ".join(
+        part
+        for part in [
+            str(plan.get("title") or "").strip(),
+            str(plan.get("objective") or "").strip(),
+            str(program_context.get("current_program_title") or "").strip(),
+            str(program_context.get("current_unit_title") or "").strip(),
+            str(program_context.get("current_topic_title") or "").strip(),
+            str(program_context.get("topic_summary") or "").strip(),
+            " ".join(str(x) for x in (program_context.get("topic_learning_objectives") or [])),
+        ]
+        if part
+    ).lower()
+    reading_signals = any(
+        marker in lesson_signal_blob
+        for marker in (
+            "reading",
+            "skim",
+            "scan",
+            "passage",
+            "text",
+            "evidence",
+            "comprehension",
+            "vocabulary in context",
+            "craft and structure",
+            "expression of ideas",
+            "standard english conventions",
+        )
+    )
+    listening_signals = any(
+        marker in lesson_signal_blob
+        for marker in (
+            "listening",
+            "audio",
+            "dictation",
+            "listen",
+            "pronunciation",
+            "conversation",
+        )
+    )
 
     if not str(plan.get("title") or "").strip():
         issues.append("lesson plan needs a title")
@@ -2034,14 +2079,18 @@ def _lesson_plan_quality_issues(
         if len(core_material.get("target_vocabulary") or []) < 3:
             issues.append("language lesson plan needs at least 3 target_vocabulary items")
         if lesson_purpose in {"introduce_concept", "review_topic", "diagnose_difficulty"}:
-            if not str(plan.get("reading_passage") or "").strip():
+            if not reading_passage:
                 issues.append("reading-focused language lesson plan needs a reading_passage")
             if not (core_material.get("gist_questions") or []) or not (core_material.get("detail_questions") or []):
                 issues.append("reading-focused language lesson plan needs gist_questions and detail_questions")
         if lesson_purpose == "practice_skill":
-            if not str(plan.get("listening_script") or "").strip():
+            if listening_signals and not listening_script:
                 issues.append("practice-skill language lesson plan needs a listening_script")
-        if learner_stage == "lower_secondary" and level_or_band == "A1" and not str(plan.get("reading_passage") or "").strip() and lesson_purpose != "practice_skill":
+            elif reading_signals and not reading_passage:
+                issues.append("practice-skill reading lesson plan needs a reading_passage")
+            elif not reading_passage and not listening_script:
+                issues.append("practice-skill language lesson plan needs a reading_passage or listening_script")
+        if learner_stage == "lower_secondary" and level_or_band == "A1" and not reading_passage and lesson_purpose != "practice_skill":
             issues.append("lower-secondary A1 language lesson plan needs readable student text support")
 
     elif subject_family == "math":
@@ -2194,6 +2243,11 @@ def _build_ai_prompts(prompt_payload: dict) -> tuple[str, str]:
         prompt_payload.get("student_profile") or {},
         product="lesson_plan",
     )
+    program_context_block = build_program_topic_prompt_block(
+        prompt_payload.get("student_profile") or {},
+        product="lesson plan",
+        selected_formats=[prompt_payload.get("lesson_purpose")] if prompt_payload.get("lesson_purpose") else [],
+    )
     system_prompt = (
         f"{build_expert_panel_prompt_blurb('lesson_plan')} "
         "You are an expert private lesson planner. "
@@ -2233,6 +2287,8 @@ Profile quality guidance:
 {profile_guidance}
 
 {student_profile_block}
+
+{program_context_block}
 """
     return system_prompt, user_prompt
 
@@ -2391,6 +2447,7 @@ def generate_ai_lesson_plan(
                 learner_stage=learner_stage,
                 level_or_band=level_or_band,
                 lesson_purpose=lesson_purpose,
+                student_profile=student_profile or {},
             )
             if quality_issues:
                 raise ValueError("; ".join(quality_issues))
