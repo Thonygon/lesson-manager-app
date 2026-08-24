@@ -9,6 +9,7 @@ from core.database import get_sb
 from core.state import get_current_user_id
 from helpers.practice_engine import (
     autosave_practice_draft_if_needed,
+    clear_practice_session_state,
     worksheet_to_exercises,
     exam_to_exercises,
     normalize_exercise_data_for_web,
@@ -223,6 +224,23 @@ def _return_from_active_practice(return_page: str | None = None) -> None:
     if target_page:
         go_to(target_page)
     st.rerun()
+
+
+def _queue_practice_return(
+    *,
+    return_page: str | None = None,
+    return_section: str | None = None,
+) -> None:
+    target_page = str(return_page or (st.session_state.get("practice_meta") or {}).get("return_page") or "").strip()
+    target_section = str(return_section or (st.session_state.get("practice_meta") or {}).get("return_section") or "").strip()
+    if target_page:
+        st.session_state[_PRACTICE_PENDING_RETURN_PAGE_KEY] = target_page
+    else:
+        st.session_state.pop(_PRACTICE_PENDING_RETURN_PAGE_KEY, None)
+    if target_section:
+        st.session_state[_PRACTICE_PENDING_RETURN_SECTION_KEY] = target_section
+    else:
+        st.session_state.pop(_PRACTICE_PENDING_RETURN_SECTION_KEY, None)
 
 
 def _practice_meta_with_return_context(
@@ -1387,29 +1405,19 @@ def _render_practice_card(
 def _render_active_session(exercise_data: dict):
     """Render the interactive practice and handle completion."""
     if st.button(f"← {t('back')}", key="practice_back"):
-        return_page = str((st.session_state.get("practice_meta") or {}).get("return_page") or "").strip()
+        meta = dict(st.session_state.get("practice_meta") or {})
         autosave_practice_draft_if_needed(
             exercise_data,
             session_key="sp",
-            meta=st.session_state.get("practice_meta") or {},
+            meta=meta,
             force=True,
         )
-        # Clear all practice-related session state
-        for key in list(st.session_state.keys()):
-            if key.startswith("_start_sp_") or key.startswith("_practice_") or key.startswith("sp_"):
-                del st.session_state[key]
-        st.session_state.pop("practice_exercise_data", None)
-        st.session_state.pop("practice_meta", None)
-        st.session_state.pop("_practice_retry_session_id", None)
-        st.session_state.pop("_practice_assignment_id", None)
-        st.session_state.pop("_practice_assignment_type", None)
-        st.session_state.pop("_practice_resume_session_id", None)
-        st.session_state.pop("_practice_resume_answers", None)
-        st.session_state.pop("_practice_resume_notice", None)
-        st.session_state.pop("_practice_last_autosave_payload_sp", None)
-        st.session_state.pop("_practice_last_autosave_at_sp", None)
-        st.session_state.pop("_practice_last_autosave_failed_sp", None)
-        _return_from_active_practice(return_page)
+        _queue_practice_return(
+            return_page=str(meta.get("return_page") or "").strip(),
+            return_section=str(meta.get("return_section") or "").strip(),
+        )
+        clear_practice_session_state("sp")
+        st.rerun()
 
     if st.session_state.pop("_practice_resume_notice", False):
         st.info(t("practice_resumed_notice"))
@@ -1845,12 +1853,16 @@ def _render_history_tab(history_override=None, *, scope_key: str = ""):
 def _render_active_video_session(video_payload: dict) -> None:
     watch_url = str(video_payload.get("watch_url") or video_payload.get("youtube_url") or "").strip()
     if st.button(f"← {t('back')}", key="practice_video_back"):
-        return_page = str((st.session_state.get("practice_meta") or {}).get("return_page") or "").strip()
+        meta = dict(st.session_state.get("practice_meta") or {})
+        _queue_practice_return(
+            return_page=str(meta.get("return_page") or "").strip(),
+            return_section=str(meta.get("return_section") or "").strip(),
+        )
         st.session_state.pop("practice_video_payload", None)
         st.session_state.pop("practice_meta", None)
         st.session_state.pop("_practice_video_assignment_id", None)
         st.session_state.pop("_practice_video_logged", None)
-        _return_from_active_practice(return_page)
+        st.rerun()
 
     title = str(video_payload.get("title") or _ui_text("video_label", "Video")).strip()
     topic = str(video_payload.get("topic") or "").strip()

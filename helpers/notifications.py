@@ -761,7 +761,14 @@ def get_student_notifications() -> list[dict]:
             overdue.append(row)
         if status == "graded":
             graded.append(row)
-        if assignment_type == "exam" and (status == "started" or load_in_progress_practice_session("exam", row.get("id"))):
+        if assignment_type == "exam" and (
+            status == "started"
+            or load_in_progress_practice_session(
+                "exam",
+                row.get("id"),
+                alternate_source_ids=[row.get("source_record_id")],
+            )
+        ):
             exam_continue.append(row)
 
     if assigned:

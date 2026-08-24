@@ -80,6 +80,11 @@ def _assignment_filter_state(row: dict) -> str:
     assignment_type = str(row.get("assignment_type") or "").strip()
     status = str(row.get("status") or "").strip()
     attempts_value = int(row.get("attempt_count") or 0)
+    draft = load_in_progress_practice_session(
+        assignment_type,
+        row.get("id"),
+        alternate_source_ids=[row.get("source_record_id")],
+    ) if assignment_type in {"worksheet", "exam"} else {}
 
     if assignment_type == "video":
         return "done" if status in {"submitted", "graded", "completed"} or attempts_value > 0 else "not_started"
@@ -87,7 +92,7 @@ def _assignment_filter_state(row: dict) -> str:
     if assignment_type in {"worksheet", "exam"}:
         if status in {"submitted", "graded", "completed", "cancelled"}:
             return "done"
-        if status == "started" or bool(load_in_progress_practice_session(assignment_type, row.get("id"))):
+        if status == "started" or bool(draft):
             return "in_progress"
         return "not_started"
 
@@ -503,7 +508,11 @@ def _open_assignment_practice(
         if review_completed
         else {}
     )
-    draft = {} if completed_session else load_in_progress_practice_session(assignment_type, assignment_id)
+    draft = {} if completed_session else load_in_progress_practice_session(
+        assignment_type,
+        assignment_id,
+        alternate_source_ids=[source_record_id],
+    )
     if completed_session:
         completed_exercise_data = exercise_data
         if isinstance(completed_exercise_data, str):
@@ -932,7 +941,11 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False, sec
                 payload = source_payload
                 hero_image = source_image
         type_label = t("exam_label") if assignment_type == "exam" else t("worksheet_label")
-        draft = load_in_progress_practice_session(assignment_type, row.get("id"))
+        draft = load_in_progress_practice_session(
+            assignment_type,
+            row.get("id"),
+            alternate_source_ids=[row.get("source_record_id")],
+        )
         action_label = _assignment_action_label(row, has_draft=bool(draft))
         chips = "".join(
             [
@@ -956,7 +969,11 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False, sec
         )
 
     def _render_assignment_action() -> None:
-        draft = load_in_progress_practice_session(assignment_type, row.get("id"))
+        draft = load_in_progress_practice_session(
+            assignment_type,
+            row.get("id"),
+            alternate_source_ids=[row.get("source_record_id")],
+        )
         if assignment_type in {"worksheet", "exam"}:
             is_finalized = status in {"submitted", "graded", "completed", "cancelled"}
             is_continue = bool(draft) or status == "started"

@@ -1116,7 +1116,7 @@ def render_plan_library_cards(
                             source_type="lesson_plan_builder",
                             on_deleted=lambda: st.session_state.pop("files_selected_plan", None),
                         )
-    render_resource_bulk_assign_dialog(kind_filter="plan")
+    render_resource_bulk_assign_dialog(kind_filter="plan", dialog_scope=prefix)
 
 
 # ============================================================

@@ -4005,6 +4005,7 @@ ES: Dict[str, str] = {
     "operational_diagnostics_manage_required": "Solo los desarrolladores pueden actualizar estados de diagnóstico.",
     "operational_diagnostics_invalid_status_update": "La actualización del estado del diagnóstico no es válida.",
     "operational_diagnostics_event_not_found": "No se encontró el evento de diagnóstico.",
+    "operational_diagnostics_manage_permission_required": "No tienes permiso para actualizar estados de diagnóstico.",
     "operational_diagnostics_update_success": "Estado del diagnóstico actualizado.",
     "operational_diagnostics_update_failed": "No se pudo actualizar el estado. Referencia: {reference}",
 }

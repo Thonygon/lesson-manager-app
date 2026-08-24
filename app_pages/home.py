@@ -523,22 +523,41 @@ def _render_selected_file_resource_detail(kind: str, *, scope: str = "files") ->
     kind = str(kind or "").strip().lower()
     scope_key = re.sub(r"[^A-Za-z0-9_]+", "_", str(scope or "files")) or "files"
     if kind == "program":
-        selected_program_id = (
-            st.session_state.get("my_learning_programs_selected_program_id")
-            or st.session_state.get("archived_learning_programs_selected_program_id")
-            or st.session_state.get("public_learning_programs_selected_program_id")
-            or st.session_state.get("home_public_learning_programs_selected_program_id")
-        )
+        selected_program_keys_by_scope = {
+            "my_programs": [
+                "my_learning_programs_selected_program_id",
+            ],
+            "archived_programs": [
+                "archived_learning_programs_selected_program_id",
+            ],
+            "community_programs": [
+                "public_learning_programs_selected_program_id",
+            ],
+            "files": [
+                "my_learning_programs_selected_program_id",
+                "archived_learning_programs_selected_program_id",
+                "public_learning_programs_selected_program_id",
+                "home_public_learning_programs_selected_program_id",
+            ],
+        }
+        selected_program_id = None
+        for state_key in selected_program_keys_by_scope.get(scope_key, selected_program_keys_by_scope["files"]):
+            candidate = st.session_state.get(state_key)
+            if candidate:
+                selected_program_id = candidate
+                break
         if not selected_program_id:
             return
         selected_program = load_learning_program(int(selected_program_id))
         if not selected_program:
             _clear_selected_program_preview()
             return
-        own_selected_program_id = (
-            st.session_state.get("my_learning_programs_selected_program_id")
-            or st.session_state.get("archived_learning_programs_selected_program_id")
-        )
+        own_selected_program_id = None
+        if scope_key in {"my_programs", "archived_programs", "files"}:
+            own_selected_program_id = (
+                st.session_state.get("my_learning_programs_selected_program_id")
+                or st.session_state.get("archived_learning_programs_selected_program_id")
+            )
         st.markdown("---")
         header_cols = st.columns([6, 1])
         with header_cols[0]:
@@ -551,7 +570,7 @@ def _render_selected_file_resource_detail(kind: str, *, scope: str = "files") ->
             render_saved_learning_program_workspace(
                 selected_program,
                 int(selected_program_id),
-                ns=f"saved_learning_program_{int(selected_program_id)}",
+                ns=f"saved_learning_program_{scope_key}_{int(selected_program_id)}",
             )
         else:
             render_teacher_program_view(selected_program)

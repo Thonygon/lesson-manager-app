@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+import hashlib
 import html as _html
 import re
 from typing import Any
@@ -3383,7 +3384,16 @@ def _clear_resource_bulk_assign_dialog() -> None:
     st.session_state.pop("_resource_bulk_assign_dialog", None)
 
 
-def render_resource_bulk_assign_dialog(kind_filter: str | None = None) -> None:
+def _dialog_scope_suffix(scope: str | None) -> str:
+    safe_scope = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(scope or "").strip())
+    if not safe_scope:
+        return ""
+    digest = hashlib.sha1(safe_scope.encode("utf-8")).hexdigest()[:10]
+    invisible_bits = "".join("\u200b" if int(ch, 16) % 2 == 0 else "\u200c" for ch in digest)
+    return invisible_bits
+
+
+def render_resource_bulk_assign_dialog(kind_filter: str | None = None, *, dialog_scope: str | None = None) -> None:
     state = st.session_state.get("_resource_bulk_assign_dialog")
     if not isinstance(state, dict):
         return
@@ -3393,8 +3403,9 @@ def render_resource_bulk_assign_dialog(kind_filter: str | None = None) -> None:
     safe_kind = _resource_assignment_kind(state.get("kind"))
     if kind_filter and safe_kind != _resource_assignment_kind(kind_filter):
         return
+    dialog_title = f"{t('assign_to_student')}{_dialog_scope_suffix(dialog_scope or safe_kind)}"
 
-    @st.dialog(t("assign_to_student"), on_dismiss=_clear_resource_bulk_assign_dialog)
+    @st.dialog(dialog_title, on_dismiss=_clear_resource_bulk_assign_dialog)
     def _dialog():
         created = render_resource_bulk_assign_panel(
             kind=safe_kind,

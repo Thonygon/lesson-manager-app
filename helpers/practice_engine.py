@@ -428,45 +428,15 @@ def exam_to_exercises(exam_data: dict, answer_key: dict, *, row_id: int | None =
             vocab_questions = []
             raw_questions = sec.get("questions") or []
             raw_answers = ak.get("answers") or []
-            answer_pool = []
-            for ans in raw_answers:
-                answer_text = _display_answer_text(ans).strip()
-                if answer_text and answer_text not in answer_pool:
-                    answer_pool.append(answer_text)
-
+            normalized_answers = []
             for q_idx, raw_question in enumerate(raw_questions):
-                q_data = raw_question if isinstance(raw_question, dict) else {"text": raw_question}
                 correct_raw = raw_answers[q_idx] if q_idx < len(raw_answers) else ""
-                correct_text = _display_answer_text(correct_raw).strip()
-                options = [correct_text] if correct_text else []
-
-                for candidate in answer_pool:
-                    if candidate and candidate != correct_text and candidate not in options:
-                        options.append(candidate)
-                    if len(options) >= 4:
-                        break
-
-                # Fallback distractors if the section does not have enough unique answers.
-                if len(options) < 4:
-                    prompt_seed = _strip_leading_number(_question_prompt_text("vocabulary", q_data))
-                    fallback_candidates = [
-                        _sentence_case_fragment(prompt_seed),
-                        f"{_sentence_case_fragment(prompt_seed)}?",
-                        f"{_sentence_case_fragment(prompt_seed)}.",
-                        f"{_sentence_case_fragment(prompt_seed)}!",
-                    ]
-                    for candidate in fallback_candidates:
-                        if candidate and candidate != correct_text and candidate not in options:
-                            options.append(candidate)
-                        if len(options) >= 4:
-                            break
-
-                vocab_question = dict(q_data)
-                vocab_question["options"] = options[:4]
+                vocab_question, correct_text = _resolve_vocabulary_choices(raw_question, correct_raw)
                 vocab_questions.append(vocab_question)
+                normalized_answers.append(correct_text)
 
             ex["questions"] = vocab_questions
-            ex["answers"] = [_display_answer_text(ans).strip() for ans in raw_answers]
+            ex["answers"] = normalized_answers
         if sec.get("source_text"):
             ex["source_text"] = str(sec["source_text"]).strip()
         exercises.append(ex)
@@ -497,48 +467,16 @@ def normalize_exercise_data_for_web(exercise_data: dict) -> dict:
         if ex_type == "vocabulary":
             raw_questions = ex.get("questions") or []
             raw_answers = ex.get("answers") or []
-            answer_pool = []
-            for ans in raw_answers:
-                answer_text = _display_answer_text(ans).strip()
-                if answer_text and answer_text not in answer_pool:
-                    answer_pool.append(answer_text)
-
             normalized_questions = []
+            normalized_answers = []
             for q_idx, raw_question in enumerate(raw_questions):
-                q_data = raw_question if isinstance(raw_question, dict) else {"text": raw_question}
-                if q_data.get("options"):
-                    normalized_questions.append(q_data)
-                    continue
-
                 correct_raw = raw_answers[q_idx] if q_idx < len(raw_answers) else ""
-                correct_text = _display_answer_text(correct_raw).strip()
-                options = [correct_text] if correct_text else []
-
-                for candidate in answer_pool:
-                    if candidate and candidate != correct_text and candidate not in options:
-                        options.append(candidate)
-                    if len(options) >= 4:
-                        break
-
-                prompt_seed = _strip_leading_number(_question_prompt_text("vocabulary", q_data))
-                fallback_candidates = [
-                    _sentence_case_fragment(prompt_seed),
-                    f"{_sentence_case_fragment(prompt_seed)}?",
-                    f"{_sentence_case_fragment(prompt_seed)}.",
-                    f"{_sentence_case_fragment(prompt_seed)}!",
-                ]
-                for candidate in fallback_candidates:
-                    if candidate and candidate != correct_text and candidate not in options:
-                        options.append(candidate)
-                    if len(options) >= 4:
-                        break
-
-                normalized_question = dict(q_data)
-                normalized_question["options"] = options[:4]
+                normalized_question, correct_text = _resolve_vocabulary_choices(raw_question, correct_raw)
                 normalized_questions.append(normalized_question)
+                normalized_answers.append(correct_text)
 
             ex["questions"] = normalized_questions
-            ex["answers"] = [_display_answer_text(ans).strip() for ans in raw_answers]
+            ex["answers"] = normalized_answers
 
         exercises.append(ex)
 
@@ -807,6 +745,102 @@ def _display_choice_text(value) -> str:
     return _sentence_case_fragment(value)
 
 
+def _labeled_choice_text(choice, index: int) -> str:
+    base = _display_choice_text(choice).strip()
+    if not base:
+        return ""
+    if 0 <= index < 26:
+        return f"{chr(65 + index)}) {base}"
+    return base
+
+
+def _extract_choice_marker_index(value, option_count: int) -> int | None:
+    marker = _normalize_answer(value)
+    if not marker or option_count <= 0:
+        return None
+
+    letter_match = re.fullmatch(r"(?:option\s+)?([a-z])", marker, flags=re.IGNORECASE)
+    if letter_match:
+        index = ord(letter_match.group(1).upper()) - ord("A")
+        return index if 0 <= index < option_count else None
+
+    number_match = re.fullmatch(r"(?:option\s+)?(\d+)", marker, flags=re.IGNORECASE)
+    if number_match:
+        index = int(number_match.group(1)) - 1
+        return index if 0 <= index < option_count else None
+
+    return None
+
+
+def _dedupe_choice_texts(values: list) -> list[str]:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        text = _display_choice_text(value).strip()
+        normalized = _normalize_answer(text)
+        if text and normalized not in seen:
+            seen.add(normalized)
+            cleaned.append(text)
+    return cleaned
+
+
+def _parse_inline_labeled_choices(value) -> tuple[str, list[str]]:
+    text = _strip_leading_number(str(value or "")).strip()
+    if not text:
+        return "", []
+
+    marker_pattern = re.compile(r"(?<!\w)([A-Da-d])[\)\.\:-]\s*")
+    matches = list(marker_pattern.finditer(text))
+    if len(matches) < 2:
+        return text, []
+
+    parsed_options: list[str] = []
+    for idx, match in enumerate(matches):
+        start = match.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        option_text = text[start:end].strip(" \t\r\n;|/,")
+        if not option_text:
+            return text, []
+        parsed_options.append(option_text)
+
+    prompt_text = text[:matches[0].start()].rstrip(" \t\r\n:;-").strip()
+    return prompt_text or text, _dedupe_choice_texts(parsed_options)
+
+
+def _resolve_vocabulary_choices(question, correct=None) -> tuple[dict, str]:
+    q_data = question if isinstance(question, dict) else {"text": question}
+    normalized_question = dict(q_data)
+
+    explicit_options = normalized_question.get("options") or normalized_question.get("choices") or []
+    options = _dedupe_choice_texts(explicit_options if isinstance(explicit_options, list) else [])
+
+    if not options:
+        for field in ("task", "text"):
+            cleaned_prompt, parsed_options = _parse_inline_labeled_choices(normalized_question.get(field, ""))
+            if parsed_options:
+                options = parsed_options
+                normalized_question[field] = cleaned_prompt
+                break
+
+    correct_text = _display_answer_text(correct).strip()
+    marker_index = _extract_choice_marker_index(correct_text, len(options))
+    if marker_index is not None and marker_index < len(options):
+        correct_text = options[marker_index]
+    elif options:
+        normalized_correct = _normalize_answer(correct_text)
+        for option in options:
+            if _normalize_answer(option) == normalized_correct:
+                correct_text = option
+                break
+
+    if options:
+        normalized_question["options"] = options
+    else:
+        normalized_question.pop("options", None)
+    normalized_question.pop("choices", None)
+    return normalized_question, correct_text
+
+
 def _strip_vocab_answer_leak(prompt: str, correct=None, options: list | None = None) -> str:
     text = _strip_leading_number(str(prompt or "")).strip()
     if not text:
@@ -1053,6 +1087,28 @@ def _clear_practice_widget_state(session_key: str) -> None:
     for key in list(st.session_state.keys()):
         if key.startswith(prefix):
             st.session_state.pop(key, None)
+
+
+def clear_practice_session_state(session_key: str = "practice") -> None:
+    _clear_practice_widget_state(session_key)
+    st.session_state.pop(f"_practice_answers_{session_key}", None)
+    st.session_state.pop(f"_practice_submitted_{session_key}", None)
+    st.session_state.pop(f"_practice_saved_{session_key}", None)
+    st.session_state.pop(f"_practice_review_state_{session_key}", None)
+    st.session_state.pop(f"_practice_autosave_ctx_{session_key}", None)
+    st.session_state.pop(f"_practice_save_requested_{session_key}", None)
+    st.session_state.pop("practice_exercise_data", None)
+    st.session_state.pop("practice_meta", None)
+    st.session_state.pop("_practice_assignment_id", None)
+    st.session_state.pop("_practice_assignment_type", None)
+    st.session_state.pop("_practice_resume_session_id", None)
+    st.session_state.pop("_practice_resume_answers", None)
+    st.session_state.pop("_practice_resume_notice", None)
+    st.session_state.pop("_practice_review_mode", None)
+    st.session_state.pop("_practice_retry_session_id", None)
+    st.session_state.pop(f"_practice_last_autosave_payload_{session_key}", None)
+    st.session_state.pop(f"_practice_last_autosave_at_{session_key}", None)
+    st.session_state.pop(f"_practice_last_autosave_failed_{session_key}", None)
 
 
 def _prepare_retry_attempt(session_key: str) -> None:
@@ -1555,16 +1611,26 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
 
         save_requested_key = f"_practice_save_requested_{session_key}"
         if st.session_state.pop(save_requested_key, False):
+            meta = dict(st.session_state.get("practice_meta") or {})
+            return_page = str(meta.get("return_page") or "").strip()
+            return_section = str(meta.get("return_section") or "").strip()
             draft_session_id = autosave_practice_draft_if_needed(
                 exercise_data,
                 session_key=session_key,
-                meta=st.session_state.get("practice_meta") or {},
+                meta=meta,
                 force=True,
             )
             if draft_session_id:
                 st.session_state["_practice_resume_session_id"] = draft_session_id
-                st.session_state["practice_exercise_data"] = None
-                st.session_state["practice_meta"] = None
+                clear_practice_session_state(session_key)
+                if return_page:
+                    st.session_state["_practice_pending_return_page"] = return_page
+                else:
+                    st.session_state.pop("_practice_pending_return_page", None)
+                if return_section:
+                    st.session_state["_practice_pending_return_section"] = return_section
+                else:
+                    st.session_state.pop("_practice_pending_return_section", None)
                 st.success(t("practice_saved_continue_later"))
                 st.rerun()
             st.error(t("practice_save_failed"))
@@ -1599,20 +1665,7 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
                 meta = dict(st.session_state.get("practice_meta") or {})
                 return_page = str(meta.get("return_page") or "").strip()
                 return_section = str(meta.get("return_section") or "").strip()
-                _clear_practice_widget_state(session_key)
-                st.session_state.pop(answers_key, None)
-                st.session_state.pop(submitted_key, None)
-                st.session_state.pop(f"_practice_saved_{session_key}", None)
-                st.session_state.pop("practice_exercise_data", None)
-                st.session_state.pop("practice_meta", None)
-                st.session_state.pop("_practice_assignment_id", None)
-                st.session_state.pop("_practice_assignment_type", None)
-                st.session_state.pop("_practice_resume_session_id", None)
-                st.session_state.pop("_practice_resume_answers", None)
-                st.session_state.pop(f"_practice_review_state_{session_key}", None)
-                st.session_state.pop(f"_practice_last_autosave_payload_{session_key}", None)
-                st.session_state.pop(f"_practice_last_autosave_at_{session_key}", None)
-                st.session_state.pop(f"_practice_last_autosave_failed_{session_key}", None)
+                clear_practice_session_state(session_key)
                 if return_page:
                     st.session_state["_practice_pending_return_page"] = return_page
                 else:
@@ -1717,7 +1770,11 @@ def _render_single_question(
         choice = st.selectbox(
             "vocabulary",
             options=[""] + options,
-            format_func=_display_choice_text,
+            format_func=lambda opt, option_list=options: (
+                ""
+                if not opt
+                else _labeled_choice_text(opt, option_list.index(opt))
+            ),
             key=q_key,
             label_visibility="collapsed",
             disabled=is_submitted,
@@ -3089,24 +3146,36 @@ def load_practice_history(limit: int = 50) -> pd.DataFrame:
     return _load_practice_history_cached(str(get_current_user_id() or "").strip(), limit=limit)
 
 
-def load_in_progress_practice_session(source_type: str, source_id: int | str | None) -> dict:
+def load_in_progress_practice_session(
+    source_type: str,
+    source_id: int | str | None,
+    *,
+    alternate_source_ids: list[int | str | None] | tuple[int | str | None, ...] | None = None,
+) -> dict:
     uid = get_current_user_id()
-    safe_source_id = _normalize_practice_source_id(source_id)
-    if not uid or safe_source_id is None:
+    safe_source_ids: list[str] = []
+    for raw_value in [source_id, *(alternate_source_ids or [])]:
+        normalized = _normalize_practice_source_id(raw_value)
+        if normalized and normalized not in safe_source_ids:
+            safe_source_ids.append(normalized)
+    if not uid or not safe_source_ids:
         return {}
     try:
-        res = (
+        query = (
             get_sb()
             .table("practice_sessions")
             .select("*")
             .eq("user_id", uid)
             .eq("source_type", str(source_type or ""))
-            .eq("source_id", safe_source_id)
             .eq("status", "in_progress")
             .order("created_at", desc=True)
-            .limit(1)
-            .execute()
+            .limit(10)
         )
+        if len(safe_source_ids) == 1:
+            query = query.eq("source_id", safe_source_ids[0])
+        else:
+            query = query.in_("source_id", safe_source_ids)
+        res = query.execute()
         rows = res.data or []
         return rows[0] if rows else {}
     except Exception as exc:
