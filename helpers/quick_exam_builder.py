@@ -34,6 +34,14 @@ from helpers.material_recommendations import (
     maybe_pause_generation_for_matches,
     render_generation_recommendations,
 )
+from helpers.program_resource_context import (
+    apply_program_topic_form_defaults,
+    build_program_topic_prompt_block,
+    get_active_program_topic_context,
+    get_program_topic_recommendation_profile,
+    merge_program_topic_context_into_profile,
+    render_program_topic_picker,
+)
 from helpers.visual_support import enrich_exam_with_visuals
 
 
@@ -1243,6 +1251,11 @@ def _build_exam_prompts(payload: dict) -> tuple[str, str]:
         product="exam",
         selected_formats=exercise_types,
     )
+    program_context_block = build_program_topic_prompt_block(
+        payload.get("student_profile") or {},
+        product="exam",
+        selected_formats=exercise_types,
+    )
 
     system_prompt = (
         f"{build_expert_panel_prompt_blurb('exam')} "
@@ -1312,6 +1325,8 @@ Profile quality guidance:
 {_exam_profile_guidance(payload)}
 
 {student_profile_block}
+
+{program_context_block}
 
 Section sequencing guidance:
 {_section_sequence_guidance(subject_group)}
@@ -1524,11 +1539,27 @@ def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
                 t("other_subject_label"), key="exam_other_subject"
             ).strip()
 
+        effective_subject = other_subject_name if subject == "other" and other_subject_name else subject
+        picked_program_topic_context = render_program_topic_picker(
+            state_prefix="quick_exam",
+            subject=effective_subject,
+            custom_subject_name=other_subject_name,
+        )
+        program_topic_context = picked_program_topic_context or get_active_program_topic_context()
+        apply_program_topic_form_defaults(
+            program_topic_context,
+            stage_key="exam_stage",
+            level_key="exam_level",
+            topic_key="quick_exam_topic",
+            exam_types_key="exam_exercise_types",
+        )
+
         learner_stage = st.selectbox(
             t("learner_stage"),
             _lp().LEARNER_STAGES,
             format_func=_lp()._stage_label,
             key="exam_stage",
+            disabled=bool(program_topic_context),
         )
 
         default_level = _lp().recommend_default_level(subject, learner_stage)
@@ -1541,17 +1572,19 @@ def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
             level_options,
             format_func=_lp()._level_label,
             key="exam_level",
+            disabled=bool(program_topic_context),
         )
-
-        topic = st.text_input(t("topic_label"), key="quick_exam_topic")
+        topic = st.text_input(t("topic_label"), key="quick_exam_topic", disabled=bool(program_topic_context))
         exam_title = st.text_input(
             t("exam_title") if t("exam_title") != "exam_title" else "Exam title",
             key="quick_exam_title",
         )
 
-        effective_subject = other_subject_name if subject == "other" and other_subject_name else subject
         subject_group = get_subject_group(subject)
-        recommended_types = get_recommended_exercise_types(subject)
+        recommendation_profile = get_program_topic_recommendation_profile(program_topic_context)
+        recommended_types = [item for item in (recommendation_profile.get("exam_ranked") or []) if item in EXAM_EXERCISE_TYPES]
+        if not recommended_types:
+            recommended_types = get_recommended_exercise_types(subject)
         all_types = get_all_exercise_types_for_subject(subject)
 
         st.session_state["exam_available_types_cache"] = all_types
@@ -1582,7 +1615,14 @@ def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
                 ),
             )
 
-            available_types = all_types if (show_all or subject_group == "other") else recommended_types
+            if program_topic_context:
+                available_types = (
+                    recommended_types + [item for item in all_types if item not in recommended_types]
+                    if (show_all or subject_group == "other")
+                    else recommended_types
+                )
+            else:
+                available_types = all_types if (show_all or subject_group == "other") else recommended_types
             available_types = _dedupe_keep_order(available_types)
 
             current_selected = st.session_state.get("exam_exercise_types")
@@ -1601,6 +1641,16 @@ def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
                 key="exam_exercise_types",
                 help=t("quick_exam_exercise_types_help"),
             )
+            if recommended_types:
+                st.caption(
+                    t(
+                        "program_topic_recommended_exam_types",
+                        items=", ".join(_exercise_multiselect_label(item) for item in recommended_types[:5]),
+                    )
+                )
+            top_recommended = recommended_types[: max(1, min(3, len(recommended_types)))]
+            if top_recommended and exercise_types and not any(item in top_recommended for item in exercise_types):
+                st.info(t("program_topic_less_typical_exam_choice"))
             st.info(_recommended_hint_text(subject))
             with st.expander(t("quick_exam_exercise_guide"), expanded=False):
                 st.markdown(_build_exercise_catalog_markdown(subject, show_all), unsafe_allow_html=False)
@@ -1625,8 +1675,9 @@ def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
                 selected_student["student_user_id"],
                 subject=effective_subject,
             )
-            if preview_profile.get("summary"):
-                st.caption(preview_profile["summary"])
+        preview_profile = merge_program_topic_context_into_profile(preview_profile, program_topic_context)
+        if preview_profile.get("summary"):
+            st.caption(preview_profile["summary"])
         native_language = ""
         show_native_language = is_language_subject(subject, other_subject_name)
         if show_native_language:
@@ -1692,6 +1743,7 @@ def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
                     if selected_student
                     else {}
                 )
+                student_profile = merge_program_topic_context_into_profile(student_profile, program_topic_context)
                 if show_native_language:
                     student_profile = apply_native_language_context(student_profile, native_language)
                 else:

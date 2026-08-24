@@ -1,8 +1,13 @@
 import logging
 import unittest
+from unittest.mock import patch
 
 from helpers.generation_guidance import build_expert_panel_prompt_blurb
-from helpers.learning_programs import _build_program_skeleton_prompts
+from helpers.learning_programs import (
+    _build_program_skeleton_prompts,
+    _program_language_quality_issues,
+    _sync_saved_learning_program_from_builder,
+)
 from helpers.lesson_planner import _build_ai_prompts as _build_lesson_plan_prompts
 from helpers.quick_exam_builder import _build_exam_prompts
 from helpers.worksheet_builder import _build_worksheet_prompts
@@ -91,6 +96,75 @@ class PromptPanelIdentityTests(unittest.TestCase):
             }
         )
         self.assertIn("expert generation panel", system_prompt)
+
+    def test_learning_program_prompt_explicitly_states_requested_languages(self):
+        _system_prompt, user_prompt = _build_program_skeleton_prompts(
+            {
+                "subject": "spanish",
+                "subject_display": "Español",
+                "subject_family": "language",
+                "learner_stage": "upper_secondary",
+                "level_or_band": "B2",
+                "program_language": "es",
+                "student_material_language": "es",
+                "requested_units": 9,
+                "requested_lessons_per_unit": 3,
+                "subject_progression_profile": {
+                    "focus_strands": ["comprensión", "producción"],
+                    "sequence_expectations": ["Empieza con comprensión.", "Avanza hacia producción."],
+                },
+            }
+        )
+        self.assertIn('program_language is "es" (Spanish)', user_prompt)
+        self.assertIn('student_material_language is "es" (Spanish)', user_prompt)
+        self.assertIn("do not default to English", user_prompt)
+
+    def test_learning_program_language_quality_flags_obvious_english_when_spanish_requested(self):
+        issues = _program_language_quality_issues(
+            {
+                "title": "DELE B2 Exam Preparation Program",
+                "program_overview": "This program prepares upper secondary learners for the DELE B2 exam by developing reading, writing, listening, and speaking skills through authentic tasks and exam-style practice.",
+                "teacher_rationale": "The curriculum is sequenced to move from diagnostic to integrated performance, ensuring that each skill is explicitly taught, practiced, and then combined in realistic exam tasks.",
+                "student_summary": "Build confidence for the exam with clear goals.",
+                "units": [],
+            },
+            program_language="es",
+            student_material_language="es",
+        )
+        self.assertTrue(issues)
+        self.assertIn("teacher-facing program fields are not in requested es", issues[0])
+
+    def test_learning_program_sync_preserves_student_material_language(self):
+        with patch("helpers.learning_programs.update_learning_program", return_value=(True, "ok")) as update_mock:
+            ok, msg = _sync_saved_learning_program_from_builder(
+                saved_program_id=42,
+                result={"title": "Programa DELE", "units": []},
+                meta={
+                    "subject": "spanish",
+                    "learner_stage": "upper_secondary",
+                    "level_or_band": "B2",
+                    "visibility": "private",
+                    "custom_subject_name": "",
+                    "program_language": "es",
+                    "student_material_language": "es",
+                    "student_native_language": "en",
+                    "builder_config": {"program_track": "exam_prep", "exam_prep_target": "dele"},
+                    "parent_program_id": None,
+                    "sequence_group_id": "dele-upper-secondary",
+                    "sequence_order": 1,
+                    "prerequisite_summary": "",
+                },
+                subject="spanish",
+                learner_stage="upper_secondary",
+                level_or_band="B2",
+                custom_subject_name="",
+                visibility="private",
+                mode_used="ai",
+            )
+        self.assertTrue(ok)
+        self.assertEqual("ok", msg)
+        self.assertEqual("es", update_mock.call_args.kwargs["program_language"])
+        self.assertEqual("es", update_mock.call_args.kwargs["student_material_language"])
 
 
 if __name__ == "__main__":

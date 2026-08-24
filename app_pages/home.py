@@ -1412,6 +1412,10 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
     panel = panel_override if panel_override is not None else _get_qp("panel", "")
     st.session_state["_internal_ab_debug_enabled"] = _get_qp("ab_debug", "") == "1"
 
+    # Keep the shared Smart Tool dialog available from any home panel,
+    # including resource-detail views that prime the same dialog state.
+    _render_home_smart_tool_dialog()
+
     if isinstance(user, dict):
         user_id = user.get("id") or user_id
         
@@ -2706,7 +2710,6 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
             )
 
         _render_smart_tools_hub()
-        _render_home_smart_tool_dialog()
 
         st.markdown('<div class="home-bottom-space"></div>', unsafe_allow_html=True)
 

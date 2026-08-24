@@ -105,6 +105,41 @@ class LowerSecondaryQualityTests(unittest.TestCase):
                         )
                         self.assertEqual([], issues)
 
+    def test_reading_focused_practice_skill_plan_passes_quality_with_program_context(self):
+        plan = {
+            "title": "SAT Reading Foundations",
+            "objective": "Practice skimming and scanning in short exam-style passages.",
+            "success_criteria": ["I can skim for gist.", "I can scan for evidence."],
+            "warm_up": ["Preview the title.", "Predict the main idea."],
+            "guided_practice": ["Model how to scan for a keyword."],
+            "practice_questions": ["What is the main idea?", "Which line supports the answer?"],
+            "reading_passage": "Students read a short passage about school routines and identify key details.",
+            "listening_script": "",
+            "core_material": {
+                "target_vocabulary": ["gist", "evidence", "detail"],
+                "gist_questions": ["What is the text mostly about?"],
+                "detail_questions": ["Which sentence proves the answer?"],
+            },
+        }
+
+        issues = _lesson_plan_quality_issues(
+            plan,
+            subject="english",
+            learner_stage="upper_secondary",
+            level_or_band="B2",
+            lesson_purpose="practice_skill",
+            student_profile={
+                "program_context": {
+                    "current_program_title": "SAT English Reading & Writing Prep",
+                    "current_unit_title": "SAT Reading Foundations",
+                    "current_topic_title": "Skimming & Scanning",
+                    "topic_summary": "Read short SAT-style texts quickly to locate key ideas and evidence.",
+                }
+            },
+        )
+
+        self.assertEqual([], issues)
+
     def test_serialized_answer_keys_and_spanish_open_answers_are_accepted(self):
         raw_answer_key = (
             "['1. María y Juan van a la escuela.;', "
