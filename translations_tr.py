@@ -3934,6 +3934,7 @@ TR: Dict[str, str] = {
     "operational_diagnostics_manage_required": "Yalnizca gelistiriciler tani durumlarini guncelleyebilir.",
     "operational_diagnostics_invalid_status_update": "Gecersiz tani durum guncellemesi.",
     "operational_diagnostics_event_not_found": "Tani olayi bulunamadi.",
+    "operational_diagnostics_manage_permission_required": "Tani durumlarini guncelleme izniniz yok.",
     "operational_diagnostics_update_success": "Tani durumu guncellendi.",
     "operational_diagnostics_update_failed": "Durum guncellenemedi. Referans: {reference}",
 }

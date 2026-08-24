@@ -1406,7 +1406,7 @@ def render_worksheet_library_cards(
                             source_type="worksheet_builder",
                             on_deleted=lambda: st.session_state.pop("files_selected_worksheet", None),
                         )
-    render_resource_bulk_assign_dialog(kind_filter="worksheet")
+    render_resource_bulk_assign_dialog(kind_filter="worksheet", dialog_scope=prefix)
 
 
 # ── Render worksheet result ──────────────────────────────────────────

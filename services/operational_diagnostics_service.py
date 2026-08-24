@@ -12,6 +12,7 @@ from typing import Any
 from uuid import uuid4
 
 import streamlit as st
+from postgrest.exceptions import APIError
 
 from core.database import get_sb
 from core.state import get_current_user_id, get_current_user_role
@@ -347,18 +348,62 @@ def update_diagnostic_status(event_id: str, *, status: str, resolution_note: str
 
     safe_note = sanitize_text(resolution_note, limit=1000)
     current_row = dict(existing[0])
-    rpc_rows = (
-        get_sb()
-        .rpc(
-            DIAGNOSTICS_STATUS_RPC,
-            {
-                "p_event_id": safe_event_id,
-                "p_status": safe_status,
-                "p_resolution_note": safe_note or None,
-            },
-        )
-        .execute()
-    ).data or []
+    v_now = _utc_now_iso()
+
+    def _direct_status_update() -> tuple[bool, str]:
+        actor_id = _clean_text(get_current_user_id(), limit=80) or None
+        update_payload: dict[str, Any] = {
+            "status": safe_status,
+            "resolution_note": safe_note or None,
+            "updated_at": v_now,
+        }
+        if safe_status == "acknowledged":
+            update_payload["acknowledged_by"] = actor_id
+            update_payload["acknowledged_at"] = v_now
+        elif safe_status == "open":
+            update_payload["acknowledged_by"] = None
+            update_payload["acknowledged_at"] = None
+
+        if safe_status in {"resolved", "ignored"}:
+            update_payload["resolved_by"] = actor_id
+            update_payload["resolved_at"] = v_now
+        elif safe_status == "open":
+            update_payload["resolved_by"] = None
+            update_payload["resolved_at"] = None
+
+        updated_rows = (
+            get_sb()
+            .table(DIAGNOSTICS_TABLE)
+            .update(update_payload)
+            .eq("event_id", safe_event_id)
+            .execute()
+        ).data or []
+        if not updated_rows:
+            return False, "operational_diagnostics_event_not_found"
+        return True, "operational_diagnostics_update_success"
+
+    try:
+        rpc_rows = (
+            get_sb()
+            .rpc(
+                DIAGNOSTICS_STATUS_RPC,
+                {
+                    "p_event_id": safe_event_id,
+                    "p_status": safe_status,
+                    "p_resolution_note": safe_note or None,
+                },
+            )
+            .execute()
+        ).data or []
+    except APIError as exc:
+        message = _clean_text(getattr(exc, "message", ""), limit=160)
+        if message == "operational_diagnostics_manage_permission_required":
+            ok, fallback_message = _direct_status_update()
+            if not ok:
+                return False, fallback_message
+            rpc_rows = [True]
+        else:
+            raise
     if rpc_rows and rpc_rows[0] is False:
         return False, "operational_diagnostics_event_not_found"
 

@@ -780,7 +780,7 @@ def render_video_library_cards(
                             source_type="video_library",
                             on_deleted=lambda: st.session_state.pop("files_selected_video", None),
                         )
-    render_resource_bulk_assign_dialog(kind_filter="video")
+    render_resource_bulk_assign_dialog(kind_filter="video", dialog_scope=prefix)
 
 
 def render_video_detail(

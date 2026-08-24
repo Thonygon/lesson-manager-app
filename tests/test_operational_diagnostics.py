@@ -6,6 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from postgrest.exceptions import APIError
+
 from services import operational_diagnostics_service as diagnostics
 from app_pages import operational_diagnostics as diagnostics_page
 
@@ -240,6 +242,40 @@ class OperationalDiagnosticsTests(unittest.TestCase):
             ),
             fake_sb.calls,
         )
+        record_action.assert_called_once()
+
+    def test_status_update_permission_error_falls_back_to_direct_update(self):
+        event_id = "1d170d96-6c61-4498-a81a-b2c8bd2ca560"
+        table_rows = [{"event_id": event_id, "status": "open", "resolution_note": None}]
+        fake_sb = _FakeSupabase(
+            rpc_error=APIError(
+                {
+                    "message": "operational_diagnostics_manage_permission_required",
+                    "code": "P0001",
+                    "hint": None,
+                    "details": None,
+                }
+            ),
+            table_rows=table_rows,
+        )
+
+        with (
+            patch.object(diagnostics, "get_sb", return_value=fake_sb),
+            patch.object(diagnostics, "require_capability"),
+            patch.object(diagnostics, "get_current_user_id", return_value="developer-1"),
+            patch.object(diagnostics, "record_privileged_action") as record_action,
+        ):
+            ok, message = diagnostics.update_diagnostic_status(
+                event_id,
+                status="resolved",
+                resolution_note="Fixed in release 12",
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual("operational_diagnostics_update_success", message)
+        self.assertEqual("resolved", table_rows[0]["status"])
+        self.assertEqual("Fixed in release 12", table_rows[0]["resolution_note"])
+        self.assertEqual("developer-1", table_rows[0]["resolved_by"])
         record_action.assert_called_once()
 
     def test_diagnostics_page_requires_server_side_workspace_access(self):

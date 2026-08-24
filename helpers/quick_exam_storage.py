@@ -3,8 +3,10 @@
 import streamlit as st
 import json, re, math, os, html
 import ast
+import time
 from typing import Optional
 from datetime import datetime as _dt, timezone
+import httpx
 import pandas as pd
 from io import BytesIO
 from core.i18n import t
@@ -284,18 +286,51 @@ def _normalize_exam_frame(rows: list[dict] | None) -> pd.DataFrame:
     return df
 
 
+def _is_transient_exam_load_error(exc: Exception) -> bool:
+    return isinstance(
+        exc,
+        (
+            httpx.RemoteProtocolError,
+            httpx.ReadTimeout,
+            httpx.ConnectTimeout,
+            httpx.ConnectError,
+            httpx.ReadError,
+            httpx.WriteError,
+            httpx.NetworkError,
+            httpx.ProtocolError,
+            httpx.TransportError,
+        ),
+    )
+
+
+def _run_exam_query_with_retry(query_builder_fn, *, retries: int = 1, backoff_s: float = 0.2):
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            return query_builder_fn().execute()
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= retries or not _is_transient_exam_load_error(exc):
+                raise
+            time.sleep(backoff_s * (attempt + 1))
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("Exam query failed without an exception.")
+
+
 @st.cache_data(ttl=120, show_spinner=False)
 def _load_my_exams_cached(uid: str, limit: int = 120) -> pd.DataFrame:
     if not uid:
         return pd.DataFrame()
-    res = (
-        get_sb()
-        .table("quick_exams")
-        .select(_QUICK_EXAM_LIST_COLUMNS)
-        .eq("user_id", uid)
-        .order("updated_at", desc=True)
-        .limit(limit)
-        .execute()
+    res = _run_exam_query_with_retry(
+        lambda: (
+            get_sb()
+            .table("quick_exams")
+            .select(_QUICK_EXAM_LIST_COLUMNS)
+            .eq("user_id", uid)
+            .order("updated_at", desc=True)
+            .limit(limit)
+        )
     )
     return _normalize_exam_frame(getattr(res, "data", None) or [])
 
@@ -320,14 +355,15 @@ def load_my_exams(*, include_archived: bool = False, archived_only: bool = False
 
 @st.cache_data(ttl=180, show_spinner=False)
 def _load_public_exams_cached(limit: int = 120) -> pd.DataFrame:
-    res = (
-        get_sb()
-        .table("quick_exams")
-        .select(_QUICK_EXAM_LIST_COLUMNS)
-        .eq("is_public", True)
-        .order("updated_at", desc=True)
-        .limit(limit)
-        .execute()
+    res = _run_exam_query_with_retry(
+        lambda: (
+            get_sb()
+            .table("quick_exams")
+            .select(_QUICK_EXAM_LIST_COLUMNS)
+            .eq("is_public", True)
+            .order("updated_at", desc=True)
+            .limit(limit)
+        )
     )
     return _normalize_exam_frame(getattr(res, "data", None) or [])
 
@@ -706,7 +742,7 @@ def render_exam_library_cards(
                             source_type="exam_builder",
                             on_deleted=lambda: st.session_state.pop("files_selected_exam", None),
                         )
-    render_resource_bulk_assign_dialog(kind_filter="exam")
+    render_resource_bulk_assign_dialog(kind_filter="exam", dialog_scope=prefix)
 
 
 # ── AI usage tracking ────────────────────────────────────────────────
