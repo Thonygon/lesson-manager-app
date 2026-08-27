@@ -88,6 +88,7 @@ _TEACHER_PAGE_SIZE = 6
 _RECOMMENDED_RESOURCE_GROUP_LIMIT = 24
 _RECOMMENDED_RESOURCE_PAGE_SIZE = 2
 _RECOMMENDED_RESOURCE_PREVIEW_DIALOG_VERSION = 1
+_LOW_SCORE_LOOKBACK_DAYS = 30
 
 _RECOMMENDED_RESOURCE_ASSIGNMENT_TYPES = {
     "lesson_plan_topic": "plan",
@@ -201,14 +202,128 @@ def _topic_progress_rows(topic: dict, progress_rows: list[dict]) -> list[dict]:
     return matches
 
 
-def _topic_signal_from_rows(rows: list[dict]) -> dict:
-    signal = _build_recommendation_signal(rows)
-    low_score = min(
-        (_assignment_score_value(row) for row in rows if _assignment_score_value(row) is not None),
-        default=None,
+def _parse_signal_datetime(value) -> datetime.datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed.astimezone(datetime.timezone.utc)
+
+
+def _low_score_cutoff() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=_LOW_SCORE_LOOKBACK_DAYS)
+
+
+def _assignment_attempt_timestamp(row: dict) -> datetime.datetime | None:
+    latest = row.get("latest_attempt") if isinstance(row.get("latest_attempt"), dict) else {}
+    for key in ("graded_at", "updated_at", "created_at"):
+        parsed = _parse_signal_datetime(latest.get(key))
+        if parsed:
+            return parsed
+    for key in ("completed_at", "submitted_at", "graded_at", "updated_at", "created_at"):
+        parsed = _parse_signal_datetime(row.get(key))
+        if parsed:
+            return parsed
+    return None
+
+
+def _low_score_evidence_signature(row: dict) -> str:
+    latest = row.get("latest_attempt") if isinstance(row.get("latest_attempt"), dict) else {}
+    assignment_id = int(row.get("id") or latest.get("assignment_id") or 0)
+    attempt_id = int(latest.get("id") or 0)
+    if assignment_id > 0 and attempt_id > 0:
+        return f"assignment_attempt:{assignment_id}:{attempt_id}"
+    score = _assignment_score_value(row)
+    occurred_at = _assignment_attempt_timestamp(row)
+    source_type = str(row.get("source_type") or row.get("assignment_type") or "").strip()
+    source_id = str(row.get("source_record_id") or row.get("source_id") or "").strip()
+    timestamp_key = occurred_at.isoformat() if occurred_at else str(row.get("updated_at") or row.get("created_at") or "")
+    return "|".join(
+        [
+            "assignment_score",
+            str(assignment_id or ""),
+            source_type,
+            source_id,
+            "" if score is None else f"{float(score):.1f}",
+            timestamp_key,
+        ]
     )
+
+
+def _low_score_evidence(row: dict, resolved_signatures: set[str] | None = None) -> dict | None:
+    score = _assignment_score_value(row)
+    if score is None:
+        return None
+    occurred_at = _assignment_attempt_timestamp(row)
+    if not occurred_at or occurred_at < _low_score_cutoff():
+        return None
+    signature = _low_score_evidence_signature(row)
+    if signature in (resolved_signatures or set()):
+        return None
+    latest = row.get("latest_attempt") if isinstance(row.get("latest_attempt"), dict) else {}
+    return {
+        "signature": signature,
+        "score": float(score),
+        "assignment_id": int(row.get("id") or latest.get("assignment_id") or 0),
+        "attempt_id": int(latest.get("id") or 0),
+        "occurred_at": occurred_at.isoformat(),
+        "topic": str(row.get("topic") or "").strip(),
+        "title": str(row.get("title") or "").strip(),
+    }
+
+
+def _lowest_recent_score_evidence(rows: list[dict], resolved_signatures: set[str] | None = None) -> dict | None:
+    candidates = [
+        evidence
+        for row in (rows or [])
+        if (evidence := _low_score_evidence(row, resolved_signatures))
+    ]
+    if not candidates:
+        return None
+    return sorted(
+        candidates,
+        key=lambda item: (
+            float(item.get("score") or 0.0),
+            str(item.get("occurred_at") or ""),
+            str(item.get("signature") or ""),
+        ),
+    )[0]
+
+
+def _resolved_low_score_signatures(recommendation_events: dict[tuple[int, int, str], dict]) -> set[str]:
+    signatures: set[str] = set()
+    for summary in (recommendation_events or {}).values():
+        for signature in summary.get("resolved_low_score_signatures") or set():
+            if str(signature or "").strip():
+                signatures.add(str(signature).strip())
+    return signatures
+
+
+def _low_score_resolution_metadata(recommendation: dict) -> dict:
+    evidence = recommendation.get("low_score_evidence") if isinstance(recommendation.get("low_score_evidence"), dict) else {}
+    signature = str(evidence.get("signature") or "").strip()
+    if not signature:
+        return {}
+    return {
+        "resolved_low_score_signature": signature,
+        "resolved_low_score_assignment_id": int(evidence.get("assignment_id") or 0) or None,
+        "resolved_low_score_attempt_id": int(evidence.get("attempt_id") or 0) or None,
+        "resolved_low_score_score_pct": evidence.get("score"),
+        "resolved_low_score_completed_at": str(evidence.get("occurred_at") or "").strip(),
+    }
+
+
+def _topic_signal_from_rows(rows: list[dict], resolved_signatures: set[str] | None = None) -> dict:
+    signal = _build_recommendation_signal(rows, resolved_signatures=resolved_signatures)
+    low_score_evidence = _lowest_recent_score_evidence(rows, resolved_signatures)
     latest_attempts = max((int(row.get("attempt_count") or 0) for row in rows), default=0)
-    signal["recent_score"] = low_score
+    signal["recent_score"] = low_score_evidence.get("score") if low_score_evidence else None
+    signal["low_score_evidence"] = low_score_evidence
     signal["attempt_count"] = latest_attempts
     return signal
 
@@ -221,6 +336,7 @@ def _topic_payload(
     focus_kind: str,
     reasons: list[str],
     recent_score=None,
+    low_score_evidence: dict | None = None,
     needs_practice: bool = False,
 ) -> dict:
     program = row.get("program") or {}
@@ -243,6 +359,7 @@ def _topic_payload(
         "needs_practice": needs_practice,
         "program_progress": progress_pct,
         "recent_score": recent_score,
+        "low_score_evidence": low_score_evidence or {},
         "reasons": reasons[:3],
         "actions": _recommendation_actions(focus_kind),
     }
@@ -993,38 +1110,39 @@ def _fit_recommendation_weights(progress_rows: list[dict]) -> list[float]:
     return weights
 
 
-def _build_recommendation_signal(rows: list[dict]) -> dict:
+def _build_recommendation_signal(rows: list[dict], *, resolved_signatures: set[str] | None = None) -> dict:
     if not rows:
         return {
             "score_gap": 0.2,
             "retry_pressure": 0.1,
             "status_pressure": 0.25,
             "recent_score": None,
+            "low_score_evidence": None,
             "active_assignments": 0,
         }
 
     score_gaps = []
     retry_pressures = []
     status_pressures = []
-    scores = []
     active_assignments = 0
+    lowest_recent_evidence = _lowest_recent_score_evidence(rows, resolved_signatures)
 
     for row in rows:
         score = _assignment_score_value(row)
-        score_gaps.append(_clamp((82.0 - score) / 42.0) if score is not None else 0.35)
+        evidence = _low_score_evidence(row, resolved_signatures)
+        score_gaps.append(_clamp((82.0 - score) / 42.0) if evidence is not None and score is not None else (0.35 if score is None else 0.0))
         retry_pressures.append(_clamp((max(int(row.get("attempt_count") or 0), 1) - 1.0) / 3.0))
         status_value = _assignment_status_pressure(row.get("status"))
         status_pressures.append(status_value)
         if status_value >= 0.7:
             active_assignments += 1
-        if score is not None:
-            scores.append(score)
 
     return {
         "score_gap": max(score_gaps) if score_gaps else 0.2,
         "retry_pressure": max(retry_pressures) if retry_pressures else 0.1,
         "status_pressure": max(status_pressures) if status_pressures else 0.25,
-        "recent_score": min(scores) if scores else None,
+        "recent_score": lowest_recent_evidence.get("score") if lowest_recent_evidence else None,
+        "low_score_evidence": lowest_recent_evidence,
         "active_assignments": active_assignments,
     }
 
@@ -1377,12 +1495,16 @@ def _build_program_recommendations(
     for row in filtered_progress_rows:
         key = str(row.get("subject_key") or "").strip()
         rows_by_subject.setdefault(key, []).append(row)
-    overall_signal = _build_recommendation_signal(filtered_progress_rows)
     recommendations: list[dict] = []
     current_program_rows = _current_teacher_program_rows(program_rows, selected_subject)
     recommendation_events = load_recommendation_event_summary(
         tuple(sorted({int(r.get("id") or 0) for r in current_program_rows if int(r.get("id") or 0) > 0})),
         str((filtered_progress_rows[0] if filtered_progress_rows else {}).get("student_id") or ""),
+    )
+    resolved_low_score_signatures = _resolved_low_score_signatures(recommendation_events)
+    overall_signal = _build_recommendation_signal(
+        filtered_progress_rows,
+        resolved_signatures=resolved_low_score_signatures,
     )
 
     for row in current_program_rows:
@@ -1398,7 +1520,14 @@ def _build_program_recommendations(
         total_topics = sum(len(unit.get("topics") or []) for unit in (program.get("units") or []))
         completed_topics = len([1 for item in progress_map.values() if item.get("teacher_done")])
         progress_gap = _clamp(1.0 - ((completed_topics / total_topics) if total_topics else 0.0))
-        signal = _build_recommendation_signal(rows_by_subject.get(subject_key, [])) if rows_by_subject.get(subject_key) else overall_signal
+        signal = (
+            _build_recommendation_signal(
+                rows_by_subject.get(subject_key, []),
+                resolved_signatures=resolved_low_score_signatures,
+            )
+            if rows_by_subject.get(subject_key)
+            else overall_signal
+        )
 
         ordered_topics: list[tuple[int, dict, dict]] = []
         topic_position = 0
@@ -1418,7 +1547,7 @@ def _build_program_recommendations(
             teacher_done = truthy_flag(topic_progress.get("teacher_done"))
             needs_practice = truthy_flag(topic_progress.get("student_done"))
             topic_rows = _topic_progress_rows(topic, rows_by_subject.get(subject_key, []))
-            topic_signal = _topic_signal_from_rows(topic_rows)
+            topic_signal = _topic_signal_from_rows(topic_rows, resolved_low_score_signatures)
             topic_id = int(topic.get("topic_id") or 0)
             next_event = recommendation_events.get((assignment_id, topic_id, "next_topic"), {})
             review_event = recommendation_events.get((assignment_id, topic_id, "review"), {})
@@ -1455,7 +1584,10 @@ def _build_program_recommendations(
                     topic_id = int(topic.get("topic_id") or 0)
                     next_topic = (
                         topic,
-                        _topic_signal_from_rows(_topic_progress_rows(topic, rows_by_subject.get(subject_key, []))),
+                        _topic_signal_from_rows(
+                            _topic_progress_rows(topic, rows_by_subject.get(subject_key, [])),
+                            resolved_low_score_signatures,
+                        ),
                         recommendation_events.get((assignment_id, topic_id, "next_topic"), {}),
                     )
                     break
@@ -1492,6 +1624,7 @@ def _build_program_recommendations(
                         t("student_recommendation_reason_program_gap") if progress_gap >= 0.2 else t("student_recommendation_reason_active_assignment"),
                     ],
                     recent_score=topic_signal.get("recent_score"),
+                    low_score_evidence=topic_signal.get("low_score_evidence"),
                 )
             )
             recommendations[-1]["recommendation_bucket"] = "next_topic"
@@ -1508,10 +1641,15 @@ def _build_program_recommendations(
             if (
                 review_event.get("last_event_type") == "teacher_marked_done"
                 and not truthy_flag(topic_progress.get("student_done"))
+                and not topic_signal.get("low_score_evidence")
                 and review_event.get("improved_count", 0) <= 0
             ):
                 review_candidates = []
-            elif review_event.get("improved_count", 0) > 0 and not truthy_flag(topic_progress.get("student_done")):
+            elif (
+                review_event.get("improved_count", 0) > 0
+                and not truthy_flag(topic_progress.get("student_done"))
+                and not topic_signal.get("low_score_evidence")
+            ):
                 review_candidates = []
 
         if review_candidates:
@@ -1550,6 +1688,7 @@ def _build_program_recommendations(
                     focus_kind=focus_kind,
                     reasons=review_reasons,
                     recent_score=topic_signal.get("recent_score"),
+                    low_score_evidence=topic_signal.get("low_score_evidence"),
                     needs_practice=truthy_flag(topic_progress.get("student_done")),
                 )
             )
@@ -1593,6 +1732,7 @@ def _build_program_recommendations(
                     focus_kind="reinforce",
                     reasons=pending_reasons,
                     recent_score=topic_signal.get("recent_score"),
+                    low_score_evidence=topic_signal.get("low_score_evidence"),
                 )
             )
             recommendations[-1]["recommendation_bucket"] = "pending_gap"
@@ -1614,28 +1754,37 @@ def _build_program_recommendations(
         return recommendations[:3], overall_signal
 
     fallback_recommendations = []
+    def _fallback_row_score(row: dict) -> float | None:
+        evidence = _low_score_evidence(row, resolved_low_score_signatures)
+        if evidence:
+            return float(evidence.get("score") or 0.0)
+        score = _assignment_score_value(row)
+        return 82.0 if score is not None else None
+
     weakest_rows = sorted(
         filtered_progress_rows,
         key=lambda row: (
             -(
-                0.55 * (_clamp((82.0 - (_assignment_score_value(row) if _assignment_score_value(row) is not None else 64.0)) / 42.0))
+                0.55 * (_clamp((82.0 - (_fallback_row_score(row) if _fallback_row_score(row) is not None else 64.0)) / 42.0))
                 + 0.45 * _assignment_status_pressure(row.get("status"))
             ),
             -_clamp((max(int(row.get("attempt_count") or 0), 1) - 1.0) / 3.0),
         ),
     )
     for row in weakest_rows[:3]:
-        score = _assignment_score_value(row)
+        low_score_evidence = _low_score_evidence(row, resolved_low_score_signatures)
+        score = low_score_evidence.get("score") if low_score_evidence else _assignment_score_value(row)
         signal = {
-            "score_gap": _clamp((82.0 - score) / 42.0) if score is not None else 0.35,
+            "score_gap": _clamp((82.0 - score) / 42.0) if low_score_evidence and score is not None else (0.35 if score is None else 0.0),
             "retry_pressure": _clamp((max(int(row.get("attempt_count") or 0), 1) - 1.0) / 3.0),
             "status_pressure": _assignment_status_pressure(row.get("status")),
-            "recent_score": score,
+            "recent_score": low_score_evidence.get("score") if low_score_evidence else None,
+            "low_score_evidence": low_score_evidence,
         }
         composite = 0.65 * signal["score_gap"] + 0.35 * signal["status_pressure"]
         focus_kind = _recommendation_focus_kind(signal, composite)
         reasons = []
-        if score is not None:
+        if low_score_evidence and score is not None:
             reasons.append(t("student_recommendation_reason_low_score", score=int(round(score))))
         if signal["retry_pressure"] >= 0.34:
             reasons.append(t("student_recommendation_reason_retries"))
@@ -1651,7 +1800,8 @@ def _build_program_recommendations(
                 "focus_label": _recommendation_focus_label(focus_kind),
                 "score": composite,
                 "program_progress": None,
-                "recent_score": score,
+                "recent_score": low_score_evidence.get("score") if low_score_evidence else None,
+                "low_score_evidence": low_score_evidence or {},
                 "reasons": reasons[:3],
                 "actions": _recommendation_actions(focus_kind),
             }
@@ -2325,7 +2475,10 @@ def _render_recommendations_tab(
                             recommendation_focus_kind=str(recommendation_payload.get("focus_kind") or "").strip(),
                             resource_kind="lesson",
                             event_weight=0.42,
-                            metadata={"title": str(recommendation_payload.get("title") or "").strip()},
+                            metadata={
+                                "title": str(recommendation_payload.get("title") or "").strip(),
+                                **_low_score_resolution_metadata(recommendation_payload),
+                            },
                         )
                         if str(recommendation_payload.get("recommendation_bucket") or "") in {"next_topic", "pending_gap"}:
                             set_assignment_topic_progress(

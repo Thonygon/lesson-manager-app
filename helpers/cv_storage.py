@@ -776,8 +776,8 @@ def render_cv_library_cards(df: pd.DataFrame, prefix: str, *, allow_archive_togg
                 _btn_col1, _btn_col2 = action_cols[0], action_cols[1]
                 with _btn_col1:
                     if st.button(t("view"), key=f"{prefix}_view_{row_id}_{i}", use_container_width=True):
+                        st.session_state["_resource_viewer_return_page"] = str(st.session_state.get("page") or "resources").strip()
                         st.session_state[f"{prefix}_selected"] = row.to_dict()
-                        st.toast(t("scroll_down_to_view"))
                         st.rerun()
                 with _btn_col2:
                     if allow_archive_toggle:

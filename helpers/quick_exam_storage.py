@@ -515,6 +515,7 @@ def _open_exam_library_record(
     require_signup: bool = False,
     expand_assign: bool = False,
 ) -> None:
+    st.session_state["_resource_viewer_return_page"] = str(st.session_state.get("page") or "resources").strip()
     clear_smart_tool_result_state(clear_selection=True)
     clear_open_resource_previews(except_kind="exam", clear_dialogs=not expand_assign)
     if not expand_assign:
@@ -567,8 +568,7 @@ def _open_exam_library_record(
             st.session_state.pop("_resources_target_nested_tab", None)
         go_to("resources")
     else:
-        st.session_state["explore_teaching_resources_keep_open"] = True
-        st.toast(t("scroll_down_to_view"))
+        go_to("resources")
     st.rerun()
 
 

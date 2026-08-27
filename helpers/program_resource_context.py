@@ -638,8 +638,11 @@ def render_program_topic_picker(
     active_context = get_active_program_topic_context()
     active_program_id = int(active_context.get("program_id") or 0)
     program_key = f"{state_prefix}_program_id"
-    if active_program_id in program_options and st.session_state.get(program_key) != active_program_id:
+    previous_program_key = f"_{state_prefix}_previous_program_id"
+    if program_key not in st.session_state and active_program_id in program_options:
         st.session_state[program_key] = active_program_id
+    if int(st.session_state.get(program_key) or 0) not in program_options and program_options:
+        st.session_state[program_key] = program_options[0]
     selected_program_id = st.selectbox(
         t("program_topic_picker_program"),
         program_options,
@@ -668,6 +671,9 @@ def render_program_topic_picker(
         return {}
 
     topic_key = f"{state_prefix}_topic_token"
+    previous_program_id = int(st.session_state.get(previous_program_key) or 0)
+    if previous_program_id and previous_program_id != int(selected_program_id):
+        st.session_state.pop(topic_key, None)
     active_topic_token = ""
     active_program_matches = int(selected_program_id) > 0 and int(active_context.get("program_id") or 0) == int(selected_program_id)
     if active_program_matches:
@@ -681,14 +687,18 @@ def render_program_topic_picker(
             ):
                 active_topic_token = token
                 break
-    if active_topic_token and st.session_state.get(topic_key) != active_topic_token:
+    topic_tokens = [item[0] for item in topic_records]
+    if topic_key not in st.session_state and active_topic_token:
         st.session_state[topic_key] = active_topic_token
+    if st.session_state.get(topic_key) not in topic_tokens and topic_tokens:
+        st.session_state[topic_key] = topic_tokens[0]
     selected_topic_token = st.selectbox(
         t("program_topic_picker_topic"),
-        [item[0] for item in topic_records],
+        topic_tokens,
         format_func=lambda token: next((label for rec_token, label, _unit, _topic in topic_records if rec_token == token), ""),
         key=topic_key,
     )
+    st.session_state[previous_program_key] = int(selected_program_id)
     selected_match = next((item for item in topic_records if item[0] == selected_topic_token), None)
     if not selected_match:
         return {}

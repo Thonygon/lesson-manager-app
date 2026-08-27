@@ -188,7 +188,14 @@ def _render_table(rows: list[dict[str, Any]]) -> None:
 
 def _render_detail(row: dict[str, Any]) -> None:
     event_id = _text(row.get("event_id"))
-    st.markdown(f"### {short_event_reference(event_id)}")
+    reference = short_event_reference(event_id)
+    st.markdown(f"### {reference}")
+    st.caption(t("operational_diagnostics_copy_reference_caption"))
+    st.text_input(
+        t("operational_diagnostics_copy_reference"),
+        value=reference,
+        key=f"operational_diagnostics_reference_{event_id}",
+    )
     details = [
         (t("operational_diagnostics_detail_first_seen"), _format_timestamp(row.get("first_seen_at"))),
         (t("operational_diagnostics_detail_last_seen"), _format_timestamp(row.get("last_seen_at"))),
@@ -218,6 +225,10 @@ def _render_detail(row: dict[str, Any]) -> None:
         value=_text(row.get("resolution_note")),
         key=f"operational_diagnostics_note_{event_id}",
     )
+    confirmed = st.checkbox(
+        t("operational_diagnostics_confirm_status_change"),
+        key=f"operational_diagnostics_confirm_{event_id}",
+    )
     actions = [
         ("acknowledged", t("operational_diagnostics_action_acknowledge")),
         ("resolved", t("operational_diagnostics_action_resolve")),
@@ -226,7 +237,7 @@ def _render_detail(row: dict[str, Any]) -> None:
     ]
     for column, (status, label) in zip(st.columns(4, gap="small"), actions):
         with column:
-            if st.button(label, key=f"operational_diagnostics_{status}_{event_id}", use_container_width=True):
+            if st.button(label, key=f"operational_diagnostics_{status}_{event_id}", use_container_width=True, disabled=not confirmed):
                 try:
                     ok, message = update_diagnostic_status(event_id, status=status, resolution_note=note)
                 except Exception as exc:

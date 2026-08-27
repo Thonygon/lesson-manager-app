@@ -408,6 +408,157 @@ def _clear_selected_program_preview() -> None:
         st.session_state.pop(key, None)
 
 
+_RESOURCE_VIEWER_SELECTION_KEYS = {
+    "program": [
+        "my_learning_programs_selected_program_id",
+        "archived_learning_programs_selected_program_id",
+        "public_learning_programs_selected_program_id",
+        "home_public_learning_programs_selected_program_id",
+    ],
+    "video": [
+        "files_selected_video",
+        "files_selected_video_id",
+        "files_selected_video_status",
+        "files_selected_video_assign_expanded",
+    ],
+    "plan": [
+        "files_selected_plan",
+        "files_selected_plan_id",
+        "files_selected_plan_status",
+        "files_selected_plan_assign_expanded",
+        "files_selected_subject",
+        "files_selected_stage",
+        "files_selected_level",
+        "files_selected_purpose",
+        "files_selected_topic",
+        "files_selected_source_type",
+        "files_selected_title",
+    ],
+    "worksheet": [
+        "files_selected_worksheet",
+        "files_selected_worksheet_id",
+        "files_selected_worksheet_status",
+        "files_selected_worksheet_assign_expanded",
+        "files_ws_subject",
+        "files_ws_stage",
+        "files_ws_level",
+        "files_ws_type",
+        "files_ws_topic",
+        "files_ws_title",
+    ],
+    "exam": [
+        "files_selected_exam",
+        "files_selected_exam_id",
+        "files_selected_exam_status",
+        "files_selected_exam_answer_key",
+        "files_selected_exam_assign_expanded",
+        "files_exam_subject",
+        "files_exam_stage",
+        "files_exam_level",
+        "files_exam_topic",
+        "files_exam_title",
+    ],
+    "cv": ["files_cv_selected"],
+    "cover_letter": ["files_cl_selected"],
+}
+
+
+def _active_resource_viewer_kind() -> str:
+    checks = [
+        ("program", any(st.session_state.get(key) for key in _RESOURCE_VIEWER_SELECTION_KEYS["program"])),
+        ("video", bool(st.session_state.get("files_selected_video"))),
+        ("plan", bool(st.session_state.get("files_selected_plan"))),
+        ("worksheet", bool(st.session_state.get("files_selected_worksheet"))),
+        ("exam", bool(st.session_state.get("files_selected_exam"))),
+        ("cv", bool(st.session_state.get("files_cv_selected"))),
+        ("cover_letter", bool(st.session_state.get("files_cl_selected"))),
+    ]
+    for kind, active in checks:
+        if active:
+            return kind
+    return ""
+
+
+def _clear_resource_viewer_selection(kind: str) -> None:
+    kind = str(kind or "").strip().lower()
+    for key in _RESOURCE_VIEWER_SELECTION_KEYS.get(kind, []):
+        st.session_state.pop(key, None)
+    st.session_state.pop("_resource_bulk_assign_dialog", None)
+
+
+def _resource_viewer_title(kind: str) -> str:
+    return {
+        "program": t("learning_program_preview"),
+        "video": t("video_preview_title"),
+        "plan": t("plan_preview"),
+        "worksheet": t("worksheet_preview"),
+        "exam": t("exam_preview"),
+        "cv": t("cv"),
+        "cover_letter": t("cover_letter"),
+    }.get(kind, t("files"))
+
+
+def _render_resource_viewer_shell(kind: str) -> bool:
+    kind = str(kind or "").strip().lower()
+    if not kind:
+        return False
+
+    st.markdown(f"## {_resource_viewer_title(kind)}")
+    if st.button(f"← {t('back')}", key=f"resource_viewer_back_{kind}"):
+        return_page = str(st.session_state.get("_resource_viewer_return_page") or "").strip()
+        _clear_resource_viewer_selection(kind)
+        st.session_state.pop("_resource_viewer_return_page", None)
+        if return_page and return_page != "resources":
+            go_to(return_page)
+        st.rerun()
+    st.markdown("<div style='height:0.7rem;'></div>", unsafe_allow_html=True)
+
+    if kind in {"program", "video", "plan", "worksheet", "exam"}:
+        _render_selected_file_resource_detail(kind, scope=f"viewer_{kind}")
+        return True
+
+    if kind == "cv":
+        selected_cv = st.session_state.get("files_cv_selected") or {}
+        cv_data = selected_cv.get("cv_json") or {}
+        if isinstance(cv_data, str):
+            try:
+                cv_data = json.loads(cv_data)
+            except Exception:
+                cv_data = {}
+        if cv_data:
+            render_cv_result(
+                cv=cv_data,
+                read_only=True,
+                source_type=str(selected_cv.get("source_type") or "template"),
+                title=str(selected_cv.get("title") or ""),
+                resource_record_id=selected_cv.get("id"),
+            )
+        else:
+            st.info(t("no_data"))
+        return True
+
+    if kind == "cover_letter":
+        selected_cl = st.session_state.get("files_cl_selected") or {}
+        cl_content = str(selected_cl.get("content") or "")
+        cl_title = str(selected_cl.get("title") or t("cover_letter"))
+        st.text_area(t("cover_letter_content"), value=cl_content, height=300, disabled=True, key="files_cl_viewer")
+        if cl_content:
+            import re as _re
+
+            cl_pdf = build_cover_letter_pdf_bytes(cl_content, cl_title)
+            safe_name = _re.sub(r"[^A-Za-z0-9._-]+", "_", cl_title) or "cover_letter"
+            st.download_button(
+                t("download_pdf"),
+                data=cl_pdf,
+                file_name=f"{safe_name}.pdf",
+                mime="application/pdf",
+                key="files_cl_viewer_download",
+            )
+        return True
+
+    return False
+
+
 def queue_resources_tab_target(main_tab: str, *, nested_tab: str | None = None) -> None:
     st.session_state["_resources_target_main_tab"] = str(main_tab or "").strip()
     if nested_tab:
@@ -522,6 +673,7 @@ def _render_resources_tab_target_script() -> None:
 def _render_selected_file_resource_detail(kind: str, *, scope: str = "files") -> None:
     kind = str(kind or "").strip().lower()
     scope_key = re.sub(r"[^A-Za-z0-9_]+", "_", str(scope or "files")) or "files"
+    viewer_mode = scope_key.startswith("viewer_")
     if kind == "program":
         selected_program_keys_by_scope = {
             "my_programs": [
@@ -558,14 +710,15 @@ def _render_selected_file_resource_detail(kind: str, *, scope: str = "files") ->
                 st.session_state.get("my_learning_programs_selected_program_id")
                 or st.session_state.get("archived_learning_programs_selected_program_id")
             )
-        st.markdown("---")
-        header_cols = st.columns([6, 1])
-        with header_cols[0]:
-            st.markdown(f"### {t('learning_program_preview')}")
-        with header_cols[1]:
-            if st.button(t("close_program"), key=f"close_selected_learning_program_{scope_key}", use_container_width=True):
-                _clear_selected_program_preview()
-                st.rerun()
+        if not viewer_mode:
+            st.markdown("---")
+            header_cols = st.columns([6, 1])
+            with header_cols[0]:
+                st.markdown(f"### {t('learning_program_preview')}")
+            with header_cols[1]:
+                if st.button(t("close_program"), key=f"close_selected_learning_program_{scope_key}", use_container_width=True):
+                    _clear_selected_program_preview()
+                    st.rerun()
         if own_selected_program_id and str(selected_program.get("user_id") or "") == str(get_current_user_id() or ""):
             render_saved_learning_program_workspace(
                 selected_program,
@@ -589,15 +742,16 @@ def _render_selected_file_resource_detail(kind: str, *, scope: str = "files") ->
         if not selected_video:
             return
         selected_video_key = re.sub(r"[^A-Za-z0-9_]+", "_", str((selected_video or {}).get("id") or "video")) or "video"
-        st.markdown("---")
-        detail_l, detail_r = st.columns([6, 1])
-        with detail_l:
-            st.markdown(f"### {t('video_preview_title')}")
-        with detail_r:
-            if st.button(t("close"), key=f"close_selected_video_{scope_key}", use_container_width=True):
-                for key in ["files_selected_video", "files_selected_video_id", "files_selected_video_status", "files_selected_video_assign_expanded"]:
-                    st.session_state.pop(key, None)
-                st.rerun()
+        if not viewer_mode:
+            st.markdown("---")
+            detail_l, detail_r = st.columns([6, 1])
+            with detail_l:
+                st.markdown(f"### {t('video_preview_title')}")
+            with detail_r:
+                if st.button(t("close"), key=f"close_selected_video_{scope_key}", use_container_width=True):
+                    for key in ["files_selected_video", "files_selected_video_id", "files_selected_video_status", "files_selected_video_assign_expanded"]:
+                        st.session_state.pop(key, None)
+                    st.rerun()
         render_video_detail(
             selected_video,
             action_key_prefix=f"selected_video_{scope_key}_{selected_video_key}",
@@ -610,20 +764,21 @@ def _render_selected_file_resource_detail(kind: str, *, scope: str = "files") ->
         selected_plan = st.session_state.get("files_selected_plan")
         if not selected_plan:
             return
-        st.markdown("---")
-        detail_l, detail_r = st.columns([6, 1])
-        with detail_l:
-            st.markdown(f"### {t('plan_preview')}")
-        with detail_r:
-            if st.button(t("close_plan"), key=f"close_selected_plan_{scope_key}", use_container_width=True):
-                for key in [
-                    "files_selected_plan", "files_selected_plan_id", "files_selected_plan_status",
-                    "files_selected_plan_assign_expanded", "files_selected_subject", "files_selected_stage",
-                    "files_selected_level", "files_selected_purpose", "files_selected_topic",
-                    "files_selected_source_type", "files_selected_title",
-                ]:
-                    st.session_state.pop(key, None)
-                st.rerun()
+        if not viewer_mode:
+            st.markdown("---")
+            detail_l, detail_r = st.columns([6, 1])
+            with detail_l:
+                st.markdown(f"### {t('plan_preview')}")
+            with detail_r:
+                if st.button(t("close_plan"), key=f"close_selected_plan_{scope_key}", use_container_width=True):
+                    for key in [
+                        "files_selected_plan", "files_selected_plan_id", "files_selected_plan_status",
+                        "files_selected_plan_assign_expanded", "files_selected_subject", "files_selected_stage",
+                        "files_selected_level", "files_selected_purpose", "files_selected_topic",
+                        "files_selected_source_type", "files_selected_title",
+                    ]:
+                        st.session_state.pop(key, None)
+                    st.rerun()
         st.session_state["quick_lesson_plan_mode_used"] = st.session_state.get("files_selected_source_type", "template")
         st.session_state["quick_lesson_plan_warning"] = None
         render_quick_lesson_plan_result(
@@ -652,19 +807,20 @@ def _render_selected_file_resource_detail(kind: str, *, scope: str = "files") ->
                 selected_ws = {}
         if not selected_ws:
             return
-        st.markdown("---")
-        ws_det_l, ws_det_r = st.columns([6, 1])
-        with ws_det_l:
-            st.markdown(f"### {t('worksheet_preview')}")
-        with ws_det_r:
-            if st.button(t("close_worksheet"), key=f"close_selected_ws_{scope_key}", use_container_width=True):
-                for key in [
-                    "files_selected_worksheet", "files_selected_worksheet_id", "files_selected_worksheet_status",
-                    "files_selected_worksheet_assign_expanded", "files_ws_subject", "files_ws_stage",
-                    "files_ws_level", "files_ws_type", "files_ws_topic", "files_ws_title",
-                ]:
-                    st.session_state.pop(key, None)
-                st.rerun()
+        if not viewer_mode:
+            st.markdown("---")
+            ws_det_l, ws_det_r = st.columns([6, 1])
+            with ws_det_l:
+                st.markdown(f"### {t('worksheet_preview')}")
+            with ws_det_r:
+                if st.button(t("close_worksheet"), key=f"close_selected_ws_{scope_key}", use_container_width=True):
+                    for key in [
+                        "files_selected_worksheet", "files_selected_worksheet_id", "files_selected_worksheet_status",
+                        "files_selected_worksheet_assign_expanded", "files_ws_subject", "files_ws_stage",
+                        "files_ws_level", "files_ws_type", "files_ws_topic", "files_ws_title",
+                    ]:
+                        st.session_state.pop(key, None)
+                    st.rerun()
         render_worksheet_result(
             normalize_worksheet_output(selected_ws),
             read_only=True,
@@ -697,19 +853,20 @@ def _render_selected_file_resource_detail(kind: str, *, scope: str = "files") ->
                 selected_exam_ak = {}
         if not selected_exam:
             return
-        st.markdown("---")
-        exam_det_l, exam_det_r = st.columns([6, 1])
-        with exam_det_l:
-            st.markdown(f"### {t('exam_preview')}")
-        with exam_det_r:
-            if st.button(t("close_exam"), key=f"close_selected_exam_{scope_key}", use_container_width=True):
-                for key in [
-                    "files_selected_exam", "files_selected_exam_id", "files_selected_exam_status",
-                    "files_selected_exam_answer_key", "files_selected_exam_assign_expanded",
-                    "files_exam_subject", "files_exam_stage", "files_exam_level", "files_exam_topic", "files_exam_title",
-                ]:
-                    st.session_state.pop(key, None)
-                st.rerun()
+        if not viewer_mode:
+            st.markdown("---")
+            exam_det_l, exam_det_r = st.columns([6, 1])
+            with exam_det_l:
+                st.markdown(f"### {t('exam_preview')}")
+            with exam_det_r:
+                if st.button(t("close_exam"), key=f"close_selected_exam_{scope_key}", use_container_width=True):
+                    for key in [
+                        "files_selected_exam", "files_selected_exam_id", "files_selected_exam_status",
+                        "files_selected_exam_answer_key", "files_selected_exam_assign_expanded",
+                        "files_exam_subject", "files_exam_stage", "files_exam_level", "files_exam_topic", "files_exam_title",
+                    ]:
+                        st.session_state.pop(key, None)
+                    st.rerun()
         render_exam_result(
             selected_exam,
             selected_exam_ak,
@@ -1589,6 +1746,12 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
 
         with st.container():
             page_header(t("files"))
+
+        active_resource_kind = _active_resource_viewer_kind()
+        if active_resource_kind:
+            _render_resource_viewer_shell(active_resource_kind)
+            _render_home_smart_tool_dialog()
+            return
 
         own_filter_frames = [
             load_my_learning_programs(),

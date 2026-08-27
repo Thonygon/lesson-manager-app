@@ -1,4 +1,5 @@
 import unittest
+import datetime
 import importlib
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -23,6 +24,74 @@ from helpers.resource_gallery import resource_kind_accent
 
 
 class StudentPageScopingTests(unittest.TestCase):
+    def test_lowest_recent_score_ignores_missing_and_old_scores(self):
+        from app_pages import app_page_students as students_page
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+        rows = [
+            {
+                "id": 1,
+                "status": "assigned",
+                "attempt_count": 0,
+                "latest_attempt": {},
+            },
+            {
+                "id": 2,
+                "status": "completed",
+                "attempt_count": 1,
+                "latest_attempt": {
+                    "id": 22,
+                    "assignment_id": 2,
+                    "score_pct": 12,
+                    "created_at": (now - datetime.timedelta(days=45)).isoformat(),
+                },
+            },
+        ]
+
+        signal = students_page._build_recommendation_signal(rows)
+
+        self.assertIsNone(signal["recent_score"])
+        self.assertIsNone(signal["low_score_evidence"])
+
+    def test_lowest_recent_score_uses_lowest_unresolved_attempt_in_last_30_days(self):
+        from app_pages import app_page_students as students_page
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+        rows = [
+            {
+                "id": 10,
+                "title": "Past tense worksheet",
+                "topic": "Past tense",
+                "status": "completed",
+                "attempt_count": 1,
+                "latest_attempt": {
+                    "id": 101,
+                    "assignment_id": 10,
+                    "score_pct": 33,
+                    "created_at": (now - datetime.timedelta(days=2)).isoformat(),
+                },
+            },
+            {
+                "id": 11,
+                "title": "Past tense exam",
+                "topic": "Past tense",
+                "status": "completed",
+                "attempt_count": 1,
+                "latest_attempt": {
+                    "id": 102,
+                    "assignment_id": 11,
+                    "score_pct": 41,
+                    "created_at": (now - datetime.timedelta(days=1)).isoformat(),
+                },
+            },
+        ]
+        resolved = {"assignment_attempt:10:101"}
+
+        signal = students_page._topic_signal_from_rows(rows, resolved)
+
+        self.assertEqual(41, signal["recent_score"])
+        self.assertEqual("assignment_attempt:11:102", signal["low_score_evidence"]["signature"])
+
     def test_learning_program_assignment_panel_assigns_multiple_students(self):
         success_messages: list[str] = []
         error_messages: list[str] = []

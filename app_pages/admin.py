@@ -14,11 +14,16 @@ import plotly.express as px
 import streamlit as st
 
 from app_pages.pricing import render_plan_preview_cards
-from core.database import clear_app_caches, get_sb, load_profile_row, profile_can_access_developer_workspace, upsert_profile_row
+from core.database import get_sb, load_profile_row, profile_can_access_developer_workspace
 from core.i18n import t
 from core.navigation import go_to
 from core.state import get_current_user_id
 from core.timezone import DEFAULT_TZ_NAME, today_local
+from helpers.admin_ui import (
+    render_pagination_controls as _render_pagination_controls,
+    render_section_callout as _render_section_callout,
+    slice_dataframe_page as _slice_admin_users_page,
+)
 from helpers.explorer_moves import (
     EXPLORER_MOVE_STATUS_ARCHIVED,
     EXPLORER_MOVE_STATUS_PENDING,
@@ -46,6 +51,25 @@ from services.authorization_service import (
     CAPABILITY_VIEW_TECHNICAL_ARTIFACTS,
     current_user_can_access_developer_workspace,
     has_capability,
+)
+from services.admin_console_service import (
+    ACCOUNT_STATUS_OPTIONS,
+    ADMIN_OVERRIDE_COLUMNS as _ADMIN_OVERRIDE_COLUMNS,
+    ADMIN_ROLE_OPTIONS,
+    STAFF_ROLE_OPTIONS,
+    SUBSCRIPTION_STATUS_OPTIONS,
+    apply_subscription_action as _apply_subscription_action,
+    clear_admin_console_caches as _clear_admin_page_caches,
+    create_account as _create_account,
+    fetch_auth_user_activity as _fetch_auth_user_activity,
+    fetch_events as _fetch_events,
+    fetch_overrides as _fetch_overrides,
+    fetch_profiles as _fetch_profiles,
+    fetch_recent_app_activity as _fetch_recent_app_activity,
+    fetch_subscriptions as _fetch_subscriptions,
+    log_admin_override as _log_admin_override,
+    upsert_plan as _upsert_plan,
+    update_profile_fields as _update_profile_fields,
 )
 from services import eic_service
 from services.eic_display_service import (
@@ -99,9 +123,6 @@ def _admin_experiment_paradigm_label(value: str, *, lang: str | None = None) -> 
     return labels.get(safe, {}).get(safe_lang, labels.get(safe, {}).get("en", safe.title() or "Unknown"))
 
 
-ADMIN_ROLE_OPTIONS = ["teacher", "student", "school_admin", "admin"]
-SUBSCRIPTION_STATUS_OPTIONS = ["active", "trialing", "past_due", "cancelled", "free"]
-ACCOUNT_STATUS_OPTIONS = ["active", "suspended", "deleted"]
 ADMIN_SECTIONS = [
     ("overview", "grid-1x2-fill", "admin_overview"),
     ("operations", "people-fill", "admin_operations"),
@@ -143,9 +164,6 @@ _SUBSCRIPTION_STATUS_LABEL_KEYS = {
     "cancelled": "admin_subscription_status_value_cancelled",
     "free": "admin_subscription_status_value_free",
 }
-_ADMIN_OVERRIDE_COLUMNS = (
-    "id,user_id,override_type,reason,created_by,expires_at,created_at"
-)
 _OVERRIDE_TYPE_LABEL_KEYS = {
     "account_create": "admin_override_type_account_create",
     "plan_update": "admin_override_type_plan_update",
@@ -487,156 +505,6 @@ def _collect_premium_tool_highlights(features: dict) -> dict[str, bool]:
     }
 
 
-@st.cache_data(ttl=45, show_spinner=False)
-def _fetch_profiles(search: str = "") -> list[dict]:
-    try:
-        q = get_sb().table("profiles").select(
-            "user_id,email,display_name,role,primary_role,current_plan,subscription_status,"
-            "created_at,account_status,admin_notes,login_count,last_active_mode,active_student_count,can_teach,can_study"
-        ).order("created_at", desc=True).limit(500)
-        if search:
-            q = q.or_(f"email.ilike.%{search}%,display_name.ilike.%{search}%")
-        return getattr(q.execute(), "data", None) or []
-    except Exception as exc:
-        st.warning(t("admin_profiles_load_failed", error=str(exc)))
-        return []
-
-
-@st.cache_data(ttl=45, show_spinner=False)
-def _fetch_subscriptions(user_ids: tuple[str, ...] = ()) -> list[dict]:
-    try:
-        query = get_sb().table("user_subscriptions").select(
-            "user_id,plan_id,subscription_status,provider_customer_id,manual_override,updated_at"
-        )
-        safe_user_ids = [str(user_id or "").strip() for user_id in user_ids if str(user_id or "").strip()]
-        if safe_user_ids:
-            query = query.in_("user_id", safe_user_ids)
-        limit = max(500, len(safe_user_ids)) if safe_user_ids else 500
-        return getattr(query.limit(limit).execute(), "data", None) or []
-    except Exception:
-        return []
-
-
-@st.cache_data(ttl=45, show_spinner=False)
-def _fetch_events() -> list[dict]:
-    try:
-        return getattr(
-            get_sb()
-            .table("payment_events")
-            .select("id,provider,event_type,processed,created_at")
-            .order("created_at", desc=True)
-            .limit(100)
-            .execute(),
-            "data",
-            None,
-        ) or []
-    except Exception:
-        return []
-
-
-@st.cache_data(ttl=45, show_spinner=False)
-def _fetch_overrides() -> list[dict]:
-    try:
-        return getattr(
-            get_sb()
-            .table("admin_overrides")
-            .select(_ADMIN_OVERRIDE_COLUMNS)
-            .order("created_at", desc=True)
-            .limit(100)
-            .execute(),
-            "data",
-            None,
-        ) or []
-    except Exception:
-        return []
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def _fetch_auth_user_activity() -> dict[str, dict[str, str]]:
-    activity: dict[str, dict[str, str]] = {}
-    try:
-        page = 1
-        per_page = 500
-        while True:
-            users = get_sb().auth.admin.list_users(page=page, per_page=per_page)
-            if not users:
-                break
-            for user in users:
-                user_id = str(getattr(user, "id", "") or "").strip()
-                if not user_id:
-                    continue
-                activity[user_id] = {
-                    "last_sign_in_at": str(getattr(user, "last_sign_in_at", "") or "").strip(),
-                }
-            if len(users) < per_page:
-                break
-            page += 1
-    except Exception:
-        return {}
-    return activity
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def _fetch_recent_app_activity(user_ids: tuple[str, ...] = ()) -> dict[str, str]:
-    usage: dict[str, str] = {}
-    safe_user_ids = [str(user_id or "").strip() for user_id in user_ids if str(user_id or "").strip()]
-    if not safe_user_ids:
-        return usage
-    uuid_user_ids: list[str] = []
-    for user_id in safe_user_ids:
-        try:
-            uuid_user_ids.append(str(UUID(user_id)))
-        except (TypeError, ValueError, AttributeError):
-            continue
-    if not uuid_user_ids:
-        return usage
-
-    def _remember(user_id: Any, *timestamps: Any) -> None:
-        safe_user_id = str(user_id or "").strip()
-        if not safe_user_id:
-            return
-        usage[safe_user_id] = _latest_timestamp(usage.get(safe_user_id, ""), *timestamps)
-
-    table_specs = [
-        ("user_activity_log", "user_id", ["created_at"]),
-        ("practice_sessions", "user_id", ["completed_at", "created_at"]),
-        ("practice_progress", "user_id", ["last_practiced", "created_at"]),
-        ("teacher_review_requests", "student_id", ["created_at"]),
-    ]
-    for table_name, user_column, timestamp_columns in table_specs:
-        select_columns = ",".join([user_column, *timestamp_columns])
-        try:
-            rows = getattr(
-                get_sb().table(table_name).select(select_columns).in_(user_column, uuid_user_ids).limit(5000).execute(),
-                "data",
-                None,
-            ) or []
-        except Exception:
-            continue
-        for row in rows:
-            _remember(row.get(user_column), *[row.get(column_name) for column_name in timestamp_columns])
-
-    return usage
-
-
-def _clear_admin_page_caches() -> None:
-    clear_app_caches()
-    for cached_fn in (
-        _fetch_profiles,
-        _fetch_subscriptions,
-        _fetch_events,
-        _fetch_overrides,
-        _fetch_auth_user_activity,
-        _fetch_recent_app_activity,
-        list_plan_catalog,
-        list_active_plans,
-    ):
-        try:
-            cached_fn.clear()
-        except Exception:
-            pass
-
-
 def _minimal_rows(table: str, columns: str = "id,created_at", limit: int = 5000) -> list[dict]:
     try:
         return getattr(get_sb().table(table).select(columns).limit(limit).execute(), "data", None) or []
@@ -891,161 +759,6 @@ def _is_paid_user_row(row: dict | pd.Series) -> bool:
     return subscription_status in {"active", "trialing", "past_due"}
 
 
-def _log_admin_override(target_user_id: str, override_type: str, reason: str) -> None:
-    try:
-        get_sb().table("admin_overrides").insert(
-            {
-                "user_id": str(target_user_id or "").strip(),
-                "override_type": str(override_type or "").strip(),
-                "reason": str(reason or "").strip(),
-                "created_by": str(get_current_user_id() or ""),
-            }
-        ).execute()
-    except Exception:
-        pass
-
-
-def _find_auth_user_by_email(email: str) -> str:
-    try:
-        sb = get_sb()
-        page = 1
-        per_page = 500
-        while True:
-            users = sb.auth.admin.list_users(page=page, per_page=per_page)
-            if not users:
-                break
-            for user in users:
-                if str(getattr(user, "email", "") or "").strip().lower() == str(email or "").strip().lower():
-                    return str(user.id)
-            if len(users) < per_page:
-                break
-            page += 1
-    except Exception:
-        pass
-    return ""
-
-
-def _create_account(
-    email: str,
-    display_name: str,
-    role: str,
-    plan_id: str,
-    account_status: str,
-    notes: str,
-    *,
-    can_teach: bool,
-    can_study: bool,
-    active_mode: str,
-    subscription_status: str,
-    staff_role_key: str = "",
-) -> tuple[bool, str]:
-    email = str(email or "").strip().lower()
-    role = str(role or "teacher").strip().lower()
-    if not email:
-        return False, t("admin_error_email_required")
-    if role not in ADMIN_ROLE_OPTIONS:
-        return False, t("admin_error_invalid_role")
-
-    sb = get_sb()
-    user_id = ""
-    try:
-        auth_resp = sb.auth.admin.create_user(
-            {
-                "email": email,
-                "password": secrets.token_urlsafe(24),
-                "email_confirm": True,
-            }
-        )
-        user_id = str(auth_resp.user.id)
-    except Exception:
-        user_id = _find_auth_user_by_email(email)
-
-    if not user_id:
-        return False, t("admin_error_auth_user_missing")
-
-    can_teach = bool(can_teach)
-    can_study = bool(can_study)
-    staff_role_key = str(staff_role_key or "").strip().lower()
-    if staff_role_key not in {"", "developer", "data_scientist"}:
-        staff_role_key = ""
-    primary_role = "teacher" if can_teach else "student"
-    active_mode_options = _active_mode_options(
-        role,
-        can_teach,
-        can_study,
-        developer_workspace_allowed=bool(role == "admin" or staff_role_key in {"developer", "data_scientist"}),
-    )
-    active_mode = str(active_mode or "").strip().lower()
-    if active_mode not in active_mode_options:
-        active_mode = active_mode_options[0]
-    subscription_status = str(subscription_status or "free").strip().lower()
-    if subscription_status not in SUBSCRIPTION_STATUS_OPTIONS:
-        subscription_status = "free"
-    ok = upsert_profile_row(
-        user_id,
-        {
-            "email": email,
-            "display_name": str(display_name or "").strip() or email.split("@")[0],
-            "preferred_ui_language": "en",
-            "timezone": DEFAULT_TZ_NAME,
-            "default_lesson_duration": 45,
-            "role": role,
-            "primary_role": primary_role,
-            "can_teach": can_teach,
-            "can_study": can_study,
-            "last_active_mode": active_mode,
-            "current_plan": str(plan_id or "free"),
-            "subscription_status": subscription_status,
-            "primary_subjects": [],
-            "teaching_stages": [],
-            "teaching_languages": [],
-            "onboarding_completed": False,
-            "login_count": 0,
-            "active_student_count": 0,
-            "account_status": account_status,
-            "admin_notes": notes,
-        },
-    )
-    if not ok:
-        return False, t("admin_error_profile_save_failed")
-
-    if staff_role_key:
-        staff_role_ok, staff_role_msg = assign_staff_role(
-            target_user_id=user_id,
-            role_key=staff_role_key,
-            assignment_reason=t("admin_create_account_staff_access_reason"),
-        )
-        if not staff_role_ok:
-            return False, f"{t('admin_account_created_staff_role_failed_prefix', user_id=user_id)} {staff_role_msg}"
-
-    update_user_plan(user_id, str(plan_id or "free"), status=subscription_status, manual_override=True)
-    _log_admin_override(user_id, "account_create", f"Created account with role={role}, plan={plan_id}. {notes}".strip())
-    _clear_admin_page_caches()
-    return True, user_id
-
-
-def _update_profile_fields(user_id: str, payload: dict, note: str, action_type: str) -> tuple[bool, str]:
-    user_id = str(user_id or "").strip()
-    if not user_id:
-        return False, t("admin_user_id_required")
-    try:
-        get_sb().table("profiles").update(payload).eq("user_id", user_id).execute()
-        _log_admin_override(user_id, action_type, note)
-        _clear_admin_page_caches()
-        return True, t("admin_saved")
-    except Exception as exc:
-        return False, str(exc)
-
-
-def _upsert_plan(payload: dict) -> tuple[bool, str]:
-    try:
-        get_sb().table("plans").upsert(payload, on_conflict="id").execute()
-        _clear_admin_page_caches()
-        return True, t("admin_plan_saved")
-    except Exception as exc:
-        return False, str(exc)
-
-
 def _business_metrics(df: pd.DataFrame) -> dict[str, int]:
     today = today_local()
     last_30 = pd.Timestamp(today - timedelta(days=30))
@@ -1126,6 +839,183 @@ def _safe_ratio(numerator: float, denominator: float) -> float:
     return float(numerator or 0.0) / denominator
 
 
+def _numeric_series(df: pd.DataFrame, column: str) -> pd.Series:
+    if df.empty or column not in df.columns:
+        return pd.Series(0, index=df.index, dtype="Int64")
+    return pd.to_numeric(df[column], errors="coerce").fillna(0).astype("Int64")
+
+
+def _admin_safe_int(value: Any) -> int:
+    try:
+        if value in (None, "", "None"):
+            return 0
+        if pd.isna(value):
+            return 0
+        return int(value)
+    except Exception:
+        return 0
+
+
+def _text_series(df: pd.DataFrame, column: str) -> pd.Series:
+    if df.empty or column not in df.columns:
+        return pd.Series("", index=df.index, dtype=str)
+    return df[column].fillna("").astype(str).str.strip()
+
+
+def _positive_id_mask(df: pd.DataFrame, column: str) -> pd.Series:
+    return _numeric_series(df, column) > 0
+
+
+def _nonempty_text_mask(df: pd.DataFrame, column: str) -> pd.Series:
+    return _text_series(df, column) != ""
+
+
+def _topic_linkage_masks(
+    assignments_df: pd.DataFrame,
+    attempts_df: pd.DataFrame,
+    recommendation_df: pd.DataFrame,
+) -> dict[str, pd.Series]:
+    assignment_eligible = (
+        _positive_id_mask(assignments_df, "learning_program_assignment_id")
+        | _positive_id_mask(assignments_df, "learning_program_topic_id")
+        | _nonempty_text_mask(assignments_df, "recommendation_bucket")
+        | _nonempty_text_mask(assignments_df, "recommendation_focus_kind")
+    )
+    eligible_assignment_ids = set(
+        _numeric_series(assignments_df.loc[assignment_eligible], "id").astype(int).tolist()
+    ) if not assignments_df.empty else set()
+
+    attempt_assignment_ids = _numeric_series(attempts_df, "assignment_id")
+    attempt_eligible = (
+        _positive_id_mask(attempts_df, "learning_program_assignment_id")
+        | _positive_id_mask(attempts_df, "learning_program_topic_id")
+        | _nonempty_text_mask(attempts_df, "recommendation_bucket")
+        | _nonempty_text_mask(attempts_df, "recommendation_focus_kind")
+        | attempt_assignment_ids.isin(eligible_assignment_ids)
+    )
+    eligible_attempt_ids = set(
+        _numeric_series(attempts_df.loc[attempt_eligible], "id").astype(int).tolist()
+    ) if not attempts_df.empty else set()
+
+    event_eligible = (
+        _positive_id_mask(recommendation_df, "learning_program_assignment_id")
+        | _positive_id_mask(recommendation_df, "learning_program_topic_id")
+        | _nonempty_text_mask(recommendation_df, "recommendation_bucket")
+        | _nonempty_text_mask(recommendation_df, "recommendation_focus_kind")
+        | _numeric_series(recommendation_df, "teacher_assignment_id").isin(eligible_assignment_ids)
+        | _numeric_series(recommendation_df, "assignment_attempt_id").isin(eligible_attempt_ids)
+    )
+    return {
+        "assignment_eligible": assignment_eligible,
+        "assignment_linked": assignment_eligible & _positive_id_mask(assignments_df, "learning_program_topic_id"),
+        "attempt_eligible": attempt_eligible,
+        "attempt_linked": attempt_eligible & _positive_id_mask(attempts_df, "learning_program_topic_id"),
+        "event_eligible": event_eligible,
+        "event_linked": event_eligible & _positive_id_mask(recommendation_df, "learning_program_topic_id"),
+    }
+
+
+def _topic_linkage_payload_from_assignment(row: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    assignment_id = _admin_safe_int(row.get("learning_program_assignment_id"))
+    topic_id = _admin_safe_int(row.get("learning_program_topic_id"))
+    bucket = str(row.get("recommendation_bucket") or "").strip()
+    focus_kind = str(row.get("recommendation_focus_kind") or "").strip()
+    if assignment_id > 0:
+        payload["learning_program_assignment_id"] = assignment_id
+    if topic_id > 0:
+        payload["learning_program_topic_id"] = topic_id
+    if bucket:
+        payload["recommendation_bucket"] = bucket
+    if focus_kind:
+        payload["recommendation_focus_kind"] = focus_kind
+    if payload:
+        payload["updated_at"] = datetime.utcnow().isoformat()
+    return payload
+
+
+def _repair_topic_linkage_from_loaded_frames(frames: dict[str, pd.DataFrame], *, limit: int = 80) -> dict[str, int]:
+    try:
+        last_run = st.session_state.get("admin_topic_linkage_repair_last")
+        now = datetime.utcnow()
+        if isinstance(last_run, datetime) and (now - last_run) < timedelta(minutes=20):
+            return {"attempts": 0, "events": 0, "total": 0}
+        st.session_state["admin_topic_linkage_repair_last"] = now
+    except Exception:
+        pass
+
+    assignments_df = frames.get("teacher_assignments", pd.DataFrame())
+    attempts_df = frames.get("teacher_assignment_attempts", pd.DataFrame())
+    recommendation_df = frames.get("learning_program_recommendation_events", pd.DataFrame())
+    if assignments_df.empty:
+        return {"attempts": 0, "events": 0, "total": 0}
+
+    assignment_lookup = {
+        _admin_safe_int(row.get("id")): row
+        for row in assignments_df.to_dict("records")
+        if _admin_safe_int(row.get("id")) > 0 and _admin_safe_int(row.get("learning_program_topic_id")) > 0
+    }
+    repaired_attempts = 0
+    repaired_events = 0
+
+    attempt_lookup: dict[int, dict[str, Any]] = {}
+    if not attempts_df.empty:
+        for row in attempts_df.to_dict("records"):
+            attempt_id = _admin_safe_int(row.get("id"))
+            assignment_id = _admin_safe_int(row.get("assignment_id"))
+            if attempt_id <= 0:
+                continue
+            if _admin_safe_int(row.get("learning_program_topic_id")) <= 0 and assignment_id in assignment_lookup and repaired_attempts < limit:
+                payload = _topic_linkage_payload_from_assignment(assignment_lookup[assignment_id])
+                if payload:
+                    try:
+                        get_sb().table("teacher_assignment_attempts").update(payload).eq("id", attempt_id).execute()
+                        row.update(payload)
+                        row_mask = _numeric_series(attempts_df, "id") == attempt_id
+                        for key, value in payload.items():
+                            if key in attempts_df.columns:
+                                attempts_df.loc[row_mask, key] = value
+                        repaired_attempts += 1
+                    except Exception:
+                        pass
+            if _admin_safe_int(row.get("learning_program_topic_id")) > 0:
+                attempt_lookup[attempt_id] = row
+
+    remaining_limit = max(0, limit - repaired_attempts)
+    if not recommendation_df.empty and remaining_limit > 0:
+        for row in recommendation_df.to_dict("records"):
+            if repaired_events >= remaining_limit or _admin_safe_int(row.get("learning_program_topic_id")) > 0:
+                continue
+            event_id = _admin_safe_int(row.get("id"))
+            if event_id <= 0:
+                continue
+            source = assignment_lookup.get(_admin_safe_int(row.get("teacher_assignment_id"))) or attempt_lookup.get(
+                _admin_safe_int(row.get("assignment_attempt_id"))
+            )
+            if not source:
+                continue
+            payload = _topic_linkage_payload_from_assignment(source)
+            if payload:
+                try:
+                    get_sb().table("learning_program_recommendation_events").update(payload).eq("id", event_id).execute()
+                    row.update(payload)
+                    row_mask = _numeric_series(recommendation_df, "id") == event_id
+                    for key, value in payload.items():
+                        if key in recommendation_df.columns:
+                            recommendation_df.loc[row_mask, key] = value
+                    repaired_events += 1
+                except Exception:
+                    pass
+
+    total = repaired_attempts + repaired_events
+    if total > 0:
+        try:
+            _fetch_admin_dataset_rows.clear()
+        except Exception:
+            pass
+    return {"attempts": repaired_attempts, "events": repaired_events, "total": total}
+
+
 def _pct_text(value: float) -> str:
     safe_value = max(0.0, min(1.0, float(value or 0.0)))
     return f"{int(round(safe_value * 100))}%"
@@ -1165,13 +1055,6 @@ def _readiness_label(score: float) -> str:
     if score >= 0.45:
         return t("admin_ai_readiness_medium")
     return t("admin_ai_readiness_low")
-
-
-def _render_section_callout(title: str, subtitle: str) -> None:
-    st.markdown(
-        f"<div class='admin-section-card'><div class='admin-card-title'>{_html.escape(title)}</div><div class='admin-card-subtitle'>{_html.escape(subtitle)}</div></div>",
-        unsafe_allow_html=True,
-    )
 
 
 def _current_ai_code_signal() -> dict[str, Any]:
@@ -1273,7 +1156,22 @@ def _admin_ai_decision_rows(metrics: dict[str, Any], code_signal: dict[str, Any]
         "ai": "admin_ai_decision_next_ai",
         "progress": "admin_ai_decision_next_progress",
     }.get(weakest, "admin_ai_decision_next_action")
-    rows.append((t("admin_ai_decision_next"), t(next_key)))
+    if weakest == "topic_linkage":
+        rows.append(
+            (
+                t("admin_ai_decision_next"),
+                t(
+                    next_key,
+                    pct=_pct_text(metrics.get("topic_linkage_score") or 0.0),
+                    linked=int(metrics.get("topic_linkage_linked_records") or 0),
+                    eligible=int(metrics.get("topic_linkage_eligible_records") or 0),
+                    missing=int(metrics.get("topic_linkage_missing_records") or 0),
+                    repaired=int(metrics.get("topic_linkage_repaired_records") or 0),
+                ),
+            )
+        )
+    else:
+        rows.append((t("admin_ai_decision_next"), t(next_key)))
     return rows
 
 
@@ -1435,6 +1333,7 @@ def _build_admin_ai_snapshot() -> dict[str, Any]:
     practice_df = frames["practice_sessions"]
     ai_usage_df = frames["ai_usage_logs"]
     activity_df = frames["user_activity_log"]
+    topic_linkage_repair = _repair_topic_linkage_from_loaded_frames(frames)
 
     active_links = int((links_df.get("status", pd.Series(dtype=str)).astype(str) == "active").sum()) if not links_df.empty else 0
     active_subjects = int((subjects_df.get("status", pd.Series(dtype=str)).astype(str) == "active").sum()) if not subjects_df.empty else 0
@@ -1496,18 +1395,20 @@ def _build_admin_ai_snapshot() -> dict[str, Any]:
     feedback_loop_score = _safe_ratio(recommendation_learning, recommendation_actions or recommendation_surface)
     recommendation_acceptance_score = _safe_ratio(recommendation_actions, recommendation_surface)
     recommendation_outcome_score = _safe_ratio(recommendation_learning, recommendation_actions)
-    topic_linked_assignments = int(
-        assignments_df.get("learning_program_topic_id", pd.Series(dtype=float)).notna().sum()
-    ) if not assignments_df.empty else 0
-    topic_linked_attempts = int(
-        attempts_df.get("learning_program_topic_id", pd.Series(dtype=float)).notna().sum()
-    ) if not attempts_df.empty else 0
-    topic_linked_events = int(
-        recommendation_df.get("learning_program_topic_id", pd.Series(dtype=float)).notna().sum()
-    ) if not recommendation_df.empty else 0
-    topic_linkage_score = _safe_ratio(
-        float(topic_linked_assignments + topic_linked_attempts + topic_linked_events),
-        float(len(assignments_df) + len(attempts_df) + len(recommendation_df)),
+    topic_masks = _topic_linkage_masks(assignments_df, attempts_df, recommendation_df)
+    topic_eligible_assignments = int(topic_masks["assignment_eligible"].sum())
+    topic_eligible_attempts = int(topic_masks["attempt_eligible"].sum())
+    topic_eligible_events = int(topic_masks["event_eligible"].sum())
+    topic_linked_assignments = int(topic_masks["assignment_linked"].sum())
+    topic_linked_attempts = int(topic_masks["attempt_linked"].sum())
+    topic_linked_events = int(topic_masks["event_linked"].sum())
+    topic_linkage_eligible_records = topic_eligible_assignments + topic_eligible_attempts + topic_eligible_events
+    topic_linkage_linked_records = topic_linked_assignments + topic_linked_attempts + topic_linked_events
+    topic_linkage_missing_records = max(0, topic_linkage_eligible_records - topic_linkage_linked_records)
+    topic_linkage_score = (
+        _safe_ratio(float(topic_linkage_linked_records), float(topic_linkage_eligible_records))
+        if topic_linkage_eligible_records
+        else 1.0
     )
 
     program_topic_counts = (
@@ -1558,6 +1459,10 @@ def _build_admin_ai_snapshot() -> dict[str, Any]:
             "recommendation_events": int(len(recommendation_df)),
             "program_alignment_score": program_alignment_score,
             "topic_linkage_score": topic_linkage_score,
+            "topic_linkage_eligible_records": topic_linkage_eligible_records,
+            "topic_linkage_linked_records": topic_linkage_linked_records,
+            "topic_linkage_missing_records": topic_linkage_missing_records,
+            "topic_linkage_repaired_records": int((topic_linkage_repair or {}).get("total") or 0),
             "review_closure_score": review_closure_score,
             "ai_success_score": ai_success_score,
             "feedback_loop_score": feedback_loop_score,
@@ -1578,7 +1483,7 @@ def _render_admin_eic() -> None:
     with refresh_col:
         st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
         if st.button(t("admin_ai_refresh_now"), key="admin_ai_refresh_now", use_container_width=True):
-            clear_app_caches()
+            _clear_admin_page_caches()
             st.rerun()
     st.markdown("<div class='admin-kpi-stack-gap'></div>", unsafe_allow_html=True)
     snapshot = _build_admin_ai_snapshot()
@@ -1776,6 +1681,8 @@ def _render_admin_eic() -> None:
 
         st.markdown(f"### {t('admin_eic_legacy_diagnostics_title')}")
         st.caption(t("admin_eic_legacy_diagnostics_caption"))
+        if not has_capability(CAPABILITY_VIEW_TECHNICAL_ARTIFACTS):
+            st.info(t("admin_eic_role_visibility_note"))
         report_state = st.session_state.get("admin_model_reports") or {}
         admin_profile = load_profile_row(str(get_current_user_id() or "").strip())
         report_lang = str((admin_profile or {}).get("preferred_ui_language") or st.session_state.get("ui_lang") or "en").strip().lower()
@@ -1786,6 +1693,12 @@ def _render_admin_eic() -> None:
             expanded = spec["key"] == "student_recommendations"
             with st.expander(t(spec["label_key"]), expanded=expanded):
                 st.caption(t(spec["description_key"]))
+                st.caption(
+                    t(
+                        "admin_model_reports_status_caption",
+                        status=t("admin_model_reports_status_live" if spec.get("status") == "live" else "admin_model_reports_status_planned"),
+                    )
+                )
                 report_dir = Path("reports") / str(spec.get("report_dir") or spec["key"])
                 if spec["key"] == "student_recommendations":
                     student_state = report_state.get("student_recommendations") or {}
@@ -2435,40 +2348,6 @@ def _filter_admin_users(df: pd.DataFrame) -> pd.DataFrame:
     return filtered
 
 
-def _slice_admin_users_page(df: pd.DataFrame, state_key: str, *, page_size: int = _ADMIN_USERS_PAGE_SIZE):
-    if df is None:
-        return df, 1, 1, 0, 0, 0
-    total_items = len(df)
-    total_pages = max(1, math.ceil(total_items / page_size)) if total_items else 1
-    current_page = int(st.session_state.get(state_key, 1) or 1)
-    current_page = max(1, min(current_page, total_pages))
-    st.session_state[state_key] = current_page
-    start_idx = (current_page - 1) * page_size
-    end_idx = min(start_idx + page_size, total_items)
-    page_df = df.iloc[start_idx:end_idx].copy() if total_items else df
-    return page_df, current_page, total_pages, start_idx, end_idx, total_items
-
-
-def _render_admin_users_pagination(df: pd.DataFrame, state_key: str, *, page_size: int = _ADMIN_USERS_PAGE_SIZE) -> None:
-    _, current_page, total_pages, start_idx, end_idx, total_items = _slice_admin_users_page(
-        df,
-        state_key,
-        page_size=page_size,
-    )
-    if total_items <= page_size:
-        return
-
-    prev_col, info_col, next_col = st.columns([1, 3, 1])
-    with prev_col:
-        if st.button("←", key=f"{state_key}_prev", use_container_width=True, disabled=current_page <= 1):
-            st.session_state[state_key] = max(1, current_page - 1)
-            st.rerun()
-    with info_col:
-        st.caption(f"{start_idx + 1}-{end_idx} / {total_items} · {current_page}/{total_pages}")
-    with next_col:
-        if st.button("→", key=f"{state_key}_next", use_container_width=True, disabled=current_page >= total_pages):
-            st.session_state[state_key] = min(total_pages, current_page + 1)
-            st.rerun()
 def _render_users(df: pd.DataFrame) -> None:
     st.markdown(
         f"<div class='admin-section-card'><div class='admin-card-title'>{_html.escape(t('admin_users_directory_title'))}</div><div class='admin-card-subtitle'>{_html.escape(t('admin_users_directory_subtitle'))}</div></div>",
@@ -2481,7 +2360,11 @@ def _render_users(df: pd.DataFrame) -> None:
     plan_lookup = {str(plan.get("id")): plan for plan in list_plan_catalog()}
 
     preview_df = df.sort_values("created_at", ascending=False, na_position="last").copy()
-    preview_df, *_ = _slice_admin_users_page(preview_df, "admin_users_cards_page")
+    preview_df, *_ = _slice_admin_users_page(
+        preview_df,
+        "admin_users_cards_page",
+        page_size=_ADMIN_USERS_PAGE_SIZE,
+    )
     cards_html = ["<div class='admin-user-grid'>"]
     for idx, (_, row) in enumerate(preview_df.iterrows()):
         name = str(row.get("display_name") or row.get("email") or t("admin_user_fallback_name"))
@@ -2499,7 +2382,11 @@ def _render_users(df: pd.DataFrame) -> None:
         )
     cards_html.append("</div>")
     st.markdown("".join(cards_html), unsafe_allow_html=True)
-    _render_admin_users_pagination(df.sort_values("created_at", ascending=False, na_position="last").copy(), "admin_users_cards_page")
+    _render_pagination_controls(
+        df.sort_values("created_at", ascending=False, na_position="last").copy(),
+        "admin_users_cards_page",
+        page_size=_ADMIN_USERS_PAGE_SIZE,
+    )
 
     show_table = st.toggle(t("admin_open_full_row_data_table"), key="admin_users_show_table")
     if show_table:
@@ -2678,155 +2565,6 @@ def _render_users(df: pd.DataFrame) -> None:
                         st.error(msg)
 
 
-def _render_staff_access() -> None:
-    st.markdown(
-        f"<div class='admin-section-card'><div class='admin-card-title'>{_html.escape(t('admin_staff_access_title'))}</div><div class='admin-card-subtitle'>{_html.escape(t('admin_staff_access_subtitle'))}</div></div>",
-        unsafe_allow_html=True,
-    )
-    search_value = st.text_input(t("admin_staff_access_search_users"), key="admin_staff_access_search", placeholder=t("admin_staff_access_search_placeholder"))
-    users = search_profiles_for_staff_access(search_value, limit=40, cache_bust=str(st.session_state.get("admin_staff_access_refresh_nonce") or 0))
-    if not users:
-        st.info(t("admin_staff_access_no_matching_users"))
-        return
-
-    options = [
-        f"{str(row.get('display_name') or row.get('email') or t('admin_staff_access_user_fallback')).strip()} | {str(row.get('email') or '').strip()} | {str(row.get('user_id') or '').strip()}"
-        for row in users
-    ]
-    picked = st.selectbox(t("admin_staff_access_user_label"), options, key="admin_staff_access_user")
-    picked_user_id = picked.rsplit("|", 1)[-1].strip()
-    selected_user = next((row for row in users if str(row.get("user_id") or "").strip() == picked_user_id), {})
-    assignments = list_staff_role_assignments(user_id=picked_user_id, cache_bust=str(st.session_state.get("admin_staff_access_refresh_nonce") or 0))
-    active_assignments = [row for row in assignments if bool(row.get("is_active"))]
-    active_roles = [str(row.get("role_key") or "") for row in active_assignments]
-
-    summary_cols = st.columns(4, gap="small")
-    summary_cards = [
-        (t("admin_staff_access_product_role"), _role_display_label(str(selected_user.get("role") or "teacher"))),
-        (t("admin_staff_access_primary_role"), _role_display_label(str(selected_user.get("primary_role") or str(selected_user.get("role") or "teacher")))),
-        (t("admin_staff_access_active_roles"), ", ".join(active_roles) if active_roles else t("admin_staff_access_none")),
-        (t("admin_staff_access_user_id"), picked_user_id or "n/a"),
-    ]
-    for col, (label, value) in zip(summary_cols, summary_cards):
-        with col:
-            st.markdown(
-                f"""
-                <div class="admin-kpi-card">
-                    <div class="admin-kpi-label">{_html.escape(label)}</div>
-                    <div class="admin-kpi-value" style="font-size:1rem;">{_html.escape(value)}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-    st.caption(t("admin_staff_access_additive_caption"))
-    st.markdown(f"#### {t('admin_staff_access_active_roles_heading')}")
-    if active_assignments:
-        st.dataframe(
-            pd.DataFrame(active_assignments)[["role_key", "assigned_at", "assigned_by", "assignment_reason"]],
-            use_container_width=True,
-            hide_index=True,
-        )
-    else:
-        st.info(t("admin_staff_access_no_active_roles"))
-
-    assign_col, revoke_col = st.columns(2, gap="large")
-    with assign_col:
-        st.markdown(f"##### {t('admin_staff_access_assign_heading')}")
-        with st.form("admin_staff_access_assign_form"):
-            role_key = st.selectbox(t("admin_staff_access_role_label"), ["developer", "data_scientist"], key="admin_staff_access_assign_role")
-            reason = st.text_area(t("admin_staff_access_assignment_reason"), key="admin_staff_access_assign_reason")
-            confirm = st.checkbox(t("admin_staff_access_assign_confirm"), key="admin_staff_access_assign_confirm")
-            submitted = st.form_submit_button(t("admin_staff_access_assign_button"), type="primary")
-            if submitted:
-                if not confirm:
-                    st.error(t("admin_staff_access_assign_confirm_error"))
-                else:
-                    ok, message = assign_staff_role(target_user_id=picked_user_id, role_key=role_key, assignment_reason=reason)
-                    if ok:
-                        st.success(message)
-                        st.session_state["admin_staff_access_refresh_nonce"] = int(st.session_state.get("admin_staff_access_refresh_nonce") or 0) + 1
-                        st.rerun()
-                    else:
-                        st.error(message)
-    with revoke_col:
-        st.markdown(f"##### {t('admin_staff_access_revoke_heading')}")
-        revoke_options = {
-            f"{str(row.get('role_key') or '')} | assigned {str(row.get('assigned_at') or '')}": row
-            for row in active_assignments
-        }
-        with st.form("admin_staff_access_revoke_form"):
-            revoke_label = st.selectbox(t("admin_staff_access_active_assignment_label"), list(revoke_options.keys()) or [t("admin_staff_access_no_active_role_option")], key="admin_staff_access_revoke_role")
-            reason = st.text_area(t("admin_staff_access_revocation_reason"), key="admin_staff_access_revoke_reason")
-            confirm = st.checkbox(t("admin_staff_access_revoke_confirm"), key="admin_staff_access_revoke_confirm")
-            submitted = st.form_submit_button(t("admin_staff_access_revoke_button"), type="secondary", disabled=not bool(revoke_options))
-            if submitted:
-                if not confirm:
-                    st.error(t("admin_staff_access_revoke_confirm_error"))
-                else:
-                    target_row = revoke_options.get(revoke_label) or {}
-                    ok, message = revoke_staff_role(
-                        assignment_id=target_row.get("id"),
-                        target_user_id=picked_user_id,
-                        role_key=str(target_row.get("role_key") or ""),
-                        revoke_reason=reason,
-                    )
-                    if ok:
-                        st.success(message)
-                        st.session_state["admin_staff_access_refresh_nonce"] = int(st.session_state.get("admin_staff_access_refresh_nonce") or 0) + 1
-                        st.rerun()
-                    else:
-                        st.error(message)
-
-    st.markdown(f"#### {t('admin_staff_access_recent_changes_heading')}")
-    changes = recent_staff_role_changes(limit=25)
-    if changes:
-        st.dataframe(
-            pd.DataFrame(changes)[["user_id", "role_key", "is_active", "assigned_at", "assigned_by", "revoked_at", "revoked_by", "assignment_reason"]],
-            use_container_width=True,
-            hide_index=True,
-        )
-    else:
-        st.info(t("admin_staff_access_no_changes"))
-
-
-def _render_admin_validated_experiment_summary() -> None:
-    validated = get_latest_validated_run_summary(cache_bust=str(st.session_state.get("admin_ai_validated_refresh_nonce") or 0))
-    cards = st.columns(4, gap="small")
-    values = [
-        (t("admin_eic_validated_run"), str(validated.get("run_id") or t("admin_eic_empty_no_validated_run"))),
-        (t("admin_eic_run_status"), str(validated.get("run_status") or t("admin_eic_empty_no_validated_run"))),
-        ("Integrity", str(validated.get("integrity_status") or "n/a")),
-        ("Primary Leader", str(validated.get("primary_metric_leader") or "n/a")),
-    ]
-    for col, (label, value) in zip(cards, values):
-        with col:
-            st.markdown(
-                f"""
-                <div class="admin-kpi-card">
-                    <div class="admin-kpi-label">{_html.escape(label)}</div>
-                    <div class="admin-kpi-value" style="font-size:1rem;">{_html.escape(value)}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-    if validated:
-        st.caption(
-            t(
-                "admin_eic_validated_summary_caption",
-                labels=str(int(validated.get("included_row_count") or 0)),
-                positives=str(int(validated.get("positive_label_count") or 0)),
-                negatives=str(int(validated.get("negative_label_count") or 0)),
-            )
-        )
-    else:
-        st.info(t("admin_eic_empty_no_validated_run"))
-    if current_user_can_access_developer_workspace():
-        if st.button(t("admin_eic_open_developer_workspace"), key="admin_open_developer_workspace", use_container_width=False):
-            go_to("developer_workspace")
-            st.rerun()
-
-
 def _admin_clean_text(value: Any) -> str:
     return " ".join(str(value or "").split()).strip()
 
@@ -2949,10 +2687,9 @@ def _render_staff_access() -> None:
     with assign_col:
         st.markdown(f"##### {t('admin_staff_access_assign_heading')}")
         with st.form("admin_staff_access_assign_form"):
-            staff_role_options = ["developer", "data_scientist"]
             role_key = st.selectbox(
                 t("admin_staff_access_role_label"),
-                staff_role_options,
+                STAFF_ROLE_OPTIONS,
                 key="admin_staff_access_assign_role",
                 format_func=get_staff_role_display,
             )
@@ -2968,7 +2705,8 @@ def _render_staff_access() -> None:
                         st.success(message)
                         st.session_state["admin_staff_access_refresh_nonce"] = int(st.session_state.get("admin_staff_access_refresh_nonce") or 0) + 1
                         st.rerun()
-                    st.error(message)
+                    else:
+                        st.error(message)
     with revoke_col:
         st.markdown(f"##### {t('admin_staff_access_revoke_heading')}")
         revoke_options = {
@@ -2999,7 +2737,8 @@ def _render_staff_access() -> None:
                         st.success(message)
                         st.session_state["admin_staff_access_refresh_nonce"] = int(st.session_state.get("admin_staff_access_refresh_nonce") or 0) + 1
                         st.rerun()
-                    st.error(message)
+                    else:
+                        st.error(message)
 
     st.markdown(f"#### {t('admin_staff_access_recent_changes_heading')}")
     changes = recent_staff_role_changes(limit=25)
@@ -3028,7 +2767,7 @@ def _render_admin_validated_experiment_summary() -> None:
     catalog = list_experiment_catalog(cache_bust=cache_bust)
     paradigm_options = ["all", EXPERIMENT_PARADIGM_SUPERVISED, EXPERIMENT_PARADIGM_UNSUPERVISED]
     selected_paradigm = st.selectbox(
-        "Experiment type" if _eic_lang() == "en" else ("Tipo de experimento" if _eic_lang() == "es" else "Deney türü"),
+        t("admin_eic_experiment_type_label"),
         paradigm_options,
         format_func=lambda value: _admin_experiment_paradigm_label(value, lang=_eic_lang()),
         key="admin_eic_experiment_paradigm_filter",
@@ -3045,11 +2784,11 @@ def _render_admin_validated_experiment_summary() -> None:
         rows.append(
             {
                 t("admin_eic_registry_experiment"): experiment_label,
-                "Type" if _eic_lang() == "en" else ("Tipo" if _eic_lang() == "es" else "Tür"): _admin_experiment_paradigm_label(str(item.get("modeling_paradigm") or ""), lang=_eic_lang()),
+                t("admin_eic_experiment_table_type"): _admin_experiment_paradigm_label(str(item.get("modeling_paradigm") or ""), lang=_eic_lang()),
                 t("admin_eic_validated_run"): run_id or t("admin_eic_value_none"),
                 t("admin_eic_run_status"): get_run_status_display(str(validated.get("run_status") or "not_available")),
                 t("admin_eic_integrity_status"): get_integrity_status_display(str(validated.get("integrity_status") or "not_run")),
-                t("admin_eic_primary_leader"): str(validated.get("primary_metric_leader") or "n/a"),
+                t("admin_eic_primary_leader"): str(validated.get("primary_metric_leader") or t("admin_eic_value_none")),
                 t("admin_eic_validated_runs_count"): int(item.get("validated_run_count") or 0),
             }
         )
@@ -3314,7 +3053,7 @@ def _render_admin_ai_intelligence() -> None:
     action_cols = st.columns([0.28, 0.28, 0.44], gap="small")
     with action_cols[0]:
         if st.button(t("admin_eic_refresh"), key="admin_eic_refresh", use_container_width=True):
-            clear_app_caches()
+            _clear_admin_page_caches()
             st.session_state["admin_eic_refresh_nonce"] = refresh_nonce + 1
             st.rerun()
     with action_cols[1]:
@@ -3659,24 +3398,28 @@ def _render_accounts(df: pd.DataFrame) -> None:
         placeholder=t("admin_notes_placeholder"),
         key="admin_create_account_notes",
     )
+    confirm_create = st.checkbox(t("admin_create_account_confirm"))
     if st.button(t("admin_create_account_button"), type="primary", key="admin_create_account_submit", use_container_width=False):
-        ok, msg = _create_account(
-            email,
-            display_name,
-            role,
-            plan_id,
-            account_status,
-            notes,
-            can_teach=can_teach,
-            can_study=can_study,
-            active_mode=active_mode,
-            subscription_status=subscription_status,
-            staff_role_key=staff_role_key,
-        )
-        if ok:
-            st.success(t("admin_account_created_success", user_id=msg))
+        if not confirm_create:
+            st.error(t("admin_create_account_confirm_error"))
         else:
-            st.error(msg)
+            ok, msg = _create_account(
+                email,
+                display_name,
+                role,
+                plan_id,
+                account_status,
+                notes,
+                can_teach=can_teach,
+                can_study=can_study,
+                active_mode=active_mode,
+                subscription_status=subscription_status,
+                staff_role_key=staff_role_key,
+            )
+            if ok:
+                st.success(t("admin_account_created_success", user_id=msg))
+            else:
+                st.error(msg)
 
 
 def _render_roles_and_access(df: pd.DataFrame) -> None:
@@ -3839,36 +3582,40 @@ def _render_pricing_and_plans() -> None:
         word_exports = st.number_input(t("admin_word_exports_limit_label"), min_value=0, value=int(limits.get("word_exports") or 0), step=10)
         students_count = st.number_input(t("admin_students_limit_label"), min_value=0, value=int(limits.get("students_count") or 0), step=5)
         classes_count = st.number_input(t("admin_classes_limit_label"), min_value=0, value=int(limits.get("classes_count") or 0), step=10)
+        confirm_plan_save = st.checkbox(t("admin_plan_save_confirm"))
 
         raw_usd_amount = 0.0 if custom_pricing else (float(price_display) / usd_to_preview if usd_to_preview else float(price_display))
         computed_price_cents = None if custom_pricing else int(round(raw_usd_amount * 100))
         if st.button(t("admin_save_plan_button"), type="primary", use_container_width=True):
-            ok, msg = _upsert_plan(
-                {
-                    "id": plan_id.strip(),
-                    "name": name.strip(),
-                    "price": computed_price_cents,
-                    "billing_interval": billing_interval,
-                    "active": bool(active),
-                    "features_json": {
-                        **updated_feature_flags,
-                        "premium_tool_highlights": [key for key, enabled in updated_premium_highlights.items() if enabled],
-                    },
-                    "limits_json": {
-                        "ai_generations": int(ai_generations),
-                        "pdf_exports": int(pdf_exports),
-                        "word_exports": int(word_exports),
-                        "students_count": int(students_count),
-                        "classes_count": int(classes_count),
-                    },
-                }
-            )
-            if ok:
-                _log_admin_override("", "plan_update", f"Updated plan {plan_id.strip()}")
-                st.success(msg)
-                st.rerun()
+            if not confirm_plan_save:
+                st.error(t("admin_plan_save_confirm_error"))
             else:
-                st.error(msg)
+                ok, msg = _upsert_plan(
+                    {
+                        "id": plan_id.strip(),
+                        "name": name.strip(),
+                        "price": computed_price_cents,
+                        "billing_interval": billing_interval,
+                        "active": bool(active),
+                        "features_json": {
+                            **updated_feature_flags,
+                            "premium_tool_highlights": [key for key, enabled in updated_premium_highlights.items() if enabled],
+                        },
+                        "limits_json": {
+                            "ai_generations": int(ai_generations),
+                            "pdf_exports": int(pdf_exports),
+                            "word_exports": int(word_exports),
+                            "students_count": int(students_count),
+                            "classes_count": int(classes_count),
+                        },
+                    }
+                )
+                if ok:
+                    _log_admin_override("", "plan_update", f"Updated plan {plan_id.strip()}")
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
 
     preview_plan = {
         **selected_plan,
@@ -3945,18 +3692,24 @@ def _render_subscriptions(df: pd.DataFrame, events: list[dict]) -> None:
         plan_id = st.selectbox(t("admin_plan_label"), plan_ids, index=0 if plan_ids else None, format_func=lambda value: _plan_display_label(value, plan_lookup))
         status = st.selectbox(t("admin_status_label"), SUBSCRIPTION_STATUS_OPTIONS, index=0, format_func=_subscription_status_display_label)
         reason = st.text_input(t("admin_reason_note_label"), placeholder=t("admin_reason_note_placeholder"))
+        confirm_assignment = st.checkbox(t("admin_subscription_assign_confirm"))
         submitted = st.form_submit_button(t("admin_assign_plan_grant_access"), type="primary")
         if submitted:
             if not selected_user_id:
                 st.error(t("admin_user_id_required"))
+            elif not confirm_assignment:
+                st.error(t("admin_subscription_assign_confirm_error"))
             else:
-                try:
-                    update_user_plan(selected_user_id, plan_id, status=status, manual_override=True)
-                    _log_admin_override(selected_user_id, "plan_assignment", reason or f"Assigned {plan_id} with status {status}")
-                    _clear_admin_page_caches()
+                ok, msg = _apply_subscription_action(
+                    selected_user_id,
+                    plan_id=plan_id,
+                    status=status,
+                    reason=reason,
+                )
+                if ok:
                     st.success(t("admin_plan_updated"))
-                except Exception as exc:
-                    st.error(str(exc))
+                else:
+                    st.error(msg)
 
     with st.form("admin_user_actions"):
         action_label_map = {
@@ -3970,23 +3723,23 @@ def _render_subscriptions(df: pd.DataFrame, events: list[dict]) -> None:
             format_func=lambda value: action_label_map.get(str(value), str(value)),
         )
         notes = st.text_area(t("admin_notes_label"))
+        confirm_action = st.checkbox(t("admin_subscription_action_confirm"))
         submitted = st.form_submit_button(t("admin_apply_action"))
         if submitted:
             if not selected_user_id:
                 st.error(t("admin_target_user_id_required"))
+            elif not confirm_action:
+                st.error(t("admin_subscription_action_confirm_error"))
             else:
-                try:
-                    if action == "reset_usage":
-                        reset_usage(selected_user_id)
-                    elif action == "suspend_user":
-                        get_sb().table("profiles").update({"account_status": "suspended", "admin_notes": notes}).eq("user_id", selected_user_id).execute()
-                    elif action == "unsuspend_user":
-                        get_sb().table("profiles").update({"account_status": "active", "admin_notes": notes}).eq("user_id", selected_user_id).execute()
-                    _log_admin_override(selected_user_id, action, notes or action)
-                    _clear_admin_page_caches()
+                ok, msg = _apply_subscription_action(
+                    selected_user_id,
+                    action=action,
+                    notes=notes,
+                )
+                if ok:
                     st.success(t("admin_action_applied"))
-                except Exception as exc:
-                    st.error(str(exc))
+                else:
+                    st.error(msg)
 
     st.markdown(f"### {t('admin_recent_payment_events')}")
     if events:
@@ -4290,7 +4043,7 @@ def _render_admin_explorer_moves(user_df: pd.DataFrame) -> None:
     with refresh_col:
         st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
         if st.button(t("admin_explorer_moves_refresh"), key="admin_explorer_moves_refresh", use_container_width=True):
-            clear_app_caches()
+            _clear_admin_page_caches()
             st.rerun()
 
     st.markdown("<div class='admin-kpi-stack-gap'></div>", unsafe_allow_html=True)
@@ -4375,7 +4128,7 @@ def _render_admin_explorer_moves(user_df: pd.DataFrame) -> None:
     assignable_users_df = user_df.copy() if isinstance(user_df, pd.DataFrame) else pd.DataFrame()
 
     page_size_options = [10, 20, 50]
-    page_control_col1, page_control_col2, page_control_col3 = st.columns([0.28, 0.42, 0.30])
+    page_control_col1, page_control_col2 = st.columns([0.28, 0.72])
     with page_control_col1:
         page_size = st.selectbox(
             t("admin_explorer_moves_page_size"),
@@ -4383,31 +4136,19 @@ def _render_admin_explorer_moves(user_df: pd.DataFrame) -> None:
             index=1,
             key="admin_explorer_moves_page_size_select",
         )
-
-    total_items = int(len(filtered))
-    total_pages = max(1, (total_items + int(page_size) - 1) // int(page_size))
-    current_page = int(st.session_state.get("admin_explorer_moves_page", 1) or 1)
-    current_page = max(1, min(current_page, total_pages))
-    st.session_state["admin_explorer_moves_page"] = current_page
-
+    paged_filtered, *_ = _slice_admin_users_page(
+        filtered,
+        "admin_explorer_moves_page",
+        page_size=int(page_size),
+    )
     with page_control_col2:
-        st.caption(t("admin_explorer_moves_page_status", start=((current_page - 1) * int(page_size)) + 1, end=min(current_page * int(page_size), total_items), total=total_items))
-    with page_control_col3:
-        nav_col1, nav_col2, nav_col3 = st.columns([1, 1.2, 1])
-        with nav_col1:
-            if st.button(t("admin_explorer_moves_previous"), key="admin_explorer_moves_prev_page", use_container_width=True, disabled=current_page <= 1):
-                st.session_state["admin_explorer_moves_page"] = current_page - 1
-                st.rerun()
-        with nav_col2:
-            st.caption(t("admin_explorer_moves_page_indicator", current=current_page, total=total_pages))
-        with nav_col3:
-            if st.button(t("admin_explorer_moves_next"), key="admin_explorer_moves_next_page", use_container_width=True, disabled=current_page >= total_pages):
-                st.session_state["admin_explorer_moves_page"] = current_page + 1
-                st.rerun()
-
-    start_idx = (current_page - 1) * int(page_size)
-    end_idx = start_idx + int(page_size)
-    paged_filtered = filtered.iloc[start_idx:end_idx].copy()
+        _render_pagination_controls(
+            filtered,
+            "admin_explorer_moves_page",
+            page_size=int(page_size),
+            previous_label=t("admin_explorer_moves_previous"),
+            next_label=t("admin_explorer_moves_next"),
+        )
 
     selected_move_id = str(st.session_state.get("admin_explorer_move_selected") or "")
     for row in paged_filtered.to_dict("records"):

@@ -1,6 +1,5 @@
 import html as _html
 import json
-import math
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -21,11 +20,11 @@ from helpers.teacher_student_integration import (
     load_student_teacher_links,
     mark_assignment_started,
     persist_assignment_content_snapshot,
-    record_video_assignment_watch,
 )
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student, render_student_program_view
 from helpers.empty_states import render_empty_state
 from helpers.resource_gallery import extract_gallery_image_url, inject_resource_gallery_styles, render_gallery_card_html
+from helpers.student_ui import render_student_pagination, slice_student_page
 from helpers.video_library import load_video_record
 from helpers.worksheet_builder import normalize_worksheet_output
 from helpers.worksheet_storage import load_worksheet_record
@@ -608,35 +607,11 @@ def _safe_ui_label(key: str, fallback: str | None = None) -> str:
 
 
 def _slice_student_page(rows: list[dict], state_key: str, *, page_size: int = _STUDENT_PAGE_SIZE):
-    total_items = len(rows or [])
-    total_pages = max(1, math.ceil(total_items / page_size)) if total_items else 1
-    current_page = int(st.session_state.get(state_key, 1) or 1)
-    current_page = max(1, min(current_page, total_pages))
-    st.session_state[state_key] = current_page
-    start_idx = (current_page - 1) * page_size
-    end_idx = min(start_idx + page_size, total_items)
-    return list((rows or [])[start_idx:end_idx]), current_page, total_pages, start_idx, end_idx, total_items
+    return slice_student_page(rows, state_key, page_size=page_size)
 
 
 def _render_student_pagination(rows: list[dict], state_key: str, *, page_size: int = _STUDENT_PAGE_SIZE) -> None:
-    _, current_page, total_pages, start_idx, end_idx, total_items = _slice_student_page(
-        rows,
-        state_key,
-        page_size=page_size,
-    )
-    if total_items <= page_size:
-        return
-    prev_col, info_col, next_col = st.columns([1, 3, 1])
-    with prev_col:
-        if st.button("←", key=f"{state_key}_prev", use_container_width=True, disabled=current_page <= 1):
-            st.session_state[state_key] = max(1, current_page - 1)
-            st.rerun()
-    with info_col:
-        st.caption(f"{start_idx + 1}-{end_idx} / {total_items} · {current_page}/{total_pages}")
-    with next_col:
-        if st.button("→", key=f"{state_key}_next", use_container_width=True, disabled=current_page >= total_pages):
-            st.session_state[state_key] = min(total_pages, current_page + 1)
-            st.rerun()
+    render_student_pagination(rows, state_key, page_size=page_size)
 
 
 def _inject_assignment_page_styles() -> None:
@@ -905,10 +880,6 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False, sec
                 ),
                 unsafe_allow_html=True,
             )
-            watch_state_key = f"{key_prefix}_video_player_open"
-            watch_url = str(payload.get("watch_url") or payload.get("youtube_url") or "")
-            if watch_url and st.session_state.get(watch_state_key):
-                st.video(watch_url)
             return
 
         if assignment_type not in {"worksheet", "exam"}:
@@ -952,6 +923,7 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False, sec
                 f'<span class="cm-resource-chip">📚 {_html.escape(subject_name_raw)}</span>',
                 f'<span class="cm-resource-chip">🧩 {_html.escape(type_label)}</span>',
                 f'<span class="cm-resource-chip">📌 {_html.escape(action_label)}</span>',
+                f'<span class="cm-resource-chip">💾 {_html.escape(t("practice_draft_saved_chip"))}</span>' if draft else "",
             ]
         )
         meta_html = f'<div class="cm-resource-meta">{" · ".join(meta_bits)}</div>'
@@ -988,22 +960,33 @@ def _assignment_card(row: dict, key_prefix: str, *, grid_mode: bool = False, sec
                 if st.button(action_text, key=f"{key_prefix}_open", use_container_width=True, type="primary"):
                     _open_assignment_practice(row, return_section=section_key)
         elif assignment_type == "video":
-            watch_state_key = f"{key_prefix}_video_player_open"
-            is_video_open = bool(st.session_state.get(watch_state_key))
             if attempts_value > 0:
                 st.markdown(
                     f"<div class='classio-assign-action-done'>{_html.escape(_safe_ui_label('assignment_done', 'Done'))} · {_html.escape(_safe_ui_label('views_label', 'Views'))}: {attempts_value}</div>",
                     unsafe_allow_html=True,
                 )
                 st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
-            video_action = _safe_ui_label("close", "Close") if is_video_open else t("watch_video")
-            if st.button(video_action, key=f"{key_prefix}_video_watch", use_container_width=True, type="primary"):
-                if is_video_open:
-                    st.session_state.pop(watch_state_key, None)
-                else:
-                    st.session_state[watch_state_key] = True
-                    record_video_assignment_watch(int(row.get("id") or 0))
-                    _log_video_assignment_event(row, "student_video_watched")
+            if st.button(t("watch_video"), key=f"{key_prefix}_video_watch", use_container_width=True, type="primary"):
+                from app_pages.student_practice import _open_video_item
+
+                snapshot = row.get("content_snapshot") or {}
+                payload = snapshot.get("video") or {}
+                if not payload and row.get("source_record_id"):
+                    payload = _load_source_video(row.get("source_record_id"))
+                opened = _open_video_item(
+                    {**dict(payload or {}), "id": row.get("source_record_id") or (payload or {}).get("id"), "title": row.get("title") or (payload or {}).get("title") or t("video_label")},
+                    {
+                        "subject": str(row.get("subject_key") or ""),
+                        "topic": str(row.get("topic") or ""),
+                        "learner_stage": str((row.get("content_snapshot") or {}).get("meta", {}).get("learner_stage") or ""),
+                        "level": str((row.get("content_snapshot") or {}).get("meta", {}).get("level_or_band") or ""),
+                    },
+                    assignment_id=int(row.get("id") or 0),
+                    return_page="student_assignments",
+                    return_section=section_key,
+                )
+                if opened:
+                    _log_video_assignment_event(row, "student_video_opened")
                 st.rerun()
         st.markdown("<div style='height:0.7rem;'></div>", unsafe_allow_html=True)
 
