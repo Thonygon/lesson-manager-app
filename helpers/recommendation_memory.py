@@ -34,6 +34,152 @@ def _safe_int(value: Any) -> int:
         return 0
 
 
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except Exception:
+        return 0.0
+
+
+def _safe_dict(value: Any) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _metadata_topic_id(metadata: dict | None) -> int:
+    payload = _safe_dict(metadata)
+    for key in ("learning_program_topic_id", "program_topic_id", "topic_id"):
+        topic_id = _safe_int(payload.get(key))
+        if topic_id > 0:
+            return topic_id
+    return 0
+
+
+def _metadata_program_id(metadata: dict | None) -> int:
+    payload = _safe_dict(metadata)
+    for key in ("program_id", "learning_program_id"):
+        program_id = _safe_int(payload.get(key))
+        if program_id > 0:
+            return program_id
+    return 0
+
+
+def _context_program_id(context: dict | None) -> int:
+    payload = _safe_dict(context)
+    return _metadata_program_id(payload)
+
+
+def _fetch_single_row(table: str, columns: str, row_id: int) -> dict:
+    if row_id <= 0:
+        return {}
+    try:
+        rows = _rows(get_sb().table(table).select(columns).eq("id", row_id).limit(1).execute())
+        return rows[0] if rows else {}
+    except Exception:
+        return {}
+
+
+def _fetch_assignment_context(assignment_id: int) -> dict:
+    row = _fetch_single_row(
+        "teacher_assignments",
+        "id,learning_program_assignment_id,learning_program_topic_id,recommendation_bucket,"
+        "recommendation_focus_kind,recommendation_context",
+        assignment_id,
+    )
+    if row:
+        return row
+    return _fetch_single_row(
+        "teacher_assignments",
+        "id,learning_program_assignment_id,learning_program_topic_id,recommendation_bucket,recommendation_focus_kind",
+        assignment_id,
+    )
+
+
+def _fetch_attempt_context(attempt_id: int) -> dict:
+    return _fetch_single_row(
+        "teacher_assignment_attempts",
+        "id,assignment_id,learning_program_assignment_id,learning_program_topic_id,"
+        "recommendation_bucket,recommendation_focus_kind",
+        attempt_id,
+    )
+
+
+def _resolve_recommendation_event_context(
+    *,
+    learning_program_assignment_id: int,
+    learning_program_topic_id: int,
+    program_id: int,
+    recommendation_bucket: str,
+    recommendation_focus_kind: str,
+    teacher_assignment_id: int,
+    assignment_attempt_id: int,
+    metadata: dict | None,
+) -> dict[str, Any]:
+    resolved = {
+        "learning_program_assignment_id": learning_program_assignment_id,
+        "learning_program_topic_id": learning_program_topic_id,
+        "program_id": program_id,
+        "recommendation_bucket": recommendation_bucket,
+        "recommendation_focus_kind": recommendation_focus_kind,
+    }
+    if resolved["learning_program_topic_id"] <= 0:
+        resolved["learning_program_topic_id"] = _metadata_topic_id(metadata)
+    if resolved["program_id"] <= 0:
+        resolved["program_id"] = _metadata_program_id(metadata)
+
+    attempt_row = {}
+    if assignment_attempt_id > 0 and (
+        resolved["learning_program_topic_id"] <= 0
+        or resolved["learning_program_assignment_id"] <= 0
+        or not resolved["recommendation_bucket"]
+        or not resolved["recommendation_focus_kind"]
+    ):
+        attempt_row = _fetch_attempt_context(assignment_attempt_id)
+        if attempt_row:
+            teacher_assignment_id = teacher_assignment_id or _safe_int(attempt_row.get("assignment_id"))
+            resolved["learning_program_assignment_id"] = (
+                resolved["learning_program_assignment_id"]
+                or _safe_int(attempt_row.get("learning_program_assignment_id"))
+            )
+            resolved["learning_program_topic_id"] = (
+                resolved["learning_program_topic_id"]
+                or _safe_int(attempt_row.get("learning_program_topic_id"))
+            )
+            resolved["recommendation_bucket"] = resolved["recommendation_bucket"] or _clean_text(
+                attempt_row.get("recommendation_bucket")
+            )
+            resolved["recommendation_focus_kind"] = resolved["recommendation_focus_kind"] or _clean_text(
+                attempt_row.get("recommendation_focus_kind")
+            )
+
+    if teacher_assignment_id > 0 and (
+        resolved["learning_program_topic_id"] <= 0
+        or resolved["learning_program_assignment_id"] <= 0
+        or resolved["program_id"] <= 0
+        or not resolved["recommendation_bucket"]
+        or not resolved["recommendation_focus_kind"]
+    ):
+        assignment_row = _fetch_assignment_context(teacher_assignment_id)
+        if assignment_row:
+            resolved["learning_program_assignment_id"] = (
+                resolved["learning_program_assignment_id"]
+                or _safe_int(assignment_row.get("learning_program_assignment_id"))
+            )
+            resolved["learning_program_topic_id"] = (
+                resolved["learning_program_topic_id"]
+                or _safe_int(assignment_row.get("learning_program_topic_id"))
+            )
+            resolved["recommendation_bucket"] = resolved["recommendation_bucket"] or _clean_text(
+                assignment_row.get("recommendation_bucket")
+            )
+            resolved["recommendation_focus_kind"] = resolved["recommendation_focus_kind"] or _clean_text(
+                assignment_row.get("recommendation_focus_kind")
+            )
+            if resolved["program_id"] <= 0:
+                resolved["program_id"] = _context_program_id(assignment_row.get("recommendation_context"))
+
+    return resolved
+
+
 def _history_window_days() -> int:
     raw_value = os.getenv("RECOMMENDATION_HISTORY_DAYS", "180")
     try:
@@ -127,21 +273,32 @@ def record_recommendation_event(
     event_type = _clean_text(event_type)
     if not teacher_id or not student_id or not event_type:
         return
+    normalized_metadata = metadata or {}
+    resolved_context = _resolve_recommendation_event_context(
+        learning_program_assignment_id=_safe_int(learning_program_assignment_id),
+        learning_program_topic_id=_safe_int(learning_program_topic_id),
+        program_id=_safe_int(program_id),
+        recommendation_bucket=_clean_text(recommendation_bucket),
+        recommendation_focus_kind=_clean_text(recommendation_focus_kind),
+        teacher_assignment_id=_safe_int(teacher_assignment_id),
+        assignment_attempt_id=_safe_int(assignment_attempt_id),
+        metadata=normalized_metadata,
+    )
     payload = {
         "teacher_id": teacher_id,
         "student_id": student_id,
-        "learning_program_assignment_id": _safe_int(learning_program_assignment_id) or None,
-        "learning_program_topic_id": _safe_int(learning_program_topic_id) or None,
-        "program_id": _safe_int(program_id) or None,
-        "recommendation_bucket": _clean_text(recommendation_bucket),
-        "recommendation_focus_kind": _clean_text(recommendation_focus_kind),
+        "learning_program_assignment_id": _safe_int(resolved_context["learning_program_assignment_id"]) or None,
+        "learning_program_topic_id": _safe_int(resolved_context["learning_program_topic_id"]) or None,
+        "program_id": _safe_int(resolved_context["program_id"]) or None,
+        "recommendation_bucket": _clean_text(resolved_context["recommendation_bucket"]),
+        "recommendation_focus_kind": _clean_text(resolved_context["recommendation_focus_kind"]),
         "resource_kind": _clean_text(resource_kind),
         "resource_record_id": _safe_int(resource_record_id) or None,
         "teacher_assignment_id": _safe_int(teacher_assignment_id) or None,
         "assignment_attempt_id": _safe_int(assignment_attempt_id) or None,
         "event_type": event_type,
-        "event_weight": float(event_weight or 0.0),
-        "metadata": metadata or {},
+        "event_weight": _safe_float(event_weight),
+        "metadata": normalized_metadata,
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
     }
@@ -173,6 +330,7 @@ def load_recommendation_event_summary(
     cutoff_iso = _history_cutoff_iso()
     row_limit = _event_summary_limit()
     rows: list[dict] = []
+    used_summary_rpc = False
     if _event_summary_rpc_enabled():
         try:
             rpc_result = _execute_query_with_diagnostics(
@@ -190,6 +348,7 @@ def load_recommendation_event_summary(
                 source_name="classio_recommendation_event_summary",
             )
             rows = _rows(rpc_result)
+            used_summary_rpc = bool(rows)
         except Exception:
             rows = []
 
@@ -239,6 +398,7 @@ def load_recommendation_event_summary(
                 "improved_count": 0,
                 "assigned_count": 0,
                 "teacher_marked_done_count": 0,
+                "resolved_low_score_signatures": set(),
                 "resource_kinds": set(),
             },
         )
@@ -254,6 +414,11 @@ def load_recommendation_event_summary(
             item["improved_count"] = _safe_int(row.get("improved_count"))
             item["assigned_count"] = _safe_int(row.get("assigned_count"))
             item["teacher_marked_done_count"] = _safe_int(row.get("teacher_marked_done_count"))
+            item["resolved_low_score_signatures"] = {
+                _clean_text(value)
+                for value in (row.get("resolved_low_score_signatures") or [])
+                if _clean_text(value)
+            }
             item["resource_kinds"] = {
                 _clean_text(value)
                 for value in (row.get("resource_kinds") or [])
@@ -277,9 +442,50 @@ def load_recommendation_event_summary(
             item["assigned_count"] += 1
         if _clean_text(row.get("event_type")) == "teacher_marked_done":
             item["teacher_marked_done_count"] += 1
+            resolved_signature = _clean_text(metadata.get("resolved_low_score_signature"))
+            if resolved_signature:
+                item["resolved_low_score_signatures"].add(resolved_signature)
         resource_kind = _clean_text(row.get("resource_kind"))
         if resource_kind:
             item["resource_kinds"].add(resource_kind)
+
+    if used_summary_rpc:
+        try:
+            query = (
+                get_sb()
+                .table("learning_program_recommendation_events")
+                .select(
+                    "learning_program_assignment_id,learning_program_topic_id,"
+                    "recommendation_bucket,metadata"
+                )
+                .gte("created_at", cutoff_iso)
+                .eq("event_type", "teacher_marked_done")
+                .limit(row_limit)
+            )
+            if assignment_ids:
+                query = query.in_("learning_program_assignment_id", assignment_ids)
+            if teacher_scope:
+                query = query.eq("teacher_id", teacher_scope)
+            if student_scope:
+                query = query.eq("student_id", student_scope)
+            resolved_rows = _rows(
+                _execute_query_with_diagnostics(
+                    query,
+                    function_name="load_recommendation_event_summary_resolved_low_scores",
+                    source_name="learning_program_recommendation_events",
+                )
+            )
+            for row in resolved_rows:
+                signature = (
+                    _safe_int(row.get("learning_program_assignment_id")),
+                    _safe_int(row.get("learning_program_topic_id")),
+                    _clean_text(row.get("recommendation_bucket")),
+                )
+                resolved_signature = _clean_text((row.get("metadata") or {}).get("resolved_low_score_signature"))
+                if resolved_signature and signature in summary:
+                    summary[signature].setdefault("resolved_low_score_signatures", set()).add(resolved_signature)
+        except Exception:
+            pass
 
     return summary
 

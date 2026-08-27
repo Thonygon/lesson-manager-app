@@ -13,8 +13,6 @@ from app_pages.student_assignments import (
     _assignment_scope_groups,
     _inject_assignment_page_styles,
     _program_subject_groups,
-    _render_student_pagination,
-    _slice_student_page,
     render_assigned_learning_programs_section,
 )
 from helpers.lesson_planner import QUICK_SUBJECTS, normalize_subject, subject_label as _subject_label
@@ -32,6 +30,8 @@ from helpers.student_recommendation_ml import log_student_recommendation_impress
 from helpers.teacher_student_integration import get_student_assignment_summary, has_active_teacher_relationships, load_student_assignments
 from helpers.worksheet_storage import load_worksheet_record
 from helpers.empty_states import render_empty_state
+from helpers.student_ui import render_student_pagination as _render_student_pagination
+from helpers.student_ui import slice_student_page as _slice_student_page
 
 
 _SMART_PLAN_NS = "student_smart_plan"

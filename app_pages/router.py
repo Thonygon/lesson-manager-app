@@ -241,7 +241,7 @@ def render_top_nav(active_page: str):
     if current_user_is_admin():
         more_items.append(("admin", t("admin"), "shield-lock"))
     if current_user_can_access_developer_workspace():
-        more_items.append(("developer_workspace", "Developer Workspace", "cpu"))
+        more_items.append(("developer_workspace", t("developer_workspace"), "cpu"))
     more_items.append(("sign_out", t("sign_out"), "box-arrow-right"))
 
     keys   = [k for k, _, _ in primary_items]
@@ -447,7 +447,7 @@ def render_student_top_nav(active_page: str):
     if current_user_is_admin():
         items.insert(-1, ("switch_admin", t("admin"), "shield-lock"))
     if current_user_can_access_developer_workspace():
-        items.insert(-1, ("developer_workspace", "Developer Workspace", "cpu"))
+        items.insert(-1, ("developer_workspace", t("developer_workspace"), "cpu"))
 
     keys   = [k for k, _, _ in items]
     labels = [label for _, label, _ in items]
@@ -544,7 +544,7 @@ def render_admin_top_nav(active_page: str):
         ("sign_out", t("sign_out"), "box-arrow-right"),
     ]
     if current_user_can_access_developer_workspace():
-        items.insert(1, ("developer_workspace", "Developer Workspace", "cpu"))
+        items.insert(1, ("developer_workspace", t("developer_workspace"), "cpu"))
 
     keys = [k for k, _, _ in items]
     labels = [label for _, label, _ in items]
@@ -624,7 +624,7 @@ def _developer_workspace_nav_items(
     is_admin: bool,
 ) -> list[tuple[str, str, str]]:
     items = [
-        ("developer_workspace", "Developer Workspace", "cpu"),
+        ("developer_workspace", t("developer_workspace"), "cpu"),
         ("operational_diagnostics", diagnostics_label, "activity"),
     ]
     if can_teach:

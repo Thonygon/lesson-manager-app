@@ -1718,7 +1718,7 @@ def _render_single_question(
         )
         st.markdown(f"**{q_idx + 1}. {_strip_leading_number(stem)}**")
         choice = st.radio(
-            "select",
+            t("practice_select_answer_label"),
             options=options,
             index=None,
             key=q_key,
@@ -1732,7 +1732,7 @@ def _render_single_question(
     elif ex_type == "true_false":
         st.markdown(f"**{q_idx + 1}. {prompt_text}**")
         choice = st.radio(
-            "select",
+            t("practice_select_answer_label"),
             options=["true", "false"],
             index=None,
             format_func=lambda x: t("quick_exam_true_label") if x == "true" else t("quick_exam_false_label"),
@@ -1753,7 +1753,7 @@ def _render_single_question(
         )
         st.markdown(f"**{q_idx + 1}. {_sentence_case_fragment(prompt_text)}**")
         choice = st.selectbox(
-            "match",
+            t("practice_match_answer_label"),
             options=[""] + shuffled_options,
             format_func=_display_choice_text,
             key=q_key,
@@ -1768,7 +1768,7 @@ def _render_single_question(
         options = _review_choice_options(list(question.get("options") or []), q_key, is_submitted)
         st.markdown(f"**{q_idx + 1}. {prompt_text}**")
         choice = st.selectbox(
-            "vocabulary",
+            t("practice_vocabulary_answer_label"),
             options=[""] + options,
             format_func=lambda opt, option_list=options: (
                 ""
@@ -1789,7 +1789,7 @@ def _render_single_question(
     elif _is_long_response_type(ex_type):
         st.markdown(f"**{q_idx + 1}. {prompt_text}**")
         return st.text_area(
-            "answer",
+            t("practice_answer_label"),
             key=q_key,
             height=120 if ex_type in ("writing_prompt", "show_your_work", "problem_solving") else 80,
             label_visibility="collapsed",
@@ -1802,7 +1802,7 @@ def _render_single_question(
         st.markdown(f"**{q_idx + 1}. {t('correct_the_sentence_one_error')}:**")
         st.caption(f"✏️ *{prompt_text}*")
         return st.text_input(
-            "corrected",
+            t("practice_corrected_answer_label"),
             key=q_key,
             placeholder=prompt_text,
             label_visibility="collapsed",
@@ -1814,7 +1814,7 @@ def _render_single_question(
     elif _is_short_text_type(ex_type):
         st.markdown(f"**{q_idx + 1}. {prompt_text}**")
         return st.text_input(
-            "answer",
+            t("practice_answer_label"),
             key=q_key,
             label_visibility="collapsed",
             disabled=is_submitted,
@@ -1826,7 +1826,7 @@ def _render_single_question(
         display = re.sub(r"_+", "______", prompt_text)
         st.markdown(f"**{q_idx + 1}. {display}**")
         return st.text_input(
-            "answer",
+            t("practice_answer_label"),
             key=q_key,
             label_visibility="collapsed",
             disabled=is_submitted,

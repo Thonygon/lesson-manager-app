@@ -75,13 +75,43 @@ from services.ml_experiment_service import (
 logger = logging.getLogger(__name__)
 
 
-def _local_text(en: str, es: str, tr: str) -> str:
-    lang = str(st.session_state.get("ui_lang") or "en")
-    if lang == "es":
-        return es
-    if lang == "tr":
-        return tr
-    return en
+def _safe_key(value: object) -> str:
+    return "".join(ch if ch.isalnum() else "_" for ch in str(value or "").strip())[:96] or "item"
+
+
+def _format_run_option(run_id: str, runs: list[dict]) -> str:
+    row = next((item for item in runs if str(item.get("run_id") or "") == str(run_id or "")), {})
+    status = get_run_status_display(str(row.get("run_status") or ""))
+    created = str(row.get("created_at") or "")[:19]
+    return f"{run_id} · {status}" + (f" · {created}" if created else "")
+
+
+def _confirm_action(key: str, label_key: str = "developer_workspace_confirm_action") -> bool:
+    return bool(st.checkbox(t(label_key), key=f"{key}_confirm"))
+
+
+def _render_empty_state(title_key: str, body_key: str, action_key: str = "") -> None:
+    action = t(action_key) if action_key else ""
+    action_html = f"<div class='dev-empty-action'>{_html.escape(action)}</div>" if action else ""
+    st.markdown(
+        f"""
+        <div class="dev-empty-state">
+            <div class="dev-empty-title">{_html.escape(t(title_key))}</div>
+            <div class="dev-empty-body">{_html.escape(t(body_key))}</div>
+            {action_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _role_guidance_text(context) -> str:
+    staff_roles = {str(role or "").strip().lower() for role in getattr(context, "staff_roles", [])}
+    if "developer" in staff_roles:
+        return t("developer_workspace_role_guidance_developer")
+    if "data_scientist" in staff_roles:
+        return t("developer_workspace_role_guidance_data_scientist")
+    return t("developer_workspace_role_guidance_default")
 
 
 def _render_workspace_section_error(section_name: str, exc: Exception) -> None:
@@ -141,7 +171,7 @@ def _filtered_experiment_catalog(catalog: list[dict], *, state_key: str) -> list
         return []
     options = ["all", EXPERIMENT_PARADIGM_SUPERVISED, EXPERIMENT_PARADIGM_UNSUPERVISED]
     selected = st.selectbox(
-        "Experiment type" if str(st.session_state.get("ui_lang") or "en") == "en" else ("Tipo de experimento" if str(st.session_state.get("ui_lang") or "en") == "es" else "Deney türü"),
+        t("developer_workspace_experiment_type_label"),
         options,
         index=options.index(str(st.session_state.get(state_key) or "all")) if str(st.session_state.get(state_key) or "all") in options else 0,
         format_func=_experiment_paradigm_label,
@@ -348,6 +378,26 @@ def _card(label: str, value: str, help_text: str = "") -> str:
     )
 
 
+def _render_ml_workflow_guide(*, launcher_ready: bool, eligible: bool, has_runs: bool, has_validated: bool) -> None:
+    states = [
+        (t("developer_workspace_workflow_step_readiness"), t("developer_workspace_workflow_readiness_ready" if launcher_ready else "developer_workspace_workflow_readiness_blocked")),
+        (t("developer_workspace_workflow_step_eligibility"), t("developer_workspace_workflow_eligibility_ready" if eligible else "developer_workspace_workflow_eligibility_blocked")),
+        (t("developer_workspace_workflow_step_launch"), t("developer_workspace_workflow_launch_ready" if has_runs else "developer_workspace_workflow_launch_empty")),
+        (t("developer_workspace_workflow_step_validate"), t("developer_workspace_workflow_validate_ready" if has_validated else "developer_workspace_workflow_validate_empty")),
+        (t("developer_workspace_workflow_step_report"), t("developer_workspace_workflow_report_ready" if has_validated else "developer_workspace_workflow_report_empty")),
+    ]
+    items = []
+    for index, (title, body) in enumerate(states, start=1):
+        items.append(
+            "<div class='dev-step'>"
+            f"<div class='dev-step-number'>{_html.escape(t('developer_workspace_workflow_step', number=index))}</div>"
+            f"<div class='dev-step-title'>{_html.escape(title)}</div>"
+            f"<div class='dev-step-body'>{_html.escape(body)}</div>"
+            "</div>"
+        )
+    st.markdown(f"<div class='dev-workflow'>{''.join(items)}</div>", unsafe_allow_html=True)
+
+
 def _render_clickable_readiness_card(
     label: str,
     value: str,
@@ -426,6 +476,25 @@ def _inject_styles() -> None:
         .dev-card-label{font-size:.78rem;font-weight:900;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
         .dev-card-value{margin-top:8px;font-size:1.15rem;font-weight:900;color:var(--text);}
         .dev-card-help{margin-top:6px;font-size:.82rem;color:var(--muted);line-height:1.45;}
+        .dev-workflow{
+            display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:4px 0 16px;
+        }
+        .dev-step{
+            border:1px solid var(--border);border-radius:16px;padding:12px 14px;
+            background:linear-gradient(180deg, color-mix(in srgb, var(--panel) 96%, white 4%), color-mix(in srgb, var(--panel-soft) 92%, var(--primary) 8%));
+            min-height:86px;
+        }
+        .dev-step-number{font-size:.72rem;font-weight:950;color:var(--primary);text-transform:uppercase;letter-spacing:.05em;}
+        .dev-step-title{margin-top:5px;font-weight:950;color:var(--text);}
+        .dev-step-body{margin-top:4px;color:var(--muted);font-size:.8rem;line-height:1.35;}
+        .dev-empty-state{
+            border:1px dashed color-mix(in srgb, var(--border) 74%, var(--primary) 26%);
+            border-radius:20px;padding:18px 20px;margin:12px 0;
+            background:color-mix(in srgb, var(--panel-soft) 86%, transparent 14%);
+        }
+        .dev-empty-title{font-size:1rem;font-weight:950;color:var(--text);}
+        .dev-empty-body{margin-top:5px;color:var(--muted);line-height:1.45;}
+        .dev-empty-action{margin-top:10px;font-size:.86rem;font-weight:850;color:var(--primary);}
         .dev-expander-gap{margin-top:14px;}
         .stDownloadButton button, .stButton button {
             text-align:left !important;
@@ -584,6 +653,38 @@ def _present_developer_table(rows: list[dict]) -> pd.DataFrame:
     return frame.rename(columns={column_name: _developer_table_column_label(column_name) for column_name in frame.columns})
 
 
+def _row_matches_search(row: dict, search: str, columns: tuple[str, ...]) -> bool:
+    safe_search = " ".join(str(search or "").split()).strip().lower()
+    if not safe_search:
+        return True
+    haystack = " ".join(str(row.get(column) or "") for column in columns).lower()
+    return safe_search in haystack
+
+
+def _render_paginated_table(rows: list[dict], *, key_prefix: str, page_size: int = 25) -> None:
+    total_pages = max(1, (len(rows) + page_size - 1) // page_size)
+    page_key = f"{key_prefix}_page"
+    selected_page = max(1, min(int(st.session_state.get(page_key) or 1), total_pages))
+    st.session_state[page_key] = selected_page
+    start = (selected_page - 1) * page_size
+    visible_rows = rows[start : start + page_size]
+    if len(rows) > page_size:
+        prev_col, info_col, next_col = st.columns([1, 3, 1])
+        with prev_col:
+            if st.button("←", key=f"{key_prefix}_prev", use_container_width=True, disabled=selected_page <= 1):
+                st.session_state[page_key] = max(1, selected_page - 1)
+                st.rerun()
+        with info_col:
+            st.caption(f"{start + 1}-{min(start + page_size, len(rows))} / {len(rows)} · {selected_page}/{total_pages}")
+        with next_col:
+            if st.button("→", key=f"{key_prefix}_next", use_container_width=True, disabled=selected_page >= total_pages):
+                st.session_state[page_key] = min(total_pages, selected_page + 1)
+                st.rerun()
+    elif rows:
+        st.caption(f"{start + 1}-{min(start + page_size, len(rows))} / {len(rows)} · {selected_page}/{total_pages}")
+    st.dataframe(_present_developer_table(visible_rows), use_container_width=True, hide_index=True)
+
+
 def _selected_experiment(catalog: list[dict], *, state_key: str) -> dict:
     if not catalog:
         return {}
@@ -731,15 +832,26 @@ def _render_ml_lab() -> None:
         for warning in eligibility.get("warnings") or []:
             st.warning(_translate_lab_issue(_translate_workspace_warning(str(warning))))
 
+    env = get_environment_readiness()
+    launcher_ready = bool(((env.get("experiment_launcher") or {}).get("ready")))
+    runs = list_experiment_runs(experiment_id=selected_experiment_id, limit=25, cache_bust=str(st.session_state.get("developer_workspace_refresh_nonce") or 0))
+    has_validated = any(str(row.get("run_status") or "").upper().startswith("VALIDATED") for row in runs)
+    _render_ml_workflow_guide(
+        launcher_ready=launcher_ready,
+        eligible=bool(eligibility.get("eligible")),
+        has_runs=bool(runs),
+        has_validated=has_validated,
+    )
+
     st.caption(
         t("developer_workspace_lab_approved_models")
     )
-    env = get_environment_readiness()
-    launcher_ready = bool(((env.get("experiment_launcher") or {}).get("ready")))
     action_cols = st.columns([1.1, 1, 1.2], gap="medium")
     with action_cols[0]:
         if has_capability(CAPABILITY_RUN_APPROVED_EXPERIMENTS):
-            if st.button(t("developer_workspace_lab_launch_evaluation"), key="launch_approved_eval", use_container_width=True, disabled=not launcher_ready or not bool(selected_experiment.get("launch_supported"))):
+            launch_confirmed = _confirm_action(f"launch_approved_eval_{_safe_key(selected_experiment_id)}")
+            launch_disabled = not launcher_ready or not bool(selected_experiment.get("launch_supported")) or not launch_confirmed
+            if st.button(t("developer_workspace_lab_launch_evaluation"), key="launch_approved_eval", use_container_width=True, disabled=launch_disabled):
                 ok, payload, message = launch_experiment(selected_experiment_id)
                 if ok:
                     st.success(message)
@@ -752,16 +864,20 @@ def _render_ml_lab() -> None:
                 st.caption(t("developer_workspace_lab_launch_disabled"))
             elif not bool(selected_experiment.get("launch_supported")):
                 st.caption(t("developer_workspace_lab_launch_unwired"))
+            elif not launch_confirmed:
+                st.caption(t("developer_workspace_confirm_before_launch"))
     with action_cols[1]:
         if st.button(t("developer_workspace_lab_refresh_runs"), key="refresh_runs", use_container_width=True):
             st.session_state["developer_workspace_refresh_nonce"] = int(st.session_state.get("developer_workspace_refresh_nonce") or 0) + 1
             st.rerun()
     with action_cols[2]:
-        if st.button(t("developer_workspace_lab_mark_stale_jobs"), key="mark_stale_jobs", use_container_width=True):
+        stale_confirmed = _confirm_action("mark_stale_jobs")
+        if st.button(t("developer_workspace_lab_mark_stale_jobs"), key="mark_stale_jobs", use_container_width=True, disabled=not stale_confirmed):
             count = mark_stale_experiment_jobs()
             st.info(t("developer_workspace_lab_marked_stale_jobs", count=count))
+        if not stale_confirmed:
+            st.caption(t("developer_workspace_confirm_before_stale_jobs"))
 
-    runs = list_experiment_runs(experiment_id=selected_experiment_id, limit=25, cache_bust=str(st.session_state.get("developer_workspace_refresh_nonce") or 0))
     if runs:
         st.markdown(f"#### {t('developer_workspace_lab_run_registry')}")
         run_df = pd.DataFrame(runs)
@@ -833,9 +949,28 @@ def _render_ml_lab() -> None:
             if model_rows:
                 st.markdown(f"##### {t('developer_workspace_model_results_title')}")
                 st.dataframe(_present_developer_table(model_rows), use_container_width=True, hide_index=True)
-            compare_rows = runs[:2]
-            if has_capability(CAPABILITY_COMPARE_EXPERIMENT_RUNS) and len(compare_rows) >= 2:
+            if has_capability(CAPABILITY_COMPARE_EXPERIMENT_RUNS) and len(runs) >= 2:
                 st.markdown(f"##### {t('developer_workspace_run_comparison_title')}")
+                compare_columns = st.columns(2, gap="small")
+                run_ids = [str(row.get("run_id") or "") for row in runs if str(row.get("run_id") or "").strip()]
+                with compare_columns[0]:
+                    left_run_id = st.selectbox(
+                        t("developer_workspace_compare_left_run"),
+                        run_ids,
+                        index=0,
+                        format_func=lambda value: _format_run_option(value, runs),
+                        key=f"developer_workspace_compare_left_{_safe_key(selected_experiment_id)}",
+                    )
+                default_right_index = 1 if len(run_ids) > 1 else 0
+                with compare_columns[1]:
+                    right_run_id = st.selectbox(
+                        t("developer_workspace_compare_right_run"),
+                        run_ids,
+                        index=default_right_index,
+                        format_func=lambda value: _format_run_option(value, runs),
+                        key=f"developer_workspace_compare_right_{_safe_key(selected_experiment_id)}",
+                    )
+                compare_rows = [row for row in runs if str(row.get("run_id") or "") in {left_run_id, right_run_id}]
                 comparison_df = pd.DataFrame(compare_rows)[
                     [col for col in ["run_id", "run_status", "integrity_status", "included_row_count", "positive_label_count", "negative_label_count", "primary_metric_leader"] if col in pd.DataFrame(compare_rows).columns]
                 ].copy()
@@ -858,7 +993,8 @@ def _render_ml_lab() -> None:
             if has_capability(CAPABILITY_RERUN_INTEGRITY_REVIEW):
                 allowed, explanation = can_manually_rerun_integrity(selected_run_id)
                 if allowed:
-                    if st.button(t("developer_workspace_lab_rerun_integrity"), key=f"rerun_integrity_{selected_run_id}", use_container_width=False):
+                    rerun_confirmed = _confirm_action(f"rerun_integrity_{_safe_key(selected_run_id)}")
+                    if st.button(t("developer_workspace_lab_rerun_integrity"), key=f"rerun_integrity_{selected_run_id}", use_container_width=False, disabled=not rerun_confirmed):
                         ok, _payload, message = rerun_integrity_review_for_run(selected_run_id)
                         if ok:
                             st.session_state["developer_workspace_refresh_nonce"] = int(st.session_state.get("developer_workspace_refresh_nonce") or 0) + 1
@@ -866,11 +1002,17 @@ def _render_ml_lab() -> None:
                             st.rerun()
                         else:
                             st.error(message)
+                    if not rerun_confirmed:
+                        st.caption(t("developer_workspace_confirm_before_integrity"))
                     st.caption(explanation)
                 else:
                     st.caption(explanation)
     else:
-        st.info(t("developer_workspace_lab_no_runs"))
+        _render_empty_state(
+            "developer_workspace_lab_empty_title",
+            "developer_workspace_lab_empty_body",
+            "developer_workspace_lab_empty_action",
+        )
 
 
 def _render_experiment_evidence() -> None:
@@ -902,7 +1044,11 @@ def _render_experiment_evidence() -> None:
             with col:
                 st.markdown(_card(label, value), unsafe_allow_html=True)
     else:
-        st.info(t("developer_workspace_evidence_none"))
+        _render_empty_state(
+            "developer_workspace_evidence_empty_title",
+            "developer_workspace_evidence_empty_body",
+            "developer_workspace_evidence_empty_action",
+        )
 
     evidence_tab, registry_tab, reports_tab = st.tabs(
         [t("developer_workspace_evidence_tab_summary"), t("developer_workspace_evidence_tab_registry"), t("developer_workspace_evidence_tab_reports")]
@@ -911,7 +1057,11 @@ def _render_experiment_evidence() -> None:
     with evidence_tab:
         try:
             if not latest_validated:
-                st.info(t("developer_workspace_evidence_requires_validated_run"))
+                _render_empty_state(
+                    "developer_workspace_evidence_requires_title",
+                    "developer_workspace_evidence_requires_body",
+                    "developer_workspace_evidence_requires_action",
+                )
             else:
                 run_id = str(latest_validated.get("run_id") or "")
                 summary_rows = [
@@ -938,9 +1088,9 @@ def _render_experiment_evidence() -> None:
                     runtime_run = str(current_validated.get("run_id") or "—")
                     review_model = str((business_detail.get("model_results") or {}).get("human_review_recommended_model_name") or "—")
                     comparison_rows = [
-                        (_local_text("Automatic winner", "Ganador automático", "Otomatik kazanan"), str((business_detail.get("model_results") or {}).get("automatic_winner") or "—")),
-                        (_local_text("Human-reviewed recommendation", "Recomendación revisada por humano", "İnsan incelemesi önerisi"), review_model),
-                        (_local_text("Active runtime model", "Modelo activo en runtime", "Aktif çalışma zamanı modeli"), f"{runtime_model} ({runtime_run})" if runtime_run != "—" else runtime_model),
+                        (t("developer_workspace_review_automatic_winner"), str((business_detail.get("model_results") or {}).get("automatic_winner") or "—")),
+                        (t("developer_workspace_review_human_recommendation"), review_model),
+                        (t("developer_workspace_review_active_runtime_model"), f"{runtime_model} ({runtime_run})" if runtime_run != "—" else runtime_model),
                     ]
                     st.dataframe(
                         pd.DataFrame(comparison_rows, columns=[t("admin_field_label"), t("admin_value_label")]),
@@ -972,7 +1122,11 @@ def _render_experiment_evidence() -> None:
                 )
                 st.dataframe(registry_df, use_container_width=True, hide_index=True)
             else:
-                st.info(t("developer_workspace_evidence_no_validated_runs"))
+                _render_empty_state(
+                    "developer_workspace_evidence_no_validated_title",
+                    "developer_workspace_evidence_no_validated_body",
+                    "developer_workspace_evidence_no_validated_action",
+                )
 
             runs = list_experiment_runs(experiment_id=selected_experiment_id, limit=25, cache_bust=cache_bust)
             if runs:
@@ -1003,10 +1157,10 @@ def _render_experiment_evidence() -> None:
                         automatic_winner = str(selected_run.get("overall_model_selection") or selected_run.get("primary_metric_leader") or "—")
                         reviewed_model = str(selected_run.get("human_review_recommended_model_name") or "")
                         summary_rows = [
-                            (_local_text("Automatic winner", "Ganador automático", "Otomatik kazanan"), automatic_winner),
-                            (_local_text("Human-reviewed recommendation", "Recomendación revisada por humano", "İnsan incelemesi önerisi"), reviewed_model or "—"),
+                            (t("developer_workspace_review_automatic_winner"), automatic_winner),
+                            (t("developer_workspace_review_human_recommendation"), reviewed_model or "—"),
                             (
-                                _local_text("Active runtime model", "Modelo activo en runtime", "Aktif çalışma zamanı modeli"),
+                                t("developer_workspace_review_active_runtime_model"),
                                 f"{current_runtime_model or '—'} ({current_runtime_run_id})" if current_runtime_run_id else (current_runtime_model or "—"),
                             ),
                         ]
@@ -1017,26 +1171,28 @@ def _render_experiment_evidence() -> None:
                         )
                         if model_names:
                             default_index = model_names.index(reviewed_model) if reviewed_model in model_names else (model_names.index(automatic_winner) if automatic_winner in model_names else 0)
-                            st.markdown(f"##### {_local_text('Human review controls', 'Controles de revisión humana', 'İnsan inceleme kontrolleri')}")
+                            st.markdown(f"##### {t('developer_workspace_review_controls')}")
                             selected_model_name = st.selectbox(
-                                _local_text("Recommended model", "Modelo recomendado", "Önerilen model"),
+                                t("developer_workspace_review_recommended_model"),
                                 model_names,
                                 index=default_index,
                                 key=f"developer_workspace_resource_affinity_review_model_{selected_run_id}",
                             )
                             notes_key = f"developer_workspace_resource_affinity_review_notes_{selected_run_id}"
                             st.text_area(
-                                _local_text("Review notes", "Notas de revisión", "İnceleme notları"),
+                                t("developer_workspace_review_notes"),
                                 value=str(selected_run.get("human_review_notes") or ""),
                                 key=notes_key,
                                 height=100,
                             )
                             action_cols = st.columns(2, gap="small")
                             with action_cols[0]:
+                                save_confirmed = _confirm_action(f"save_review_model_{_safe_key(selected_run_id)}")
                                 if st.button(
-                                    _local_text("Save recommendation", "Guardar recomendación", "Öneriyi kaydet"),
+                                    t("developer_workspace_review_save_recommendation"),
                                     key=f"developer_workspace_save_review_model_{selected_run_id}",
                                     use_container_width=True,
+                                    disabled=not save_confirmed,
                                 ):
                                     ok, message = save_resource_affinity_human_review_recommendation(
                                         selected_run_id,
@@ -1049,11 +1205,15 @@ def _render_experiment_evidence() -> None:
                                         st.session_state["developer_workspace_refresh_nonce"] = int(st.session_state.get("developer_workspace_refresh_nonce") or 0) + 1
                                         st.rerun()
                                     st.error(message)
+                                if not save_confirmed:
+                                    st.caption(t("developer_workspace_confirm_before_review_save"))
                             with action_cols[1]:
+                                activate_confirmed = _confirm_action(f"activate_review_model_{_safe_key(selected_run_id)}", "developer_workspace_confirm_runtime_action")
                                 if st.button(
-                                    _local_text("Set as active runtime model", "Activar como modelo de runtime", "Aktif çalışma zamanı modeli yap"),
+                                    t("developer_workspace_review_set_runtime_model"),
                                     key=f"developer_workspace_activate_review_model_{selected_run_id}",
                                     use_container_width=True,
+                                    disabled=not activate_confirmed,
                                 ):
                                     ok, message = save_resource_affinity_human_review_recommendation(
                                         selected_run_id,
@@ -1066,6 +1226,8 @@ def _render_experiment_evidence() -> None:
                                         st.session_state["developer_workspace_refresh_nonce"] = int(st.session_state.get("developer_workspace_refresh_nonce") or 0) + 1
                                         st.rerun()
                                     st.error(message)
+                                if not activate_confirmed:
+                                    st.caption(t("developer_workspace_confirm_before_runtime"))
                     artifact_rows = list_run_artifacts(selected_run_id)
                     _render_protected_artifacts(artifact_rows, key_prefix=f"evidence_{selected_run_id}")
         except Exception as exc:
@@ -1074,7 +1236,11 @@ def _render_experiment_evidence() -> None:
     with reports_tab:
         try:
             if not latest_validated:
-                st.info(t("developer_workspace_reports_no_validated_run"))
+                _render_empty_state(
+                    "developer_workspace_reports_empty_title",
+                    "developer_workspace_reports_empty_body",
+                    "developer_workspace_reports_empty_action",
+                )
             else:
                 run_id = str(latest_validated.get("run_id") or "")
                 lang = str(st.session_state.get("ui_lang") or "en")
@@ -1104,7 +1270,8 @@ def _render_experiment_evidence() -> None:
                         with col:
                             st.markdown(_card(str(report.get("title") or ""), _report_status_display(report_status), str(report.get("description") or "")), unsafe_allow_html=True)
                             if report_status == "available" and not bool(report.get("download_ready")):
-                                if st.button(t("developer_workspace_reports_generate"), key=f"developer_workspace_generate_{run_id}_{report_type}", use_container_width=True):
+                                generate_confirmed = _confirm_action(f"generate_report_{_safe_key(run_id)}_{_safe_key(report_type)}")
+                                if st.button(t("developer_workspace_reports_generate"), key=f"developer_workspace_generate_{run_id}_{report_type}", use_container_width=True, disabled=not generate_confirmed):
                                     with st.spinner(t("generating")):
                                         result = get_or_create_validated_report(run_id, report_type, lang)
                                     if result.get("ok"):
@@ -1114,6 +1281,8 @@ def _render_experiment_evidence() -> None:
                                         }
                                         st.rerun()
                                     st.error(str(result.get("message") or t("admin_eic_report_generation_failed")))
+                                if not generate_confirmed:
+                                    st.caption(t("developer_workspace_confirm_before_report"))
                             elif report_status == "available" and bool(report.get("download_ready")):
                                 report_path = Path(str(report.get("path") or ""))
                                 modified_epoch = int(report.get("modified_epoch") or 0)
@@ -1135,6 +1304,7 @@ def _render_experiment_evidence() -> None:
                                         t("developer_workspace_reports_regenerate"),
                                         key=f"developer_workspace_regenerate_{run_id}_{report_type}",
                                         use_container_width=True,
+                                        disabled=not _confirm_action(f"regenerate_report_{_safe_key(run_id)}_{_safe_key(report_type)}", "developer_workspace_confirm_regenerate_action"),
                                     ):
                                         with st.spinner(t("generating")):
                                             result = get_or_create_validated_report(
@@ -1150,6 +1320,8 @@ def _render_experiment_evidence() -> None:
                                             }
                                             st.rerun()
                                         st.error(str(result.get("message") or t("admin_eic_report_generation_failed")))
+                                    if not st.session_state.get(f"regenerate_report_{_safe_key(run_id)}_{_safe_key(report_type)}_confirm"):
+                                        st.caption(t("developer_workspace_confirm_before_regenerate"))
                                 if str(report.get("modified_at") or "").strip():
                                     st.caption(t("developer_workspace_reports_latest_generated_at", value=str(report.get("modified_at") or "")))
                             else:
@@ -1179,25 +1351,111 @@ def _render_telemetry_diagnostics() -> None:
     if by_surface:
         st.dataframe(_present_developer_table(by_surface), use_container_width=True, hide_index=True)
     else:
-        st.info(t("developer_workspace_telemetry_empty"))
+        _render_empty_state(
+            "developer_workspace_telemetry_empty_title",
+            "developer_workspace_telemetry_empty_body",
+            "developer_workspace_telemetry_empty_action",
+        )
 
 
 def _render_jobs() -> None:
     require_capability(CAPABILITY_VIEW_JOB_DIAGNOSTICS)
-    jobs = list_jobs(limit=50, cache_bust=str(st.session_state.get("developer_workspace_refresh_nonce") or 0))
+    jobs = list_jobs(limit=200, cache_bust=str(st.session_state.get("developer_workspace_refresh_nonce") or 0))
     if not jobs:
-        st.info(t("developer_workspace_jobs_empty"))
+        _render_empty_state(
+            "developer_workspace_jobs_empty_title",
+            "developer_workspace_jobs_empty_body",
+            "developer_workspace_jobs_empty_action",
+        )
         return
-    st.dataframe(_present_developer_table(jobs), use_container_width=True, hide_index=True)
+    filter_cols = st.columns(3, gap="small")
+    statuses = ["all", *sorted({str(row.get("status") or "").upper() for row in jobs if str(row.get("status") or "").strip()})]
+    job_types = ["all", *sorted({str(row.get("job_type") or "") for row in jobs if str(row.get("job_type") or "").strip()})]
+    with filter_cols[0]:
+        selected_status = st.selectbox(
+            t("developer_workspace_jobs_filter_status"),
+            statuses,
+            format_func=lambda value: t("developer_workspace_filter_all") if value == "all" else get_model_result_status_display(str(value)),
+            key="developer_workspace_jobs_status_filter",
+        )
+    with filter_cols[1]:
+        selected_type = st.selectbox(
+            t("developer_workspace_jobs_filter_type"),
+            job_types,
+            format_func=lambda value: t("developer_workspace_filter_all") if value == "all" else get_job_type_display(str(value)),
+            key="developer_workspace_jobs_type_filter",
+        )
+    with filter_cols[2]:
+        search = st.text_input(
+            t("developer_workspace_filter_search"),
+            placeholder=t("developer_workspace_jobs_search_placeholder"),
+            key="developer_workspace_jobs_search",
+        )
+    filtered = [
+        row
+        for row in jobs
+        if (selected_status == "all" or str(row.get("status") or "").upper() == selected_status)
+        and (selected_type == "all" or str(row.get("job_type") or "") == selected_type)
+        and _row_matches_search(row, search, ("job_id", "job_type", "status", "current_stage", "related_entity_id", "error_message"))
+    ]
+    if not filtered:
+        _render_empty_state(
+            "developer_workspace_jobs_no_matches_title",
+            "developer_workspace_jobs_no_matches_body",
+            "developer_workspace_jobs_no_matches_action",
+        )
+        return
+    _render_paginated_table(filtered, key_prefix="developer_workspace_jobs", page_size=25)
 
 
 def _render_audit_log() -> None:
     require_capability(CAPABILITY_VIEW_AUDIT_LOG)
-    actions = list_privileged_actions(limit=100, cache_bust=str(st.session_state.get("developer_workspace_refresh_nonce") or 0))
+    actions = list_privileged_actions(limit=200, cache_bust=str(st.session_state.get("developer_workspace_refresh_nonce") or 0))
     if not actions:
-        st.info(t("developer_workspace_audit_empty"))
+        _render_empty_state(
+            "developer_workspace_audit_empty_title",
+            "developer_workspace_audit_empty_body",
+            "developer_workspace_audit_empty_action",
+        )
         return
-    st.dataframe(_present_developer_table(actions), use_container_width=True, hide_index=True)
+    filter_cols = st.columns(3, gap="small")
+    action_types = ["all", *sorted({str(row.get("action_type") or "") for row in actions if str(row.get("action_type") or "").strip()})]
+    entity_types = ["all", *sorted({str(row.get("entity_type") or "") for row in actions if str(row.get("entity_type") or "").strip()})]
+    with filter_cols[0]:
+        selected_action = st.selectbox(
+            t("developer_workspace_audit_filter_action"),
+            action_types,
+            format_func=lambda value: t("developer_workspace_filter_all") if value == "all" else get_action_type_display(str(value)),
+            key="developer_workspace_audit_action_filter",
+        )
+    with filter_cols[1]:
+        selected_entity = st.selectbox(
+            t("developer_workspace_audit_filter_entity"),
+            entity_types,
+            format_func=lambda value: t("developer_workspace_filter_all") if value == "all" else get_entity_type_display(str(value)),
+            key="developer_workspace_audit_entity_filter",
+        )
+    with filter_cols[2]:
+        search = st.text_input(
+            t("developer_workspace_filter_search"),
+            placeholder=t("developer_workspace_audit_search_placeholder"),
+            key="developer_workspace_audit_search",
+        )
+    filtered = [
+        row
+        for row in actions
+        if (selected_action == "all" or str(row.get("action_type") or "") == selected_action)
+        and (selected_entity == "all" or str(row.get("entity_type") or "") == selected_entity)
+        and _row_matches_search(row, search, ("action_type", "entity_type", "entity_id", "actor_user_id", "reason"))
+    ]
+    if not filtered:
+        _render_empty_state(
+            "developer_workspace_audit_no_matches_title",
+            "developer_workspace_audit_no_matches_body",
+            "developer_workspace_audit_no_matches_action",
+        )
+        return
+    _render_paginated_table(filtered, key_prefix="developer_workspace_audit", page_size=25)
 
 
 def render_developer_workspace() -> None:
@@ -1206,11 +1464,13 @@ def render_developer_workspace() -> None:
     context = get_authorization_context()
     chip_values = [_product_role_display(role) for role in context.product_roles] + [get_staff_role_display(role) for role in context.staff_roles]
     chips = "".join(f"<span class='dev-chip'>{_html.escape(role)}</span>" for role in chip_values)
+    role_guidance = _role_guidance_text(context)
     st.markdown(
         f"""
         <div class="dev-hero">
             <div class="dev-title">{_html.escape(t("developer_workspace_title"))}</div>
             <div class="dev-subtitle">{_html.escape(t("developer_workspace_subtitle"))}</div>
+            <div class="dev-subtitle">{_html.escape(role_guidance)}</div>
             <div class="dev-chip-row">{chips}</div>
         </div>
         """,

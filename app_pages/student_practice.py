@@ -60,6 +60,7 @@ from helpers.resource_gallery import (
     resource_kind_accent,
     resource_kind_label,
 )
+from helpers.student_ui import render_student_pagination, slice_student_page
 from helpers.video_library import load_public_videos, load_video_record
 from helpers.goal_explorer import get_shared_resource_search_weights
 from services.permissions_service import user_has_feature
@@ -196,14 +197,7 @@ def _resolve_worksheet_payload(row: dict) -> tuple[dict, dict]:
 
 
 def _slice_practice_page(rows: list[dict], state_key: str, *, page_size: int = _STUDENT_PRACTICE_PAGE_SIZE):
-    total_items = len(rows or [])
-    total_pages = max(1, math.ceil(total_items / page_size)) if total_items else 1
-    current_page = int(st.session_state.get(state_key, 1) or 1)
-    current_page = max(1, min(current_page, total_pages))
-    st.session_state[state_key] = current_page
-    start_idx = (current_page - 1) * page_size
-    end_idx = min(start_idx + page_size, total_items)
-    return list((rows or [])[start_idx:end_idx]), current_page, total_pages, start_idx, end_idx, total_items
+    return slice_student_page(rows, state_key, page_size=page_size)
 
 
 def _practice_meta_with_return_page(meta: dict | None = None, *, return_page: str | None = None) -> dict:
@@ -296,24 +290,7 @@ def _restore_practice_main_tab(section: str) -> None:
 
 
 def _render_practice_pagination(rows: list[dict], state_key: str, *, page_size: int = _STUDENT_PRACTICE_PAGE_SIZE) -> None:
-    _, current_page, total_pages, start_idx, end_idx, total_items = _slice_practice_page(
-        rows,
-        state_key,
-        page_size=page_size,
-    )
-    if total_items <= page_size:
-        return
-    prev_col, info_col, next_col = st.columns([1, 3, 1])
-    with prev_col:
-        if st.button("←", key=f"{state_key}_prev", use_container_width=True, disabled=current_page <= 1):
-            st.session_state[state_key] = max(1, current_page - 1)
-            st.rerun()
-    with info_col:
-        st.caption(f"{start_idx + 1}-{end_idx} / {total_items} · {current_page}/{total_pages}")
-    with next_col:
-        if st.button("→", key=f"{state_key}_next", use_container_width=True, disabled=current_page >= total_pages):
-            st.session_state[state_key] = min(total_pages, current_page + 1)
-            st.rerun()
+    render_student_pagination(rows, state_key, page_size=page_size)
 
 
 def _open_practice_item(
@@ -451,6 +428,7 @@ def _open_video_item(
     assignment_id: int = 0,
     return_page: str | None = None,
     return_section: str | None = None,
+    navigate_to_viewer: bool = True,
 ) -> bool:
     combined_payload = dict(video_payload or {})
     video_id = combined_payload.get("id")
@@ -473,6 +451,8 @@ def _open_video_item(
     st.session_state.pop("_practice_resume_session_id", None)
     st.session_state.pop("_practice_resume_answers", None)
     st.session_state.pop("_practice_resume_notice", None)
+    if navigate_to_viewer:
+        go_to("student_practice")
     return True
 
 
@@ -1387,6 +1367,8 @@ def _render_practice_card(
                     "level": level,
                 },
                 assignment_id=assignment_id,
+                return_page="student_practice",
+                return_section="browse",
             ):
                 if recommendation_item:
                     log_student_recommendation_open(recommendation_item, surface="student_practice")
@@ -1816,27 +1798,28 @@ def _render_history_tab(history_override=None, *, scope_key: str = ""):
                     use_container_width=True,
                     type="primary",
                 ):
-                    st.session_state[f"_history_watch_video_{session_id}_{h_idx}"] = True
-                    st.rerun()
-                if st.session_state.get(f"_history_watch_video_{session_id}_{h_idx}"):
                     video_payload = exercise_data or {}
                     if isinstance(video_payload, str):
                         try:
                             video_payload = json.loads(video_payload)
                         except Exception:
                             video_payload = {}
-                    watch_url = str(
-                        (video_payload or {}).get("watch_url")
-                        or (video_payload or {}).get("youtube_url")
-                        or ""
-                    )
-                    if not watch_url and _safe_int(row.get("source_id")) > 0:
+                    if _safe_int(row.get("source_id")) > 0:
                         video_row = load_video_record(_safe_int(row.get("source_id"))) or {}
-                        watch_url = str(video_row.get("watch_url") or video_row.get("youtube_url") or "")
-                    if watch_url:
-                        st.video(watch_url)
-                    else:
-                        st.info(_ui_text("video_unavailable", "This video is not available right now."))
+                        video_payload = {**dict(video_payload or {}), **video_row}
+                    if _open_video_item(
+                        dict(video_payload or {}),
+                        {
+                            "subject": subject,
+                            "topic": topic,
+                            "learner_stage": str(row.get("learner_stage") or ""),
+                            "level": str(row.get("level") or ""),
+                        },
+                        assignment_id=_safe_int(row.get("_assignment_id")),
+                        return_page="student_practice",
+                        return_section="history",
+                    ):
+                        st.rerun()
             elif (exercise_data or str(row.get("source_type") or "").strip() in {"worksheet", "exam"}) and st.button(
                     _ui_text("review_answers", "Review answers"),
                     key=f"hist_review_{session_id}_{h_idx}",
@@ -1852,7 +1835,7 @@ def _render_history_tab(history_override=None, *, scope_key: str = ""):
 
 def _render_active_video_session(video_payload: dict) -> None:
     watch_url = str(video_payload.get("watch_url") or video_payload.get("youtube_url") or "").strip()
-    if st.button(f"← {t('back')}", key="practice_video_back"):
+    def _return_from_video_session() -> None:
         meta = dict(st.session_state.get("practice_meta") or {})
         _queue_practice_return(
             return_page=str(meta.get("return_page") or "").strip(),
@@ -1863,6 +1846,9 @@ def _render_active_video_session(video_payload: dict) -> None:
         st.session_state.pop("_practice_video_assignment_id", None)
         st.session_state.pop("_practice_video_logged", None)
         st.rerun()
+
+    if st.button(f"← {t('back')}", key="practice_video_back"):
+        _return_from_video_session()
 
     title = str(video_payload.get("title") or _ui_text("video_label", "Video")).strip()
     topic = str(video_payload.get("topic") or "").strip()

@@ -69,6 +69,7 @@ if "openai" not in sys.modules:
 
 from app_pages import admin
 from helpers import dashboard
+from services import admin_console_service
 
 
 class _FakeResult:
@@ -128,6 +129,8 @@ class DashboardAdminQueryOptimizationTests(unittest.TestCase):
         dashboard.load_dashboard_source_frames.clear()
         admin._fetch_overrides.clear()
         admin._fetch_recent_app_activity.clear()
+        admin_console_service.fetch_overrides.clear()
+        admin_console_service.fetch_recent_app_activity.clear()
 
     def test_dashboard_source_frames_use_shared_explicit_column_queries(self):
         with patch.object(dashboard, "load_table_filtered") as load_table_filtered:
@@ -178,7 +181,7 @@ class DashboardAdminQueryOptimizationTests(unittest.TestCase):
             }
         )
 
-        with patch.object(admin, "get_sb", return_value=fake_sb):
+        with patch.object(admin_console_service, "get_sb", return_value=fake_sb):
             rows = admin._fetch_overrides()
 
         self.assertEqual(1, len(rows))
@@ -201,7 +204,7 @@ class DashboardAdminQueryOptimizationTests(unittest.TestCase):
             }
         )
 
-        with patch.object(admin, "get_sb", return_value=fake_sb):
+        with patch.object(admin_console_service, "get_sb", return_value=fake_sb):
             activity = admin._fetch_recent_app_activity(("demo_user", valid_user_id))
 
         self.assertEqual("2026-07-23T08:44:14+00:00", activity[valid_user_id])
