@@ -124,19 +124,19 @@ def _page_render_error_copy() -> tuple[str, str, str]:
     lang = str(st.session_state.get("ui_lang") or "en").strip().lower()
     if lang == "es":
         return (
-            "No pudimos abrir esta sección ahora.",
-            "Inténtalo de nuevo en un momento. Si el problema continúa, vuelve al inicio y entra otra vez.",
+            "Esta sección no está disponible temporalmente.",
+            "Classio no pudo cargar este contenido ahora. Inténtalo de nuevo en un momento. Si continúa igual, vuelve al inicio y abre la sección otra vez.",
             "Reintentar",
         )
     if lang == "tr":
         return (
-            "Bu bolumu simdi acamadik.",
-            "Lutfen biraz sonra tekrar deneyin. Sorun devam ederse ana sayfaya donup yeniden girin.",
+            "Bu bolum gecici olarak kullanilamiyor.",
+            "Classio bu icerigi su anda yukleyemedi. Lutfen biraz sonra tekrar deneyin. Sorun devam ederse ana sayfaya donup bolumu yeniden acin.",
             "Tekrar dene",
         )
     return (
-        "We couldn't open this section right now.",
-        "Please try again in a moment. If the issue continues, return to the home page and open it again.",
+        "This section is temporarily unavailable.",
+        "Classio couldn't load this content right now. Please try again in a moment. If the issue continues, return to the home page and open the section again.",
         "Try again",
     )
 
@@ -773,6 +773,7 @@ def route_app_pages(page: str):
         return
 
     from app_pages.home import render_home
+    from app_pages.app_page_community import render_community
     from app_pages.app_page_dashboard import render_dashboard
     from app_pages.app_page_students import render_students
     from app_pages.app_page_add_lesson import render_add_lesson
@@ -818,7 +819,7 @@ def route_app_pages(page: str):
         _render_profile_dialog_if_requested()
         _render_page_with_loading(
             "community",
-            lambda: render_home(panel_override="community", show_home_actions=False),
+            render_community,
         )
         _render_global_page_divider()
         st.stop()

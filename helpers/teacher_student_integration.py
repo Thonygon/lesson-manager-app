@@ -3012,7 +3012,7 @@ def sync_assignment_copies_for_resource(
     return len(matched_assignment_ids)
 
 
-_RESOURCE_BULK_ASSIGN_DIALOG_VERSION = 2
+_RESOURCE_BULK_ASSIGN_DIALOG_VERSION = 3
 
 
 def _assignment_targets_for_resource(row: dict, links: list[dict]) -> list[dict]:
@@ -3341,7 +3341,13 @@ def render_resource_bulk_assign_panel(
     return False
 
 
-def open_resource_bulk_assign_dialog(kind: str, row: dict, *, fixed_link_id: int | str | None = None) -> None:
+def open_resource_bulk_assign_dialog(
+    kind: str,
+    row: dict,
+    *,
+    fixed_link_id: int | str | None = None,
+    dialog_scope: str | None = None,
+) -> None:
     safe_kind = _resource_assignment_kind(kind)
     if safe_kind == "program":
         from helpers.learning_programs import open_learning_program_assign_dialog
@@ -3377,6 +3383,7 @@ def open_resource_bulk_assign_dialog(kind: str, row: dict, *, fixed_link_id: int
         "kind": safe_kind,
         "row": dict(row or {}),
         "fixed_link_id": fixed_link_id,
+        "scope": str(dialog_scope or "").strip(),
     }
 
 
@@ -3403,7 +3410,16 @@ def render_resource_bulk_assign_dialog(kind_filter: str | None = None, *, dialog
     safe_kind = _resource_assignment_kind(state.get("kind"))
     if kind_filter and safe_kind != _resource_assignment_kind(kind_filter):
         return
-    dialog_title = f"{t('assign_to_student')}{_dialog_scope_suffix(dialog_scope or safe_kind)}"
+    state_scope = str(state.get("scope") or "").strip()
+    current_scope = str(dialog_scope or "").strip()
+    if state_scope and current_scope and state_scope != current_scope:
+        return
+    resolved_scope = state_scope or current_scope or safe_kind
+    dialog_render_token = f"{resolved_scope}:{safe_kind}"
+    if st.session_state.get("_resource_bulk_assign_dialog_rendered_token_this_run") == dialog_render_token:
+        return
+    dialog_title = f"{t('assign_to_student')}{_dialog_scope_suffix(resolved_scope)}"
+    st.session_state["_resource_bulk_assign_dialog_rendered_token_this_run"] = dialog_render_token
 
     @st.dialog(dialog_title, on_dismiss=_clear_resource_bulk_assign_dialog)
     def _dialog():

@@ -782,9 +782,32 @@ def prime_program_topic_smart_tool(tool_flag: str, context: dict) -> None:
     from core.navigation import clear_smart_tool_result_state
 
     context = dict(context or {})
+    preserved_learning_program_state = {
+        key: st.session_state.get(key)
+        for key in (
+            "quick_learning_program_result",
+            "quick_learning_program_mode_used",
+            "quick_learning_program_warning",
+            "quick_learning_program_meta",
+            "quick_learning_program_payload",
+            "quick_learning_program_pending_unit",
+            "quick_learning_program_saved_program_id",
+            "quick_learning_program_generate_requested",
+            "quick_learning_program_editing_unit",
+        )
+        if key in st.session_state
+    }
     clear_smart_tool_result_state()
+    for key, value in preserved_learning_program_state.items():
+        st.session_state[key] = value
     st.session_state[PROGRAM_TOPIC_CONTEXT_STATE_KEY] = context
     st.session_state[tool_flag] = True
+    if int(context.get("program_id") or 0) > 0:
+        st.session_state["_active_learning_program_workspace"] = {
+            "program_id": int(context.get("program_id") or 0),
+            "page": str(st.session_state.get("page") or "").strip(),
+            "source": "program_topic_tool",
+        }
     toggle_key_by_flag = {
         "open_quick_plan_expander": "quick_plan_use_program_topic",
         "open_quick_ws_expander": "quick_ws_use_program_topic",

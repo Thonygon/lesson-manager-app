@@ -26,6 +26,7 @@
     {"name": "add_resource_language_metadata.sql", "sha256": "01233c14d3e183c9e234f19316ce06272294cd08d1b086ec7a461b88f18716f0"},
     {"name": "add_resource_selector_compatibility_columns.sql", "sha256": "786053bb44c7515c8f0b4fd861a51493f7670bf43242a749452272f1c149bcb4"},
     {"name": "add_resource_updated_at.sql", "sha256": "dc70f69a6c99758c99e1777aa91923fa5bbee1315062897bb15858ed6b5a9b54"},
+    {"name": "add_schedule_effective_dates.sql", "sha256": "3b9d3b5168f2ab32c984d2b8e14b27692068d25f081efcfce745f9711b9f2dee"},
     {"name": "add_schedule_timezone.sql", "sha256": "969730f0bae23b6026504ff830b9000fce3f2879c1960ae49975817e47bed9ff"},
     {"name": "add_student_address.sql", "sha256": "4bab28668a2946ca508d744c1fd4ff51b1cb552642c2a2e14f6831fa8e4fd8df"},
     {"name": "add_student_experience_indexes.sql", "sha256": "c63233e19928e654a9d793111ab4a7d12c361b2865ece72a332977ad098f4d5b"},

@@ -547,6 +547,10 @@ def _missing_auth_config_message() -> str:
 
 
 def _render_signup_invite_dialog() -> None:
+    if st.session_state.get("_signup_invite_dialog_rendered_this_run"):
+        return
+    st.session_state["_signup_invite_dialog_rendered_this_run"] = True
+
     @st.dialog(t("explore_signup_dialog_title"))
     def _signup_dlg():
         st.write(t("explore_signup_dialog_body"))
@@ -850,6 +854,8 @@ def require_login():
     resolved_ui_lang = _resolve_pre_auth_ui_lang()
     st.session_state["ui_lang"] = resolved_ui_lang
     st.session_state["_pre_auth_ui_lang"] = resolved_ui_lang
+    st.session_state["_signup_invite_dialog_rendered_this_run"] = False
+    st.session_state["_explore_ai_tool_dialog_rendered_key_this_run"] = None
 
     if getattr(st.user, "is_logged_in", False):
         user_id = _restore_user_from_email()
@@ -1100,7 +1106,21 @@ def require_login():
 
     with tab_explore:
         from helpers.goal_explorer import render_goal_explorer
-        wants_signup = render_goal_explorer()
+        try:
+            wants_signup = render_goal_explorer()
+        except Exception as exc:
+            from helpers.goal_explorer import _render_explorer_error_fallback
+            from services.operational_diagnostics_service import capture_exception
+
+            event_id = capture_exception(
+                exc,
+                component="auth.auth",
+                operation="render_goal_explorer",
+                page_key="explore",
+                user_face="anonymous",
+            )
+            _render_explorer_error_fallback("explore_root", event_id)
+            wants_signup = False
         if wants_signup:
             st.session_state["_explore_go_signup"] = True
             st.session_state["_show_signup_invite_dialog"] = True
@@ -1108,7 +1128,21 @@ def require_login():
 
     with tab_income_goal:
         from helpers.goal_explorer import render_income_goal_explorer
-        wants_signup = render_income_goal_explorer()
+        try:
+            wants_signup = render_income_goal_explorer()
+        except Exception as exc:
+            from helpers.goal_explorer import _render_explorer_error_fallback
+            from services.operational_diagnostics_service import capture_exception
+
+            event_id = capture_exception(
+                exc,
+                component="auth.auth",
+                operation="render_income_goal_explorer",
+                page_key="income_goal_explore",
+                user_face="anonymous",
+            )
+            _render_explorer_error_fallback("income_goal_explore_root", event_id)
+            wants_signup = False
         if wants_signup:
             st.session_state["_explore_go_signup"] = True
             st.session_state["_show_signup_invite_dialog"] = True

@@ -17,8 +17,11 @@ from helpers.schedule import (
     delete_schedule,
     find_gcal_event_id,
     load_overrides,
+    load_schedule_freezes,
     load_schedules,
     resume_schedule_freeze,
+    update_schedule_freeze,
+    update_schedule_from_date,
 )
 from helpers.ui_components import pretty_df, translate_df_headers, render_styled_dataframe
 from helpers.empty_states import render_empty_state
@@ -35,6 +38,53 @@ from helpers.google_calendar import (
 
 # 12.5) PAGE: CALENDAR
 # =========================
+
+
+def _format_schedule_option(schedules_df: pd.DataFrame, schedule_id: int) -> str:
+    if schedules_df is None or schedules_df.empty:
+        return str(schedule_id)
+    match = schedules_df[pd.to_numeric(schedules_df["id"], errors="coerce") == int(schedule_id)]
+    if match.empty:
+        return str(schedule_id)
+    row = match.iloc[0]
+    weekday_names = [
+        t("monday"),
+        t("tuesday"),
+        t("wednesday"),
+        t("thursday"),
+        t("friday"),
+        t("saturday"),
+        t("sunday"),
+    ]
+    weekday_idx = int(pd.to_numeric(row.get("weekday"), errors="coerce") or 0)
+    start_text = row.get("start_date")
+    if pd.notna(start_text) and start_text:
+        return f"#{int(schedule_id)} · {row.get('student', '')} · {weekday_names[max(0, min(6, weekday_idx))]} · {row.get('time', '')} · {start_text.isoformat()}"
+    return f"#{int(schedule_id)} · {row.get('student', '')} · {weekday_names[max(0, min(6, weekday_idx))]} · {row.get('time', '')}"
+
+
+def _format_pause_option(pauses_df: pd.DataFrame, pause_id: int) -> str:
+    if pauses_df is None or pauses_df.empty:
+        return str(pause_id)
+    match = pauses_df[pd.to_numeric(pauses_df["id"], errors="coerce") == int(pause_id)]
+    if match.empty:
+        return str(pause_id)
+    row = match.iloc[0]
+    start_text = row.get("start_date")
+    end_text = row.get("end_date")
+    start_label = start_text.isoformat() if pd.notna(start_text) and start_text else t("today")
+    end_label = end_text.isoformat() if pd.notna(end_text) and end_text else t("schedule_pause_until_resumed")
+    return f"#{int(pause_id)} · {row.get('student', '')} · {start_label} → {end_label}"
+
+
+def _safe_date_value(value, fallback: date) -> date:
+    if value is None or pd.isna(value):
+        return fallback
+    if isinstance(value, pd.Timestamp):
+        return value.date()
+    if isinstance(value, datetime.datetime):
+        return value.date()
+    return value
 
 def _render_calendar_new_user_setup():
     render_empty_state(
@@ -103,6 +153,7 @@ def render_calendar():
     st.caption(t("create_and_manage_your_weekly_program"))
     students = load_students()
     schedules = load_schedules()
+    supports_effective_dates = bool((getattr(schedules, "attrs", {}) or {}).get("supports_effective_dates", False))
     # =======================================
     # SCHEDULE SECTION
     # =======================================
@@ -127,7 +178,7 @@ def render_calendar():
             )
 
             if sch_mode == "weekly":
-                c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 1])
+                c1, c2, c3, c4, c5, c6 = st.columns([2, 1, 1, 1, 1, 1.2])
             else:
                 c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
 
@@ -181,6 +232,34 @@ def render_calendar():
                         value=True,
                         key="cal_sch_active",
                     )
+                with c6:
+                    sch_start_date = st.date_input(
+                        t("schedule_start_date"),
+                        value=today_local(),
+                        min_value=today_local(),
+                        key="cal_sch_start_date",
+                        disabled=not supports_effective_dates,
+                    )
+                    if not supports_effective_dates:
+                        st.caption(t("schedule_effective_dates_unavailable"))
+                if supports_effective_dates:
+                    end_toggle_col, end_date_col = st.columns([1, 1.6])
+                    with end_toggle_col:
+                        sch_use_end_date = st.checkbox(
+                            t("schedule_use_end_date"),
+                            value=False,
+                            key="cal_sch_use_end_date",
+                        )
+                    with end_date_col:
+                        sch_end_date = st.date_input(
+                            t("schedule_end_date"),
+                            value=today_local() + datetime.timedelta(days=30),
+                            min_value=sch_start_date,
+                            key="cal_sch_end_date",
+                        ) if sch_use_end_date else None
+                else:
+                    sch_use_end_date = False
+                    sch_end_date = None
             else:
                 with c2:
                     sch_one_time_date = st.date_input(
@@ -217,6 +296,8 @@ def render_calendar():
                             sch_time,
                             sch_duration,
                             sch_active,
+                            start_date=sch_start_date,
+                            end_date=sch_end_date if sch_use_end_date else None,
                         )
                     else:
                         hh, mm = map(int, sch_time.split(":"))
@@ -388,7 +469,8 @@ def render_calendar():
                 except Exception as exc:
                     st.error(str(exc))
 
-            active_pauses = active_schedule_freezes(today_d)
+            all_pauses = load_schedule_freezes()
+            active_pauses = all_pauses[all_pauses["active"] == True].copy() if not all_pauses.empty else all_pauses
             st.markdown(f"#### {t('schedule_paused_students')}")
             if active_pauses.empty:
                 st.caption(t("schedule_no_active_pauses"))
@@ -402,6 +484,77 @@ def render_calendar():
                         pretty_df(show_pauses[["id", "student", "start_date", "end_date", "reason", "note"]])
                     )
                 )
+                st.markdown(f"#### {t('edit_pause_schedule')}")
+                st.caption(t("edit_pause_schedule_caption"))
+                pause_options = show_pauses["id"].tolist()
+                selected_pause_id = st.selectbox(
+                    t("schedule_pause_resume_id"),
+                    options=pause_options,
+                    format_func=lambda value: _format_pause_option(active_pauses, value),
+                    key="schedule_pause_edit_id",
+                )
+                selected_pause = active_pauses[pd.to_numeric(active_pauses["id"], errors="coerce") == int(selected_pause_id)].iloc[0]
+                default_student = str(selected_pause.get("student") or "").strip()
+                default_reason = str(selected_pause.get("reason") or "other").strip()
+                current_start = selected_pause.get("start_date")
+                current_end = selected_pause.get("end_date")
+                ep1, ep2, ep3 = st.columns([1.2, 1, 1], gap="medium")
+                with ep1:
+                    pause_edit_student = st.selectbox(
+                        t("select_student"),
+                        students_master,
+                        index=max(0, students_master.index(default_student)) if default_student in students_master else 0,
+                        key=f"schedule_pause_edit_student_{selected_pause_id}",
+                    )
+                    pause_edit_reason = st.selectbox(
+                        t("schedule_pause_reason"),
+                        ["vacation", "break", "illness", "payment_pause", "other"],
+                        index=max(0, ["vacation", "break", "illness", "payment_pause", "other"].index(default_reason)) if default_reason in ["vacation", "break", "illness", "payment_pause", "other"] else 4,
+                        format_func=lambda value: t(f"schedule_pause_reason_{value}"),
+                        key=f"schedule_pause_edit_reason_{selected_pause_id}",
+                    )
+                with ep2:
+                    pause_edit_use_start = st.checkbox(
+                        t("schedule_pause_use_start"),
+                        value=pd.notna(current_start),
+                        key=f"schedule_pause_edit_use_start_{selected_pause_id}",
+                    )
+                    pause_edit_start = st.date_input(
+                        t("schedule_pause_start_date"),
+                        value=_safe_date_value(current_start, today_d),
+                        key=f"schedule_pause_edit_start_{selected_pause_id}",
+                    ) if pause_edit_use_start else None
+                with ep3:
+                    pause_edit_use_end = st.checkbox(
+                        t("schedule_pause_use_end"),
+                        value=pd.notna(current_end),
+                        key=f"schedule_pause_edit_use_end_{selected_pause_id}",
+                    )
+                    pause_edit_end = st.date_input(
+                        t("schedule_pause_end_date"),
+                        value=_safe_date_value(current_end, today_d + datetime.timedelta(days=14)),
+                        key=f"schedule_pause_edit_end_{selected_pause_id}",
+                    ) if pause_edit_use_end else None
+                pause_edit_note = st.text_input(
+                    t("schedule_pause_note"),
+                    value=str(selected_pause.get("note") or ""),
+                    key=f"schedule_pause_edit_note_{selected_pause_id}",
+                )
+                if st.button(t("schedule_save_changes"), key=f"schedule_pause_edit_save_{selected_pause_id}", use_container_width=True):
+                    try:
+                        update_schedule_freeze(
+                            int(selected_pause_id),
+                            student=pause_edit_student,
+                            start_date=pause_edit_start,
+                            end_date=pause_edit_end,
+                            reason=pause_edit_reason,
+                            note=pause_edit_note,
+                            active=True,
+                        )
+                        st.success(t("schedule_pause_updated"))
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(str(exc))
                 resume_id = st.number_input(t("schedule_pause_resume_id"), min_value=1, step=1, key="schedule_pause_resume_id")
                 if st.button(t("schedule_pause_resume"), key="schedule_pause_resume", use_container_width=True):
                     resume_schedule_freeze(int(resume_id))
@@ -427,7 +580,7 @@ def render_calendar():
         else:
             show = schedules.copy()
 
-            for c in ["id", "student", "weekday", "time", "duration_minutes", "active"]:
+            for c in ["id", "student", "weekday", "time", "duration_minutes", "active", "start_date", "end_date"]:
                 if c not in show.columns:
                      show[c] = None
 
@@ -441,21 +594,144 @@ def render_calendar():
                 t("sunday"),
             ]
 
+            show["start_date"] = pd.to_datetime(show["start_date"], errors="coerce")
+            show["end_date"] = pd.to_datetime(show["end_date"], errors="coerce")
             show["weekday"] = pd.to_numeric(
                 show["weekday"],
                 errors="coerce",
             ).fillna(0).astype(int).clip(0, 6)
 
+            current_schedule_cutoff = pd.Timestamp(today_local())
+            show = show[
+                show["end_date"].isna() | (show["end_date"] >= current_schedule_cutoff)
+            ].copy()
             show["weekday"] = show["weekday"].apply(
                 lambda i: weekday_names[int(i)]
             )
+            show["start_date"] = show["start_date"].apply(
+                lambda value: value.date().isoformat() if pd.notna(value) else ""
+            )
+            show["end_date"] = show["end_date"].apply(
+                lambda value: value.date().isoformat() if pd.notna(value) else t("ongoing")
+            )
 
             show = show[
-                ["id", "student", "weekday", "time", "duration_minutes", "active"]
+                ["id", "student", "weekday", "time", "duration_minutes", "start_date", "end_date", "active"]
             ].sort_values(["student", "weekday", "time"])
+            show = show.rename(
+                columns={
+                    "start_date": t("schedule_start_date"),
+                    "end_date": t("schedule_end_date"),
+                }
+            )
 
             show_page = _render_calendar_pagination(show, "calendar_current_schedule_page")
             render_styled_dataframe(translate_df_headers(pretty_df(show_page)))
+
+            st.markdown(f"#### {t('edit_schedule')}")
+            if supports_effective_dates:
+                st.caption(t("edit_schedule_caption"))
+            else:
+                st.caption(t("schedule_effective_dates_unavailable"))
+
+            editable_schedules = schedules.copy()
+            for c in ["id", "student", "weekday", "time", "duration_minutes", "active", "start_date", "end_date"]:
+                if c not in editable_schedules.columns:
+                    editable_schedules[c] = None
+            editable_schedules["start_date"] = pd.to_datetime(editable_schedules["start_date"], errors="coerce")
+            editable_schedules["end_date"] = pd.to_datetime(editable_schedules["end_date"], errors="coerce")
+            editable_schedules = editable_schedules[
+                editable_schedules["end_date"].isna() | (editable_schedules["end_date"] >= current_schedule_cutoff)
+            ].copy()
+
+            if not supports_effective_dates:
+                st.info(t("schedule_edit_requires_migration"))
+            elif not editable_schedules.empty:
+                edit_options = editable_schedules.sort_values(["student", "weekday", "time", "id"])["id"].tolist()
+                selected_schedule_id = st.selectbox(
+                    t("schedule_id"),
+                    options=edit_options,
+                    format_func=lambda value: _format_schedule_option(editable_schedules, value),
+                    key="cal_edit_schedule_id",
+                )
+                selected_row = editable_schedules[pd.to_numeric(editable_schedules["id"], errors="coerce") == int(selected_schedule_id)].iloc[0]
+                weekday_idx = int(pd.to_numeric(selected_row.get("weekday"), errors="coerce") or 0)
+                time_parts = _parse_time_value(selected_row.get("time"))
+                duration_value = int(pd.to_numeric(selected_row.get("duration_minutes"), errors="coerce") or 60)
+                effective_default = today_local()
+                current_end_date = _safe_date_value(selected_row.get("end_date"), today_local() + datetime.timedelta(days=30)) if pd.notna(selected_row.get("end_date")) else None
+                e1, e2, e3 = st.columns(3)
+                with e1:
+                    edit_student = st.selectbox(
+                        t("select_student"),
+                        students,
+                        index=max(0, students.index(str(selected_row.get("student") or "").strip())) if str(selected_row.get("student") or "").strip() in students else 0,
+                        key=f"cal_edit_student_{selected_schedule_id}",
+                    )
+                    edit_weekday = st.selectbox(
+                        t("weekday"),
+                        list(range(7)),
+                        index=max(0, min(6, weekday_idx)),
+                        format_func=lambda x: weekday_names[int(x)],
+                        key=f"cal_edit_weekday_{selected_schedule_id}",
+                    )
+                with e2:
+                    edit_time_obj = st.time_input(
+                        t("time_hhmm"),
+                        value=time(time_parts[0], time_parts[1]),
+                        step=300,
+                        key=f"cal_edit_time_{selected_schedule_id}",
+                    )
+                    edit_duration = st.number_input(
+                        t("duration_minutes"),
+                        min_value=15,
+                        max_value=360,
+                        value=duration_value,
+                        step=15,
+                        key=f"cal_edit_duration_{selected_schedule_id}",
+                    )
+                with e3:
+                    edit_active = st.checkbox(
+                        t("active_flag"),
+                        value=bool(selected_row.get("active")),
+                        key=f"cal_edit_active_{selected_schedule_id}",
+                    )
+                    edit_effective_date = st.date_input(
+                        t("schedule_edit_effective_date"),
+                        value=effective_default,
+                        min_value=today_local(),
+                        key=f"cal_edit_effective_date_{selected_schedule_id}",
+                    )
+                    edit_use_end_date = st.checkbox(
+                        t("schedule_use_end_date"),
+                        value=current_end_date is not None,
+                        key=f"cal_edit_use_end_date_{selected_schedule_id}",
+                    )
+                    edit_end_date = st.date_input(
+                        t("schedule_end_date"),
+                        value=current_end_date or (effective_default + datetime.timedelta(days=30)),
+                        min_value=edit_effective_date,
+                        key=f"cal_edit_end_date_{selected_schedule_id}",
+                    ) if edit_use_end_date else None
+
+                if st.button(t("schedule_save_changes"), key=f"cal_btn_edit_schedule_{selected_schedule_id}", use_container_width=True):
+                    try:
+                        update_schedule_from_date(
+                            int(selected_schedule_id),
+                            student=edit_student,
+                            weekday=int(edit_weekday),
+                            time_str=edit_time_obj.strftime("%H:%M"),
+                            duration_minutes=int(edit_duration),
+                            active=bool(edit_active),
+                            effective_start_date=edit_effective_date,
+                            end_date=edit_end_date if edit_use_end_date else None,
+                        )
+                        st.success(t("schedule_updated"))
+                        st.rerun()
+                    except ValueError as exc:
+                        st.error(str(exc))
+                    except Exception as exc:
+                        st.error(f"{t('save')} failed.\n\n{exc}")
 
             st.markdown(f"#### {t('delete_scheduled_lesson')}")
             st.caption(t("delete_schedule_warning"))

@@ -42,6 +42,9 @@ from helpers.program_resource_context import (
     merge_program_topic_context_into_profile,
     render_program_topic_picker,
 )
+from helpers.generation_capabilities import SMART_TOOLS_CAPABILITIES, resolve_effective_subject
+from helpers.generation_orchestration import run_exam_generation
+from helpers.structured_text import build_text_asset, preserve_text_format
 from helpers.visual_support import enrich_exam_with_visuals
 
 
@@ -210,10 +213,126 @@ def _clean_str(value) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
+def _clean_source_text(value) -> str:
+    return preserve_text_format(value)
+
+
 def _ensure_list(value) -> list:
     if isinstance(value, list):
         return value
     return []
+
+
+def _clean_table_cell(value, *, preserve_format: bool = False) -> str:
+    if preserve_format:
+        return preserve_text_format(value)
+    return _clean_str(value)
+
+
+def _normalize_table_data(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+
+    columns = [
+        _clean_table_cell(col)
+        for col in _ensure_list(value.get("columns") or value.get("headers"))
+        if _clean_table_cell(col)
+    ]
+
+    normalized_rows: list[list[str]] = []
+    for row in _ensure_list(value.get("rows")):
+        if isinstance(row, dict):
+            if columns:
+                row_values = [_clean_table_cell(row.get(col, "")) for col in columns]
+            else:
+                row_values = [_clean_table_cell(cell) for cell in row.values()]
+        elif isinstance(row, (list, tuple)):
+            row_values = [_clean_table_cell(cell) for cell in row]
+        else:
+            row_values = [_clean_table_cell(row)]
+        row_values = [cell for cell in row_values if cell]
+        if row_values:
+            normalized_rows.append(row_values)
+
+    if not columns and normalized_rows:
+        inferred_width = max(len(row) for row in normalized_rows)
+        if inferred_width >= 2:
+            columns = [f"Column {idx}" for idx in range(1, inferred_width + 1)]
+
+    if columns:
+        width = len(columns)
+        padded_rows: list[list[str]] = []
+        for row in normalized_rows:
+            trimmed = row[:width]
+            if len(trimmed) < width:
+                trimmed = trimmed + [""] * (width - len(trimmed))
+            padded_rows.append(trimmed)
+        normalized_rows = padded_rows
+
+    if not columns or not normalized_rows:
+        return {}
+
+    return {
+        "title": _clean_table_cell(value.get("title", "")),
+        "caption": _clean_table_cell(value.get("caption", "")),
+        "columns": columns,
+        "rows": normalized_rows,
+    }
+
+
+def _extract_table_data_from_text(value) -> dict:
+    text = preserve_text_format(value)
+    if not text:
+        return {}
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return {}
+
+    pipe_lines = [line for line in lines if "|" in line]
+    if len(pipe_lines) >= 2:
+        parsed_rows: list[list[str]] = []
+        for line in pipe_lines:
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if len(cells) >= 2:
+                parsed_rows.append(cells)
+        if len(parsed_rows) >= 2:
+            first_data_row = parsed_rows[1]
+            if all(re.fullmatch(r":?-{3,}:?", cell or "") for cell in first_data_row):
+                parsed_rows.pop(1)
+            return _normalize_table_data({"columns": parsed_rows[0], "rows": parsed_rows[1:]})
+
+    tab_rows = []
+    for line in lines:
+        if "\t" not in line:
+            tab_rows = []
+            break
+        cells = [cell.strip() for cell in line.split("\t")]
+        if len(cells) < 2:
+            tab_rows = []
+            break
+        tab_rows.append(cells)
+    if len(tab_rows) >= 2:
+        return _normalize_table_data({"columns": tab_rows[0], "rows": tab_rows[1:]})
+
+    return {}
+
+
+def _section_table_data(section: dict) -> dict:
+    direct = _normalize_table_data(section.get("table_data"))
+    if direct:
+        return direct
+
+    source_text = _extract_table_data_from_text(section.get("source_text", ""))
+    if source_text:
+        return source_text
+
+    for question in _ensure_list(section.get("questions")):
+        if isinstance(question, dict):
+            nested = _normalize_table_data(question.get("table_data"))
+            if nested:
+                return nested
+    return {}
 
 
 def _dedupe_keep_order(values: list[str]) -> list[str]:
@@ -528,8 +647,8 @@ def _normalize_sentence_for_quality(value) -> str:
     return text.casefold().strip()
 
 
-def _sanitize_language_text(value, lang_code: str, *, subject_group: str) -> str:
-    text = _clean_str(value)
+def _sanitize_language_text(value, lang_code: str, *, subject_group: str, preserve_format: bool = False) -> str:
+    text = preserve_text_format(value) if preserve_format else _clean_str(value)
     if not text or subject_group != "language":
         return text
 
@@ -538,7 +657,10 @@ def _sanitize_language_text(value, lang_code: str, *, subject_group: str) -> str
 
     text = re.sub(r"[\u3400-\u4DBF\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]+", "", text)
     text = re.sub(r"\s+([,;:.!?])", r"\1", text)
-    text = re.sub(r"\s+", " ", text).strip()
+    if preserve_format:
+        text = "\n".join(re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n")).strip()
+    else:
+        text = re.sub(r"\s+", " ", text).strip()
     return text
     
 
@@ -565,15 +687,60 @@ def _sanitize_question_value(question, lang_code: str, *, subject_group: str):
     for key in ("answer", "correct_answer", "correct"):
         if key in cleaned and isinstance(cleaned.get(key), str):
             cleaned[key] = _strip_leading_numbering(cleaned[key])
+    if "table_data" in cleaned:
+        cleaned["table_data"] = _sanitize_table_data(cleaned.get("table_data"), lang_code, subject_group=subject_group)
     return cleaned
+
+
+def _sanitize_table_data(table_data, lang_code: str, *, subject_group: str) -> dict:
+    normalized = _normalize_table_data(table_data)
+    if not normalized:
+        return {}
+
+    return {
+        "title": _sanitize_language_text(
+            normalized.get("title", ""),
+            lang_code,
+            subject_group=subject_group,
+            preserve_format=True,
+        ),
+        "caption": _sanitize_language_text(
+            normalized.get("caption", ""),
+            lang_code,
+            subject_group=subject_group,
+            preserve_format=True,
+        ),
+        "columns": [
+            _sanitize_language_text(col, lang_code, subject_group=subject_group)
+            for col in normalized.get("columns", [])
+        ],
+        "rows": [
+            [
+                _sanitize_language_text(cell, lang_code, subject_group=subject_group, preserve_format=True)
+                for cell in row
+            ]
+            for row in normalized.get("rows", [])
+        ],
+    }
 
 
 def _sanitize_exam_section(section: dict, ak_section: dict, *, student_lang: str, plan_lang: str, subject_group: str) -> tuple[dict, dict]:
     section = dict(section or {})
     ak_section = dict(ak_section or {})
 
-    for key in ("title", "instructions", "source_text"):
+    for key in ("title", "instructions"):
         section[key] = _sanitize_language_text(section.get(key, ""), student_lang, subject_group=subject_group)
+    section["source_text"] = _sanitize_language_text(
+        section.get("source_text", ""),
+        student_lang,
+        subject_group=subject_group,
+        preserve_format=True,
+    )
+    section["table_data"] = _sanitize_table_data(
+        section.get("table_data"),
+        student_lang,
+        subject_group=subject_group,
+    )
 
     section["questions"] = [
         _sanitize_question_value(question, student_lang, subject_group=subject_group)
@@ -601,6 +768,9 @@ def _sanitize_exam_section(section: dict, ak_section: dict, *, student_lang: str
         section["questions"] = kept_questions
         ak_section["answers"] = kept_answers
 
+    if section.get("type") == "table_interpretation" and not section.get("table_data"):
+        section["table_data"] = _section_table_data(section)
+
     return section, ak_section
 
 
@@ -622,6 +792,17 @@ def _exam_quality_issues(exam_data: dict, answer_key: dict) -> list[str]:
                 nonempty_answers = sum(bool(_clean_str(answer)) for answer in answers)
                 if nonempty_answers < len(questions):
                     issues.append(f"section {idx + 1} reading_comprehension needs one usable answer per question")
+
+        if sec_type == "table_interpretation":
+            table_data = _section_table_data(section)
+            if not table_data:
+                issues.append(f"section {idx + 1} table_interpretation needs table_data")
+            elif len(table_data.get("columns") or []) < 2 or len(table_data.get("rows") or []) < 2:
+                issues.append(f"section {idx + 1} table_interpretation needs at least 2 columns and 2 rows")
+            if questions:
+                nonempty_answers = sum(bool(_clean_str(answer)) for answer in answers)
+                if nonempty_answers < len(questions):
+                    issues.append(f"section {idx + 1} table_interpretation needs one usable answer per question")
 
         if sec_type == "error_correction" and len(questions) < 3:
             issues.append(f"section {idx + 1} error_correction needs at least 3 valid items")
@@ -891,7 +1072,10 @@ def normalize_exam_output(raw: dict) -> tuple[dict, dict]:
             "type": _clean_str(sec.get("type", "")),
             "title": _clean_str(sec.get("title", "")),
             "instructions": _clean_str(sec.get("instructions", "")),
-            "source_text": _clean_str(sec.get("source_text", "")),
+            "source_text": _clean_source_text(sec.get("source_text", "")),
+            "text_kind": _clean_str(sec.get("text_kind", "")),
+            "text_blocks": sec.get("text_blocks") if isinstance(sec.get("text_blocks"), list) else [],
+            "table_data": _normalize_table_data(sec.get("table_data")),
             "questions": [],
         }
 
@@ -927,6 +1111,17 @@ def normalize_exam_output(raw: dict) -> tuple[dict, dict]:
             plan_lang=plan_lang,
             subject_group=subject_group,
         )
+        if section.get("source_text"):
+            text_asset = build_text_asset(
+                section.get("source_text"),
+                text_kind="",
+                blocks=[],
+            )
+            section["text_title"] = text_asset.get("title", "") or _clean_str(section.get("text_title", ""))
+            section["text_kind"] = text_asset.get("text_kind", "")
+            section["text_blocks"] = text_asset.get("blocks", [])
+        if section.get("type") == "table_interpretation" and not section.get("table_data"):
+            section["table_data"] = _section_table_data(section)
 
         if section["questions"]:
             exam_data["sections"].append(section)
@@ -1020,8 +1215,10 @@ def _section_type_rules(exercise_type: str, subject_group: str = "") -> str:
             "Provide concise model working in 'answers'."
         ),
         "table_interpretation": (
-            "Include a small data table inside the question text when needed. "
-            "Questions should ask students to read, compare, calculate, or infer from tabulated data."
+            "Include a section-level 'table_data' object with 'columns' and 'rows'. "
+            "The table must be complete, readable, and sufficient to answer every question. "
+            "Questions should ask students to read, compare, calculate, or infer from that tabulated data. "
+            "Do not refer to a table unless the table_data object is present."
         ),
         "word_problems": (
             "Each question should be a realistic word problem with clear quantities and a solvable task. "
@@ -1231,6 +1428,12 @@ def _exam_quality_guardrails() -> str:
         "- Ensure answers are complete, correct, and directly match the questions.\n"
         "- Answers must be plain text per item, not serialized Python lists or quoted arrays.\n"
         "- Only include 'source_text' when a passage or source materially improves that section.\n"
+        "- For table_interpretation, use 'table_data' as the primary data source instead of hiding the table inside question text.\n"
+        "- When source_text is needed, choose its form deliberately: passage, article, essay, email, letter, message, or dialogue.\n"
+        "- Preserve clean line breaks inside source_text so titles, headers, dialogue turns, paragraphs, closings, and signatures are not merged together.\n"
+        "- For emails/letters/messages, put headers, greeting, body paragraphs, closing, and signature on separate lines.\n"
+        "- For dialogues, use one speaker turn per line, e.g. \"Ana: ...\".\n"
+        "- If the source has a title, keep the title separate from the first paragraph.\n"
         "- Do not force language-only exercises into non-language subjects unless pedagogically justified."
     )
 
@@ -1341,6 +1544,17 @@ Required JSON structure:
       "title": "Part N: Section Title",
       "instructions": "Section-specific instructions",
       "source_text": "optional reading passage or source text",
+      "text_kind": "passage | article | essay | email | letter | message | dialogue",
+      "text_blocks": [],
+      "table_data": {
+        "title": "optional table title",
+        "caption": "optional table caption",
+        "columns": ["Column 1", "Column 2"],
+        "rows": [
+          ["row 1 value 1", "row 1 value 2"],
+          ["row 2 value 1", "row 2 value 2"]
+        ]
+      },
       "questions": [
       ],
       "answers": [
@@ -1432,16 +1646,18 @@ def generate_exam_with_limit(
     exercise_types: list[str],
     instructions: str = "",
     student_profile: dict | None = None,
+    *,
+    enforce_usage_limits: bool = True,
 ) -> tuple[dict, dict, str | None]:
     from helpers.quick_exam_storage import get_ai_exam_usage_status, log_exam_ai_usage
     from services.permissions_service import can_use_ai_tool, increment_usage
 
-    if not can_use_ai_tool():
+    if enforce_usage_limits and not can_use_ai_tool():
         return {}, {}, t("ai_limit_reached") if "ai_limit_reached" in I18N.get(get_plan_language(), {}) else "AI plan limit reached."
 
-    usage = get_ai_exam_usage_status()
+    usage = get_ai_exam_usage_status() if enforce_usage_limits else {"remaining_today": 999, "cooldown_ok": True, "seconds_left": 0}
 
-    if usage["remaining_today"] <= 0:
+    if enforce_usage_limits and usage["remaining_today"] <= 0:
         lang = get_plan_language()
         msg = (
             t("ai_limit_reached")
@@ -1450,7 +1666,7 @@ def generate_exam_with_limit(
         )
         return {}, {}, msg
 
-    if not usage["cooldown_ok"]:
+    if enforce_usage_limits and not usage["cooldown_ok"]:
         return {}, {}, f"{t('ai_cooldown_active')} ({usage['seconds_left']}s)"
 
     provider_order = _lp().get_ai_provider_order()
@@ -1476,7 +1692,8 @@ def generate_exam_with_limit(
         provider = str(exam_data.pop("_ai_provider", "") or "") if isinstance(exam_data, dict) else ""
 
         log_exam_ai_usage("success", {"subject": subject, "topic": topic, "provider": provider})
-        increment_usage(None, "ai_generations")
+        if enforce_usage_limits:
+            increment_usage(None, "ai_generations")
         return exam_data, answer_key, None
 
     except Exception as e:
@@ -1539,7 +1756,7 @@ def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
                 t("other_subject_label"), key="exam_other_subject"
             ).strip()
 
-        effective_subject = other_subject_name if subject == "other" and other_subject_name else subject
+        effective_subject = resolve_effective_subject(subject, other_subject_name)
         picked_program_topic_context = render_program_topic_picker(
             state_prefix="quick_exam",
             subject=effective_subject,
@@ -1615,15 +1832,9 @@ def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
                 ),
             )
 
-            if program_topic_context:
-                available_types = (
-                    recommended_types + [item for item in all_types if item not in recommended_types]
-                    if (show_all or subject_group == "other")
-                    else recommended_types
-                )
-            else:
-                available_types = all_types if (show_all or subject_group == "other") else recommended_types
-            available_types = _dedupe_keep_order(available_types)
+            available_types = _dedupe_keep_order(
+                recommended_types + [item for item in all_types if item not in recommended_types]
+            )
 
             current_selected = st.session_state.get("exam_exercise_types")
             if not isinstance(current_selected, list) or not current_selected:
@@ -1773,8 +1984,10 @@ def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
                     selected_types = selected_types[:max_recommended_sections]
 
                 with st.spinner(t("generating")):
-                    exam_data, answer_key, warning = generate_exam_with_limit(
-                        subject=effective_subject,
+                    generation_result = run_exam_generation(
+                        capabilities=SMART_TOOLS_CAPABILITIES,
+                        subject=subject,
+                        custom_subject_name=other_subject_name,
                         learner_stage=learner_stage,
                         level_or_band=level_or_band,
                         topic=effective_topic,
@@ -1784,6 +1997,11 @@ def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
                         instructions=instructions,
                         student_profile=student_profile,
                     )
+                    exam_data = generation_result["exam_data"]
+                    answer_key = generation_result["answer_key"]
+                    warning = generation_result["warning"]
+                    selected_types = generation_result["exercise_types"]
+                    effective_subject = generation_result["subject"]
 
                     debug_baseline_exam = {}
                     debug_baseline_answer_key = {}
@@ -1818,12 +2036,6 @@ def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
                         else "Exam generation failed. Please try again."
                     )
                 else:
-                    exam_data = enrich_exam_with_visuals(
-                        exam_data,
-                        subject=effective_subject,
-                        learner_stage=learner_stage,
-                        topic=effective_topic,
-                    )
                     st.session_state["exam_result"] = exam_data
                     st.session_state["exam_answer_key"] = answer_key
                     st.session_state["exam_kept"] = False

@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import os
 import re
 import html as _html
@@ -1205,11 +1206,24 @@ def recalculate_package_dates(student: Optional[str] = None) -> dict:
 
     from helpers.package_lang_lookups import _is_free_note, _units_multiplier
 
-    classes["units_row"] = classes.apply(
-        lambda row: 0
-        if _is_free_note(row.get("note", ""))
-        else int(row.get("number_of_lesson", 0)) * int(_units_multiplier(row.get("modality", ""))),
-        axis=1,
+    # Supabase result shaping can occasionally surface duplicate columns.
+    # Drop duplicates before deriving per-row units so the assignment stays 1-D.
+    classes = classes.loc[:, ~classes.columns.duplicated()].copy()
+
+    note_col = classes["note"] if "note" in classes.columns else ""
+    lesson_count_col = (
+        pd.to_numeric(classes["number_of_lesson"], errors="coerce").fillna(0)
+        if "number_of_lesson" in classes.columns
+        else 0
+    )
+    modality_col = classes["modality"].fillna("").astype(str) if "modality" in classes.columns else ""
+
+    free_mask = pd.Series(note_col).astype(str).apply(_is_free_note)
+    units_multiplier = pd.Series(modality_col).astype(str).apply(_units_multiplier)
+    classes["units_row"] = np.where(
+        free_mask,
+        0,
+        lesson_count_col.astype(int) * units_multiplier.astype(int),
     )
 
     updates_to_apply: list[tuple[int, dict]] = []

@@ -21,6 +21,8 @@ _SKIP_KEYS = {
     "avatar_url",
     "image_url",
     "image",
+    "text_blocks",
+    "text_kind",
 }
 
 

@@ -28,6 +28,7 @@ from helpers.student_report import (
     build_report_whatsapp_url,
     build_report_email_url,
 )
+from helpers.structured_text import text_asset_to_markdown
 from helpers.dashboard import rebuild_dashboard
 from helpers.empty_states import render_empty_state
 from helpers.teacher_student_integration import (
@@ -2572,7 +2573,7 @@ def _render_teacher_review_requests(
                         source_text = str(item.get("source_text") or "").strip()
                         if source_text:
                             with st.expander(t("reading_passage"), expanded=False):
-                                st.write(source_text)
+                                st.markdown(text_asset_to_markdown(source_text), unsafe_allow_html=True)
                     prompt = str(item.get("prompt") or "—")
                     student_answer = str(item.get("student_answer") or "").strip() or "—"
                     correct_answer = str(item.get("correct_answer") or "").strip() or "—"
@@ -2628,6 +2629,8 @@ def _render_teacher_review_requests(
 
 
 def render_students():
+    st.session_state["_resource_bulk_assign_dialog_rendered_token_this_run"] = None
+    st.session_state["_learning_program_assign_dialog_rendered_program_this_run"] = None
     page_header(t("students"))
     st.caption(t("add_and_manage_students"))
 

@@ -599,10 +599,11 @@ def _open_video_library_record(
     row: dict,
     *,
     open_in_files: bool = False,
+    open_in_viewer_only: bool = False,
     require_signup: bool = False,
     expand_assign: bool = False,
 ) -> None:
-    st.session_state["_resource_viewer_return_page"] = str(st.session_state.get("page") or "resources").strip()
+    st.session_state["_resource_viewer_return_page"] = "explore" if open_in_viewer_only else str(st.session_state.get("page") or "resources").strip()
     clear_smart_tool_result_state(clear_selection=True)
     clear_open_resource_previews(except_kind="video", clear_dialogs=not expand_assign)
     if not expand_assign:
@@ -625,8 +626,10 @@ def _open_video_library_record(
         row,
         "video",
         "own" if current_user_id and current_user_id == row_owner_id else "community",
-        surface="home_preview" if open_in_files else "resources",
+        surface="explore" if open_in_viewer_only else ("home_preview" if open_in_files else "resources"),
     )
+    if open_in_viewer_only:
+        st.rerun()
     if open_in_files:
         target_main_tab = t("community_library") if current_user_id and current_user_id != row_owner_id else t("my_videos")
         st.session_state["_resources_target_main_tab"] = target_main_tab
@@ -684,6 +687,7 @@ def render_video_library_cards(
     prefix: str,
     show_author: bool = False,
     open_in_files: bool = False,
+    open_in_viewer_only: bool = False,
     require_signup: bool = False,
     allow_visibility_toggle: bool = False,
     allow_archive_toggle: bool = False,
@@ -710,7 +714,7 @@ def render_video_library_cards(
                 action_cols = st.columns([1, 1, 1, 1, 1] if show_delete_control else ([1, 1, 1, 1] if show_owner_controls else [1, 1]))
                 with action_cols[0]:
                     if st.button(t("watch_video"), key=f"{prefix}_watch_{row_id}_{idx}_{col_idx}", use_container_width=True):
-                        _open_video_library_record(row, open_in_files=open_in_files, require_signup=False, expand_assign=False)
+                        _open_video_library_record(row, open_in_files=open_in_files, open_in_viewer_only=open_in_viewer_only, require_signup=False, expand_assign=False)
                 with action_cols[1]:
                     if st.button(
                         t("assign_to_student"),
@@ -719,9 +723,9 @@ def render_video_library_cards(
                         disabled=is_archived_status(row.get("status")),
                     ):
                         if require_signup:
-                            _open_video_library_record(row, open_in_files=open_in_files, require_signup=True, expand_assign=True)
+                            _open_video_library_record(row, open_in_files=open_in_files, open_in_viewer_only=open_in_viewer_only, require_signup=True, expand_assign=True)
                         else:
-                            open_resource_bulk_assign_dialog("video", row)
+                            open_resource_bulk_assign_dialog("video", row, dialog_scope=prefix)
                 if show_owner_controls:
                     with action_cols[2]:
                         if allow_visibility_toggle and is_owner and str(row.get("id") or "").strip() and not is_archived_status(row.get("status")):
@@ -789,6 +793,7 @@ def render_video_detail(
     action_key_prefix: str,
     allow_assign: bool = True,
     assign_expanded: bool = False,
+    signup_required_actions: bool = False,
 ) -> None:
     video = _normalize_video_row(video)
     if not video:
@@ -813,18 +818,28 @@ def render_video_detail(
     if video.get("description"):
         st.caption(video.get("description"))
     if allow_assign:
-        with st.expander(t("assign_to_student"), expanded=assign_expanded):
-            from helpers.teacher_student_integration import render_assignment_panel_for_video
+        if signup_required_actions:
+            st.caption(t("explore_resource_action_signup_note"))
+            if st.button(t("assign_to_student"), key=f"{action_key_prefix}_assign_signup", use_container_width=True):
+                st.session_state["_post_signup_open_panel"] = "files"
+                st.session_state["_post_signup_open_tab"] = "community_library"
+                st.session_state["_explore_go_signup"] = True
+                st.session_state["_show_signup_invite_dialog"] = True
+                st.session_state["explore_teaching_resources_keep_open"] = True
+                st.rerun()
+        else:
+            with st.expander(t("assign_to_student"), expanded=assign_expanded):
+                from helpers.teacher_student_integration import render_assignment_panel_for_video
 
-            render_assignment_panel_for_video(
-                prefix=f"{action_key_prefix}_assign_video",
-                video=video,
-                subject=str(video.get("subject") or ""),
-                topic=str(video.get("topic") or video.get("title") or ""),
-                learner_stage=str(video.get("learner_stage") or ""),
-                level_or_band=str(video.get("level_or_band") or ""),
-                source_record_id=video.get("id"),
-            )
+                render_assignment_panel_for_video(
+                    prefix=f"{action_key_prefix}_assign_video",
+                    video=video,
+                    subject=str(video.get("subject") or ""),
+                    topic=str(video.get("topic") or video.get("title") or ""),
+                    learner_stage=str(video.get("learner_stage") or ""),
+                    level_or_band=str(video.get("level_or_band") or ""),
+                    source_record_id=video.get("id"),
+                )
     is_owner = str(video.get("user_id") or "").strip() == str(get_current_user_id() or "").strip()
     if is_owner:
         linked_contexts = load_video_topic_links(video.get("id"))

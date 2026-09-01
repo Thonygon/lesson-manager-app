@@ -17,6 +17,7 @@ from helpers.generation_guidance import (
 from helpers.program_resource_context import build_program_topic_prompt_block
 from helpers.student_personalization import build_student_profile_prompt_block
 from helpers.visual_support import enrich_worksheet_with_visuals
+from helpers.structured_text import build_text_asset, preserve_text_format
 
 AI_WORKSHEET_DAILY_LIMIT = 3
 AI_WORKSHEET_COOLDOWN_SECONDS = 10
@@ -76,8 +77,8 @@ def _normalize_sentence_for_quality(value) -> str:
     return text.casefold().strip()
 
 
-def _sanitize_language_text(value, lang_code: str, *, subject_group: str) -> str:
-    text = _clean_str(value)
+def _sanitize_language_text(value, lang_code: str, *, subject_group: str, preserve_format: bool = False) -> str:
+    text = preserve_text_format(value) if preserve_format else _clean_str(value)
     if not text or subject_group != "language":
         return text
 
@@ -86,7 +87,10 @@ def _sanitize_language_text(value, lang_code: str, *, subject_group: str) -> str
 
     text = re.sub(r"[\u3400-\u4DBF\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]+", "", text)
     text = re.sub(r"\s+([,;:.!?])", r"\1", text)
-    text = re.sub(r"\s+", " ", text).strip()
+    if preserve_format:
+        text = "\n".join(re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n")).strip()
+    else:
+        text = re.sub(r"\s+", " ", text).strip()
     return text
 
 
@@ -108,8 +112,10 @@ def _sanitize_student_material_fields(ws: dict) -> dict:
     subject_group = _subject_group(out.get("subject", ""))
     lang_code = out.get("student_material_language", "")
 
-    for key in ("instructions", "reading_passage", "source_text", "text", "title", "topic"):
+    for key in ("instructions", "title", "topic"):
         out[key] = _sanitize_language_text(out.get(key, ""), lang_code, subject_group=subject_group)
+    for key in ("reading_passage", "source_text", "text"):
+        out[key] = _sanitize_language_text(out.get(key, ""), lang_code, subject_group=subject_group, preserve_format=True)
 
     out["questions"] = [
         _sanitize_language_text(item, lang_code, subject_group=subject_group)
@@ -506,7 +512,12 @@ def normalize_worksheet_output(raw: dict, *, include_visuals: bool = True) -> di
         "text",
     ]
     for k in str_keys:
-        out[k] = _clean_str(out.get(k, ""))
+        if k in {"reading_passage", "source_text", "text"}:
+            out[k] = preserve_text_format(out.get(k, ""))
+        else:
+            out[k] = _clean_str(out.get(k, ""))
+    out["text_kind"] = _clean_str(out.get("text_kind", ""))
+    out["text_blocks"] = out.get("text_blocks") if isinstance(out.get("text_blocks"), list) else []
 
     # Normalize answer_key per-line instead of collapsing all whitespace;
     # _clean_str would destroy newlines that separate individual answers.
@@ -628,6 +639,17 @@ def normalize_worksheet_output(raw: dict, *, include_visuals: bool = True) -> di
             out["instructions"] = _default_instruction_for_worksheet_type(ws_type)
 
     out = _sanitize_student_material_fields(out)
+    source_for_asset = out.get("reading_passage") if ws_type == "reading_comprehension" else out.get("source_text")
+    if source_for_asset:
+        asset = build_text_asset(
+            source_for_asset,
+            title=out.get("text_title") or "",
+            text_kind="",
+            blocks=[],
+        )
+        out["text_title"] = asset.get("title", "") or _clean_str(out.get("text_title", ""))
+        out["text_kind"] = asset.get("text_kind", "")
+        out["text_blocks"] = asset.get("blocks", [])
     out = _repair_matching_payload(out)
     out = _repair_worksheet_answer_key(out)
     out = _prune_error_correction_items(out)
@@ -864,6 +886,13 @@ Design principles:
 - Avoid outputs that would leave the final page half empty.
 - Prefer fewer, better-distributed items over too many short items.
 - For short_answer and reading_comprehension, create questions that reasonably allow student writing space below each item.
+- When a worksheet needs a reading_passage or source_text, choose the text form deliberately:
+  - passage, article, essay, email, letter, message, or dialogue.
+  - Put that value in "text_kind".
+  - Preserve clean line breaks in reading_passage/source_text so the student version looks publication-ready.
+  - For emails/letters/messages, put headers, greeting, body paragraphs, closing, and signature on separate lines.
+  - For dialogues, use one speaker turn per line, e.g. "Ana: ...".
+  - For articles/essays/passages, keep the title separate from the first paragraph and separate paragraphs with line breaks.
 
 Profile quality guidance:
 {_worksheet_profile_guidance(payload)}
@@ -885,6 +914,8 @@ Required JSON structure:
   "plan_language": "string",
   "student_material_language": "string",
   "instructions": "string",
+  "text_kind": "passage | article | essay | email | letter | message | dialogue",
+  "text_blocks": [],
   "reading_passage": "string",
   "source_text": "string",
   "questions": ["string", ...],
@@ -973,21 +1004,23 @@ def generate_worksheet_with_limit(
     worksheet_type: str,
     topic: str,
     student_profile: dict | None = None,
+    *,
+    enforce_usage_limits: bool = True,
 ) -> tuple[dict, str | None]:
     from helpers.worksheet_storage import get_ai_worksheet_usage_status, log_ai_usage
     from services.permissions_service import can_use_ai_tool, increment_usage
 
-    if not can_use_ai_tool():
+    if enforce_usage_limits and not can_use_ai_tool():
         return {}, t("ai_limit_reached")
 
-    usage = get_ai_worksheet_usage_status()
+    usage = get_ai_worksheet_usage_status() if enforce_usage_limits else {"remaining_today": 999, "cooldown_ok": True, "seconds_left": 0}
 
-    if usage["remaining_today"] <= 0:
+    if enforce_usage_limits and usage["remaining_today"] <= 0:
         lang = get_plan_language()
         msg = t("ai_limit_reached") if "ai_limit_reached" in I18N.get(lang, {}) else "AI daily limit reached."
         return {}, msg
 
-    if not usage["cooldown_ok"]:
+    if enforce_usage_limits and not usage["cooldown_ok"]:
         return {}, f"AI cooldown active. Please wait {usage['seconds_left']} seconds."
 
     provider_order = _lp().get_ai_provider_order()
@@ -1019,7 +1052,8 @@ def generate_worksheet_with_limit(
             status="success",
             meta={"subject": subject, "topic": topic, "worksheet_type": worksheet_type, "provider": provider},
         )
-        increment_usage(None, "ai_generations")
+        if enforce_usage_limits:
+            increment_usage(None, "ai_generations")
         return ws, None
 
     except Exception as e:

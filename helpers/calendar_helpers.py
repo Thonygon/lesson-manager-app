@@ -85,7 +85,7 @@ def build_calendar_events(start_day: date, end_day: date, tz_name: str | None = 
     # Recurring schedules
     # -------------------------
     if schedules is not None and not schedules.empty:
-        for c in ["student", "weekday", "time", "duration_minutes", "active"]:
+        for c in ["student", "weekday", "time", "duration_minutes", "active", "start_date", "end_date"]:
             if c not in schedules.columns:
                 schedules[c] = None
 
@@ -106,6 +106,14 @@ def build_calendar_events(start_day: date, end_day: date, tz_name: str | None = 
 
                 h, m = _parse_time_value(row.get("time"))
                 source_dt = _dt(cur.year, cur.month, cur.day, h, m, tzinfo=source_tz)
+                active_start = pd.to_datetime(row.get("start_date"), errors="coerce")
+                active_end = pd.to_datetime(row.get("end_date"), errors="coerce")
+                if pd.notna(active_start) and source_dt.date() < active_start.date():
+                    cur += timedelta(days=1)
+                    continue
+                if pd.notna(active_end) and source_dt.date() > active_end.date():
+                    cur += timedelta(days=1)
+                    continue
                 dt = source_dt.astimezone(current_tz).replace(tzinfo=None)
 
                 if not (start_day <= dt.date() <= end_day):

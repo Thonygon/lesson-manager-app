@@ -104,6 +104,10 @@ def render_add_payment():
 
 def _render_add_payment_form():
     """Add payment form + payment editor (original logic)."""
+    if st.session_state.get("payment_saved"):
+        st.success(t("saved"))
+        st.session_state.pop("payment_saved", None)
+
     render_pricing_editor()
 
     students = load_students()
@@ -221,6 +225,8 @@ def _render_add_payment_form():
                 normalized_note="",
                 currency=pay_currency,
             )
+            st.session_state["payment_saved"] = True
+            st.rerun()
 
         # ----------------------------
         # PAYMENT EDITOR (BULK + DELETE BY ID INSIDE)

@@ -49,6 +49,8 @@ from helpers.resource_gallery import (
     render_gallery_card_html,
 )
 from helpers.resource_deletion import render_archive_delete_button, render_archive_delete_confirmation
+from helpers.generation_capabilities import SMART_TOOLS_CAPABILITIES, resolve_effective_subject
+from helpers.generation_orchestration import run_lesson_plan_generation
 from helpers.recommendation_models import log_teacher_material_open
 from helpers.visual_support import generate_resource_cover_image, preserve_generated_media_fields
 from reportlab.lib.enums import TA_CENTER
@@ -889,10 +891,11 @@ def _open_plan_library_record(
     row: dict,
     *,
     open_in_files: bool = False,
+    open_in_viewer_only: bool = False,
     require_signup: bool = False,
     expand_assign: bool = False,
 ) -> None:
-    st.session_state["_resource_viewer_return_page"] = str(st.session_state.get("page") or "resources").strip()
+    st.session_state["_resource_viewer_return_page"] = "explore" if open_in_viewer_only else str(st.session_state.get("page") or "resources").strip()
     clear_smart_tool_result_state(clear_selection=True)
     clear_open_resource_previews(except_kind="plan", clear_dialogs=not expand_assign)
     if not expand_assign:
@@ -929,8 +932,11 @@ def _open_plan_library_record(
         row,
         "plan",
         "own" if current_user_id and current_user_id == row_owner_id else "community",
-        surface="home_preview" if open_in_files else "resources",
+        surface="explore" if open_in_viewer_only else ("home_preview" if open_in_files else "resources"),
     )
+
+    if open_in_viewer_only:
+        st.rerun()
 
     if open_in_files:
         target_main_tab = t("community_library") if current_user_id and current_user_id != row_owner_id else t("my_plans")
@@ -955,6 +961,7 @@ def render_plan_library_cards(
     prefix: str,
     show_author: bool = False,
     open_in_files: bool = False,
+    open_in_viewer_only: bool = False,
     require_signup: bool = False,
     allow_visibility_toggle: bool = False,
     allow_archive_toggle: bool = False,
@@ -1048,6 +1055,7 @@ def render_plan_library_cards(
                         _open_plan_library_record(
                             row,
                             open_in_files=open_in_files,
+                            open_in_viewer_only=open_in_viewer_only,
                             require_signup=False,
                             expand_assign=False,
                         )
@@ -1061,11 +1069,12 @@ def render_plan_library_cards(
                                 _open_plan_library_record(
                                     row,
                                     open_in_files=open_in_files,
+                                    open_in_viewer_only=open_in_viewer_only,
                                     require_signup=True,
                                     expand_assign=True,
                                 )
                             else:
-                                open_resource_bulk_assign_dialog("plan", row)
+                                open_resource_bulk_assign_dialog("plan", row, dialog_scope=prefix)
                 if show_owner_controls:
                     with action_cols[2]:
                         if allow_visibility_toggle and is_owner and str(plan_id or "").strip() and not is_archived:
@@ -1403,26 +1412,46 @@ def render_quick_lesson_plan_result(
                 st.markdown(f"**{label}**")
                 _render_material_body(label, value, style, key, action_key_prefix)
 
-    pdf_bytes = build_lesson_plan_pdf_bytes(
-        plan=plan,
-        subject=subject,
-        learner_stage=learner_stage,
-        level_or_band=level_or_band,
-        lesson_purpose=lesson_purpose,
-        topic=topic,
-    )
     safe_title = _safe_title_from_plan(plan)
+    pdf_bytes = None
+    docx_bytes = None
+    export_error_reference = ""
+    try:
+        pdf_bytes = build_lesson_plan_pdf_bytes(
+            plan=plan,
+            subject=subject,
+            learner_stage=learner_stage,
+            level_or_band=level_or_band,
+            lesson_purpose=lesson_purpose,
+            topic=topic,
+        )
+        from helpers.docx_generator import generate_docx_lesson_plan
 
-    # Word export
-    from helpers.docx_generator import generate_docx_lesson_plan
-    docx_bytes = generate_docx_lesson_plan(
-        plan,
-        subject=subject,
-        topic=topic,
-        learner_stage=learner_stage,
-        level_or_band=level_or_band,
-        lesson_purpose=lesson_purpose,
-    )
+        docx_bytes = generate_docx_lesson_plan(
+            plan,
+            subject=subject,
+            topic=topic,
+            learner_stage=learner_stage,
+            level_or_band=level_or_band,
+            lesson_purpose=lesson_purpose,
+        )
+    except Exception as exc:
+        from services.operational_diagnostics_service import capture_exception, short_event_reference
+
+        export_error_reference = short_event_reference(
+            capture_exception(
+                exc,
+                component="helpers.planner_storage",
+                operation="render_lesson_plan_exports",
+                page_key="explore" if signup_required_actions else "resources",
+                user_face="anonymous" if signup_required_actions else "",
+                context={
+                    "resource_type": "plan",
+                    "resource_id": str(resource_record_id or ""),
+                    "fallback_used": True,
+                },
+            )
+        )
 
     if comparison_mode:
         return
@@ -1495,6 +1524,9 @@ def render_quick_lesson_plan_result(
             )
 
     if read_only:
+        if export_error_reference:
+            st.warning(t("data_load_temporarily_unavailable"))
+            st.caption(t("operational_diagnostics_user_reference", reference=export_error_reference))
         if signup_required_actions:
             st.caption(t("explore_resource_action_signup_note"))
             if st.button(
@@ -1514,37 +1546,39 @@ def render_quick_lesson_plan_result(
 
         dc1, dc2 = st.columns(2)
         with dc1:
-            st.download_button(
-                label=t("download_pdf"),
-                data=pdf_bytes,
-                file_name=f"{safe_title}.pdf",
-                mime="application/pdf",
-                key=f"{action_key_prefix}_download_pdf",
-                use_container_width=True,
-            )
-        with dc2:
-            if signup_required_actions:
-                if st.button(
-                    t("download_word"),
-                    key=f"{action_key_prefix}_download_docx_signup",
-                    use_container_width=True,
-                ):
-                    st.session_state["_explore_go_signup"] = True
-                    st.session_state["_show_signup_invite_dialog"] = True
-                    if str(action_key_prefix).startswith("explore_selected"):
-                        st.session_state["explore_teaching_resources_keep_open"] = True
-                    elif str(action_key_prefix).startswith("explore_"):
-                        st.session_state["explore_ai_tools_keep_open"] = True
-                    st.rerun()
-            else:
+            if pdf_bytes:
                 st.download_button(
-                    label=t("download_word"),
-                    data=docx_bytes,
-                    file_name=f"{safe_title}.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    key=f"{action_key_prefix}_download_docx",
+                    label=t("download_pdf"),
+                    data=pdf_bytes,
+                    file_name=f"{safe_title}.pdf",
+                    mime="application/pdf",
+                    key=f"{action_key_prefix}_download_pdf",
                     use_container_width=True,
                 )
+        with dc2:
+            if docx_bytes:
+                if signup_required_actions:
+                    if st.button(
+                        t("download_word"),
+                        key=f"{action_key_prefix}_download_docx_signup",
+                        use_container_width=True,
+                    ):
+                        st.session_state["_explore_go_signup"] = True
+                        st.session_state["_show_signup_invite_dialog"] = True
+                        if str(action_key_prefix).startswith("explore_selected"):
+                            st.session_state["explore_teaching_resources_keep_open"] = True
+                        elif str(action_key_prefix).startswith("explore_"):
+                            st.session_state["explore_ai_tools_keep_open"] = True
+                        st.rerun()
+                else:
+                    st.download_button(
+                        label=t("download_word"),
+                        data=docx_bytes,
+                        file_name=f"{safe_title}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key=f"{action_key_prefix}_download_docx",
+                        use_container_width=True,
+                    )
         return
 
     if resolved_mode == "template":
@@ -1572,45 +1606,49 @@ def render_quick_lesson_plan_result(
         _render_plan_assignment()
         a1, a2 = st.columns(2)
         with a1:
-            st.download_button(
-                label=t("download_pdf"),
-                data=pdf_bytes,
-                file_name=f"{safe_title}.pdf",
-                mime="application/pdf",
-                key=f"{action_key_prefix}_download_pdf_inline",
-                use_container_width=True,
-            )
+            if pdf_bytes:
+                st.download_button(
+                    label=t("download_pdf"),
+                    data=pdf_bytes,
+                    file_name=f"{safe_title}.pdf",
+                    mime="application/pdf",
+                    key=f"{action_key_prefix}_download_pdf_inline",
+                    use_container_width=True,
+                )
         with a2:
-            st.download_button(
-                label=t("download_word"),
-                data=docx_bytes,
-                file_name=f"{safe_title}.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key=f"{action_key_prefix}_download_docx_inline",
-                use_container_width=True,
-            )
+            if docx_bytes:
+                st.download_button(
+                    label=t("download_word"),
+                    data=docx_bytes,
+                    file_name=f"{safe_title}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key=f"{action_key_prefix}_download_docx_inline",
+                    use_container_width=True,
+                )
     else:
         _render_plan_editor()
         _render_plan_assignment()
         a1, a2 = st.columns(2)
         with a1:
-            st.download_button(
-                label=t("download_pdf"),
-                data=pdf_bytes,
-                file_name=f"{safe_title}.pdf",
-                mime="application/pdf",
-                key=f"{action_key_prefix}_download_pdf_inline",
-                use_container_width=True,
-            )
+            if pdf_bytes:
+                st.download_button(
+                    label=t("download_pdf"),
+                    data=pdf_bytes,
+                    file_name=f"{safe_title}.pdf",
+                    mime="application/pdf",
+                    key=f"{action_key_prefix}_download_pdf_inline",
+                    use_container_width=True,
+                )
         with a2:
-            st.download_button(
-                label=t("download_word"),
-                data=docx_bytes,
-                file_name=f"{safe_title}.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key=f"{action_key_prefix}_download_docx_inline2",
-                use_container_width=True,
-            )
+            if docx_bytes:
+                st.download_button(
+                    label=t("download_word"),
+                    data=docx_bytes,
+                    file_name=f"{safe_title}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key=f"{action_key_prefix}_download_docx_inline2",
+                    use_container_width=True,
+                )
     if show_clear_result and not read_only:
         if st.button(
             "🗑️ " + (t("clear_result") if t("clear_result") != "clear_result" else "Clear result"),
@@ -1716,28 +1754,15 @@ def build_lesson_plan_pdf_bytes(
         )
 
     def _boxed_block(title: str, content):
-        parts = [Paragraph(_safe_para(title), card_title_style)]
+        story.append(Paragraph(_safe_para(title), card_title_style))
+        story.append(Spacer(1, 3))
         if isinstance(content, list):
             items = [ListItem(Paragraph(_safe_para(x), body_style)) for x in content if str(x).strip()]
             if items:
-                parts.append(ListFlowable(items, bulletType="bullet", leftIndent=12))
+                story.append(ListFlowable(items, bulletType="bullet", leftIndent=12))
         else:
             if str(content or "").strip():
-                parts.append(Paragraph(_safe_para(content), body_style))
-        table = Table([[parts]], colWidths=[doc.width])
-        table.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, -1), _C.BG_SUBTLE),
-                    ("BOX", (0, 0), (-1, -1), 0.8, _C.BORDER),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 10),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-                    ("TOPPADDING", (0, 0), (-1, -1), 8),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-                ]
-            )
-        )
-        story.append(table)
+                story.append(Paragraph(_safe_para(content), body_style))
         story.append(Spacer(1, 7))
 
     def _simple_section(title_key: str, value, *, boxed: bool = False, inline_csv: bool = False):
@@ -1876,27 +1901,12 @@ def build_lesson_plan_pdf_bytes(
             continue
 
         label = t(key) if t(key) != key else _fallback_label(key)
-        block_parts = [Paragraph(_safe_para(label), card_title_style), Spacer(1, 3)]
-
+        story.append(Paragraph(_safe_para(label), card_title_style))
+        story.append(Spacer(1, 3))
         if isinstance(value, list):
-            block_parts.append(_list_flow(value))
+            story.append(_list_flow(value))
         else:
-            block_parts.append(Paragraph(_safe_para(str(value)), body_style))
-
-        block_table = Table([[block_parts]], colWidths=[doc.width])
-        block_table.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, -1), _C.BG_WHITE),
-                    ("BOX", (0, 0), (-1, -1), 1.0, _C.FLOW_GREEN),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 10),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-                    ("TOPPADDING", (0, 0), (-1, -1), 8),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-                ]
-            )
-        )
-        story.append(block_table)
+            story.append(Paragraph(_safe_para(str(value)), body_style))
         story.append(Spacer(1, 8))
 
     # TEACHER NOTES: separate small orange blocks
@@ -1915,27 +1925,12 @@ def build_lesson_plan_pdf_bytes(
 
         for key, value in teacher_note_blocks:
             label = t(key) if t(key) != key else _fallback_label(key)
-            block_parts = [Paragraph(_safe_para(label), card_title_style), Spacer(1, 3)]
-
+            story.append(Paragraph(_safe_para(label), card_title_style))
+            story.append(Spacer(1, 3))
             if isinstance(value, list):
-                block_parts.append(_list_flow(value))
+                story.append(_list_flow(value))
             else:
-                block_parts.append(Paragraph(_safe_para(str(value)), body_style))
-
-            block_table = Table([[block_parts]], colWidths=[doc.width])
-            block_table.setStyle(
-                TableStyle(
-                    [
-                        ("BACKGROUND", (0, 0), (-1, -1), _C.BG_WHITE),
-                        ("BOX", (0, 0), (-1, -1), 1.0, _C.NOTE_AMBER),
-                        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-                        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-                        ("TOPPADDING", (0, 0), (-1, -1), 8),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-                    ]
-                )
-            )
-            story.append(block_table)
+                story.append(Paragraph(_safe_para(str(value)), body_style))
             story.append(Spacer(1, 8))
 
     # Page 2 — Materials
@@ -1952,39 +1947,23 @@ def build_lesson_plan_pdf_bytes(
             if not label or label == key:
                 label = _fallback_label(key)
 
-            # Small per-block table is fine; huge whole-page table is not
-            block_parts = [Paragraph(_safe_para(label), card_title_style), Spacer(1, 3)]
-
+            story.append(Paragraph(_safe_para(label), card_title_style))
+            story.append(Spacer(1, 3))
             if style == "list_inline":
-                block_parts.append(Paragraph(_safe_para(", ".join([str(x) for x in value])), body_style))
+                story.append(Paragraph(_safe_para(", ".join([str(x) for x in value])), body_style))
             elif style == "list":
-                block_parts.append(_list_flow(value))
+                story.append(_list_flow(value))
             elif style == "textarea":
-                block_parts.append(Paragraph(_safe_para(str(value)), body_style))
+                story.append(Paragraph(_safe_para(str(value)), body_style))
             elif style == "callout":
-                block_parts.append(Paragraph(_safe_para(str(value)), body_style))
+                story.append(Paragraph(_safe_para(str(value)), body_style))
             elif style == "list_or_text":
                 if isinstance(value, list):
-                    block_parts.append(_list_flow(value))
+                    story.append(_list_flow(value))
                 else:
-                    block_parts.append(Paragraph(_safe_para(str(value)), body_style))
+                    story.append(Paragraph(_safe_para(str(value)), body_style))
             else:
-                block_parts.append(Paragraph(_safe_para(str(value)), body_style))
-
-            block_table = Table([[block_parts]], colWidths=[doc.width])
-            block_table.setStyle(
-                TableStyle(
-                    [
-                        ("BACKGROUND", (0, 0), (-1, -1), _C.BG_WHITE),
-                        ("BOX", (0, 0), (-1, -1), 1.0, _C.MATERIAL_PURPLE),
-                        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-                        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-                        ("TOPPADDING", (0, 0), (-1, -1), 8),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-                    ]
-                )
-            )
-            story.append(block_table)
+                story.append(Paragraph(_safe_para(str(value)), body_style))
             story.append(Spacer(1, 8))
 
     _branding_footer = build_pdf_footer_handler(_branding, bold_font=body_font)
@@ -2036,7 +2015,7 @@ def render_quick_lesson_planner_expander(*, embedded: bool = False) -> None:
         if subject == "other":
             other_subject_name = st.text_input(t("other_subject_label"), key="quick_plan_other_subject").strip()
 
-        effective_subject = other_subject_name if subject == "other" else subject
+        effective_subject = resolve_effective_subject(subject, other_subject_name)
         picked_program_topic_context = render_program_topic_picker(
             state_prefix="quick_plan",
             subject=effective_subject,
@@ -2241,15 +2220,21 @@ def render_quick_lesson_planner_expander(*, embedded: bool = False) -> None:
                 st.session_state["quick_plan_effective_topic"] = effective_topic
 
                 with st.spinner(t("generating")):
-                    plan, resolved_mode, warning_msg = _lp().generate_quick_lesson_plan_with_fallback(
+                    generation_result = run_lesson_plan_generation(
+                        capabilities=SMART_TOOLS_CAPABILITIES,
                         mode=quick_plan_mode,
-                        subject=effective_subject,
+                        subject=subject,
+                        custom_subject_name=other_subject_name,
                         learner_stage=learner_stage,
                         level_or_band=level_or_band,
                         lesson_purpose=lesson_purpose,
                         topic=effective_topic,
                         student_profile=student_profile,
                     )
+                    plan = generation_result["plan"]
+                    resolved_mode = generation_result["mode_used"]
+                    warning_msg = generation_result["warning"]
+                    effective_subject = generation_result["subject"]
 
                     debug_baseline_plan = {}
                     debug_baseline_error = ""

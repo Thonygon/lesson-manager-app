@@ -114,7 +114,7 @@ def sanitize_context(context: dict[str, Any] | None) -> dict[str, Any]:
 
 def _safe_user_face(value: Any = None) -> str:
     face = _clean_text(value or get_current_user_role(), limit=20).lower()
-    return face if face in {"student", "teacher", "admin", "developer"} else "unknown"
+    return face if face in {"student", "teacher", "admin", "developer", "anonymous"} else "unknown"
 
 
 def _correlation_id() -> str:
@@ -203,11 +203,8 @@ def capture_exception(
     safe_message = sanitize_text(exc, limit=1000)
     safe_context = dict(context or {})
     safe_context.setdefault("correlation_id", _correlation_id())
-    current_user_id = _clean_text(get_current_user_id(), limit=80)
 
     if not diagnostics_enabled() or getattr(_CAPTURE_STATE, "active", False):
-        return event_id
-    if not current_user_id:
         return event_id
     recent_reference = _recent_reference(fingerprint, event_id)
     if recent_reference:
@@ -304,7 +301,7 @@ def list_diagnostics(
         query = query.eq("severity", severity)
     if status in VALID_STATUSES:
         query = query.eq("status", status)
-    if user_face in {"student", "teacher", "admin", "developer", "unknown"}:
+    if user_face in {"student", "teacher", "admin", "developer", "anonymous", "unknown"}:
         query = query.eq("user_face", user_face)
     if _clean_text(page_key, limit=120):
         query = query.eq("page_key", _clean_text(page_key, limit=120))
