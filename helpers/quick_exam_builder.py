@@ -1538,27 +1538,27 @@ Required JSON structure:
   "title": "string",
   "instructions": "General exam instructions",
   "sections": [
-    {{
-      "type": "exercise_type",
-      "title": "Part N: Section Title",
-      "instructions": "Section-specific instructions",
-      "source_text": "optional reading passage or source text",
-      "text_kind": "passage | article | essay | email | letter | message | dialogue",
-      "text_blocks": [],
-      "table_data": {
-        "title": "optional table title",
-        "caption": "optional table caption",
-        "columns": ["Column 1", "Column 2"],
-        "rows": [
-          ["row 1 value 1", "row 1 value 2"],
-          ["row 2 value 1", "row 2 value 2"]
-        ]
-      },
-      "questions": [
-      ],
-      "answers": [
-      ]
-    }}
+        {{
+          "type": "exercise_type",
+          "title": "Part N: Section Title",
+          "instructions": "Section-specific instructions",
+          "source_text": "optional reading passage or source text",
+          "text_kind": "passage | article | essay | email | letter | message | dialogue",
+          "text_blocks": [],
+          "table_data": {{
+            "title": "optional table title",
+            "caption": "optional table caption",
+            "columns": ["Column 1", "Column 2"],
+            "rows": [
+              ["row 1 value 1", "row 1 value 2"],
+              ["row 2 value 1", "row 2 value 2"]
+            ]
+          }},
+          "questions": [
+          ],
+          "answers": [
+          ]
+        }}
   ]
 }}
 
