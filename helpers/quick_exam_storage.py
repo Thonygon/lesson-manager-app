@@ -896,8 +896,8 @@ def build_exam_pdf_bytes(
         except TypeError:
             return t(key, **kw)
 
-    def _structured_text_flowables(value, *, text_kind: str = "", blocks=None):
-        asset = build_text_asset(value, text_kind=text_kind, blocks=blocks)
+    def _structured_text_flowables(value, *, title: str = "", text_kind: str = "", blocks=None):
+        asset = build_text_asset(value, title=title, text_kind=text_kind, blocks=blocks)
         flowables = []
         for block in asset.get("blocks") or []:
             block_type = str(block.get("type") or "paragraph")
@@ -949,6 +949,7 @@ def build_exam_pdf_bytes(
             story.extend(
                 _structured_text_flowables(
                     _strip_auto_numbering(sec["source_text"]),
+                    title=sec.get("text_title") or "",
                     text_kind=sec.get("text_kind") or "",
                     blocks=sec.get("text_blocks"),
                 )
@@ -1447,6 +1448,7 @@ def render_exam_result(
             st.markdown(
                 text_asset_to_markdown(
                     _strip_auto_numbering(sec["source_text"]),
+                    title=sec.get("text_title") or "",
                     text_kind=sec.get("text_kind") or "",
                     blocks=sec.get("text_blocks"),
                 ),

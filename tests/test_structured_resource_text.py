@@ -68,6 +68,20 @@ class StructuredResourceTextTests(unittest.TestCase):
         self.assertIn("#### La entrevista profesional", rendered)
         self.assertIn("María llegó temprano", rendered)
 
+    def test_prebuilt_blocks_still_render_saved_title(self):
+        asset = build_text_asset(
+            "La entrevista profesional\nMaría llegó temprano a la oficina y saludó al entrevistador."
+        )
+
+        rendered = text_asset_to_markdown(
+            asset["raw_text"],
+            title=asset["title"],
+            text_kind=asset["text_kind"],
+            blocks=asset["blocks"],
+        )
+        self.assertIn("#### La entrevista profesional", rendered)
+        self.assertIn("María llegó temprano", rendered)
+
     def test_practice_schema_carries_structured_text_metadata(self):
         ws = normalize_worksheet_output(
             {

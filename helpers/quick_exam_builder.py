@@ -250,8 +250,7 @@ def _normalize_table_data(value) -> dict:
             row_values = [_clean_table_cell(cell) for cell in row]
         else:
             row_values = [_clean_table_cell(row)]
-        row_values = [cell for cell in row_values if cell]
-        if row_values:
+        if any(cell for cell in row_values):
             normalized_rows.append(row_values)
 
     if not columns and normalized_rows:

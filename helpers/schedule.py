@@ -21,6 +21,9 @@ from helpers.ui_components import to_dt_naive
 from zoneinfo import ZoneInfo
 
 
+_UNSET_END_DATE = object()
+
+
 def _validate_hhmm(value: str) -> str:
     s = str(value or "").strip()
     if _re.fullmatch(r"([01]\d|2[0-3]):([0-5]\d)", s):
@@ -39,6 +42,7 @@ _FREEZE_COLUMNS = "id,student,start_date,end_date,reason,note,active,created_at"
 _SCHEDULE_ROW_LIMIT = 1000
 _OVERRIDE_ROW_LIMIT = 2000
 _FREEZE_ROW_LIMIT = 500
+_SCHEDULE_VERSION_RPC = "classio_version_schedule_from_date"
 
 
 def _schedule_creation_tz_name() -> str:
@@ -58,6 +62,23 @@ def _legacy_schedule_fallback_tz_name() -> str:
     # Legacy recurring schedules were originally interpreted in the app's
     # default timezone. Do not rebind them to a mutable profile timezone.
     return DEFAULT_TZ_NAME
+
+
+def _is_missing_rpc_error(exc: Exception | str | None, rpc_name: str) -> bool:
+    text = str(exc or "").strip().lower()
+    target = str(rpc_name or "").strip().lower()
+    if not text or not target or target not in text:
+        return False
+    return any(
+        marker in text
+        for marker in (
+            "function",
+            "schema cache",
+            "could not find",
+            "does not exist",
+            "not found",
+        )
+    )
 
 
 def _is_missing_column_error(exc: Exception | str | None, column_name: str) -> bool:
@@ -243,6 +264,63 @@ def add_schedule(
     clear_app_caches()
 
 
+def _insert_schedule_row(payload: dict) -> None:
+    try:
+        get_sb().table("schedules").insert(payload).execute()
+    except Exception as exc:
+        lowered = str(exc).lower()
+        if "timezone" not in lowered:
+            raise
+        fallback_payload = dict(payload)
+        fallback_payload.pop("timezone", None)
+        get_sb().table("schedules").insert(fallback_payload).execute()
+
+
+def _restore_schedule_end_date(
+    schedule_id: int,
+    *,
+    uid: str,
+    end_date: Optional[date],
+) -> None:
+    payload = {
+        "end_date": end_date.isoformat() if pd.notna(end_date) and end_date else None,
+    }
+    query = get_sb().table("schedules").update(payload).eq("id", int(schedule_id))
+    if uid:
+        query = query.eq("user_id", uid)
+    query.execute()
+
+
+def _version_schedule_from_date_atomic(
+    schedule_id: int,
+    *,
+    uid: str,
+    old_end_date: date,
+    student: str,
+    weekday: int,
+    normalized_time: str,
+    duration_minutes: int,
+    active: bool,
+    timezone_name: str,
+    effective_start_date: date,
+    end_date: Optional[date],
+) -> None:
+    rpc_payload = {
+        "p_schedule_id": int(schedule_id),
+        "p_user_id": uid or None,
+        "p_old_schedule_end_date": old_end_date.isoformat(),
+        "p_student": student,
+        "p_weekday": int(weekday),
+        "p_time": normalized_time,
+        "p_duration_minutes": int(duration_minutes),
+        "p_active": bool(active),
+        "p_timezone": timezone_name or None,
+        "p_start_date": effective_start_date.isoformat(),
+        "p_end_date": end_date.isoformat() if end_date else None,
+    }
+    get_sb().rpc(_SCHEDULE_VERSION_RPC, rpc_payload).execute()
+
+
 def update_schedule_from_date(
     schedule_id: int,
     *,
@@ -252,7 +330,7 @@ def update_schedule_from_date(
     duration_minutes: int,
     active: bool,
     effective_start_date: date,
-    end_date: Optional[date] = None,
+    end_date: Optional[date] | object = _UNSET_END_DATE,
 ) -> None:
     uid = str(get_current_user_id() or "").strip()
     if not uid:
@@ -263,7 +341,7 @@ def update_schedule_from_date(
         raise ValueError(t("select_student"))
     if effective_start_date < now_local().date():
         raise ValueError(t("schedule_edit_future_only"))
-    if end_date and end_date < effective_start_date:
+    if end_date is not _UNSET_END_DATE and end_date and end_date < effective_start_date:
         raise ValueError(t("schedule_invalid_dates"))
 
     schedules = load_schedules()
@@ -277,7 +355,7 @@ def update_schedule_from_date(
     row = match.iloc[0].to_dict()
     current_start = row.get("start_date")
     current_end = row.get("end_date")
-    resolved_end_date = end_date if end_date is not None else current_end
+    resolved_end_date = current_end if end_date is _UNSET_END_DATE else end_date
     if pd.notna(current_end) and current_end and effective_start_date > current_end:
         raise ValueError(t("schedule_edit_outside_range"))
     if pd.notna(resolved_end_date) and resolved_end_date and effective_start_date > resolved_end_date:
@@ -305,31 +383,48 @@ def update_schedule_from_date(
     if current_start and old_end_date < current_start:
         raise ValueError(t("schedule_invalid_dates"))
 
-    close_payload = {"end_date": old_end_date.isoformat()}
-    close_query = get_sb().table("schedules").update(close_payload).eq("id", int(schedule_id))
-    if uid:
-        close_query = close_query.eq("user_id", uid)
-    close_query.execute()
-
+    timezone_name = str(row.get("timezone") or _schedule_creation_tz_name()).strip() or _schedule_creation_tz_name()
     new_payload = with_owner({
         "student": student,
         "weekday": int(weekday),
         "time": normalized_time,
         "duration_minutes": int(duration_minutes),
         "active": bool(active),
-        "timezone": str(row.get("timezone") or _schedule_creation_tz_name()).strip() or _schedule_creation_tz_name(),
+        "timezone": timezone_name,
         "start_date": effective_start_date.isoformat(),
         "end_date": resolved_end_date.isoformat() if resolved_end_date else None,
     })
+
     try:
-        get_sb().table("schedules").insert(new_payload).execute()
+        _version_schedule_from_date_atomic(
+            int(schedule_id),
+            uid=uid,
+            old_end_date=old_end_date,
+            student=student,
+            weekday=int(weekday),
+            normalized_time=normalized_time,
+            duration_minutes=int(duration_minutes),
+            active=bool(active),
+            timezone_name=timezone_name,
+            effective_start_date=effective_start_date,
+            end_date=resolved_end_date,
+        )
     except Exception as exc:
-        lowered = str(exc).lower()
-        if "timezone" in lowered:
-            fallback_payload = dict(new_payload)
-            fallback_payload.pop("timezone", None)
-            get_sb().table("schedules").insert(fallback_payload).execute()
-        else:
+        if not _is_missing_rpc_error(exc, _SCHEDULE_VERSION_RPC):
+            raise
+        close_payload = {"end_date": old_end_date.isoformat()}
+        close_query = get_sb().table("schedules").update(close_payload).eq("id", int(schedule_id))
+        if uid:
+            close_query = close_query.eq("user_id", uid)
+        close_query.execute()
+        try:
+            _insert_schedule_row(new_payload)
+        except Exception:
+            _restore_schedule_end_date(
+                int(schedule_id),
+                uid=uid,
+                end_date=current_end if pd.notna(current_end) else None,
+            )
             raise
     clear_app_caches()
 

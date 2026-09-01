@@ -1198,6 +1198,7 @@ def _render_exam_section_docx(
             _strip_leading_enum(source_text),
             font_name,
             b_sz,
+            title=sec.get("text_title") or "",
             text_kind=sec.get("text_kind") or "",
             blocks=sec.get("text_blocks"),
             leading_ratio=lr,
