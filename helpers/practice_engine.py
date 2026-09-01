@@ -22,6 +22,7 @@ from core.i18n import t
 from core.state import get_current_user_id, with_owner
 from core.database import clear_cache_domains, get_sb, register_cache
 from helpers.answer_key_utils import clean_answer_key_item, split_answer_key_items
+from helpers.structured_text import build_text_asset, text_asset_to_markdown
 from helpers.visual_support import enrich_worksheet_with_visuals, enrich_exam_with_visuals, render_streamlit_visual_support
 from services.operational_diagnostics_service import capture_exception, short_event_reference
 
@@ -174,6 +175,9 @@ def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
     title = str(ws.get("title") or "").strip()
     instructions = str(ws.get("instructions") or "").strip()
     visual_support = (ws.get("visual_supports") or [None])[0]
+    text_title = str(ws.get("text_title") or "").strip()
+    text_kind = str(ws.get("text_kind") or "").strip()
+    text_blocks = ws.get("text_blocks") if isinstance(ws.get("text_blocks"), list) else []
 
     exercises: list[dict] = []
 
@@ -211,11 +215,15 @@ def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
         raw_ak = ws.get("answer_key") or ""
         answers = _parse_flat_answer_key(raw_ak, len(questions))
         if questions:
+            text_asset = build_text_asset(source_text, title=text_title, text_kind=text_kind, blocks=text_blocks) if source_text else {}
             exercises.append({
                 "type": "true_false",
                 "title": title,
                 "instructions": instructions,
                 "source_text": source_text,
+                "text_title": text_asset.get("title", ""),
+                "text_kind": text_asset.get("text_kind", ""),
+                "text_blocks": text_asset.get("blocks", []),
                 "visual_support": visual_support,
                 "questions": questions,
                 "answers": answers,
@@ -296,11 +304,15 @@ def worksheet_to_exercises(ws: dict, *, row_id: int | None = None) -> dict:
         raw_ak = ws.get("answer_key") or ""
         answers = _parse_flat_answer_key(raw_ak, len(questions))
         if questions:
+            text_asset = build_text_asset(passage, title=text_title, text_kind=text_kind, blocks=text_blocks) if passage else {}
             exercises.append({
                 "type": "reading_comprehension",
                 "title": title,
                 "instructions": instructions,
                 "source_text": passage,
+                "text_title": text_asset.get("title", ""),
+                "text_kind": text_asset.get("text_kind", ""),
+                "text_blocks": text_asset.get("blocks", []),
                 "visual_support": visual_support,
                 "questions": questions,
                 "answers": answers,
@@ -438,7 +450,17 @@ def exam_to_exercises(exam_data: dict, answer_key: dict, *, row_id: int | None =
             ex["questions"] = vocab_questions
             ex["answers"] = normalized_answers
         if sec.get("source_text"):
-            ex["source_text"] = str(sec["source_text"]).strip()
+            source_text = str(sec["source_text"]).strip()
+            text_asset = build_text_asset(
+                source_text,
+                title=sec.get("text_title") or "",
+                text_kind=sec.get("text_kind") or "",
+                blocks=sec.get("text_blocks"),
+            )
+            ex["source_text"] = source_text
+            ex["text_title"] = text_asset.get("title", "")
+            ex["text_kind"] = text_asset.get("text_kind", "")
+            ex["text_blocks"] = text_asset.get("blocks", [])
         exercises.append(ex)
 
     return {
@@ -1431,7 +1453,15 @@ def render_practice_session(exercise_data: dict, session_key: str = "practice") 
         render_streamlit_visual_support(exercise.get("visual_support"))
         if source_txt:
             with st.expander("📖 " + t("reading_passage"), expanded=True):
-                st.write(source_txt)
+                st.markdown(
+                    text_asset_to_markdown(
+                        source_txt,
+                        title=exercise.get("text_title") or "",
+                        text_kind=exercise.get("text_kind") or "",
+                        blocks=exercise.get("text_blocks"),
+                    ),
+                    unsafe_allow_html=True,
+                )
         _render_practice_vocabulary_bank(vocabulary_bank)
 
         # For matching: build a shuffled list of right-side options (stable per session)

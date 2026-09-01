@@ -11,6 +11,7 @@ from helpers.currency import CURRENCIES, currency_symbol
 from helpers.lesson_planner import (
     QUICK_SUBJECTS,
     normalize_learner_stage as _normalize_learner_stage,
+    normalize_planner_output,
     subject_label as _subject_label,
 )
 from helpers.planner_storage import load_public_lesson_plans,render_plan_library_cards,render_quick_lesson_plan_result
@@ -18,10 +19,18 @@ from helpers.worksheet_storage import load_public_worksheets, render_worksheet_l
 from helpers.quick_exam_storage import load_public_exams, render_exam_library_cards, render_exam_result
 from helpers.video_library import load_public_videos, render_video_detail, render_video_library_cards
 from helpers.learning_programs import (
+    _clean_display_text,
+    _clean_text,
+    _count_program_topics,
+    _inject_program_styles,
+    _localized_exam_type_label,
+    _localized_source_type_label,
+    _localized_worksheet_type_label,
+    _lp,
+    _scoped_expander_label,
     load_learning_program,
     load_public_learning_programs,
     render_learning_program_library_cards,
-    render_teacher_program_view,
 )
 from helpers.explorer_moves import stage_explorer_move
 from helpers.archive_utils import is_archived_status
@@ -32,6 +41,19 @@ import re
 import pandas as pd
 from helpers.recommendation_models import resource_semantic_affinity
 from helpers.resource_affinity_runtime import resource_affinity_score
+from core.navigation import clear_open_resource_previews
+from helpers.generation_capabilities import (
+    EXPLORER_CAPABILITIES,
+    anonymous_ai_limit_reached,
+    anonymous_ai_remaining,
+    resolve_effective_subject,
+)
+from helpers.generation_orchestration import (
+    build_learning_program_request_payload,
+    run_exam_generation,
+    run_lesson_plan_generation,
+    run_worksheet_generation,
+)
 
 # ── Hourly rate ranges by subject and modality (USD) ──
 # (min, default, max) — based on current private-tutoring market data.
@@ -213,6 +235,210 @@ def _session_resource_id(key: str):
     if value in (None, "", 0, "0"):
         return None
     return value
+
+
+def _active_explore_resource_context() -> dict[str, str]:
+    for resource_type, key in [
+        ("program", "explore_public_learning_programs_selected_program_id"),
+        ("plan", "files_selected_plan_id"),
+        ("worksheet", "files_selected_worksheet_id"),
+        ("exam", "files_selected_exam_id"),
+        ("video", "files_selected_video_id"),
+    ]:
+        value = st.session_state.get(key)
+        text = str(value or "").strip()
+        if text:
+            return {"resource_type": resource_type, "resource_id": text}
+    return {}
+
+
+def _active_explore_resource_viewer_kind() -> str:
+    checks = [
+        ("program", bool(st.session_state.get("explore_public_learning_programs_selected_program_id"))),
+        ("video", bool(st.session_state.get("files_selected_video_id") or st.session_state.get("files_selected_video"))),
+        ("plan", bool(st.session_state.get("files_selected_plan_id") or st.session_state.get("files_selected_plan"))),
+        ("worksheet", bool(st.session_state.get("files_selected_worksheet_id") or st.session_state.get("files_selected_worksheet"))),
+        ("exam", bool(st.session_state.get("files_selected_exam_id") or st.session_state.get("files_selected_exam"))),
+    ]
+    for kind, active in checks:
+        if active:
+            return kind
+    return ""
+
+
+def _clear_explore_resource_viewer_selection(kind: str) -> None:
+    safe_kind = str(kind or "").strip().lower()
+    if safe_kind == "program":
+        selected_program_id = st.session_state.get("explore_public_learning_programs_selected_program_id")
+        st.session_state.pop("explore_public_learning_programs_selected_program_id", None)
+        if selected_program_id not in (None, "", 0, "0"):
+            st.session_state.pop(f"show_assign_learning_program_{selected_program_id}", None)
+    else:
+        clear_open_resource_previews(except_kind="program")
+    st.session_state.pop("_resource_viewer_return_page", None)
+    st.session_state.pop("_resource_bulk_assign_dialog", None)
+
+
+def _render_explore_selected_resource_detail(kind: str) -> bool:
+    safe_kind = str(kind or "").strip().lower()
+
+    if safe_kind == "program":
+        selected_program_id = st.session_state.get("explore_public_learning_programs_selected_program_id")
+        if not selected_program_id:
+            st.info(t("no_program_selected"))
+            return False
+        selected_program = load_learning_program(int(selected_program_id))
+        if not selected_program:
+            st.info(t("no_program_selected"))
+            return False
+        _render_explore_program_preview(selected_program)
+        st.caption(t("explore_resource_action_signup_note"))
+        if st.button(t("assign_to_student"), key=f"explore_program_assign_signup_{selected_program_id}"):
+            _keep_explore_section_open("explore_teaching_resources_keep_open")
+            return True
+        return False
+
+    if safe_kind == "plan":
+        selected_plan = st.session_state.get("files_selected_plan")
+        if isinstance(selected_plan, str):
+            try:
+                selected_plan = json.loads(selected_plan)
+            except Exception:
+                selected_plan = {}
+        st.session_state["quick_lesson_plan_mode_used"] = st.session_state.get("files_selected_source_type", "template")
+        st.session_state["quick_lesson_plan_warning"] = None
+        render_quick_lesson_plan_result(
+            normalize_planner_output(selected_plan if isinstance(selected_plan, dict) else {}),
+            subject=st.session_state.get("files_selected_subject", ""),
+            learner_stage=st.session_state.get("files_selected_stage", ""),
+            level_or_band=st.session_state.get("files_selected_level", ""),
+            lesson_purpose=st.session_state.get("files_selected_purpose", ""),
+            topic=st.session_state.get("files_selected_topic", ""),
+            read_only=True,
+            allow_assign=not is_archived_status(st.session_state.get("files_selected_plan_status")),
+            resource_record_id=_session_resource_id("files_selected_plan_id"),
+            action_key_prefix="explore_selected_plan",
+            signup_required_actions=True,
+        )
+        return False
+
+    if safe_kind == "worksheet":
+        selected_ws = st.session_state.get("files_selected_worksheet")
+        if isinstance(selected_ws, str):
+            try:
+                selected_ws = json.loads(selected_ws)
+            except Exception:
+                selected_ws = {}
+        render_worksheet_result(
+            selected_ws,
+            read_only=True,
+            allow_assign=not is_archived_status(st.session_state.get("files_selected_worksheet_status")),
+            resource_record_id=_session_resource_id("files_selected_worksheet_id"),
+            subject=st.session_state.get("files_ws_subject", ""),
+            learner_stage=st.session_state.get("files_ws_stage", ""),
+            level_or_band=st.session_state.get("files_ws_level", ""),
+            worksheet_type=st.session_state.get("files_ws_type", ""),
+            topic=st.session_state.get("files_ws_topic", ""),
+            signup_required_actions=True,
+            action_key_prefix="explore_selected_ws",
+        )
+        return False
+
+    if safe_kind == "exam":
+        selected_exam = st.session_state.get("files_selected_exam")
+        selected_exam_ak = st.session_state.get("files_selected_exam_answer_key") or {}
+        if isinstance(selected_exam, str):
+            try:
+                selected_exam = json.loads(selected_exam)
+            except Exception:
+                selected_exam = {}
+        if isinstance(selected_exam_ak, str):
+            try:
+                selected_exam_ak = json.loads(selected_exam_ak)
+            except Exception:
+                selected_exam_ak = {}
+        render_exam_result(
+            selected_exam,
+            selected_exam_ak,
+            show_ready_banner=False,
+            read_only=True,
+            allow_assign=not is_archived_status(st.session_state.get("files_selected_exam_status")),
+            resource_record_id=_session_resource_id("files_selected_exam_id"),
+            subject=st.session_state.get("files_exam_subject", ""),
+            learner_stage=st.session_state.get("files_exam_stage", ""),
+            level_or_band=st.session_state.get("files_exam_level", ""),
+            topic=st.session_state.get("files_exam_topic", ""),
+            signup_required_actions=True,
+            show_signup_save_cta=False,
+            action_key_prefix="explore_selected_exam",
+        )
+        return False
+
+    if safe_kind == "video":
+        selected_video = st.session_state.get("files_selected_video")
+        render_video_detail(
+            selected_video,
+            action_key_prefix="explore_selected_video",
+            allow_assign=not is_archived_status((selected_video or {}).get("status")),
+            assign_expanded=bool(st.session_state.get("files_selected_video_assign_expanded")),
+            signup_required_actions=True,
+        )
+        return False
+
+    return False
+
+
+def _render_explore_resource_viewer_shell(kind: str) -> bool:
+    safe_kind = str(kind or "").strip().lower()
+    if not safe_kind:
+        return False
+    title_map = {
+        "program": t("learning_program_preview"),
+        "plan": t("plan_preview"),
+        "worksheet": t("worksheet_preview"),
+        "exam": t("exam_preview"),
+        "video": t("video_preview_title"),
+    }
+    st.markdown(f"## {title_map.get(safe_kind, t('explore_teaching_resources_title'))}")
+    if st.button(f"← {t('back')}", key=f"explore_resource_viewer_back_{safe_kind}"):
+        _clear_explore_resource_viewer_selection(safe_kind)
+        _keep_explore_section_open("explore_teaching_resources_keep_open")
+        st.rerun()
+    st.markdown("<div style='height:0.7rem;'></div>", unsafe_allow_html=True)
+    return _render_explore_selected_resource_detail(safe_kind)
+
+
+def _explorer_error_copy() -> tuple[str, str, str]:
+    lang = str(st.session_state.get("ui_lang") or "en").strip().lower()
+    if lang == "es":
+        return (
+            "Esta vista no está disponible temporalmente.",
+            "Classio no pudo cargar esta parte del explorador ahora. Inténtalo de nuevo en un momento.",
+            "Reintentar",
+        )
+    if lang == "tr":
+        return (
+            "Bu gorunum gecici olarak kullanilamiyor.",
+            "Classio gezginin bu bolumunu su anda yukleyemedi. Lutfen biraz sonra tekrar deneyin.",
+            "Tekrar dene",
+        )
+    return (
+        "This view is temporarily unavailable.",
+        "Classio couldn't load this part of Explorer right now. Please try again in a moment.",
+        "Try again",
+    )
+
+
+def _render_explorer_error_fallback(section_key: str, event_id: str = "") -> None:
+    title, body, retry_label = _explorer_error_copy()
+    st.error(title)
+    st.caption(body)
+    if event_id:
+        from services.operational_diagnostics_service import short_event_reference
+
+        st.caption(t("operational_diagnostics_user_reference", reference=short_event_reference(event_id)))
+    if st.button(retry_label, key=f"{section_key}_explorer_retry", use_container_width=False):
+        st.rerun()
 
 
 def _get_explore_demo_completed_ids() -> set[str]:
@@ -1005,13 +1231,32 @@ def _render_explore_teaching_resources() -> bool:
         st.rerun()
 
     if _explore_teaching_resource_is_open():
-        return _render_explore_teaching_resources_body()
+        try:
+            return _render_explore_teaching_resources_body()
+        except Exception as exc:
+            from services.operational_diagnostics_service import capture_exception
+
+            event_id = capture_exception(
+                exc,
+                component="helpers.goal_explorer",
+                operation="render_teaching_resources",
+                page_key="explore",
+                user_face="anonymous",
+                context={**_active_explore_resource_context(), "fallback_used": True},
+            )
+            _render_explorer_error_fallback("explore_teaching_resources", event_id)
+            return False
 
     return False
 
 
 def _render_explore_teaching_resources_body() -> bool:
     _keep_explore_section_open("explore_teaching_resources_keep_open")
+
+    active_viewer_kind = _active_explore_resource_viewer_kind()
+    if active_viewer_kind:
+        return _render_explore_resource_viewer_shell(active_viewer_kind)
+
     _render_explore_demo_section(wrap=False)
 
     public_programs = _prepare_searchable_resources(load_public_learning_programs(), kind="program")
@@ -1067,6 +1312,7 @@ def _render_explore_teaching_resources_body() -> bool:
                     programs_to_show,
                     prefix="explore_public_learning_programs",
                     show_author=True,
+                    open_in_viewer_only=True,
                     require_signup=True,
                 )
                 if has_active_resource_filters:
@@ -1104,6 +1350,7 @@ def _render_explore_teaching_resources_body() -> bool:
                     prefix="explore_public_plans",
                     show_author=True,
                     open_in_files=False,
+                    open_in_viewer_only=True,
                     require_signup=True,
                 )
                 if has_active_resource_filters:
@@ -1141,6 +1388,7 @@ def _render_explore_teaching_resources_body() -> bool:
                     prefix="explore_public_ws",
                     show_author=True,
                     open_in_files=False,
+                    open_in_viewer_only=True,
                     require_signup=True,
                 )
                 if has_active_resource_filters:
@@ -1174,6 +1422,7 @@ def _render_explore_teaching_resources_body() -> bool:
                     prefix="explore_public_exams",
                     show_author=True,
                     open_in_files=False,
+                    open_in_viewer_only=True,
                     require_signup=True,
                 )
                 if has_active_resource_filters:
@@ -1207,188 +1456,155 @@ def _render_explore_teaching_resources_body() -> bool:
                     prefix="explore_public_videos",
                     show_author=True,
                     open_in_files=False,
+                    open_in_viewer_only=True,
                     require_signup=True,
                 )
                 if has_active_resource_filters:
                     _render_explore_resource_pagination(filtered_videos, "explore_videos_page")
 
-    selected_program_id = st.session_state.get("explore_public_learning_programs_selected_program_id")
-    if selected_program_id:
-        selected_program = load_learning_program(int(selected_program_id))
-        if selected_program:
-            st.markdown("---")
-            header_cols = st.columns([6, 1])
-            with header_cols[0]:
-                st.markdown(f"### {t('learning_program_preview')}")
-            with header_cols[1]:
-                if st.button(t("close_program"), key="explore_close_selected_program", use_container_width=True):
-                    st.session_state.pop("explore_public_learning_programs_selected_program_id", None)
-                    st.session_state.pop(f"show_assign_learning_program_{selected_program_id}", None)
-                    st.rerun()
-            render_teacher_program_view(selected_program)
-            st.caption(t("explore_resource_action_signup_note"))
-            if st.button(
-                t("assign_to_student"),
-                key=f"explore_program_assign_signup_{selected_program_id}",
-            ):
-                _keep_explore_section_open("explore_teaching_resources_keep_open")
-                return True
-
-    selected_plan = st.session_state.get("files_selected_plan")
-    if selected_plan:
-        st.markdown("---")
-        detail_l, detail_r = st.columns([6, 1])
-        with detail_l:
-            st.markdown(f"### {t('plan_preview')}")
-        with detail_r:
-            if st.button(t("close_plan"), key="explore_close_selected_plan", use_container_width=True):
-                for key in [
-                    "files_selected_plan",
-                    "files_selected_plan_id",
-                    "files_selected_plan_status",
-                    "files_selected_plan_assign_expanded",
-                    "files_selected_subject",
-                    "files_selected_stage",
-                    "files_selected_level",
-                    "files_selected_purpose",
-                    "files_selected_topic",
-                    "files_selected_source_type",
-                    "files_selected_title",
-                ]:
-                    st.session_state.pop(key, None)
-                st.rerun()
-        st.session_state["quick_lesson_plan_mode_used"] = st.session_state.get("files_selected_source_type", "template")
-        st.session_state["quick_lesson_plan_warning"] = None
-        render_quick_lesson_plan_result(
-            selected_plan,
-            subject=st.session_state.get("files_selected_subject", ""),
-            learner_stage=st.session_state.get("files_selected_stage", ""),
-            level_or_band=st.session_state.get("files_selected_level", ""),
-            lesson_purpose=st.session_state.get("files_selected_purpose", ""),
-            topic=st.session_state.get("files_selected_topic", ""),
-            read_only=True,
-            allow_assign=not is_archived_status(st.session_state.get("files_selected_plan_status")),
-            resource_record_id=_session_resource_id("files_selected_plan_id"),
-            action_key_prefix="explore_selected_plan",
-            signup_required_actions=True,
-        )
-
-    selected_ws = st.session_state.get("files_selected_worksheet")
-    if isinstance(selected_ws, str):
-        try:
-            selected_ws = json.loads(selected_ws)
-        except Exception:
-            selected_ws = {}
-    if selected_ws:
-        st.markdown("---")
-        ws_det_l, ws_det_r = st.columns([6, 1])
-        with ws_det_l:
-            st.markdown(f"### {t('worksheet_preview')}")
-        with ws_det_r:
-            if st.button(t("close_worksheet"), key="explore_close_selected_ws", use_container_width=True):
-                for key in [
-                    "files_selected_worksheet",
-                    "files_selected_worksheet_id",
-                    "files_selected_worksheet_status",
-                    "files_selected_worksheet_assign_expanded",
-                    "files_ws_subject",
-                    "files_ws_stage",
-                    "files_ws_level",
-                    "files_ws_type",
-                    "files_ws_topic",
-                    "files_ws_title",
-                ]:
-                    st.session_state.pop(key, None)
-                st.rerun()
-        render_worksheet_result(
-            selected_ws,
-            read_only=True,
-            allow_assign=not is_archived_status(st.session_state.get("files_selected_worksheet_status")),
-            resource_record_id=_session_resource_id("files_selected_worksheet_id"),
-            subject=st.session_state.get("files_ws_subject", ""),
-            learner_stage=st.session_state.get("files_ws_stage", ""),
-            level_or_band=st.session_state.get("files_ws_level", ""),
-            worksheet_type=st.session_state.get("files_ws_type", ""),
-            topic=st.session_state.get("files_ws_topic", ""),
-            signup_required_actions=True,
-            action_key_prefix="explore_selected_ws",
-        )
-
-    selected_exam = st.session_state.get("files_selected_exam")
-    selected_exam_ak = st.session_state.get("files_selected_exam_answer_key") or {}
-    if isinstance(selected_exam, str):
-        try:
-            selected_exam = json.loads(selected_exam)
-        except Exception:
-            selected_exam = {}
-    if isinstance(selected_exam_ak, str):
-        try:
-            selected_exam_ak = json.loads(selected_exam_ak)
-        except Exception:
-            selected_exam_ak = {}
-    if selected_exam:
-        st.markdown("---")
-        exam_det_l, exam_det_r = st.columns([6, 1])
-        with exam_det_l:
-            st.markdown(f"### {t('exam_preview')}")
-        with exam_det_r:
-            if st.button(t("close_exam"), key="explore_close_selected_exam", use_container_width=True):
-                for key in [
-                    "files_selected_exam",
-                    "files_selected_exam_id",
-                    "files_selected_exam_status",
-                    "files_selected_exam_answer_key",
-                    "files_selected_exam_assign_expanded",
-                    "files_exam_subject",
-                    "files_exam_stage",
-                    "files_exam_level",
-                    "files_exam_topic",
-                    "files_exam_title",
-                ]:
-                    st.session_state.pop(key, None)
-                st.rerun()
-        render_exam_result(
-            selected_exam,
-            selected_exam_ak,
-            show_ready_banner=False,
-            read_only=True,
-            allow_assign=not is_archived_status(st.session_state.get("files_selected_exam_status")),
-            resource_record_id=_session_resource_id("files_selected_exam_id"),
-            subject=st.session_state.get("files_exam_subject", ""),
-            learner_stage=st.session_state.get("files_exam_stage", ""),
-            level_or_band=st.session_state.get("files_exam_level", ""),
-            topic=st.session_state.get("files_exam_topic", ""),
-            signup_required_actions=True,
-            action_key_prefix="explore_selected_exam",
-        )
-
-    selected_video = st.session_state.get("files_selected_video")
-    if selected_video:
-        st.markdown("---")
-        video_det_l, video_det_r = st.columns([6, 1])
-        with video_det_l:
-            st.markdown(f"### {t('video_preview_title')}")
-        with video_det_r:
-            if st.button(t("close"), key="explore_close_selected_video", use_container_width=True):
-                for key in [
-                    "files_selected_video",
-                    "files_selected_video_id",
-                    "files_selected_video_status",
-                    "files_selected_video_assign_expanded",
-                ]:
-                    st.session_state.pop(key, None)
-                st.rerun()
-        render_video_detail(
-            selected_video,
-            action_key_prefix="explore_selected_video",
-            allow_assign=not is_archived_status((selected_video or {}).get("status")),
-            assign_expanded=bool(st.session_state.get("files_selected_video_assign_expanded")),
-        )
-
     if st.session_state.get("_explore_go_signup"):
         return True
 
     return False
+
+
+def _render_explore_program_preview(program: dict) -> None:
+    if not program:
+        st.info(t("no_program_selected"))
+        return
+
+    _inject_program_styles()
+    program_id = int(program.get("id") or 0)
+    parent_title = ""
+    parent_id = int(program.get("parent_program_id") or 0)
+    if parent_id > 0:
+        parent_program = load_learning_program(parent_id)
+        parent_title = _clean_text((parent_program or {}).get("title"))
+
+    st.markdown(
+        f"""
+        <div class="classio-program-shell">
+            <div class="classio-program-kicker">{t("classio_learning_program")}</div>
+            <div class="classio-program-title">{program.get('title') or t("learning_program_singular")}</div>
+            <div class="classio-program-tagline">{program.get('tagline') or ''}</div>
+            <div class="classio-program-summary">{program.get('program_overview') or ''}</div>
+            <div class="classio-program-chip-row">
+                <span class="classio-program-chip">{len(program.get('units') or [])} {t("units").lower()}</span>
+                <span class="classio-program-chip">{_count_program_topics(program)} {t("topics_label").lower()}</span>
+                <span class="classio-program-chip">{_localized_source_type_label(program.get('source_type') or 'custom')}</span>
+                <span class="classio-program-chip">{t("public_label") if program.get('is_public') else t("private_label")}</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    meta_cols = st.columns(4)
+    meta_cols[0].metric(t("units"), len(program.get("units") or []))
+    meta_cols[1].metric(t("topics_label"), _count_program_topics(program))
+    meta_cols[2].metric(t("source_type"), _localized_source_type_label(program.get("source_type") or ""))
+    meta_cols[3].metric(t("visibility_label"), t("public_label") if program.get("is_public") else t("private_label"))
+
+    if parent_title:
+        st.caption(t("learning_program_builds_on", title=parent_title))
+
+    if program.get("teacher_rationale"):
+        st.markdown(f"**{t('teacher_rationale_label')}**")
+        st.write(program["teacher_rationale"])
+
+    if program.get("scope_and_sequence_rationale"):
+        st.markdown(f"**{t('scope_sequence_rationale_label')}**")
+        st.write(program["scope_and_sequence_rationale"])
+
+    if program.get("core_progression_priorities"):
+        st.markdown(f"**{t('core_progression_priorities_label')}**")
+        for item in program["core_progression_priorities"]:
+            st.write(f"- {item}")
+
+    if program.get("entry_profile"):
+        st.markdown(f"**{t('entry_profile_label')}**")
+        st.write(program["entry_profile"])
+
+    if program.get("exit_profile"):
+        st.markdown(f"**{t('exit_profile_label')}**")
+        st.write(program["exit_profile"])
+
+    if program.get("assessment_strategy"):
+        st.markdown(f"**{t('assessment_strategy_label')}**")
+        st.write(program["assessment_strategy"])
+
+    if program.get("resource_strategy"):
+        st.markdown(f"**{t('classio_resource_strategy_label')}**")
+        st.write(program["resource_strategy"])
+
+    if program.get("non_classio_support_strategy"):
+        st.markdown(f"**{t('complementary_teaching_strategy_label')}**")
+        st.write(program["non_classio_support_strategy"])
+
+    if program.get("best_practice_frameworks"):
+        st.caption(t("best_practice_anchors_label", items=", ".join(program["best_practice_frameworks"])))
+
+    if program.get("subject_family"):
+        st.caption(
+            t(
+                "inferred_subject_family_label",
+                subject_family=_clean_display_text(program.get("subject_family")).replace("_", " "),
+            )
+        )
+
+    if program.get("delivery_design_notes"):
+        st.markdown(f"**{t('delivery_design_notes_label')}**")
+        for item in program["delivery_design_notes"]:
+            st.write(f"- {item}")
+
+    for unit in program.get("units") or []:
+        unit_label = t("unit_title_format", number=unit.get("unit_number"), title=unit.get("title"))
+        with st.expander(
+            _scoped_expander_label(unit_label, f"explore_program_unit_{program_id}_{unit.get('unit_number') or 0}"),
+            expanded=unit.get("unit_number") == 1,
+        ):
+            st.markdown(
+                f"""
+                <div class="classio-program-unit">
+                    <div class="classio-program-unit-title">{unit_label}</div>
+                    <div class="classio-program-unit-copy">{unit.get('overview') or ''}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if unit.get("unit_objectives"):
+                st.markdown(f"**{t('unit_objectives_label')}**")
+                for item in unit["unit_objectives"]:
+                    st.write(f"- {item}")
+            if unit.get("recommended_lesson_purposes"):
+                st.caption(t("lesson_purposes_label", items=", ".join(_lp()._purpose_label(x) for x in unit["recommended_lesson_purposes"])))
+            if unit.get("recommended_worksheet_types"):
+                st.caption(t("worksheet_types_label", items=", ".join(_localized_worksheet_type_label(x) for x in unit["recommended_worksheet_types"])))
+            if unit.get("recommended_exam_exercise_types"):
+                st.caption(t("exam_exercise_types_label", items=", ".join(_localized_exam_type_label(x) for x in unit["recommended_exam_exercise_types"])))
+            if unit.get("recommended_non_classio_activities"):
+                st.caption(t("complementary_activities_label", items=", ".join(unit["recommended_non_classio_activities"])))
+            if unit.get("delivery_notes"):
+                for item in unit["delivery_notes"]:
+                    st.write(f"- {item}")
+
+            for topic in unit.get("topics") or []:
+                with st.container(border=True):
+                    st.markdown(f"**{t('topic_title_format', number=topic.get('topic_number'), title=topic.get('title'))}**")
+                    if topic.get("subtopic"):
+                        st.caption(topic["subtopic"])
+                    if topic.get("student_summary"):
+                        st.write(topic["student_summary"])
+                    if topic.get("learning_objectives"):
+                        st.write(t("objectives_label", items="; ".join(topic["learning_objectives"])))
+                    if topic.get("success_criteria"):
+                        st.write(t("success_criteria_label", items="; ".join(topic["success_criteria"])))
+                    if topic.get("suggested_worksheet_types"):
+                        st.caption(t("suggested_worksheet_types_label", items=", ".join(_localized_worksheet_type_label(x) for x in topic["suggested_worksheet_types"])))
+                    if topic.get("suggested_exam_exercise_types"):
+                        st.caption(t("suggested_exam_exercises_label", items=", ".join(_localized_exam_type_label(x) for x in topic["suggested_exam_exercise_types"])))
+                    if topic.get("suggested_non_classio_activities"):
+                        st.caption(t("complementary_activities_label", items=", ".join(topic["suggested_non_classio_activities"])))
 
 # ── Pre-login Explore and Income Goal tabs ──
 def render_goal_explorer() -> bool:
@@ -1396,6 +1612,7 @@ def render_goal_explorer() -> bool:
     Render the clean pre-login Explore page.
     The conversion-oriented income calculator lives in its own tab.
     """
+    st.session_state["_explore_ai_tool_dialog_rendered_key_this_run"] = None
     load_css_home()
     _inject_explore_premium_styles()
     _render_explore_scroll_toast_if_needed()
@@ -2169,15 +2386,19 @@ def _inject_explore_premium_styles() -> None:
 
 
 def _render_explore_ai_tool_dialog(tool_key: str, title: str) -> None:
+    normalized_tool_key = str(tool_key or "").strip()
+    if st.session_state.get("_explore_ai_tool_dialog_rendered_key_this_run") == normalized_tool_key:
+        return
     renderers = {
         "planner": _render_explore_lesson_planner,
         "worksheet": _render_explore_worksheet_maker,
         "exam": _render_explore_exam_builder,
         "program": _render_explore_program_maker,
     }
-    renderer = renderers.get(str(tool_key or "").strip())
+    renderer = renderers.get(normalized_tool_key)
     if renderer is None:
         return
+    st.session_state["_explore_ai_tool_dialog_rendered_key_this_run"] = normalized_tool_key
 
     @st.dialog(title, width="large")
     def _dialog():
@@ -2282,19 +2503,15 @@ def _render_explore_ai_tools() -> None:
 def _render_explore_worksheet_maker() -> None:
     """Worksheet maker for anonymous users. AI with limit. Save requires signup."""
     import helpers.lesson_planner as lp
-    from helpers.worksheet_builder import (
-        WORKSHEET_TYPES,
-        generate_ai_worksheet,
-        normalize_worksheet_output,
-        get_plan_language,
-        get_student_material_language,
-    )
+    from helpers.worksheet_builder import WORKSHEET_TYPES
 
     st.markdown(f"### 📋 {t('worksheet_maker')}")
     st.caption(t("worksheet_maker_caption"))
 
-    ai_used = st.session_state.get("_explore_ws_ai_used", 0)
-    ai_remaining = max(0, _EXPLORE_AI_LIMIT - ai_used)
+    ai_remaining = anonymous_ai_remaining(
+        "_explore_ws_ai_used",
+        limit=EXPLORER_CAPABILITIES.anonymous_ai_limit,
+    ) or 0
 
     if ai_remaining > 0:
         st.caption(t("explore_ai_remaining", remaining=ai_remaining))
@@ -2350,22 +2567,27 @@ def _render_explore_worksheet_maker() -> None:
             st.error(t("enter_topic"))
         elif subject == "other" and not other_subject_name:
             st.error(t("enter_subject_name"))
-        elif ai_remaining <= 0:
+        elif anonymous_ai_limit_reached(
+            "_explore_ws_ai_used",
+            limit=EXPLORER_CAPABILITIES.anonymous_ai_limit,
+        ):
             st.warning(t("explore_ai_limit_reached"))
         else:
-            effective_subject = other_subject_name if subject == "other" else subject
+            effective_subject = resolve_effective_subject(subject, other_subject_name)
             with st.spinner(t("generating")):
                 try:
-                    ws = generate_ai_worksheet(
-                        subject=effective_subject,
+                    generation_result = run_worksheet_generation(
+                        capabilities=EXPLORER_CAPABILITIES,
+                        subject=subject,
+                        custom_subject_name=other_subject_name,
                         learner_stage=learner_stage,
                         level_or_band=level_or_band,
                         worksheet_type=worksheet_type,
                         topic=topic.strip(),
-                        plan_language=get_plan_language(),
-                        student_material_language=get_student_material_language(effective_subject),
+                        anonymous_counter_key="_explore_ws_ai_used",
                     )
-                    ws = normalize_worksheet_output(ws)
+                    ws = generation_result["worksheet"]
+                    effective_subject = generation_result["subject"]
                     st.session_state["explore_generated_worksheet"] = ws
                     st.session_state["explore_generated_worksheet_meta"] = {
                         "subject": effective_subject,
@@ -2381,7 +2603,6 @@ def _render_explore_worksheet_maker() -> None:
                         meta=st.session_state["explore_generated_worksheet_meta"],
                     )
                     st.session_state["explore_generated_worksheet_move_id"] = move_id
-                    st.session_state["_explore_ws_ai_used"] = ai_used + 1
                 except Exception:
                     st.error(t("ai_unavailable_fallback"))
 
@@ -2426,9 +2647,6 @@ def _render_explore_exam_builder() -> None:
     import helpers.lesson_planner as lp
     from helpers.quick_exam_builder import (
         EXAM_LENGTHS,
-        generate_ai_exam,
-        get_plan_language,
-        get_student_material_language,
         get_recommended_exercise_types,
         get_default_selected_exercise_types,
     )
@@ -2437,8 +2655,10 @@ def _render_explore_exam_builder() -> None:
     st.markdown(f"### 🧪 {t('quick_exam_builder')}")
     st.caption(t("quick_exam_builder_caption"))
 
-    ai_used = st.session_state.get("_explore_exam_ai_used", 0)
-    ai_remaining = max(0, _EXPLORE_AI_LIMIT - ai_used)
+    ai_remaining = anonymous_ai_remaining(
+        "_explore_exam_ai_used",
+        limit=EXPLORER_CAPABILITIES.anonymous_ai_limit,
+    ) or 0
 
     if ai_remaining > 0:
         st.caption(t("explore_ai_remaining", remaining=ai_remaining))
@@ -2489,13 +2709,18 @@ def _render_explore_exam_builder() -> None:
 
     topic = st.text_input(t("topic_label"), key="explore_exam_topic")
 
-    effective_subject = other_subject_name if subject == "other" else subject
+    effective_subject = resolve_effective_subject(subject, other_subject_name)
     recommended = get_recommended_exercise_types(effective_subject)
+    from helpers.quick_exam_builder import get_all_exercise_types_for_subject
+    available_types = [
+        *recommended,
+        *[item for item in get_all_exercise_types_for_subject(effective_subject) if item not in recommended],
+    ]
     defaults = get_default_selected_exercise_types(effective_subject)
 
     exercise_types = st.multiselect(
         t("exercise_types"),
-        options=recommended,
+        options=available_types,
         default=defaults,
         format_func=lambda x: t(x) if t(x) != x else x.replace("_", " ").title(),
         key="explore_exam_types",
@@ -2508,23 +2733,30 @@ def _render_explore_exam_builder() -> None:
             st.error(t("enter_subject_name"))
         elif not exercise_types:
             st.error(t("exercise_types"))
-        elif ai_remaining <= 0:
+        elif anonymous_ai_limit_reached(
+            "_explore_exam_ai_used",
+            limit=EXPLORER_CAPABILITIES.anonymous_ai_limit,
+        ):
             st.warning(t("explore_ai_limit_reached"))
         else:
             with st.spinner(t("generating")):
                 try:
-                    exam_data, answer_key = generate_ai_exam(
-                        subject=effective_subject,
+                    generation_result = run_exam_generation(
+                        capabilities=EXPLORER_CAPABILITIES,
+                        subject=subject,
+                        custom_subject_name=other_subject_name,
                         learner_stage=learner_stage,
                         level_or_band=level_or_band,
                         topic=topic.strip(),
                         exam_title=topic.strip(),
                         exam_length=exam_length,
                         exercise_types=exercise_types,
-                        instructions="",
-                        plan_language=get_plan_language(),
-                        student_material_language=get_student_material_language(effective_subject),
+                        anonymous_counter_key="_explore_exam_ai_used",
                     )
+                    exam_data = generation_result["exam_data"]
+                    answer_key = generation_result["answer_key"]
+                    effective_subject = generation_result["subject"]
+                    exercise_types = generation_result["exercise_types"]
                     st.session_state["explore_generated_exam"] = exam_data
                     st.session_state["explore_generated_exam_ak"] = answer_key
                     st.session_state["explore_generated_exam_meta"] = {
@@ -2542,7 +2774,6 @@ def _render_explore_exam_builder() -> None:
                         meta=st.session_state["explore_generated_exam_meta"],
                     )
                     st.session_state["explore_generated_exam_move_id"] = move_id
-                    st.session_state["_explore_exam_ai_used"] = ai_used + 1
                 except Exception:
                     st.error(t("ai_unavailable_fallback"))
 
@@ -2612,7 +2843,7 @@ def _render_explore_program_maker() -> None:
         key="explore_prog_level",
     )
 
-    effective_subject = other_subject_name if subject == "other" else subject
+    effective_subject = resolve_effective_subject(subject, other_subject_name)
     structure = clamp_program_structure(effective_subject, learner_stage, None, None)
     st.caption(
         t(
@@ -2648,19 +2879,21 @@ def _render_explore_program_maker() -> None:
         height=80,
     )
 
-    st.info(t("explore_resource_action_signup_note"))
+    st.info(t("explore_program_action_signup_note"))
     if st.button(t("generate_learning_program"), key="btn_explore_gen_prog", use_container_width=True):
-        st.session_state["_pending_program_after_signup"] = {
-            "subject": effective_subject,
-            "learner_stage": learner_stage,
-            "level_or_band": level_or_band,
-            "units": int(units),
-            "lessons_per_unit": int(lessons_per_unit),
-            "additional_notes": additional_notes.strip(),
-            "custom_subject_name": other_subject_name,
-        }
+        st.session_state["_pending_program_after_signup"] = build_learning_program_request_payload(
+            subject=subject,
+            custom_subject_name=other_subject_name,
+            learner_stage=learner_stage,
+            level_or_band=level_or_band,
+            units=int(units),
+            lessons_per_unit=int(lessons_per_unit),
+            additional_notes=additional_notes.strip(),
+            capabilities=EXPLORER_CAPABILITIES,
+        )
         _keep_explore_section_open("explore_ai_tools_keep_open")
         st.session_state["_explore_go_signup"] = True
+        st.session_state["_show_signup_invite_dialog"] = True
         st.rerun()
 
 # ─────────────────────────────────────────────────────────────
@@ -2675,8 +2908,10 @@ def _render_explore_lesson_planner() -> None:
     st.markdown(f"### 📝 {t('quick_lesson_planner')}")
     st.caption(t("explore_planner_caption"))
 
-    ai_used = st.session_state.get("_explore_ai_used", 0)
-    ai_remaining = max(0, _EXPLORE_AI_LIMIT - ai_used)
+    ai_remaining = anonymous_ai_remaining(
+        "_explore_ai_used",
+        limit=EXPLORER_CAPABILITIES.anonymous_ai_limit,
+    ) or 0
 
     if ai_remaining > 0:
         st.caption(t("explore_ai_remaining", remaining=ai_remaining))
@@ -2737,23 +2972,28 @@ def _render_explore_lesson_planner() -> None:
             st.error(t("enter_topic"))
         elif plan_subject == "other" and not other_subject_name:
             st.error(t("enter_subject_name"))
-        elif ai_remaining <= 0:
+        elif anonymous_ai_limit_reached(
+            "_explore_ai_used",
+            limit=EXPLORER_CAPABILITIES.anonymous_ai_limit,
+        ):
             st.warning(t("explore_ai_limit_reached"))
         else:
-            effective_subject = other_subject_name if plan_subject == "other" else plan_subject
+            effective_subject = resolve_effective_subject(plan_subject, other_subject_name)
             with st.spinner(t("generating")):
                 try:
-                    ai_plan = lp.generate_ai_lesson_plan(
-                        subject=effective_subject,
+                    generation_result = run_lesson_plan_generation(
+                        capabilities=EXPLORER_CAPABILITIES,
+                        mode="ai",
+                        subject=plan_subject,
+                        custom_subject_name=other_subject_name,
                         learner_stage=learner_stage,
                         level_or_band=level_or_band,
                         lesson_purpose=lesson_purpose,
                         topic=topic.strip(),
-                        plan_language=lp.get_plan_language(),
-                        student_material_language=lp.get_student_material_language(effective_subject),
+                        anonymous_counter_key="_explore_ai_used",
                     )
-                    plan = lp.normalize_planner_output(ai_plan)
-                    st.session_state["_explore_ai_used"] = ai_used + 1
+                    plan = generation_result["plan"]
+                    effective_subject = generation_result["subject"]
                     st.session_state["explore_generated_plan"] = plan
                     st.session_state["explore_generated_plan_meta"] = {
                         "subject": effective_subject,
@@ -2761,7 +3001,7 @@ def _render_explore_lesson_planner() -> None:
                         "level_or_band": level_or_band,
                         "lesson_purpose": lesson_purpose,
                         "topic": topic.strip(),
-                        "mode": "ai",
+                        "mode": generation_result["mode_used"],
                     }
                     move_id = stage_explorer_move(
                         resource_type="lesson_plan",
@@ -2770,7 +3010,7 @@ def _render_explore_lesson_planner() -> None:
                         meta=st.session_state["explore_generated_plan_meta"],
                     )
                     st.session_state["explore_generated_plan_move_id"] = move_id
-                    st.session_state["explore_plan_warning"] = None
+                    st.session_state["explore_plan_warning"] = generation_result["warning"]
                 except Exception:
                     st.error(t("ai_unavailable_fallback"))
 

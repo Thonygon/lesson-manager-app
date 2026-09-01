@@ -36,6 +36,7 @@ from helpers.visual_support import (
     render_visual_support_status_group,
     preserve_generated_media_fields,
 )
+from helpers.structured_text import build_text_asset, text_asset_to_markdown
 from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
 from helpers.resource_gallery import (
     extract_gallery_language_label,
@@ -196,6 +197,37 @@ def _format_question_text(sec_type: str, q) -> str:
     if isinstance(q, dict):
         return _strip_auto_numbering(q.get("text", str(q)))
     return _strip_auto_numbering(q)
+
+
+def _get_section_table_data(section: dict) -> dict:
+    try:
+        return _eb()._section_table_data(section)
+    except Exception:
+        return {}
+
+
+def _build_section_table_frame(section: dict) -> pd.DataFrame:
+    table_data = _get_section_table_data(section)
+    columns = table_data.get("columns") or []
+    rows = table_data.get("rows") or []
+    if not columns or not rows:
+        return pd.DataFrame()
+    try:
+        return pd.DataFrame(rows, columns=columns)
+    except Exception:
+        return pd.DataFrame()
+
+
+def _should_render_section_source_text(section: dict) -> bool:
+    source_text = str(section.get("source_text") or "").strip()
+    if not source_text:
+        return False
+    if str(section.get("type") or "").strip() != "table_interpretation":
+        return True
+    try:
+        return not bool(_eb()._extract_table_data_from_text(source_text))
+    except Exception:
+        return True
 
 
 # ── CRUD ──────────────────────────────────────────────────────────────
@@ -512,10 +544,11 @@ def _open_exam_library_record(
     row: dict,
     *,
     open_in_files: bool = False,
+    open_in_viewer_only: bool = False,
     require_signup: bool = False,
     expand_assign: bool = False,
 ) -> None:
-    st.session_state["_resource_viewer_return_page"] = str(st.session_state.get("page") or "resources").strip()
+    st.session_state["_resource_viewer_return_page"] = "explore" if open_in_viewer_only else str(st.session_state.get("page") or "resources").strip()
     clear_smart_tool_result_state(clear_selection=True)
     clear_open_resource_previews(except_kind="exam", clear_dialogs=not expand_assign)
     if not expand_assign:
@@ -556,8 +589,11 @@ def _open_exam_library_record(
         row,
         "exam",
         "own" if current_user_id and current_user_id == row_owner_id else "community",
-        surface="home_preview" if open_in_files else "resources",
+        surface="explore" if open_in_viewer_only else ("home_preview" if open_in_files else "resources"),
     )
+
+    if open_in_viewer_only:
+        st.rerun()
 
     if open_in_files:
         target_main_tab = t("community_library") if current_user_id and current_user_id != row_owner_id else t("my_exams")
@@ -577,6 +613,7 @@ def render_exam_library_cards(
     prefix: str = "exam",
     show_author: bool = False,
     open_in_files: bool = False,
+    open_in_viewer_only: bool = False,
     require_signup: bool = False,
     allow_visibility_toggle: bool = False,
     allow_archive_toggle: bool = False,
@@ -667,6 +704,7 @@ def render_exam_library_cards(
                         _open_exam_library_record(
                             row,
                             open_in_files=open_in_files,
+                            open_in_viewer_only=open_in_viewer_only,
                             require_signup=False,
                             expand_assign=False,
                         )
@@ -680,11 +718,12 @@ def render_exam_library_cards(
                                 _open_exam_library_record(
                                     row,
                                     open_in_files=open_in_files,
+                                    open_in_viewer_only=open_in_viewer_only,
                                     require_signup=True,
                                     expand_assign=True,
                                 )
                             else:
-                                open_resource_bulk_assign_dialog("exam", row)
+                                open_resource_bulk_assign_dialog("exam", row, dialog_scope=prefix)
                 if show_owner_controls:
                     with action_cols[2]:
                         if allow_visibility_toggle and is_owner and str(exam_id or "").strip() and not is_archived:
@@ -857,6 +896,24 @@ def build_exam_pdf_bytes(
         except TypeError:
             return t(key, **kw)
 
+    def _structured_text_flowables(value, *, title: str = "", text_kind: str = "", blocks=None):
+        asset = build_text_asset(value, title=title, text_kind=text_kind, blocks=blocks)
+        flowables = []
+        for block in asset.get("blocks") or []:
+            block_type = str(block.get("type") or "paragraph")
+            if block_type in {"from", "to", "subject"}:
+                label = {"from": "De/From", "to": "Para/To", "subject": "Asunto/Subject"}.get(block_type, block_type.title())
+                flowables.append(Paragraph(f"<b>{_pdf_safe_text(label)}:</b> {_pdf_safe_text(block.get('text'))}", _S["body"]))
+            elif block_type == "turn":
+                speaker = _pdf_safe_text(block.get("speaker"))
+                text_value = _pdf_safe_text(block.get("text"))
+                flowables.append(Paragraph(f"<b>{speaker}:</b> {text_value}" if speaker else text_value, _S["body"]))
+            else:
+                for paragraph in [part.strip() for part in str(block.get("text") or "").split("\n") if part.strip()]:
+                    flowables.append(Paragraph(_pdf_safe_text(paragraph), _S["body"]))
+            flowables.append(Spacer(1, 4))
+        return flowables
+
     from helpers.branding import get_user_branding, build_worksheet_header
     _branding = get_user_branding()
 
@@ -888,8 +945,15 @@ def build_exam_pdf_bytes(
 
         story.extend(build_pdf_visual_flowables(sec.get("visual_support"), max_width_cm=16.0, paragraph_style=_S["body"]))
 
-        if sec.get("source_text"):
-            story.append(Paragraph(_pdf_safe_text(_strip_auto_numbering(sec["source_text"])), _S["body"]))
+        if _should_render_section_source_text(sec):
+            story.extend(
+                _structured_text_flowables(
+                    _strip_auto_numbering(sec["source_text"]),
+                    title=sec.get("text_title") or "",
+                    text_kind=sec.get("text_kind") or "",
+                    blocks=sec.get("text_blocks"),
+                )
+            )
             story.append(Spacer(1, 6))
 
         questions = sec.get("questions", [])
@@ -973,13 +1037,66 @@ def build_exam_pdf_bytes(
                 story.append(Paragraph(_pdf_safe_text(f"{idx}. {text}"), _S["body"]))
                 story.append(Spacer(1, 6))
 
+        elif sec_type == "table_interpretation":
+            table_data = _get_section_table_data(sec)
+            table_df = _build_section_table_frame(sec)
+            if table_data.get("title"):
+                story.append(Paragraph(_pdf_safe_text(table_data["title"]), _S["mc_stem"]))
+                story.append(Spacer(1, 3))
+            if not table_df.empty:
+                header_row = [Paragraph(_pdf_safe_text(col), _S["mc_stem"]) for col in table_df.columns]
+                data_rows = [
+                    [Paragraph(_pdf_safe_text(str(cell)), _S["body"]) for cell in row]
+                    for row in table_df.astype(str).values.tolist()
+                ]
+                tbl = Table([header_row, *data_rows], hAlign="LEFT")
+                tbl.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, 0), _C.PRIMARY),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), _C.BG_WHITE),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("GRID", (0, 0), (-1, -1), 0.6, _C.LINE),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ]))
+                story.append(tbl)
+                story.append(Spacer(1, 6))
+            if table_data.get("caption"):
+                story.append(Paragraph(_pdf_safe_text(table_data["caption"]), _S["instruction"]))
+                story.append(Spacer(1, 4))
+            line_count = 2
+            for idx, q in enumerate(questions, 1):
+                text = _format_question_text(sec_type, q)
+                block = [
+                    Paragraph(_pdf_safe_text(f"{idx}. {text}"), _S["body"]),
+                    Spacer(1, 4),
+                ]
+                for _ in range(line_count):
+                    line_tbl = Table(
+                        [[""]],
+                        colWidths=[16.2*cm],
+                        rowHeights=[0.6*cm],
+                        hAlign="LEFT",
+                    )
+                    line_tbl.setStyle(TableStyle([
+                        ("LINEBELOW", (0,0), (-1,-1), 0.6, _C.LINE),
+                        ("LEFTPADDING", (0,0), (-1,-1), 0),
+                        ("RIGHTPADDING", (0,0), (-1,-1), 0),
+                        ("TOPPADDING", (0,0), (-1,-1), 0),
+                        ("BOTTOMPADDING", (0,0), (-1,-1), 0),
+                    ]))
+                    block.append(line_tbl)
+                    block.append(Spacer(1, 4))
+                story.append(KeepTogether(block))
+
         elif sec_type in (
             "short_answer",
             "reading_comprehension",
             "writing_prompt",
             "problem_solving",
             "equation_solving",
-            "table_interpretation",
             "word_problems",
             "data_analysis",
             "classification",
@@ -1158,6 +1275,7 @@ def render_exam_result(
     assign_expanded: bool = False,
     resource_record_id: int | str | None = None,
     signup_required_actions: bool = False,
+    show_signup_save_cta: bool = True,
     allow_free_pdf: bool = True,
     action_key_prefix: str = "exam_result",
     comparison_mode: bool = False,
@@ -1326,8 +1444,26 @@ def render_exam_result(
 
         render_streamlit_visual_support(sec.get("visual_support"))
 
-        if sec.get("source_text"):
-            st.info(_strip_auto_numbering(sec["source_text"]))
+        if _should_render_section_source_text(sec):
+            st.markdown(
+                text_asset_to_markdown(
+                    _strip_auto_numbering(sec["source_text"]),
+                    title=sec.get("text_title") or "",
+                    text_kind=sec.get("text_kind") or "",
+                    blocks=sec.get("text_blocks"),
+                ),
+                unsafe_allow_html=True,
+            )
+
+        if sec_type == "table_interpretation":
+            table_data = _get_section_table_data(sec)
+            table_df = _build_section_table_frame(sec)
+            if table_data.get("title"):
+                st.markdown(f"**{table_data['title']}**")
+            if table_data.get("caption"):
+                st.caption(table_data["caption"])
+            if not table_df.empty:
+                st.table(table_df)
 
         questions = sec.get("questions", [])
 
@@ -1453,35 +1589,36 @@ def render_exam_result(
 
     if signup_required_actions:
         st.caption(t("explore_resource_action_signup_note"))
-        if st.button(
-            t("explore_save_exam_cta"),
-            key=f"{action_key_prefix}_save_signup",
-            type="primary",
-            use_container_width=True,
-        ):
-            move_id = str(meta.get("move_id") or "").strip()
-            st.session_state["_pending_exam_after_signup"] = {
-                "exam_data": exam_data,
-                "answer_key": answer_key,
-                "meta": {
-                    "subject": subject,
-                    "learner_stage": learner_stage,
-                    "level_or_band": level_or_band,
-                    "topic": topic,
-                    "exam_length": str(meta.get("exam_length") or exam_data.get("exam_length") or "").strip(),
-                    "exercise_types": list(meta.get("exercise_types") or exam_data.get("exercise_types") or []),
-                },
-                "move_id": move_id,
-            }
-            if move_id:
-                st.session_state["_explorer_claim_move_ids"] = [move_id]
-            st.session_state["_explore_go_signup"] = True
-            st.session_state["_show_signup_invite_dialog"] = True
-            if str(action_key_prefix).startswith("explore_selected"):
-                st.session_state["explore_teaching_resources_keep_open"] = True
-            elif str(action_key_prefix).startswith("explore_"):
-                st.session_state["explore_ai_tools_keep_open"] = True
-            st.rerun()
+        if show_signup_save_cta:
+            if st.button(
+                t("explore_save_exam_cta"),
+                key=f"{action_key_prefix}_save_signup",
+                type="primary",
+                use_container_width=True,
+            ):
+                move_id = str(meta.get("move_id") or "").strip()
+                st.session_state["_pending_exam_after_signup"] = {
+                    "exam_data": exam_data,
+                    "answer_key": answer_key,
+                    "meta": {
+                        "subject": subject,
+                        "learner_stage": learner_stage,
+                        "level_or_band": level_or_band,
+                        "topic": topic,
+                        "exam_length": str(meta.get("exam_length") or exam_data.get("exam_length") or "").strip(),
+                        "exercise_types": list(meta.get("exercise_types") or exam_data.get("exercise_types") or []),
+                    },
+                    "move_id": move_id,
+                }
+                if move_id:
+                    st.session_state["_explorer_claim_move_ids"] = [move_id]
+                st.session_state["_explore_go_signup"] = True
+                st.session_state["_show_signup_invite_dialog"] = True
+                if str(action_key_prefix).startswith("explore_selected"):
+                    st.session_state["explore_teaching_resources_keep_open"] = True
+                elif str(action_key_prefix).startswith("explore_"):
+                    st.session_state["explore_ai_tools_keep_open"] = True
+                st.rerun()
         if st.button(
             t("assign_to_student"),
             key=f"{action_key_prefix}_assign_signup",

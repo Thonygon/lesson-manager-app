@@ -77,7 +77,10 @@ from helpers.resource_gallery import (
     inject_resource_gallery_styles,
     render_gallery_card_html,
 )
+from helpers.generation_capabilities import SMART_TOOLS_CAPABILITIES, resolve_effective_subject
+from helpers.generation_orchestration import run_worksheet_generation
 from helpers.recommendation_models import log_teacher_material_open
+from helpers.structured_text import text_asset_to_markdown
 from services.permissions_service import get_feature_usage_status
 
 
@@ -225,6 +228,7 @@ def _normalize_worksheet_unicode(ws: dict) -> dict:
         "student_material_language",
         "source_text",
         "text",
+        "text_kind",
     ]
     for key in text_keys:
         if key in ws:
@@ -246,6 +250,12 @@ def _normalize_worksheet_unicode(ws: dict) -> dict:
         ws["multiple_choice_items"] = _normalize_mc_items(ws.get("multiple_choice_items"))
 
     return ws
+
+
+def _render_structured_text(text: str, *, title: str = "", text_kind: str = "", blocks=None) -> None:
+    rendered = text_asset_to_markdown(text, title=title, text_kind=text_kind, blocks=blocks)
+    if rendered:
+        st.markdown(rendered, unsafe_allow_html=True)
 
 
 def _pdf_safe_text(value) -> str:
@@ -714,7 +724,12 @@ def _render_true_false_exercise(ws: dict) -> None:
     st.markdown(
         f"**{t('read_and_decide_true_false') if t('read_and_decide_true_false') != 'read_and_decide_true_false' else 'Read the text and decide if the statements are true or false.'}**"
     )
-    st.write(source_text)
+    _render_structured_text(
+        source_text,
+        title=ws.get("text_title") or "",
+        text_kind=ws.get("text_kind") or "",
+        blocks=ws.get("text_blocks"),
+    )
 
     if statements:
         st.markdown(f"**{t('ws_questions')}**")
@@ -856,7 +871,9 @@ def save_worksheet_record(
     worksheet: dict,
 ) -> int | str | bool:
     try:
+        worksheet = _wb().normalize_worksheet_output(worksheet, include_visuals=False)
         worksheet = _normalize_worksheet_unicode(worksheet)
+        worksheet = _clean_worksheet_data(worksheet)
 
         from helpers.branding import get_user_branding, resolve_is_public
         branding = get_user_branding()
@@ -1092,10 +1109,11 @@ def _open_worksheet_library_record(
     row: dict,
     *,
     open_in_files: bool = False,
+    open_in_viewer_only: bool = False,
     require_signup: bool = False,
     expand_assign: bool = False,
 ) -> None:
-    st.session_state["_resource_viewer_return_page"] = str(st.session_state.get("page") or "resources").strip()
+    st.session_state["_resource_viewer_return_page"] = "explore" if open_in_viewer_only else str(st.session_state.get("page") or "resources").strip()
     clear_smart_tool_result_state(clear_selection=True)
     clear_open_resource_previews(except_kind="worksheet", clear_dialogs=not expand_assign)
     if not expand_assign:
@@ -1136,8 +1154,11 @@ def _open_worksheet_library_record(
         row,
         "worksheet",
         "own" if current_user_id and current_user_id == row_owner_id else "community",
-        surface="home_preview" if open_in_files else "resources",
+        surface="explore" if open_in_viewer_only else ("home_preview" if open_in_files else "resources"),
     )
+
+    if open_in_viewer_only:
+        st.rerun()
 
     if open_in_files:
         target_main_tab = t("community_library") if current_user_id and current_user_id != row_owner_id else t("my_worksheets")
@@ -1238,6 +1259,7 @@ def render_worksheet_library_cards(
     prefix: str = "ws",
     show_author: bool = False,
     open_in_files: bool = False,
+    open_in_viewer_only: bool = False,
     require_signup: bool = False,
     allow_visibility_toggle: bool = False,
     allow_archive_toggle: bool = False,
@@ -1338,6 +1360,7 @@ def render_worksheet_library_cards(
                         _open_worksheet_library_record(
                             row,
                             open_in_files=open_in_files,
+                            open_in_viewer_only=open_in_viewer_only,
                             require_signup=False,
                             expand_assign=False,
                         )
@@ -1351,11 +1374,12 @@ def render_worksheet_library_cards(
                                 _open_worksheet_library_record(
                                     row,
                                     open_in_files=open_in_files,
+                                    open_in_viewer_only=open_in_viewer_only,
                                     require_signup=True,
                                     expand_assign=True,
                                 )
                             else:
-                                open_resource_bulk_assign_dialog("worksheet", row)
+                                open_resource_bulk_assign_dialog("worksheet", row, dialog_scope=prefix)
                 if show_owner_controls:
                     with action_cols[2]:
                         if allow_visibility_toggle and is_owner and str(worksheet_id or "").strip() and not is_archived:
@@ -1570,7 +1594,12 @@ def render_worksheet_result(
 
     if ws.get("worksheet_type") == "reading_comprehension" and str(ws.get("reading_passage") or "").strip():
         st.markdown(f"**{t('ws_reading_passage')}**")
-        st.write(_normalize_text(ws["reading_passage"]))
+        _render_structured_text(
+            _normalize_text(ws["reading_passage"]),
+            title=ws.get("text_title") or "",
+            text_kind=ws.get("text_kind") or "",
+            blocks=ws.get("text_blocks"),
+        )
 
     if ws.get("vocabulary_bank"):
         st.markdown(f"**{t('ws_vocabulary_bank')}**")
@@ -1975,7 +2004,8 @@ def _persist_saved_worksheet_resource(worksheet_id: int | str, worksheet: dict) 
         if not stripped:
             return False
         safe_id = int(stripped) if stripped.isdigit() else stripped
-    worksheet = _clean_worksheet_data(_normalize_worksheet_unicode(dict(worksheet or {})))
+    worksheet = _wb().normalize_worksheet_output(dict(worksheet or {}), include_visuals=False)
+    worksheet = _clean_worksheet_data(_normalize_worksheet_unicode(worksheet))
     existing_row = load_worksheet_record(safe_id) or {}
     try:
         (
@@ -2158,7 +2188,32 @@ def build_worksheet_pdf_bytes(
             split_at -= 1
         return split_at
 
-    def _sec(title_key, value):
+    def _structured_text_flowables(value, *, title: str = "", text_kind: str = "", blocks=None):
+        from helpers.structured_text import build_text_asset
+
+        asset = build_text_asset(value, title=title, text_kind=text_kind, blocks=blocks)
+        flowables = []
+        if asset.get("title"):
+            flowables.append(Paragraph(_pdf_safe_text(asset.get("title")), heading_style))
+            flowables.append(Spacer(1, 3))
+        for block in asset.get("blocks") or []:
+            block_type = str(block.get("type") or "paragraph")
+            if block_type in {"from", "to", "subject"}:
+                label = {"from": "De/From", "to": "Para/To", "subject": "Asunto/Subject"}.get(block_type, block_type.title())
+                text_value = f"<b>{_pdf_safe_text(label)}:</b> {_pdf_safe_text(block.get('text'))}"
+                flowables.append(Paragraph(text_value, body_style))
+            elif block_type == "turn":
+                speaker = _pdf_safe_text(block.get("speaker"))
+                text_value = _pdf_safe_text(block.get("text"))
+                flowables.append(Paragraph(f"<b>{speaker}:</b> {text_value}" if speaker else text_value, body_style))
+            else:
+                paragraphs = [part.strip() for part in str(block.get("text") or "").split("\n") if part.strip()]
+                for paragraph in paragraphs:
+                    flowables.append(Paragraph(_pdf_safe_text(paragraph), body_style))
+            flowables.append(Spacer(1, 3 if block_type in {"from", "to", "subject"} else 5))
+        return flowables
+
+    def _sec(title_key, value, *, structured_text: bool = False):
         if not value:
             return
         story.append(Paragraph(_pdf_safe_text(_t_pdf(title_key)), heading_style))
@@ -2166,6 +2221,15 @@ def build_worksheet_pdf_bytes(
             items = [ListItem(Paragraph(_pdf_safe_text(x), body_style)) for x in value if str(x).strip()]
             if items:
                 story.append(ListFlowable(items, bulletType="bullet"))
+        elif structured_text:
+            story.extend(
+                _structured_text_flowables(
+                    value,
+                    title=ws.get("text_title") or "",
+                    text_kind=ws.get("text_kind") or "",
+                    blocks=ws.get("text_blocks"),
+                )
+            )
         else:
             story.append(Paragraph(_pdf_safe_text(value), body_style))
         story.append(Spacer(1, 6))
@@ -2359,7 +2423,7 @@ def build_worksheet_pdf_bytes(
             story.extend(_render_vocab_bank(ws.get("vocabulary_bank")))
 
     if ws.get("worksheet_type") == "reading_comprehension" and str(ws.get("reading_passage") or "").strip():
-        _sec("ws_reading_passage", ws["reading_passage"])
+        _sec("ws_reading_passage", ws["reading_passage"], structured_text=True)
 
     questions = ws.get("questions", [])
 
@@ -2421,7 +2485,14 @@ def build_worksheet_pdf_bytes(
         if source_text:
             story.append(Paragraph(_pdf_safe_text(_t_pdf("read_and_decide_true_false")), heading_style))
             story.append(Spacer(1, 4))
-            story.append(Paragraph(_pdf_safe_text(source_text), body_style))
+            story.extend(
+                _structured_text_flowables(
+                    source_text,
+                    title=ws.get("text_title") or "",
+                    text_kind=ws.get("text_kind") or "",
+                    blocks=ws.get("text_blocks"),
+                )
+            )
             story.append(Spacer(1, 4))
 
         if statements:
@@ -2685,7 +2756,7 @@ def render_quick_worksheet_maker_expander(*, embedded: bool = False) -> None:
         if subject == "other":
             other_subject_name = st.text_input(t("other_subject_label"), key="ws_other_subject").strip()
 
-        effective_subject = other_subject_name if subject == "other" else subject
+        effective_subject = resolve_effective_subject(subject, other_subject_name)
         picked_program_topic_context = render_program_topic_picker(
             state_prefix="quick_ws",
             subject=effective_subject,
@@ -2840,14 +2911,19 @@ def render_quick_worksheet_maker_expander(*, embedded: bool = False) -> None:
                     st.rerun()
                 st.session_state["ws_effective_topic"] = effective_topic
                 with st.spinner(t("generating")):
-                    ws, warning = _wb().generate_worksheet_with_limit(
-                        subject=effective_subject,
+                    generation_result = run_worksheet_generation(
+                        capabilities=SMART_TOOLS_CAPABILITIES,
+                        subject=subject,
+                        custom_subject_name=other_subject_name,
                         learner_stage=learner_stage,
                         level_or_band=level_or_band,
                         worksheet_type=worksheet_type,
                         topic=effective_topic,
                         student_profile=student_profile,
                     )
+                    ws = generation_result["worksheet"]
+                    warning = generation_result["warning"]
+                    effective_subject = generation_result["subject"]
 
                     debug_baseline_ws = {}
                     debug_baseline_error = ""
@@ -2872,13 +2948,6 @@ def render_quick_worksheet_maker_expander(*, embedded: bool = False) -> None:
                 if warning and not ws:
                     st.warning(warning)
                 else:
-                    ws = _normalize_worksheet_unicode(ws)
-                    ws = enrich_worksheet_with_visuals(
-                        ws,
-                        subject=effective_subject,
-                        learner_stage=learner_stage,
-                        topic=effective_topic,
-                    )
                     st.session_state["worksheet_result"] = ws
                     st.session_state["worksheet_kept"] = False
                     st.session_state["worksheet_warning"] = warning

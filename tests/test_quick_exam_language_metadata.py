@@ -2,6 +2,7 @@ import logging
 import unittest
 
 from helpers.quick_exam_builder import (
+    _normalize_table_data,
     attach_exam_language_metadata,
     infer_exam_language,
     normalize_exam_output,
@@ -100,6 +101,26 @@ class QuickExamLanguageMetadataTests(unittest.TestCase):
             subject="Science",
         )
         self.assertEqual("tr", detected)
+
+    def test_normalize_table_data_preserves_interior_blank_cells(self):
+        normalized = _normalize_table_data(
+            {
+                "columns": ["Name", "Jan", "Feb"],
+                "rows": [
+                    ["Alice", "", "5"],
+                    ["Bob", "3", ""],
+                ],
+            }
+        )
+
+        self.assertEqual(["Name", "Jan", "Feb"], normalized.get("columns"))
+        self.assertEqual(
+            [
+                ["Alice", "", "5"],
+                ["Bob", "3", ""],
+            ],
+            normalized.get("rows"),
+        )
 
 
 if __name__ == "__main__":

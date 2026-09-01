@@ -17,10 +17,13 @@ class _FakeScheduleQuery:
         self.filters = []
         self.ordering = None
         self.limit_value = None
+        self.raise_on_execute = False
 
     def select(self, columns):
         self.selected_columns = str(columns or "")
-        if self.table_name == "schedules" and "timezone" in self.selected_columns:
+        if self.table_name == "schedules" and "start_date" in self.selected_columns:
+            raise Exception("column schedules.start_date does not exist")
+        if self.table_name == "schedules" and self.selected_columns.endswith(",timezone"):
             raise Exception("column schedules.timezone does not exist")
         if self.table_name == "calendar_overrides" and "gcal_event_id" in self.selected_columns:
             raise Exception("Could not find the 'gcal_event_id' column of 'calendar_overrides' in the schema cache")
@@ -39,16 +42,21 @@ class _FakeScheduleQuery:
         return self
 
     def execute(self):
+        if self.raise_on_execute:
+            raise Exception("column schedules.start_date does not exist")
         return _FakeResult(self.data_map.get(self.table_name, []))
 
 
 class _FakeSupabase:
-    def __init__(self, data_map):
+    def __init__(self, data_map, *, raise_schedule_on_execute=False):
         self.data_map = data_map
         self.queries = []
+        self.raise_schedule_on_execute = raise_schedule_on_execute
 
     def table(self, table_name):
         query = _FakeScheduleQuery(table_name, self.data_map)
+        if table_name == "schedules" and self.raise_schedule_on_execute and not self.queries:
+            query.raise_on_execute = True
         self.queries.append(query)
         return query
 
@@ -85,11 +93,14 @@ class CalendarScheduleLoaderTests(unittest.TestCase):
 
         self.assertEqual(["Ana"], df["student"].tolist())
         self.assertEqual([schedule.DEFAULT_TZ_NAME], df["timezone"].tolist())
-        self.assertEqual(2, len(fake_sb.queries))
-        self.assertEqual("id,student,weekday,time,duration_minutes,active,timezone", fake_sb.queries[0].selected_columns)
-        self.assertEqual("id,student,weekday,time,duration_minutes,active", fake_sb.queries[1].selected_columns)
-        self.assertIn(("eq", "user_id", "teacher-1"), fake_sb.queries[1].filters)
-        self.assertEqual(schedule._SCHEDULE_ROW_LIMIT, fake_sb.queries[1].limit_value)
+        self.assertIn("start_date", df.columns)
+        self.assertIn("end_date", df.columns)
+        self.assertEqual(3, len(fake_sb.queries))
+        self.assertEqual("id,student,weekday,time,duration_minutes,active,timezone,start_date,end_date", fake_sb.queries[0].selected_columns)
+        self.assertEqual("id,student,weekday,time,duration_minutes,active,timezone", fake_sb.queries[1].selected_columns)
+        self.assertEqual("id,student,weekday,time,duration_minutes,active", fake_sb.queries[2].selected_columns)
+        self.assertIn(("eq", "user_id", "teacher-1"), fake_sb.queries[2].filters)
+        self.assertEqual(schedule._SCHEDULE_ROW_LIMIT, fake_sb.queries[2].limit_value)
         show_error.assert_not_called()
 
     def test_override_loader_falls_back_when_gcal_column_is_missing(self):
@@ -125,6 +136,36 @@ class CalendarScheduleLoaderTests(unittest.TestCase):
         self.assertEqual("id,student,original_date,new_datetime,duration_minutes,status,note", fake_sb.queries[1].selected_columns)
         self.assertIn(("eq", "user_id", "teacher-1"), fake_sb.queries[1].filters)
         self.assertEqual(schedule._OVERRIDE_ROW_LIMIT, fake_sb.queries[1].limit_value)
+        show_error.assert_not_called()
+
+    def test_schedule_loader_falls_back_when_start_date_error_happens_on_execute(self):
+        fake_sb = _FakeSupabase(
+            {
+                "schedules": [
+                    {
+                        "id": 12,
+                        "student": "Luis",
+                        "weekday": 4,
+                        "time": "14:00",
+                        "duration_minutes": 45,
+                        "active": True,
+                        "timezone": "Europe/Istanbul",
+                    }
+                ]
+            },
+            raise_schedule_on_execute=True,
+        )
+
+        with (
+            patch.object(schedule, "get_sb", return_value=fake_sb),
+            patch.object(schedule, "get_current_user_id", return_value="teacher-1"),
+            patch.object(schedule, "_execute_query_with_diagnostics", side_effect=lambda query, **_: query.execute()),
+            patch.object(schedule, "show_data_load_error") as show_error,
+        ):
+            df = schedule._load_schedules_cached("teacher-1")
+
+        self.assertEqual(["Luis"], df["student"].tolist())
+        self.assertFalse(bool(df.attrs.get("supports_effective_dates")))
         show_error.assert_not_called()
 
 

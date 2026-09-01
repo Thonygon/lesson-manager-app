@@ -18,6 +18,7 @@ from helpers.visual_support import enrich_worksheet_with_visuals, enrich_exam_wi
 
 from core.i18n import t
 from helpers.answer_key_utils import split_answer_key_items
+from helpers.structured_text import build_text_asset
 
 
 # ── Colour constants matching pdf_styles.py ──────────────────────────
@@ -67,6 +68,34 @@ def _add_body(doc: Document, text: str, font_name: str, size: float,
     p.paragraph_format.space_after = Pt(3)
     _set_line_spacing(p, leading_ratio)
     return p
+
+
+def _add_structured_text(
+    doc: Document,
+    text: str,
+    font_name: str,
+    size: float,
+    *,
+    title: str = "",
+    text_kind: str = "",
+    blocks=None,
+    leading_ratio: float = 1.15,
+):
+    asset = build_text_asset(text, title=title, text_kind=text_kind, blocks=blocks)
+    if asset.get("title"):
+        _add_body(doc, asset.get("title"), font_name, size, bold=True, leading_ratio=leading_ratio)
+    for block in asset.get("blocks") or []:
+        block_type = str(block.get("type") or "paragraph")
+        if block_type in {"from", "to", "subject"}:
+            label = {"from": "De/From", "to": "Para/To", "subject": "Asunto/Subject"}.get(block_type, block_type.title())
+            _add_body(doc, f"{label}: {block.get('text') or ''}", font_name, size, bold=True, leading_ratio=leading_ratio)
+        elif block_type == "turn":
+            speaker = str(block.get("speaker") or "").strip()
+            text_value = str(block.get("text") or "").strip()
+            _add_body(doc, f"{speaker}: {text_value}" if speaker else text_value, font_name, size, leading_ratio=leading_ratio)
+        else:
+            for paragraph in [part.strip() for part in str(block.get("text") or "").split("\n") if part.strip()]:
+                _add_body(doc, paragraph, font_name, size, leading_ratio=leading_ratio)
 
 
 def _add_separator(doc: Document):
@@ -367,7 +396,16 @@ def generate_docx_worksheet(ws: dict, student_only: bool = True) -> bytes:
     if ws_type == "reading_comprehension" and ws.get("reading_passage"):
         _add_heading(doc, t("ws_reading_passage") if t("ws_reading_passage") != "ws_reading_passage" else "Reading Passage",
                      font_name, sec_sz, color=_TEXT, leading_ratio=lr)
-        _add_body(doc, ws["reading_passage"], font_name, b_sz, leading_ratio=lr)
+        _add_structured_text(
+            doc,
+            ws["reading_passage"],
+            font_name,
+            b_sz,
+            title=ws.get("text_title") or "",
+            text_kind=ws.get("text_kind") or "",
+            blocks=ws.get("text_blocks"),
+            leading_ratio=lr,
+        )
 
     # ── Questions / exercises ────────────────────────────────
     questions = ws.get("questions", [])
@@ -595,7 +633,16 @@ def _render_true_false_docx(doc, ws: dict, font_name: str, sec_sz: float,
     if source_text:
         _add_heading(doc, t("read_and_decide_true_false") if t("read_and_decide_true_false") != "read_and_decide_true_false" else "Read and decide: True or False",
                      font_name, sec_sz, color=_TEXT, leading_ratio=lr)
-        _add_body(doc, source_text, font_name, b_sz, leading_ratio=lr)
+        _add_structured_text(
+            doc,
+            source_text,
+            font_name,
+            b_sz,
+            title=ws.get("text_title") or "",
+            text_kind=ws.get("text_kind") or "",
+            blocks=ws.get("text_blocks"),
+            leading_ratio=lr,
+        )
 
     # Statements (same fallback chain as PDF: true_false_statements → questions)
     statements = ws.get("true_false_statements") or ws.get("questions") or []
@@ -1050,6 +1097,71 @@ def _render_exam_true_false_docx(doc, questions: list, font_name: str, b_sz: flo
     doc.add_paragraph()
 
 
+def _get_exam_section_table_data(section: dict) -> dict:
+    try:
+        from helpers.quick_exam_builder import _section_table_data
+
+        return _section_table_data(section)
+    except Exception:
+        return {}
+
+
+def _should_render_exam_source_text(section: dict) -> bool:
+    source_text = str(section.get("source_text") or "").strip()
+    if not source_text:
+        return False
+    if str(section.get("type") or "").strip() != "table_interpretation":
+        return True
+    try:
+        from helpers.quick_exam_builder import _extract_table_data_from_text
+
+        return not bool(_extract_table_data_from_text(source_text))
+    except Exception:
+        return True
+
+
+def _render_exam_table_interpretation_docx(
+    doc: Document,
+    sec: dict,
+    questions: list,
+    font_name: str,
+    b_sz: float,
+    lr: float = 1.15,
+):
+    table_data = _get_exam_section_table_data(sec)
+    columns = table_data.get("columns") or []
+    rows = table_data.get("rows") or []
+
+    if table_data.get("title"):
+        _add_body(doc, str(table_data.get("title") or ""), font_name, b_sz, bold=True, leading_ratio=lr)
+    if table_data.get("caption"):
+        _add_body(doc, str(table_data.get("caption") or ""), font_name, max(b_sz - 1, 8), leading_ratio=lr)
+
+    if columns and rows:
+        data_table = doc.add_table(rows=len(rows) + 1, cols=len(columns))
+        data_table.alignment = WD_TABLE_ALIGNMENT.LEFT
+        data_table.autofit = True
+
+        for col_idx, label in enumerate(columns):
+            cell = data_table.rows[0].cells[col_idx]
+            _set_cell_font(cell, str(label or ""), font_name, b_sz, bold=True, color=RGBColor(0xFF, 0xFF, 0xFF))
+            _shade_cell(cell, "1D4ED8")
+            _set_cell_borders(cell, bottom=True, right=col_idx < len(columns) - 1)
+
+        for row_idx, row in enumerate(rows, start=1):
+            for col_idx in range(len(columns)):
+                value = row[col_idx] if col_idx < len(row) else ""
+                cell = data_table.rows[row_idx].cells[col_idx]
+                _set_cell_font(cell, str(value or ""), font_name, b_sz)
+                _set_cell_borders(cell, bottom=True, right=col_idx < len(columns) - 1)
+
+        doc.add_paragraph()
+
+    for idx, q in enumerate(questions or [], 1):
+        _add_body(doc, f"{idx}. {_format_exam_question_text('table_interpretation', q)}", font_name, b_sz, leading_ratio=lr)
+        _add_response_lines(doc, font_name, b_sz, 2, lr)
+
+
 def _render_exam_section_docx(
     doc: Document,
     sec: dict,
@@ -1080,8 +1192,17 @@ def _render_exam_section_docx(
         add_docx_visual_support(doc, sec.get("visual_support"), width_cm=15.2, font_name=font_name, font_size_pt=max(9, b_sz - 1))
 
     source_text = str(sec.get("source_text") or "").strip()
-    if source_text:
-        _add_body(doc, _strip_leading_enum(source_text), font_name, b_sz, leading_ratio=lr)
+    if _should_render_exam_source_text(sec):
+        _add_structured_text(
+            doc,
+            _strip_leading_enum(source_text),
+            font_name,
+            b_sz,
+            title=sec.get("text_title") or "",
+            text_kind=sec.get("text_kind") or "",
+            blocks=sec.get("text_blocks"),
+            leading_ratio=lr,
+        )
 
     questions = sec.get("questions") or []
 
@@ -1105,6 +1226,8 @@ def _render_exam_section_docx(
     elif sec_type in ("word_search_vocab", "word_search"):
         _render_word_search_docx(doc, sec, font_name, sec_sz, b_sz, lr, show_heading=False,
                                  watermark_bytes=_sec_wm if _sec_is_ws else None)
+    elif sec_type == "table_interpretation":
+        _render_exam_table_interpretation_docx(doc, sec, questions, font_name, b_sz, lr)
     elif sec_type == "fill_in_blank":
         for idx, q in enumerate(questions, 1):
             text = _format_exam_question_text(sec_type, q).replace("___", "______________")
@@ -1115,7 +1238,6 @@ def _render_exam_section_docx(
         "writing_prompt",
         "problem_solving",
         "equation_solving",
-        "table_interpretation",
         "word_problems",
         "data_analysis",
         "classification",

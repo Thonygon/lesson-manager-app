@@ -21,6 +21,7 @@ from helpers.archive_utils import ARCHIVED_STATUS, DELETED_STATUS, filter_archiv
 from helpers.generation_guidance import build_expert_panel_prompt_blurb
 from helpers.native_language import NATIVE_LANGUAGE_OPTIONS, is_language_subject, native_language_label, normalize_native_language
 from helpers.program_resource_context import (
+    PROGRAM_TOPIC_CONTEXT_STATE_KEY,
     build_program_topic_generation_context,
     infer_exam_prep_family,
     prime_program_topic_smart_tool,
@@ -31,6 +32,8 @@ from helpers.resource_gallery import (
     inject_resource_gallery_styles,
     render_gallery_card_html,
 )
+from helpers.generation_capabilities import SMART_TOOLS_CAPABILITIES
+from helpers.generation_orchestration import build_learning_program_request_payload
 from helpers.recommendation_models import log_teacher_material_open
 from helpers.video_library import load_topic_video_links, render_topic_video_manager
 from helpers.visual_support import generate_resource_cover_image
@@ -4175,6 +4178,7 @@ def render_learning_program_library_cards(
     df: pd.DataFrame,
     prefix: str = "learning_programs",
     show_author: bool = False,
+    open_in_viewer_only: bool = False,
     require_signup: bool = False,
     allow_visibility_toggle: bool = False,
     allow_archive_toggle: bool = False,
@@ -4275,11 +4279,13 @@ def render_learning_program_library_cards(
                             row,
                             "program",
                             "own" if str(row.get("user_id") or "").strip() == str(get_current_user_id() or "").strip() else "community",
-                            surface="home_preview" if str(prefix).startswith("home_") else "resources",
+                            surface="explore" if open_in_viewer_only else ("home_preview" if str(prefix).startswith("home_") else "resources"),
                         )
+                        st.session_state["_resource_viewer_return_page"] = "explore" if open_in_viewer_only else str(st.session_state.get("page") or "resources").strip()
                         st.session_state[f"{prefix}_selected_program_id"] = program_id
                         st.session_state["explore_teaching_resources_keep_open"] = True
-                        st.toast(t("scroll_down_to_view"))
+                        if not open_in_viewer_only:
+                            st.toast(t("scroll_down_to_view"))
                         st.rerun()
                 with action_cols[1]:
                     if program_id > 0 and is_complete and not is_archived and st.button(t("assign_to_student"), key=f"{prefix}_assign_{program_id}_{idx}_{col_idx}"):
@@ -4566,7 +4572,7 @@ def _inject_program_styles() -> None:
     )
 
 
-def render_teacher_program_view(program: dict) -> None:
+def render_teacher_program_view(program: dict, *, show_topic_video_expanders: bool = True) -> None:
     if not program:
         st.info(t("no_program_selected"))
         return
@@ -4655,7 +4661,7 @@ def render_teacher_program_view(program: dict) -> None:
         for item in program["delivery_design_notes"]:
             st.write(f"- {item}")
 
-    topic_video_map = load_topic_video_links([program_id]) if program_id > 0 else {}
+    topic_video_map = load_topic_video_links([program_id]) if show_topic_video_expanders and program_id > 0 else {}
 
     for unit in program.get("units") or []:
         unit_label = t("unit_title_format", number=unit.get("unit_number"), title=unit.get("title"))
@@ -4705,27 +4711,28 @@ def render_teacher_program_view(program: dict) -> None:
                         st.caption(t("suggested_exam_exercises_label", items=", ".join(_localized_exam_type_label(x) for x in topic["suggested_exam_exercise_types"])))
                     if topic.get("suggested_non_classio_activities"):
                         st.caption(t("complementary_activities_label", items=", ".join(topic["suggested_non_classio_activities"])))
-                    if program_id > 0:
-                        render_topic_video_manager(
-                            program_id=program_id,
-                            topic=topic,
-                            subject=str(program.get("subject") or ""),
-                            learner_stage=str(program.get("learner_stage") or ""),
-                            level_or_band=str(program.get("level_or_band") or ""),
-                            prefix=f"teacher_program_{program_id}_topic_videos",
-                        )
-                    linked_videos = topic_video_map.get(int(topic.get("topic_id") or 0), [])
-                    if linked_videos:
-                        st.caption(t("topic_videos_count", count=len(linked_videos)))
-                        for item in linked_videos:
-                            video = item.get("video") or {}
-                            watch_url = str(video.get("watch_url") or video.get("youtube_url") or "")
-                            if watch_url:
-                                video_key = f"teacher_program_topic_video_{program.get('id')}_{topic.get('topic_id')}_{item.get('id')}"
-                                if st.button(str(video.get("title") or t("watch_video")), key=video_key, use_container_width=True):
-                                    st.session_state[video_key] = not bool(st.session_state.get(video_key))
-                                if st.session_state.get(video_key):
-                                    st.video(watch_url)
+                    if show_topic_video_expanders:
+                        if program_id > 0:
+                            render_topic_video_manager(
+                                program_id=program_id,
+                                topic=topic,
+                                subject=str(program.get("subject") or ""),
+                                learner_stage=str(program.get("learner_stage") or ""),
+                                level_or_band=str(program.get("level_or_band") or ""),
+                                prefix=f"teacher_program_{program_id}_topic_videos",
+                            )
+                        linked_videos = topic_video_map.get(int(topic.get("topic_id") or 0), [])
+                        if linked_videos:
+                            st.caption(t("topic_videos_count", count=len(linked_videos)))
+                            for item in linked_videos:
+                                video = item.get("video") or {}
+                                watch_url = str(video.get("watch_url") or video.get("youtube_url") or "")
+                                if watch_url:
+                                    video_key = f"teacher_program_topic_video_{program.get('id')}_{topic.get('topic_id')}_{item.get('id')}"
+                                    if st.button(str(video.get("title") or t("watch_video")), key=video_key, use_container_width=True):
+                                        st.session_state[video_key] = not bool(st.session_state.get(video_key))
+                                    if st.session_state.get(video_key):
+                                        st.video(watch_url)
 
 
 def render_learning_program_assignment_panel(program: dict, prefix: str = "learning_program_assign") -> bool:
@@ -4847,6 +4854,8 @@ def render_learning_program_assign_dialog() -> None:
     if not isinstance(state, dict):
         return
     program_id = int(state.get("program_id") or 0)
+    if st.session_state.get("_learning_program_assign_dialog_rendered_program_this_run") == program_id:
+        return
     if program_id <= 0:
         st.session_state.pop("_learning_program_assign_dialog", None)
         return
@@ -4856,6 +4865,7 @@ def render_learning_program_assign_dialog() -> None:
     if not program:
         st.session_state.pop("_learning_program_assign_dialog", None)
         return
+    st.session_state["_learning_program_assign_dialog_rendered_program_this_run"] = program_id
 
     @st.dialog(t("assign_learning_program_title"))
     def _dialog():
@@ -4974,6 +4984,7 @@ def render_learning_program_builder_preview(
     custom_subject_name = _clean_text((edit_meta or {}).get("custom_subject_name") or program.get("custom_subject_name"))
     learner_stage = _clean_text((edit_meta or {}).get("learner_stage") or program.get("learner_stage"))
     level_or_band = _clean_text((edit_meta or {}).get("level_or_band") or program.get("level_or_band"))
+    effective_program_id = int(saved_program_id or program.get("id") or 0)
 
     for idx, unit in enumerate(program.get("units") or []):
         unit_number = int(unit.get("unit_number") or idx + 1)
@@ -5081,6 +5092,15 @@ def render_learning_program_builder_preview(
                         ):
                             prime_program_topic_smart_tool("open_quick_exam_expander", topic_context)
                             st.rerun()
+                    if effective_program_id > 0 and int(topic.get("topic_id") or 0) > 0:
+                        render_topic_video_manager(
+                            program_id=effective_program_id,
+                            topic=topic,
+                            subject=subject,
+                            learner_stage=learner_stage,
+                            level_or_band=level_or_band,
+                            prefix=f"{ns}_topic_videos",
+                        )
 
     editing_unit = st.session_state.get(f"{ns}_editing_unit")
     if complete_program and editing_unit:
@@ -5473,6 +5493,17 @@ def render_saved_learning_program_workspace(program: dict, program_id: int, *, n
     pending_unit_key = f"{ns}_pending_unit"
     original_program = dict(program or {})
     program = normalize_learning_program_output(program)
+    st.session_state["_active_learning_program_workspace"] = {
+        "program_id": int(program_id),
+        "page": str(st.session_state.get("page") or "").strip(),
+        "source": "saved_program_workspace",
+        "ns": str(ns or "").strip(),
+        "is_complete": bool(_program_is_complete(program)),
+    }
+    if int(program_id) > 0:
+        st.session_state[PROGRAM_TOPIC_CONTEXT_STATE_KEY] = dict(
+            st.session_state.get(PROGRAM_TOPIC_CONTEXT_STATE_KEY) or {}
+        )
     if _program_is_complete(program) and str(original_program.get("status") or "").strip().lower() == "draft":
         try:
             get_sb().table("learning_programs").update(
@@ -5863,24 +5894,28 @@ def render_quick_learning_program_builder_expander(*, embedded: bool = False) ->
             elif generation_path == "next_level" and previous_program and not previous_program_complete:
                 st.warning(t("learning_program_previous_incomplete_warning", ready_units=_count_ready_program_units(previous_program), total_units=len(previous_program.get("units") or [])))
             else:
-                st.session_state[skeleton_request_key] = {
-                    "subject": subject,
-                    "learner_stage": learner_stage,
-                    "level_or_band": level_or_band,
+                st.session_state[skeleton_request_key] = build_learning_program_request_payload(
+                    subject=subject,
+                    custom_subject_name=custom_subject_name,
+                    learner_stage=learner_stage,
+                    level_or_band=level_or_band,
+                    units=requested_units,
+                    lessons_per_unit=requested_lessons,
+                    additional_notes=additional_notes,
+                    capabilities=SMART_TOOLS_CAPABILITIES,
+                    visibility=visibility,
+                    student_native_language=student_native_language,
+                    program_track=program_track,
+                    exam_prep_target=exam_prep_target,
+                    generation_path=generation_path,
+                    parent_program_id=parent_program_id,
+                    sequence_group_id=sequence_group_id,
+                    sequence_order=sequence_order or _level_sequence_order(level_or_band),
+                    prerequisite_summary=prerequisite_summary,
+                    previous_program=previous_program,
+                ) | {
                     "requested_units": requested_units,
                     "requested_lessons_per_unit": requested_lessons,
-                    "custom_subject_name": custom_subject_name,
-                    "additional_notes": additional_notes,
-                    "visibility": visibility,
-                    "student_native_language": student_native_language,
-                    "program_track": program_track,
-                    "exam_prep_target": exam_prep_target,
-                    "generation_path": generation_path,
-                    "parent_program_id": parent_program_id,
-                    "sequence_group_id": sequence_group_id,
-                    "sequence_order": sequence_order or _level_sequence_order(level_or_band),
-                    "prerequisite_summary": prerequisite_summary,
-                    "previous_program": previous_program,
                 }
                 st.rerun()
 

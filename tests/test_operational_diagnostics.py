@@ -175,21 +175,24 @@ class OperationalDiagnosticsTests(unittest.TestCase):
 
         self.assertRegex(event_id, r"^[0-9a-f-]{36}$")
 
-    def test_capture_skips_rpc_without_authenticated_user(self):
+    def test_capture_persists_anonymous_events_without_authenticated_user(self):
         fake_sb = _FakeSupabase()
 
         with (
             patch.object(diagnostics, "get_sb", return_value=fake_sb),
             patch.object(diagnostics, "get_current_user_id", return_value=""),
+            patch.object(diagnostics, "get_current_user_role", return_value=""),
         ):
             event_id = diagnostics.capture_exception(
                 _raised_error(),
                 component="router",
                 operation="render_page",
+                user_face="anonymous",
             )
 
         self.assertRegex(event_id, r"^[0-9a-f-]{36}$")
-        self.assertEqual([], fake_sb.calls)
+        self.assertEqual(diagnostics.DIAGNOSTICS_RPC, fake_sb.calls[0][0])
+        self.assertEqual("anonymous", fake_sb.calls[0][1]["p_user_face"])
 
     def test_local_suppression_prevents_streamlit_rerun_write_storms(self):
         fake_sb = _FakeSupabase()

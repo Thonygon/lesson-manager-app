@@ -2468,6 +2468,10 @@ def generate_quick_lesson_plan_with_fallback(
     lesson_purpose: str,
     topic: str,
     student_profile: dict | None = None,
+    *,
+    enforce_usage_limits: bool = True,
+    page_key: str = "smart_tools",
+    user_face: str = "teacher",
 ) -> tuple[dict, str, Optional[str]]:
     template_plan = normalize_planner_output(
         build_quick_lesson_plan(
@@ -2498,18 +2502,19 @@ def generate_quick_lesson_plan_with_fallback(
     from helpers.planner_storage import get_ai_planner_usage_status, log_ai_usage
     from services.permissions_service import can_use_ai_tool, increment_usage
 
-    if not can_use_ai_tool():
+    if enforce_usage_limits and not can_use_ai_tool():
         log_ai_usage("quick_lesson_ai", "success", {**template_meta, "reason": "permission_blocked"})
         return template_plan, "template", t("ai_limit_reached")
 
-    usage = get_ai_planner_usage_status()
-    if usage["remaining_today"] <= 0:
-        log_ai_usage("quick_lesson_ai", "success", {**template_meta, "reason": "daily_limit_reached"})
-        return template_plan, "template", t("ai_limit_reached")
+    if enforce_usage_limits:
+        usage = get_ai_planner_usage_status()
+        if usage["remaining_today"] <= 0:
+            log_ai_usage("quick_lesson_ai", "success", {**template_meta, "reason": "daily_limit_reached"})
+            return template_plan, "template", t("ai_limit_reached")
 
-    if not usage["cooldown_ok"]:
-        log_ai_usage("quick_lesson_ai", "success", {**template_meta, "reason": "cooldown_active"})
-        return template_plan, "template", t("ai_cooldown_active", seconds=usage["seconds_left"])
+        if not usage["cooldown_ok"]:
+            log_ai_usage("quick_lesson_ai", "success", {**template_meta, "reason": "cooldown_active"})
+            return template_plan, "template", t("ai_cooldown_active", seconds=usage["seconds_left"])
 
     provider_order = get_ai_provider_order()
     try:
@@ -2540,19 +2545,11 @@ def generate_quick_lesson_plan_with_fallback(
             status="success",
             meta={"subject": subject, "topic": topic, "lesson_purpose": lesson_purpose, "provider": provider},
         )
-        increment_usage(None, "ai_generations")
+        if enforce_usage_limits:
+            increment_usage(None, "ai_generations")
         return ai_plan, "ai", None
 
     except Exception as e:
-        capture_exception(
-            e,
-            component="helpers.lesson_planner",
-            operation="generate_quick_lesson_plan",
-            severity="warning",
-            page_key="smart_tools",
-            user_face="teacher",
-            context={"fallback_used": True, "resource_type": "lesson_plan"},
-        )
         log_ai_usage(
             request_kind="quick_lesson_ai",
             status="failed",

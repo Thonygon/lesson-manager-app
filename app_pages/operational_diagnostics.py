@@ -237,7 +237,10 @@ def _render_detail(row: dict[str, Any]) -> None:
     ]
     for column, (status, label) in zip(st.columns(4, gap="small"), actions):
         with column:
-            if st.button(label, key=f"operational_diagnostics_{status}_{event_id}", use_container_width=True, disabled=not confirmed):
+            if st.button(label, key=f"operational_diagnostics_{status}_{event_id}", use_container_width=True):
+                if not confirmed:
+                    st.warning(t("operational_diagnostics_confirm_required"))
+                    continue
                 try:
                     ok, message = update_diagnostic_status(event_id, status=status, resolution_note=note)
                 except Exception as exc:

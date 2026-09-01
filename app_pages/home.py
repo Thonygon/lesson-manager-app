@@ -704,12 +704,7 @@ def _render_selected_file_resource_detail(kind: str, *, scope: str = "files") ->
         if not selected_program:
             _clear_selected_program_preview()
             return
-        own_selected_program_id = None
-        if scope_key in {"my_programs", "archived_programs", "files"}:
-            own_selected_program_id = (
-                st.session_state.get("my_learning_programs_selected_program_id")
-                or st.session_state.get("archived_learning_programs_selected_program_id")
-            )
+        is_program_owner = str(selected_program.get("user_id") or "") == str(get_current_user_id() or "")
         if not viewer_mode:
             st.markdown("---")
             header_cols = st.columns([6, 1])
@@ -719,7 +714,7 @@ def _render_selected_file_resource_detail(kind: str, *, scope: str = "files") ->
                 if st.button(t("close_program"), key=f"close_selected_learning_program_{scope_key}", use_container_width=True):
                     _clear_selected_program_preview()
                     st.rerun()
-        if own_selected_program_id and str(selected_program.get("user_id") or "") == str(get_current_user_id() or ""):
+        if is_program_owner:
             render_saved_learning_program_workspace(
                 selected_program,
                 int(selected_program_id),
@@ -1508,12 +1503,63 @@ def _render_smart_tools_hub():
                     st.rerun()
 
 
+def _render_active_learning_program_resume_card() -> None:
+    active_workspace = st.session_state.get("_active_learning_program_workspace")
+    if not isinstance(active_workspace, dict):
+        return
+
+    program_id = int(active_workspace.get("program_id") or 0)
+    if program_id <= 0:
+        return
+
+    try:
+        active_program = load_learning_program(program_id) or {}
+    except Exception:
+        active_program = {}
+    if not active_program:
+        return
+
+    title = str(active_program.get("title") or t("learning_program")).strip()
+    ready_units = sum(
+        1 for unit in (active_program.get("units") or []) if unit and any(topic for topic in (unit.get("topics") or []))
+    )
+    total_units = len(active_program.get("units") or [])
+
+    st.markdown(
+        f"""
+        <div style="margin:0 0 1rem 0;padding:1rem 1.1rem;border-radius:18px;border:1px solid color-mix(in srgb, var(--border) 72%, var(--primary) 28%);background:linear-gradient(180deg, color-mix(in srgb, var(--panel) 94%, white 6%), color-mix(in srgb, var(--panel-soft) 90%, var(--primary) 10%));box-shadow:var(--shadow-md);">
+            <div style="font-size:.76rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--primary);margin-bottom:.35rem;">{t("quick_learning_program_maker")}</div>
+            <div style="font-size:1rem;font-weight:800;color:var(--text);margin-bottom:.25rem;">{title}</div>
+            <div style="font-size:.9rem;color:var(--muted);">{t("learning_program_builder_progress", generated_units=ready_units, total_units=total_units)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    action_cols = st.columns([1.2, 1.2, 3.6], vertical_alignment="center")
+    with action_cols[0]:
+        if st.button(t("open_program"), key=f"resume_active_program_{program_id}", use_container_width=True):
+            clear_open_resource_previews(except_kind="program")
+            st.session_state["my_learning_programs_selected_program_id"] = program_id
+            go_to("resources")
+            st.rerun()
+    with action_cols[1]:
+        if st.button(t("quick_learning_program_maker"), key=f"resume_active_program_builder_{program_id}", use_container_width=True):
+            st.session_state["open_quick_learning_program_expander"] = True
+            st.session_state["_home_smart_tool_dialog"] = {
+                "version": _HOME_SMART_TOOL_DIALOG_VERSION,
+                "flag": "open_quick_learning_program_expander",
+            }
+            st.rerun()
+
+
 def _clear_home_smart_tool_dialog() -> None:
     st.session_state.pop("_home_smart_tool_dialog", None)
     st.session_state["home_smart_tool_selected"] = ""
 
 
 def _render_home_smart_tool_dialog() -> None:
+    if st.session_state.get("_home_smart_tool_dialog_rendered_this_run"):
+        return
     state = st.session_state.get("_home_smart_tool_dialog")
     if not isinstance(state, dict):
         return
@@ -1543,6 +1589,8 @@ def _render_home_smart_tool_dialog() -> None:
         _clear_home_smart_tool_dialog()
         return
 
+    st.session_state["_home_smart_tool_dialog_rendered_this_run"] = True
+
     @st.dialog(
         title_by_flag.get(tool_flag, t("smart_tools_command_center")),
         width="large",
@@ -1551,9 +1599,25 @@ def _render_home_smart_tool_dialog() -> None:
     def _dialog():
         st.session_state[tool_flag] = True
         renderer(embedded=True)
-        if st.button(t("close"), key=f"{tool_flag}_dialog_close", use_container_width=True):
-            _clear_home_smart_tool_dialog()
-            st.rerun()
+        close_cols = st.columns(2 if tool_flag in {"open_quick_plan_expander", "open_quick_ws_expander", "open_quick_exam_expander"} else 1)
+        if tool_flag in {"open_quick_plan_expander", "open_quick_ws_expander", "open_quick_exam_expander"}:
+            with close_cols[0]:
+                if st.button(t("close"), key=f"{tool_flag}_dialog_close", use_container_width=True):
+                    _clear_home_smart_tool_dialog()
+                    st.rerun()
+            with close_cols[1]:
+                if st.button(t("open_program"), key=f"{tool_flag}_dialog_return_program", use_container_width=True):
+                    _clear_home_smart_tool_dialog()
+                    st.session_state["open_quick_learning_program_expander"] = True
+                    st.session_state["_home_smart_tool_dialog"] = {
+                        "version": _HOME_SMART_TOOL_DIALOG_VERSION,
+                        "flag": "open_quick_learning_program_expander",
+                    }
+                    st.rerun()
+        else:
+            if st.button(t("close"), key=f"{tool_flag}_dialog_close", use_container_width=True):
+                _clear_home_smart_tool_dialog()
+                st.rerun()
 
     _dialog()
 
@@ -1563,6 +1627,9 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
     current_lang = st.session_state.get("ui_lang", "en")
     if current_lang not in ("en", "es", "tr"):
         current_lang = "en"
+    st.session_state["_home_smart_tool_dialog_rendered_this_run"] = False
+    st.session_state["_resource_bulk_assign_dialog_rendered_token_this_run"] = None
+    st.session_state["_learning_program_assign_dialog_rendered_program_this_run"] = None
 
     user = st.session_state.get("auth_user") or {}
     user_id = st.session_state.get("user_id", "") or ""
@@ -1742,6 +1809,10 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
         go_to("smart_tools")
         st.rerun()
 
+    if panel == "community" and show_home_actions:
+        go_to("community")
+        st.rerun()
+
     if panel == "files":
 
         with st.container():
@@ -1750,7 +1821,6 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
         active_resource_kind = _active_resource_viewer_kind()
         if active_resource_kind:
             _render_resource_viewer_shell(active_resource_kind)
-            _render_home_smart_tool_dialog()
             return
 
         own_filter_frames = [
@@ -2871,6 +2941,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     f"- {t('smart_tools_stat_reuse')}: {t('smart_tools_stat_reuse_hint')}"
                 ),
             )
+        _render_active_learning_program_resume_card()
 
         _render_smart_tools_hub()
 
@@ -2936,7 +3007,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                     if key == "ai_tools":
                         pending_home_menu_target = ("smart_tools", None)
                     elif key == "community":
-                        pending_home_menu_target = ("home", "community")
+                        pending_home_menu_target = ("community", None)
                     else:
                         pending_home_menu_target = (key, None)
         st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
