@@ -36,6 +36,7 @@
     {"name": "add_student_teacher_responsiveness_indexes.sql", "sha256": "d879dd29a4990a0395a5560ca0d6bff053fa045d42b45abc2d8346db73e0c068"},
     {"name": "add_supabase_io_indexes.sql", "sha256": "fbeb916e69fbdf96041eefeb4c660c6f38ad426e0bd79e8c7ba1eae5841420c9"},
     {"name": "add_video_library.sql", "sha256": "9fb891a564483c8d8943624899fc3b39cf02239d0b21ccc2dbea8c79682ea44e"},
+    {"name": "allow_anonymous_face_in_operational_diagnostics.sql", "sha256": "4e456c97eae82c432fea601004791154548921297d4973a861259ca0d9f2e145"},
     {"name": "allow_video_practice_sessions.sql", "sha256": "0523849b639889d574bea9f1aed6daaa04ec253dd2552f3826992d9c1dfd4b84"},
     {"name": "fix_usage_tracking_user_conflict.sql", "sha256": "bd62b7c16555b2334074e4da64cc1549973150609f1aad4716d7c1cbdfe50d97"},
     {"name": "learning_programs.sql", "sha256": "a226fe823f1181892c7e3cdf1107a59ab7c59febdd994440d236b52d47bb0e4b"},
