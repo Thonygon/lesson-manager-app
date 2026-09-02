@@ -86,6 +86,69 @@ def _clear_video_caches() -> None:
     clear_cache_domains("videos", "resources", "assignments", "practice", "recommendations")
 
 
+def _open_topic_video_remove_dialog(*, prefix: str, topic_id: int, link_id: int, title: str) -> None:
+    st.session_state["_topic_video_remove_dialog"] = {
+        "prefix": str(prefix or "").strip(),
+        "topic_id": int(topic_id or 0),
+        "link_id": int(link_id or 0),
+        "title": str(title or "").strip(),
+    }
+
+
+def _clear_topic_video_remove_dialog() -> None:
+    st.session_state.pop("_topic_video_remove_dialog", None)
+
+
+def _render_topic_video_remove_dialog(*, prefix: str, topic_id: int) -> None:
+    state = st.session_state.get("_topic_video_remove_dialog")
+    if not isinstance(state, dict):
+        return
+    current_prefix = str(prefix or "").strip()
+    dialog_prefix = str(state.get("prefix") or "").strip()
+    dialog_topic_id = int(state.get("topic_id") or 0)
+    if not current_prefix or dialog_prefix != current_prefix or dialog_topic_id != int(topic_id or 0):
+        return
+
+    link_id = int(state.get("link_id") or 0)
+    if link_id <= 0:
+        _clear_topic_video_remove_dialog()
+        return
+
+    title = str(state.get("title") or "").strip() or t("remove_video")
+    confirm_key = f"{current_prefix}_remove_confirm_dialog_{dialog_topic_id}_{link_id}"
+
+    @st.dialog(t("remove_video"), on_dismiss=_clear_topic_video_remove_dialog)
+    def _dialog():
+        st.markdown(f"**{html.escape(title)}**", unsafe_allow_html=True)
+        st.warning(t("remove_topic_video_confirm_message"))
+        confirmed = st.checkbox(t("delete_warning_undo"), key=confirm_key)
+        action_cols = st.columns(2, gap="small")
+        with action_cols[0]:
+            if st.button(
+                t("cancel"),
+                key=f"{current_prefix}_remove_cancel_dialog_{dialog_topic_id}_{link_id}",
+                use_container_width=True,
+            ):
+                _clear_topic_video_remove_dialog()
+                st.rerun()
+        with action_cols[1]:
+            if st.button(
+                t("remove_video"),
+                key=f"{current_prefix}_remove_confirm_btn_dialog_{dialog_topic_id}_{link_id}",
+                use_container_width=True,
+                disabled=not confirmed,
+            ):
+                ok, message_key = detach_video_from_topic(link_id)
+                st.session_state.pop(confirm_key, None)
+                _clear_topic_video_remove_dialog()
+                if ok:
+                    st.success(t(message_key))
+                    st.rerun()
+                st.error(t(message_key))
+
+    _dialog()
+
+
 def _rows(result) -> list[dict]:
     return getattr(result, "data", None) or []
 
@@ -1144,31 +1207,15 @@ def render_topic_video_manager(
                             st.session_state[watch_key] = not bool(st.session_state.get(watch_key))
                             st.rerun()
                 with action_cols[1]:
-                    with st.popover(t("remove_video"), use_container_width=True):
-                        st.warning(t("remove_topic_video_confirm_message"))
-                        confirm_remove_key = f"{prefix}_remove_confirm_{topic_id}_{state_token}"
-                        confirmed = st.checkbox(
-                            t("delete_warning_undo"),
-                            key=confirm_remove_key,
+                    if st.button(t("remove_video"), key=f"{prefix}_remove_btn_{topic_id}_{state_token}", use_container_width=True):
+                        _open_topic_video_remove_dialog(
+                            prefix=prefix,
+                            topic_id=topic_id,
+                            link_id=link_id,
+                            title=str(video.get("title") or t("video_default_title")),
                         )
-                        confirm_cols = st.columns(2, gap="small")
-                        with confirm_cols[0]:
-                            if st.button(t("cancel"), key=f"{prefix}_remove_cancel_{topic_id}_{state_token}", use_container_width=True):
-                                st.session_state.pop(confirm_remove_key, None)
-                                st.rerun()
-                        with confirm_cols[1]:
-                            if st.button(
-                                t("remove_video"),
-                                key=f"{prefix}_remove_confirm_btn_{topic_id}_{state_token}",
-                                use_container_width=True,
-                                disabled=not confirmed,
-                            ):
-                                ok, key = detach_video_from_topic(int(item.get("id") or 0))
-                                st.session_state.pop(confirm_remove_key, None)
-                                if ok:
-                                    st.success(t(key))
-                                    st.rerun()
-                                st.error(t(key))
+                        st.session_state.pop(f"{prefix}_remove_confirm_dialog_{topic_id}_{link_id}", None)
+                        st.rerun()
                 if watch_url and st.session_state.get(f"{prefix}_watch_state_{topic_id}_{state_token}"):
                     st.video(watch_url)
         else:
@@ -1238,3 +1285,5 @@ def render_topic_video_manager(
                 st.success(t(link_key))
                 st.rerun()
             st.error(t(link_key))
+
+    _render_topic_video_remove_dialog(prefix=prefix, topic_id=topic_id)
