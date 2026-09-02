@@ -3168,6 +3168,7 @@ TR: Dict[str, str] = {
     "video_topic_link_failed": "Classio bu videoyu konuya bağlayamadı.",
     "video_detached_success": "Video konudan kaldırıldı.",
     "remove_video": "Videoyu kaldır",
+    "remove_topic_video_confirm_message": "Bu işlem videoyu bu konudan kaldırır. Videonun kendisi kitaplığınızda kayıtlı kalır.",
     "recommended_resources_group_videos": "Videolar",
     "video_assignments": "Video ödevleri",
     "admin_ai_metric_videos": "Videolar",

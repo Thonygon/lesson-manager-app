@@ -3182,6 +3182,7 @@ EN: Dict[str, str] = {
     "video_topic_link_failed": "Classio could not link this video to the topic.",
     "video_detached_success": "Video removed from topic.",
     "remove_video": "Remove video",
+    "remove_topic_video_confirm_message": "This will remove the video from this topic. The video itself will stay saved in your library.",
     "recommended_resources_group_videos": "Videos",
     "video_assignments": "Video assignments",
     "admin_ai_metric_videos": "Videos",

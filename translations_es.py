@@ -3182,6 +3182,7 @@ ES: Dict[str, str] = {
     "video_topic_link_failed": "Classio no pudo vincular este video al tema.",
     "video_detached_success": "Video eliminado del tema.",
     "remove_video": "Eliminar video",
+    "remove_topic_video_confirm_message": "Esto quitará el video de este tema. El video seguirá guardado en tu biblioteca.",
     "recommended_resources_group_videos": "Videos",
     "video_assignments": "Tareas de video",
     "admin_ai_metric_videos": "Videos",
