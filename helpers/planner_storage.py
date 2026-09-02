@@ -2114,10 +2114,6 @@ def render_quick_lesson_planner_expander(*, embedded: bool = False) -> None:
             elif not selected_student:
                 st.caption(t("ab_debug_compare_requires_student"))
 
-        rec_level = _lp().recommend_default_level(subject, learner_stage)
-        rec_label = rec_level if rec_level in _lp().LANGUAGE_LEVELS else t(rec_level)
-        st.caption(f"{t('recommended_level')}: {rec_label}")
-
         effective_topic_preview = topic.strip() or str(((preview_profile.get("program_context") or {}).get("next_topics") or [""])[0]).strip()
         plan_request = build_generation_request(
             kind="plan",

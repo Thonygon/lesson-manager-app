@@ -1700,7 +1700,7 @@ def generate_exam_with_limit(
             "failed",
             with_provider_chain({"subject": subject, "topic": topic, "error": str(e)}, provider_order),
         )
-        return {}, {}, t("ai_unavailable_fallback")
+        return {}, {}, t("exam_ai_unavailable_fallback")
 
 
 def reset_exam_builder_state():

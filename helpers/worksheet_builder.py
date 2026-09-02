@@ -1065,7 +1065,7 @@ def generate_worksheet_with_limit(
                 provider_order,
             ),
         )
-        return {}, t("ai_unavailable_fallback")
+        return {}, t("worksheet_ai_unavailable_fallback")
 
 
 def reset_worksheet_maker_state() -> None:
