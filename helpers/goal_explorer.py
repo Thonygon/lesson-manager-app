@@ -2604,7 +2604,7 @@ def _render_explore_worksheet_maker() -> None:
                     )
                     st.session_state["explore_generated_worksheet_move_id"] = move_id
                 except Exception:
-                    st.error(t("ai_unavailable_fallback"))
+                    st.error(t("worksheet_ai_unavailable_fallback"))
 
     ws = st.session_state.get("explore_generated_worksheet")
     ws_meta = st.session_state.get("explore_generated_worksheet_meta", {})
@@ -2775,7 +2775,7 @@ def _render_explore_exam_builder() -> None:
                     )
                     st.session_state["explore_generated_exam_move_id"] = move_id
                 except Exception:
-                    st.error(t("ai_unavailable_fallback"))
+                    st.error(t("exam_ai_unavailable_fallback"))
 
     exam_data = st.session_state.get("explore_generated_exam")
     answer_key = st.session_state.get("explore_generated_exam_ak")
@@ -2962,10 +2962,6 @@ def _render_explore_lesson_planner() -> None:
         )
 
     topic = st.text_input(t("topic_label"), key="explore_plan_topic")
-
-    rec_level = lp.recommend_default_level(plan_subject, learner_stage)
-    rec_label = rec_level if rec_level in lp.LANGUAGE_LEVELS else t(rec_level)
-    st.caption(f"{t('recommended_level')}: {rec_label}")
 
     if st.button(t("generate_plan"), key="btn_explore_generate_plan", use_container_width=True):
         if not topic.strip():
