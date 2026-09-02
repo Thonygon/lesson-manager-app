@@ -4729,8 +4729,10 @@ def render_teacher_program_view(program: dict, *, show_topic_video_expanders: bo
                                 watch_url = str(video.get("watch_url") or video.get("youtube_url") or "")
                                 if watch_url:
                                     video_key = f"teacher_program_topic_video_{program.get('id')}_{topic.get('topic_id')}_{item.get('id')}"
-                                    if st.button(str(video.get("title") or t("watch_video")), key=video_key, use_container_width=True):
+                                    video_label = t("close") if bool(st.session_state.get(video_key)) else str(video.get("title") or t("watch_video"))
+                                    if st.button(video_label, key=video_key, use_container_width=True):
                                         st.session_state[video_key] = not bool(st.session_state.get(video_key))
+                                        st.rerun()
                                     if st.session_state.get(video_key):
                                         st.video(watch_url)
 
