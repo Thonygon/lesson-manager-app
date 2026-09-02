@@ -3008,7 +3008,7 @@ def _render_explore_lesson_planner() -> None:
                     st.session_state["explore_generated_plan_move_id"] = move_id
                     st.session_state["explore_plan_warning"] = generation_result["warning"]
                 except Exception:
-                    st.error(t("ai_unavailable_fallback"))
+                    st.error(t("lesson_plan_ai_unavailable_fallback"))
 
     plan = st.session_state.get("explore_generated_plan")
     meta = st.session_state.get("explore_generated_plan_meta", {})

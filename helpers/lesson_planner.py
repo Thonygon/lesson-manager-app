@@ -2559,7 +2559,7 @@ def generate_quick_lesson_plan_with_fallback(
             ),
         )
         log_ai_usage("quick_lesson_ai", "success", {**template_meta, "reason": "ai_fallback_after_failure"})
-        return template_plan, "template", t("ai_unavailable_fallback")
+        return template_plan, "template", t("lesson_plan_ai_unavailable_fallback")
 
 
 def reset_quick_lesson_planner_state() -> None:
