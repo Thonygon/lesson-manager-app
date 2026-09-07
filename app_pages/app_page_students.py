@@ -6,7 +6,7 @@ import re
 import urllib.parse
 import pandas as pd
 from core.i18n import t
-from core.navigation import clear_open_resource_previews, page_header, go_to
+from core.navigation import clear_open_resource_previews, clear_smart_tool_result_state, page_header, go_to
 from core.database import load_profile_row, load_table, load_students, get_sb
 from core.database import (
     ensure_student,
@@ -57,9 +57,21 @@ from helpers.learning_programs import (
     set_assignment_topic_progress,
 )
 from helpers.material_recommendations import load_material_pool, open_material_recommendation
-from helpers.planner_storage import load_my_lesson_plans, load_public_lesson_plans
-from helpers.worksheet_storage import load_my_worksheets, load_public_worksheets
-from helpers.quick_exam_storage import load_my_exams, load_public_exams
+from helpers.planner_storage import (
+    load_my_lesson_plans,
+    load_public_lesson_plans,
+    render_quick_lesson_planner_expander,
+)
+from helpers.worksheet_storage import (
+    load_my_worksheets,
+    load_public_worksheets,
+    render_quick_worksheet_maker_expander,
+)
+from helpers.quick_exam_storage import (
+    load_my_exams,
+    load_public_exams,
+    render_quick_exam_builder_expander,
+)
 from helpers.archive_utils import is_archived_status
 from helpers.resource_gallery import (
     extract_gallery_image_url,
@@ -89,6 +101,7 @@ _TEACHER_PAGE_SIZE = 6
 _RECOMMENDED_RESOURCE_GROUP_LIMIT = 24
 _RECOMMENDED_RESOURCE_PAGE_SIZE = 2
 _RECOMMENDED_RESOURCE_PREVIEW_DIALOG_VERSION = 1
+_STUDENT_GENERATION_DIALOG_VERSION = 1
 _LOW_SCORE_LOOKBACK_DAYS = 30
 
 _RECOMMENDED_RESOURCE_ASSIGNMENT_TYPES = {
@@ -1423,7 +1436,59 @@ def _student_personalization_label(student_name: str, student_profile: dict) -> 
     return f"{name} · {email}" if email else name
 
 
+def _clear_student_generation_dialog() -> None:
+    st.session_state.pop("_student_recommendation_generation_dialog", None)
+
+
+def _render_student_generation_dialog() -> None:
+    state = st.session_state.get("_student_recommendation_generation_dialog")
+    if not isinstance(state, dict):
+        return
+    if state.get("version") != _STUDENT_GENERATION_DIALOG_VERSION:
+        _clear_student_generation_dialog()
+        return
+
+    tool_kind = str(state.get("tool_kind") or "").strip()
+    tool_config = {
+        "lesson_plan": (
+            "open_quick_plan_expander",
+            t("quick_lesson_planner"),
+            render_quick_lesson_planner_expander,
+        ),
+        "worksheet": (
+            "open_quick_ws_expander",
+            t("worksheet_maker"),
+            render_quick_worksheet_maker_expander,
+        ),
+        "exam": (
+            "open_quick_exam_expander",
+            t("quick_exam_builder"),
+            render_quick_exam_builder_expander,
+        ),
+    }.get(tool_kind)
+    if tool_config is None:
+        _clear_student_generation_dialog()
+        return
+
+    tool_flag, title, renderer = tool_config
+
+    @st.dialog(title, width="large", on_dismiss=_clear_student_generation_dialog)
+    def _dialog():
+        st.session_state[tool_flag] = True
+        renderer(embedded=True)
+        if st.button(
+            t("close"),
+            key=f"student_recommendation_{tool_kind}_dialog_close",
+            use_container_width=True,
+        ):
+            _clear_student_generation_dialog()
+            st.rerun()
+
+    _dialog()
+
+
 def _prefill_smart_tool_from_recommendation(recommendation: dict, tool_kind: str) -> None:
+    clear_smart_tool_result_state()
     subject_key = str(recommendation.get("subject_key") or "").strip() or "other"
     custom_subject = str(recommendation.get("custom_subject_name") or "").strip()
     learner_stage = str(recommendation.get("learner_stage") or "").strip()
@@ -1478,7 +1543,10 @@ def _prefill_smart_tool_from_recommendation(recommendation: dict, tool_kind: str
         st.session_state["quick_exam_student_personalization"] = student_label
         st.session_state["open_quick_exam_expander"] = True
 
-    go_to("smart_tools")
+    st.session_state["_student_recommendation_generation_dialog"] = {
+        "version": _STUDENT_GENERATION_DIALOG_VERSION,
+        "tool_kind": tool_kind,
+    }
     st.rerun()
 
 
@@ -3673,5 +3741,6 @@ def render_students():
                     render_resource_bulk_assign_dialog(kind_filter=kind)
                 render_learning_program_assign_dialog()
                 render_recommended_resource_preview_dialog()
+                _render_student_generation_dialog()
 
 # =========================

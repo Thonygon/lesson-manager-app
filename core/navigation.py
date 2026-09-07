@@ -152,6 +152,7 @@ def clear_smart_tool_result_state(*, clear_selection: bool = False) -> None:
         st.session_state.pop(key, None)
     if clear_selection:
         st.session_state.pop("_home_smart_tool_dialog", None)
+        st.session_state.pop("_student_recommendation_generation_dialog", None)
         st.session_state["home_smart_tool_selected"] = ""
         for key in (
             "open_quick_learning_program_expander",
@@ -185,6 +186,8 @@ def clear_open_resource_previews(*, except_kind: str | None = None, clear_dialog
 
 def _clear_page_transient_state(next_page: str) -> None:
     current_page = str(st.session_state.get("page") or "")
+    if current_page == "students" and next_page != "students":
+        st.session_state.pop("_student_recommendation_generation_dialog", None)
     if next_page != "resources":
         clear_resource_transient_state()
     if next_page == "resources":
