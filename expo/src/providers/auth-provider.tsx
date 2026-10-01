@@ -10,6 +10,7 @@ type AuthContextValue = AuthState & {
   signIn: (email: string, password: string) => Promise<string | null>;
   signInWithMagicLink: (email: string) => Promise<string | null>;
   signInWithGoogle: () => Promise<string | null>;
+  signInWithGoogleIdToken: (token: string, nonce: string) => Promise<string | null>;
   signUp: (email: string, password: string) => Promise<string | null>;
   signOut: () => Promise<void>;
 };
@@ -135,13 +136,19 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return error?.message ?? null;
   }, []);
 
+  const signInWithGoogleIdToken = useCallback(async (token: string, nonce: string) => {
+    if (!supabase) return 'Supabase is not configured.';
+    const { error } = await supabase.auth.signInWithIdToken({ provider: 'google', token, nonce });
+    return error?.message ?? null;
+  }, []);
+
   const signOut = useCallback(async () => {
     if (supabase) await supabase.auth.signOut();
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ ...state, refreshProfile, signIn, signInWithMagicLink, signInWithGoogle, signUp, signOut }),
-    [refreshProfile, signIn, signInWithMagicLink, signInWithGoogle, signOut, signUp, state],
+    () => ({ ...state, refreshProfile, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signUp, signOut }),
+    [refreshProfile, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signOut, signUp, state],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

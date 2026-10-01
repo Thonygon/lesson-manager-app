@@ -188,7 +188,7 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 - [x] Email/password sign in
 - [x] Email/password account creation
 - [x] Passwordless email-link sign in with Expo redirect
-- [ ] Google sign in through Supabase (external Google OAuth configuration required)
+- [ ] Google sign in on `classio.expo.app`: the web client now requests a Google ID token from Google Identity Services on the Classio origin and exchanges it for a Supabase session with a nonce. The Google Cloud OAuth web client must authorize `https://classio.expo.app` as a JavaScript origin. Confirm the hosted account chooser displays the Classio origin and a signed-in session is created before checking this complete. The native app still uses the Supabase OAuth redirect.
 - [ ] Password reset journey
 - [ ] English, Spanish, and Turkish public UI
   - [x] Persistent language control on the public, authentication, and signed-in shells

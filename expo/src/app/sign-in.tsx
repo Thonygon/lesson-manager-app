@@ -1,11 +1,12 @@
 import { Redirect, router } from 'expo-router';
 import Head from 'expo-router/head';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, Field, Panel } from '@/components/ui';
 import { PreferenceSwitcher } from '@/components/preference-switcher';
+import { GoogleSignIn } from '@/components/google-sign-in';
 import { useAuth } from '@/providers/auth-provider';
 import { useAppPreferences } from '@/providers/app-preferences';
 import { colors } from '@/theme';
@@ -14,14 +15,12 @@ export default function SignInScreen() {
   const { width } = useWindowDimensions();
   const compact = width < 850;
   const { t } = useAppPreferences();
-  const { configured, loading, user, signIn, signInWithMagicLink, signInWithGoogle, signUp } = useAuth();
+  const { configured, loading, user, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signUp } = useAuth();
   const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-
-  if (!loading && user) return <Redirect href="/home" />;
 
   const submit = async () => {
     setSubmitting(true); setMessage(null);
@@ -46,6 +45,16 @@ export default function SignInScreen() {
     setSubmitting(false);
   };
 
+  const acceptGoogleCredential = useCallback(async (token: string, nonce: string) => {
+    setSubmitting(true); setMessage(null);
+    const error = await signInWithGoogleIdToken(token, nonce);
+    setSubmitting(false);
+    if (error) setMessage(error);
+    else router.replace('/home');
+  }, [signInWithGoogleIdToken]);
+
+  if (!loading && user) return <Redirect href="/home" />;
+
   return <ScrollView contentContainerStyle={[styles.page, { backgroundColor: 'transparent' }]} keyboardShouldPersistTaps="handled">
     <SafeAreaView style={styles.safe}>
       <Head><title>{mode === 'sign-in' ? t('auth.signIn') : t('auth.createAccount')} | Classio</title></Head>
@@ -64,7 +73,7 @@ export default function SignInScreen() {
             {message ? <View style={styles.messageBox}><Text style={styles.message}>{message}</Text></View> : null}
             <Button disabled={submitting || !email || !password} onPress={() => void submit()}>{submitting ? t('auth.wait') : mode === 'sign-in' ? t('auth.signInButton') : t('auth.createButton')}</Button>
             {mode === 'sign-in' ? <><View style={styles.or}><View style={styles.orLine} /><Text style={styles.orText}>{t('auth.passwordless')}</Text><View style={styles.orLine} /></View><Button disabled={submitting || !email} secondary onPress={() => void sendMagicLink()}>{t('auth.magicLink')}</Button></> : null}
-            <Button secondary disabled={submitting} onPress={() => void openGoogle()}>G  {t('auth.googleButton')}</Button>
+            <GoogleSignIn disabled={submitting} label={t('auth.googleButton')} onPress={() => void openGoogle()} onCredential={acceptGoogleCredential} onError={setMessage} />
             <Text style={styles.googleBody}>{t('auth.googleHint')}</Text>
           </>}
           <Text style={styles.security}>{t('auth.security')}</Text>
