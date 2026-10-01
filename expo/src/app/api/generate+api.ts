@@ -104,7 +104,7 @@ export async function POST(request: Request) {
     let userId = '';
     if (guest) {
       const origin = request.headers.get('origin') || '';
-      const allowedOrigin = /^https:\/\/classio(?:--[a-z0-9-]+)?\.expo\.app$/i.test(origin);
+      const allowedOrigin = /^https:\/\/classio\.expo\.app$/i.test(origin);
       if (!allowedOrigin) return json({ error: 'This sample is available from the Classio website.' }, 403);
       if (request.headers.get('sec-fetch-site') === 'cross-site') return json({ error: 'This sample is available from the Classio website.' }, 403);
     } else {
