@@ -1,6 +1,6 @@
 import { Redirect, router } from 'expo-router';
 import Head from 'expo-router/head';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -13,7 +13,15 @@ import { colors } from '@/theme';
 
 export default function SignInScreen() {
   const { width } = useWindowDimensions();
-  const compact = width < 850;
+  const [webWidth, setWebWidth] = useState<number | null>(null);
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const update = () => setWebWidth(window.innerWidth);
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+  const compact = (Platform.OS === 'web' ? webWidth ?? width : width) < 850;
   const { t } = useAppPreferences();
   const { configured, loading, user, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signUp } = useAuth();
   const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in');
