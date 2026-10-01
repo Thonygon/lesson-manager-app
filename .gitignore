@@ -4,8 +4,16 @@ __pycache__/
 *.csv
 .streamlit/*
 !.streamlit/config.toml
+streamlit/.streamlit/*
+!streamlit/.streamlit/config.toml
 .streamlit/secrets.toml
 .streamlit/secrets.toml.save
 .env
+.env.*
+!.env.example
 .venv/
 .venv-2/
+node_modules/
+.expo/
+dist/
+.pnpm-store/

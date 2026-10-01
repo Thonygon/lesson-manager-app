@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "Classio",
+    "slug": "classio",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/classio-icon.png",
+    "scheme": "classio",
+    "userInterfaceStyle": "automatic",
+    "ios": {},
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#EFF6FF",
+        "foregroundImage": "./assets/images/classio-icon.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "server",
+      "favicon": "./assets/images/classio-icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F8FAFC",
+          "image": "./assets/images/classio-icon.png",
+          "imageWidth": 120
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0a040ccb-57cd-4f88-bda9-91b2ac970d2c"
+      }
+    },
+    "owner": "classio"
+  }
+}

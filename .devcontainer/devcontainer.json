@@ -6,7 +6,8 @@
     "codespaces": {
       "openFiles": [
         "README.md",
-        "Desktop/lesson_app/app.py"
+        "streamlit/app.py",
+        "expo/src/app/index.tsx"
       ]
     },
     "vscode": {
@@ -17,9 +18,9 @@
       ]
     }
   },
-  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user streamlit; echo '✅ Packages installed and Requirements met'",
+  "updateContentCommand": "pip3 install --user -r streamlit/requirements.lock.txt; echo '✅ Streamlit dependencies installed'",
   "postAttachCommand": {
-    "server": "streamlit run Desktop/lesson_app/app.py --server.enableCORS false --server.enableXsrfProtection false"
+    "server": "cd streamlit && streamlit run app.py --server.enableCORS false --server.enableXsrfProtection false"
   },
   "portsAttributes": {
     "8501": {

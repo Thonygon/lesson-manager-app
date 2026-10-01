@@ -1,0 +1,15 @@
+import { useEffect, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { AppShell } from '@/components/app-shell';
+import { EmptyState, LoadingState, Panel } from '@/components/ui';
+import { useAppPreferences } from '@/providers/app-preferences';
+import { getBillingPlans, type BillingPlan } from '@/services/student-data';
+import { colors } from '@/theme';
+
+function limit(plan: BillingPlan, key: string) { const value = plan.limits_json?.[key]; return value === null || value === undefined ? '∞' : String(value); }
+export default function BillingScreen() {
+  const { t } = useAppPreferences(); const [plans, setPlans] = useState<BillingPlan[]>([]); const [current, setCurrent] = useState('free'); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
+  useEffect(() => { void getBillingPlans().then((result) => { setPlans(result.plans); setCurrent(result.currentPlan); }).catch((reason) => setError(reason instanceof Error ? reason.message : t('billing.loadFailed'))).finally(() => setLoading(false)); }, [t]);
+  return <AppShell title={t('billing.title')} eyebrow={t('billing.eyebrow')}><Text style={styles.intro}>{t('billing.subtitle')}</Text>{loading ? <LoadingState /> : error ? <EmptyState title={t('billing.loadFailed')} body={error} /> : <View style={styles.grid}>{plans.map((plan) => <Panel key={plan.id} style={[styles.card, current === plan.id && styles.current]}><View style={styles.top}><Text style={styles.name}>{plan.name}</Text>{current === plan.id ? <Text style={styles.badge}>{t('billing.current')}</Text> : null}</View><Text style={styles.price}>{plan.price === null ? t('billing.custom') : plan.price === 0 ? t('billing.free') : `$${(plan.price / 100).toFixed(0)}/${plan.billing_interval}`}</Text><Text style={styles.tagline}>{t(`billing.tagline.${plan.id}`)}</Text>{[['ai_generations', t('billing.ai')], ['pdf_exports', t('billing.pdf')], ['word_exports', t('billing.word')], ['students_count', t('billing.students')], ['classes_count', t('billing.classes')]].map(([key, label]) => <Text key={key} style={styles.feature}>✓ {limit(plan, key)} {label}</Text>)}</Panel>)}</View>}</AppShell>;
+}
+const styles = StyleSheet.create({ intro: { color: colors.muted, fontSize: 15, lineHeight: 23, marginBottom: 18 }, grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }, card: { flex: 1, minWidth: 250, gap: 8, borderTopWidth: 4, borderTopColor: colors.lineStrong }, current: { borderTopColor: colors.primary, backgroundColor: colors.primarySoft }, top: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 }, name: { color: colors.ink, fontSize: 18, fontWeight: '900' }, badge: { color: colors.primary, fontSize: 8, fontWeight: '900', backgroundColor: colors.surface, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 5 }, price: { color: colors.primary, fontSize: 27, fontWeight: '900', marginVertical: 5 }, tagline: { color: colors.muted, fontSize: 11, lineHeight: 17, minHeight: 38 }, feature: { color: colors.ink, fontSize: 11, paddingTop: 5 } });
