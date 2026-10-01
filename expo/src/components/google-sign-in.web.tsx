@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 
 type CredentialResponse = { credential?: string };
 type GoogleIdentity = {
-  initialize: (options: { client_id: string; callback: (response: CredentialResponse) => void; nonce: string; use_fedcm_for_button: boolean }) => void;
+  initialize: (options: { client_id: string; callback: (response: CredentialResponse) => void; nonce: string }) => void;
   renderButton: (element: HTMLElement, options: { theme: string; size: string; text: string; shape: string; width: number }) => void;
 };
 
@@ -41,7 +41,7 @@ export function GoogleSignIn({ disabled, onCredential, onError }: { disabled: bo
     if (!clientId) { onError?.('Google sign-in is not configured.'); return; }
     void Promise.all([loadGoogleIdentity(), noncePair()]).then(([identity, nonce]) => {
       if (!active || !host.current) return;
-      identity.initialize({ client_id: clientId, nonce: nonce.hashed, use_fedcm_for_button: true, callback: (response) => {
+      identity.initialize({ client_id: clientId, nonce: nonce.hashed, callback: (response) => {
         if (!active) return;
         if (!response.credential) { onError?.('Google did not return a sign-in credential.'); return; }
         onCredential?.(response.credential, nonce.raw);
