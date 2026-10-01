@@ -3,10 +3,25 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
 
-const source = fs.readFileSync(path.join(__dirname, '../src/app/api/generate+api.ts'), 'utf8');
-const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-const generated = { exports: {} };
-new Function('module', 'exports', compiled)(generated, generated.exports);
+const cache = new Map();
+function loadTypeScript(filename) {
+  if (cache.has(filename)) return cache.get(filename).exports;
+  const generated = { exports: {} };
+  cache.set(filename, generated);
+  const source = fs.readFileSync(filename, 'utf8');
+  const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true, resolveJsonModule: true } }).outputText;
+  const localRequire = (specifier) => {
+    if (!specifier.startsWith('.')) return require(specifier);
+    const resolved = path.resolve(path.dirname(filename), specifier);
+    if (fs.existsSync(resolved) && resolved.endsWith('.json')) return require(resolved);
+    if (fs.existsSync(`${resolved}.ts`)) return loadTypeScript(`${resolved}.ts`);
+    if (fs.existsSync(`${resolved}.json`)) return require(`${resolved}.json`);
+    throw new Error(`Unresolved fixture import: ${specifier}`);
+  };
+  new Function('module', 'exports', 'require', compiled)(generated, generated.exports, localRequire);
+  return generated.exports;
+}
+const generated = { exports: loadTypeScript(path.join(__dirname, '../src/app/api/generate+api.ts')) };
 const { POST } = generated.exports;
 const originalFetch = global.fetch;
 const originalEnv = {
@@ -17,11 +32,13 @@ const originalEnv = {
 let profile = { role: 'student', primary_role: 'student', can_teach: false };
 let profileStatus = 200;
 let providerCalls = 0;
-let providerDocument = { title: 'Greetings', objectives: ['Greet a peer'], instruction: [{ minutes: 10, activity: 'Role play' }], assessment: ['Use a greeting'] };
+let providerFailures = 0;
+let providerDocuments = [];
+let providerDocument = { title: 'Greetings', objective: 'Greet a peer', success_criteria: ['Use a greeting'], main_activity: ['Role play'], core_material: {} };
 const request = (token = 'valid-token', kind = 'plan') => new Request('https://classio.test/api/generate', {
   method: 'POST',
   headers: token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ kind, subject: 'Spanish', topic: 'Greetings', stage: 'Adult', level: 'A2' }),
+  body: JSON.stringify({ kind, subject: 'Spanish', topic: 'Greetings', stage: 'Adult', level: 'A2', worksheetType: kind === 'worksheet' ? 'short_answer' : undefined }),
 });
 
 async function main() {
@@ -40,11 +57,12 @@ async function main() {
       }
       if (target.includes('openrouter.ai')) {
         providerCalls += 1;
-        return Response.json({ choices: [{ message: { content: JSON.stringify(providerDocument) } }], model: 'fixture-model' });
+        if (providerFailures > 0) { providerFailures -= 1; return Response.json({ error: 'temporary failure' }, { status: 503 }); }
+        return Response.json({ choices: [{ message: { content: JSON.stringify(providerDocuments.shift() || providerDocument) } }], model: 'fixture-model' });
       }
       throw new Error(`Unexpected request: ${target}`);
     };
-    assert.equal((await POST(request(''))).status, 401);
+    assert.equal((await POST(request(''))).status, 403);
     const denied = await POST(request());
     assert.equal(denied.status, 403);
     assert.equal(denied.headers.get('cache-control'), 'private, no-store');
@@ -58,13 +76,18 @@ async function main() {
     assert.equal((await POST(request())).status, 200);
     providerDocument = { title: 'Incomplete plan' };
     assert.equal((await POST(request())).status, 502);
-    providerDocument = { title: 'Practice', sections: [{ questions: [{ id: 1, prompt: 'A?' }, { id: 2, prompt: 'B?' }] }], answer_key: [{ id: 1, answer: 'A' }] };
+    providerDocument = { title: 'Practice', worksheet_type: 'short_answer', instructions: 'Answer both questions.', questions: ['A?', 'B?'], answer_key: '' };
     assert.equal((await POST(request('valid-token', 'worksheet'))).status, 502);
-    providerDocument.answer_key.push({ id: 2, answer: 'B' });
+    providerDocument.answer_key = '1. A; 2. B';
     assert.equal((await POST(request('valid-token', 'worksheet'))).status, 200);
+    providerDocument = { title: 'Greetings', objective: 'Greet a peer', success_criteria: ['Use a greeting'], main_activity: ['Role play'], core_material: {} };
+    providerDocuments = [{ title: 'Incomplete plan' }, providerDocument];
+    assert.equal((await POST(request())).status, 200);
+    providerFailures = 1;
+    assert.equal((await POST(request())).status, 200);
     profileStatus = 503;
     assert.equal((await POST(request())).status, 503);
-    assert.equal(providerCalls, 5);
+    assert.equal(providerCalls, 11);
   } finally {
     global.fetch = originalFetch;
     for (const [name, value] of Object.entries(originalEnv)) {

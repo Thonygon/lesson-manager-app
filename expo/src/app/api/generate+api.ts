@@ -151,13 +151,35 @@ export async function POST(request: Request) {
     const controls = [`Generation mode: ${text(body.generationMode, 40) || 'AI'}`, body.student ? `Selected student: ${text(body.student, 120)}` : '', body.nativeLanguage ? `Student native language: ${text(body.nativeLanguage, 80)}` : '', body.lessonPurpose ? `Lesson purpose: ${text(body.lessonPurpose, 80)}` : '', body.worksheetType ? `Worksheet type: ${text(body.worksheetType, 80)}` : '', body.examLength ? `Exam length: ${text(body.examLength, 40)}` : '', selectedExamTypes.length ? `Exercise types: ${selectedExamTypes.join(', ')}` : '', body.instructions ? `Special instructions: ${text(body.instructions)}` : '', body.requestedUnits ? `Requested units: ${boundedInt(body.requestedUnits, 6, 1, 20)}` : '', body.requestedLessons ? `Lessons per unit: ${boundedInt(body.requestedLessons, 4, 1, 30)}` : '', body.programTrack ? `Program track: ${text(body.programTrack, 80)}` : '', body.examTarget ? `Exam target: ${text(body.examTarget, 100)}` : ''].filter(Boolean).join('. ');
     const shapeRules = kind === 'plan' ? 'Include all required sections. All activity sections and success_criteria must be arrays of strings; core_material must be a JSON object. Use an empty string or empty array where a section is not needed.' : kind === 'worksheet' ? `Use worksheet_type ${text(body.worksheetType, 80)}. Put only the relevant item family in questions, true_false_statements, matching_pairs, multiple_choice_items, or vocabulary_bank. Do not mix unrelated task families. Answer every item in answer_key, except a vocabulary word search. Keep teacher_notes separate from student instructions.` : kind === 'exam' ? `Create ${selectedExamTypes.length} sections, ${examSpec.range} questions per section. Exercise types in order: ${selectedExamTypes.join(', ')}. Each section must include both questions and aligned answers. Section instructions must match the actual response mode.` : '';
     const prompt = kind === 'plan' ? buildLessonPlanUserPrompt({ subject, topic, learnerStage: stage, levelOrBand: level, lessonPurpose: text(body.lessonPurpose, 100), planLanguage, studentMaterialLanguage: language, programContextBlock: programBlock }) : kind === 'worksheet' ? buildWorksheetUserPrompt({ subject, topic, learnerStage: stage, levelOrBand: level, worksheetType: text(body.worksheetType, 80), planLanguage, studentMaterialLanguage: language, programContextBlock: programBlock }) : kind === 'exam' ? buildExamUserPrompt({ subject, topic, examTitle: text(body.examTitle, 200), learnerStage: stage, levelOrBand: level, examLength: length, exerciseTypes, planLanguage, studentMaterialLanguage: language, instructions: text(body.instructions), programContextBlock: programBlock }) : `Create a classroom-ready ${kind} for a teacher. Subject: ${subject}. Topic: ${topic}. Learner stage: ${stage}. Level: ${level}. Teacher-facing plan_language: ${planLanguage}. Student-facing student_material_language: ${language}. ${body.duration ? `Duration: ${text(body.duration, 50)}.` : ''} ${controls}. Teacher context: ${notes || 'None provided'}. ${programBlock} ${shapeRules} Use accurate, age-appropriate content, clear instructions, inclusive examples, and practical assessment. Return ONLY valid JSON matching this shape: ${schema}`;
-    const aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://classio.expo.app', 'X-Title': 'Classio' }, body: JSON.stringify({ model: process.env.OPENROUTER_MODEL || process.env.AI_MODEL || 'openrouter/free', messages: [{ role: 'system', content: sourceSystemPrompt(kind) }, { role: 'user', content: prompt }], temperature: 0.35, response_format: { type: 'json_object' } }) });
-    if (!aiResponse.ok) { const providerBody = await aiResponse.text(); console.error('OpenRouter generation failed', aiResponse.status, providerBody.slice(0, 300)); return json({ error: 'The AI provider could not complete this generation. Try again.' }, 502); }
-    const ai = await aiResponse.json() as { choices?: { message?: { content?: string } }[]; model?: string }; const content = ai.choices?.[0]?.message?.content || '';
-    let document: Record<string, unknown>;
-    try { document = jsonFromModel(content); } catch { return json({ error: 'The AI provider returned an invalid document. Try again.' }, 502); }
-    if (!validGeneratedDocument(kind, document, body)) return json({ error: 'The AI provider returned an incomplete document. Try again.' }, 502);
+    let document: Record<string, unknown> | null = null;
+    let model = 'openrouter';
+    let failure = 'The AI provider could not complete this generation. Try again.';
+    let repair = '';
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let aiResponse: Response;
+      try {
+        aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://classio.expo.app', 'X-Title': 'Classio' }, body: JSON.stringify({ model: process.env.OPENROUTER_MODEL || process.env.AI_MODEL || 'openrouter/free', messages: [{ role: 'system', content: sourceSystemPrompt(kind) }, { role: 'user', content: repair ? `${prompt}\n\nThe previous response was ${repair}. Return a complete, valid JSON document matching every required field and answer.` : prompt }], temperature: 0.35, response_format: { type: 'json_object' } }) });
+      } catch (error) {
+        console.error('OpenRouter request failed', error);
+        if (attempt === 0) continue;
+        return json({ error: failure }, 502);
+      }
+      if (!aiResponse.ok) {
+        const providerBody = await aiResponse.text();
+        console.error('OpenRouter generation failed', aiResponse.status, providerBody.slice(0, 300));
+        if (attempt === 0 && [429, 500, 502, 503, 504].includes(aiResponse.status)) continue;
+        return json({ error: failure }, 502);
+      }
+      const ai = await aiResponse.json().catch(() => null) as { choices?: { message?: { content?: string } }[]; model?: string } | null;
+      if (!ai) { repair = 'not valid JSON'; failure = 'The AI provider returned an invalid document. Try again.'; continue; }
+      model = ai.model || 'openrouter';
+      try { document = jsonFromModel(ai.choices?.[0]?.message?.content || ''); }
+      catch { document = null; repair = 'not valid JSON'; failure = 'The AI provider returned an invalid document. Try again.'; continue; }
+      if (validGeneratedDocument(kind, document, body)) break;
+      document = null; repair = 'incomplete'; failure = 'The AI provider returned an incomplete document. Try again.';
+    }
+    if (!document) return json({ error: failure }, 502);
     const cookie = guest ? `classio_guest_tools=${priorGuestMask | guestBits[kind]}.${await guestSignature(priorGuestMask | guestBits[kind], apiKey)}; Path=/api/generate; HttpOnly; Secure; SameSite=Lax` : '';
-    return json({ document, model: ai.model || 'openrouter', generatedAt: new Date().toISOString() }, 200, cookie ? { 'Set-Cookie': cookie } : undefined);
+    return json({ document, model, generatedAt: new Date().toISOString() }, 200, cookie ? { 'Set-Cookie': cookie } : undefined);
   } catch (error) { console.error('Generation route error', error); return json({ error: 'Generation failed.' }, 500); }
 }

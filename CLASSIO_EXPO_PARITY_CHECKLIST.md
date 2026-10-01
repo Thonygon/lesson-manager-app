@@ -6,6 +6,8 @@ Deployment target from 2026-10-01: `https://classio.expo.app`. Historical releas
 
 ## 2026-10-01 behavioral parity audit and release gate
 
+- [x] First generation reliability slice: `expo/src/app/api/generate+api.ts` retries one transient OpenRouter 429/5xx response or one malformed/incomplete JSON document, with a correction added to the second prompt for document failures. `expo/scripts/check-generate-auth.cjs` now loads the source prompt modules and verifies persistent failure, repaired output, transient provider recovery, and the teacher role guard. TypeScript and targeted ESLint pass. This does not implement Python's provider chain, full quality scoring, template fallback, or usage controls.
+
 | Area | Streamlit behavior and source | Expo state and missing behavior | Acceptance needed |
 | --- | --- | --- | --- |
 | Generation rules and prompts | `streamlit/helpers/generation_orchestration.py`, `lesson_planner.py`, `worksheet_builder.py`, `quick_exam_builder.py`, and `learning_programs.py` apply tool-specific defaults, usage limits, quality checks, repair, fallback, student/program context, and continuation. | `expo/src/server/*-prompt.ts` and `expo/src/app/api/generate+api.ts` reproduce default lesson/worksheet/exam prompt text and guard incomplete output, but still use a single provider call. Template mode, provider fallback, Python answer repair and visual enrichment, personalized dynamic blocks, usage controls, and real previous-program continuation remain open. | Compare frozen generated output and failure paths for every tool, locale, exercise family, program context, and provider failure. Verify save and usage records on `classio.expo.app`. |
