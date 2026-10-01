@@ -57,7 +57,7 @@ export function GoogleSignIn({ disabled, onCredential, onError }: { disabled: bo
         if (!width || width === renderedWidth) return;
         renderedWidth = width;
         host.current.replaceChildren();
-        identity.renderButton(host.current, { theme: resolvedTheme === 'dark' ? 'outline_dark' : 'outline', size: 'large', text: 'continue_with', shape: 'rectangular', width });
+        identity.renderButton(host.current, { theme: resolvedTheme === 'dark' ? 'filled_black' : 'outline', size: 'large', text: 'continue_with', shape: 'rectangular', width });
       };
       observer = new ResizeObserver(render);
       observer.observe(host.current);
