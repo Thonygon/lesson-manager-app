@@ -82,6 +82,10 @@ async function main() {
     assert.equal(templatePayload.model, 'template');
     assert.equal(templatePayload.document.title, 'Ethics');
     assert.equal(providerCalls, callsBeforeTemplate);
+    const subjectTemplate = await POST(new Request('https://classio.expo.app/api/generate', { method: 'POST', headers: { Authorization: 'Bearer valid-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'plan', subject: 'Spanish', topic: 'Travel', stage: 'adult_stage', level: 'A2', planLanguage: 'en', lessonPurpose: 'introduce_concept', generationMode: 'template' }) }));
+    assert.equal(subjectTemplate.status, 200);
+    assert.equal((await subjectTemplate.json()).model, 'template');
+    assert.equal(providerCalls, callsBeforeTemplate);
     providerDocument = { title: 'Incomplete plan' };
     assert.equal((await POST(request())).status, 502);
     providerDocument = { title: 'Practice', worksheet_type: 'short_answer', instructions: 'Answer both questions.', questions: ['A?', 'B?'], answer_key: '' };

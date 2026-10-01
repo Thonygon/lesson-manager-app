@@ -5,7 +5,7 @@ type Purpose = 'introduce_concept' | 'practice_skill' | 'review_topic' | 'diagno
 
 const purposes = new Set<Purpose>(['introduce_concept', 'practice_skill', 'review_topic', 'diagnose_difficulty', 'discussion_exploration']);
 
-function displayTopic(topic: string): string {
+export function displayTopic(topic: string): string {
   const clean = topic.trim().replace(/\s+/g, ' ').replace(/\s+([.,!?;:])/g, '$1').replace(/\s*-\s*/g, ' - ').replace(/\s*\/\s*/g, ' / ').replace(/\s+/g, ' ');
   return clean ? clean[0].toUpperCase() + clean.slice(1) : '';
 }

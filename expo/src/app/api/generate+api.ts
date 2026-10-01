@@ -2,6 +2,7 @@ import { buildLessonPlanUserPrompt } from '../../server/lesson-plan-prompt';
 import { buildWorksheetUserPrompt } from '../../server/worksheet-prompt';
 import { buildExamUserPrompt } from '../../server/exam-prompt';
 import { generalPlanTemplate } from '../../server/general-plan-template';
+import { subjectPlanTemplate } from '../../server/subject-plan-template';
 
 type ToolKind = 'plan' | 'worksheet' | 'exam' | 'program';
 type GenerationRequest = { kind?: ToolKind; subject?: string; customSubject?: string; topic?: string; stage?: string; level?: string; language?: string; planLanguage?: string; nativeLanguage?: string; student?: string; generationMode?: string; lessonPurpose?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration?: string; questionCount?: number; notes?: string; programId?: string; programTopicId?: string };
@@ -143,8 +144,10 @@ export async function POST(request: Request) {
     }
     if (!subject || !topic || !stage || !level) return json({ error: 'Subject, topic, learner stage, and level are required.' }, 400);
     if (text(body.generationMode, 40).toLowerCase() === 'template') {
-      if (guest || kind !== 'plan' || selectedSubject !== 'Other') return json({ error: 'This template is not available for the selected tool or subject.' }, 400);
-      const document = generalPlanTemplate({ topic, level, purpose: text(body.lessonPurpose, 80), planLanguage });
+      if (guest || kind !== 'plan') return json({ error: 'This template is not available for the selected tool or subject.' }, 400);
+      const purpose = text(body.lessonPurpose, 80) || 'introduce_concept';
+      const document = selectedSubject === 'Other' ? generalPlanTemplate({ topic, level, purpose, planLanguage }) : subjectPlanTemplate({ subject, topic, stage, level, purpose, planLanguage });
+      if (!document) return json({ error: 'This template is not available for the selected stage or level.' }, 400);
       return json({ document, model: 'template', generatedAt: new Date().toISOString() });
     }
     const apiKey = process.env.OPENROUTER_API_KEY || ''; if (!apiKey) return json({ error: 'Classio AI is not connected.' }, 503);
