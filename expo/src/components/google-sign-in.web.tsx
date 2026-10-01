@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
 
+import { useAppPreferences } from '@/providers/app-preferences';
+
 type CredentialResponse = { credential?: string };
 type GoogleIdentity = {
   initialize: (options: { client_id: string; callback: (response: CredentialResponse) => void; nonce: string }) => void;
@@ -35,8 +37,10 @@ async function noncePair(): Promise<{ raw: string; hashed: string }> {
 
 export function GoogleSignIn({ disabled, onCredential, onError }: { disabled: boolean; label: string; onPress: () => void; onCredential?: (token: string, nonce: string) => void; onError?: (message: string) => void }) {
   const host = useRef<HTMLDivElement>(null);
+  const { resolvedTheme } = useAppPreferences();
   useEffect(() => {
     let active = true;
+    let observer: ResizeObserver | undefined;
     const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
     if (!clientId) { onError?.('Google sign-in is not configured.'); return; }
     void Promise.all([loadGoogleIdentity(), noncePair()]).then(([identity, nonce]) => {
@@ -46,10 +50,20 @@ export function GoogleSignIn({ disabled, onCredential, onError }: { disabled: bo
         if (!response.credential) { onError?.('Google did not return a sign-in credential.'); return; }
         onCredential?.(response.credential, nonce.raw);
       } });
-      host.current.replaceChildren();
-      identity.renderButton(host.current, { theme: 'outline', size: 'large', text: 'continue_with', shape: 'rectangular', width: 320 });
+      let renderedWidth = 0;
+      const render = () => {
+        if (!active || !host.current) return;
+        const width = Math.min(400, Math.floor(host.current.clientWidth));
+        if (!width || width === renderedWidth) return;
+        renderedWidth = width;
+        host.current.replaceChildren();
+        identity.renderButton(host.current, { theme: resolvedTheme === 'dark' ? 'outline_dark' : 'outline', size: 'large', text: 'continue_with', shape: 'rectangular', width });
+      };
+      observer = new ResizeObserver(render);
+      observer.observe(host.current);
+      render();
     }).catch((error) => { if (active) onError?.(error instanceof Error ? error.message : 'Google sign-in could not load.'); });
-    return () => { active = false; };
-  }, [onCredential, onError]);
-  return <div aria-disabled={disabled} ref={host} style={{ display: 'flex', justifyContent: 'center', minHeight: 44, opacity: disabled ? 0.5 : 1, pointerEvents: disabled ? 'none' : 'auto' }} />;
+    return () => { active = false; observer?.disconnect(); };
+  }, [onCredential, onError, resolvedTheme]);
+  return <div aria-disabled={disabled} ref={host} style={{ display: 'flex', justifyContent: 'center', width: '100%', minHeight: 44, opacity: disabled ? 0.5 : 1, pointerEvents: disabled ? 'none' : 'auto' }} />;
 }
