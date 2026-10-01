@@ -57,7 +57,7 @@ export function GoogleSignIn({ disabled, onCredential, onError }: { disabled: bo
         if (!width || width === renderedWidth) return;
         renderedWidth = width;
         host.current.replaceChildren();
-        identity.renderButton(host.current, { theme: resolvedTheme === 'dark' ? 'filled_black' : 'outline', size: 'large', text: 'continue_with', shape: 'rectangular', width });
+        identity.renderButton(host.current, { theme: resolvedTheme === 'dark' ? 'filled_black' : 'outline', size: 'medium', text: 'continue_with', shape: 'rectangular', width });
       };
       observer = new ResizeObserver(render);
       observer.observe(host.current);
@@ -65,5 +65,5 @@ export function GoogleSignIn({ disabled, onCredential, onError }: { disabled: bo
     }).catch((error) => { if (active) onError?.(error instanceof Error ? error.message : 'Google sign-in could not load.'); });
     return () => { active = false; observer?.disconnect(); };
   }, [onCredential, onError, resolvedTheme]);
-  return <div aria-disabled={disabled} ref={host} style={{ display: 'flex', justifyContent: 'center', width: '100%', minHeight: 44, opacity: disabled ? 0.5 : 1, pointerEvents: disabled ? 'none' : 'auto' }} />;
+  return <div aria-disabled={disabled} ref={host} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%', minHeight: 46, opacity: disabled ? 0.5 : 1, pointerEvents: disabled ? 'none' : 'auto' }} />;
 }
