@@ -1,6 +1,7 @@
 import { buildLessonPlanUserPrompt } from '../../server/lesson-plan-prompt';
 import { buildWorksheetUserPrompt } from '../../server/worksheet-prompt';
 import { buildExamUserPrompt } from '../../server/exam-prompt';
+import { generalPlanTemplate } from '../../server/general-plan-template';
 
 type ToolKind = 'plan' | 'worksheet' | 'exam' | 'program';
 type GenerationRequest = { kind?: ToolKind; subject?: string; customSubject?: string; topic?: string; stage?: string; level?: string; language?: string; planLanguage?: string; nativeLanguage?: string; student?: string; generationMode?: string; lessonPurpose?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration?: string; questionCount?: number; notes?: string; programId?: string; programTopicId?: string };
@@ -127,9 +128,6 @@ export async function POST(request: Request) {
     if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) return json({ error: 'Choose a valid teaching tool.' }, 400);
     const body = parsedBody as GenerationRequest; const kind = body.kind;
     if (!kind || !SCHEMAS[kind]) return json({ error: 'Choose a valid teaching tool.' }, 400);
-    const apiKey = process.env.OPENROUTER_API_KEY || ''; if (!apiKey) return json({ error: 'Classio AI is not connected.' }, 503);
-    const priorGuestMask = guest ? await guestMask(request, apiKey) : 0;
-    if (guest && (!guestBits[kind] || (priorGuestMask & guestBits[kind]))) return json({ error: 'This free try has been used. Sign in to create more.' }, 429);
     if (guest && (body.programId || body.programTopicId)) return json({ error: 'Sign in to use a program topic.' }, 403);
     const selectedSubject = text(body.subject, 100); const subject = selectedSubject === 'Other' ? text(body.customSubject, 100) : selectedSubject.toLowerCase().replaceAll(' ', '_'); let topic = text(body.topic, 300); let stage = text(body.stage, 100); let level = text(body.level, 100); const language = text(body.language, 80) || 'en'; const planLanguage = text(body.planLanguage, 10) || 'en'; const notes = text(body.notes);
     let programBlock = '';
@@ -144,6 +142,14 @@ export async function POST(request: Request) {
       programBlock = programTopicPrompt(context, kind);
     }
     if (!subject || !topic || !stage || !level) return json({ error: 'Subject, topic, learner stage, and level are required.' }, 400);
+    if (text(body.generationMode, 40).toLowerCase() === 'template') {
+      if (guest || kind !== 'plan' || selectedSubject !== 'Other') return json({ error: 'This template is not available for the selected tool or subject.' }, 400);
+      const document = generalPlanTemplate({ topic, level, purpose: text(body.lessonPurpose, 80), planLanguage });
+      return json({ document, model: 'template', generatedAt: new Date().toISOString() });
+    }
+    const apiKey = process.env.OPENROUTER_API_KEY || ''; if (!apiKey) return json({ error: 'Classio AI is not connected.' }, 503);
+    const priorGuestMask = guest ? await guestMask(request, apiKey) : 0;
+    if (guest && (!guestBits[kind] || (priorGuestMask & guestBits[kind]))) return json({ error: 'This free try has been used. Sign in to create more.' }, 429);
     const schema = SCHEMAS[kind];
     const exerciseTypes = Array.isArray(body.exerciseTypes) ? body.exerciseTypes.slice(0, 12).map((value) => text(value, 60)).filter(Boolean) : [];
     const length = text(body.examLength, 20).toLowerCase(); const examSpec = length === 'short' ? { sections: 3, range: '4-5' } : length === 'long' ? { sections: 5, range: '6-10' } : { sections: 4, range: '5-7' };

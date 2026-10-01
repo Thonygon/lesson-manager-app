@@ -74,6 +74,14 @@ async function main() {
     assert.equal((await POST(request())).status, 403);
     profile = { role: 'teacher', primary_role: 'teacher', can_teach: null };
     assert.equal((await POST(request())).status, 200);
+    const templateRequest = new Request('https://classio.expo.app/api/generate', { method: 'POST', headers: { Authorization: 'Bearer valid-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'plan', subject: 'Other', customSubject: 'Philosophy', topic: 'Ethics', stage: 'adult_stage', level: 'intermediate_band', planLanguage: 'en', lessonPurpose: 'review_topic', generationMode: 'template' }) });
+    const callsBeforeTemplate = providerCalls;
+    const templateResult = await POST(templateRequest);
+    assert.equal(templateResult.status, 200);
+    const templatePayload = await templateResult.json();
+    assert.equal(templatePayload.model, 'template');
+    assert.equal(templatePayload.document.title, 'Ethics');
+    assert.equal(providerCalls, callsBeforeTemplate);
     providerDocument = { title: 'Incomplete plan' };
     assert.equal((await POST(request())).status, 502);
     providerDocument = { title: 'Practice', worksheet_type: 'short_answer', instructions: 'Answer both questions.', questions: ['A?', 'B?'], answer_key: '' };
