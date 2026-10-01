@@ -6,7 +6,7 @@ Deployment target from 2026-10-01: `https://classio.expo.app`. Historical releas
 
 ## 2026-10-01 behavioral parity audit and release gate
 
-- [x] First generation reliability slice: `expo/src/app/api/generate+api.ts` retries one transient OpenRouter 429/5xx response or one malformed/incomplete JSON document, with a correction added to the second prompt for document failures. `expo/scripts/check-generate-auth.cjs` now loads the source prompt modules and verifies persistent failure, repaired output, transient provider recovery, and the teacher role guard. TypeScript and targeted ESLint pass. This does not implement Python's provider chain, full quality scoring, template fallback, or usage controls.
+- [x] First generation reliability slice: `expo/src/app/api/generate+api.ts` retries one transient OpenRouter 429/5xx or network failure, or one malformed/incomplete JSON document, with a correction added to the second prompt for document failures. `expo/scripts/check-generate-auth.cjs` now loads the source prompt modules and verifies persistent failure, repaired output, transient provider recovery, and the teacher role guard. TypeScript, targeted ESLint, and web export pass. Commit `82a1f4f85` was promoted as EAS deployment `elss9otwlr` to `https://classio.expo.app`; the homepage returns HTTP 200. Authenticated generation acceptance remains open. This does not implement Python's provider chain, full quality scoring, template fallback, or usage controls.
 
 | Area | Streamlit behavior and source | Expo state and missing behavior | Acceptance needed |
 | --- | --- | --- | --- |
