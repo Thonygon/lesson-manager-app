@@ -3,6 +3,7 @@ import { buildWorksheetUserPrompt } from '../../server/worksheet-prompt';
 import { buildExamUserPrompt } from '../../server/exam-prompt';
 import { generalPlanTemplate } from '../../server/general-plan-template';
 import { subjectPlanTemplate } from '../../server/subject-plan-template';
+import { lessonPlanQualityIssues } from '../../server/lesson-plan-quality';
 
 type ToolKind = 'plan' | 'worksheet' | 'exam' | 'program';
 type GenerationRequest = { kind?: ToolKind; subject?: string; customSubject?: string; topic?: string; stage?: string; level?: string; language?: string; planLanguage?: string; nativeLanguage?: string; student?: string; generationMode?: string; lessonPurpose?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration?: string; questionCount?: number; notes?: string; programId?: string; programTopicId?: string };
@@ -143,14 +144,15 @@ export async function POST(request: Request) {
       programBlock = programTopicPrompt(context, kind);
     }
     if (!subject || !topic || !stage || !level) return json({ error: 'Subject, topic, learner stage, and level are required.' }, 400);
+    const purpose = text(body.lessonPurpose, 80) || 'introduce_concept';
+    const templateDocument = kind === 'plan' ? selectedSubject === 'Other' ? generalPlanTemplate({ topic, level, purpose, planLanguage }) : subjectPlanTemplate({ subject, topic, stage, level, purpose, planLanguage }) : null;
     if (text(body.generationMode, 40).toLowerCase() === 'template') {
       if (guest || kind !== 'plan') return json({ error: 'This template is not available for the selected tool or subject.' }, 400);
-      const purpose = text(body.lessonPurpose, 80) || 'introduce_concept';
-      const document = selectedSubject === 'Other' ? generalPlanTemplate({ topic, level, purpose, planLanguage }) : subjectPlanTemplate({ subject, topic, stage, level, purpose, planLanguage });
-      if (!document) return json({ error: 'This template is not available for the selected stage or level.' }, 400);
-      return json({ document, model: 'template', generatedAt: new Date().toISOString() });
+      if (!templateDocument) return json({ error: 'This template is not available for the selected stage or level.' }, 400);
+      return json({ document: templateDocument, model: 'template', generatedAt: new Date().toISOString() });
     }
-    const apiKey = process.env.OPENROUTER_API_KEY || ''; if (!apiKey) return json({ error: 'Classio AI is not connected.' }, 503);
+    const fallbackPlan = () => templateDocument && !guest ? json({ document: templateDocument, model: 'template', fallbackReason: 'ai_unavailable', generatedAt: new Date().toISOString() }) : null;
+    const apiKey = process.env.OPENROUTER_API_KEY || ''; if (!apiKey) return fallbackPlan() ?? json({ error: 'Classio AI is not connected.' }, 503);
     const priorGuestMask = guest ? await guestMask(request, apiKey) : 0;
     if (guest && (!guestBits[kind] || (priorGuestMask & guestBits[kind]))) return json({ error: 'This free try has been used. Sign in to create more.' }, 429);
     const schema = SCHEMAS[kind];
@@ -171,23 +173,24 @@ export async function POST(request: Request) {
       } catch (error) {
         console.error('OpenRouter request failed', error);
         if (attempt === 0) continue;
-        return json({ error: failure }, 502);
+        break;
       }
       if (!aiResponse.ok) {
         const providerBody = await aiResponse.text();
         console.error('OpenRouter generation failed', aiResponse.status, providerBody.slice(0, 300));
         if (attempt === 0 && [429, 500, 502, 503, 504].includes(aiResponse.status)) continue;
-        return json({ error: failure }, 502);
+        break;
       }
       const ai = await aiResponse.json().catch(() => null) as { choices?: { message?: { content?: string } }[]; model?: string } | null;
       if (!ai) { repair = 'not valid JSON'; failure = 'The AI provider returned an invalid document. Try again.'; continue; }
       model = ai.model || 'openrouter';
       try { document = jsonFromModel(ai.choices?.[0]?.message?.content || ''); }
       catch { document = null; repair = 'not valid JSON'; failure = 'The AI provider returned an invalid document. Try again.'; continue; }
-      if (validGeneratedDocument(kind, document, body)) break;
-      document = null; repair = 'incomplete'; failure = 'The AI provider returned an incomplete document. Try again.';
+      const qualityIssues = kind === 'plan' ? lessonPlanQualityIssues(document, { subject, stage, level, purpose, programContext: programBlock }) : [];
+      if (validGeneratedDocument(kind, document, body) && qualityIssues.length === 0) break;
+      document = null; repair = qualityIssues.length ? qualityIssues.join('; ') : 'incomplete'; failure = 'The AI provider returned an incomplete document. Try again.';
     }
-    if (!document) return json({ error: failure }, 502);
+    if (!document) return fallbackPlan() ?? json({ error: failure }, 502);
     const cookie = guest ? `classio_guest_tools=${priorGuestMask | guestBits[kind]}.${await guestSignature(priorGuestMask | guestBits[kind], apiKey)}; Path=/api/generate; HttpOnly; Secure; SameSite=Lax` : '';
     return json({ document, model, generatedAt: new Date().toISOString() }, 200, cookie ? { 'Set-Cookie': cookie } : undefined);
   } catch (error) { console.error('Generation route error', error); return json({ error: 'Generation failed.' }, 500); }

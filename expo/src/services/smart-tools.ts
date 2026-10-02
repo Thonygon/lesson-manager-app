@@ -2,7 +2,7 @@ import { requireSupabase } from '@/lib/supabase';
 
 export type SmartToolKind = 'plan' | 'worksheet' | 'exam' | 'program';
 export type SmartToolInput = { kind: SmartToolKind; subject: string; customSubject?: string; topic: string; stage: string; level: string; language: string; planLanguage?: string; nativeLanguage?: string; student?: string; generationMode?: string; lessonPurpose?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration: string; questionCount?: number; notes: string; programId?: string; programTopicId?: string };
-export type GeneratedMaterial = { document: Record<string, unknown>; model: string; generatedAt: string };
+export type GeneratedMaterial = { document: Record<string, unknown>; model: string; generatedAt: string; fallbackReason?: 'ai_unavailable' };
 
 export type SmartToolProgram = { id: string; title: string; subject: string; customSubject: string; stage: string; level: string };
 export type SmartToolProgramTopic = { id: string; title: string; unitTitle: string; unitNumber: number; topicNumber: number; lessonPurpose: string; suggestedWorksheetTypes: string[]; suggestedExamTypes: string[] };

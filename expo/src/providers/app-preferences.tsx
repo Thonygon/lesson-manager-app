@@ -296,6 +296,10 @@ Object.assign(en, { 'student.materialReason.exerciseSupport': 'Good practice for
 Object.assign(es, { 'student.materialReason.exerciseSupport': 'Buen formato de práctica para mejorar {exercise_type}', 'student.materialReason.programStyle': 'Apoya el estilo de ejercicio sugerido por el programa actual del estudiante', 'student.materialReason.levelFit': 'Muy cercano al nivel actual del estudiante ({level})', 'student.materialReason.levelStretch': 'Un buen recurso de ampliación para avanzar al siguiente nivel ({level})' });
 Object.assign(tr, { 'student.materialReason.exerciseSupport': '{exercise_type} geliştirmek için iyi bir pratik formatı', 'student.materialReason.programStyle': 'Öğrencinin mevcut programında önerilen alıştırma stilini destekler', 'student.materialReason.levelFit': 'Öğrencinin mevcut seviyesine çok yakın ({level})', 'student.materialReason.levelStretch': 'Bir sonraki seviyeye ilerlemek için iyi bir genişletme kaynağı ({level})' });
 const dictionaries = { en, es, tr };
+Object.assign(en, { 'smart.aiFallback': 'AI could not produce a complete plan. Classio prepared a template instead; review it before saving.' });
+Object.assign(es, { 'smart.aiFallback': 'La IA no pudo crear un plan completo. Classio preparó una plantilla; revísala antes de guardarla.' });
+Object.assign(tr, { 'smart.aiFallback': 'Yapay zekâ eksiksiz bir plan oluşturamadı. Classio bunun yerine bir şablon hazırladı; kaydetmeden önce inceleyin.' });
+
 type PreferencesValue = { language: AppLanguage; theme: ThemePreference; resolvedTheme: 'light' | 'dark'; setLanguage: (value: AppLanguage) => void; setTheme: (value: ThemePreference) => void; t: (key: string, params?: Params) => string };
 const PreferencesContext = createContext<PreferencesValue | null>(null); const LANGUAGE_KEY = 'classio.interfaceLanguage'; const THEME_KEY = 'classio.themePreference';
 

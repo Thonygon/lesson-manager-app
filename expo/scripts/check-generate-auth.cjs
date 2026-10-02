@@ -34,11 +34,12 @@ let profileStatus = 200;
 let providerCalls = 0;
 let providerFailures = 0;
 let providerDocuments = [];
-let providerDocument = { title: 'Greetings', objective: 'Greet a peer', success_criteria: ['Use a greeting'], main_activity: ['Role play'], core_material: {} };
+const validPlan = { title: 'Greetings', objective: 'Greet a peer', success_criteria: ['Greet clearly', 'Respond appropriately'], warm_up: ['Recall a greeting', 'Practice a response'], main_activity: ['Role play'], guided_practice: ['Model a conversation'], practice_questions: ['What greeting fits?', 'How would you reply?'], reading_passage: 'A short dialogue between two peers.', core_material: { target_vocabulary: ['hello', 'goodbye', 'please'], gist_questions: ['Who is speaking?'], detail_questions: ['What did they say?'] } };
+let providerDocument = validPlan;
 const request = (token = 'valid-token', kind = 'plan') => new Request('https://classio.test/api/generate', {
   method: 'POST',
   headers: token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ kind, subject: 'Spanish', topic: 'Greetings', stage: 'Adult', level: 'A2', worksheetType: kind === 'worksheet' ? 'short_answer' : undefined }),
+  body: JSON.stringify({ kind, subject: 'Spanish', topic: 'Greetings', stage: 'adult_stage', level: 'A2', worksheetType: kind === 'worksheet' ? 'short_answer' : undefined }),
 });
 
 async function main() {
@@ -82,24 +83,43 @@ async function main() {
     assert.equal(templatePayload.model, 'template');
     assert.equal(templatePayload.document.title, 'Ethics');
     assert.equal(providerCalls, callsBeforeTemplate);
+    for (const kind of ['worksheet', 'exam', 'program']) {
+      const rejectedTemplate = await POST(new Request('https://classio.expo.app/api/generate', { method: 'POST', headers: { Authorization: 'Bearer valid-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ kind, subject: 'Spanish', topic: 'Travel', stage: 'adult_stage', level: 'A2', generationMode: 'template' }) }));
+      assert.equal(rejectedTemplate.status, 400);
+    }
+    assert.equal(providerCalls, callsBeforeTemplate);
     const subjectTemplate = await POST(new Request('https://classio.expo.app/api/generate', { method: 'POST', headers: { Authorization: 'Bearer valid-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'plan', subject: 'Spanish', topic: 'Travel', stage: 'adult_stage', level: 'A2', planLanguage: 'en', lessonPurpose: 'introduce_concept', generationMode: 'template' }) }));
     assert.equal(subjectTemplate.status, 200);
     assert.equal((await subjectTemplate.json()).model, 'template');
     assert.equal(providerCalls, callsBeforeTemplate);
     providerDocument = { title: 'Incomplete plan' };
-    assert.equal((await POST(request())).status, 502);
+    const fallback = await POST(request());
+    assert.equal(fallback.status, 200);
+    const fallbackPayload = await fallback.json();
+    assert.equal(fallbackPayload.model, 'template');
+    assert.equal(fallbackPayload.fallbackReason, 'ai_unavailable');
+    assert.equal(fallbackPayload.document.title, 'Spanish: Greetings');
+    delete process.env.OPENROUTER_API_KEY;
+    const disconnected = await POST(request());
+    assert.equal(disconnected.status, 200);
+    assert.equal((await disconnected.json()).fallbackReason, 'ai_unavailable');
+    process.env.OPENROUTER_API_KEY = 'server-only-key';
+    providerFailures = 2;
+    const unavailable = await POST(request());
+    assert.equal(unavailable.status, 200);
+    assert.equal((await unavailable.json()).model, 'template');
     providerDocument = { title: 'Practice', worksheet_type: 'short_answer', instructions: 'Answer both questions.', questions: ['A?', 'B?'], answer_key: '' };
     assert.equal((await POST(request('valid-token', 'worksheet'))).status, 502);
     providerDocument.answer_key = '1. A; 2. B';
     assert.equal((await POST(request('valid-token', 'worksheet'))).status, 200);
-    providerDocument = { title: 'Greetings', objective: 'Greet a peer', success_criteria: ['Use a greeting'], main_activity: ['Role play'], core_material: {} };
+    providerDocument = validPlan;
     providerDocuments = [{ title: 'Incomplete plan' }, providerDocument];
     assert.equal((await POST(request())).status, 200);
     providerFailures = 1;
     assert.equal((await POST(request())).status, 200);
     profileStatus = 503;
     assert.equal((await POST(request())).status, 503);
-    assert.equal(providerCalls, 11);
+    assert.equal(providerCalls, 13);
   } finally {
     global.fetch = originalFetch;
     for (const [name, value] of Object.entries(originalEnv)) {
