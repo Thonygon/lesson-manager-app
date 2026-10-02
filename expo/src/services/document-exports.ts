@@ -130,6 +130,24 @@ function list(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+function structuredTextLines(value: unknown, title: unknown, blocks: unknown): string[] {
+  const lines: string[] = [];
+  if (String(title || '').trim()) lines.push(String(title).trim());
+  const structured = list(blocks).map(record).filter((block) => String(block.text || '').trim());
+  if (structured.length) {
+    for (const block of structured) {
+      const content = String(block.text).replace(/\r\n?/g, '\n').trim();
+      const kind = String(block.type || '').toLowerCase();
+      if (kind === 'turn' && block.speaker) lines.push(`${String(block.speaker).trim()}: ${content}`);
+      else if (['from', 'to', 'subject'].includes(kind)) lines.push(`${kind[0].toUpperCase()}${kind.slice(1)}: ${content}`);
+      else lines.push(...content.split(/\n\s*\n|\n/).map((part) => part.trim()).filter(Boolean));
+    }
+    return lines;
+  }
+  lines.push(...String(value || '').replace(/\r\n?/g, '\n').split(/\n\s*\n|\n/).map((part) => part.trim()).filter(Boolean));
+  return lines;
+}
+
 function planSections(detail: Record<string, unknown>, locale: DocumentLocale): ReportSection[] | null {
   const plan = Object.keys(record(detail.plan_json)).length ? record(detail.plan_json) : detail;
   if (!plan.objective || !plan.core_material) return null;
@@ -182,7 +200,7 @@ function examSections(detail: Record<string, unknown>, variant: ResourceVariant,
     for (const [sectionIndex, section] of sections.entries()) {
       const lines: string[] = [];
       if (String(section.instructions || '').trim()) lines.push(String(section.instructions).trim());
-      if (String(section.source_text || '').trim()) lines.push(String(section.source_text).trim());
+      if (String(section.source_text || '').trim()) lines.push(...structuredTextLines(section.source_text, section.text_title, section.text_blocks));
       const table = record(section.table_data);
       if (String(table.title || '').trim()) lines.push(String(table.title).trim());
       if (String(table.caption || '').trim()) lines.push(String(table.caption).trim());
@@ -242,7 +260,7 @@ function worksheetSections(detail: Record<string, unknown>, variant: ResourceVar
     const vocabulary = list(worksheet.vocabulary_bank).map(String).filter(Boolean);
     if (vocabulary.length) output.push({ heading: copy.vocabulary, lines: [vocabulary.join('  ·  ')] });
     const passage = String(worksheet.reading_passage || worksheet.source_text || '').trim();
-    if (passage) output.push({ heading: copy.passage, lines: [passage] });
+    if (passage) output.push({ heading: copy.passage, lines: structuredTextLines(passage, worksheet.text_title, worksheet.text_blocks) });
     const sections = list(worksheet.sections).map(record).filter((section) => Object.keys(section).length);
     if (sections.length) {
       for (const [sectionIndex, section] of sections.entries()) {

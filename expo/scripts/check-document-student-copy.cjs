@@ -72,6 +72,8 @@ assert.ok(JSON.stringify(matchingTeacher).includes('Hola → Hello'));
 assert.deepEqual(matchingStudent.find((section) => section.heading === 'Match the items').table[0], ['1. Hola', '[   ]', 'a) Goodbye']);
 const trueFalse = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'true_false', source_text: 'Water can freeze.', true_false_statements: ['Water can become ice.'], answer_key: '1. True' } }, 'student');
 assert.deepEqual(trueFalse.find((section) => section.heading === 'Questions').table[0], ['1. Water can become ice.', '[ ] T  [ ] F']);
+const dialogue = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'reading_comprehension', reading_passage: 'Ana: Hello.\nBen: Welcome.', text_kind: 'dialogue', text_blocks: [{ type: 'turn', speaker: 'Ana', text: 'Hello.' }, { type: 'turn', speaker: 'Ben', text: 'Welcome.' }], questions: ['Who speaks first?'], answer_key: 'Ana' } }, 'student');
+assert.deepEqual(dialogue.find((section) => section.heading === 'Reading passage').lines, ['Ana: Hello.', 'Ben: Welcome.']);
 const wordSearch = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'word_search_vocab', vocabulary_bank: ['CLASS', 'LEARN'], instructions: 'Find the words.' } }, 'student');
 assert.ok(wordSearch.some((section) => section.heading === 'Word search' && section.lines.length >= 10));
 assert.equal(wordSearch.find((section) => section.heading === 'Word search').grid.length, 10);
