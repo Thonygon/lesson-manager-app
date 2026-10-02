@@ -243,13 +243,17 @@ function worksheetSections(detail: Record<string, unknown>, variant: ResourceVar
       const lines = left.map((item, index) => `${index + 1}. ${String(item || '')}   [   ]`);
       lines.push(...choices.map((item, index) => `${String.fromCharCode(97 + index)}) ${String(item || '')}`));
       if (lines.length) output.push({ heading: copy.matching, lines });
+    } else if (worksheet.worksheet_type === 'word_search_vocab') {
+      const grid = list(worksheet.wordsearch_grid || worksheet.grid).map((row) => list(row).map(String).join('  ')).filter(Boolean);
+      if (grid.length) output.push({ heading: locale === 'es' ? 'Sopa de letras' : locale === 'tr' ? 'Kelime avı' : 'Word search', lines: grid });
     } else {
       const items = list(worksheet.multiple_choice_items).length ? list(worksheet.multiple_choice_items) : list(worksheet.questions).length ? list(worksheet.questions) : list(worksheet.true_false_statements);
       const lines: string[] = [];
       for (const [index, item] of items.entries()) {
         const row = record(item);
         const prompt = typeof item === 'string' ? item : String(row.stem || row.question || row.prompt || row.text || row.sentence || '');
-        if (prompt.trim()) { lines.push(`${index + 1}. ${prompt.trim()}`); if (['short_answer', 'reading_comprehension', 'error_correction'].includes(String(worksheet.worksheet_type))) lines.push('____________________________________________'); }
+        const trueFalse = locale === 'es' ? '   [ ] Verdadero   [ ] Falso' : locale === 'tr' ? '   [ ] Doğru   [ ] Yanlış' : '   [ ] True   [ ] False';
+        if (prompt.trim()) { lines.push(`${index + 1}. ${prompt.trim()}${worksheet.worksheet_type === 'true_false' ? trueFalse : ''}`); if (['short_answer', 'reading_comprehension', 'error_correction'].includes(String(worksheet.worksheet_type))) lines.push('____________________________________________'); }
         for (const [optionIndex, option] of list(row.options).entries()) lines.push(`   ${String.fromCharCode(65 + optionIndex)}) ${String(option)}`);
       }
       if (lines.length) output.push({ heading: copy.questions, lines });
@@ -342,7 +346,7 @@ function schoolFields(locale: DocumentLocale): [string, string, string] {
   return ['Name: __________________', 'Class: ________', 'Date: ________'];
 }
 
-async function savePdf(title: string, subtitle: string, sections: ReportSection[], filename: string, locale: DocumentLocale, worksheet = false, bulletLines = true) {
+async function savePdf(title: string, subtitle: string, sections: ReportSection[], filename: string, locale: DocumentLocale, worksheet = false, bulletLines = true, resourceKind: 'plan' | 'worksheet' | 'exam' | null = null) {
   if (!browserReady()) throw new Error('PDF downloads are available in the web app.');
   // The browser ESM build avoids jsPDF's Node-only optional html2canvas loader in Expo SSR.
   const { jsPDF } = await import('jspdf/dist/jspdf.es.min.js');
@@ -356,70 +360,71 @@ async function savePdf(title: string, subtitle: string, sections: ReportSection[
   const logo = bulletLines ? null : await loadClassioLogo();
   const width = pdf.internal.pageSize.getWidth();
   const height = pdf.internal.pageSize.getHeight();
-  const margin = 52;
-  const bodySize = branding.fontSize === 'compact' ? 9 : branding.fontSize === 'large' ? 11 : 10;
-  let y = 46;
+  const margin = resourceKind === 'plan' ? 57 : 51;
+  const bodySize = branding.fontSize === 'compact' ? 10 : branding.fontSize === 'large' ? 13 : 12;
+  let y = 43;
   const ensureSpace = (needed: number) => { if (y + needed > height - margin) { pdf.addPage(); y = margin; } };
-  pdf.setFillColor(29, 78, 216); pdf.rect(0, 0, width, 10, 'F');
+  if (!resourceKind) { pdf.setFillColor(29, 78, 216); pdf.rect(0, 0, width, 10, 'F'); }
   if (branding.headerEnabled) {
     if (branding.headerStyle === 'school') { pdf.setFillColor(239, 246, 255); pdf.roundedRect(margin, y - 15, width - margin * 2, 54, 8, 8, 'F'); }
     pdf.setTextColor(29, 78, 216); pdf.setFont('DejaVu', 'bold'); pdf.setFontSize(branding.headerStyle === 'school' ? 14 : 10); pdf.text(branding.brandName.toUpperCase(), branding.headerStyle === 'school' ? width / 2 : margin, y, { align: branding.headerStyle === 'school' ? 'center' : 'left' });
     if (branding.department) { y += 14; pdf.setFont('DejaVu', 'normal'); pdf.setFontSize(8); pdf.setTextColor(71, 85, 105); pdf.text(branding.department, branding.headerStyle === 'school' ? width / 2 : margin, y, { align: branding.headerStyle === 'school' ? 'center' : 'left' }); }
     y += branding.headerStyle === 'school' ? 42 : 24;
   }
-  pdf.setTextColor(15, 23, 42); pdf.setFont('DejaVu', 'bold'); pdf.setFontSize(23); const titleLines = pdf.splitTextToSize(title, width - margin * 2); pdf.text(titleLines, margin, y); y += titleLines.length * 27 + 8;
+  pdf.setTextColor(resourceKind ? 29 : 15, resourceKind ? 78 : 23, resourceKind ? 216 : 42); pdf.setFont('DejaVu', 'bold'); const titleSize = resourceKind ? (branding.fontSize === 'large' ? 18 : 14) : 23; pdf.setFontSize(titleSize); const titleLines = pdf.splitTextToSize(title, width - margin * 2); pdf.text(titleLines, resourceKind === 'plan' || resourceKind === 'worksheet' ? width / 2 : margin, y, { align: resourceKind === 'plan' || resourceKind === 'worksheet' ? 'center' : 'left' }); y += titleLines.length * (titleSize + 4) + 8;
   if (worksheet && branding.headerEnabled && branding.headerStyle === 'school') {
     pdf.setFont('DejaVu', 'bold'); pdf.setFontSize(8); pdf.setTextColor(51, 65, 85);
     schoolFields(locale).forEach((field, index) => pdf.text(field, margin + index * ((width - margin * 2) / 3), y + 8));
     y += 28; pdf.setDrawColor(203, 213, 225); pdf.line(margin, y, width - margin, y); y += 16;
   }
-  pdf.setFillColor(248, 250, 252); pdf.setDrawColor(203, 213, 225); pdf.roundedRect(margin, y, width - margin * 2, 34, 6, 6, 'FD');
-  pdf.setTextColor(71, 85, 105); pdf.setFont('DejaVu', 'normal'); pdf.setFontSize(9); pdf.text(subtitle, margin + 12, y + 14); pdf.text(new Date().toLocaleDateString(), width - margin - 12, y + 14, { align: 'right' }); y += 56;
+  if (!resourceKind) { pdf.setFillColor(248, 250, 252); pdf.setDrawColor(203, 213, 225); pdf.roundedRect(margin, y, width - margin * 2, 34, 6, 6, 'FD'); pdf.setTextColor(71, 85, 105); pdf.setFont('DejaVu', 'normal'); pdf.setFontSize(9); pdf.text(subtitle, margin + 12, y + 14); pdf.text(new Date().toLocaleDateString(), width - margin - 12, y + 14, { align: 'right' }); y += 56; }
   for (const section of sections) {
-    ensureSpace(54); pdf.setFillColor(239, 246, 255); pdf.roundedRect(margin, y - 14, width - margin * 2, 28, 5, 5, 'F'); pdf.setTextColor(30, 64, 175); pdf.setFont('DejaVu', 'bold'); pdf.setFontSize(12); pdf.text(section.heading, margin + 10, y + 4); y += 28;
+    ensureSpace(54); if (!resourceKind) { pdf.setFillColor(239, 246, 255); pdf.roundedRect(margin, y - 14, width - margin * 2, 28, 5, 5, 'F'); } pdf.setTextColor(resourceKind === 'plan' ? 15 : 30, resourceKind === 'plan' ? 23 : 64, resourceKind === 'plan' ? 42 : 175); pdf.setFont('DejaVu', 'bold'); pdf.setFontSize(resourceKind ? (branding.fontSize === 'large' ? 16 : 14) : 12); pdf.text(section.heading, margin + (resourceKind ? 0 : 10), y + 4); y += resourceKind ? 25 : 28;
     pdf.setFont('DejaVu', 'normal'); pdf.setFontSize(bodySize);
     for (const line of section.lines) {
       const wrapped = pdf.splitTextToSize(line, width - margin * 2 - 20);
-      ensureSpace(wrapped.length * (bodySize + 5) + 12); if (bulletLines) { pdf.setFillColor(37, 99, 235); pdf.circle(margin + 4, y - 3, 1.8, 'F'); } pdf.setTextColor(51, 65, 85); pdf.text(wrapped, margin + (bulletLines ? 14 : 0), y); y += wrapped.length * (bodySize + 5) + (line.startsWith('____') ? 15 : 9);
+      ensureSpace(wrapped.length * (bodySize + 3) + 12); if (bulletLines) { pdf.setFillColor(37, 99, 235); pdf.circle(margin + 4, y - 3, 1.8, 'F'); } pdf.setTextColor(51, 65, 85); pdf.text(wrapped, margin + (bulletLines ? 14 : 0), y); y += wrapped.length * (bodySize + 3) + (line.startsWith('____') ? 15 : resourceKind ? 4 : 9);
     }
     y += 10;
   }
   const pages = pdf.getNumberOfPages();
-  for (let page = 1; page <= pages; page += 1) { pdf.setPage(page); pdf.setDrawColor(226, 232, 240); pdf.line(margin, height - 34, width - margin, height - 34); pdf.setFont('DejaVu', 'normal'); pdf.setFontSize(8); pdf.setTextColor(100, 116, 139); pdf.text(bulletLines ? (branding.footerEnabled ? `${branding.brandName} · ${COPY[locale].generated}` : COPY[locale].generated) : 'Visit classio.streamlit.app', margin, height - 20); if (logo) pdf.addImage(logo, 'PNG', width - margin - 80, height - 30, 50, 20); pdf.text(`${page} / ${pages}`, width - margin, height - 20, { align: 'right' }); }
+  for (let page = 1; page <= pages; page += 1) { pdf.setPage(page); pdf.setDrawColor(226, 232, 240); pdf.line(margin, height - 34, width - margin, height - 34); pdf.setFont('DejaVu', 'normal'); pdf.setFontSize(8); pdf.setTextColor(100, 116, 139); pdf.text(bulletLines ? (branding.footerEnabled ? `${branding.brandName} · ${COPY[locale].generated}` : COPY[locale].generated) : 'Visit classio.expo.app', margin, height - 20); if (logo) pdf.addImage(logo, 'PNG', width - margin - 80, height - 30, 50, 20); pdf.text(`${page} / ${pages}`, width - margin, height - 20, { align: 'right' }); }
   pdf.save(`${slug(filename)}.pdf`);
 }
 
-async function saveDocx(title: string, subtitle: string, sections: ReportSection[], filename: string, locale: DocumentLocale, worksheet = false, bulletLines = true) {
+async function saveDocx(title: string, subtitle: string, sections: ReportSection[], filename: string, locale: DocumentLocale, worksheet = false, bulletLines = true, resourceKind: 'plan' | 'worksheet' | 'exam' | null = null) {
   if (!browserReady()) throw new Error('Word downloads are available in the web app.');
   const { AlignmentType, BorderStyle, Document, Footer, Header, HeadingLevel, ImageRun, Packer, PageNumber, Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType } = await import('docx');
   const branding = await loadBranding();
   const logo = bulletLines ? null : await loadClassioLogo();
-  const baseSize = branding.fontSize === 'compact' ? 19 : branding.fontSize === 'large' ? 23 : 21;
+  const baseSize = branding.fontSize === 'compact' ? 20 : branding.fontSize === 'large' ? 26 : 24;
   const children = [
-    new Paragraph({ text: title, heading: HeadingLevel.TITLE, spacing: { after: 180 } }),
+    new Paragraph({ text: title, heading: HeadingLevel.TITLE, alignment: resourceKind === 'plan' || resourceKind === 'worksheet' ? AlignmentType.CENTER : AlignmentType.LEFT, spacing: { after: 120 } }),
     ...(worksheet && branding.headerEnabled && branding.headerStyle === 'school' ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [new TableRow({ children: schoolFields(locale).map((field) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: field, font: branding.font, size: baseSize, bold: true })] })] })) })] })] : []),
-    new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [new TableRow({ children: [new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, margins: { top: 100, bottom: 100, left: 140, right: 140 }, children: [new Paragraph({ children: [new TextRun({ text: subtitle, color: '475569', bold: true }), new TextRun({ text: `  ·  ${new Date().toLocaleDateString()}`, color: '64748B' })] })] })] })] }),
+    ...(!resourceKind ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [new TableRow({ children: [new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, margins: { top: 100, bottom: 100, left: 140, right: 140 }, children: [new Paragraph({ children: [new TextRun({ text: subtitle, color: '475569', bold: true }), new TextRun({ text: `  ·  ${new Date().toLocaleDateString()}`, color: '64748B' })] })] })] })] })] : []),
     ...sections.flatMap((section) => [
-      new Paragraph({ text: section.heading, heading: HeadingLevel.HEADING_1, spacing: { before: 280, after: 100 }, shading: { fill: 'EFF6FF', type: ShadingType.CLEAR }, border: { bottom: { color: 'BFDBFE', size: 5, style: BorderStyle.SINGLE } } }),
-      ...section.lines.map((line) => new Paragraph({ children: [new TextRun({ text: line, size: baseSize, font: branding.font, color: '334155' })], bullet: bulletLines ? { level: 0 } : undefined, spacing: { after: line.startsWith('____') ? 180 : 90, line: 300 } })),
+      new Paragraph({ text: section.heading, heading: HeadingLevel.HEADING_1, spacing: { before: resourceKind ? 160 : 280, after: 100 }, ...(resourceKind ? {} : { shading: { fill: 'EFF6FF', type: ShadingType.CLEAR }, border: { bottom: { color: 'BFDBFE', size: 5, style: BorderStyle.SINGLE } } }) }),
+      ...section.lines.map((line) => new Paragraph({ children: [new TextRun({ text: line, size: baseSize, font: branding.font, color: '334155' })], bullet: bulletLines ? { level: 0 } : undefined, spacing: { after: line.startsWith('____') ? 180 : resourceKind ? 60 : 90, line: resourceKind ? 276 : 300 } })),
     ]),
   ];
   const header = new Header({ children: [new Paragraph({ alignment: branding.headerStyle === 'school' ? AlignmentType.CENTER : AlignmentType.LEFT, border: { bottom: { color: '2563EB', size: 16, style: BorderStyle.SINGLE } }, children: [new TextRun({ text: branding.brandName.toUpperCase(), color: '1D4ED8', bold: true, size: 22, font: branding.font }), ...(branding.department ? [new TextRun({ text: `  ·  ${branding.department}`, color: '64748B', size: 18, font: branding.font })] : [])] })] });
-  const footer = new Footer({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, border: { top: { color: 'E2E8F0', size: 4, style: BorderStyle.SINGLE } }, children: [new TextRun({ text: bulletLines ? `${branding.footerEnabled ? `${branding.brandName} · ` : ''}${COPY[locale].generated}   ` : 'Visit classio.streamlit.app  ', color: '64748B', size: 16, font: branding.font }), ...(logo ? [new ImageRun({ data: logo, transformation: { width: 65, height: 26 }, type: 'png' })] : []), ...(bulletLines ? [new TextRun({ children: [PageNumber.CURRENT], color: '64748B', size: 16 })] : [])] })] });
-  const blob = await Packer.toBlob(new Document({ styles: { default: { document: { run: { font: branding.font, size: baseSize, color: '334155' }, paragraph: { spacing: { line: 300 } } }, title: { run: { font: branding.font, size: 42, bold: true, color: '0F172A' } }, heading1: { run: { font: branding.font, size: 26, bold: true, color: '1E40AF' } } } }, sections: [{ headers: branding.headerEnabled ? { default: header } : undefined, footers: { default: footer }, properties: { page: { margin: { top: 900, right: 850, bottom: 850, left: 850 } } }, children }] }));
+  const footer = new Footer({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, border: { top: { color: 'E2E8F0', size: 4, style: BorderStyle.SINGLE } }, children: [new TextRun({ text: bulletLines ? `${branding.footerEnabled ? `${branding.brandName} · ` : ''}${COPY[locale].generated}   ` : 'Visit classio.expo.app  ', color: '64748B', size: 16, font: branding.font }), ...(logo ? [new ImageRun({ data: logo, transformation: { width: 65, height: 26 }, type: 'png' })] : []), ...(bulletLines ? [new TextRun({ children: [PageNumber.CURRENT], color: '64748B', size: 16 })] : [])] })] });
+  const blob = await Packer.toBlob(new Document({ styles: { default: { document: { run: { font: branding.font, size: baseSize, color: '334155' }, paragraph: { spacing: { line: resourceKind ? 276 : 300 } } }, title: { run: { font: branding.font, size: resourceKind ? (branding.fontSize === 'large' ? 36 : 28) : 42, bold: true, color: resourceKind ? '1D4ED8' : '0F172A' } }, heading1: { run: { font: branding.font, size: resourceKind ? (branding.fontSize === 'large' ? 32 : 28) : 26, bold: true, color: resourceKind === 'plan' ? '1D4ED8' : '0F172A' } } } }, sections: [{ headers: branding.headerEnabled ? { default: header } : undefined, footers: { default: footer }, properties: { page: { margin: { top: 850, right: resourceKind === 'plan' ? 1134 : 1020, bottom: 850, left: resourceKind === 'plan' ? 1134 : 1020 } } }, children }] }));
   saveBlob(blob, `${slug(filename)}.docx`);
 }
 
 export function downloadResourcePdf(title: string, detail: Record<string, unknown>, locale: DocumentLocale = 'en', variant: ResourceVariant = 'full') {
   const suffix = variant === 'full' ? '' : `-${variant}`;
   const subtitle = variant === 'student' ? COPY[locale].studentCopy : variant === 'teacher' ? COPY[locale].teacherCopy : variant === 'answers' ? COPY[locale].answerKey : COPY[locale].teachingResource;
-  return savePdf(title, subtitle, resourceSections(detail, variant, locale), `${title}${suffix}`, locale, Boolean(detail.worksheet_json || detail.worksheet_type), false);
+  const resourceKind = detail.plan_json || detail.objective && detail.core_material ? 'plan' : detail.worksheet_json || detail.worksheet_type ? 'worksheet' : detail.exam_data || detail.sections ? 'exam' : null;
+  return savePdf(title, subtitle, resourceSections(detail, variant, locale), `${title}${suffix}`, locale, resourceKind === 'worksheet' || resourceKind === 'exam', false, resourceKind);
 }
 
 export function downloadResourceDocx(title: string, detail: Record<string, unknown>, locale: DocumentLocale = 'en', variant: ResourceVariant = 'full') {
   const suffix = variant === 'full' ? '' : `-${variant}`;
   const subtitle = variant === 'student' ? COPY[locale].studentCopy : variant === 'teacher' ? COPY[locale].teacherCopy : variant === 'answers' ? COPY[locale].answerKey : COPY[locale].teachingResource;
-  return saveDocx(title, subtitle, resourceSections(detail, variant, locale), `${title}${suffix}`, locale, Boolean(detail.worksheet_json || detail.worksheet_type), false);
+  const resourceKind = detail.plan_json || detail.objective && detail.core_material ? 'plan' : detail.worksheet_json || detail.worksheet_type ? 'worksheet' : detail.exam_data || detail.sections ? 'exam' : null;
+  return saveDocx(title, subtitle, resourceSections(detail, variant, locale), `${title}${suffix}`, locale, resourceKind === 'worksheet' || resourceKind === 'exam', false, resourceKind);
 }
 
 export function downloadStudentReportPdf(studentName: string, workspace: StudentLearningWorkspace, locale: DocumentLocale = 'en') {

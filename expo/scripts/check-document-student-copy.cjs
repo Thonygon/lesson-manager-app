@@ -9,6 +9,7 @@ const loaded = { exports: {} };
 new Function('module', 'exports', 'require', compiled)(loaded, loaded.exports, (name) => {
   if (name === 'react-native') return { Platform: { OS: 'web' } };
   if (name === '@/lib/supabase') return { requireSupabase() { throw new Error('Not needed by this fixture'); } };
+  if (name === './source-document-labels.json') return require('../src/services/source-document-labels.json');
   return require(name);
 });
 
