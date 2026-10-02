@@ -3,8 +3,9 @@ import { Platform } from 'react-native';
 import { requireSupabase } from '@/lib/supabase';
 import type { StudentLearningWorkspace } from '@/services/teacher-students';
 import sourceDocumentLabels from './source-document-labels.json';
+import { makeWordSearchGrid } from './word-search-grid';
 
-type ReportSection = { heading: string; lines: string[] };
+type ReportSection = { heading: string; lines: string[]; subheadings?: string[]; grid?: string[][]; table?: string[][] };
 type DocumentLocale = 'en' | 'es' | 'tr';
 const COPY = {
   en: { teachingResource: 'Teaching resource', studentCopy: 'Student copy', teacherCopy: 'Teacher copy', answerKey: 'Answer key', studentEvidence: 'Student learning evidence', overview: 'Overview', progress: 'Progress by subject', programs: 'Learning programs', recent: 'Recent work', noData: 'No data yet.', assignments: 'Assignments', attempts: 'Attempts', reviews: 'Reviews waiting', complete: 'complete', average: 'average', notScored: 'not scored', program: 'Learning program', assignment: 'Assignment', general: 'General', generated: 'Prepared with Classio' },
@@ -13,6 +14,12 @@ const COPY = {
 } as const;
 
 type DocumentBranding = { brandName: string; department: string; headerEnabled: boolean; footerEnabled: boolean; headerStyle: 'standard' | 'school'; font: string; fontSize: 'compact' | 'standard' | 'large' };
+function resourceMetaLine(detail: Record<string, unknown>, kind: 'plan' | 'worksheet' | 'exam' | null, locale: DocumentLocale): string {
+  if (!kind) return '';
+  const labels = { en: ['Subject', 'Topic', 'Stage', 'Level', 'Purpose'], es: ['Asignatura', 'Tema', 'Etapa', 'Nivel', 'Objetivo'], tr: ['Ders', 'Konu', 'Kademe', 'Seviye', 'Amaç'] }[locale];
+  const fields = [detail.subject, detail.topic, detail.learner_stage, detail.level_or_band ?? detail.level, kind === 'plan' ? detail.lesson_purpose : undefined];
+  return fields.map((value, index) => value ? `${labels[index]}: ${String(value).replaceAll('_', ' ')}` : '').filter(Boolean).join('  |  ');
+}
 const DEFAULT_BRANDING: DocumentBranding = { brandName: '', department: '', headerEnabled: false, footerEnabled: false, headerStyle: 'standard', font: 'DejaVu Sans', fontSize: 'standard' };
 
 async function loadBranding(): Promise<DocumentBranding> {
@@ -129,11 +136,15 @@ function planSections(detail: Record<string, unknown>, locale: DocumentLocale): 
   const label = (key: string) => (sourceDocumentLabels[locale] as Record<string, string>)[key] || labelize(key);
   const asLines = (value: unknown) => Array.isArray(value) ? value.flatMap((item) => printable(item)) : printable(value);
   const group = (heading: string, entries: [string, unknown][]): ReportSection | null => {
+    const subheadings: string[] = [];
     const lines = entries.flatMap(([key, value]) => {
       const content = asLines(value);
-      return content.length ? [label(key === 'objective' ? 'lesson_objective' : key), ...content] : [];
+      if (!content.length) return [];
+      const subheading = label(key === 'objective' ? 'lesson_objective' : key);
+      subheadings.push(subheading);
+      return [subheading, ...content];
     });
-    return lines.length ? { heading, lines } : null;
+    return lines.length ? { heading, lines, subheadings } : null;
   };
   const core = record(plan.core_material);
   const materialsOrder = ['target_vocabulary', 'language_frames', 'pre_task_questions', 'reading_passage', 'listening_script', 'gist_questions', 'detail_questions', 'worked_example', 'independent_practice', 'common_error_alert', 'concept_explanation', 'real_life_application', 'strategy_steps', 'performance_goal', 'materials_needed', 'timing_guide', 'expected_output', 'differentiation', 'assessment_check', 'student_checklist', 'key_concept', 'guided_problem_set', 'independent_problem_set', 'challenge_problem', 'answer_key', 'phenomenon_prompt', 'prediction_task', 'observation_task', 'evidence_questions', 'misconception_alert', 'technical_focus', 'practice_pattern', 'teacher_model', 'strategy_name', 'model_scenario', 'student_action_plan', 'post_task'];
@@ -186,7 +197,17 @@ function examSections(detail: Record<string, unknown>, variant: ResourceVariant,
           lines.push(`   ${String.fromCharCode(65 + optionIndex)}) ${String(option)}`);
         }
       }
-      if (lines.length) output.push({ heading: String(section.title || labelize(String(section.type || `Section ${sectionIndex + 1}`))), lines });
+      const sectionType = String(section.type || '');
+      const questions = list(section.questions);
+      const tableRows = sectionType === 'matching' ? questions.map((question, index) => {
+        const pair = record(question);
+        return [`${index + 1}. ${String(pair.left || '')}`, '[   ]', `${String.fromCharCode(97 + index)}) ${String(record(questions[(index + 1) % questions.length]).right || '')}`];
+      }) : sectionType === 'true_false' ? questions.map((question, index) => {
+        const row = record(question);
+        const prompt = typeof question === 'string' ? question : String(row.stem || row.text || row.question || row.sentence || row.prompt || '');
+        return [`${index + 1}. ${prompt}`, locale === 'es' ? '[ ] V  [ ] F' : locale === 'tr' ? '[ ] D  [ ] Y' : '[ ] T  [ ] F'];
+      }) : undefined;
+      if (lines.length || tableRows?.length) output.push({ heading: String(section.title || labelize(String(section.type || `Section ${sectionIndex + 1}`))), lines: tableRows?.length ? lines.filter((line) => !/^\d+\.\s/.test(line)) : lines, table: tableRows });
     }
   }
 
@@ -242,10 +263,12 @@ function worksheetSections(detail: Record<string, unknown>, variant: ResourceVar
       const choices = right.length > 1 ? [...right.slice(1), right[0]] : right;
       const lines = left.map((item, index) => `${index + 1}. ${String(item || '')}   [   ]`);
       lines.push(...choices.map((item, index) => `${String.fromCharCode(97 + index)}) ${String(item || '')}`));
-      if (lines.length) output.push({ heading: copy.matching, lines });
+      const table = left.map((item, index) => [`${index + 1}. ${String(item || '')}`, '[   ]', `${String.fromCharCode(97 + index)}) ${String(choices[index] || '')}`]);
+      if (lines.length) output.push({ heading: copy.matching, lines, table });
     } else if (worksheet.worksheet_type === 'word_search_vocab') {
-      const grid = list(worksheet.wordsearch_grid || worksheet.grid).map((row) => list(row).map(String).join('  ')).filter(Boolean);
-      if (grid.length) output.push({ heading: locale === 'es' ? 'Sopa de letras' : locale === 'tr' ? 'Kelime avı' : 'Word search', lines: grid });
+      const rawGrid = list(worksheet.wordsearch_grid || worksheet.grid);
+      const grid = (rawGrid.length ? rawGrid : makeWordSearchGrid(list(worksheet.vocabulary_bank))).map((row) => list(row).map(String)).filter((row) => row.length);
+      if (grid.length) output.push({ heading: locale === 'es' ? 'Sopa de letras' : locale === 'tr' ? 'Kelime avı' : 'Word search', lines: grid.map((row) => row.join('  ')), grid });
     } else {
       const items = list(worksheet.multiple_choice_items).length ? list(worksheet.multiple_choice_items) : list(worksheet.questions).length ? list(worksheet.questions) : list(worksheet.true_false_statements);
       const lines: string[] = [];
@@ -256,7 +279,12 @@ function worksheetSections(detail: Record<string, unknown>, variant: ResourceVar
         if (prompt.trim()) { lines.push(`${index + 1}. ${prompt.trim()}${worksheet.worksheet_type === 'true_false' ? trueFalse : ''}`); if (['short_answer', 'reading_comprehension', 'error_correction'].includes(String(worksheet.worksheet_type))) lines.push('____________________________________________'); }
         for (const [optionIndex, option] of list(row.options).entries()) lines.push(`   ${String.fromCharCode(65 + optionIndex)}) ${String(option)}`);
       }
-      if (lines.length) output.push({ heading: copy.questions, lines });
+      const table = worksheet.worksheet_type === 'true_false' ? items.map((item, index) => {
+        const row = record(item);
+        const prompt = typeof item === 'string' ? item : String(row.stem || row.question || row.prompt || row.text || row.sentence || '');
+        return [`${index + 1}. ${prompt}`, locale === 'es' ? '[ ] V  [ ] F' : locale === 'tr' ? '[ ] D  [ ] Y' : '[ ] T  [ ] F'];
+      }) : undefined;
+      if (lines.length) output.push({ heading: copy.questions, lines, table });
     }
   }
   if (variant !== 'student') {
@@ -346,7 +374,7 @@ function schoolFields(locale: DocumentLocale): [string, string, string] {
   return ['Name: __________________', 'Class: ________', 'Date: ________'];
 }
 
-async function savePdf(title: string, subtitle: string, sections: ReportSection[], filename: string, locale: DocumentLocale, worksheet = false, bulletLines = true, resourceKind: 'plan' | 'worksheet' | 'exam' | null = null) {
+async function savePdf(title: string, subtitle: string, sections: ReportSection[], filename: string, locale: DocumentLocale, worksheet = false, bulletLines = true, resourceKind: 'plan' | 'worksheet' | 'exam' | null = null, metaLine = '') {
   if (!browserReady()) throw new Error('PDF downloads are available in the web app.');
   // The browser ESM build avoids jsPDF's Node-only optional html2canvas loader in Expo SSR.
   const { jsPDF } = await import('jspdf/dist/jspdf.es.min.js');
@@ -372,6 +400,7 @@ async function savePdf(title: string, subtitle: string, sections: ReportSection[
     y += branding.headerStyle === 'school' ? 42 : 24;
   }
   pdf.setTextColor(resourceKind ? 29 : 15, resourceKind ? 78 : 23, resourceKind ? 216 : 42); pdf.setFont('DejaVu', 'bold'); const titleSize = resourceKind ? (branding.fontSize === 'large' ? 18 : 14) : 23; pdf.setFontSize(titleSize); const titleLines = pdf.splitTextToSize(title, width - margin * 2); pdf.text(titleLines, resourceKind === 'plan' || resourceKind === 'worksheet' ? width / 2 : margin, y, { align: resourceKind === 'plan' || resourceKind === 'worksheet' ? 'center' : 'left' }); y += titleLines.length * (titleSize + 4) + 8;
+  if (metaLine) { pdf.setFont('DejaVu', 'normal'); pdf.setFontSize(9); pdf.setTextColor(51, 65, 85); const metaLines = pdf.splitTextToSize(metaLine, width - margin * 2); pdf.text(metaLines, margin, y); y += metaLines.length * 12 + 8; }
   if (worksheet && branding.headerEnabled && branding.headerStyle === 'school') {
     pdf.setFont('DejaVu', 'bold'); pdf.setFontSize(8); pdf.setTextColor(51, 65, 85);
     schoolFields(locale).forEach((field, index) => pdf.text(field, margin + index * ((width - margin * 2) / 3), y + 8));
@@ -380,10 +409,38 @@ async function savePdf(title: string, subtitle: string, sections: ReportSection[
   if (!resourceKind) { pdf.setFillColor(248, 250, 252); pdf.setDrawColor(203, 213, 225); pdf.roundedRect(margin, y, width - margin * 2, 34, 6, 6, 'FD'); pdf.setTextColor(71, 85, 105); pdf.setFont('DejaVu', 'normal'); pdf.setFontSize(9); pdf.text(subtitle, margin + 12, y + 14); pdf.text(new Date().toLocaleDateString(), width - margin - 12, y + 14, { align: 'right' }); y += 56; }
   for (const section of sections) {
     ensureSpace(54); if (!resourceKind) { pdf.setFillColor(239, 246, 255); pdf.roundedRect(margin, y - 14, width - margin * 2, 28, 5, 5, 'F'); } pdf.setTextColor(resourceKind === 'plan' ? 15 : 30, resourceKind === 'plan' ? 23 : 64, resourceKind === 'plan' ? 42 : 175); pdf.setFont('DejaVu', 'bold'); pdf.setFontSize(resourceKind ? (branding.fontSize === 'large' ? 16 : 14) : 12); pdf.text(section.heading, margin + (resourceKind ? 0 : 10), y + 4); y += resourceKind ? 25 : 28;
+    if (section.grid?.length) {
+      const cell = Math.min(25, (width - margin * 2) / section.grid[0].length);
+      const x = (width - cell * section.grid[0].length) / 2;
+      ensureSpace(cell * section.grid.length + 15);
+      pdf.setFont('DejaVu', 'bold'); pdf.setFontSize(10); pdf.setTextColor(15, 23, 42); pdf.setDrawColor(148, 163, 184);
+      for (const row of section.grid) {
+        ensureSpace(cell + 4);
+        row.forEach((letter, column) => { pdf.rect(x + column * cell, y - 12, cell, cell); pdf.text(letter, x + column * cell + cell / 2, y + 4, { align: 'center' }); });
+        y += cell;
+      }
+      y += 10;
+      continue;
+    }
     pdf.setFont('DejaVu', 'normal'); pdf.setFontSize(bodySize);
-    for (const line of section.lines) {
+    for (const line of section.table && resourceKind === 'worksheet' ? [] : section.lines) {
+      const subheading = resourceKind === 'plan' && section.subheadings?.includes(line);
       const wrapped = pdf.splitTextToSize(line, width - margin * 2 - 20);
-      ensureSpace(wrapped.length * (bodySize + 3) + 12); if (bulletLines) { pdf.setFillColor(37, 99, 235); pdf.circle(margin + 4, y - 3, 1.8, 'F'); } pdf.setTextColor(51, 65, 85); pdf.text(wrapped, margin + (bulletLines ? 14 : 0), y); y += wrapped.length * (bodySize + 3) + (line.startsWith('____') ? 15 : resourceKind ? 4 : 9);
+      ensureSpace(wrapped.length * (bodySize + 3) + 12); if (bulletLines) { pdf.setFillColor(37, 99, 235); pdf.circle(margin + 4, y - 3, 1.8, 'F'); } pdf.setFont('DejaVu', subheading ? 'bold' : 'normal'); pdf.setTextColor(51, 65, 85); pdf.text(wrapped, margin + (bulletLines ? 14 : 0), y); y += wrapped.length * (bodySize + 3) + (line.startsWith('____') ? 15 : subheading ? 2 : resourceKind ? 4 : 9);
+    }
+    if (section.table?.length) {
+      const columns = section.table[0].length;
+      const available = width - margin * 2;
+      const widths = columns === 3 ? [available * 0.43, available * 0.14, available * 0.43] : [available * 0.78, available * 0.22];
+      pdf.setFont('DejaVu', 'normal'); pdf.setFontSize(bodySize);
+      for (const row of section.table) {
+        const wrapped = row.map((cell, index) => pdf.splitTextToSize(cell, widths[index] - 8));
+        const rowHeight = Math.max(...wrapped.map((cell) => cell.length)) * (bodySize + 3) + 8;
+        ensureSpace(rowHeight);
+        let x = margin;
+        wrapped.forEach((cell, index) => { pdf.text(cell, x + 3, y + 1); x += widths[index]; });
+        y += rowHeight;
+      }
     }
     y += 10;
   }
@@ -392,7 +449,7 @@ async function savePdf(title: string, subtitle: string, sections: ReportSection[
   pdf.save(`${slug(filename)}.pdf`);
 }
 
-async function saveDocx(title: string, subtitle: string, sections: ReportSection[], filename: string, locale: DocumentLocale, worksheet = false, bulletLines = true, resourceKind: 'plan' | 'worksheet' | 'exam' | null = null) {
+async function saveDocx(title: string, subtitle: string, sections: ReportSection[], filename: string, locale: DocumentLocale, worksheet = false, bulletLines = true, resourceKind: 'plan' | 'worksheet' | 'exam' | null = null, metaLine = '') {
   if (!browserReady()) throw new Error('Word downloads are available in the web app.');
   const { AlignmentType, BorderStyle, Document, Footer, Header, HeadingLevel, ImageRun, Packer, PageNumber, Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType } = await import('docx');
   const branding = await loadBranding();
@@ -400,11 +457,15 @@ async function saveDocx(title: string, subtitle: string, sections: ReportSection
   const baseSize = branding.fontSize === 'compact' ? 20 : branding.fontSize === 'large' ? 26 : 24;
   const children = [
     new Paragraph({ text: title, heading: HeadingLevel.TITLE, alignment: resourceKind === 'plan' || resourceKind === 'worksheet' ? AlignmentType.CENTER : AlignmentType.LEFT, spacing: { after: 120 } }),
+    ...(metaLine ? [new Paragraph({ children: [new TextRun({ text: metaLine, size: baseSize - 2, font: branding.font, color: '334155' })], spacing: { after: 90 } })] : []),
     ...(worksheet && branding.headerEnabled && branding.headerStyle === 'school' ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [new TableRow({ children: schoolFields(locale).map((field) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: field, font: branding.font, size: baseSize, bold: true })] })] })) })] })] : []),
     ...(!resourceKind ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [new TableRow({ children: [new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, margins: { top: 100, bottom: 100, left: 140, right: 140 }, children: [new Paragraph({ children: [new TextRun({ text: subtitle, color: '475569', bold: true }), new TextRun({ text: `  ·  ${new Date().toLocaleDateString()}`, color: '64748B' })] })] })] })] })] : []),
     ...sections.flatMap((section) => [
       new Paragraph({ text: section.heading, heading: HeadingLevel.HEADING_1, spacing: { before: resourceKind ? 160 : 280, after: 100 }, ...(resourceKind ? {} : { shading: { fill: 'EFF6FF', type: ShadingType.CLEAR }, border: { bottom: { color: 'BFDBFE', size: 5, style: BorderStyle.SINGLE } } }) }),
-      ...section.lines.map((line) => new Paragraph({ children: [new TextRun({ text: line, size: baseSize, font: branding.font, color: '334155' })], bullet: bulletLines ? { level: 0 } : undefined, spacing: { after: line.startsWith('____') ? 180 : resourceKind ? 60 : 90, line: resourceKind ? 276 : 300 } })),
+      ...(section.grid?.length ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: section.grid.map((row) => new TableRow({ children: row.map((letter) => new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: letter, font: branding.font, size: baseSize, bold: true })] })] })) })) })] : [
+        ...(section.table && resourceKind === 'worksheet' ? [] : section.lines).map((line) => new Paragraph({ children: [new TextRun({ text: line, size: baseSize, font: branding.font, color: '334155', bold: resourceKind === 'plan' && section.subheadings?.includes(line) })], bullet: bulletLines ? { level: 0 } : undefined, spacing: { after: line.startsWith('____') ? 180 : resourceKind ? 60 : 90, line: resourceKind ? 276 : 300 } })),
+        ...(section.table?.length ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: section.table.map((row) => new TableRow({ children: row.map((cell) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: cell, font: branding.font, size: baseSize })] })] })) })) })] : []),
+      ]),
     ]),
   ];
   const header = new Header({ children: [new Paragraph({ alignment: branding.headerStyle === 'school' ? AlignmentType.CENTER : AlignmentType.LEFT, border: { bottom: { color: '2563EB', size: 16, style: BorderStyle.SINGLE } }, children: [new TextRun({ text: branding.brandName.toUpperCase(), color: '1D4ED8', bold: true, size: 22, font: branding.font }), ...(branding.department ? [new TextRun({ text: `  ·  ${branding.department}`, color: '64748B', size: 18, font: branding.font })] : [])] })] });
@@ -417,14 +478,16 @@ export function downloadResourcePdf(title: string, detail: Record<string, unknow
   const suffix = variant === 'full' ? '' : `-${variant}`;
   const subtitle = variant === 'student' ? COPY[locale].studentCopy : variant === 'teacher' ? COPY[locale].teacherCopy : variant === 'answers' ? COPY[locale].answerKey : COPY[locale].teachingResource;
   const resourceKind = detail.plan_json || detail.objective && detail.core_material ? 'plan' : detail.worksheet_json || detail.worksheet_type ? 'worksheet' : detail.exam_data || detail.sections ? 'exam' : null;
-  return savePdf(title, subtitle, resourceSections(detail, variant, locale), `${title}${suffix}`, locale, resourceKind === 'worksheet' || resourceKind === 'exam', false, resourceKind);
+  const displayTitle = resourceKind === 'exam' && variant !== 'student' && variant !== 'full' ? `${title} - ${COPY[locale].answerKey}` : title;
+  return savePdf(displayTitle, subtitle, resourceSections(detail, variant, locale), `${title}${suffix}`, locale, resourceKind === 'worksheet' || resourceKind === 'exam', false, resourceKind, resourceMetaLine(detail, resourceKind, locale));
 }
 
 export function downloadResourceDocx(title: string, detail: Record<string, unknown>, locale: DocumentLocale = 'en', variant: ResourceVariant = 'full') {
   const suffix = variant === 'full' ? '' : `-${variant}`;
   const subtitle = variant === 'student' ? COPY[locale].studentCopy : variant === 'teacher' ? COPY[locale].teacherCopy : variant === 'answers' ? COPY[locale].answerKey : COPY[locale].teachingResource;
   const resourceKind = detail.plan_json || detail.objective && detail.core_material ? 'plan' : detail.worksheet_json || detail.worksheet_type ? 'worksheet' : detail.exam_data || detail.sections ? 'exam' : null;
-  return saveDocx(title, subtitle, resourceSections(detail, variant, locale), `${title}${suffix}`, locale, resourceKind === 'worksheet' || resourceKind === 'exam', false, resourceKind);
+  const displayTitle = resourceKind === 'exam' && variant !== 'student' && variant !== 'full' ? `${title} - ${COPY[locale].answerKey}` : title;
+  return saveDocx(displayTitle, subtitle, resourceSections(detail, variant, locale), `${title}${suffix}`, locale, resourceKind === 'worksheet' || resourceKind === 'exam', false, resourceKind, resourceMetaLine(detail, resourceKind, locale));
 }
 
 export function downloadStudentReportPdf(studentName: string, workspace: StudentLearningWorkspace, locale: DocumentLocale = 'en') {

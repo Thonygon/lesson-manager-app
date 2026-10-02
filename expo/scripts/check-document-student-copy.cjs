@@ -10,6 +10,13 @@ new Function('module', 'exports', 'require', compiled)(loaded, loaded.exports, (
   if (name === 'react-native') return { Platform: { OS: 'web' } };
   if (name === '@/lib/supabase') return { requireSupabase() { throw new Error('Not needed by this fixture'); } };
   if (name === './source-document-labels.json') return require('../src/services/source-document-labels.json');
+  if (name === './word-search-grid') {
+    const source = fs.readFileSync(path.join(__dirname, '../src/services/word-search-grid.ts'), 'utf8');
+    const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+    const loadedGrid = { exports: {} };
+    new Function('module', 'exports', compiled)(loadedGrid, loadedGrid.exports);
+    return loadedGrid.exports;
+  }
   return require(name);
 });
 
@@ -62,6 +69,12 @@ const matchingTeacher = loaded.exports.resourceSections(matching, 'teacher');
 assert.ok(matchingStudent.some((section) => section.lines.includes('a) Goodbye')));
 assert.ok(!JSON.stringify(matchingStudent).includes('Hola → Hello'));
 assert.ok(JSON.stringify(matchingTeacher).includes('Hola → Hello'));
+assert.deepEqual(matchingStudent.find((section) => section.heading === 'Match the items').table[0], ['1. Hola', '[   ]', 'a) Goodbye']);
+const trueFalse = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'true_false', source_text: 'Water can freeze.', true_false_statements: ['Water can become ice.'], answer_key: '1. True' } }, 'student');
+assert.deepEqual(trueFalse.find((section) => section.heading === 'Questions').table[0], ['1. Water can become ice.', '[ ] T  [ ] F']);
+const wordSearch = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'word_search_vocab', vocabulary_bank: ['CLASS', 'LEARN'], instructions: 'Find the words.' } }, 'student');
+assert.ok(wordSearch.some((section) => section.heading === 'Word search' && section.lines.length >= 10));
+assert.equal(wordSearch.find((section) => section.heading === 'Word search').grid.length, 10);
 
 const cvSections = loaded.exports.resourceSections({ full_name: 'Ada Teacher', role: 'teacher', email: 'ada@example.test', professional_summary: 'Experienced educator.', subjects: ['Spanish'], education: ['BA Education'] }, 'full', 'es');
 assert.deepEqual(cvSections.map((section) => section.heading), ['Contacto', 'Resumen profesional', 'Asignaturas', 'Formación']);
