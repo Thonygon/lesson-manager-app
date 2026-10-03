@@ -5,6 +5,7 @@ import { generalPlanTemplate } from '../../server/general-plan-template';
 import { subjectPlanTemplate } from '../../server/subject-plan-template';
 import { lessonPlanQualityIssues } from '../../server/lesson-plan-quality';
 import { examQualityIssues, programQualityIssues, worksheetQualityIssues } from '../../server/resource-quality';
+import { normalizeWorksheetAnswerKey, repairExamAnswerKey } from '../../server/answer-key';
 
 type ToolKind = 'plan' | 'worksheet' | 'exam' | 'program';
 type GenerationRequest = { kind?: ToolKind; subject?: string; customSubject?: string; topic?: string; stage?: string; level?: string; language?: string; planLanguage?: string; nativeLanguage?: string; student?: string; generationMode?: string; lessonPurpose?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration?: string; questionCount?: number; notes?: string; programId?: string; programTopicId?: string };
@@ -187,6 +188,8 @@ export async function POST(request: Request) {
       model = ai.model || 'openrouter';
       try { document = jsonFromModel(ai.choices?.[0]?.message?.content || ''); }
       catch { document = null; repair = 'not valid JSON'; failure = 'The AI provider returned an invalid document. Try again.'; continue; }
+      if (kind === 'worksheet') document = normalizeWorksheetAnswerKey(document);
+      if (kind === 'exam') document = repairExamAnswerKey(document);
       const qualityIssues = kind === 'plan' ? lessonPlanQualityIssues(document, { subject, stage, level, purpose, programContext: programBlock }) : kind === 'worksheet' ? worksheetQualityIssues(document) : kind === 'exam' ? examQualityIssues(document, length) : programQualityIssues(document, boundedInt(body.requestedUnits, 6, 1, 20), boundedInt(body.requestedLessons, 4, 1, 30));
       if (validGeneratedDocument(kind, document, body) && qualityIssues.length === 0) break;
       document = null; repair = qualityIssues.length ? qualityIssues.join('; ') : 'incomplete'; failure = 'The AI provider returned an incomplete document. Try again.';

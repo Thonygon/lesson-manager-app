@@ -6,7 +6,14 @@ const ts = require('typescript');
 const source = fs.readFileSync(path.join(__dirname, '../src/server/resource-quality.ts'), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const moduleRef = { exports: {} };
-new Function('module', 'exports', compiled)(moduleRef, moduleRef.exports);
+new Function('module', 'exports', 'require', compiled)(moduleRef, moduleRef.exports, (name) => {
+  if (name !== './answer-key') throw new Error(`Unexpected fixture import: ${name}`);
+  const source = fs.readFileSync(path.join(__dirname, '../src/server/answer-key.ts'), 'utf8');
+  const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const loaded = { exports: {} };
+  new Function('module', 'exports', code)(loaded, loaded.exports);
+  return loaded.exports;
+});
 const { worksheetQualityIssues, examQualityIssues, programQualityIssues } = moduleRef.exports;
 
 const worksheet = { worksheet_type: 'reading_comprehension', reading_passage: 'A short passage.', questions: ['Why?', 'How?'], answer_key: '1. Because of the weather.' };

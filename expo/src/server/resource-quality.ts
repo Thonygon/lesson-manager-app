@@ -1,25 +1,17 @@
 // Checks the source builders' minimum usable content before a generated resource can be saved.
+import { splitAnswerKeyItems, worksheetAnswerCount } from './answer-key';
 type Document = Record<string, unknown>;
 const entries = (value: unknown): Document[] => Array.isArray(value) ? value.filter((item): item is Document => Boolean(item) && typeof item === 'object' && !Array.isArray(item)) : [];
 const list = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
 const usable = (value: unknown): boolean => Boolean(text(value));
 
-function answerItems(value: unknown): string[] {
-  if (Array.isArray(value)) return value.map(text).filter(Boolean);
-  const raw = text(value);
-  if (!raw) return [];
-  const numbered = [...raw.matchAll(/(?:^|\n|;|\s)(?:\(?\d+\)?|[A-Za-z])[.)\-:]\s*([^\n;]+?)(?=(?:\s+(?:\(?\d+\)?|[A-Za-z])[.)\-:]\s)|[\n;]|$)/g)].map((match) => match[1].trim()).filter(Boolean);
-  if (numbered.length > 1) return numbered;
-  return raw.split(/\n+|\s*;\s*/).map((part) => part.replace(/^(?:\(?\d+\)?|[A-Za-z])[.)\-:]\s*/, '').trim()).filter(Boolean);
-}
-
 export function worksheetQualityIssues(document: Document): string[] {
   const issues: string[] = [];
   const kind = text(document.worksheet_type);
   const questions = list(document.questions);
   const pairs = entries(document.matching_pairs);
-  const count = kind === 'multiple_choice' ? entries(document.multiple_choice_items).length : kind === 'matching' ? pairs.length : kind === 'true_false' ? list(document.true_false_statements).length : questions.length;
+  const count = worksheetAnswerCount(document);
   if (kind === 'reading_comprehension' && !usable(document.reading_passage)) issues.push('reading_comprehension requires a reading_passage');
   if (kind === 'true_false' && !usable(document.source_text)) issues.push('true_false requires source_text');
   if (kind === 'error_correction' && questions.length < 3) issues.push('error_correction needs at least 3 valid incorrect sentences');
@@ -28,7 +20,7 @@ export function worksheetQualityIssues(document: Document): string[] {
     if (new Set(pairs.map((pair) => text(pair.right).toLowerCase())).size <= 1) issues.push('matching right side needs varied options');
   }
   if (kind === 'multiple_choice' && entries(document.multiple_choice_items).some((item) => !usable(item.stem) || list(item.options).length < 3 || !usable(item.answer))) issues.push('multiple_choice needs complete items and answers');
-  if (kind !== 'word_search_vocab' && answerItems(document.answer_key).length < count) issues.push('answer_key needs one answer per item');
+  if (kind !== 'word_search_vocab' && splitAnswerKeyItems(document.answer_key, count).some((answer) => !answer)) issues.push('answer_key needs one answer per item');
   return issues;
 }
 

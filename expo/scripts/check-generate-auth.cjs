@@ -112,6 +112,14 @@ async function main() {
     assert.equal((await POST(request('valid-token', 'worksheet'))).status, 502);
     providerDocument.answer_key = '1. A; 2. B';
     assert.equal((await POST(request('valid-token', 'worksheet'))).status, 200);
+    providerDocument.answer_key = ['1. A', '2. B'];
+    const repairedWorksheet = await POST(request('valid-token', 'worksheet'));
+    assert.equal(repairedWorksheet.status, 200);
+    assert.equal((await repairedWorksheet.json()).document.answer_key, 'A\nB');
+    providerDocument = { title: 'Short exam', sections: [{ type: 'multiple_choice', title: 'Words', questions: ['A', 'B', 'C', 'D'].map((stem, index) => ({ stem, options: ['one', 'two', 'three'], correct_answer: `Answer ${index + 1}` })), answers: [] }] };
+    const repairedExam = await POST(new Request('https://classio.expo.app/api/generate', { method: 'POST', headers: { Authorization: 'Bearer valid-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'exam', subject: 'Spanish', topic: 'Words', stage: 'adult_stage', level: 'A2', examLength: 'short', exerciseTypes: ['multiple_choice'] }) }));
+    assert.equal(repairedExam.status, 200);
+    assert.deepEqual((await repairedExam.json()).document.answer_key.sections[0].answers, ['Answer 1', 'Answer 2', 'Answer 3', 'Answer 4']);
     providerDocument = validPlan;
     providerDocuments = [{ title: 'Incomplete plan' }, providerDocument];
     assert.equal((await POST(request())).status, 200);
@@ -119,7 +127,7 @@ async function main() {
     assert.equal((await POST(request())).status, 200);
     profileStatus = 503;
     assert.equal((await POST(request())).status, 503);
-    assert.equal(providerCalls, 13);
+    assert.equal(providerCalls, 15);
   } finally {
     global.fetch = originalFetch;
     for (const [name, value] of Object.entries(originalEnv)) {
