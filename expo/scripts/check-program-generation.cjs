@@ -4,11 +4,25 @@ const path = require('node:path');
 const ts = require('typescript');
 const vm = require('node:vm');
 
-const source = fs.readFileSync(path.resolve(__dirname, '../src/server/program-generation.ts'), 'utf8');
-const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-const moduleExports = {};
-vm.runInNewContext(compiled, { exports: moduleExports });
-const context = { subject: 'spanish', topic: 'Travel', stage: 'adult_stage', level: 'B1', units: 2, lessonsPerUnit: 2, planLanguage: 'en', studentLanguage: 'es', nativeLanguage: 'tr', programTrack: 'exam_prep', examTarget: 'dele', notes: 'Focus on interaction' };
+const cache = new Map();
+function load(file) {
+  if (file.endsWith('.json')) return JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (cache.has(file)) return cache.get(file);
+  const moduleExports = {}; cache.set(file, moduleExports);
+  const source = fs.readFileSync(file, 'utf8');
+  const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true, resolveJsonModule: true } }).outputText;
+  const localRequire = (specifier) => {
+    const resolved = path.resolve(path.dirname(file), specifier);
+    if (resolved.endsWith('.json') && fs.existsSync(resolved)) return load(resolved);
+    if (fs.existsSync(`${resolved}.ts`)) return load(`${resolved}.ts`);
+    if (fs.existsSync(`${resolved}.json`)) return load(`${resolved}.json`);
+    throw new Error(`Unresolved import ${specifier}`);
+  };
+  vm.runInNewContext(compiled, { exports: moduleExports, require: localRequire });
+  return moduleExports;
+}
+const moduleExports = load(path.resolve(__dirname, '../src/server/program-generation.ts'));
+const context = { subject: 'spanish', subjectKey: 'spanish', topic: 'Travel', stage: 'adult_stage', level: 'B1', units: 2, lessonsPerUnit: 2, planLanguage: 'en', studentLanguage: 'es', nativeLanguage: 'tr', programTrack: 'exam_prep', examTarget: 'dele', notes: 'Focus on interaction' };
 const skeleton = { title: 'DELE Travel', program_overview: 'Progression', entry_profile: 'B1 entry', exit_profile: 'B2 exit', assessment_strategy: 'Practice DELE', resource_strategy: 'Exam tasks', units: [1, 2].map((number) => ({ title: `Unit ${number}`, overview: `Overview ${number}`, topics: [1, 2].map((topicNumber) => ({ title: `Topic ${number}-${topicNumber}`, lesson_focus: 'Interaction', lesson_purpose: 'practice_skill', student_summary: 'Practica el diálogo' })) })) };
 assert.equal(moduleExports.programSkeletonIssues(skeleton, 2, 2).length, 0);
 assert.ok(moduleExports.programSkeletonIssues({ ...skeleton, units: [skeleton.units[0]] }, 2, 2).length);
@@ -17,6 +31,8 @@ const skeletonPrompt = moduleExports.programSkeletonPrompts(context);
 assert.match(skeletonPrompt.user, /requested_units": 2/);
 assert.match(skeletonPrompt.user, /exam_prep_target": "dele"/);
 assert.match(skeletonPrompt.user, /student_native_language": "tr"/);
+assert.match(skeletonPrompt.user, /subject_progression_profile/);
+assert.match(skeletonPrompt.user, /program_track_guidance/);
 const unitPrompt = moduleExports.programUnitPrompts(context, skeleton, 0);
 assert.match(unitPrompt.user, /Unit 1/);
 assert.doesNotMatch(unitPrompt.user, /Unit 2/);

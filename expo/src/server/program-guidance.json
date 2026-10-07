@@ -1,0 +1,1172 @@
+{
+  "_SUBJECT_GUIDANCE": {
+    "language": {
+      "frameworks": [
+        "CEFR",
+        "spiraled skills progression",
+        "balanced input and output",
+        "recycling and retrieval practice"
+      ],
+      "principles": [
+        "Sequence listening, speaking, reading, writing, grammar, and vocabulary in a balanced way.",
+        "Revisit high-value language across units instead of treating topics as one-off.",
+        "Make outcomes communicative and visible to the learner.",
+        "Keep grammar and vocabulary in service of communication, not isolated coverage."
+      ]
+    },
+    "math": {
+      "frameworks": [
+        "scope and sequence",
+        "concrete-representational-abstract progression",
+        "retrieval and spaced review"
+      ],
+      "principles": [
+        "Respect prerequisite knowledge and conceptual build-up.",
+        "Interleave fluency, reasoning, and application over time.",
+        "Avoid jumping across concepts without cumulative review.",
+        "Include checkpoints for misconceptions and worked examples."
+      ]
+    },
+    "science": {
+      "frameworks": [
+        "inquiry-based science",
+        "phenomenon-based learning",
+        "concept progression"
+      ],
+      "principles": [
+        "Anchor units in observable phenomena and scientific thinking.",
+        "Sequence vocabulary, concepts, evidence, and explanation carefully.",
+        "Use practice and assessment tasks that check both understanding and reasoning.",
+        "Keep the load age-appropriate and avoid over-packing units."
+      ]
+    },
+    "music": {
+      "frameworks": [
+        "spiraled musicianship",
+        "performance-practice-review cycle",
+        "technical plus expressive balance"
+      ],
+      "principles": [
+        "Balance theory, listening, performance, and review.",
+        "Sequence skills from imitation to independence.",
+        "Keep repeated rehearsal opportunities inside the program.",
+        "Use clear performance checkpoints and manageable repertoire load."
+      ]
+    },
+    "study_skills": {
+      "frameworks": [
+        "metacognition",
+        "self-regulated learning",
+        "habit formation"
+      ],
+      "principles": [
+        "Sequence routines before advanced independence tasks.",
+        "Make outcomes practical and immediately usable by the student.",
+        "Build reflection and transfer into every unit.",
+        "Favor consistency and repeatable structures over overloaded unit plans."
+      ]
+    },
+    "general": {
+      "frameworks": [
+        "backward design",
+        "spiraled review",
+        "age-appropriate scope and sequence"
+      ],
+      "principles": [
+        "Move from foundation to application with clear dependency logic.",
+        "Keep lesson purposes varied but coherent across the unit.",
+        "Use repeated review and cumulative checks.",
+        "Make the sequence practical for real teaching calendars."
+      ]
+    }
+  },
+  "_SUBJECT_FAMILY_KEYWORDS": {
+    "language": [
+      "english",
+      "spanish",
+      "french",
+      "german",
+      "italian",
+      "turkish",
+      "arabic",
+      "language",
+      "esl",
+      "efl",
+      "reading",
+      "writing",
+      "speaking",
+      "listening",
+      "phonics",
+      "literacy",
+      "grammar",
+      "vocabulary",
+      "conversation"
+    ],
+    "math": [
+      "math",
+      "mathematics",
+      "algebra",
+      "geometry",
+      "fractions",
+      "calculus",
+      "statistics",
+      "numeracy",
+      "arithmetic",
+      "trigonometry"
+    ],
+    "science": [
+      "science",
+      "biology",
+      "chemistry",
+      "physics",
+      "stem",
+      "geology",
+      "astronomy",
+      "environmental",
+      "lab",
+      "scientific"
+    ],
+    "music": [
+      "music",
+      "piano",
+      "violin",
+      "guitar",
+      "singing",
+      "choir",
+      "rhythm",
+      "solfege",
+      "composition",
+      "instrument"
+    ],
+    "study_skills": [
+      "study skills",
+      "executive function",
+      "learning skills",
+      "organization",
+      "focus",
+      "revision",
+      "memory",
+      "homework",
+      "metacognition",
+      "productivity"
+    ],
+    "general": [
+      "history",
+      "geography",
+      "social studies",
+      "economics",
+      "philosophy",
+      "art",
+      "drama",
+      "business",
+      "coding",
+      "computer",
+      "ict",
+      "robotics",
+      "psychology"
+    ]
+  },
+  "_DELIVERY_GUIDANCE": {
+    "online": [
+      "Prefer concise task cycles, visible routines, and interaction every few minutes.",
+      "Replace hands-on tasks with camera-based demos, digital whiteboards, breakout talk, annotation, or household materials when needed.",
+      "Design speaking, collaboration, and checking-for-understanding intentionally because attention drifts faster online."
+    ],
+    "offline": [
+      "Use movement, manipulatives, pair work, stations, notebooks, boardwork, and physical modeling when pedagogically useful.",
+      "Plan transitions, pacing, and materials realistically so activities are manageable in a live room.",
+      "Use oral rehearsal, teacher circulation, and peer support to surface misconceptions quickly."
+    ],
+    "blended": [
+      "Separate what must happen live from what can happen asynchronously.",
+      "Use Classio resources for structured practice and use offline or live moments for discussion, speaking, experimentation, and performance."
+    ]
+  },
+  "_NON_CLASSIO_ACTIVITY_BANK": {
+    "language": [
+      "speaking task",
+      "pair dialogue",
+      "role play",
+      "mini presentation",
+      "dictation",
+      "listening from teacher voice"
+    ],
+    "math": [
+      "manipulative exploration",
+      "whiteboard reasoning",
+      "math talk",
+      "real-world problem task",
+      "error analysis discussion"
+    ],
+    "science": [
+      "hands-on experiment",
+      "observation log",
+      "phenomenon discussion",
+      "teacher demo",
+      "classification lab",
+      "claim-evidence-reasoning talk"
+    ],
+    "music": [
+      "performance task",
+      "call and response",
+      "aural discrimination",
+      "teacher modeling",
+      "rhythm drill",
+      "ensemble practice"
+    ],
+    "study_skills": [
+      "routine rehearsal",
+      "reflection conference",
+      "planner setup",
+      "self-check protocol",
+      "study simulation"
+    ],
+    "general": [
+      "project task",
+      "discussion circle",
+      "research mini-task",
+      "presentation",
+      "visual organizer",
+      "peer critique"
+    ]
+  },
+  "_SUBJECT_PROGRESSION_PROFILES": {
+    "english": {
+      "global_priorities": [
+        "Build communication, not isolated content coverage.",
+        "Sequence receptive and productive skills together with spiraled grammar and vocabulary.",
+        "Use CEFR-style can-do outcomes and recycle language systematically."
+      ],
+      "by_stage": {
+        "early_primary": {
+          "A1": {
+            "focus_strands": [
+              "phonological awareness",
+              "high-frequency vocabulary",
+              "classroom language",
+              "listening and speaking routines",
+              "early reading and writing"
+            ],
+            "sequence_expectations": [
+              "Start with oral comprehension, classroom routines, songs, chants, and concrete vocabulary.",
+              "Move from recognition to supported production through repetition, visuals, and sentence frames.",
+              "Introduce reading and writing gradually through short words, phrases, and patterned texts."
+            ]
+          }
+        },
+        "upper_primary": {
+          "A1": {
+            "focus_strands": [
+              "everyday vocabulary",
+              "basic grammar in context",
+              "reading for gist",
+              "guided speaking",
+              "sentence-level writing"
+            ],
+            "sequence_expectations": [
+              "Start with identity, family, school, routines, and immediate world topics.",
+              "Build from single-sentence understanding to short exchanges, paragraph reading, and simple written output.",
+              "Recycle target language across units so learners revisit structures in new contexts."
+            ]
+          },
+          "A2": {
+            "focus_strands": [
+              "functional communication",
+              "expanded reading",
+              "connected speaking",
+              "paragraph writing",
+              "grammar for everyday meaning"
+            ],
+            "sequence_expectations": [
+              "Move from concrete daily-life communication toward description, comparison, explanation, and simple narration.",
+              "Strengthen reading fluency and listening stamina with age-appropriate topics and supported inference.",
+              "Use structured speaking and writing tasks to move students toward longer independent output."
+            ]
+          }
+        },
+        "lower_secondary": {
+          "A1": {
+            "focus_strands": [
+              "high-frequency adolescent vocabulary",
+              "basic grammar in context",
+              "short supported reading",
+              "guided speaking",
+              "sentence-to-short-paragraph writing"
+            ],
+            "sequence_expectations": [
+              "Use age-appropriate lower-secondary contexts such as school life, friendships, hobbies, routines, feelings, and technology instead of childish storylines.",
+              "Build from sentence-level understanding toward short connected texts, short dialogues, and scaffolded personal responses.",
+              "Recycle high-frequency language heavily so beginners at secondary age gain confidence without making the materials feel primary-level."
+            ]
+          },
+          "A2": {
+            "focus_strands": [
+              "communicative grammar",
+              "reading inference",
+              "interactive speaking",
+              "paragraph-to-short-text writing",
+              "strategic vocabulary growth"
+            ],
+            "sequence_expectations": [
+              "Consolidate core A2 communication while expanding text complexity and response depth.",
+              "Include regular speaking and listening tasks that require clarification, opinion, and reaction.",
+              "Use cumulative review to prevent grammar and vocabulary fragmentation."
+            ]
+          },
+          "B1": {
+            "focus_strands": [
+              "extended reading",
+              "speaking for opinion and explanation",
+              "multi-paragraph writing",
+              "listening for detail and gist",
+              "language accuracy"
+            ],
+            "sequence_expectations": [
+              "Move students from supported communication to more independent explanation, narration, and comparison.",
+              "Balance fluency with accuracy so grammar correction serves meaning, not isolated drills.",
+              "Introduce more authentic texts and real communicative tasks without losing scaffolding."
+            ]
+          },
+          "B2": {
+            "focus_strands": [
+              "extended interpretation",
+              "discussion and justification",
+              "multi-paragraph writing",
+              "listening synthesis",
+              "accuracy and register awareness"
+            ],
+            "sequence_expectations": [
+              "Extend B1 communication toward more independent interpretation, comparison, and supported debate while keeping topics adolescent-relevant.",
+              "Use longer texts and listening input, but keep scaffolding visible so advanced lower-secondary learners are stretched without being treated like adults.",
+              "Refine precision, cohesion, and register while keeping communication purposeful and meaningful."
+            ]
+          },
+          "C1": {
+            "focus_strands": [
+              "critical reading",
+              "argumentation",
+              "nuanced discussion",
+              "extended analytical writing",
+              "register control"
+            ],
+            "sequence_expectations": [
+              "Keep the intellectual demand high while ensuring the themes, examples, and tasks still feel appropriate for learners aged roughly 12 to 14.",
+              "Sequence advanced comprehension, discussion, and writing through structured modeling, text analysis, and supported independent response.",
+              "Use synthesis, evaluation, and interpretation tasks without defaulting to adult workplace or university-style contexts."
+            ]
+          },
+          "C2": {
+            "focus_strands": [
+              "near-native comprehension",
+              "sustained argument",
+              "text synthesis",
+              "stylistic control",
+              "independent interpretation"
+            ],
+            "sequence_expectations": [
+              "Maintain very high linguistic demand while keeping the curriculum anchored in age-appropriate lower-secondary topics, interests, and perspectives.",
+              "Balance sophisticated comprehension and expression with explicit guidance on structure, nuance, and evidence use.",
+              "Use advanced speaking, reading, and writing tasks that value precision and voice without drifting into adult-only domains."
+            ]
+          }
+        },
+        "upper_secondary": {
+          "B1": {
+            "focus_strands": [
+              "academic communication",
+              "text interpretation",
+              "discussion",
+              "evidence-based writing",
+              "exam readiness"
+            ],
+            "sequence_expectations": [
+              "Build from secure everyday communication toward more academic, analytical, and structured language use.",
+              "Use reading, writing, speaking, and listening tasks that prepare learners for independent study and assessments.",
+              "Spiral grammar and vocabulary through increasingly complex communicative demands."
+            ]
+          },
+          "B2": {
+            "focus_strands": [
+              "argumentation",
+              "text synthesis",
+              "presentation",
+              "extended writing",
+              "precision and register"
+            ],
+            "sequence_expectations": [
+              "Move from explanation to argument, evaluation, and sustained communication.",
+              "Build independence in reading and listening through longer texts, note-making, and synthesis.",
+              "Use structured debate, presentation, and essay work when pedagogically appropriate."
+            ]
+          }
+        },
+        "adult_stage": {
+          "A1": {
+            "focus_strands": [
+              "survival communication",
+              "practical listening",
+              "functional reading",
+              "high-utility grammar",
+              "confidence building"
+            ],
+            "sequence_expectations": [
+              "Prioritize immediate real-life language needs and confidence from day 1.",
+              "Use practical dialogs, forms, messages, and routine tasks before abstract content.",
+              "Balance speaking and listening with manageable reading and writing tasks."
+            ]
+          },
+          "A2": {
+            "focus_strands": [
+              "everyday autonomy",
+              "transactional communication",
+              "short text comprehension",
+              "personal writing",
+              "interaction strategies"
+            ],
+            "sequence_expectations": [
+              "Move from survival language to more independent social and practical communication.",
+              "Use role play and speaking tasks for travel, work, services, and community contexts.",
+              "Reinforce grammar through communicative reuse and correction that preserves confidence."
+            ]
+          },
+          "B1": {
+            "focus_strands": [
+              "independent communication",
+              "work and study contexts",
+              "extended reading",
+              "discussion",
+              "structured writing"
+            ],
+            "sequence_expectations": [
+              "Help adults explain opinions, narrate experiences, and manage practical extended interaction.",
+              "Integrate authentic adult contexts like work, study, administration, and social participation.",
+              "Combine fluency growth with targeted accuracy and strategy instruction."
+            ]
+          },
+          "B2": {
+            "focus_strands": [
+              "professional communication",
+              "presentation",
+              "critical reading",
+              "argumentative writing",
+              "nuance and register"
+            ],
+            "sequence_expectations": [
+              "Build toward confident independent communication in professional and academic situations.",
+              "Use debate, case discussion, and presentation tasks where appropriate.",
+              "Refine precision, tone, and extended discourse while keeping the sequence practical."
+            ]
+          }
+        }
+      }
+    },
+    "spanish": {
+      "global_priorities": [
+        "Treat Spanish as a full communicative curriculum with CEFR-style progression.",
+        "Balance oral fluency, comprehension, literacy, and grammar in context.",
+        "Recycle vocabulary and structures systematically across units."
+      ],
+      "by_stage": {}
+    },
+    "mathematics": {
+      "global_priorities": [
+        "Respect conceptual prerequisites and avoid disconnected topic jumping.",
+        "Balance fluency, reasoning, representation, and application.",
+        "Use retrieval, worked examples, and cumulative review throughout the program."
+      ],
+      "by_stage": {
+        "early_primary": {
+          "beginner_band": {
+            "focus_strands": [
+              "number sense",
+              "counting and place value beginnings",
+              "comparison",
+              "basic operations readiness",
+              "mathematical language"
+            ],
+            "sequence_expectations": [
+              "Start with counting, quantity, patterns, and concrete manipulation.",
+              "Move from concrete models to pictorial representations before abstract symbols.",
+              "Use talk, sorting, movement, and visual supports to secure meaning."
+            ]
+          }
+        },
+        "upper_primary": {
+          "beginner_band": {
+            "focus_strands": [
+              "place value",
+              "four operations",
+              "fractions foundations",
+              "measurement",
+              "geometry basics",
+              "word problems"
+            ],
+            "sequence_expectations": [
+              "Secure number sense and place value before expecting flexible calculation.",
+              "Introduce fractions conceptually, not only procedurally.",
+              "Use problem solving after conceptual understanding, not before it."
+            ]
+          },
+          "intermediate_band": {
+            "focus_strands": [
+              "fraction operations",
+              "decimals and percentages",
+              "multi-step problems",
+              "geometry reasoning",
+              "data handling"
+            ],
+            "sequence_expectations": [
+              "Move from secure arithmetic into connected proportional thinking and reasoning.",
+              "Interleave review of basic facts and procedures while introducing higher-demand problem solving.",
+              "Use representation changes to deepen conceptual understanding."
+            ]
+          }
+        },
+        "lower_secondary": {
+          "beginner_band": {
+            "focus_strands": [
+              "number fluency repair",
+              "fractions and decimals",
+              "ratio foundations",
+              "introductory algebra language",
+              "geometry basics"
+            ],
+            "sequence_expectations": [
+              "Repair insecure arithmetic and proportional foundations before expecting sustained abstract reasoning.",
+              "Use concrete, visual, verbal, and symbolic representations together so lower-secondary beginners can re-enter the curriculum with confidence.",
+              "Keep retrieval and confidence-building active while bridging toward the core secondary program."
+            ]
+          },
+          "intermediate_band": {
+            "focus_strands": [
+              "ratio and proportion",
+              "algebra foundations",
+              "geometry",
+              "statistics",
+              "reasoning and proof beginnings"
+            ],
+            "sequence_expectations": [
+              "Bridge arithmetic to algebra carefully through pattern, structure, and equivalence.",
+              "Use visual, verbal, and symbolic reasoning together.",
+              "Keep cumulative review active so foundational gaps do not block new learning."
+            ]
+          },
+          "advanced_band": {
+            "focus_strands": [
+              "algebraic manipulation",
+              "linear relationships",
+              "geometric reasoning",
+              "probability",
+              "multi-step problem solving"
+            ],
+            "sequence_expectations": [
+              "Build abstract reasoning gradually from secure representations and prior understanding.",
+              "Sequence algebra as connected meaning, not symbol-only manipulation.",
+              "Use non-routine problems and justification tasks when students are ready."
+            ]
+          }
+        },
+        "upper_secondary": {
+          "intermediate_band": {
+            "focus_strands": [
+              "algebra consolidation",
+              "functions",
+              "geometry",
+              "statistics",
+              "exam fluency"
+            ],
+            "sequence_expectations": [
+              "Consolidate core secondary mathematics through spaced review and strategic application.",
+              "Move learners toward more independent selection of methods.",
+              "Use structured error analysis and mixed practice."
+            ]
+          },
+          "advanced_band": {
+            "focus_strands": [
+              "advanced algebra",
+              "functions and graphs",
+              "proof and reasoning",
+              "statistics and probability",
+              "modeling"
+            ],
+            "sequence_expectations": [
+              "Build depth and abstraction through carefully sequenced representations and reasoning.",
+              "Move from procedure to justification, interpretation, and modeling.",
+              "Use cumulative synthesis tasks rather than isolated advanced topics."
+            ]
+          }
+        },
+        "adult_stage": {
+          "beginner_band": {
+            "focus_strands": [
+              "numeracy",
+              "practical arithmetic",
+              "financial math",
+              "confidence rebuilding",
+              "problem interpretation"
+            ],
+            "sequence_expectations": [
+              "Prioritize practical math confidence and success early.",
+              "Use real-life contexts to rebuild number sense and strategic reasoning.",
+              "Avoid overload and pace the program around meaningful application."
+            ]
+          },
+          "intermediate_band": {
+            "focus_strands": [
+              "algebra and numeracy",
+              "functional problem solving",
+              "data interpretation",
+              "exam or work relevance",
+              "strategy use"
+            ],
+            "sequence_expectations": [
+              "Blend practical application with concept repair and progression.",
+              "Use worked examples and verbal reasoning to strengthen independence.",
+              "Connect topics through authentic adult goals and needs."
+            ]
+          }
+        }
+      }
+    },
+    "science": {
+      "global_priorities": [
+        "Organize learning around concepts, phenomena, evidence, and explanation.",
+        "Sequence vocabulary after experience and meaning, not before understanding.",
+        "Blend practical inquiry with explicit concept building and review."
+      ],
+      "by_stage": {
+        "upper_primary": {
+          "beginner_band": {
+            "focus_strands": [
+              "living things",
+              "materials",
+              "forces and motion",
+              "earth and space",
+              "observation and classification"
+            ],
+            "sequence_expectations": [
+              "Begin with concrete observation, simple classification, and everyday phenomena.",
+              "Use prediction, noticing, describing, and simple explanation routines.",
+              "Keep practical inquiry tightly scaffolded and language-rich."
+            ]
+          }
+        },
+        "lower_secondary": {
+          "beginner_band": {
+            "focus_strands": [
+              "foundational scientific vocabulary",
+              "observation and classification",
+              "matter and forces basics",
+              "cells and ecosystems foundations",
+              "evidence talk"
+            ],
+            "sequence_expectations": [
+              "Start from concrete phenomena, shared observation, and clear scientific language before expecting formal explanation.",
+              "Move learners from noticing and describing toward short causal explanations and simple evidence use.",
+              "Revisit core lower-secondary science ideas repeatedly so vocabulary and concepts grow together."
+            ]
+          },
+          "intermediate_band": {
+            "focus_strands": [
+              "cells and systems",
+              "matter",
+              "energy",
+              "forces",
+              "ecosystems",
+              "scientific method"
+            ],
+            "sequence_expectations": [
+              "Move from broad observable ideas to more formal scientific models and explanations.",
+              "Sequence practical work with concept clarification and evidence talk.",
+              "Revisit cross-cutting concepts such as system, change, cause, and evidence."
+            ]
+          },
+          "advanced_band": {
+            "focus_strands": [
+              "scientific models",
+              "quantitative reasoning",
+              "data interpretation",
+              "system thinking",
+              "evidence-based explanation",
+              "experimental design foundations"
+            ],
+            "sequence_expectations": [
+              "Extend core concepts into more abstract models, precise explanation, and stronger evidence use.",
+              "Integrate data interpretation, justification, and scientific reasoning rather than treating them as separate add-ons.",
+              "Use practical inquiry and analysis tasks that stretch advanced lower-secondary learners without skipping conceptual coherence."
+            ]
+          }
+        },
+        "upper_secondary": {
+          "advanced_band": {
+            "focus_strands": [
+              "disciplinary depth",
+              "experimental design",
+              "data interpretation",
+              "scientific reasoning",
+              "application and evaluation"
+            ],
+            "sequence_expectations": [
+              "Build toward precision, abstraction, and disciplined scientific explanation.",
+              "Use labs, simulations, data sets, and evidence-based writing where appropriate.",
+              "Sequence review and prerequisite repair carefully to support advanced content."
+            ]
+          }
+        },
+        "adult_stage": {
+          "intermediate_band": {
+            "focus_strands": [
+              "scientific literacy",
+              "applied science contexts",
+              "data reading",
+              "concept explanation",
+              "critical evaluation"
+            ],
+            "sequence_expectations": [
+              "Prioritize relevance, clarity, and confidence when building science understanding.",
+              "Connect scientific ideas to health, environment, technology, and daily life.",
+              "Use practical examples and discussion to support conceptual understanding."
+            ]
+          }
+        }
+      }
+    },
+    "music": {
+      "global_priorities": [
+        "Balance theory, listening, technique, performance, and creativity.",
+        "Sequence from imitation to supported independence to confident performance.",
+        "Use repetition and repertoire intelligently rather than as isolated drills."
+      ],
+      "by_stage": {
+        "early_primary": {
+          "beginner_band": {
+            "focus_strands": [
+              "pulse",
+              "rhythm imitation",
+              "pitch awareness",
+              "listening",
+              "musical confidence"
+            ],
+            "sequence_expectations": [
+              "Start with imitation, movement, call-and-response, and short listening tasks.",
+              "Keep notation light and tightly connected to sound and action.",
+              "Use repeated joyful rehearsal to build confidence and accuracy."
+            ]
+          }
+        },
+        "upper_primary": {
+          "beginner_band": {
+            "focus_strands": [
+              "rhythm reading",
+              "melody",
+              "notation basics",
+              "ensemble habits",
+              "performance routines"
+            ],
+            "sequence_expectations": [
+              "Move from musical play and imitation toward simple notation and short performances.",
+              "Balance practical music-making with tightly connected theory.",
+              "Revisit listening and repertoire in each unit rather than separating them."
+            ]
+          }
+        },
+        "lower_secondary": {
+          "beginner_band": {
+            "focus_strands": [
+              "pulse and rhythm security",
+              "notation foundations",
+              "listening recognition",
+              "ensemble habits",
+              "performance confidence"
+            ],
+            "sequence_expectations": [
+              "Consolidate basic musical literacy through hearing, doing, and short supported performances.",
+              "Keep notation tightly connected to sound, movement, and repertoire so the work feels musical rather than abstract.",
+              "Use short practice cycles and visible success points to build lower-secondary confidence and consistency."
+            ]
+          },
+          "intermediate_band": {
+            "focus_strands": [
+              "theory and notation",
+              "aural skills",
+              "performance technique",
+              "interpretation",
+              "musical vocabulary"
+            ],
+            "sequence_expectations": [
+              "Build more formal musical understanding while keeping performance central.",
+              "Use practice cycles that connect theory, hearing, and doing.",
+              "Include peer performance and reflective listening when useful."
+            ]
+          },
+          "advanced_band": {
+            "focus_strands": [
+              "theory depth",
+              "aural discrimination",
+              "performance independence",
+              "interpretation and style",
+              "composition or improvisation"
+            ],
+            "sequence_expectations": [
+              "Move beyond basic literacy into more independent interpretation, stylistic awareness, and self-directed musical decision-making.",
+              "Connect theory to repertoire, listening, and performance so advanced work stays musical and authentic.",
+              "Use critique, reflection, and rehearsal cycles to strengthen both technique and expression."
+            ]
+          }
+        },
+        "adult_stage": {
+          "beginner_band": {
+            "focus_strands": [
+              "confidence",
+              "technique foundations",
+              "musical literacy",
+              "repertoire",
+              "listening and interpretation"
+            ],
+            "sequence_expectations": [
+              "Prioritize confidence and visible progress from the first unit.",
+              "Use practical repertoire to anchor theory and technical work.",
+              "Keep repetition purposeful and adult-relevant."
+            ]
+          },
+          "intermediate_band": {
+            "focus_strands": [
+              "technique development",
+              "repertoire expansion",
+              "theory integration",
+              "performance confidence",
+              "self-directed practice"
+            ],
+            "sequence_expectations": [
+              "Build independence in practice and interpretation gradually.",
+              "Sequence technique and repertoire so each supports the other.",
+              "Use performance and feedback checkpoints to create momentum."
+            ]
+          }
+        }
+      }
+    },
+    "study_skills": {
+      "global_priorities": [
+        "Teach routines, strategies, reflection, and transfer explicitly.",
+        "Move from teacher-led structure toward student independence.",
+        "Make every unit practical, visible, and immediately useful."
+      ],
+      "by_stage": {
+        "upper_primary": {
+          "beginner_band": {
+            "focus_strands": [
+              "organization",
+              "attention",
+              "routine building",
+              "task completion",
+              "reflection"
+            ],
+            "sequence_expectations": [
+              "Start with clear routines, materials management, and simple self-monitoring.",
+              "Teach one strategy at a time with heavy modeling and rehearsal.",
+              "Use checklists, habit loops, and small wins to build confidence."
+            ]
+          }
+        },
+        "lower_secondary": {
+          "beginner_band": {
+            "focus_strands": [
+              "organization",
+              "task initiation",
+              "note-taking basics",
+              "homework routines",
+              "teacher-guided reflection"
+            ],
+            "sequence_expectations": [
+              "Secure routines, organization, and visible structure before expecting independent strategy selection.",
+              "Teach one practical study habit at a time using real lower-secondary school tasks.",
+              "Use checklists, rehearsal, and quick reflection to build confidence and consistency."
+            ]
+          },
+          "intermediate_band": {
+            "focus_strands": [
+              "planning",
+              "memory strategies",
+              "revision",
+              "time management",
+              "metacognition"
+            ],
+            "sequence_expectations": [
+              "Build from external structure toward guided independence.",
+              "Teach revision and study strategies through real school tasks, not abstract advice.",
+              "Use reflection and transfer to help students generalize the routines."
+            ]
+          },
+          "advanced_band": {
+            "focus_strands": [
+              "independent planning",
+              "revision systems",
+              "exam preparation",
+              "strategy selection",
+              "metacognitive evaluation"
+            ],
+            "sequence_expectations": [
+              "Move from guided routines toward self-chosen strategies that match task demands and deadlines.",
+              "Connect revision, planning, and focus routines directly to authentic lower-secondary assessment demands.",
+              "Use reflection on efficiency, transfer, and self-monitoring so students begin managing their own study systems."
+            ]
+          }
+        },
+        "upper_secondary": {
+          "advanced_band": {
+            "focus_strands": [
+              "independent planning",
+              "exam preparation",
+              "strategy selection",
+              "focus management",
+              "self-evaluation"
+            ],
+            "sequence_expectations": [
+              "Move learners toward self-directed planning, adaptation, and evaluation.",
+              "Link study skills directly to current academic demands and performance goals.",
+              "Use coached independence rather than constant teacher prompting."
+            ]
+          }
+        },
+        "adult_stage": {
+          "intermediate_band": {
+            "focus_strands": [
+              "routine design",
+              "productivity",
+              "memory and review",
+              "goal setting",
+              "self-regulation"
+            ],
+            "sequence_expectations": [
+              "Prioritize sustainable routines that fit adult schedules and responsibilities.",
+              "Use reflection, planning, and review cycles that learners can maintain independently.",
+              "Keep the program highly practical and transfer-focused."
+            ]
+          }
+        }
+      }
+    },
+    "general": {
+      "global_priorities": [
+        "Sequence from foundation to application with clear dependency logic.",
+        "Keep the curriculum age-appropriate, coherent, and realistic for the stage and level selected.",
+        "Use repeated review, retrieval, and transfer rather than isolated one-off topic coverage."
+      ],
+      "by_stage": {
+        "lower_secondary": {
+          "beginner_band": {
+            "focus_strands": [
+              "foundational knowledge",
+              "key vocabulary",
+              "structured practice",
+              "confidence building",
+              "guided review"
+            ],
+            "sequence_expectations": [
+              "Repair and secure the essentials before adding heavier abstraction or faster pacing.",
+              "Use clear routines, explicit modeling, and manageable lower-secondary contexts so students feel capable.",
+              "Build toward independent application gradually through repetition, examples, and short transfer tasks."
+            ]
+          },
+          "intermediate_band": {
+            "focus_strands": [
+              "topic understanding",
+              "application",
+              "communication",
+              "retrieval",
+              "growing independence"
+            ],
+            "sequence_expectations": [
+              "Move from secure understanding toward connected application and explanation.",
+              "Use age-appropriate lower-secondary examples, problems, or texts that feel purposeful rather than childish.",
+              "Blend review with new learning so the sequence stays coherent and cumulative."
+            ]
+          },
+          "advanced_band": {
+            "focus_strands": [
+              "analysis",
+              "synthesis",
+              "critique",
+              "independent application",
+              "transfer"
+            ],
+            "sequence_expectations": [
+              "Stretch learners with deeper reasoning and more independence while keeping the themes and tasks adolescent-appropriate.",
+              "Sequence complexity deliberately so advanced work still feels scaffolded and teachable.",
+              "Use richer discussion, interpretation, or problem-solving tasks that demand justification and reflection."
+            ]
+          }
+        }
+      }
+    }
+  },
+  "_STAGE_FALLBACK_SEQUENCE_START": {
+    "early_primary": "Keep the sequence concrete, short-cycle, and highly scaffolded through routines, visuals, repetition, and immediate success.",
+    "upper_primary": "Use clear structure, motivating school-age contexts, and guided independence so learners can explain and apply with confidence.",
+    "lower_secondary": "Keep the tone respectful and adolescent-appropriate, with visible scaffolds that support more independent thinking and response.",
+    "upper_secondary": "Use stronger academic demand, more independent application, and clearer justification while staying age-appropriate for teenagers.",
+    "adult_stage": "Use practical, respectful, real-world contexts that connect directly to adult goals, confidence, and independent use."
+  },
+  "_LANGUAGE_FOCUS_BY_LEVEL": {
+    "A1": [
+      "high-frequency vocabulary",
+      "listening comprehension",
+      "guided speaking",
+      "reading support",
+      "sentence writing"
+    ],
+    "A2": [
+      "everyday vocabulary expansion",
+      "short connected texts",
+      "interactive speaking",
+      "paragraph writing",
+      "grammar in context"
+    ],
+    "B1": [
+      "extended reading",
+      "speaking for opinion and explanation",
+      "multi-paragraph writing",
+      "listening for detail",
+      "language accuracy"
+    ],
+    "B2": [
+      "extended interpretation",
+      "discussion and justification",
+      "multi-paragraph writing",
+      "listening synthesis",
+      "register awareness"
+    ],
+    "C1": [
+      "critical reading",
+      "argumentation",
+      "nuanced discussion",
+      "analytical writing",
+      "register control"
+    ],
+    "C2": [
+      "near-native comprehension",
+      "sustained argument",
+      "text synthesis",
+      "stylistic control",
+      "independent interpretation"
+    ]
+  },
+  "_FAMILY_FOCUS_BY_BAND": {
+    "math": {
+      "beginner_band": [
+        "foundational numeracy",
+        "key representations",
+        "guided calculation",
+        "problem interpretation",
+        "mathematical language"
+      ],
+      "intermediate_band": [
+        "core curriculum understanding",
+        "method choice",
+        "representation shifts",
+        "problem solving",
+        "explanation and reasoning"
+      ],
+      "advanced_band": [
+        "abstract reasoning",
+        "multi-step problem solving",
+        "justification",
+        "modeling and transfer",
+        "independent strategy use"
+      ]
+    },
+    "science": {
+      "beginner_band": [
+        "observation",
+        "classification",
+        "foundational scientific vocabulary",
+        "simple cause and effect",
+        "evidence talk"
+      ],
+      "intermediate_band": [
+        "concept understanding",
+        "process explanation",
+        "data interpretation",
+        "investigation routines",
+        "evidence-based reasoning"
+      ],
+      "advanced_band": [
+        "scientific models",
+        "experimental design",
+        "quantitative reasoning",
+        "system thinking",
+        "evaluation of evidence"
+      ]
+    },
+    "music": {
+      "beginner_band": [
+        "pulse and rhythm security",
+        "notation foundations",
+        "listening recognition",
+        "performance confidence",
+        "ensemble habits"
+      ],
+      "intermediate_band": [
+        "theory and notation",
+        "aural skills",
+        "performance technique",
+        "interpretation",
+        "musical vocabulary"
+      ],
+      "advanced_band": [
+        "advanced theory",
+        "aural discrimination",
+        "performance independence",
+        "stylistic awareness",
+        "composition or improvisation"
+      ]
+    },
+    "study_skills": {
+      "beginner_band": [
+        "organization",
+        "task initiation",
+        "routine building",
+        "self-monitoring",
+        "teacher-guided reflection"
+      ],
+      "intermediate_band": [
+        "planning",
+        "memory strategies",
+        "revision routines",
+        "time management",
+        "guided independence"
+      ],
+      "advanced_band": [
+        "independent planning",
+        "revision systems",
+        "strategy selection",
+        "exam preparation",
+        "metacognitive evaluation"
+      ]
+    },
+    "general": {
+      "beginner_band": [
+        "foundational knowledge",
+        "key vocabulary",
+        "structured practice",
+        "guided comprehension",
+        "confidence building"
+      ],
+      "intermediate_band": [
+        "topic understanding",
+        "application",
+        "communication",
+        "retrieval",
+        "growing independence"
+      ],
+      "advanced_band": [
+        "analysis",
+        "synthesis",
+        "critique",
+        "transfer",
+        "independent application"
+      ]
+    }
+  }
+}
