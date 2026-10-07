@@ -48,16 +48,18 @@ export async function generateMaterial(input: SmartToolInput, onProgress?: (mess
   const skeleton = skeletonResult.document;
   const units = Array.isArray(skeleton.units) ? skeleton.units as Record<string, unknown>[] : [];
   const enriched: Record<string, unknown>[] = [];
+  let usedFallback = skeletonResult.model === 'template';
   for (const [index, unit] of units.entries()) {
     onProgress?.(`Enriching unit ${index + 1} of ${units.length}…`);
     const result = await request({ ...input, programPhase: 'unit', programSkeleton: skeleton, programUnitIndex: index });
+    usedFallback ||= result.model === 'template';
     const details = result.document;
     const originalTopics = Array.isArray(unit.topics) ? unit.topics as Record<string, unknown>[] : [];
     const detailTopics = Array.isArray(details.topics) ? details.topics as Record<string, unknown>[] : [];
     enriched.push({ ...unit, ...details, unit_number: index + 1, title: unit.title, overview: unit.overview, topics: originalTopics.map((topic, topicIndex) => ({ ...topic, ...(detailTopics[topicIndex] || {}), topic_number: topicIndex + 1, title: topic.title, lesson_purpose: topic.lesson_purpose })) });
   }
   onProgress?.('Preparing the completed program…');
-  return { ...skeletonResult, document: { ...skeleton, units: enriched } };
+  return { ...skeletonResult, model: usedFallback ? 'template' : skeletonResult.model, fallbackReason: usedFallback ? 'ai_unavailable' : undefined, document: { ...skeleton, units: enriched } };
 }
 
 export async function saveGeneratedMaterial(input: SmartToolInput, document: Record<string, unknown>) {
@@ -85,7 +87,7 @@ export async function saveGeneratedMaterial(input: SmartToolInput, document: Rec
     assessment_strategy: String(document.assessment_strategy || ''),
     resource_strategy: String(document.resource_strategy || ''),
     best_practice_frameworks: Array.isArray(document.best_practice_frameworks) ? document.best_practice_frameworks : [],
-    source_type: 'ai',
+    source_type: input.generationMode === 'template' ? 'template' : 'ai',
     generation_mode: input.generationMode || 'ai',
     visibility: input.visibility || 'private',
     is_public: isPublic,

@@ -8,6 +8,7 @@ import { examQualityIssues, programQualityIssues, worksheetQualityIssues } from 
 import { normalizeWorksheetAnswerKey, repairExamAnswerKey } from '../../server/answer-key';
 import { clampProgramStructure } from '../../shared/program-structure';
 import { programSkeletonPrompts, programUnitPrompts, programSkeletonIssues, programUnitIssues } from '../../server/program-generation';
+import { programFallback, fallbackProgramUnit } from '../../server/program-fallback';
 
 type ToolKind = 'plan' | 'worksheet' | 'exam' | 'program';
 type GenerationRequest = { kind?: ToolKind; subject?: string; customSubject?: string; topic?: string; stage?: string; level?: string; language?: string; planLanguage?: string; nativeLanguage?: string; student?: string; generationMode?: string; lessonPurpose?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration?: string; questionCount?: number; notes?: string; programId?: string; programTopicId?: string; programPhase?: 'skeleton' | 'unit'; programSkeleton?: Record<string, unknown>; programUnitIndex?: number };
@@ -155,9 +156,6 @@ export async function POST(request: Request) {
       return json({ document: templateDocument, model: 'template', generatedAt: new Date().toISOString() });
     }
     const fallbackPlan = () => templateDocument && !guest ? json({ document: templateDocument, model: 'template', fallbackReason: 'ai_unavailable', generatedAt: new Date().toISOString() }) : null;
-    const apiKey = process.env.OPENROUTER_API_KEY || ''; if (!apiKey) return fallbackPlan() ?? json({ error: 'Classio AI is not connected.' }, 503);
-    const priorGuestMask = guest ? await guestMask(request, apiKey) : 0;
-    if (guest && (!guestBits[kind] || (priorGuestMask & guestBits[kind]))) return json({ error: 'This free try has been used. Sign in to create more.' }, 429);
     const schema = SCHEMAS[kind];
     const exerciseTypes = Array.isArray(body.exerciseTypes) ? body.exerciseTypes.slice(0, 12).map((value) => text(value, 60)).filter(Boolean) : [];
     const length = text(body.examLength, 20).toLowerCase(); const examSpec = length === 'short' ? { sections: 3, range: '4-5' } : length === 'long' ? { sections: 5, range: '6-10' } : { sections: 4, range: '5-7' };
@@ -167,6 +165,15 @@ export async function POST(request: Request) {
     const programUnits = kind === 'program' && body.programPhase === 'unit' && body.programSkeleton ? rows(body.programSkeleton.units) : [];
     const programUnitIndex = Number(body.programUnitIndex);
     if (kind === 'program' && body.programPhase === 'unit' && (!body.programSkeleton || JSON.stringify(body.programSkeleton).length > 100000 || !Number.isSafeInteger(programUnitIndex) || programUnitIndex < 0 || programUnitIndex >= programUnits.length || programSkeletonIssues(body.programSkeleton, programStructure.units, programStructure.lessonsPerUnit).length)) return json({ error: 'The program skeleton is incomplete.' }, 400);
+    const fallbackProgram = () => {
+      if (kind !== 'program' || guest) return null;
+      const starter = programFallback({ subject, subjectKey: selectedSubject === 'Other' ? 'other' : subject, stage, level, units: programStructure.units, lessonsPerUnit: programStructure.lessonsPerUnit, planLanguage });
+      const document = body.programPhase === 'unit' ? fallbackProgramUnit(body.programSkeleton!, starter, programUnitIndex) : starter;
+      return json({ document, model: 'template', fallbackReason: 'ai_unavailable', generatedAt: new Date().toISOString() });
+    };
+    const apiKey = process.env.OPENROUTER_API_KEY || ''; if (!apiKey) return fallbackProgram() ?? fallbackPlan() ?? json({ error: 'Classio AI is not connected.' }, 503);
+    const priorGuestMask = guest ? await guestMask(request, apiKey) : 0;
+    if (guest && (!guestBits[kind] || (priorGuestMask & guestBits[kind]))) return json({ error: 'This free try has been used. Sign in to create more.' }, 429);
     const controls = [`Generation mode: ${text(body.generationMode, 40) || 'AI'}`, body.student ? `Selected student: ${text(body.student, 120)}` : '', body.nativeLanguage ? `Student native language: ${text(body.nativeLanguage, 80)}` : '', body.lessonPurpose ? `Lesson purpose: ${text(body.lessonPurpose, 80)}` : '', body.worksheetType ? `Worksheet type: ${text(body.worksheetType, 80)}` : '', body.examLength ? `Exam length: ${text(body.examLength, 40)}` : '', selectedExamTypes.length ? `Exercise types: ${selectedExamTypes.join(', ')}` : '', body.instructions ? `Special instructions: ${text(body.instructions)}` : '', kind === 'program' ? `Requested units: ${programStructure.units}` : '', kind === 'program' ? `Lessons per unit: ${programStructure.lessonsPerUnit}` : '', body.programTrack ? `Program track: ${text(body.programTrack, 80)}` : '', body.examTarget ? `Exam target: ${text(body.examTarget, 100)}` : ''].filter(Boolean).join('. ');
     const shapeRules = kind === 'plan' ? 'Include all required sections. All activity sections and success_criteria must be arrays of strings; core_material must be a JSON object. Use an empty string or empty array where a section is not needed.' : kind === 'worksheet' ? `Use worksheet_type ${text(body.worksheetType, 80)}. Put only the relevant item family in questions, true_false_statements, matching_pairs, multiple_choice_items, or vocabulary_bank. Do not mix unrelated task families. Answer every item in answer_key, except a vocabulary word search. Keep teacher_notes separate from student instructions.` : kind === 'exam' ? `Create ${selectedExamTypes.length} sections, ${examSpec.range} questions per section. Exercise types in order: ${selectedExamTypes.join(', ')}. Each section must include both questions and aligned answers. Section instructions must match the actual response mode.` : '';
     const prompt = kind === 'plan' ? buildLessonPlanUserPrompt({ subject, topic, learnerStage: stage, levelOrBand: level, lessonPurpose: text(body.lessonPurpose, 100), planLanguage, studentMaterialLanguage: language, programContextBlock: programBlock }) : kind === 'worksheet' ? buildWorksheetUserPrompt({ subject, topic, learnerStage: stage, levelOrBand: level, worksheetType: text(body.worksheetType, 80), planLanguage, studentMaterialLanguage: language, programContextBlock: programBlock }) : kind === 'exam' ? buildExamUserPrompt({ subject, topic, examTitle: text(body.examTitle, 200), learnerStage: stage, levelOrBand: level, examLength: length, exerciseTypes, planLanguage, studentMaterialLanguage: language, instructions: text(body.instructions), programContextBlock: programBlock }) : `Create a classroom-ready ${kind} for a teacher. Subject: ${subject}. Topic: ${topic}. Learner stage: ${stage}. Level: ${level}. Teacher-facing plan_language: ${planLanguage}. Student-facing student_material_language: ${language}. ${body.duration ? `Duration: ${text(body.duration, 50)}.` : ''} ${controls}. Teacher context: ${notes || 'None provided'}. ${programBlock} ${shapeRules} Use accurate, age-appropriate content, clear instructions, inclusive examples, and practical assessment. Return ONLY valid JSON matching this shape: ${schema}`;
@@ -202,7 +209,7 @@ export async function POST(request: Request) {
       if ((kind === 'program' || validGeneratedDocument(kind, document, body)) && qualityIssues.length === 0) break;
       document = null; repair = qualityIssues.length ? qualityIssues.join('; ') : 'incomplete'; failure = 'The AI provider returned an incomplete document. Try again.';
     }
-    if (!document) return fallbackPlan() ?? json({ error: failure }, 502);
+    if (!document) return fallbackProgram() ?? fallbackPlan() ?? json({ error: failure }, 502);
     const cookie = guest ? `classio_guest_tools=${priorGuestMask | guestBits[kind]}.${await guestSignature(priorGuestMask | guestBits[kind], apiKey)}; Path=/api/generate; HttpOnly; Secure; SameSite=Lax` : '';
     return json({ document, model, generatedAt: new Date().toISOString() }, 200, cookie ? { 'Set-Cookie': cookie } : undefined);
   } catch (error) { console.error('Generation route error', error); return json({ error: 'Generation failed.' }, 500); }

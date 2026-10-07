@@ -142,6 +142,23 @@ async function main() {
     const unitResponse = await POST(programRequest({ programPhase: 'unit', programSkeleton: skeleton, programUnitIndex: 0 }));
     assert.equal(unitResponse.status, 200);
     assert.equal((await unitResponse.json()).document.topics.length, 3);
+    providerDocument = { title: 'Incomplete program' };
+    const fallbackSkeletonResponse = await POST(programRequest({ programPhase: 'skeleton' }));
+    assert.equal(fallbackSkeletonResponse.status, 200);
+    const fallbackSkeleton = await fallbackSkeletonResponse.json();
+    assert.equal(fallbackSkeleton.model, 'template');
+    assert.equal(fallbackSkeleton.fallbackReason, 'ai_unavailable');
+    assert.equal(fallbackSkeleton.document.units.length, 8);
+    assert.equal(fallbackSkeleton.document.units[0].topics.length, 3);
+    const fallbackUnitResponse = await POST(programRequest({ programPhase: 'unit', programSkeleton: fallbackSkeleton.document, programUnitIndex: 0 }));
+    assert.equal(fallbackUnitResponse.status, 200);
+    const fallbackUnit = await fallbackUnitResponse.json();
+    assert.equal(fallbackUnit.model, 'template');
+    assert.equal(fallbackUnit.document.topics[0].title, fallbackSkeleton.document.units[0].topics[0].title);
+    delete process.env.OPENROUTER_API_KEY;
+    const disconnectedProgram = await POST(programRequest({ programPhase: 'skeleton' }));
+    assert.equal(disconnectedProgram.status, 200);
+    assert.equal((await disconnectedProgram.json()).model, 'template');
   } finally {
     global.fetch = originalFetch;
     for (const [name, value] of Object.entries(originalEnv)) {
