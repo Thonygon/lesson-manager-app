@@ -128,6 +128,20 @@ async function main() {
     profileStatus = 503;
     assert.equal((await POST(request())).status, 503);
     assert.equal(providerCalls, 15);
+    profileStatus = 200;
+    const programBody = { kind: 'program', subject: 'Spanish', topic: 'Travel', stage: 'adult_stage', level: 'B1', requestedUnits: 8, requestedLessons: 3, programTrack: 'exam_prep', examTarget: 'dele' };
+    const programRequest = (extra) => new Request('https://classio.expo.app/api/generate', { method: 'POST', headers: { Authorization: 'Bearer valid-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ ...programBody, ...extra }) });
+    assert.equal((await POST(programRequest({}))).status, 400);
+    const skeleton = { title: 'DELE Travel', program_overview: 'Program progression', entry_profile: 'B1', exit_profile: 'B2', assessment_strategy: 'DELE tasks', resource_strategy: 'Exam practice', units: Array.from({ length: 8 }, (_, index) => ({ title: `Unit ${index + 1}`, overview: 'A focused unit', topics: Array.from({ length: 3 }, (_, topicIndex) => ({ title: `Topic ${index + 1}-${topicIndex + 1}`, lesson_focus: 'Interaction', lesson_purpose: 'practice_skill', student_summary: 'Practica' })) })) };
+    providerDocument = skeleton;
+    const skeletonResponse = await POST(programRequest({ programPhase: 'skeleton' }));
+    assert.equal(skeletonResponse.status, 200);
+    assert.equal((await skeletonResponse.json()).document.units.length, 8);
+    assert.equal((await POST(programRequest({ programPhase: 'unit', programSkeleton: { title: 'Invalid' }, programUnitIndex: 0 }))).status, 400);
+    providerDocument = { ...skeleton.units[0], unit_objectives: ['Communicate'], topics: skeleton.units[0].topics.map((topic) => ({ ...topic, learning_objectives: ['Use evidence'], success_criteria: ['Responds accurately'], student_can_do: ['Converse'], suggested_worksheet_types: ['reading_comprehension'], suggested_exam_exercise_types: ['short_answer'] })) };
+    const unitResponse = await POST(programRequest({ programPhase: 'unit', programSkeleton: skeleton, programUnitIndex: 0 }));
+    assert.equal(unitResponse.status, 200);
+    assert.equal((await unitResponse.json()).document.topics.length, 3);
   } finally {
     global.fetch = originalFetch;
     for (const [name, value] of Object.entries(originalEnv)) {

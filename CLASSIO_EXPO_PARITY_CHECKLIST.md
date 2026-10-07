@@ -316,12 +316,12 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
   - [x] Multi-row bulk class changes
 - [x] Quick lesson planner within lesson workflow
 - [x] Record a payment/package purchase with student, date, units, amount, currency, modality, subject, and package start
-- [x] Student dropdown with contact disambiguation and previous-package currency/units/modality/subject autofill
+- [x] Student dropdown with contact disambiguation and previous-package currency/modality/subject autofill; the new-payment lesson count uses Streamlit's 44-unit default and stays editable from 1 to 500.
 - [x] Currency-aware payment totals, search, year filters, package metadata, and paginated history cards
 - [x] Automatic package expiry recalculation after lesson and payment writes
 - [x] Edit and two-step delete payment/package state
 - [x] Explicit package-date repair for one student or the complete roster
-- [ ] Multi-row bulk payment editor
+- [x] Multi-row payment editor for the selected student, with staged edits across pages and an Apply action. The add/edit form accepts any whole lesson-unit count from 1 to 500, matching Streamlit's number input; new payments start at 44 units instead of copying the prior package size. Payment history defaults to the current year when available and uses eight cards per page.
 - [x] Weekly schedule overview
 - [x] Weekly recurring-schedule creation with timezone and effective dates
 - [x] Weekly calendar grouped by day and time
@@ -349,7 +349,7 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 - [x] Local Expo-only program-topic picker for lesson plans, worksheets, and exams: owner-scoped program/unit/topic loading, subject filter, topic-derived defaults, and server-side owner/topic revalidation before generation. TypeScript and targeted lint pass; hosted acceptance remains pending.
 - [x] Local Expo exam selector supports ordered multiple Python exercise families, subject-based defaults, and source short/medium/long section and per-section question targets. Generated section types and answer counts are validated before save; the full Python prompt guidance and repair path remain pending.
 - [x] Default AI prompt fixtures for lesson plans, worksheets, and exams byte-match Python system/user messages, including snapshotted source guidance and worksheet/exam type rules. This does not cover dynamic student/program blocks or generation outcomes.
-- [ ] Complete exact Streamlit program skeleton/enrichment prompts, dynamic student/program blocks, template/AI fallback, quality repair, and continuation workflows. The local Expo generation outcomes are not yet equivalent.
+- [ ] Complete exact Streamlit program skeleton/enrichment prompts, dynamic student/program blocks, template/AI fallback, quality repair, and continuation workflows. Expo now generates a compact program skeleton and enriches each unit in a separate authenticated request, with structural validation, one repair attempt per phase, and progress feedback. The prompt payload still lacks Python's full subject progression profile, provider chain, template fallback, and previous-program continuation; generated outcomes are not yet equivalent.
 - [x] Learning-program size controls and generation validation use the Python stage rules, including adult language and study-skills overrides. The Expo picker now offers only the source-supported unit and lesson ranges; a parity check reads the Python rule constants and verifies Expo defaults and clamping. The program content workflow remains open above.
 - [x] Saving an Expo learning program now persists the Python unit/topic columns used by linked lesson plans, worksheets, exams, and student progress: lesson purpose and focus, objectives, success criteria, student can-do, suggested worksheet/exam types, homework, and teacher notes. It also preserves custom-subject identity, the separate teacher/student languages, resource strategy, and frameworks on the program. A source-schema fixture checks these mappings. Generation of the richer fields is still part of the open skeleton/enrichment item.
 - [ ] Match Streamlit's type-specific Word/PDF layout, response space, visuals, logo/footer, and font behavior with rendered fixtures. Local branding defaults, school worksheet identity fields, lesson-plan content order/localized labels, and the byte-identical default Classio footer logo now track Python; the shared layout still differs.

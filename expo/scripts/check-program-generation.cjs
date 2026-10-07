@@ -1,0 +1,27 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const ts = require('typescript');
+const vm = require('node:vm');
+
+const source = fs.readFileSync(path.resolve(__dirname, '../src/server/program-generation.ts'), 'utf8');
+const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+const moduleExports = {};
+vm.runInNewContext(compiled, { exports: moduleExports });
+const context = { subject: 'spanish', topic: 'Travel', stage: 'adult_stage', level: 'B1', units: 2, lessonsPerUnit: 2, planLanguage: 'en', studentLanguage: 'es', nativeLanguage: 'tr', programTrack: 'exam_prep', examTarget: 'dele', notes: 'Focus on interaction' };
+const skeleton = { title: 'DELE Travel', program_overview: 'Progression', entry_profile: 'B1 entry', exit_profile: 'B2 exit', assessment_strategy: 'Practice DELE', resource_strategy: 'Exam tasks', units: [1, 2].map((number) => ({ title: `Unit ${number}`, overview: `Overview ${number}`, topics: [1, 2].map((topicNumber) => ({ title: `Topic ${number}-${topicNumber}`, lesson_focus: 'Interaction', lesson_purpose: 'practice_skill', student_summary: 'Practica el diálogo' })) })) };
+assert.equal(moduleExports.programSkeletonIssues(skeleton, 2, 2).length, 0);
+assert.ok(moduleExports.programSkeletonIssues({ ...skeleton, units: [skeleton.units[0]] }, 2, 2).length);
+assert.ok(moduleExports.programSkeletonIssues({ ...skeleton, units: [skeleton.units[0], skeleton.units[0]] }, 2, 2).length);
+const skeletonPrompt = moduleExports.programSkeletonPrompts(context);
+assert.match(skeletonPrompt.user, /requested_units": 2/);
+assert.match(skeletonPrompt.user, /exam_prep_target": "dele"/);
+assert.match(skeletonPrompt.user, /student_native_language": "tr"/);
+const unitPrompt = moduleExports.programUnitPrompts(context, skeleton, 0);
+assert.match(unitPrompt.user, /Unit 1/);
+assert.doesNotMatch(unitPrompt.user, /Unit 2/);
+const unit = { ...skeleton.units[0], unit_objectives: ['Communicate'], topics: skeleton.units[0].topics.map((topic) => ({ ...topic, learning_objectives: ['Use forms'], success_criteria: ['Can respond'], student_can_do: ['Can converse'], suggested_worksheet_types: ['reading_comprehension'], suggested_exam_exercise_types: ['short_answer'] })) };
+assert.equal(moduleExports.programUnitIssues(unit, skeleton.units[0]).length, 0);
+assert.ok(moduleExports.programUnitIssues({ ...unit, topics: [unit.topics[0]] }, skeleton.units[0]).length);
+assert.ok(moduleExports.programUnitIssues({ ...unit, topics: [{ ...unit.topics[0], title: 'Changed' }, unit.topics[1]] }, skeleton.units[0]).length);
+console.log('Program skeleton and unit phase fixtures passed.');

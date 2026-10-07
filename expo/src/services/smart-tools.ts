@@ -34,10 +34,30 @@ export async function getSmartToolProgramTopics(programId: string): Promise<Smar
   return (topicsResult.data ?? []).map((row) => ({ id: String(row.id), title: String(row.title || row.lesson_focus || ''), unitTitle: unitTitles.get(Number(row.unit_number)) || '', unitNumber: Number(row.unit_number || 0), topicNumber: Number(row.topic_number || 0), lessonPurpose: String(row.lesson_purpose || ''), suggestedWorksheetTypes: list(row.suggested_worksheet_types), suggestedExamTypes: list(row.suggested_exam_exercise_types) }));
 }
 
-export async function generateMaterial(input: SmartToolInput): Promise<GeneratedMaterial> {
+export async function generateMaterial(input: SmartToolInput, onProgress?: (message: string) => void): Promise<GeneratedMaterial> {
   const client = requireSupabase(); const { data, error } = await client.auth.getSession(); if (error || !data.session) throw error ?? new Error('Sign in to generate teaching material.');
-  const response = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify(input) }); const payload = await response.json() as GeneratedMaterial & { error?: string };
-  if (!response.ok) throw new Error(payload.error || 'Generation failed.'); return payload;
+  const request = async (body: Record<string, unknown>): Promise<GeneratedMaterial> => {
+    const response = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify(body) });
+    const payload = await response.json() as GeneratedMaterial & { error?: string };
+    if (!response.ok) throw new Error(payload.error || 'Generation failed.');
+    return payload;
+  };
+  if (input.kind !== 'program') return request(input);
+  onProgress?.('Building the program scope and sequence…');
+  const skeletonResult = await request({ ...input, programPhase: 'skeleton' });
+  const skeleton = skeletonResult.document;
+  const units = Array.isArray(skeleton.units) ? skeleton.units as Record<string, unknown>[] : [];
+  const enriched: Record<string, unknown>[] = [];
+  for (const [index, unit] of units.entries()) {
+    onProgress?.(`Enriching unit ${index + 1} of ${units.length}…`);
+    const result = await request({ ...input, programPhase: 'unit', programSkeleton: skeleton, programUnitIndex: index });
+    const details = result.document;
+    const originalTopics = Array.isArray(unit.topics) ? unit.topics as Record<string, unknown>[] : [];
+    const detailTopics = Array.isArray(details.topics) ? details.topics as Record<string, unknown>[] : [];
+    enriched.push({ ...unit, ...details, unit_number: index + 1, title: unit.title, overview: unit.overview, topics: originalTopics.map((topic, topicIndex) => ({ ...topic, ...(detailTopics[topicIndex] || {}), topic_number: topicIndex + 1, title: topic.title, lesson_purpose: topic.lesson_purpose })) });
+  }
+  onProgress?.('Preparing the completed program…');
+  return { ...skeletonResult, document: { ...skeleton, units: enriched } };
 }
 
 export async function saveGeneratedMaterial(input: SmartToolInput, document: Record<string, unknown>) {
