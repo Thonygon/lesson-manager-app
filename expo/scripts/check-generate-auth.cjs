@@ -142,6 +142,10 @@ async function main() {
     const unitResponse = await POST(programRequest({ programPhase: 'unit', programSkeleton: skeleton, programUnitIndex: 0 }));
     assert.equal(unitResponse.status, 200);
     assert.equal((await unitResponse.json()).document.topics.length, 3);
+    providerDocument = { ...skeleton, program_overview: 'The program is designed for learners with practice through skills and classroom tasks.', student_summary: 'The learners practice the skills and work with the teacher.' };
+    const wrongLanguage = await POST(programRequest({ programPhase: 'skeleton', planLanguage: 'es', language: 'es' }));
+    assert.equal(wrongLanguage.status, 200);
+    assert.equal((await wrongLanguage.json()).model, 'template');
     providerDocument = { title: 'Incomplete program' };
     const fallbackSkeletonResponse = await POST(programRequest({ programPhase: 'skeleton' }));
     assert.equal(fallbackSkeletonResponse.status, 200);

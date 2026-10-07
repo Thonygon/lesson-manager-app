@@ -23,6 +23,7 @@ function load(file) {
 }
 const moduleExports = load(path.resolve(__dirname, '../src/server/program-generation.ts'));
 const fallback = load(path.resolve(__dirname, '../src/server/program-fallback.ts'));
+const languageQuality = load(path.resolve(__dirname, '../src/server/program-language-quality.ts'));
 const context = { subject: 'spanish', subjectKey: 'spanish', topic: 'Travel', stage: 'adult_stage', level: 'B1', units: 2, lessonsPerUnit: 2, planLanguage: 'en', studentLanguage: 'es', nativeLanguage: 'tr', programTrack: 'exam_prep', examTarget: 'dele', notes: 'Focus on interaction' };
 const skeleton = { title: 'DELE Travel', program_overview: 'Progression', entry_profile: 'B1 entry', exit_profile: 'B2 exit', assessment_strategy: 'Practice DELE', resource_strategy: 'Exam tasks', units: [1, 2].map((number) => ({ title: `Unit ${number}`, overview: `Overview ${number}`, topics: [1, 2].map((topicNumber) => ({ title: `Topic ${number}-${topicNumber}`, lesson_focus: 'Interaction', lesson_purpose: 'practice_skill', student_summary: 'Practica el diálogo' })) })) };
 assert.equal(moduleExports.programSkeletonIssues(skeleton, 2, 2).length, 0);
@@ -48,4 +49,8 @@ for (const language of ['en', 'es', 'tr']) {
   assert.equal(moduleExports.programUnitIssues(merged, starter.units[1]).length, 0, `fallback unit ${language}`);
   assert.equal(merged.topics[0].title, starter.units[1].topics[0].title);
 }
+assert.equal(languageQuality.looksWrongProgramLanguage('The learners work with the teacher and practice the skills for progress.', 'es'), true);
+assert.equal(languageQuality.looksWrongProgramLanguage('Los estudiantes trabajan con la profesora y practican las habilidades para progresar.', 'es'), false);
+assert.equal(languageQuality.looksWrongProgramLanguage('The learners work with the teacher and practice the skills for progress.', 'tr'), true);
+assert.equal(languageQuality.programLanguageIssues({ ...skeleton, student_summary: 'The learners work with the teacher and practice the skills for progress.' }, 'en', 'es').length, 1);
 console.log('Program skeleton and unit phase fixtures passed.');

@@ -9,6 +9,7 @@ import { normalizeWorksheetAnswerKey, repairExamAnswerKey } from '../../server/a
 import { clampProgramStructure } from '../../shared/program-structure';
 import { programSkeletonPrompts, programUnitPrompts, programSkeletonIssues, programUnitIssues } from '../../server/program-generation';
 import { programFallback, fallbackProgramUnit } from '../../server/program-fallback';
+import { programLanguageIssues } from '../../server/program-language-quality';
 
 type ToolKind = 'plan' | 'worksheet' | 'exam' | 'program';
 type GenerationRequest = { kind?: ToolKind; subject?: string; customSubject?: string; topic?: string; stage?: string; level?: string; language?: string; planLanguage?: string; nativeLanguage?: string; student?: string; generationMode?: string; lessonPurpose?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration?: string; questionCount?: number; notes?: string; programId?: string; programTopicId?: string; programPhase?: 'skeleton' | 'unit'; programSkeleton?: Record<string, unknown>; programUnitIndex?: number };
@@ -205,7 +206,7 @@ export async function POST(request: Request) {
       catch { document = null; repair = 'not valid JSON'; failure = 'The AI provider returned an invalid document. Try again.'; continue; }
       if (kind === 'worksheet') document = normalizeWorksheetAnswerKey(document);
       if (kind === 'exam') document = repairExamAnswerKey(document);
-      const qualityIssues = kind === 'program' && body.programPhase === 'skeleton' ? programSkeletonIssues(document, programStructure.units, programStructure.lessonsPerUnit) : kind === 'program' && body.programPhase === 'unit' ? programUnitIssues(document, programUnits[programUnitIndex]) : kind === 'plan' ? lessonPlanQualityIssues(document, { subject, stage, level, purpose, programContext: programBlock }) : kind === 'worksheet' ? worksheetQualityIssues(document) : kind === 'exam' ? examQualityIssues(document, length) : programQualityIssues(document, programStructure.units, programStructure.lessonsPerUnit);
+      const qualityIssues = kind === 'program' && body.programPhase === 'skeleton' ? [...programSkeletonIssues(document, programStructure.units, programStructure.lessonsPerUnit), ...programLanguageIssues(document, planLanguage, language)] : kind === 'program' && body.programPhase === 'unit' ? [...programUnitIssues(document, programUnits[programUnitIndex]), ...programLanguageIssues(document, planLanguage, language, true)] : kind === 'plan' ? lessonPlanQualityIssues(document, { subject, stage, level, purpose, programContext: programBlock }) : kind === 'worksheet' ? worksheetQualityIssues(document) : kind === 'exam' ? examQualityIssues(document, length) : programQualityIssues(document, programStructure.units, programStructure.lessonsPerUnit);
       if ((kind === 'program' || validGeneratedDocument(kind, document, body)) && qualityIssues.length === 0) break;
       document = null; repair = qualityIssues.length ? qualityIssues.join('; ') : 'incomplete'; failure = 'The AI provider returned an incomplete document. Try again.';
     }
