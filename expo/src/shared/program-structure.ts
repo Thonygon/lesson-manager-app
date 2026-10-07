@@ -19,3 +19,9 @@ export function clampProgramStructure(subject: string, stage: string, requestedU
   const clamp = (value: number | undefined, fallback: number, min: number, max: number) => Number.isFinite(value) ? Math.max(min, Math.min(max, Math.round(value!))) : fallback;
   return { units: clamp(requestedUnits, rule.unitsDefault, rule.unitsMin, rule.unitsMax), lessonsPerUnit: clamp(requestedLessons, rule.lessonsDefault, rule.lessonsMin, rule.lessonsMax), rule };
 }
+export function nextProgramSequenceOrder(previousLevel: string, previousOrder: number | null): number {
+  const language = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+  const academic = ['beginner_band', 'intermediate_band', 'advanced_band'];
+  const levelOrder = language.includes(previousLevel) ? language.indexOf(previousLevel) + 1 : academic.includes(previousLevel) ? academic.indexOf(previousLevel) + 1 : 0;
+  return (previousOrder || levelOrder) + 1;
+}

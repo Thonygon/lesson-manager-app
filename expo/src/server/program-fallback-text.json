@@ -1,5 +1,6 @@
 {
   "en": {
+    "learning_program_built_on_previous": "Built on {title}.",
     "learning_program_default_assessment_strategy": "Use low-stakes checks, unit reviews, and cumulative retrieval across the sequence.",
     "learning_program_default_delivery_note_one": "Design each unit so it can work in online, offline, or blended teaching without losing the learning goal.",
     "learning_program_default_delivery_note_two": "Use Classio resources as the backbone, then add teacher-led, oral, practical, or performance tasks when needed.",
@@ -21,9 +22,12 @@
     "learning_program_fallback_unit_objective": "Move learners through the key focus of Unit {unit} with age-appropriate pacing.",
     "learning_program_fallback_unit_overview": "Sequenced work for {subject} in {stage} at {level}.",
     "learning_program_fallback_unit_title": "Unit {number}",
+    "learning_program_previous_program_fallback": "Previous program",
+    "learning_program_progressive_exit_profile": "Learners finish this program with stronger control of {subject} outcomes at {level} and readiness for the next step.",
     "learning_program_title_format": "{subject} Learning Program - {stage} - {level}"
   },
   "es": {
+    "learning_program_built_on_previous": "Construido sobre {title}.",
     "learning_program_default_assessment_strategy": "Usa comprobaciones de bajo riesgo, repasos por unidad y recuperación acumulativa a lo largo de la secuencia.",
     "learning_program_default_delivery_note_one": "Diseña cada unidad para que pueda funcionar en enseñanza online, presencial o híbrida sin perder el objetivo de aprendizaje.",
     "learning_program_default_delivery_note_two": "Usa los recursos de Classio como base y añade tareas guiadas por el docente, orales, prácticas o de desempeño cuando sea necesario.",
@@ -45,9 +49,12 @@
     "learning_program_fallback_unit_objective": "Guiar al alumnado por el foco clave de la Unidad {unit} con un ritmo adecuado para su etapa.",
     "learning_program_fallback_unit_overview": "Trabajo secuenciado de {subject} en {stage} en el nivel {level}.",
     "learning_program_fallback_unit_title": "Unidad {number}",
+    "learning_program_previous_program_fallback": "Programa anterior",
+    "learning_program_progressive_exit_profile": "El alumnado termina este programa con un dominio más sólido de los resultados de {subject} en {level} y preparación para el siguiente paso.",
     "learning_program_title_format": "Programa de aprendizaje de {subject} - {stage} - {level}"
   },
   "tr": {
+    "learning_program_built_on_previous": "{title} üzerine kuruldu.",
     "learning_program_default_assessment_strategy": "Düşük riskli yoklamalar, ünite tekrarları ve dizi boyunca kümülatif geri çağırma kullanın.",
     "learning_program_default_delivery_note_one": "Her üniteyi, öğrenme hedefini kaybetmeden çevrim içi, yüz yüze veya hibrit öğretimde çalışabilecek şekilde tasarlayın.",
     "learning_program_default_delivery_note_two": "Classio kaynaklarını omurga olarak kullanın, ardından gerektiğinde öğretmen yönlendirmeli, sözlü, uygulamalı veya performans görevleri ekleyin.",
@@ -69,6 +76,8 @@
     "learning_program_fallback_unit_objective": "Öğrencileri yaşa uygun bir tempoyla Ünite {unit} içindeki temel odaktan geçirin.",
     "learning_program_fallback_unit_overview": "{level} düzeyinde {stage} için {subject} alanında sıralı çalışma.",
     "learning_program_fallback_unit_title": "Ünite {number}",
+    "learning_program_previous_program_fallback": "Önceki program",
+    "learning_program_progressive_exit_profile": "Öğrenciler bu programı {level} düzeyinde {subject} çıktıları üzerinde daha güçlü bir hakimiyet ve bir sonraki adıma hazır oluşla tamamlar.",
     "learning_program_title_format": "{subject} Öğrenme Programı - {stage} - {level}"
   }
 }

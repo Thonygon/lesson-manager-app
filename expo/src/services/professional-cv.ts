@@ -1,4 +1,17 @@
 import { requireSupabase } from '@/lib/supabase';
+import sourceCountries from './cv-countries.json';
+
+export const CV_COUNTRIES: string[] = sourceCountries;
+export function validCvPhone(value: string): boolean {
+  const phone = value.trim();
+  return !phone || (/^[\d+()]+$/.test(phone) && phone.replace(/\D/g, '').length >= 6);
+}
+export function profileCvDefaults(profile: Record<string, unknown>): Partial<TemplateCvInput> {
+  const list = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && !!item.trim()).join(', ') : '';
+  const country = String(profile.country || '').trim();
+  const role = String(profile.primary_role || profile.role || 'teacher');
+  return { fullName: String(profile.display_name || '').trim(), email: String(profile.email || '').trim(), phone: String(profile.phone_number || '').replace(/[^\d+()]/g, ''), location: CV_COUNTRIES.includes(country) ? country : '', role: role === 'tutor' ? 'tutor' : 'teacher', subjects: list(profile.primary_subjects), teachingStages: list(profile.teaching_stages), teachingLanguages: list(profile.teaching_languages) };
+}
 
 export type CvLocale = 'en' | 'es' | 'tr';
 export type TemplateCvInput = {
@@ -23,6 +36,8 @@ export function buildTemplateCv(input: TemplateCvInput, locale: CvLocale): Recor
   if (!input.fullName.trim() || !input.location.trim() || !subjects.length || !stages.length || !languages.length) {
     throw new Error('Name, location, subjects, teaching stages, and teaching languages are required.');
   }
+  if (!CV_COUNTRIES.includes(input.location.trim())) throw new Error('Choose a valid country.');
+  if (!validCvPhone(input.phone)) throw new Error('Enter a phone number with at least six digits, using only digits, +, ( and ).');
   return {
     title: `CV – ${input.fullName.trim()}`,
     full_name: input.fullName.trim(), email: input.email.trim(), phone: input.phone.trim(), location: input.location.trim(),

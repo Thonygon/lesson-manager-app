@@ -210,10 +210,13 @@ function examSections(detail: Record<string, unknown>, variant: ResourceVariant,
       for (const [questionIndex, question] of list(section.questions).entries()) {
         const row = record(question);
         const prompt = typeof question === 'string' ? question : String(row.stem || row.text || row.question || row.sentence || row.prompt || row.original || '');
-        if (prompt.trim()) lines.push(`${questionIndex + 1}. ${prompt.trim()}`);
+        const sectionType = String(section.type || '');
+        if (prompt.trim()) lines.push(`${questionIndex + 1}. ${sectionType === 'fill_in_blank' ? prompt.trim().replaceAll('___', '______________') : prompt.trim()}`);
         for (const [optionIndex, option] of list(row.options).entries()) {
           lines.push(`   ${String.fromCharCode(65 + optionIndex)}) ${String(option)}`);
         }
+        const responseTypes = ['short_answer', 'reading_comprehension', 'writing_prompt', 'problem_solving', 'equation_solving', 'word_problems', 'data_analysis', 'classification', 'process_explanation', 'hypothesis_and_conclusion', 'diagram_questions', 'theory_questions', 'symbol_identification', 'rhythm_counting', 'terminology', 'composer_period_matching', 'show_your_work', 'vocabulary', 'sentence_transformation', 'error_correction', 'table_interpretation'];
+        if (prompt.trim() && responseTypes.includes(sectionType)) lines.push(...Array(sectionType === 'writing_prompt' || sectionType === 'show_your_work' ? 5 : 2).fill('_'.repeat(50)));
       }
       const sectionType = String(section.type || '');
       const questions = list(section.questions);

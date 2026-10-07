@@ -34,6 +34,8 @@ let profileStatus = 200;
 let providerCalls = 0;
 let providerFailures = 0;
 let providerDocuments = [];
+let previousRows = [];
+let lastProviderPrompt = '';
 const validPlan = { title: 'Greetings', objective: 'Greet a peer', success_criteria: ['Greet clearly', 'Respond appropriately'], warm_up: ['Recall a greeting', 'Practice a response'], main_activity: ['Role play'], guided_practice: ['Model a conversation'], practice_questions: ['What greeting fits?', 'How would you reply?'], reading_passage: 'A short dialogue between two peers.', core_material: { target_vocabulary: ['hello', 'goodbye', 'please'], gist_questions: ['Who is speaking?'], detail_questions: ['What did they say?'] } };
 let providerDocument = validPlan;
 const request = (token = 'valid-token', kind = 'plan') => new Request('https://classio.test/api/generate', {
@@ -56,8 +58,15 @@ async function main() {
         assert.equal(options.headers.Authorization, 'Bearer valid-token');
         return Response.json([profile], { status: profileStatus });
       }
+      if (target.includes('/rest/v1/learning_programs')) {
+        const parsed = new URL(target);
+        assert.equal(parsed.searchParams.get('user_id'), 'eq.owner-id');
+        assert.equal(options.headers.Authorization, 'Bearer valid-token');
+        return Response.json(previousRows);
+      }
       if (target.includes('openrouter.ai')) {
         providerCalls += 1;
+        lastProviderPrompt = JSON.parse(options.body).messages[1].content;
         if (providerFailures > 0) { providerFailures -= 1; return Response.json({ error: 'temporary failure' }, { status: 503 }); }
         return Response.json({ choices: [{ message: { content: JSON.stringify(providerDocuments.shift() || providerDocument) } }], model: 'fixture-model' });
       }
@@ -163,6 +172,17 @@ async function main() {
     const disconnectedProgram = await POST(programRequest({ programPhase: 'skeleton' }));
     assert.equal(disconnectedProgram.status, 200);
     assert.equal((await disconnectedProgram.json()).model, 'template');
+    process.env.OPENROUTER_API_KEY = 'server-only-key';
+    previousRows = [{ id: 42, title: 'Previous Spanish', subject: 'spanish', custom_subject_name: null, learner_stage: 'adult_stage', level_or_band: 'A2', status: 'active', program_data: { title: 'Previous Spanish', exit_profile: 'Learners can use connected everyday Spanish.', scope_and_sequence_rationale: 'Move from short dialogue to connected texts.', units: [{ unit_number: 1, title: 'Earlier unit', topics: [{ title: 'Greetings', learning_objectives: ['Greet someone'] }] }] } }];
+    providerDocument = skeleton;
+    const continuation = await POST(programRequest({ programPhase: 'skeleton', previousProgramId: '42' }));
+    assert.equal(continuation.status, 200);
+    assert.match(lastProviderPrompt, /Learners can use connected everyday Spanish/);
+    assert.match(lastProviderPrompt, /Greetings/);
+    previousRows = [{ ...previousRows[0], program_data: { ...previousRows[0].program_data, units: [{ unit_number: 1, topics: [{ title: 'Greetings' }] }] } }];
+    assert.equal((await POST(programRequest({ programPhase: 'skeleton', previousProgramId: '42' }))).status, 400);
+    previousRows = [];
+    assert.equal((await POST(programRequest({ programPhase: 'skeleton', previousProgramId: '42' }))).status, 400);
   } finally {
     global.fetch = originalFetch;
     for (const [name, value] of Object.entries(originalEnv)) {

@@ -10,9 +10,10 @@ import { clampProgramStructure } from '../../shared/program-structure';
 import { programSkeletonPrompts, programUnitPrompts, programSkeletonIssues, programUnitIssues } from '../../server/program-generation';
 import { programFallback, fallbackProgramUnit } from '../../server/program-fallback';
 import { programLanguageIssues } from '../../server/program-language-quality';
+import { previousProgramFromStorage, previousProgramComplete, summarizePreviousProgram } from '../../server/program-continuation';
 
 type ToolKind = 'plan' | 'worksheet' | 'exam' | 'program';
-type GenerationRequest = { kind?: ToolKind; subject?: string; customSubject?: string; topic?: string; stage?: string; level?: string; language?: string; planLanguage?: string; nativeLanguage?: string; student?: string; generationMode?: string; lessonPurpose?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration?: string; questionCount?: number; notes?: string; programId?: string; programTopicId?: string; programPhase?: 'skeleton' | 'unit'; programSkeleton?: Record<string, unknown>; programUnitIndex?: number };
+type GenerationRequest = { kind?: ToolKind; subject?: string; customSubject?: string; topic?: string; stage?: string; level?: string; language?: string; planLanguage?: string; nativeLanguage?: string; student?: string; generationMode?: string; lessonPurpose?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration?: string; questionCount?: number; notes?: string; programId?: string; programTopicId?: string; previousProgramId?: string; programPhase?: 'skeleton' | 'unit'; programSkeleton?: Record<string, unknown>; programUnitIndex?: number };
 
 const SCHEMAS: Record<ToolKind, string> = {
   plan: `{"title":"...","objective":"...","recommended_level":"...","plan_language":"...","student_material_language":"...","success_criteria":["..."],"warm_up":["..."],"main_activity":["..."],"core_examples":["..."],"guided_practice":["..."],"practice_questions":["..."],"freer_task":["..."],"wrap_up":["..."],"teacher_moves":["..."],"extension_task":"...","homework":"...","reading_passage":"...","listening_script":"...","core_material":{}}`,
@@ -104,6 +105,18 @@ function programTopicPrompt(context: NonNullable<Awaited<ReturnType<typeof readP
   return lines.join('\n');
 }
 
+async function readPreviousProgram(base: string, key: string, token: string, ownerId: string, id: number) {
+  const url = new URL(`${base.replace(/\/$/, '')}/rest/v1/learning_programs`);
+  url.searchParams.set('select', 'id,title,subject,custom_subject_name,learner_stage,level_or_band,status,program_data');
+  url.searchParams.set('id', `eq.${id}`); url.searchParams.set('user_id', `eq.${ownerId}`); url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: { apikey: key, Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+  if (!response.ok) throw new Error('The previous program could not be verified.');
+  const rows = await response.json() as Record<string, unknown>[];
+  const stored = Array.isArray(rows) ? rows[0] : null;
+  if (!stored || stored.status === 'archived') return null;
+  return previousProgramFromStorage(stored);
+}
+
 export async function POST(request: Request) {
   try {
     const authorization = request.headers.get('authorization') || ''; const token = authorization.replace(/^Bearer\s+/i, '').trim();
@@ -166,9 +179,18 @@ export async function POST(request: Request) {
     const programUnits = kind === 'program' && body.programPhase === 'unit' && body.programSkeleton ? rows(body.programSkeleton.units) : [];
     const programUnitIndex = Number(body.programUnitIndex);
     if (kind === 'program' && body.programPhase === 'unit' && (!body.programSkeleton || JSON.stringify(body.programSkeleton).length > 100000 || !Number.isSafeInteger(programUnitIndex) || programUnitIndex < 0 || programUnitIndex >= programUnits.length || programSkeletonIssues(body.programSkeleton, programStructure.units, programStructure.lessonsPerUnit).length)) return json({ error: 'The program skeleton is incomplete.' }, 400);
+    let previousContext: Record<string, unknown> = {};
+    if (kind === 'program' && body.previousProgramId) {
+      const previousId = positiveId(body.previousProgramId);
+      if (!previousId || guest) return json({ error: 'Choose a valid previous program.' }, 400);
+      const previous = await readPreviousProgram(supabaseUrl, anonKey, token, userId, previousId);
+      const expectedSubject = selectedSubject === 'Other' ? 'other' : subject;
+      if (!previous || previous.subject !== expectedSubject || previous.learner_stage !== stage || (selectedSubject === 'Other' && String(previous.subject_display).toLowerCase() !== subject.toLowerCase()) || !previousProgramComplete(previous)) return json({ error: 'The selected previous program is unavailable or incomplete.' }, 400);
+      previousContext = summarizePreviousProgram(previous);
+    }
     const fallbackProgram = () => {
       if (kind !== 'program' || guest) return null;
-      const starter = programFallback({ subject, subjectKey: selectedSubject === 'Other' ? 'other' : subject, stage, level, units: programStructure.units, lessonsPerUnit: programStructure.lessonsPerUnit, planLanguage });
+      const starter = programFallback({ subject, subjectKey: selectedSubject === 'Other' ? 'other' : subject, stage, level, units: programStructure.units, lessonsPerUnit: programStructure.lessonsPerUnit, planLanguage, previousContext });
       const document = body.programPhase === 'unit' ? fallbackProgramUnit(body.programSkeleton!, starter, programUnitIndex) : starter;
       return json({ document, model: 'template', fallbackReason: 'ai_unavailable', generatedAt: new Date().toISOString() });
     };
@@ -178,7 +200,7 @@ export async function POST(request: Request) {
     const controls = [`Generation mode: ${text(body.generationMode, 40) || 'AI'}`, body.student ? `Selected student: ${text(body.student, 120)}` : '', body.nativeLanguage ? `Student native language: ${text(body.nativeLanguage, 80)}` : '', body.lessonPurpose ? `Lesson purpose: ${text(body.lessonPurpose, 80)}` : '', body.worksheetType ? `Worksheet type: ${text(body.worksheetType, 80)}` : '', body.examLength ? `Exam length: ${text(body.examLength, 40)}` : '', selectedExamTypes.length ? `Exercise types: ${selectedExamTypes.join(', ')}` : '', body.instructions ? `Special instructions: ${text(body.instructions)}` : '', kind === 'program' ? `Requested units: ${programStructure.units}` : '', kind === 'program' ? `Lessons per unit: ${programStructure.lessonsPerUnit}` : '', body.programTrack ? `Program track: ${text(body.programTrack, 80)}` : '', body.examTarget ? `Exam target: ${text(body.examTarget, 100)}` : ''].filter(Boolean).join('. ');
     const shapeRules = kind === 'plan' ? 'Include all required sections. All activity sections and success_criteria must be arrays of strings; core_material must be a JSON object. Use an empty string or empty array where a section is not needed.' : kind === 'worksheet' ? `Use worksheet_type ${text(body.worksheetType, 80)}. Put only the relevant item family in questions, true_false_statements, matching_pairs, multiple_choice_items, or vocabulary_bank. Do not mix unrelated task families. Answer every item in answer_key, except a vocabulary word search. Keep teacher_notes separate from student instructions.` : kind === 'exam' ? `Create ${selectedExamTypes.length} sections, ${examSpec.range} questions per section. Exercise types in order: ${selectedExamTypes.join(', ')}. Each section must include both questions and aligned answers. Section instructions must match the actual response mode.` : '';
     const prompt = kind === 'plan' ? buildLessonPlanUserPrompt({ subject, topic, learnerStage: stage, levelOrBand: level, lessonPurpose: text(body.lessonPurpose, 100), planLanguage, studentMaterialLanguage: language, programContextBlock: programBlock }) : kind === 'worksheet' ? buildWorksheetUserPrompt({ subject, topic, learnerStage: stage, levelOrBand: level, worksheetType: text(body.worksheetType, 80), planLanguage, studentMaterialLanguage: language, programContextBlock: programBlock }) : kind === 'exam' ? buildExamUserPrompt({ subject, topic, examTitle: text(body.examTitle, 200), learnerStage: stage, levelOrBand: level, examLength: length, exerciseTypes, planLanguage, studentMaterialLanguage: language, instructions: text(body.instructions), programContextBlock: programBlock }) : `Create a classroom-ready ${kind} for a teacher. Subject: ${subject}. Topic: ${topic}. Learner stage: ${stage}. Level: ${level}. Teacher-facing plan_language: ${planLanguage}. Student-facing student_material_language: ${language}. ${body.duration ? `Duration: ${text(body.duration, 50)}.` : ''} ${controls}. Teacher context: ${notes || 'None provided'}. ${programBlock} ${shapeRules} Use accurate, age-appropriate content, clear instructions, inclusive examples, and practical assessment. Return ONLY valid JSON matching this shape: ${schema}`;
-    const programContext = { subject, subjectKey: selectedSubject === 'Other' ? 'other' : selectedSubject.toLowerCase().replaceAll(' ', '_'), topic, stage, level, units: programStructure.units, lessonsPerUnit: programStructure.lessonsPerUnit, planLanguage, studentLanguage: language, nativeLanguage: text(body.nativeLanguage, 80), programTrack: text(body.programTrack, 80), examTarget: text(body.examTarget, 100), notes };
+    const programContext = { subject, subjectKey: selectedSubject === 'Other' ? 'other' : selectedSubject.toLowerCase().replaceAll(' ', '_'), topic, stage, level, units: programStructure.units, lessonsPerUnit: programStructure.lessonsPerUnit, planLanguage, studentLanguage: language, nativeLanguage: text(body.nativeLanguage, 80), programTrack: text(body.programTrack, 80), examTarget: text(body.examTarget, 100), notes, previousContext };
     const programPrompts = kind === 'program' ? body.programPhase === 'unit' ? programUnitPrompts(programContext, body.programSkeleton!, programUnitIndex) : programSkeletonPrompts(programContext) : null;
     let document: Record<string, unknown> | null = null;
     let model = 'openrouter';

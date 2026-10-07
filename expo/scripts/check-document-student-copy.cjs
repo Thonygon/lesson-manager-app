@@ -54,6 +54,10 @@ assert.ok(!legacyStudent.includes('Answer key'));
 assert.ok(legacyTeacher.includes('Answer key'));
 assert.ok(legacyAnswers.includes('1. B'));
 assert.ok(!legacyAnswers.includes('Choose the word.'));
+const responseSpace = loaded.exports.resourceSections({ exam_data: { duration_minutes: 45, sections: [{ type: 'short_answer', title: 'Short response', questions: ['Explain the result.'] }, { type: 'writing_prompt', title: 'Writing', questions: ['Write a paragraph.'] }, { type: 'fill_in_blank', title: 'Complete', questions: ['The result is ___.'] }] } }, 'student');
+assert.equal(responseSpace[0].lines.filter((line) => line === '_'.repeat(50)).length, 2);
+assert.equal(responseSpace[1].lines.filter((line) => line === '_'.repeat(50)).length, 5);
+assert.ok(responseSpace[2].lines.includes('1. The result is ______________.'));
 
 const worksheet = { worksheet_json: { title: 'Practice', sections: [{ questions: [{ prompt: 'Write a greeting.', is_correct: true, feedback: 'Teacher hint' }] }], answer_key: 'Hello' } };
 const worksheetStudent = JSON.stringify(loaded.exports.resourceSections(worksheet, 'student'));
