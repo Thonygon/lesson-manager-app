@@ -1,4 +1,5 @@
 import { requireSupabase } from '@/lib/supabase';
+import { programTopicRow, programUnitRow } from './program-storage';
 
 export type SmartToolKind = 'plan' | 'worksheet' | 'exam' | 'program';
 export type SmartToolInput = { kind: SmartToolKind; subject: string; customSubject?: string; topic: string; stage: string; level: string; language: string; planLanguage?: string; nativeLanguage?: string; student?: string; generationMode?: string; lessonPurpose?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration: string; questionCount?: number; notes: string; programId?: string; programTopicId?: string };
@@ -45,6 +46,52 @@ export async function saveGeneratedMaterial(input: SmartToolInput, document: Rec
   if (input.kind === 'plan') { const { error } = await client.from('lesson_plans').insert({ user_id: uid, title, subject: storedSubject, topic: input.topic, learner_stage: input.stage, level_or_band: input.level, lesson_purpose: input.lessonPurpose || 'introduce_concept', plan_language: input.planLanguage || input.language, student_material_language: input.language, source_type: input.generationMode === 'template' ? 'template' : 'ai', planner_mode: input.generationMode || 'ai', plan_json: document, author_name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'Teacher', subject_display: storedSubject, is_public: false, status: 'active', created_at: now }); if (error) throw error; return; }
   if (input.kind === 'worksheet') { const { error } = await client.from('worksheets').insert({ user_id: uid, title, subject: storedSubject, topic: input.topic, learner_stage: input.stage, level_or_band: input.level, worksheet_type: input.worksheetType || 'mixed_practice', plan_language: input.planLanguage || input.language, student_material_language: input.language, source_type: 'ai', worksheet_json: document, author_name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'Teacher', subject_display: storedSubject, is_public: false, status: 'active', created_at: now, updated_at: now }); if (error) throw error; return; }
   if (input.kind === 'exam') { const sections = Array.isArray(document.sections) ? document.sections as Record<string, unknown>[] : []; const answerKey = document.answer_key || { sections: sections.map((section) => ({ title: section.title, answers: section.answers || [] })) }; const { error } = await client.from('quick_exams').insert({ user_id: uid, title, subject: storedSubject, topic: input.topic, learner_stage: input.stage, level: input.level, exam_length: input.examLength || 'medium', exercise_types: input.exerciseTypes?.length ? input.exerciseTypes : ['mixed'], plan_language: input.planLanguage || input.language, student_material_language: input.language, exam_data: document, answer_key: answerKey, is_public: false, status: 'active', created_at: now, updated_at: now }); if (error) throw error; return; }
-  const units = Array.isArray(document.units) ? document.units as Record<string, unknown>[] : []; const totalTopics = units.reduce((sum, unit) => sum + (Array.isArray(unit.topics) ? unit.topics.length : 0), 0); const isPublic = input.visibility === 'public'; const { data: program, error } = await client.from('learning_programs').insert({ user_id: uid, title, slug: `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${Date.now().toString(36)}`, subject: storedSubject.toLowerCase(), learner_stage: input.stage, level_or_band: input.level, program_language: input.language, student_material_language: input.language, program_overview: String(document.program_overview || ''), teacher_rationale: String(document.teacher_rationale || ''), student_summary: String(document.student_summary || ''), assessment_strategy: String(document.assessment_strategy || ''), source_type: 'ai', generation_mode: input.generationMode || 'ai', visibility: input.visibility || 'private', is_public: isPublic, status: 'draft', total_units: units.length, total_topics: totalTopics, builder_config: { expo_native: true, requested_units: input.requestedUnits, requested_lessons: input.requestedLessons, program_track: input.programTrack, exam_target: input.examTarget, student: input.student, native_language: input.nativeLanguage }, program_data: document, updated_at: now, created_at: now }).select('id').single(); if (error || !program) throw error ?? new Error('Program could not be saved.');
-  try { for (let index = 0; index < units.length; index += 1) { const unit = units[index]; const unitNumber = Number(unit.unit_number || index + 1); const { data: savedUnit, error: unitError } = await client.from('learning_program_units').insert({ program_id: program.id, unit_number: unitNumber, title: String(unit.title || `Unit ${unitNumber}`), overview: String(unit.unit_summary || unit.overview || ''), unit_objectives: unit.learning_objectives || unit.unit_objectives || [], estimated_lessons: Number(unit.estimated_lessons || 0), created_at: now, updated_at: now }).select('id').single(); if (unitError || !savedUnit) throw unitError ?? new Error('A program unit could not be saved.'); const topics = Array.isArray(unit.topics) ? unit.topics as Record<string, unknown>[] : []; if (topics.length) { const { error: topicError } = await client.from('learning_program_topics').insert(topics.map((topic, topicIndex) => ({ program_id: program.id, unit_id: savedUnit.id, unit_number: unitNumber, topic_number: Number(topic.topic_number || topicIndex + 1), title: String(topic.title || topic.topic || `Topic ${topicIndex + 1}`), lesson_focus: String(topic.topic || topic.title || ''), student_summary: String(topic.student_summary || ''), estimated_lessons: Number(topic.estimated_lessons || 1), learning_objectives: topic.objectives || topic.learning_objectives || [], created_at: now, updated_at: now }))); if (topicError) throw topicError; } } } catch (saveError) { await client.from('learning_programs').delete().eq('id', program.id).eq('user_id', uid); throw saveError; }
+  const units = Array.isArray(document.units) ? document.units as Record<string, unknown>[] : [];
+  const totalTopics = units.reduce((sum, unit) => sum + (Array.isArray(unit.topics) ? unit.topics.length : 0), 0);
+  const isPublic = input.visibility === 'public';
+  const { data: program, error } = await client.from('learning_programs').insert({
+    user_id: uid,
+    title,
+    slug: `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${Date.now().toString(36)}`,
+    subject: input.subject === 'Other' ? 'other' : input.subject.toLowerCase().replaceAll(' ', '_'),
+    custom_subject_name: input.subject === 'Other' ? storedSubject : null,
+    learner_stage: input.stage,
+    level_or_band: input.level,
+    program_language: input.planLanguage || input.language,
+    student_material_language: input.language,
+    program_overview: String(document.program_overview || ''),
+    teacher_rationale: String(document.teacher_rationale || ''),
+    student_summary: String(document.student_summary || ''),
+    assessment_strategy: String(document.assessment_strategy || ''),
+    resource_strategy: String(document.resource_strategy || ''),
+    best_practice_frameworks: Array.isArray(document.best_practice_frameworks) ? document.best_practice_frameworks : [],
+    source_type: 'ai',
+    generation_mode: input.generationMode || 'ai',
+    visibility: input.visibility || 'private',
+    is_public: isPublic,
+    status: 'draft',
+    total_units: units.length,
+    total_topics: totalTopics,
+    builder_config: { expo_native: true, requested_units: input.requestedUnits, requested_lessons: input.requestedLessons, program_track: input.programTrack, exam_target: input.examTarget, student: input.student, native_language: input.nativeLanguage },
+    program_data: document,
+    updated_at: now,
+    created_at: now,
+  }).select('id').single();
+  if (error || !program) throw error ?? new Error('Program could not be saved.');
+  try {
+    for (const [index, unit] of units.entries()) {
+      const unitRow = programUnitRow(unit, index);
+      const { data: savedUnit, error: unitError } = await client.from('learning_program_units').insert({ ...unitRow, program_id: program.id, created_at: now, updated_at: now }).select('id').single();
+      if (unitError || !savedUnit) throw unitError ?? new Error('A program unit could not be saved.');
+      const topics = Array.isArray(unit.topics) ? unit.topics as Record<string, unknown>[] : [];
+      if (topics.length) {
+        const topicRows = topics.map((topic, topicIndex) => ({ ...programTopicRow(topic, topicIndex, unitRow.unit_number), program_id: program.id, unit_id: savedUnit.id, created_at: now, updated_at: now }));
+        const { error: topicError } = await client.from('learning_program_topics').insert(topicRows);
+        if (topicError) throw topicError;
+      }
+    }
+  } catch (saveError) {
+    await client.from('learning_programs').delete().eq('id', program.id).eq('user_id', uid);
+    throw saveError;
+  }
 }
