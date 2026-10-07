@@ -35,6 +35,8 @@ let providerCalls = 0;
 let providerFailures = 0;
 let providerDocuments = [];
 let previousRows = [];
+let previousUnits = [];
+let previousTopics = [];
 let lastProviderPrompt = '';
 const validPlan = { title: 'Greetings', objective: 'Greet a peer', success_criteria: ['Greet clearly', 'Respond appropriately'], warm_up: ['Recall a greeting', 'Practice a response'], main_activity: ['Role play'], guided_practice: ['Model a conversation'], practice_questions: ['What greeting fits?', 'How would you reply?'], reading_passage: 'A short dialogue between two peers.', core_material: { target_vocabulary: ['hello', 'goodbye', 'please'], gist_questions: ['Who is speaking?'], detail_questions: ['What did they say?'] } };
 let providerDocument = validPlan;
@@ -63,6 +65,12 @@ async function main() {
         assert.equal(parsed.searchParams.get('user_id'), 'eq.owner-id');
         assert.equal(options.headers.Authorization, 'Bearer valid-token');
         return Response.json(previousRows);
+      }
+      if (target.includes('/rest/v1/learning_program_units') || target.includes('/rest/v1/learning_program_topics')) {
+        const parsed = new URL(target);
+        assert.equal(parsed.searchParams.get('program_id'), 'eq.42');
+        assert.equal(options.headers.Authorization, 'Bearer valid-token');
+        return Response.json(target.includes('learning_program_units') ? previousUnits : previousTopics);
       }
       if (target.includes('openrouter.ai')) {
         providerCalls += 1;
@@ -179,8 +187,17 @@ async function main() {
     assert.equal(continuation.status, 200);
     assert.match(lastProviderPrompt, /Learners can use connected everyday Spanish/);
     assert.match(lastProviderPrompt, /Greetings/);
+    previousTopics = [{ unit_number: 1, topic_number: 1, title: 'Updated greetings', learning_objectives: ['Use updated greetings'] }];
+    const refreshedContinuation = await POST(programRequest({ programPhase: 'skeleton', previousProgramId: '42' }));
+    assert.equal(refreshedContinuation.status, 200);
+    assert.match(lastProviderPrompt, /Updated greetings/);
+    previousTopics = [];
     previousRows = [{ ...previousRows[0], program_data: { ...previousRows[0].program_data, units: [{ unit_number: 1, topics: [{ title: 'Greetings' }] }] } }];
     assert.equal((await POST(programRequest({ programPhase: 'skeleton', previousProgramId: '42' }))).status, 400);
+    previousTopics = [{ unit_number: 1, topic_number: 1, title: 'Revised greetings', learning_objectives: ['Greet someone after a revision'] }];
+    assert.equal((await POST(programRequest({ programPhase: 'skeleton', previousProgramId: '42' }))).status, 200);
+    assert.match(lastProviderPrompt, /Revised greetings/);
+    previousTopics = [];
     previousRows = [];
     assert.equal((await POST(programRequest({ programPhase: 'skeleton', previousProgramId: '42' }))).status, 400);
   } finally {

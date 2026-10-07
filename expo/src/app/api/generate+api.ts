@@ -10,7 +10,7 @@ import { clampProgramStructure } from '../../shared/program-structure';
 import { programSkeletonPrompts, programUnitPrompts, programSkeletonIssues, programUnitIssues } from '../../server/program-generation';
 import { programFallback, fallbackProgramUnit } from '../../server/program-fallback';
 import { programLanguageIssues } from '../../server/program-language-quality';
-import { previousProgramFromStorage, previousProgramComplete, summarizePreviousProgram } from '../../server/program-continuation';
+import { mergePreviousProgramRows, previousProgramFromStorage, previousProgramComplete, summarizePreviousProgram } from '../../server/program-continuation';
 
 type ToolKind = 'plan' | 'worksheet' | 'exam' | 'program';
 type GenerationRequest = { kind?: ToolKind; subject?: string; customSubject?: string; topic?: string; stage?: string; level?: string; language?: string; planLanguage?: string; nativeLanguage?: string; student?: string; generationMode?: string; lessonPurpose?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration?: string; questionCount?: number; notes?: string; programId?: string; programTopicId?: string; previousProgramId?: string; programPhase?: 'skeleton' | 'unit'; programSkeleton?: Record<string, unknown>; programUnitIndex?: number };
@@ -114,7 +114,23 @@ async function readPreviousProgram(base: string, key: string, token: string, own
   const rows = await response.json() as Record<string, unknown>[];
   const stored = Array.isArray(rows) ? rows[0] : null;
   if (!stored || stored.status === 'archived') return null;
-  return previousProgramFromStorage(stored);
+  const headers = { apikey: key, Authorization: `Bearer ${token}`, Accept: 'application/json' };
+  async function details(table: string, select: string) {
+    const query = new URL(`${base.replace(/\/$/, '')}/rest/v1/${table}`);
+    query.searchParams.set('select', select);
+    query.searchParams.set('program_id', `eq.${id}`);
+    query.searchParams.set('order', 'unit_number.asc,topic_number.asc');
+    query.searchParams.set('limit', '500');
+    if (table === 'learning_program_units') query.searchParams.set('order', 'unit_number.asc');
+    const result = await fetch(query, { headers });
+    if (!result.ok) throw new Error('The previous program details could not be verified.');
+    return await result.json() as Record<string, unknown>[];
+  }
+  const [units, topics] = await Promise.all([
+    details('learning_program_units', 'unit_number,title,overview,unit_objectives,recommended_lesson_purposes,recommended_worksheet_types,recommended_exam_exercise_types,estimated_lessons'),
+    details('learning_program_topics', 'unit_number,topic_number,title,subtopic,lesson_focus,lesson_purpose,learning_objectives,success_criteria,student_can_do,suggested_worksheet_types,suggested_exam_exercise_types,homework_idea,teacher_notes,student_summary,estimated_lessons'),
+  ]);
+  return mergePreviousProgramRows(previousProgramFromStorage(stored), units, topics);
 }
 
 export async function POST(request: Request) {
