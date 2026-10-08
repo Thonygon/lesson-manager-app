@@ -88,6 +88,9 @@ const wordSearch = loaded.exports.resourceSections({ worksheet_json: { worksheet
 assert.ok(wordSearch.some((section) => section.heading === 'Word search' && section.lines.length >= 10));
 assert.equal(wordSearch.find((section) => section.heading === 'Word search').grid.length, 10);
 const art = `data:image/png;base64,${fs.readFileSync(path.join(__dirname, '../public/logo_classio_light.png')).toString('base64')}`;
+const watermarkedSearch = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'word_search_vocab', vocabulary_bank: ['CLASS'], visual_supports: [{ status: 'ready', image_data_url: art }, { status: 'failed', image_data_url: art }] } }, 'student');
+assert.equal(watermarkedSearch.find((section) => section.grid).watermark, art);
+assert.equal(watermarkedSearch.flatMap((section) => section.visuals || []).length, 0);
 const illustratedWorksheet = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'reading_comprehension', instructions: 'Look at the picture.', visual_supports: [{ status: 'ready', image_data_url: art }, { status: 'failed', image_data_url: art }] } }, 'student');
 assert.deepEqual(illustratedWorksheet.flatMap((section) => section.visuals || []), [art]);
 const illustratedExam = loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'diagram_questions', title: 'Diagram', visual_support: { status: 'ready', image_data_url: art }, questions: ['Name the part.'] }] } }, 'student');

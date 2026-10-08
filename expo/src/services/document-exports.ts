@@ -5,7 +5,7 @@ import type { StudentLearningWorkspace } from '@/services/teacher-students';
 import sourceDocumentLabels from './source-document-labels.json';
 import { makeWordSearchGrid } from './word-search-grid';
 
-type ReportSection = { heading: string; lines: string[]; subheadings?: string[]; grid?: string[][]; table?: string[][]; visuals?: string[] };
+type ReportSection = { heading: string; lines: string[]; subheadings?: string[]; grid?: string[][]; table?: string[][]; visuals?: string[]; watermark?: string };
 type DocumentLocale = 'en' | 'es' | 'tr';
 const COPY = {
   en: { teachingResource: 'Teaching resource', studentCopy: 'Student copy', teacherCopy: 'Teacher copy', answerKey: 'Answer key', studentEvidence: 'Student learning evidence', overview: 'Overview', progress: 'Progress by subject', programs: 'Learning programs', recent: 'Recent work', noData: 'No data yet.', assignments: 'Assignments', attempts: 'Attempts', reviews: 'Reviews waiting', complete: 'complete', average: 'average', notScored: 'not scored', program: 'Learning program', assignment: 'Assignment', general: 'General', generated: 'Prepared with Classio' },
@@ -174,6 +174,25 @@ function visualDimensions(bytes: Uint8Array): { width: number; height: number } 
   return null;
 }
 
+async function fadedWatermark(url: string): Promise<string | null> {
+  if (!browserReady()) return null;
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.globalAlpha = 0.10;
+    context.drawImage(image, 0, 0);
+    return canvas.toDataURL('image/png');
+  } catch { return null; }
+}
+
 function structuredTextLines(value: unknown, title: unknown, blocks: unknown): string[] {
   const lines: string[] = [];
   if (String(title || '').trim()) lines.push(String(title).trim());
@@ -338,7 +357,8 @@ function worksheetSections(detail: Record<string, unknown>, variant: ResourceVar
     } else if (worksheet.worksheet_type === 'word_search_vocab') {
       const rawGrid = list(worksheet.wordsearch_grid || worksheet.grid);
       const grid = (rawGrid.length ? rawGrid : makeWordSearchGrid(list(worksheet.vocabulary_bank))).map((row) => list(row).map(String)).filter((row) => row.length);
-      if (grid.length) output.push({ heading: locale === 'es' ? 'Sopa de letras' : locale === 'tr' ? 'Kelime avı' : 'Word search', lines: grid.map((row) => row.join('  ')), grid });
+      const watermark = list(worksheet.visual_supports).map(readyVisual).find(Boolean) || undefined;
+      if (grid.length) output.push({ heading: locale === 'es' ? 'Sopa de letras' : locale === 'tr' ? 'Kelime avı' : 'Word search', lines: grid.map((row) => row.join('  ')), grid, watermark });
     } else {
       const items = list(worksheet.multiple_choice_items).length ? list(worksheet.multiple_choice_items) : list(worksheet.questions).length ? list(worksheet.questions) : list(worksheet.true_false_statements);
       const lines: string[] = [];
@@ -494,6 +514,20 @@ async function savePdf(title: string, subtitle: string, sections: ReportSection[
       const cell = Math.min(25, (width - margin * 2) / section.grid[0].length);
       const x = (width - cell * section.grid[0].length) / 2;
       ensureSpace(cell * section.grid.length + 15);
+      if (section.watermark) {
+        try {
+          const dimensions = pdf.getImageProperties(section.watermark);
+          const boxWidth = cell * section.grid[0].length;
+          const boxHeight = cell * section.grid.length;
+          const scale = Math.min(boxWidth / dimensions.width, boxHeight / dimensions.height);
+          const imageWidth = dimensions.width * scale;
+          const imageHeight = dimensions.height * scale;
+          pdf.saveGraphicsState();
+          pdf.setGState(pdf.GState({ opacity: 0.10 }));
+          pdf.addImage(section.watermark, dimensions.fileType, x + (boxWidth - imageWidth) / 2, y - 12 + (boxHeight - imageHeight) / 2, imageWidth, imageHeight);
+          pdf.restoreGraphicsState();
+        } catch { /* A bad stored image should not prevent the puzzle export. */ }
+      }
       pdf.setFont('DejaVu', 'bold'); pdf.setFontSize(10); pdf.setTextColor(15, 23, 42); pdf.setDrawColor(148, 163, 184);
       for (const row of section.grid) {
         ensureSpace(cell + 4);
@@ -535,13 +569,14 @@ async function saveDocx(title: string, subtitle: string, sections: ReportSection
   const { AlignmentType, BorderStyle, Document, Footer, Header, HeadingLevel, ImageRun, Packer, PageNumber, Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType } = await import('docx');
   const branding = await loadBranding();
   const logo = bulletLines ? null : await loadClassioLogo();
+  const watermarks = await Promise.all(sections.map((section) => section.grid?.length && section.watermark ? fadedWatermark(section.watermark) : Promise.resolve(null)));
   const baseSize = branding.fontSize === 'compact' ? 20 : branding.fontSize === 'large' ? 26 : 24;
   const children = [
     new Paragraph({ text: title, heading: HeadingLevel.TITLE, alignment: resourceKind === 'plan' || resourceKind === 'worksheet' ? AlignmentType.CENTER : AlignmentType.LEFT, spacing: { after: 120 } }),
     ...(metaLine ? [new Paragraph({ children: [new TextRun({ text: metaLine, size: baseSize - 2, font: branding.font, color: '334155' })], spacing: { after: 90 } })] : []),
     ...(worksheet && branding.headerEnabled && branding.headerStyle === 'school' ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [new TableRow({ children: schoolFields(locale).map((field) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: field, font: branding.font, size: baseSize, bold: true })] })] })) })] })] : []),
     ...(!resourceKind ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [new TableRow({ children: [new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, margins: { top: 100, bottom: 100, left: 140, right: 140 }, children: [new Paragraph({ children: [new TextRun({ text: subtitle, color: '475569', bold: true }), new TextRun({ text: `  ·  ${new Date().toLocaleDateString()}`, color: '64748B' })] })] })] })] })] : []),
-    ...sections.flatMap((section) => [
+    ...sections.flatMap((section, sectionIndex) => [
       ...(section.heading ? [new Paragraph({ text: section.heading, heading: HeadingLevel.HEADING_1, spacing: { before: resourceKind ? 160 : 280, after: 100 }, ...(resourceKind ? {} : { shading: { fill: 'EFF6FF', type: ShadingType.CLEAR }, border: { bottom: { color: 'BFDBFE', size: 5, style: BorderStyle.SINGLE } } }) })] : []),
       ...(section.visuals || []).flatMap((visual) => {
         try {
@@ -554,7 +589,10 @@ async function saveDocx(title: string, subtitle: string, sections: ReportSection
           return [new Paragraph({ children: [new ImageRun({ data: bytes, type: visual.startsWith('data:image/png') ? 'png' : 'jpg', transformation: { width: drawWidth * scale, height: drawHeight * scale } })], spacing: { after: 90 } })];
         } catch { return []; }
       }),
-      ...(section.grid?.length ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: section.grid.map((row) => new TableRow({ children: row.map((letter) => new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: letter, font: branding.font, size: baseSize, bold: true })] })] })) })) })] : [
+      ...(section.grid?.length ? [
+        ...(watermarks[sectionIndex] ? [new Paragraph({ spacing: { before: 0, after: 0, line: 1 }, children: [new ImageRun({ data: visualBytes(watermarks[sectionIndex]!), type: 'png', transformation: { width: 430, height: section.grid.length * 27 }, floating: { horizontalPosition: { relative: 'column', align: 'center' }, verticalPosition: { relative: 'paragraph', offset: 108000 }, behindDocument: true, allowOverlap: true } })] })] : []),
+        new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: section.grid.map((row) => new TableRow({ children: row.map((letter) => new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: letter, font: branding.font, size: baseSize, bold: true })] })] })) })) })
+      ] : [
         ...(section.table && resourceKind === 'worksheet' ? [] : section.lines).map((line) => new Paragraph({ children: [new TextRun({ text: line, size: baseSize, font: branding.font, color: '334155', bold: resourceKind === 'plan' && section.subheadings?.includes(line) })], bullet: bulletLines ? { level: 0 } : undefined, spacing: { after: line.startsWith('____') ? 180 : resourceKind ? 60 : 90, line: resourceKind ? 276 : 300 } })),
         ...(section.table?.length ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: section.table[0].length === 3 ? [3973, 1294, 3973] : [7200, 2040], borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, insideHorizontal: { style: BorderStyle.NONE }, insideVertical: { style: BorderStyle.NONE } }, rows: section.table.map((row) => new TableRow({ children: row.map((cell, index) => new TableCell({ width: { size: section.table?.[0].length === 3 ? [3973, 1294, 3973][index] : [7200, 2040][index], type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: cell, font: branding.font, size: baseSize })] })] })) })) })] : []),
       ]),

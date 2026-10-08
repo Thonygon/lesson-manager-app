@@ -43,6 +43,14 @@ const samples = [
 const visual = { status: 'ready', image_data_url: `data:image/png;base64,${fs.readFileSync(path.join(__dirname, '../public/logo_classio_light.png')).toString('base64')}` };
 samples.push(['worksheet-visual', 'Visual worksheet', { worksheet_type: 'reading_comprehension', instructions: 'Study the picture.', visual_supports: [visual], questions: ['What do you see?'] }, 'student']);
 samples.push(['exam-visual', 'Visual exam', { sections: [{ type: 'diagram_questions', title: 'Diagram', visual_support: visual, questions: ['Identify the image.'] }] }, 'student']);
+samples.push(['word-search-watermark', 'Visual word search', { worksheet_type: 'word_search_vocab', instructions: 'Find CLASS.', vocabulary_bank: ['CLASS'], visual_supports: [visual] }, 'student']);
+global.Image = class {
+  naturalWidth = 800;
+  naturalHeight = 400;
+  async decode() {}
+};
+const createElement = global.document.createElement;
+global.document.createElement = (tag) => tag === 'canvas' ? { width: 0, height: 0, getContext: () => ({ fillRect() {}, drawImage() {}, set fillStyle(_) {}, set globalAlpha(_) {} }), toDataURL: () => visual.image_data_url } : createElement(tag);
 
 (async () => {
   for (const [name, title, detail, variant] of samples) {
