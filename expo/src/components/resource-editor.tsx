@@ -37,7 +37,7 @@ function pathLabel(path: PathPart[]) {
   return path.map((part) => typeof part === 'number' ? String(part + 1) : part.replaceAll('_', ' ')).join(' › ');
 }
 
-export function ResourceEditor({ document, onApply }: { document: Record<string, unknown>; onApply: (document: Record<string, unknown>) => void }) {
+export function ResourceEditor({ document, onApply, defaultOpen = false }: { document: Record<string, unknown>; onApply: (document: Record<string, unknown>) => void; defaultOpen?: boolean }) {
   const { t } = useAppPreferences();
   const fields = useMemo(() => collectFields(document), [document]);
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(fields.map((field) => [JSON.stringify(field.path), field.value])));
@@ -46,7 +46,7 @@ export function ResourceEditor({ document, onApply }: { document: Record<string,
     fields.forEach((field) => setAtPath(updated, field, values[JSON.stringify(field.path)] ?? field.value));
     onApply(updated);
   };
-  return <Disclosure title={t('smart.editorTitle')} summary={t('smart.editorHelp')} style={styles.editor}>
+  return <Disclosure title={t('smart.editorTitle')} summary={t('smart.editorHelp')} defaultOpen={defaultOpen} style={styles.editor}>
     <View style={styles.fields}>{fields.map((field) => { const key = JSON.stringify(field.path); const multiline = field.kind === 'list' || String(field.original ?? '').length > 80; return <View key={key} style={styles.field}><Text style={styles.label}>{pathLabel(field.path)}</Text><Field value={values[key] ?? field.value} onChangeText={(value) => setValues((current) => ({ ...current, [key]: value }))} multiline={multiline} numberOfLines={multiline ? 4 : 1} style={multiline ? styles.multiline : undefined} /></View>; })}</View>
     <View style={styles.action}><Button onPress={apply}>{t('smart.applyEdits')}</Button></View>
   </Disclosure>;

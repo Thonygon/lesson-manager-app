@@ -64,6 +64,31 @@ export async function getResourceDetail(kind: PublicResourceKind, id: string): P
   return { ...record, units: units ?? [], topics: topics ?? [] };
 }
 
+export async function updateResourceContent(kind: 'plan' | 'worksheet' | 'exam', id: string, content: Record<string, unknown>): Promise<void> {
+  const client = requireSupabase();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError || !userData.user) throw userError ?? new Error('Your Classio session has expired.');
+  const payloadColumn = { plan: 'plan_json', worksheet: 'worksheet_json', exam: 'exam_data' }[kind];
+  const document = kind === 'exam' ? content.exam_data : content;
+  if (!document || typeof document !== 'object' || Array.isArray(document) || !Object.keys(document).length) throw new Error('Resource content cannot be empty.');
+  const body = document as Record<string, unknown>;
+  const filled = (value: unknown): boolean => typeof value === 'string' ? Boolean(value.trim()) : Array.isArray(value) ? value.some(filled) : Boolean(value && typeof value === 'object' && Object.values(value).some(filled));
+  const fields = kind === 'plan' ? ['objective', 'objectives', 'lesson_flow', 'warm_up', 'main_activity', 'presentation', 'guided_practice', 'independent_practice', 'assessment', 'homework', 'activities'] : kind === 'worksheet' ? ['questions', 'matching_pairs', 'true_false_statements', 'multiple_choice_items', 'vocabulary_bank', 'sections', 'instructions', 'reading_passage', 'source_text'] : ['instructions', 'reading_text', 'source_text', 'passage'];
+  if (kind === 'exam') {
+    const sections = Array.isArray(body.sections) ? body.sections as Record<string, unknown>[] : [];
+    if (!sections.length || !(sections.some((section) => filled(section.questions)) || fields.some((field) => filled(body[field])))) throw new Error('An exam needs questions or student instructions.');
+  } else if (!fields.some((field) => filled(body[field]))) throw new Error('Keep the learning content when saving this resource.');
+  const updates: Record<string, unknown> = { [payloadColumn]: document, updated_at: new Date().toISOString() };
+  if (kind === 'exam') {
+    const answerKey = content.answer_key;
+    if (!answerKey || typeof answerKey !== 'object' || Array.isArray(answerKey)) throw new Error('An exam needs an answer key.');
+    updates.answer_key = answerKey;
+  }
+  const { data, error } = await client.from(DEFINITIONS[kind].table).update(updates).eq('id', id).eq('user_id', userData.user.id).select('id').maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('This resource is unavailable or cannot be edited.');
+}
+
 export async function getResourcePreviewImages(kind: PublicResourceKind, ids: string[]): Promise<Record<string, string>> {
   if (!ids.length || kind === 'video') return {};
   const payloadColumn: Record<Exclude<PublicResourceKind, 'video'>, string> = { program: 'program_data', plan: 'plan_json', worksheet: 'worksheet_json', exam: 'exam_data' };

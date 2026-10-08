@@ -126,6 +126,20 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function mappingSide(input: unknown, prefer: 'key' | 'value'): string {
+  let value = input;
+  if (typeof value === 'string' && value.trim().startsWith('{')) {
+    try { value = JSON.parse(value); } catch { /* Keep plain text. */ }
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (prefer in (value as Record<string, unknown>)) return String((value as Record<string, unknown>)[prefer] ?? '').trim();
+    if (entries.length === 1) return String(prefer === 'key' ? entries[0][0] : entries[0][1] ?? '').trim();
+    return String((value as Record<string, unknown>).text ?? (value as Record<string, unknown>).answer ?? '').trim();
+  }
+  return String(value ?? '').trim();
+}
+
 function list(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
@@ -187,7 +201,7 @@ function examAnswer(value: unknown): string {
 function examSections(detail: Record<string, unknown>, variant: ResourceVariant, locale: DocumentLocale): ReportSection[] | null {
   const exam = Object.keys(record(detail.exam_data)).length ? record(detail.exam_data) : detail;
   const sections = list(exam.sections).map(record).filter((section) => Object.keys(section).length);
-  if (!sections.length || (detail.exam_data === undefined && exam.duration_minutes === undefined && !sections.some((section) => Array.isArray(section.answers)))) return null;
+  if (!sections.length || detail.worksheet_json || detail.worksheet_type || detail.plan_json) return null;
 
   const key = detail.answer_key ?? exam.answer_key;
   const keyedSections = list(record(key).sections).map(record);
@@ -222,7 +236,7 @@ function examSections(detail: Record<string, unknown>, variant: ResourceVariant,
       const questions = list(section.questions);
       const tableRows = sectionType === 'matching' ? questions.map((question, index) => {
         const pair = record(question);
-        return [`${index + 1}. ${String(pair.left || '')}`, '[   ]', `${String.fromCharCode(97 + index)}) ${String(record(questions[(index + 1) % questions.length]).right || '')}`];
+        return [`${index + 1}. ${mappingSide(pair.left, 'key')}`, '[   ]', `${String.fromCharCode(97 + index)}) ${mappingSide(record(questions[(index + 1) % questions.length]).right, 'value')}`];
       }) : sectionType === 'true_false' ? questions.map((question, index) => {
         const row = record(question);
         const prompt = typeof question === 'string' ? question : String(row.stem || row.text || row.question || row.sentence || row.prompt || '');
@@ -279,8 +293,8 @@ function worksheetSections(detail: Record<string, unknown>, variant: ResourceVar
       }
     } else if (worksheet.worksheet_type === 'matching') {
       const pairs = list(worksheet.matching_pairs).map(record);
-      const left = pairs.length ? pairs.map((pair) => pair.left ?? pair.term) : list(worksheet.left_items);
-      const right = pairs.length ? pairs.map((pair) => pair.right ?? pair.definition) : list(worksheet.right_items);
+      const left = (pairs.length ? pairs.map((pair) => pair.left ?? pair.term) : list(worksheet.left_items)).map((item) => mappingSide(item, 'key'));
+      const right = (pairs.length ? pairs.map((pair) => pair.right ?? pair.definition) : list(worksheet.right_items)).map((item) => mappingSide(item, 'value'));
       const choices = right.length > 1 ? [...right.slice(1), right[0]] : right;
       const lines = left.map((item, index) => `${index + 1}. ${String(item || '')}   [   ]`);
       lines.push(...choices.map((item, index) => `${String.fromCharCode(97 + index)}) ${String(item || '')}`));
