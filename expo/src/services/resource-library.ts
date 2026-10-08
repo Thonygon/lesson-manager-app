@@ -78,7 +78,10 @@ export async function updateResourceContent(kind: 'plan' | 'worksheet' | 'exam',
     const sections = Array.isArray(body.sections) ? body.sections as Record<string, unknown>[] : [];
     if (!sections.length || !(sections.some((section) => filled(section.questions)) || fields.some((field) => filled(body[field])))) throw new Error('An exam needs questions or student instructions.');
   } else if (!fields.some((field) => filled(body[field]))) throw new Error('Keep the learning content when saving this resource.');
-  const updates: Record<string, unknown> = { [payloadColumn]: document, updated_at: new Date().toISOString() };
+  // Legacy lesson-plan rows do not consistently expose updated_at; Streamlit saves
+  // plan_json without requiring that column.
+  const updates: Record<string, unknown> = { [payloadColumn]: document };
+  if (kind !== 'plan') updates.updated_at = new Date().toISOString();
   if (kind === 'exam') {
     const answerKey = content.answer_key;
     if (!answerKey || typeof answerKey !== 'object' || Array.isArray(answerKey)) throw new Error('An exam needs an answer key.');
