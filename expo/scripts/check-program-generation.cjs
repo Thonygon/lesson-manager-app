@@ -52,6 +52,11 @@ assert.equal(fallback.programFallback({ ...context, previousContext: continuatio
 const unitPrompt = moduleExports.programUnitPrompts(context, skeleton, 0);
 assert.match(unitPrompt.user, /Unit 1/);
 assert.doesNotMatch(unitPrompt.user, /Unit 2/);
+assert.match(unitPrompt.user, /"additional_notes": "Focus on interaction"/);
+assert.match(unitPrompt.user, /"subject_family": "language"/);
+assert.match(unitPrompt.user, /"delivery_mode_guidance"/);
+assert.match(unitPrompt.user, /"recommended_non_classio_activities"/);
+assert.match(moduleExports.programUnitPrompts(context, { ...skeleton, subject_family: 'custom_family' }, 0).user, /"subject_family": "custom_family"/);
 const unit = { ...skeleton.units[0], unit_objectives: ['Communicate'], topics: skeleton.units[0].topics.map((topic) => ({ ...topic, learning_objectives: ['Use forms'], success_criteria: ['Can respond'], student_can_do: ['Can converse'], suggested_worksheet_types: ['reading_comprehension'], suggested_exam_exercise_types: ['short_answer'] })) };
 assert.equal(moduleExports.programUnitIssues(unit, skeleton.units[0]).length, 0);
 assert.ok(moduleExports.programUnitIssues({ ...unit, topics: [unit.topics[0]] }, skeleton.units[0]).length);
