@@ -38,6 +38,9 @@ const examples = [
   ['exam-matching', 'Matching exam', { title: 'Matching exam', sections: [{ type: 'matching', title: 'Match the terms', questions: [{ left: { key: 'Cat' }, right: { value: 'Animal' } }, { left: { key: 'Dog' }, right: { value: 'Pet' } }] }] }, 'student'],
   ['worksheet-matching', 'Matching worksheet', { title: 'Matching worksheet', worksheet_type: 'matching', instructions: 'Match the terms.', matching_pairs: [{ left: { Cat: 'Gato' }, right: { value: 'Animal' } }, { left: { Dog: 'Perro' }, right: { value: 'Pet' } }] }, 'student'],
 ];
+const visual = { status: 'ready', image_data_url: `data:image/png;base64,${fs.readFileSync(path.join(__dirname, '../public/logo_classio_light.png')).toString('base64')}` };
+examples.push(['worksheet-visual', 'Visual worksheet', { worksheet_type: 'reading_comprehension', instructions: 'Study the picture.', visual_supports: [visual], questions: ['What do you see?'] }, 'student']);
+examples.push(['exam-visual', 'Visual exam', { sections: [{ type: 'diagram_questions', title: 'Diagram', visual_support: visual, questions: ['Identify the image.'] }] }, 'student']);
 (async () => {
   for (const [name, title, detail, variant] of examples) {
     global.__classioPdfBytes = null;
