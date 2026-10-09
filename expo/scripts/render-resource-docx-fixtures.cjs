@@ -44,6 +44,7 @@ const visual = { status: 'ready', image_data_url: `data:image/png;base64,${fs.re
 samples.push(['worksheet-visual', 'Visual worksheet', { worksheet_type: 'reading_comprehension', instructions: 'Study the picture.', visual_supports: [visual], questions: ['What do you see?'] }, 'student']);
 samples.push(['exam-visual', 'Visual exam', { sections: [{ type: 'diagram_questions', title: 'Diagram', visual_support: visual, questions: ['Identify the image.'] }] }, 'student']);
 samples.push(['word-search-watermark', 'Visual word search', { worksheet_type: 'word_search_vocab', instructions: 'Find CLASS.', vocabulary_bank: ['CLASS'], visual_supports: [visual] }, 'student']);
+samples.push(['exam-word-search', 'Exam word search', { sections: [{ type: 'word_search', title: 'Find the words', instructions: 'Circle the words.', vocabulary_bank: ['CLASS', 'LEARN'], visual_support: visual }] }, 'student']);
 global.Image = class {
   naturalWidth = 800;
   naturalHeight = 400;

@@ -262,6 +262,8 @@ function examSections(detail: Record<string, unknown>, variant: ResourceVariant,
   if (variant !== 'answers') {
     for (const [sectionIndex, section] of sections.entries()) {
       const lines: string[] = [];
+      const sectionType = String(section.type || '');
+      const wordSearch = sectionType === 'word_search_vocab' || sectionType === 'word_search';
       if (String(section.instructions || '').trim()) lines.push(String(section.instructions).trim());
       if (String(section.source_text || '').trim()) lines.push(...structuredTextLines(section.source_text, section.text_title, section.text_blocks));
       const table = record(section.table_data);
@@ -270,10 +272,14 @@ function examSections(detail: Record<string, unknown>, variant: ResourceVariant,
       const columns = list(table.columns).map(String).filter(Boolean);
       if (columns.length) lines.push(columns.join('  |  '));
       for (const row of list(table.rows)) { const cells = list(row).map(String); if (cells.length) lines.push(cells.join('  |  ')); }
-      for (const [questionIndex, question] of list(section.questions).entries()) {
+      const words = wordSearch ? list(section.vocabulary_bank || section.words || section.questions).map((item) => {
+          const row = record(item);
+          return String(Object.keys(row).length ? row.word || row.term || row.left || row.text || row.stem || '' : item).trim();
+        }).filter(Boolean) : [];
+      if (words.length) lines.push(words.join('  ·  '));
+      for (const [questionIndex, question] of (wordSearch ? [] : list(section.questions)).entries()) {
         const row = record(question);
         const prompt = typeof question === 'string' ? question : String(row.stem || row.text || row.question || row.sentence || row.prompt || row.original || '');
-        const sectionType = String(section.type || '');
         if (prompt.trim()) lines.push(`${questionIndex + 1}. ${sectionType === 'fill_in_blank' ? prompt.trim().replaceAll('___', '______________') : prompt.trim()}`);
         for (const [optionIndex, option] of list(row.options).entries()) {
           lines.push(`   ${String.fromCharCode(65 + optionIndex)}) ${String(option)}`);
@@ -281,7 +287,6 @@ function examSections(detail: Record<string, unknown>, variant: ResourceVariant,
         const responseTypes = ['short_answer', 'reading_comprehension', 'writing_prompt', 'problem_solving', 'equation_solving', 'word_problems', 'data_analysis', 'classification', 'process_explanation', 'hypothesis_and_conclusion', 'diagram_questions', 'theory_questions', 'symbol_identification', 'rhythm_counting', 'terminology', 'composer_period_matching', 'show_your_work', 'vocabulary', 'sentence_transformation', 'error_correction', 'table_interpretation'];
         if (prompt.trim() && responseTypes.includes(sectionType)) lines.push(...Array(sectionType === 'writing_prompt' || sectionType === 'show_your_work' ? 5 : 2).fill('_'.repeat(50)));
       }
-      const sectionType = String(section.type || '');
       const questions = list(section.questions);
       const tableRows = sectionType === 'matching' ? questions.map((question, index) => {
         const pair = record(question);
@@ -291,8 +296,10 @@ function examSections(detail: Record<string, unknown>, variant: ResourceVariant,
         const prompt = typeof question === 'string' ? question : String(row.stem || row.text || row.question || row.sentence || row.prompt || '');
         return [`${index + 1}. ${prompt}`, locale === 'es' ? '[ ] V  [ ] F' : locale === 'tr' ? '[ ] D  [ ] Y' : '[ ] T  [ ] F'];
       }) : undefined;
-      const visual = !['word_search_vocab', 'word_search'].includes(sectionType) ? readyVisual(section.visual_support) : null;
-      if (lines.length || tableRows?.length || visual) output.push({ heading: String(section.title || labelize(String(section.type || `Section ${sectionIndex + 1}`))), lines: tableRows?.length ? lines.filter((line) => !/^\d+\.\s/.test(line)) : lines, table: tableRows, visuals: visual ? [visual] : undefined });
+      const visual = readyVisual(section.visual_support);
+      const rawGrid = wordSearch ? list(section.wordsearch_grid || section.grid) : [];
+      const grid = wordSearch ? (rawGrid.length ? rawGrid : makeWordSearchGrid(words)).map((row) => list(row).map(String)).filter((row) => row.length) : [];
+      if (lines.length || tableRows?.length || visual || grid.length) output.push({ heading: String(section.title || labelize(String(section.type || `Section ${sectionIndex + 1}`))), lines: tableRows?.length ? lines.filter((line) => !/^\d+\.\s/.test(line)) : lines, table: tableRows, grid: grid.length ? grid : undefined, visuals: visual && !wordSearch ? [visual] : undefined, watermark: visual && wordSearch ? visual : undefined });
     }
   }
 
@@ -511,10 +518,23 @@ async function savePdf(title: string, subtitle: string, sections: ReportSection[
       } catch { /* Invalid stored artwork should not prevent the document download. */ }
     }
     if (section.grid?.length) {
+      pdf.setFont('DejaVu', 'normal'); pdf.setFontSize(bodySize); pdf.setTextColor(51, 65, 85);
+      if (resourceKind === 'exam') { for (const line of section.lines) { const wrapped = pdf.splitTextToSize(line, width - margin * 2); ensureSpace(wrapped.length * (bodySize + 3) + 8); pdf.text(wrapped, margin, y); y += wrapped.length * (bodySize + 3) + 5; } y += 6; }
+      if (resourceKind === 'exam' && section.watermark) {
+        try {
+          const dimensions = pdf.getImageProperties(section.watermark);
+          const drawWidth = Math.min(width - margin * 2, 431);
+          const drawHeight = drawWidth * dimensions.height / dimensions.width;
+          const scale = Math.min(1, (height - margin * 2 - 40) / drawHeight);
+          ensureSpace(drawHeight * scale + 12);
+          pdf.addImage(section.watermark, dimensions.fileType, margin, y, drawWidth * scale, drawHeight * scale);
+          y += drawHeight * scale + 12;
+        } catch { /* Keep the puzzle if its stored illustration is invalid. */ }
+      }
       const cell = Math.min(25, (width - margin * 2) / section.grid[0].length);
       const x = (width - cell * section.grid[0].length) / 2;
       ensureSpace(cell * section.grid.length + 15);
-      if (section.watermark) {
+      if (section.watermark && resourceKind !== 'exam') {
         try {
           const dimensions = pdf.getImageProperties(section.watermark);
           const boxWidth = cell * section.grid[0].length;
@@ -590,6 +610,7 @@ async function saveDocx(title: string, subtitle: string, sections: ReportSection
         } catch { return []; }
       }),
       ...(section.grid?.length ? [
+        ...(resourceKind === 'exam' ? section.lines.map((line) => new Paragraph({ children: [new TextRun({ text: line, font: branding.font, size: baseSize, color: '334155' })], spacing: { after: 90 } })) : []),
         ...(watermarks[sectionIndex] ? [new Paragraph({ spacing: { before: 0, after: 0, line: 1 }, children: [new ImageRun({ data: visualBytes(watermarks[sectionIndex]!), type: 'png', transformation: { width: 430, height: section.grid.length * 27 }, floating: { horizontalPosition: { relative: 'column', align: 'center' }, verticalPosition: { relative: 'paragraph', offset: 108000 }, behindDocument: true, allowOverlap: true } })] })] : []),
         new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: section.grid.map((row) => new TableRow({ children: row.map((letter) => new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: letter, font: branding.font, size: baseSize, bold: true })] })] })) })) })
       ] : [

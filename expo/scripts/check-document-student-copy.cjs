@@ -91,6 +91,11 @@ const art = `data:image/png;base64,${fs.readFileSync(path.join(__dirname, '../pu
 const watermarkedSearch = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'word_search_vocab', vocabulary_bank: ['CLASS'], visual_supports: [{ status: 'ready', image_data_url: art }, { status: 'failed', image_data_url: art }] } }, 'student');
 assert.equal(watermarkedSearch.find((section) => section.grid).watermark, art);
 assert.equal(watermarkedSearch.flatMap((section) => section.visuals || []).length, 0);
+const examSearch = loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'word_search', title: 'Find the words', vocabulary_bank: ['CLASS', 'LEARN'], visual_support: { status: 'ready', image_data_url: art } }] } }, 'student');
+assert.equal(examSearch[0].grid.length, 10);
+assert.equal(examSearch[0].watermark, art);
+assert.ok(examSearch[0].lines.some((line) => line.includes('CLASS')));
+assert.equal(loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'word_search', grid: [['A', 'B'], ['C', 'D']] }] } }, 'student')[0].grid[1][1], 'D');
 const illustratedWorksheet = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'reading_comprehension', instructions: 'Look at the picture.', visual_supports: [{ status: 'ready', image_data_url: art }, { status: 'failed', image_data_url: art }] } }, 'student');
 assert.deepEqual(illustratedWorksheet.flatMap((section) => section.visuals || []), [art]);
 const illustratedExam = loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'diagram_questions', title: 'Diagram', visual_support: { status: 'ready', image_data_url: art }, questions: ['Name the part.'] }] } }, 'student');
