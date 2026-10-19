@@ -539,7 +539,7 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 - [x] Roles, permissions, and staff access through protected server mutations; default workspace, teaching/study access, account status, plan, and staff role assignment/revocation are editable and audited.
 - [x] Pricing-plan configuration with grouped feature flags, premium highlights, limits, USD canonical pricing, converted currency preview, and plan creation/editing.
 - [x] Subscription/event management with protected plan/status assignment, payment-event visibility, and audit feedback.
-- [ ] AI intelligence systems, evidence, health, decisions, and reports — **Partial:** content readiness and the full developer evidence workspace are visible; approved launch/report actions remain
+- [ ] AI intelligence systems, evidence, health, decisions, and reports — **Partial:** the Admin Operations page now has the localized Streamlit system catalog, current validated runs, model/job status charts, data health, and protected evidence. Streamlit's computed decision reports and approved Python launch/report actions still require authenticated Python worker endpoints and durable artifacts.
 - [x] Explorer saved-work review, structured content editing, publication, assignment, and archival through protected admin endpoints. The queue remains bounded to the latest 500 moves, matching Streamlit's Admin limit.
 - [x] Business analytics and operational audit visibility
 - [x] Developer workspace overview, ML lab, experiment evidence, telemetry, jobs, and audit

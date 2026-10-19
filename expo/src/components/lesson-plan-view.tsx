@@ -19,6 +19,12 @@ export function LessonPlanView({ detail, locale }: { detail: Record<string, unkn
           const isLabel = section.subheadings?.includes(line);
           return <Text key={lineIndex} style={isLabel ? styles.label : styles.line}>{line}</Text>;
         })}
+        {section.planBlocks?.map((block, blockIndex) => <View key={`${block.label}-${blockIndex}`} style={styles.block}>
+          <Text style={styles.label}>{block.label}</Text>
+          {block.lines.map((line, lineIndex) => <Text key={lineIndex} style={styles.line}>{block.list ? '• ' : ''}{line}</Text>)}
+        </View>)}
+        {section.table?.map((row, rowIndex) => <View key={rowIndex} style={styles.tableRow}>{row.map((cell, cellIndex) => <Text key={cellIndex} style={styles.tableCell}>{cell}</Text>)}</View>)}
+        {section.grid?.map((row, rowIndex) => <Text key={rowIndex} style={styles.line}>{row.join('  ')}</Text>)}
       </View>
     </Disclosure>)}
   </View>;
@@ -29,7 +35,10 @@ const styles = StyleSheet.create({
   section: { borderRadius: 14 },
   sectionTitle: { color: colors.primary, fontSize: 15 },
   sectionBody: { gap: 7 },
+  block: { gap: 5, paddingVertical: 5 },
   label: { color: colors.ink, fontSize: 13, fontWeight: '800', marginTop: 8 },
   line: { color: colors.inkSecondary, fontSize: 13, lineHeight: 20 },
+  tableRow: { flexDirection: 'row', gap: 8 },
+  tableCell: { flex: 1, color: colors.inkSecondary, fontSize: 13, lineHeight: 20 },
   visual: { width: '100%', height: 240 },
 });
