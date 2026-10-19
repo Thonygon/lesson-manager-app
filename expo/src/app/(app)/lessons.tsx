@@ -28,13 +28,13 @@ function LessonRow({ record, onEdit }: { record: ClassioRecord; onEdit: () => vo
 
 export default function LessonsScreen() {
   const { t } = useAppPreferences();
-  const params = useLocalSearchParams<{ student?: string; action?: string }>();
+  const params = useLocalSearchParams<{ student?: string; action?: string; date?: string }>();
   const lessons = useRecords('lessons');
   const students = useRecords('students');
   const packages = useRecords('payments');
   const [showForm, setShowForm] = useState(params.action === 'new' || Boolean(params.student));
   const [student, setStudent] = useState(params.student || '');
-  const [lessonDate, setLessonDate] = useState(dateValue());
+  const [lessonDate, setLessonDate] = useState(params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : dateValue());
   const [units, setUnits] = useState('1');
   const [modality, setModality] = useState<'Online' | 'Offline'>('Online');
   const [subject, setSubject] = useState('English');

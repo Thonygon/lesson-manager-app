@@ -1,38 +1,43 @@
-# Best next move: product and model contract
+# Best next move: plan de producto y contrato
 
-## Decision
+## Propósito
 
-Classio should first choose a **teacher action** from evidence already available at decision time. The first release is deterministic and auditable. Python resource affinity may rank resources *within* an eligible action, but it must not decide that an action exists. A learned action ranker is a later experiment after exposure and outcome data become reliable.
+Best next move prioriza una acción docente concreta, explica por qué conviene hacerla y abre el lugar donde puede resolverse. Las notificaciones muestran eventos por tiempo; esta función escoge entre ellos y el trabajo pedagógico o administrativo pendiente. No inventa clases, urgencias ni riesgos. Si no hay clases ni pendientes verificables, el docente puede descansar.
 
-## Candidate actions and priority
+## Reglas implementadas en Expo
 
-| Action | Eligibility | Destination | Suppression |
+| Prioridad | Señal | Acción | Retiro |
 | --- | --- | --- | --- |
-| Review a student submission | A review request remains open | Student review | Submission reviewed or archived |
-| Respond to a practice request | Student asked for more practice on an assigned topic | Student recommendations for that topic | Request addressed or withdrawn |
-| Resolve an overused or expiring package | Active student's balance is negative, zero, or near exhaustion | Student package/payments | New package covers the balance or student inactive |
-| Prepare the next lesson | Scheduled lesson lacks a suitable plan or related material | Lesson plan generator, prefilled with student/topic | Lesson cancelled, completed, or suitable plan linked |
-| Follow up on a scheduled lesson | A near-term lesson needs confirmation | Calendar/lesson record | Confirmed, cancelled, or elapsed |
-| Plan future teaching | None of the above is eligible | Calendar | A higher-priority action appears |
+| 10 | Entrega con revisión solicitada | Abrir revisión | Solicitud atendida |
+| 15–55 | Próximo tema de programa sin material claramente relacionado en biblioteca privada; clase dentro de siete días | Generar plan precargado; revisar similares | Aparece material, tema completado o clase cancelada |
+| 20 | Estudiante pide más práctica | Abrir programa asignado | Petición atendida o retirada |
+| 25–75 | Paquete sobreutilizado, agotado o por terminar | Revisar ficha del estudiante | Saldo corregido o estudiante inactivo |
+| 35 | Clase programada en los últimos tres días sin registro | Comprobar y, si ocurrió, registrar la clase | Clase registrada o retirada del calendario |
+| 48–68 | Existe plan relacionado pero no ficha ni examen; clase dentro de siete días | Generar ficha precargada | Aparece práctica o tema completado |
+| 50 | Material relacionado con clase dentro de 48 horas | Abrir tema para preparar clase | Clase pasada o tema completado |
+| 65 | Clase en las próximas 24 horas | Revisar calendario | Clase pasada o cancelada |
+| 70 | Práctica relacionada sin tarea vinculada al tema | Abrir recomendaciones para asignar | Tarea asignada o clase pasada |
+| 90 | No hay eventos próximos ni pendientes y queda un tema de programa | Ofrecer revisión opcional del tema | Cambia el estado |
 
-Within a priority tier, use the closest actionable deadline, then the oldest unresolved request. Show **one primary action** and at most two alternatives. Never duplicate the same `(student, topic, action)` across cards. Completed, archived, inaccessible, or inactive records are ineligible. A model outage must keep the deterministic decision available.
+El orden se resuelve por prioridad, plazo y luego identificador estable. Se muestra una opción principal y dos alternativas de categorías distintas. «Ahora no» posterga una sugerencia solo durante el día actual en ese dispositivo; no la marca hecha. Si todas quedan postergadas, la interfaz lo indica. Los datos incompletos no justifican afirmar que la biblioteca carece de material.
 
-## Explanation and action contract
+## Afinidad, generación y límites
 
-Every displayed suggestion needs `action_id`, `action_type`, `student_id` when applicable, `topic_id` when applicable, `source_record_id`, `source_updated_at`, `reason_key`, `destination`, `priority_tier`, and `decision_version`. The explanation should cite the source event in plain language and give a direct action button. No unverified prediction, model score, or inferred student risk belongs in the teacher-facing copy.
+La primera versión cruza tema, asignatura, etapa y nivel con los recursos de la biblioteca privada. La frase «no encontramos material claramente relacionado» expresa incertidumbre de la coincidencia textual; no afirma que el material no exista en toda Classio. Smart Tools comprueba recursos similares otra vez antes de generar. El enlace lleva programa, tema y estudiante para fijar contexto curricular. Un plan y una ficha cubren necesidades distintas.
 
-Recompute from current records when opening the dashboard and after a relevant mutation. An action ID should be stable for the same source record so exposure and outcomes can be joined. The server must enforce the teacher's access to the student and source record; Expo only displays the result.
+El motor de acciones es heurístico y explicable. El modelo Python de afinidad puede mejorar la selección de material cuando haya cobertura y umbrales validados; no debe decidir una ausencia de material a partir de una puntuación sin calibrar. Si Python no está disponible, el panel sigue funcionando. No se debería entrenar un clasificador de «mejor acción» hasta reunir resultados de varios docentes.
 
-## Evidence needed before training
+El motor no puede saber si una clase sin registro se impartió, ni si una clase próxima ya fue confirmada: los verbos son «comprobar» y «revisar». Un día sin clases no activa generación urgente. La biblioteca comunitaria se revisa en el flujo de reutilización, no para afirmar que hay recursos propios. La coincidencia textual puede fallar con sinónimos o traducciones.
 
-Log a unique decision instance for each displayed action, with candidate set, position, timestamp, teacher, source version, and model/rule version. Log `opened`, `dismissed`, and the actual downstream completion against that instance. A click is an intermediate behavior, not proof that the action helped. Training features must be frozen at display time; later completion or package updates cannot leak into them.
+## Evaluación durante las semanas de prueba
 
-Evaluate rules first: eligible-action precision, stale/duplicate rate, time to resolution, teacher dismissal rate, and whether the destination completed the intended task. Only consider a learned ranker after sufficient multi-teacher exposure and outcome coverage, chronological holdout evaluation, calibration, and a reviewed rollback plan. The existing assigned-resource seven-day classifier is a separate experiment and should not be relabeled as a Best next move model.
+La siguiente fase debe registrar en servidor, con RLS por docente, cada exposición, apertura, postergación y resolución real: revisión realizada, práctica asignada, material creado, clase registrada o saldo corregido. Cada registro necesita versión de reglas, origen y hora de decisión, sin copiar contenido sensible. Medir elegibilidad correcta, sugerencias repetidas, tiempo hasta resolución, apertura que termina en una tarea resuelta y tiempo operativo ahorrado. Los clics por sí solos no prueban utilidad. La telemetría requiere diseño de tabla y permisos antes de desplegarse; la v1 no recoge esos eventos en servidor.
 
-## Rollout sequence
+## Criterios de aceptación
 
-1. Authenticate Expo against the Python API and serve one human-approved affinity run from verified private artifacts.
-2. Implement the deterministic action contract and event logging; review reasons and navigation with teachers.
-3. Compare resource-affinity suggestions with the current fallback on eligible teacher actions.
-4. Assess logged outcomes before proposing supervised training.
-5. Expose approval, artifact publication, and runtime health in Expo through the same Python service used by Streamlit. Keep Streamlit controls operational until parity is verified.
+1. Las revisiones abiertas se anteponen al trabajo opcional.
+2. Un saldo negativo se calcula igual que el panel y desaparece tras corregirse.
+3. La generación abre el programa y tema correctos y ofrece reutilizar similares.
+4. Sin clase próxima no se inventa una preparación urgente.
+5. Una postergación deja de mostrarse hoy y puede reaparecer mañana si sigue pendiente.
+6. La copia está traducida al inglés, español y turco.

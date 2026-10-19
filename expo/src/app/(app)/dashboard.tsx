@@ -9,12 +9,13 @@ import { Button, Disclosure, EmptyState, Field, LoadingState, Pagination, Panel,
 import { useAuth } from '@/providers/auth-provider';
 import { getPricingItems, getStudentHistory, type ClassioRecord, type PricingItem } from '@/services/classio-data';
 import { downloadStudentHistoryPdf } from '@/services/document-exports';
-import { buildPackageInsights, getTeacherDataset, nextScheduledLesson, todaySchedules, type TeacherDataset, whatsappUrl } from '@/services/teacher-insights';
+import { buildPackageInsights, getTeacherDataset, todaySchedules, type TeacherDataset, whatsappUrl } from '@/services/teacher-insights';
 import { colors } from '@/theme';
 import { dashboardMessage, type MessageLanguage, type MessageTemplate } from '@/services/dashboard-whatsapp';
 import { getInactiveDashboardStudents } from '@/services/dashboard-student-status';
 import { getTeacherDayTopics } from '@/services/teacher-day-topics';
 import { getTeacherTodayAgenda } from '@/services/teacher-day-agenda';
+import { buildTeacherNextMoves, dismissNextMove, loadDismissedNextMoves, loadTeacherNextMoveContext, type NextMoveContext } from '@/services/teacher-best-next-move';
 import { useAppPreferences } from '@/providers/app-preferences';
 
 function formatDate(value: string) { return value ? new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '—'; }
@@ -34,9 +35,11 @@ export default function DashboardScreen() {
   const { profile, user } = useAuth(); const userId = user?.id || ''; const [data, setData] = useState<TeacherDataset | null>(null); const [error, setError] = useState('');
   const [waLanguage, setWaLanguage] = useState<MessageLanguage>('en'); const [waTemplate, setWaTemplate] = useState<MessageTemplate>('package'); const [waStudent, setWaStudent] = useState(''); const [waMessage, setWaMessage] = useState(''); const [packagePage, setPackagePage] = useState(1);
   const [dayTopics, setDayTopics] = useState<Record<string, string>>({}); const [todayAgenda, setTodayAgenda] = useState<ClassioRecord[] | null>(null); const [pricing, setPricing] = useState<PricingItem[]>([]); const [inactiveStudents, setInactiveStudents] = useState<string[]>([]); const [reportStudent, setReportStudent] = useState(''); const [reportSearch, setReportSearch] = useState(''); const [reportHistory, setReportHistory] = useState<{ lessons: ClassioRecord[]; payments: ClassioRecord[] } | null>(null); const [reportLoading, setReportLoading] = useState(false); const [reportError, setReportError] = useState('');
-  const load = useCallback(async () => { setError(''); setTodayAgenda(null); setDayTopics({}); try { const loaded = await getTeacherDataset(); setData(loaded); const [prices, inactive] = await Promise.all([getPricingItems(), getInactiveDashboardStudents()]); setPricing(prices); setInactiveStudents(inactive); let agenda: ClassioRecord[]; try { agenda = await getTeacherTodayAgenda(userId, loaded.schedules); } catch (reason) { console.warn('Calendar changes unavailable; showing weekly schedule', reason); agenda = todaySchedules(loaded); } setTodayAgenda(agenda); void getTeacherDayTopics(userId, agenda.filter((row) => !inactive.includes(String(row.student || ''))).map((row) => ({ name: String(row.student || ''), userId: String(loaded.students.find((student) => String(student.student || '') === String(row.student || ''))?.linked_student_user_id || '') }))).then(setDayTopics).catch((reason) => console.warn('Today’s program topics unavailable', reason)); } catch (reason) { setError(reason instanceof Error ? reason.message : 'The teacher dashboard could not be loaded.'); } }, [userId]);
+  const [nextMoveContext, setNextMoveContext] = useState<NextMoveContext | null>(null);
+  const [dismissedMoves, setDismissedMoves] = useState<string[]>([]);
+  const load = useCallback(async () => { setError(''); try { const [loaded, context, dismissed] = await Promise.all([getTeacherDataset(), loadTeacherNextMoveContext(userId), loadDismissedNextMoves(userId)]); const [prices, inactive] = await Promise.all([getPricingItems(), getInactiveDashboardStudents()]); let agenda: ClassioRecord[]; try { agenda = await getTeacherTodayAgenda(userId, loaded.schedules); } catch (reason) { console.warn('Calendar changes unavailable; showing weekly schedule', reason); agenda = todaySchedules(loaded); } setPricing(prices); setInactiveStudents(inactive); setDismissedMoves(dismissed); setNextMoveContext(context); setTodayAgenda(agenda); setData(loaded); void getTeacherDayTopics(userId, agenda.filter((row) => !inactive.includes(String(row.student || ''))).map((row) => ({ name: String(row.student || ''), userId: String(loaded.students.find((student) => String(student.student || '') === String(row.student || ''))?.linked_student_user_id || '') }))).then(setDayTopics).catch((reason) => console.warn('Today’s program topics unavailable', reason)); } catch (reason) { setError(reason instanceof Error ? reason.message : 'The teacher dashboard could not be loaded.'); } }, [userId]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
-  const name = profile?.display_name || profile?.username || user?.email?.split('@')[0] || t('home.teacher'); const packages = useMemo(() => data ? buildPackageInsights(data).filter((row) => !inactiveStudents.includes(row.student)) : [], [data, inactiveStudents]); const todays = useMemo(() => (todayAgenda || []).filter((row) => !inactiveStudents.includes(String(row.student || ''))), [todayAgenda, inactiveStudents]); const nextLesson = useMemo(() => { if (!data) return null; const now = new Date(); const currentMinutes = now.getHours() * 60 + now.getMinutes(); const upcoming = todays.find((row) => { const [hours, minutes] = String(row.time || '').split(':').map(Number); return hours * 60 + minutes >= currentMinutes; }); if (upcoming) { const [hours, minutes] = String(upcoming.time || '').split(':').map(Number); const dateTime = new Date(now); dateTime.setHours(hours, minutes, 0, 0); return { schedule: upcoming, dateTime }; } const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1); return nextScheduledLesson({ ...data, schedules: data.schedules.filter((row) => !inactiveStudents.includes(String(row.student || ''))) }, tomorrow); }, [data, inactiveStudents, todays]); const studentMeta = useMemo(() => new Map((data?.students || []).map((row) => [String(row.student || ''), row])), [data]); const actionPackages = useMemo(() => packages.filter((row) => row.status !== 'active'), [packages]); const packagePages = Math.max(1, Math.ceil(actionPackages.length / 6)); const currentPackagePage = Math.min(packagePage, packagePages); const pagedActionPackages = actionPackages.slice((currentPackagePage - 1) * 6, currentPackagePage * 6); const currentYear = new Date().getFullYear(); const ytdPayments = data?.payments.filter((row) => String(row.payment_date || '').startsWith(String(currentYear))) || []; const incomeByCurrency = ytdPayments.reduce<Record<string, number>>((acc, row) => ({ ...acc, [String(row.currency || 'TRY')]: (acc[String(row.currency || 'TRY')] || 0) + Number(row.paid_amount || 0) }), {}); const primaryIncome = incomeByCurrency[data?.goalCurrency || 'TRY'] || 0; const goalProgress = data?.yearGoal ? Math.min(100, Math.round(primaryIncome / data.yearGoal * 100)) : 0;
+  const name = profile?.display_name || profile?.username || user?.email?.split('@')[0] || t('home.teacher'); const packages = useMemo(() => data ? buildPackageInsights(data).filter((row) => !inactiveStudents.includes(row.student)) : [], [data, inactiveStudents]); const todays = useMemo(() => (todayAgenda || []).filter((row) => !inactiveStudents.includes(String(row.student || ''))), [todayAgenda, inactiveStudents]); const studentMeta = useMemo(() => new Map((data?.students || []).map((row) => [String(row.student || ''), row])), [data]); const actionPackages = useMemo(() => packages.filter((row) => row.status !== 'active'), [packages]); const packagePages = Math.max(1, Math.ceil(actionPackages.length / 6)); const currentPackagePage = Math.min(packagePage, packagePages); const pagedActionPackages = actionPackages.slice((currentPackagePage - 1) * 6, currentPackagePage * 6); const currentYear = new Date().getFullYear(); const ytdPayments = data?.payments.filter((row) => String(row.payment_date || '').startsWith(String(currentYear))) || []; const incomeByCurrency = ytdPayments.reduce<Record<string, number>>((acc, row) => ({ ...acc, [String(row.currency || 'TRY')]: (acc[String(row.currency || 'TRY')] || 0) + Number(row.paid_amount || 0) }), {}); const primaryIncome = incomeByCurrency[data?.goalCurrency || 'TRY'] || 0; const goalProgress = data?.yearGoal ? Math.min(100, Math.round(primaryIncome / data.yearGoal * 100)) : 0;
   const pendingReviews = useMemo(() => (data?.reviewRequests || []).filter((row) => String(row.status) === 'requested'), [data?.reviewRequests]);
   const practiceRequests = useMemo(() => data?.practiceRequests || [], [data?.practiceRequests]);
   const packageCounts = useMemo(() => ({ total: packages.length, active: packages.filter((row) => row.status === 'active').length, soon: packages.filter((row) => row.status === 'finishing_soon').length, due: packages.filter((row) => row.status === 'due_now').length, overused: packages.filter((row) => row.status === 'overused').length }), [packages]);
@@ -48,27 +51,9 @@ export default function DashboardScreen() {
   const selectedReportStudent = reportOptions.some((row) => String(row.student || '') === reportStudent) ? reportStudent : String(reportOptions[0]?.student || '');
   const loadStudentReport = async () => { if (!selectedReportStudent) return; setReportLoading(true); setReportError(''); setReportHistory(null); try { setReportHistory(await getStudentHistory(selectedReportStudent)); } catch (reason) { setReportError(reason instanceof Error ? reason.message : t('dashboard.reportUnavailable')); } finally { setReportLoading(false); } };
 
-  const nextStudent = String(nextLesson?.schedule.student || '');
-  const nextStudentId = String(studentMeta.get(nextStudent)?.linked_student_user_id || '');
-  const nextReview = pendingReviews.find((row) => String(row.student_id || '') === nextStudentId) || pendingReviews[0];
-  const nextPractice = practiceRequests.find((row) => String(row.student_id || '') === nextStudentId) || practiceRequests[0];
-  const reviewStudentName = String(data?.students.find((row) => String(row.linked_student_user_id || '') === String(nextReview?.student_id || ''))?.student || t('dashboard.studentFallback'));
-  const nextTime = String(nextLesson?.schedule.time || '').slice(0, 5);
-  const nextTopic = dayTopics[nextStudent.trim().toLocaleLowerCase()];
-  const nextMove: { title: string; href: Href } = nextReview ? {
-    title: t('dashboard.actionReview', { student: reviewStudentName }),
-    href: { pathname: '/students', params: { section: 'progress', learningTab: 'reviews', student: String(nextReview.student_id || '') } },
-  } : nextPractice ? {
-    title: t('dashboard.actionPractice', { student: nextStudent && String(nextPractice.student_id) === nextStudentId ? nextStudent : String(nextPractice.student_name || t('dashboard.studentFallback')) }),
-    href: { pathname: '/students', params: { section: 'progress', learningTab: 'programs', student: String(nextPractice.student_id || '') } },
-  } : nextLesson && nextTopic ? {
-    title: t('dashboard.actionTopic', { topic: nextTopic, student: nextStudent }),
-    href: { pathname: '/students', params: { section: 'progress', learningTab: 'programs', student: nextStudentId } },
-  } : nextLesson ? {
-    title: t('dashboard.actionConfirm', { student: nextStudent, time: nextTime }), href: '/calendar',
-  } : actionPackages.length ? {
-    title: t('dashboard.actionPackage', { student: actionPackages[0].student }), href: '/payments',
-  } : { title: t('dashboard.actionPlan'), href: '/calendar' };
+  const nextMoves = useMemo(() => data && nextMoveContext ? buildTeacherNextMoves({ data, packages, inactiveStudents, context: nextMoveContext, dismissed: dismissedMoves }) : null, [data, nextMoveContext, packages, inactiveStudents, dismissedMoves]);
+  const nextMove = nextMoves?.primary;
+  const postponeMove = (id: string) => { setDismissedMoves((current) => [...new Set([...current, id])]); void dismissNextMove(userId, id).catch((reason) => console.warn('Best next move postponement could not be saved', reason)); };
 
   return <AppShell title={t('dashboard.goodToSee', { name })} eyebrow={t('dashboard.eyebrow')} notifications={data ? notifications.map((item) => ({ ...item, key: item.title })) : undefined}>{error ? <EmptyState title="Dashboard unavailable" body={error} action={<Button onPress={() => void load()}>Try again</Button>} /> : !data ? <LoadingState /> : <>
     <View style={styles.dayPanel}>
@@ -86,7 +71,11 @@ export default function DashboardScreen() {
           <View style={styles.lessonActions}>{meta?.zoom_link ? <IconAction icon="↗" label={t('dashboard.join')} onPress={() => void Linking.openURL(String(meta.zoom_link))} /> : null}{pkg?.phone ? <IconAction icon="💬" label={t('dashboard.message')} onPress={() => void Linking.openURL(whatsappUrl(pkg.phone, dashboardMessage(student, waLanguage, 'confirm_today', 'active', String(row.time || '').slice(0, 5), pricing)))} tone="muted" /> : null}{meta?.address ? <IconAction icon="⌖" label={t('dashboard.map')} onPress={() => void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(String(meta.address))}`)} tone="muted" /> : null}</View>
         </View>;
       })}</View> : <Text style={styles.dayEmpty}>{t('dashboard.noLessonsBody')}</Text>}
-      <Pressable accessibilityRole="button" onPress={() => router.push(nextMove.href)} style={styles.nextMove}><Text style={styles.nextMoveIcon}>✨</Text><View style={styles.nextMoveCopy}><Text style={styles.nextMoveLabel}>{t('dashboard.nextBestAction')}</Text><Text style={styles.nextMoveText}>{nextMove.title}</Text></View><Text style={styles.nextMoveArrow}>→</Text></Pressable>
+      {nextMove ? <View style={styles.nextMoveGroup}>
+        <Pressable accessibilityRole="button" onPress={() => router.push(nextMove.href)} style={styles.nextMove}><Text style={styles.nextMoveIcon}>{nextMove.icon}</Text><View style={styles.nextMoveCopy}><Text style={styles.nextMoveLabel}>{t('dashboard.nextBestAction')}</Text><Text style={styles.nextMoveText}>{t(nextMove.titleKey, nextMove.params)}</Text><Text style={styles.nextMoveReason}>{t(nextMove.reasonKey, nextMove.params)}</Text><Text style={styles.nextMoveAction}>{t(nextMove.actionKey)} →</Text></View></Pressable>
+        <View style={styles.nextMoveFooter}><Pressable accessibilityRole="button" onPress={() => postponeMove(nextMove.id)}><Text style={styles.nextMovePostpone}>{t('bestMove.notNow')}</Text></Pressable></View>
+        {nextMoves?.alternatives.length ? <View style={styles.nextMoveAlternatives}><Text style={styles.nextMoveAlternativesTitle}>{t('bestMove.alternatives')}</Text>{nextMoves.alternatives.map((alternative) => <Pressable key={alternative.id} accessibilityRole="button" onPress={() => router.push(alternative.href)} style={styles.nextMoveAlternative}><Text style={styles.nextMoveAlternativeIcon}>{alternative.icon}</Text><View style={styles.nextMoveCopy}><Text style={styles.nextMoveAlternativeTitle}>{t(alternative.titleKey, alternative.params)}</Text><Text style={styles.nextMoveAlternativeReason}>{t(alternative.reasonKey, alternative.params)}</Text></View><Text style={styles.nextMoveArrow}>→</Text></Pressable>)}</View> : null}
+      </View> : <View style={styles.nextMoveAllClear}><Text style={styles.nextMoveIcon}>{nextMoves?.postponedCount ? '◷' : nextMoveContext?.complete ? '✓' : '◷'}</Text><View style={styles.nextMoveCopy}><Text style={styles.nextMoveLabel}>{t('dashboard.nextBestAction')}</Text><Text style={styles.nextMoveText}>{t(nextMoves?.postponedCount ? 'bestMove.postponed' : nextMoveContext?.complete ? 'bestMove.allClear' : 'bestMove.unavailable')}</Text><Text style={styles.nextMoveReason}>{t(nextMoves?.postponedCount ? 'bestMove.postponedReason' : nextMoveContext?.complete ? 'bestMove.allClearReason' : 'bestMove.unavailableReason')}</Text></View></View>}
       </>}
     </View>
     <Text style={styles.sectionTitle}>{t('dashboard.incomeGoal', { year: currentYear })}</Text>
@@ -128,11 +117,23 @@ const styles = StyleSheet.create({
   dayStudent: { color: colors.ink, fontSize: 16, fontWeight: '900' },
   dayTopic: { color: colors.muted, fontSize: 12, marginTop: 3 },
   dayEmpty: { color: colors.muted, fontSize: 13, marginVertical: 14 },
-  nextMove: { flexDirection: 'row', alignItems: 'center', gap: 13, backgroundColor: colors.violetSoft, borderWidth: 1, borderColor: colors.violet, borderRadius: 17, padding: 17, marginTop: 18 },
+  nextMoveGroup: { marginTop: 18 },
+  nextMove: { flexDirection: 'row', alignItems: 'center', gap: 13, backgroundColor: colors.violetSoft, borderWidth: 1, borderColor: colors.violet, borderRadius: 17, padding: 17 },
+  nextMoveAllClear: { flexDirection: 'row', alignItems: 'center', gap: 13, backgroundColor: colors.successSoft, borderWidth: 1, borderColor: colors.success, borderRadius: 17, padding: 17, marginTop: 18 },
   nextMoveIcon: { fontSize: 24 },
   nextMoveCopy: { flex: 1 },
   nextMoveLabel: { color: colors.violet, fontSize: 11, fontWeight: '900' },
   nextMoveText: { color: colors.ink, fontSize: 14, lineHeight: 20, marginTop: 3 },
+  nextMoveReason: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 5 },
+  nextMoveAction: { color: colors.violet, fontSize: 12, fontWeight: '900', marginTop: 9 },
+  nextMoveFooter: { alignItems: 'flex-end', paddingHorizontal: 5, paddingTop: 7 },
+  nextMovePostpone: { color: colors.muted, fontSize: 11, fontWeight: '800', padding: 5 },
+  nextMoveAlternatives: { gap: 8, marginTop: 8 },
+  nextMoveAlternativesTitle: { color: colors.muted, fontSize: 11, fontWeight: '900' },
+  nextMoveAlternative: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.lineStrong, borderRadius: 13, padding: 12 },
+  nextMoveAlternativeIcon: { fontSize: 17 },
+  nextMoveAlternativeTitle: { color: colors.ink, fontSize: 12, fontWeight: '900' },
+  nextMoveAlternativeReason: { color: colors.muted, fontSize: 10, marginTop: 2 },
   nextMoveArrow: { color: colors.violet, fontSize: 20, fontWeight: '900' },
   heroGlow: { position: 'absolute', right: -48, top: -90, width: 240, height: 240, borderRadius: 120, backgroundColor: colors.primarySoft, opacity: 0.72 },
   heroLink: { borderRadius: 16, padding: 2 }, heroHover: { opacity: 0.86, transform: [{ scale: 0.995 }] }, heroCopy: { flex: 1 }, heroEyebrow: { flexDirection: 'row', alignItems: 'center', gap: 9 }, heroIcon: { color: colors.primary, fontSize: 19, fontWeight: '900' }, heroHint: { color: '#93C5FD', fontSize: 10, fontWeight: '800', marginTop: 11 },
