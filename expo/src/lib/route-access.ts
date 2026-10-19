@@ -3,7 +3,7 @@ import type { ClassioProfile } from '@/types/auth';
 const STUDENT_ROUTES = ['/student-home', '/student-practice', '/student-study-plan', '/student-assignments', '/student-find-teacher'];
 const TEACHER_ROUTES = ['/home', '/dashboard', '/students', '/student-delete', '/lessons', '/payments', '/calendar', '/resources', '/smart-tools', '/analytics', '/branding', '/community', '/billing', '/assignments'];
 const SHARED_ROUTES = ['/profile', '/account'];
-const ADMIN_ROUTES = ['/admin'];
+const ADMIN_ROUTES = ['/admin', '/admin-operations', '/admin-business'];
 const DEVELOPER_ROUTES = ['/developer-workspace'];
 
 function matches(pathname: string, routes: string[]) {

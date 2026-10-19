@@ -534,12 +534,13 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 
 - [x] Role-gated admin shell with hidden navigation and direct-URL protection
 - [x] Admin overview and business KPIs backed by live platform data
-- [ ] User/account creation and management
-- [ ] Roles, permissions, and staff access — **Partial:** role assignments and status are visible; protected server mutations remain
-- [ ] Pricing-plan configuration — **Partial:** the live catalog is visible; protected editing remains
-- [ ] Subscription/event management — **Partial:** subscription status, provider metadata, and payment events are visible; protected actions remain
+- [x] Admin workspace divided into Administración (accounts/access), Operaciones (AI/Explorer/audit), and Negocio (business/pricing), with role-gated navigation, existing Classio filters and charts, and EN/ES/TR labels.
+- [x] User/account creation and management through an admin-authorized invitation endpoint, with account status and usage reset controls.
+- [x] Roles, permissions, and staff access through protected server mutations; default workspace, teaching/study access, account status, plan, and staff role assignment/revocation are editable and audited.
+- [x] Pricing-plan configuration with grouped feature flags, premium highlights, limits, USD canonical pricing, converted currency preview, and plan creation/editing.
+- [x] Subscription/event management with protected plan/status assignment, payment-event visibility, and audit feedback.
 - [ ] AI intelligence systems, evidence, health, decisions, and reports — **Partial:** content readiness and the full developer evidence workspace are visible; approved launch/report actions remain
-- [ ] Explorer saved-work review and assignment — **Partial:** the complete queue and publication state are visible; publish/assign actions remain
+- [x] Explorer saved-work review, structured content editing, publication, assignment, and archival through protected admin endpoints. The queue remains bounded to the latest 500 moves, matching Streamlit's Admin limit.
 - [x] Business analytics and operational audit visibility
 - [x] Developer workspace overview, ML lab, experiment evidence, telemetry, jobs, and audit
 - [x] Operational diagnostics and incident visibility

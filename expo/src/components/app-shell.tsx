@@ -31,7 +31,9 @@ const NAV = [
 ] as const;
 
 const PRIVILEGED_NAV = [
-  { href: '/admin', icon: '⚙', labelKey: 'nav.admin', kind: 'admin' },
+  { href: '/admin', icon: '⚙', labelKey: 'admin.area.administration', kind: 'admin' },
+  { href: '/admin-operations', icon: '◈', labelKey: 'admin.area.operations', kind: 'admin' },
+  { href: '/admin-business', icon: '↗', labelKey: 'admin.area.business', kind: 'admin' },
   { href: '/developer-workspace', icon: '⌘', labelKey: 'nav.developer', kind: 'developer' },
 ] as const;
 
@@ -59,7 +61,7 @@ export function AppShell({ title, eyebrow, notifications, scrollToTopToken, chil
   }, [scrollToTopToken]);
   const compact = width < 960; const phone = width < 560;
   const role = profile?.last_active_mode ?? profile?.primary_role ?? profile?.role ?? 'student';
-  const navigationRole = pathname === '/admin' && access.isAdmin ? 'admin'
+  const navigationRole = pathname.startsWith('/admin') && access.isAdmin ? 'admin'
     : pathname === '/developer-workspace' && access.canUseDeveloperWorkspace ? 'developer'
     : role;
   const identityName = profile?.display_name || profile?.username || user?.email || t('nav.profile');

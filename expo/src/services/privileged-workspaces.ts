@@ -16,6 +16,7 @@ export type AdminWorkspaceData = {
   staffRoles: WorkspaceResult;
   explorerMoves: WorkspaceResult;
   contentCounts: Record<string, number>;
+  platformCounts: Record<string, number>;
   warnings: string[];
 };
 
@@ -75,19 +76,20 @@ export async function loadAdminWorkspace(): Promise<AdminWorkspaceData> {
   if (profileError || profile?.role !== 'admin') throw new Error('Admin access is required for this workspace.');
 
   const [profiles, subscriptions, plans, paymentEvents, overrides, staffRoles, explorerMoves, ...counts] = await Promise.all([
-    readRows('profiles', 'user_id,email,display_name,role,primary_role,current_plan,subscription_status,created_at,account_status,login_count,last_active_mode,active_student_count,can_teach,can_study', { order: 'created_at', limit: 500 }),
+    readRows('profiles', 'user_id,email,display_name,role,primary_role,current_plan,subscription_status,created_at,account_status,admin_notes,login_count,last_active_mode,active_student_count,can_teach,can_study', { order: 'created_at', limit: 500 }),
     readRows('user_subscriptions', 'user_id,plan_id,subscription_status,provider_customer_id,manual_override,updated_at', { order: 'updated_at', limit: 500 }),
     readRows('plans', '*', { order: 'id', ascending: true, limit: 100 }),
     readRows('payment_events', 'id,provider,event_type,processed,created_at', { order: 'created_at', limit: 100 }),
     readRows('admin_overrides', 'id,user_id,override_type,reason,created_by,expires_at,created_at', { order: 'created_at', limit: 100 }),
     readRows('user_staff_roles', 'id,user_id,role_key,is_active,assigned_by,assigned_at,revoked_at,assignment_reason', { order: 'assigned_at', limit: 250 }),
-    readRows('explorer_moves', 'id,resource_type,tool_key,title,subject,topic,learner_stage,level_or_band,language,status,published_table,published_record_id,created_at,updated_at', { order: 'created_at', limit: 250 }),
-    ...['worksheets', 'quick_exams', 'lesson_plans', 'videos', 'learning_programs'].map(countRows),
+    readRows('explorer_moves', 'id,resource_type,tool_key,title,subject,topic,learner_stage,level_or_band,language,status,published_table,published_record_id,created_at,updated_at', { order: 'created_at', limit: 500 }),
+    ...['worksheets', 'quick_exams', 'lesson_plans', 'videos', 'learning_programs', 'profiles', 'user_subscriptions', 'payment_events'].map(countRows),
   ]);
   const names = ['worksheets', 'exams', 'lessonPlans', 'videos', 'learningPrograms'];
   const contentCounts = Object.fromEntries(names.map((name, index) => [name, counts[index].count]));
+  const platformCounts = Object.fromEntries(['profiles', 'subscriptions', 'paymentEvents'].map((name, index) => [name, counts[index + names.length].count]));
   return {
-    profiles, subscriptions, plans, paymentEvents, overrides, staffRoles, explorerMoves, contentCounts,
+    profiles, subscriptions, plans, paymentEvents, overrides, staffRoles, explorerMoves, contentCounts, platformCounts,
     warnings: warnings([profiles, subscriptions, plans, paymentEvents, overrides, staffRoles, explorerMoves], counts.map((item) => item.warning)),
   };
 }
