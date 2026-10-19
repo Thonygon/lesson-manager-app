@@ -19,7 +19,7 @@ Best next move prioriza una acción docente concreta, explica por qué conviene 
 | 70 | Práctica relacionada sin tarea vinculada al tema | Abrir recomendaciones para asignar | Tarea asignada o clase pasada |
 | 90 | No hay eventos próximos ni pendientes y queda un tema de programa | Ofrecer revisión opcional del tema | Cambia el estado |
 
-El orden se resuelve por prioridad, plazo y luego identificador estable. Se muestra una opción principal y dos alternativas de categorías distintas. «Ahora no» posterga una sugerencia solo durante el día actual en ese dispositivo; no la marca hecha. Si todas quedan postergadas, la interfaz lo indica. Los datos incompletos no justifican afirmar que la biblioteca carece de material.
+El orden interno se resuelve por prioridad, plazo y luego identificador estable. La interfaz muestra **una sola acción** en la tarjeta original. Su identificador se conserva en el dispositivo: las demás esperan en la cola aunque cambie su prioridad. Cuando la acción visible deja de ser elegible tras resolverse o cambiar los datos, aparece la primera acción pendiente. No hay botón para saltar una acción sin resolverla. Los datos incompletos no justifican afirmar que la biblioteca carece de material.
 
 ## Afinidad, generación y límites
 
@@ -31,7 +31,7 @@ El motor no puede saber si una clase sin registro se impartió, ni si una clase 
 
 ## Evaluación durante las semanas de prueba
 
-La siguiente fase debe registrar en servidor, con RLS por docente, cada exposición, apertura, postergación y resolución real: revisión realizada, práctica asignada, material creado, clase registrada o saldo corregido. Cada registro necesita versión de reglas, origen y hora de decisión, sin copiar contenido sensible. Medir elegibilidad correcta, sugerencias repetidas, tiempo hasta resolución, apertura que termina en una tarea resuelta y tiempo operativo ahorrado. Los clics por sí solos no prueban utilidad. La telemetría requiere diseño de tabla y permisos antes de desplegarse; la v1 no recoge esos eventos en servidor.
+La siguiente fase debe registrar en servidor, con RLS por docente, cada exposición, apertura y resolución real: revisión realizada, práctica asignada, material creado, clase registrada o saldo corregido. Cada registro necesita versión de reglas, origen y hora de decisión, sin copiar contenido sensible. Medir elegibilidad correcta, sugerencias repetidas, tiempo hasta resolución, apertura que termina en una tarea resuelta y tiempo operativo ahorrado. Los clics por sí solos no prueban utilidad. La telemetría requiere diseño de tabla y permisos antes de desplegarse; la v1 no recoge esos eventos en servidor.
 
 ## Criterios de aceptación
 
@@ -39,5 +39,5 @@ La siguiente fase debe registrar en servidor, con RLS por docente, cada exposici
 2. Un saldo negativo se calcula igual que el panel y desaparece tras corregirse.
 3. La generación abre el programa y tema correctos y ofrece reutilizar similares.
 4. Sin clase próxima no se inventa una preparación urgente.
-5. Una postergación deja de mostrarse hoy y puede reaparecer mañana si sigue pendiente.
+5. La tarjeta conserva la misma acción mientras siga pendiente y muestra la siguiente al resolverse.
 6. La copia está traducida al inglés, español y turco.

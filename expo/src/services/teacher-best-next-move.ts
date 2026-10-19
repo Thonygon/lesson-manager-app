@@ -43,20 +43,22 @@ export type NextMoveTopic = {
   planAvailable: boolean;
 };
 export type NextMoveContext = { topics: NextMoveTopic[]; events: CalendarEvent[]; pastEvents: CalendarEvent[]; coverageAvailable: boolean; complete: boolean };
-export type NextMoveResult = { primary: TeacherNextMove | null; alternatives: TeacherNextMove[]; candidates: TeacherNextMove[]; postponedCount: number };
-
-function dismissalKey(teacherId: string, now: Date) { return `classio:best-next-move:dismissed:${teacherId}:${dateKey(now)}`; }
-export async function loadDismissedNextMoves(teacherId: string, now = new Date()): Promise<string[]> {
-  if (!teacherId) return [];
-  try { const value = JSON.parse(await AsyncStorage.getItem(dismissalKey(teacherId, now)) || '[]'); return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []; }
-  catch { return []; }
-}
-export async function dismissNextMove(teacherId: string, id: string, now = new Date()): Promise<string[]> {
-  const dismissed = [...new Set([...(await loadDismissedNextMoves(teacherId, now)), id])].slice(-100);
-  if (teacherId) await AsyncStorage.setItem(dismissalKey(teacherId, now), JSON.stringify(dismissed));
-  return dismissed;
+export type NextMoveResult = { primary: TeacherNextMove | null; candidates: TeacherNextMove[] };
+export function selectActiveNextMove(result: NextMoveResult | null, activeId: string): TeacherNextMove | null {
+  return result?.candidates.find((item) => item.id === activeId) ?? result?.primary ?? null;
 }
 
+function activeMoveKey(teacherId: string) { return `classio:best-next-move:active:${teacherId}`; }
+export async function loadActiveNextMove(teacherId: string): Promise<string> {
+  if (!teacherId) return '';
+  try { return (await AsyncStorage.getItem(activeMoveKey(teacherId))) || ''; }
+  catch { return ''; }
+}
+export async function saveActiveNextMove(teacherId: string, id: string): Promise<void> {
+  if (!teacherId) return;
+  if (id) await AsyncStorage.setItem(activeMoveKey(teacherId), id);
+  else await AsyncStorage.removeItem(activeMoveKey(teacherId));
+}
 function topicRelated(resource: { subject: string; topic: string; title: string; stage: string; level: string }, topic: NextMoveTopic) {
   const resourceSubject = norm(resource.subject);
   if (resourceSubject && norm(topic.subject) && resourceSubject !== norm(topic.subject)) return false;
@@ -123,11 +125,10 @@ export async function loadTeacherNextMoveContext(teacherId: string, now = new Da
   return { topics, events, pastEvents, coverageAvailable: completeCoverage, complete: Boolean(calendar && library && !library.unavailable.length && !cappedKind && topicRows.length < 2000 && assignments.length < 300) };
 }
 
-export function buildTeacherNextMoves(input: { data: TeacherDataset; packages: PackageInsight[]; inactiveStudents: string[]; context: NextMoveContext; now?: Date; dismissed?: string[] }): NextMoveResult {
+export function buildTeacherNextMoves(input: { data: TeacherDataset; packages: PackageInsight[]; inactiveStudents: string[]; context: NextMoveContext; now?: Date }): NextMoveResult {
   const { data, packages, context } = input;
   const now = input.now ?? new Date();
   const inactive = new Set(input.inactiveStudents.map(norm));
-  const dismissed = new Set(input.dismissed ?? []);
   const studentsById = new Map(data.students.map((row) => [text(row.linked_student_user_id), text(row.student)]));
   const activeStudent = (name: string) => Boolean(name) && !inactive.has(norm(name));
   const actions: TeacherNextMove[] = [];
@@ -178,18 +179,11 @@ export function buildTeacherNextMoves(input: { data: TeacherDataset; packages: P
   if (firstLesson && hoursUntilLesson <= 24 && hoursUntilLesson >= 1) {
     add({ id: `confirm:${firstLesson.key}`, kind: 'confirm_lesson', priority: 65, icon: '🗓️', titleKey: 'bestMove.confirmTitle', reasonKey: 'bestMove.confirmReason', actionKey: 'bestMove.confirmAction', params: { student: firstLesson.student, time: firstLesson.time }, href: '/calendar', dueAt: firstLessonAt });
   }
-  if (!actions.length && context.topics.length && !context.events.length) {
+  if (context.topics.length && !context.events.length) {
     const topic = orderedTopics[0];
     if (topic) add({ id: `program:${topic.assignmentId}:${topic.topicId}`, kind: 'plan_program', priority: 90, icon: '📚', titleKey: 'bestMove.programTitle', reasonKey: 'bestMove.programReason', actionKey: 'bestMove.programAction', params: { topic: topic.title }, href: { pathname: '/students', params: { section: 'progress', learningTab: 'programs', student: topic.studentId } } });
   }
-  const allUnique = [...new Map(actions.map((action) => [action.id, action])).values()];
-  const unique = allUnique.filter((action) => !dismissed.has(action.id)).sort((a, b) => a.priority - b.priority || (a.dueAt || Infinity) - (b.dueAt || Infinity) || a.id.localeCompare(b.id));
+  const unique = [...new Map(actions.map((action) => [action.id, action])).values()].sort((a, b) => a.priority - b.priority || (a.dueAt || Infinity) - (b.dueAt || Infinity) || a.id.localeCompare(b.id));
   const primary = unique[0] ?? null;
-  const seen = new Set(primary ? [primary.kind] : []);
-  const alternatives = unique.filter((action) => {
-    if (action.id === primary?.id || seen.has(action.kind)) return false;
-    seen.add(action.kind);
-    return true;
-  }).slice(0, 2);
-  return { primary, alternatives, candidates: unique, postponedCount: allUnique.length - unique.length };
+  return { primary, candidates: unique };
 }
