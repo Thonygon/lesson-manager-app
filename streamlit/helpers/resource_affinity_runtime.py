@@ -301,6 +301,10 @@ def load_resource_affinity_index() -> dict[str, Any]:
     summary = _read_json(run_dir / "resource_affinity_run_summary.json")
     best_row = {}
     pinned_model_name = _clean_text(pinned_row.get("human_review_recommended_model_name")) if pinned_row else ""
+    if configured_run:
+        runtime_bundle = _read_json(run_dir / "classio_runtime_bundle.json")
+        if _clean_text(runtime_bundle.get("run_id")) == configured_run:
+            pinned_model_name = _clean_text(runtime_bundle.get("model_name")) or pinned_model_name
     if not comparison.empty:
         winner_name = pinned_model_name or _run_winner(summary, comparison)
         matches = comparison[comparison.get("model_name", pd.Series(dtype=str)).astype(str) == winner_name] if winner_name else pd.DataFrame()

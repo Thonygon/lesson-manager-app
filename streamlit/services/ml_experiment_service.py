@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -16,6 +17,8 @@ import uuid
 
 import pandas as pd
 import streamlit as st
+
+from helpers.resource_affinity_bundle import BUCKET as RUNTIME_BUNDLE_BUCKET, MANIFEST_NAME as RUNTIME_BUNDLE_MANIFEST, runtime_bundle_manifest
 
 from helpers.assigned_resource_open_7d_eval import (
     MODEL_COMPARISON_FILENAME,
@@ -97,6 +100,7 @@ from core.database import get_sb, json_safe
 from core.state import get_current_user_id
 
 
+logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ML_PIPELINE_SCRIPT = PROJECT_ROOT / "scripts" / "run_assigned_resource_open_7d_pipeline.py"
 STUDENT_RECOMMENDATION_PIPELINE_SCRIPT = PROJECT_ROOT / "scripts" / "run_student_recommendation_open_7d_pipeline.py"
@@ -1872,6 +1876,57 @@ def _persist_run_results(run_id: str, job_id: str, run_dir: Path, review_result:
         )
     clear_experiment_cache()
     return payload
+
+
+def publish_approved_resource_affinity_runtime_bundle(run_id: str) -> tuple[bool, str]:
+    """Copy only the active, reviewed runtime representation to private Storage."""
+    require_capability(CAPABILITY_RUN_APPROVED_EXPERIMENTS, message="Developer or data scientist access required.")
+    safe_run_id = _clean_text(run_id)
+    run_row = get_run(safe_run_id)
+    if not run_row or _clean_text(run_row.get("experiment_id")) != RESOURCE_AFFINITY_EXPERIMENT_ID:
+        return False, "Resource affinity run not found."
+    if (
+        _clean_text(run_row.get("operational_use")) != "PRODUCTION_RUNTIME"
+        or not bool(run_row.get("is_current_validated_run"))
+        or _clean_text(run_row.get("run_status")) not in FINAL_VALIDATED_RUN_STATES
+        or not _clean_text(run_row.get("integrity_status")).startswith("PASSED")
+        or not _clean_text(run_row.get("human_review_recommended_model_name"))
+    ):
+        return False, "Only the active, integrity-validated, human-reviewed run can be published."
+    run_dir = _run_dir(safe_run_id, RESOURCE_AFFINITY_EXPERIMENT_ID)
+    try:
+        manifest = runtime_bundle_manifest(run_dir, _clean_text(run_row["human_review_recommended_model_name"]))
+        sb = get_sb()
+        try:
+            bucket = sb.storage.get_bucket(RUNTIME_BUNDLE_BUCKET)
+        except Exception:
+            bucket = sb.storage.create_bucket(RUNTIME_BUNDLE_BUCKET, options={"public": False})
+        if bool(getattr(bucket, "public", False) or (isinstance(bucket, dict) and bucket.get("public"))):
+            return False, "Runtime artifact bucket must be private."
+        storage = sb.storage.from_(RUNTIME_BUNDLE_BUCKET)
+        prefix = f"resource_affinity/{safe_run_id}/"
+        payloads = {name: (run_dir / name).read_bytes() for name in manifest["files"]}
+        payloads[RUNTIME_BUNDLE_MANIFEST] = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        for name, payload in payloads.items():
+            object_path = prefix + name
+            try:
+                storage.upload(object_path, payload, file_options={"content-type": "application/octet-stream", "upsert": "true" if name == RUNTIME_BUNDLE_MANIFEST else "false"})
+            except Exception:
+                existing = storage.download(object_path)
+                if hashlib.sha256(existing).digest() != hashlib.sha256(payload).digest():
+                    return False, "An existing runtime artifact differs from the approved run."
+        record_privileged_action(
+            action_type="resource_affinity_runtime_bundle_published",
+            entity_type="ml_experiment_run",
+            entity_id=safe_run_id,
+            before_json={},
+            after_json={"bucket": RUNTIME_BUNDLE_BUCKET, "file_count": len(payloads), "model_name": manifest["model_name"]},
+            reason="Published the active reviewed runtime bundle to private storage for authenticated inference.",
+        )
+        return True, "Approved runtime bundle published to private storage."
+    except Exception:
+        logger.exception("Approved resource affinity bundle publication failed for run %s", safe_run_id)
+        return False, "Runtime bundle publication failed. Check that this Streamlit server has the run artifacts and Storage access."
 
 
 def save_resource_affinity_human_review_recommendation(

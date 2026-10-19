@@ -4175,6 +4175,8 @@ EN: Dict[str, str] = {
     "admin_pagination_previous": "Previous",
     "admin_pagination_next": "Next",
     "admin_pagination_status": "Showing {start}-{end} of {total} · page {current} of {pages}",
+    "developer_workspace_publish_runtime_bundle": "Publish approved model files for the Python API",
+    "developer_workspace_runtime_bundle_published": "Approved model files are available to the Python API in private storage.",
     
 }
 

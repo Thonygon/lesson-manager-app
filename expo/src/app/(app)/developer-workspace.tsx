@@ -4,10 +4,11 @@ import { useLocalSearchParams } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppShell, type AppNotification } from '@/components/app-shell';
-import { EmptyState, Field, LoadingState, Panel, SelectField, TabRail } from '@/components/ui';
+import { ActionFeedback, Button, EmptyState, Field, LoadingState, Panel, SelectField, TabRail } from '@/components/ui';
 import { Bars, dateLabel, groupCount, KpiGrid, RecordList, SectionHeading, WarningBox } from '@/components/workspace-ui';
 import { useAppPreferences } from '@/providers/app-preferences';
 import { type DeveloperWorkspaceData, loadDeveloperWorkspace } from '@/services/privileged-workspaces';
+import { checkPythonModelAuthentication, getPythonAffinityModel, pythonModelApiUrl } from '@/services/python-models';
 import { colors } from '@/theme';
 
 type DeveloperTab = 'overview' | 'lab' | 'evidence' | 'telemetry' | 'jobs' | 'audit';
@@ -21,6 +22,22 @@ export default function DeveloperWorkspaceScreen() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [experimentId, setExperimentId] = useState('');
+  const [pythonCheckBusy, setPythonCheckBusy] = useState(false);
+  const [pythonCheckResult, setPythonCheckResult] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
+  const checkPythonConnection = async () => {
+    setPythonCheckBusy(true); setPythonCheckResult(null);
+    try {
+      await checkPythonModelAuthentication();
+      try {
+        const model = await getPythonAffinityModel();
+        setPythonCheckResult({ tone: 'success', message: t('developer.pythonModelReady', { run: model.run_id }) });
+      } catch {
+        setPythonCheckResult({ tone: 'error', message: t('developer.pythonAuthOnly') });
+      }
+    } catch {
+      setPythonCheckResult({ tone: 'error', message: t('developer.pythonAuthFailed') });
+    } finally { setPythonCheckBusy(false); }
+  };
   const load = useCallback(async () => {
     setError('');
     try { setData(await loadDeveloperWorkspace()); } catch (reason) { setError(reason instanceof Error ? reason.message : t('developer.loadFailed')); }
@@ -70,6 +87,7 @@ export default function DeveloperWorkspaceScreen() {
 
       {tab === 'lab' ? <>
         <SectionHeading title={t('developer.labTitle')} body={t('developer.labBody')} />
+        <Panel><SectionHeading title={t('developer.pythonConnection')} body={pythonModelApiUrl()} /><View style={styles.topGap}><Button disabled={pythonCheckBusy} onPress={() => void checkPythonConnection()}>{pythonCheckBusy ? t('common.loading') : t('developer.pythonCheck')}</Button><ActionFeedback message={pythonCheckResult?.message} tone={pythonCheckResult?.tone || 'error'} /></View></Panel>
         <SelectField label={t('developer.selectExperiment')} value={experimentId} options={experimentOptions} placeholder={t('developer.selectExperiment')} onChange={setExperimentId} />
         {selectedExperiment ? <Panel><Text style={styles.question}>{String(selectedExperiment.business_question || selectedExperiment.name)}</Text><View style={styles.meta}><Text style={styles.metaText}>{t('developer.target')}: {String(selectedExperiment.target_version || '—')}</Text><Text style={styles.metaText}>{t('developer.unit')}: {String(selectedExperiment.unit_of_analysis || '—')}</Text><Text style={styles.metaText}>{t('developer.primaryMetric')}: {String(selectedExperiment.primary_metric || '—')}</Text></View></Panel> : null}
         <KpiGrid items={[

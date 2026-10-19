@@ -75,7 +75,6 @@ export default function SmartToolsScreen() {
   const examRule = examLengthRule(examLength);
   const examTypeError = kind === 'exam' ? !exerciseTypes.length ? t('smart.examSelectTypes') : exerciseTypes.length > examRule.sections ? t('smart.examTooMany', { sections: examRule.sections }) : '' : '';
   async function enrichTopicRecommendations(sourceProgramId: string, selected: SmartToolProgramTopic) {
-    if (!process.env.EXPO_PUBLIC_CLASSIO_API_URL) return;
     try {
       const ranked = await getPythonProgramTopicRecommendations(sourceProgramId, selected.id);
       if (sourceProgramId !== programId || selected.id !== selectedTopicRef.current) return;

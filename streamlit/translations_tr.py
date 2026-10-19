@@ -4161,6 +4161,8 @@ TR: Dict[str, str] = {
     "admin_eic_component_text_teacher_recommendation_resource_ranker_limitation": "Eğitim sinyali vekildir ve seçim sonrası eylemleri içerir.",
     "admin_eic_component_text_teacher_recommendation_resource_ranker_product_surface": "Öğretmen öneri kaynak seçici.",
     "admin_eic_component_text_teacher_recommendation_resource_ranker_production_use": "Canlı önerilerde öğretmen kaynak seçeneklerini sıralar.",
+    "developer_workspace_publish_runtime_bundle": "Onaylı model dosyalarını Python API için yayımla",
+    "developer_workspace_runtime_bundle_published": "Onaylı model dosyaları Python API için özel depolamada hazır.",
 }
 
 __all__ = ["TR"]

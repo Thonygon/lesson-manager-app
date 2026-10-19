@@ -7,6 +7,10 @@ existing Streamlit algorithms remain the implementation of the model.
 from __future__ import annotations
 
 import os
+import asyncio
+import hashlib
+import json
+import re
 from typing import Annotated, Literal
 
 import httpx
@@ -15,7 +19,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from helpers.recommendation_models import _fit_linear_model, _score_linear_model
-from helpers.resource_affinity_runtime import load_resource_affinity_index, resource_affinity_score
+from helpers.resource_affinity_bundle import BUCKET as RUNTIME_BUCKET, MANIFEST_NAME as RUNTIME_MANIFEST, REQUIRED_FILES as RUNTIME_REQUIRED_FILES
+from helpers.resource_affinity_runtime import RUNS_ROOT, load_resource_affinity_index, resource_affinity_score
 from helpers.student_recommendation_ml import _base_student_weights, summarize_student_recommendation_samples
 from helpers.program_resource_context import build_program_topic_generation_context, get_program_topic_recommendation_profile
 
@@ -28,12 +33,20 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 RESOURCE_TABLE = {"plan": "lesson_plans", "worksheet": "worksheets", "exam": "quick_exams", "video": "videos"}
+AFFINITY_EXPERIMENT_ID = "resource_affinity_unsupervised_discovery"
+_bundle_lock = asyncio.Lock()
+_ready_run_id = ""
+_ready_model_name = ""
 
 
 class AffinityRequest(BaseModel):
     kind: Literal["plan", "worksheet", "exam", "video"]
     resource_id: int = Field(gt=0)
     context: dict[str, str] = Field(default_factory=dict)
+
+
+class AffinityBatchRequest(BaseModel):
+    candidates: list[AffinityRequest] = Field(min_length=1, max_length=100)
 
 
 class TrainingSample(BaseModel):
@@ -57,6 +70,90 @@ def _settings() -> tuple[str, str]:
     if not base or not key:
         raise HTTPException(503, "Supabase authentication is not configured")
     return base, key
+
+
+async def _approved_affinity_run(client: httpx.AsyncClient, base: str, key: str, run_id: str) -> dict:
+    response = await client.get(
+        f"{base}/rest/v1/ml_experiment_runs",
+        params={"select": "run_id,experiment_id,run_status,integrity_status,operational_use,is_current_validated_run,human_review_recommended_model_name", "run_id": f"eq.{run_id}", "limit": "1"},
+        headers={"apikey": key, "Authorization": f"Bearer {key}"},
+    )
+    if response.status_code != 200:
+        raise HTTPException(503, "Approved model registry is unavailable")
+    rows = response.json()
+    row = rows[0] if rows else {}
+    if (
+        row.get("experiment_id") != AFFINITY_EXPERIMENT_ID
+        or row.get("operational_use") != "PRODUCTION_RUNTIME"
+        or row.get("is_current_validated_run") is not True
+        or row.get("run_status") not in {"VALIDATED_EXPLORATORY_RUN", "VALIDATED_NO_ROBUST_WINNER"}
+        or not str(row.get("integrity_status") or "").startswith("PASSED")
+        or not row.get("human_review_recommended_model_name")
+    ):
+        raise HTTPException(503, "The selected affinity run is not approved for runtime")
+    return row
+
+
+async def _ensure_affinity_bundle() -> dict:
+    """Load only the active reviewed run from private storage, then verify bytes."""
+    global _ready_run_id, _ready_model_name
+    run_id = os.getenv("CLASSIO_RESOURCE_AFFINITY_RUN_ID", "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{6,80}", run_id):
+        raise HTTPException(503, "An approved affinity run must be pinned")
+    base, _ = _settings()
+    secret = os.getenv("SUPABASE_SECRET_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY") or ""
+    if not secret:
+        raise HTTPException(503, "Private model storage is not configured")
+    async with _bundle_lock:
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                approved = await _approved_affinity_run(client, base, secret, run_id)
+                if _ready_run_id == run_id and _ready_model_name == approved["human_review_recommended_model_name"]:
+                    return approved
+                prefix = f"{base}/storage/v1/object/authenticated/{RUNTIME_BUCKET}/resource_affinity/{run_id}/"
+                headers = {"apikey": secret, "Authorization": f"Bearer {secret}"}
+                response = await client.get(prefix + RUNTIME_MANIFEST, headers=headers)
+                if response.status_code != 200:
+                    raise HTTPException(503, "Approved runtime bundle has not been published")
+                manifest = response.json()
+                files = manifest.get("files") or {}
+                if (
+                    manifest.get("schema_version") != 1
+                    or manifest.get("run_id") != run_id
+                    or manifest.get("model_name") != approved["human_review_recommended_model_name"]
+                    or not isinstance(files, dict)
+                    or not set(RUNTIME_REQUIRED_FILES).issubset(files)
+                    or len(files) > 12
+                ):
+                    raise HTTPException(503, "Approved runtime bundle manifest is invalid")
+                run_dir = RUNS_ROOT / run_id
+                run_dir.mkdir(parents=True, exist_ok=True)
+                for name, metadata in files.items():
+                    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", name) or name.startswith(".") or not isinstance(metadata, dict):
+                        raise HTTPException(503, "Approved runtime bundle contains an invalid file")
+                    expected = metadata.get("sha256")
+                    size = metadata.get("size")
+                    if not isinstance(expected, str) or not re.fullmatch(r"[a-f0-9]{64}", expected) or not isinstance(size, int) or size < 1 or size > 10_000_000:
+                        raise HTTPException(503, "Approved runtime bundle contains invalid metadata")
+                    target = run_dir / name
+                    if target.is_file() and hashlib.sha256(target.read_bytes()).hexdigest() == expected:
+                        continue
+                    file_response = await client.get(prefix + name, headers=headers)
+                    if file_response.status_code != 200 or len(file_response.content) != size or hashlib.sha256(file_response.content).hexdigest() != expected:
+                        raise HTTPException(503, "Approved runtime bundle failed integrity verification")
+                    temporary = run_dir / f".{name}.part"
+                    temporary.write_bytes(file_response.content)
+                    temporary.replace(target)
+                (run_dir / RUNTIME_MANIFEST).write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+                load_resource_affinity_index.cache_clear()
+                index = load_resource_affinity_index()
+                if not index.get("available") or index.get("run_id") != run_id or index.get("winner") != approved["human_review_recommended_model_name"]:
+                    raise HTTPException(503, "Approved runtime representation cannot be loaded")
+                _ready_run_id = run_id
+                _ready_model_name = approved["human_review_recommended_model_name"]
+                return approved
+        except httpx.HTTPError as exc:
+            raise HTTPException(503, "Approved model storage is unavailable") from exc
 
 
 async def actor_token(authorization: Annotated[str | None, Header()] = None) -> tuple[str, str]:
@@ -84,10 +181,15 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/v1/auth/check")
+def auth_check(_actor: Annotated[tuple[str, str], Depends(actor_token)]) -> dict[str, bool]:
+    """Verify Expo's Supabase bearer token without disclosing model state."""
+    return {"authenticated": True}
+
+
 @app.get("/v1/models/resource-affinity")
-def affinity_model(_actor: Annotated[tuple[str, str], Depends(actor_token)]) -> dict:
-    if not os.getenv("CLASSIO_RESOURCE_AFFINITY_RUN_ID"):
-        raise HTTPException(503, "An approved affinity run must be pinned")
+async def affinity_model(_actor: Annotated[tuple[str, str], Depends(actor_token)]) -> dict:
+    await _ensure_affinity_bundle()
     index = load_resource_affinity_index()
     if not index.get("available"):
         raise HTTPException(503, f"Affinity model unavailable: {index.get('reason')}")
@@ -96,8 +198,7 @@ def affinity_model(_actor: Annotated[tuple[str, str], Depends(actor_token)]) -> 
 
 @app.post("/v1/resource-affinity/score")
 async def affinity_score(request: AffinityRequest, actor: Annotated[tuple[str, str], Depends(actor_token)]) -> dict:
-    if not os.getenv("CLASSIO_RESOURCE_AFFINITY_RUN_ID"):
-        raise HTTPException(503, "An approved affinity run must be pinned")
+    await _ensure_affinity_bundle()
     base, key = _settings()
     owner_id, token = actor
     table = RESOURCE_TABLE[request.kind]
@@ -125,6 +226,39 @@ async def affinity_score(request: AffinityRequest, actor: Annotated[tuple[str, s
     if not diagnostics.get("available"):
         raise HTTPException(503, f"Affinity model unavailable: {diagnostics.get('reason')}")
     return {"score": round(float(score), 6), "run_id": diagnostics.get("run_id"), "matched": bool(diagnostics.get("matched")), "model_family": diagnostics.get("model_family")}
+
+
+@app.post("/v1/resource-affinity/score-batch")
+async def affinity_score_batch(request: AffinityBatchRequest, actor: Annotated[tuple[str, str], Depends(actor_token)]) -> dict:
+    await _ensure_affinity_bundle()
+    base, key = _settings()
+    owner_id, token = actor
+    headers = {"apikey": key, "Authorization": f"Bearer {token}"}
+    rows_by_kind: dict[str, dict[int, dict]] = {}
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            for kind in {candidate.kind for candidate in request.candidates}:
+                ids = sorted({candidate.resource_id for candidate in request.candidates if candidate.kind == kind})
+                response = await client.get(
+                    f"{base}/rest/v1/{RESOURCE_TABLE[kind]}",
+                    params={"select": "*", "id": f"in.({','.join(str(value) for value in ids)})", "limit": str(len(ids))},
+                    headers=headers,
+                )
+                if response.status_code != 200:
+                    raise HTTPException(503, "Resource lookup failed")
+                rows_by_kind[kind] = {int(row["id"]): row for row in response.json() if row.get("id") is not None}
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, "Resource lookup is unavailable") from exc
+    results = []
+    for candidate in request.candidates:
+        row = rows_by_kind.get(candidate.kind, {}).get(candidate.resource_id)
+        if not row or (row.get("user_id") != owner_id and row.get("is_public") is not True) or str(row.get("status") or "").lower() == "archived":
+            results.append(None)
+            continue
+        context = {field: value[:500] for field, value in candidate.context.items() if field in {"topic", "objective", "lesson_purpose", "worksheet_type", "focus_kind", "subject", "learner_stage", "level_or_band"}}
+        score, diagnostics = resource_affinity_score(row, candidate.kind, context)
+        results.append({"score": round(float(score), 6), "matched": bool(diagnostics.get("matched"))} if diagnostics.get("available") else None)
+    return {"run_id": load_resource_affinity_index().get("run_id"), "scores": results}
 
 
 @app.post("/v1/student-recommendations/score")

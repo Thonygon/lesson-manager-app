@@ -19,7 +19,7 @@ import { buildPackageInsights, type PackageInsight } from '@/services/teacher-in
 import type { PublicResource } from '@/services/public-data';
 import { buildTeacherObjectiveRecommendations, loadTeacherObjectiveModel, type TeacherObjectiveRecommendation } from '@/services/teacher-objective-recommendations';
 import { loadTeacherRecommendationModel, loadTeacherRecommendationResourcePool, rankTeacherResources, recordTeacherObjectiveExposures, recordTeacherRecommendationAction, recordTeacherRecommendationExposures, type RecommendationModel } from '@/services/teacher-recommendations';
-import { getPythonAffinityModel, scorePythonResourceAffinity } from '@/services/python-models';
+import { getPythonAffinityModel, scorePythonResourceAffinityBatch } from '@/services/python-models';
 import { addressTeacherPracticeRequest, archiveTeacherAssignment, archiveTeacherConnection, getStudentLearningWorkspace, getTeacherConnections, respondToTeacherConnection, setTeacherProgramTopicProgress, type StudentLearningWorkspace, type TeacherConnection } from '@/services/teacher-students';
 import { colors } from '@/theme';
 
@@ -128,19 +128,22 @@ function LearningView({ workspace, studentName, onRefresh, initialTab = 'assignm
   const recommendations = useMemo(() => buildTeacherObjectiveRecommendations(workspace, objectiveWeights || undefined), [workspace, objectiveWeights]);
   useEffect(() => { if (learningTab !== 'recommendations') return; let active = true; setRecommendationLoading(true); void Promise.allSettled([loadTeacherRecommendationResourcePool(), loadTeacherRecommendationModel(), loadTeacherObjectiveModel()]).then(([resources, model, objective]) => { if (!active) return; setRecommendationResources(resources.status === 'fulfilled' ? resources.value : []); setRecommendationModel(model.status === 'fulfilled' ? model.value : null); setObjectiveWeights(objective.status === 'fulfilled' ? objective.value : null); setRecommendationLoading(false); setRecommendationLoaded(true); }); return () => { active = false; }; }, [learningTab]);
   useEffect(() => {
-    if (learningTab !== 'recommendations' || !recommendationModel || !process.env.EXPO_PUBLIC_CLASSIO_API_URL) return;
+    if (learningTab !== 'recommendations' || !recommendationModel) return;
     let active = true;
     void (async () => {
       try {
         await getPythonAffinityModel();
         const candidates = recommendations.flatMap((recommendation) => rankTeacherResources(recommendationResources, recommendation, recommendationModel).slice(0, 8).filter(({ resource }) => Number.isSafeInteger(Number(resource.id)) && Number(resource.id) > 0).map(({ resource }) => ({ recommendation, resource })));
         const scores = new Map<string, number>();
-        for (let offset = 0; offset < candidates.length && active; offset += 4) {
-          const batch = await Promise.allSettled(candidates.slice(offset, offset + 4).map(async ({ recommendation, resource }) => {
-            const result = await scorePythonResourceAffinity(resource.kind as 'plan' | 'video' | 'worksheet' | 'exam', Number(resource.id), { topic: recommendation.topic, objective: recommendation.objective || '', focus_kind: recommendation.focus, subject: recommendation.subject, learner_stage: recommendation.stage || '', level_or_band: recommendation.level || '' });
-            return { key: `${recommendation.id}:${resource.kind}:${resource.id}`, score: result.score };
-          }));
-          batch.forEach((result) => { if (result.status === 'fulfilled') scores.set(result.value.key, result.value.score); });
+        for (let offset = 0; offset < candidates.length && active; offset += 100) {
+          const chunk = candidates.slice(offset, offset + 100);
+          const batch = await scorePythonResourceAffinityBatch(chunk.map(({ recommendation, resource }) => ({
+            kind: resource.kind as 'plan' | 'video' | 'worksheet' | 'exam', resourceId: Number(resource.id),
+            context: { topic: recommendation.topic, objective: recommendation.objective || '', focus_kind: recommendation.focus, subject: recommendation.subject, learner_stage: recommendation.stage || '', level_or_band: recommendation.level || '' },
+          })));
+          chunk.forEach(({ recommendation, resource }, index) => {
+            if (batch.scores[index]?.matched) scores.set(`${recommendation.id}:${resource.kind}:${resource.id}`, batch.scores[index]!.score);
+          });
         }
         if (active) setAffinityScores(scores);
       } catch { /* The local Python-equivalent ranker remains available while the inference API is offline. */ }

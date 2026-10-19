@@ -67,6 +67,7 @@ from services.ml_experiment_service import (
     list_run_artifacts,
     list_run_models,
     mark_stale_experiment_jobs,
+    publish_approved_resource_affinity_runtime_bundle,
     rerun_integrity_review_for_run,
     save_resource_affinity_human_review_recommendation,
 )
@@ -1228,6 +1229,18 @@ def _render_experiment_evidence() -> None:
                                     st.error(message)
                                 if not activate_confirmed:
                                     st.caption(t("developer_workspace_confirm_before_runtime"))
+                        if (
+                            has_capability(CAPABILITY_RUN_APPROVED_EXPERIMENTS)
+                            and str(selected_run.get("operational_use") or "") == "PRODUCTION_RUNTIME"
+                            and bool(selected_run.get("is_current_validated_run"))
+                        ):
+                            if st.button(
+                                t("developer_workspace_publish_runtime_bundle"),
+                                key=f"developer_workspace_publish_runtime_bundle_{selected_run_id}",
+                                use_container_width=True,
+                            ):
+                                ok, message = publish_approved_resource_affinity_runtime_bundle(selected_run_id)
+                                (st.success if ok else st.error)(t("developer_workspace_runtime_bundle_published") if ok else message)
                     artifact_rows = list_run_artifacts(selected_run_id)
                     _render_protected_artifacts(artifact_rows, key_prefix=f"evidence_{selected_run_id}")
         except Exception as exc:
