@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { AppShell, type AppNotification } from '@/components/app-shell';
 import { AdminBars as Bars, AdminTrend } from '@/components/admin-charts';
@@ -141,7 +141,6 @@ export function AdminWorkspaceScreen({ area }: { area: AdminArea }) {
     <View style={styles.stack}>
       <TabRail items={tabs} value={tab} onChange={setTab} accessibilityLabel={t('admin.title')} />
       {tab === 'overview' ? <>
-        <View style={styles.quickGrid}>{([['operations', '👥', t('admin.tab.operations')], ['subscriptions', '💳', t('admin.tab.subscriptions')], ['ai', '✨', t('admin.tab.ai')], ['audit', '🛡️', t('admin.tab.audit')]] as const).map(([target, icon, label]) => <Pressable key={target} accessibilityRole="button" accessibilityLabel={label} onPress={() => { if (tabArea(target) === area) setTab(target); else router.push({ pathname: AREA_PATHS[tabArea(target)], params: { tab: target } } as Href); }} style={({ pressed }) => [styles.quickCard, pressed && styles.quickPressed]}><Text style={styles.quickIcon}>{icon}</Text><Text style={styles.quickLabel}>{label}</Text><Text style={styles.quickArrow}>→</Text></Pressable>)}</View>
         <KpiGrid items={[
           { label: t('admin.totalUsers'), value: data.platformCounts.profiles }, { label: t('admin.paidUsers'), value: paid.length },
           { label: t('admin.new30'), value: newUsers.length }, { label: t('admin.suspended'), value: suspended.length },
@@ -179,4 +178,4 @@ export function AdminWorkspaceScreen({ area }: { area: AdminArea }) {
 function profileFields(t: (key: string, values?: Record<string, string | number>) => string) { const format = (value: unknown) => valueLabel(t, value); return [{ key: 'email', label: t('common.email') }, { key: 'user_id', label: t('admin.userId') }, { key: 'role', label: t('admin.role'), format }, { key: 'primary_role', label: t('admin.primaryRole'), format }, { key: 'current_plan', label: t('admin.plan'), format }, { key: 'subscription_status', label: t('admin.subscriptionStatus'), format }, { key: 'account_status', label: t('admin.accountStatus'), format }, { key: 'last_active_mode', label: t('admin.lastMode'), format }, { key: 'created_at', label: t('common.created'), format: dateLabel }]; }
 function signupMonths(rows: Record<string, unknown>[]): [string, number][] { const grouped = new Map<string, number>(); rows.forEach((row) => { const date = new Date(String(row.created_at ?? '')); if (!Number.isNaN(date.getTime())) { const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; grouped.set(key, (grouped.get(key) ?? 0) + 1); } }); return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0])).slice(-12); }
 
-const styles = StyleSheet.create({ filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, filterSearch: { flexGrow: 2, flexBasis: 230, minWidth: 190 }, filter: { flexGrow: 1, flexBasis: 160, minWidth: 150 }, quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, quickCard: { flexGrow: 1, flexBasis: 180, minWidth: 160, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 15, borderWidth: 1, borderColor: colors.line, borderRadius: 16, backgroundColor: colors.surface }, quickPressed: { opacity: 0.7 }, quickIcon: { fontSize: 20 }, quickLabel: { flex: 1, color: colors.ink, fontSize: 12, fontWeight: '800' }, quickArrow: { color: colors.primary, fontSize: 16, fontWeight: '900' }, stack: { gap: 18 }, topGap: { marginTop: 16 }, twoCols: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 }, flexPanel: { flexGrow: 1, flexBasis: 320 }, note: { color: colors.muted, fontSize: 14, lineHeight: 21 } });
+const styles = StyleSheet.create({ filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, filterSearch: { flexGrow: 2, flexBasis: 230, minWidth: 190 }, filter: { flexGrow: 1, flexBasis: 160, minWidth: 150 }, stack: { gap: 18 }, topGap: { marginTop: 16 }, twoCols: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 }, flexPanel: { flexGrow: 1, flexBasis: 320 }, note: { color: colors.muted, fontSize: 14, lineHeight: 21 } });
