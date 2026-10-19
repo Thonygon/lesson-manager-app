@@ -1,0 +1,17 @@
+{
+  "payments": [
+    {"id": 1, "student": "Ana", "payment_date": "2026-09-01", "package_start_date": "2026-09-01", "number_of_lesson": 10, "lesson_adjustment_units": 0, "paid_amount": 100, "modality": "Online", "subject": "English", "currency": "TRY"},
+    {"id": 2, "student": "Bob", "payment_date": "2026-09-01", "package_start_date": "2026-09-01", "number_of_lesson": 2, "lesson_adjustment_units": 0, "paid_amount": 50, "modality": "Online", "subject": "English", "currency": "TRY"},
+    {"id": 3, "student": "Clara", "payment_date": "2025-01-01", "package_start_date": "2025-01-01", "number_of_lesson": 10, "lesson_adjustment_units": 0, "paid_amount": 100, "modality": "Online", "subject": "Spanish", "currency": "TRY"},
+    {"id": 4, "student": "Dina", "payment_date": "2026-08-01", "package_start_date": "2026-08-01", "number_of_lesson": 5, "lesson_adjustment_units": 0, "paid_amount": 70, "modality": "Online", "subject": "Spanish", "currency": "TRY"},
+    {"id": 5, "student": "Dina", "payment_date": "2026-10-01", "package_start_date": "2026-10-01", "number_of_lesson": 4, "lesson_adjustment_units": 1, "paid_amount": 80, "modality": "Online", "subject": "Spanish", "currency": "TRY"}
+  ],
+  "lessons": [
+    {"id": 1, "student": "Ana", "lesson_date": "2026-09-20", "number_of_lesson": 3, "modality": "Online", "note": ""},
+    {"id": 2, "student": "Ana", "lesson_date": "2026-10-20", "number_of_lesson": 5, "modality": "Online", "note": ""},
+    {"id": 3, "student": "Bob", "lesson_date": "2026-10-05", "number_of_lesson": 3, "modality": "Online", "note": ""},
+    {"id": 4, "student": "Dina", "lesson_date": "2026-09-15", "number_of_lesson": 2, "modality": "Online", "note": ""},
+    {"id": 5, "student": "Dina", "lesson_date": "2026-10-05", "number_of_lesson": 1, "modality": "Online", "note": ""},
+    {"id": 6, "student": "Dina", "lesson_date": "2026-10-06", "number_of_lesson": 2, "modality": "Online", "note": "[FREE]"}
+  ]
+}

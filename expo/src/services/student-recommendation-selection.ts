@@ -5,6 +5,17 @@ import { buildStudentProgramSignals, studentTopicTokens, type ProgramScope } fro
 import { buildStudentAssignmentSignals, resourceAssignmentKey, type ResourceAssignmentSignal } from '@/services/student-recommendation-assignments';
 import { scopeAdjustedStudentRecommendationScore, type StudentRecommendationReason } from '@/services/student-recommendation-ranking';
 
+// Python sorts casefolded text by Unicode code point, while localeCompare uses language collation.
+const casefold = (value: string) => value.toLowerCase().replace(/ß/g, 'ss').replace(/ς/g, 'σ').replace(/ﬀ/g, 'ff').replace(/ﬁ/g, 'fi').replace(/ﬂ/g, 'fl').replace(/ﬃ/g, 'ffi').replace(/ﬄ/g, 'ffl');
+function pythonTextCompare(left: string, right: string) {
+  const a = Array.from(casefold(left)); const b = Array.from(casefold(right));
+  for (let index = 0; index < Math.min(a.length, b.length); index += 1) {
+    const difference = (a[index].codePointAt(0) || 0) - (b[index].codePointAt(0) || 0);
+    if (difference) return difference;
+  }
+  return a.length - b.length;
+}
+
 function scopeFit(row: Pick<PublicResource, 'title' | 'topic'>, scope: ProgramScope) {
   const tokens = studentTopicTokens(row.topic, row.title);
   const topics = scope.topics.filter((topic) => !topic.isComplete);
@@ -18,18 +29,18 @@ export type RecommendationScopeMetadata = {
   programTeacherId: string;
 };
 
-type ScoredResource<T extends PublicResource> = { resource: T; score: number; reasons?: StudentRecommendationReason[]; reason?: StudentRecommendationReason };
+type ScoredResource<T extends PublicResource> = { resource: T; score: number; mlScore?: number; mlBlendWeight?: number; reasons?: StudentRecommendationReason[]; reason?: StudentRecommendationReason };
 
 /** Streamlit's scoped-row sort, topic/type deduplication, and assignment round robin. */
 export function selectScoredStudentRecommendations<T extends PublicResource>(
   candidates: ScoredResource<T>[], workspace: StudentWorkspace | null, limit = 6,
-): (T & Partial<RecommendationScopeMetadata> & { recommendationReasons: StudentRecommendationReason[]; recommendationReason?: StudentRecommendationReason })[] {
+): (T & Partial<RecommendationScopeMetadata> & { recommendationReasons: StudentRecommendationReason[]; recommendationReason?: StudentRecommendationReason; mlScore?: number; mlBlendWeight?: number; recommendationScore?: number })[] {
   if (!workspace) return [];
   const programs = buildStudentProgramSignals(workspace);
   const assignments = buildStudentAssignmentSignals(workspace.assignments);
-  type Scoped = { row: T & Partial<RecommendationScopeMetadata> & { recommendationReasons: StudentRecommendationReason[]; recommendationReason?: StudentRecommendationReason }; score: number; scopeKey: string; index: number };
+  type Scoped = { row: T & Partial<RecommendationScopeMetadata> & { recommendationReasons: StudentRecommendationReason[]; recommendationReason?: StudentRecommendationReason; mlScore?: number; mlBlendWeight?: number; recommendationScore?: number }; score: number; scopeKey: string; index: number };
   const scoped: Scoped[] = [];
-  candidates.forEach(({ resource, score, reasons, reason }, index) => {
+  candidates.forEach(({ resource, score, mlScore, mlBlendWeight, reasons, reason }, index) => {
     const subject = canonicalSubjectKey(resource.subject);
     const assignment = assignments.resourceAssignments.get(resourceAssignmentKey(resource.kind, resource.id));
     const scopes = programs.programScopes[subject] || [];
@@ -42,7 +53,7 @@ export function selectScoredStudentRecommendations<T extends PublicResource>(
       const scope = matching.find((item) => item.learningProgramAssignmentId === metadata?.learningProgramAssignmentId);
       const scopedScore = Math.round((scope ? scopeAdjustedStudentRecommendationScore(resource, score, scope) : score) * 10000) / 10000;
       scoped.push({
-        row: { ...resource, ...(metadata || {}), recommendationReasons: reasons || (reason ? [reason] : []), recommendationReason: reasons?.[0] || reason },
+        row: { ...resource, ...(metadata || {}), recommendationReasons: reasons || (reason ? [reason] : []), recommendationReason: reasons?.[0] || reason, mlScore, mlBlendWeight, recommendationScore: scopedScore },
         score: scopedScore,
         scopeKey: metadata?.learningProgramAssignmentId ? `assignment:${metadata.learningProgramAssignmentId}` : `subject:${subject}`,
         index,
@@ -50,8 +61,8 @@ export function selectScoredStudentRecommendations<T extends PublicResource>(
     }
   });
   const compare = (a: Scoped, b: Scoped) => b.score - a.score
-    || a.row.topic.toLocaleLowerCase().localeCompare(b.row.topic.toLocaleLowerCase())
-    || a.row.title.toLocaleLowerCase().localeCompare(b.row.title.toLocaleLowerCase())
+    || pythonTextCompare(a.row.topic, b.row.topic)
+    || pythonTextCompare(a.row.title, b.row.title)
     || a.index - b.index;
   scoped.sort(compare);
   const seen = new Set<string>();
@@ -63,12 +74,14 @@ export function selectScoredStudentRecommendations<T extends PublicResource>(
     const exercise = row.kind === 'video' ? 'video' : row.kind === 'worksheet'
       ? String(row.raw.worksheet_type || '') : Array.isArray(row.raw.exercise_types) && row.raw.exercise_types.length
         ? String(row.raw.exercise_types[0] || '') : String(firstSection.type || '');
-    const key = JSON.stringify([scopeKey, canonicalSubjectKey(row.subject), row.kind, row.topic.toLocaleLowerCase(), exercise.toLocaleLowerCase()]);
+    const key = JSON.stringify([scopeKey, canonicalSubjectKey(row.subject), row.kind, casefold(row.topic), casefold(exercise)]);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
-  const active = [...new Set(Object.values(programs.programScopes).flat().map((scope) => `assignment:${scope.learningProgramAssignmentId}`))].sort();
+  const active = [...new Set(Object.values(programs.programScopes).flat()
+    .filter((scope) => scope.learningProgramAssignmentId > 0)
+    .map((scope) => `assignment:${scope.learningProgramAssignmentId}`))].sort();
   const effectiveLimit = Math.max(1, limit, active.length);
   const selected: Scoped[] = [];
   const selectedSet = new Set<Scoped>();

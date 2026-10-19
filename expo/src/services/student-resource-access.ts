@@ -17,11 +17,22 @@ export function studentVideoAccess(
     ? Boolean(features.videos_access) : true;
 }
 
+let cachedStudentResources: { userId: string; expiresAt: number; promise: Promise<PublicResource[]> } | null = null;
+
 export async function getStudentPublicPracticeResources(): Promise<PublicResource[]> {
   const client = requireSupabase();
   const { data: auth, error: authError } = await client.auth.getUser();
   if (authError || !auth.user) throw authError ?? new Error('Your session has expired.');
   const uid = auth.user.id;
+  if (cachedStudentResources?.userId === uid && cachedStudentResources.expiresAt > Date.now()) return cachedStudentResources.promise;
+  const request = loadStudentPublicPracticeResources(uid);
+  cachedStudentResources = { userId: uid, expiresAt: Date.now() + 15000, promise: request };
+  request.catch(() => { if (cachedStudentResources?.promise === request) cachedStudentResources = null; });
+  return request;
+}
+
+async function loadStudentPublicPracticeResources(uid: string): Promise<PublicResource[]> {
+  const client = requireSupabase();
   const [plans, subscription, profile] = await Promise.all([
     client.from('plans').select('id,active,features_json').eq('active', true).limit(50),
     client.from('user_subscriptions').select('plan_id,manual_override,subscription_status').eq('user_id', uid).limit(1).maybeSingle(),

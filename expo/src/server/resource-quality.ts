@@ -1,5 +1,6 @@
 // Checks the source builders' minimum usable content before a generated resource can be saved.
 import { splitAnswerKeyItems, worksheetAnswerCount } from './answer-key';
+import { examLengthRule } from '../lib/exam-generation-rules';
 type Document = Record<string, unknown>;
 const entries = (value: unknown): Document[] => Array.isArray(value) ? value.filter((item): item is Document => Boolean(item) && typeof item === 'object' && !Array.isArray(item)) : [];
 const list = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
@@ -26,7 +27,8 @@ export function worksheetQualityIssues(document: Document): string[] {
 
 export function examQualityIssues(document: Document, length: string): string[] {
   const issues: string[] = [];
-  const range = length === 'short' ? [4, 5] : length === 'long' ? [6, 10] : [5, 7];
+  const { questionsMin, questionsMax } = examLengthRule(length);
+  const range = [questionsMin, questionsMax];
   entries(document.sections).forEach((section, index) => {
     const label = `section ${index + 1}`;
     const questions = list(section.questions);

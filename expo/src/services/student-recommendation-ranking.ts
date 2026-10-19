@@ -8,6 +8,7 @@ import { buildStudentAssignmentBehavior } from '@/services/student-recommendatio
 import { resourceSemanticAffinity } from '@/services/student-recommendation-semantic';
 import { canonicalStudentStage, evaluateStudentRecommendationPolicy } from '@/services/student-recommendation-safety';
 import { buildStudentTopicAlignment } from '@/services/student-recommendation-topic-alignment';
+import { buildStudentRecommendationModel, scoreStudentRecommendationModel } from '@/services/student-recommendation-ml';
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 const text = (value: unknown) => String(value || '').trim();
@@ -67,7 +68,7 @@ type StudentRecommendationReasonInput = {
   directTopicLink: number; topicNeed: number; subjectNeed: number; exerciseNeed?: number; exerciseType?: string;
   nextTopicOverlap?: number; reviewTopicOverlap?: number; pendingTopicOverlap?: number;
   programTopicOverlap?: number; recentTeacherOverlap?: number; programTypeFit?: number;
-  levelFit?: number; level?: string; stretchBoost?: number; semanticAffinity?: number;
+  levelFit?: number; level?: string; stretchBoost?: number; semanticAffinity?: number; mlScore?: number;
 };
 
 export function studentRecommendationReasons(input: StudentRecommendationReasonInput): StudentRecommendationReason[] {
@@ -97,7 +98,9 @@ export function studentRecommendationReasons(input: StudentRecommendationReasonI
     reasons.push({ key: 'student.materialReason.levelFit', params: { level: input.level } });
   else if ((input.stretchBoost || 0) > 0 && input.level)
     reasons.push({ key: 'student.materialReason.levelStretch', params: { level: input.level } });
-  if ((input.semanticAffinity || 0) >= 0.68 && input.topic)
+  if ((input.mlScore || 0) >= 0.72)
+    reasons.push({ key: 'student.materialReason.mlFit' });
+  else if ((input.semanticAffinity || 0) >= 0.68 && input.topic)
     reasons.push({ key: 'student.materialReason.revisitTopic', params: { topic: input.topic } });
   if (!reasons.length) reasons.push({ key: 'student.materialReason.balanced' });
   return reasons.slice(0, 3);
@@ -108,7 +111,7 @@ export function primaryStudentRecommendationReason(input: StudentRecommendationR
 }
 
 /** Scores the Streamlit feature terms available in the bounded Expo workspace. */
-export function scoreStudentRecommendationCandidates<T extends PublicResource>(resources: T[], workspace: StudentWorkspace | null): { resource: T; score: number; reasons: StudentRecommendationReason[] }[] {
+export function scoreStudentRecommendationCandidates<T extends PublicResource>(resources: T[], workspace: StudentWorkspace | null): { resource: T; score: number; mlScore: number; mlBlendWeight: number; reasons: StudentRecommendationReason[] }[] {
   if (!workspace) return [];
   const need = buildStudentNeedProfile(workspace.practiceProgress);
   const programs = buildStudentProgramSignals(workspace);
@@ -116,6 +119,7 @@ export function scoreStudentRecommendationCandidates<T extends PublicResource>(r
   const assignments = buildStudentAssignmentSignals(workspace.assignments);
   const behavior = buildStudentAssignmentBehavior(workspace.assignments);
   const topicAlignment = buildStudentTopicAlignment(workspace.alignmentAssignments ?? workspace.assignments, workspace.recommendationEvents, workspace.topicVideoLinks);
+  const learnedModel = buildStudentRecommendationModel(workspace);
   const priorityTopics = new Set([...programs.nextTopicIds, ...programs.pendingTopicIds, ...programs.reviewTopicIds]);
   const relevantTopics = priorityTopics.size ? priorityTopics : programs.activeTopicIds;
   const totalAttempts = Object.values(need.subjectAttempts).reduce((total, attempts) => total + attempts, 0);
@@ -147,7 +151,7 @@ export function scoreStudentRecommendationCandidates<T extends PublicResource>(r
     const typeSupport = Math.max(exerciseNeed, subjectNeed * 0.45);
     const programTypeFit = kind === 'worksheet' ? Number(programs.worksheetTypes.has(type)) : kind === 'exam' ? Number(programs.examTypes.has(type)) : 0;
     const programTopicOverlap = overlap(tokens, programs.topicTokens);
-    const semanticAffinity = resourceSemanticAffinity(resource, programs.nextTopicTitles, [...programs.nextTopicTokens], Object.keys(need.topicNeed));
+    const semanticAffinity = resourceSemanticAffinity(resource, programs.nextTopicTitles, [...programs.nextTopicTokens].sort(), Object.keys(need.topicNeed));
     const topicSuccess = behavior.topicSuccess[topic] || 0;
     const policy = evaluateStudentRecommendationPolicy(resource, {
       subjectAttempts: need.subjectAttempts, subjectLevel: need.subjectLevel,
@@ -182,6 +186,21 @@ export function scoreStudentRecommendationCandidates<T extends PublicResource>(r
     if (!programs.subjects.size && totalAttempts < 3 && levelFit < 0.95) score -= 0.04;
     if (topicSuccess >= 0.82 && topicNeed < 0.28) score -= 0.08;
     else if (topicSuccess <= 0.68 && topic) score += 0.08;
+    const mlScore = scoreStudentRecommendationModel(learnedModel.weights, {
+      [`kind_${kind}`]: 1, subject_in_program: Number(inProgram), level_fit: levelFit,
+      stage_fit: stageFit, next_topic_overlap: next, review_topic_overlap: review,
+      pending_topic_overlap: pending, program_subject_fit: Number(inProgram),
+      program_type_fit: programTypeFit, topic_need: topicNeed, subject_need: subjectNeed,
+      exercise_need: exerciseNeed, completion_fit: behavior.kindCompletion[kind] || 0,
+      format_fit: behavior.kindSuccess[kind] || 0, assigned_active: Number(Boolean(activeAssignment && !activeAssignment.isCompleted)),
+      assigned_unseen: Number(Boolean(activeAssignment?.isUnseen)), assigned_topic_overlap: assigned,
+      unseen_video_overlap: unseen, explicit_topic_match: alignment.explicitTopicMatch,
+      explicit_topic_support: alignment.explicitTopicSupport, direct_topic_link: alignment.directTopicLink,
+      topic_kind_prior: alignment.topicKindPrior, topic_match_ambiguity: alignment.topicMatchAmbiguity,
+      semantic_affinity: semanticAffinity, topic_success_penalty: Number(topicSuccess >= 0.82 && topicNeed < 0.28),
+      topic_in_program: programTopicOverlap,
+    });
+    score += learnedModel.blendWeight * mlScore;
     const reasons = studentRecommendationReasons({
       kind, topic: text(resource.topic), subject: text(resource.subject),
       assignedActive: Boolean(activeAssignment && !activeAssignment.isCompleted),
@@ -189,11 +208,11 @@ export function scoreStudentRecommendationCandidates<T extends PublicResource>(r
       directTopicLink: alignment.directTopicLink, topicNeed, subjectNeed,
       exerciseNeed, exerciseType: type, nextTopicOverlap: next, reviewTopicOverlap: review,
       pendingTopicOverlap: pending, programTopicOverlap, recentTeacherOverlap: recent,
-      programTypeFit, levelFit, level: resource.level, stretchBoost, semanticAffinity,
+      programTypeFit, levelFit, level: resource.level, stretchBoost, semanticAffinity, mlScore,
     });
-    return [{ resource, score, index, reasons }];
+    return [{ resource, score, mlScore, mlBlendWeight: learnedModel.blendWeight, index, reasons }];
   });
-  return scored.sort((a, b) => b.score - a.score || a.index - b.index).map(({ resource, score, reasons }) => ({ resource, score, reasons }));
+  return scored.sort((a, b) => b.score - a.score || a.index - b.index).map(({ resource, score, mlScore, mlBlendWeight, reasons }) => ({ resource, score, mlScore, mlBlendWeight, reasons }));
 }
 
 /** Legacy resource-only ranking for callers that do not need scoped candidate scores. */

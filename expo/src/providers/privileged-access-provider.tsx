@@ -59,7 +59,7 @@ export function PrivilegedAccessProvider({ children }: PropsWithChildren) {
   const value = useMemo<PrivilegedAccess>(() => ({
     loading: authLoading || loading,
     isAdmin,
-    canUseDeveloperWorkspace: isAdmin || staffRoles.length > 0,
+    canUseDeveloperWorkspace: staffRoles.length > 0,
     staffRoles,
   }), [authLoading, isAdmin, loading, staffRoles]);
 

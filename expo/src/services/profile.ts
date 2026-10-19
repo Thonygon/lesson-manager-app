@@ -3,6 +3,20 @@ import type { ClassioRecord } from '@/services/classio-data';
 
 export const PROFILE_COLUMNS = 'user_id,email,display_name,username,avatar_url,date_of_birth,sex,phone_number,role,primary_role,can_teach,can_study,last_active_mode,preferred_ui_language,timezone,country,preferred_currency,default_lesson_duration,primary_subjects,custom_subjects,teaching_stages,teaching_languages,education_level,show_community_profile,show_community_contact,onboarding_completed';
 
+/** Match Streamlit's additive mode enablement: saving one mode must not revoke the other. */
+export function profileModeSaveFields(record: ClassioRecord | null, selectedRole: 'teacher' | 'student') {
+  const role = String(record?.role || '').trim();
+  const primaryRole = String(record?.primary_role || '').trim();
+  const fallbackRole = primaryRole || role;
+  return {
+    role: role || selectedRole,
+    primary_role: primaryRole || selectedRole,
+    can_teach: selectedRole === 'teacher' || record?.can_teach === true || (record?.can_teach == null && ['teacher', 'tutor'].includes(fallbackRole)),
+    can_study: selectedRole === 'student' || record?.can_study === true || (record?.can_study == null && fallbackRole === 'student'),
+    last_active_mode: selectedRole,
+  };
+}
+
 export async function getProfileWorkspace() {
   const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
@@ -15,6 +29,21 @@ export async function saveProfileWorkspace(payload: ClassioRecord) {
   const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
   const { error } = await client.from('profiles').upsert({ ...payload, user_id: userData.user.id, onboarding_completed: true }, { onConflict: 'user_id' });
+  if (error) throw error;
+}
+
+/** Enable teaching alongside studying, matching Streamlit's opt-in action. */
+export async function enableTeacherMode() {
+  const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
+  const { error } = await client.from('profiles').upsert({ user_id: userData.user.id, can_teach: true, can_study: true }, { onConflict: 'user_id' });
+  if (error) throw error;
+}
+
+export async function activateProfileWorkspaceMode(mode: 'teacher' | 'student') {
+  const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
+  const { error } = await client.from('profiles').upsert({ user_id: userData.user.id, last_active_mode: mode, ...(mode === 'teacher' ? { can_teach: true } : { can_study: true }) }, { onConflict: 'user_id' });
   if (error) throw error;
 }
 

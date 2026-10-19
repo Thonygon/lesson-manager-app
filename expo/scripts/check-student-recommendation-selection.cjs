@@ -81,4 +81,15 @@ assert.deepEqual(scored.map((row) => row.recommendationReasons.map((reason) => r
 ]);
 const pinnedScored = selectScored([{ resource: full(scopedRows[1]), score: 0.8 }], pinnedWorkspace, 2);
 assert.deepEqual(pinnedScored.map((row) => row.learningProgramAssignmentId), [11]);
+const unscopedWorkspace = { programs: [], topics: [], progress: [], assignments: [] };
+const unicodeTies = selectScored([
+  { resource: { ...full(scopedRows[0]), id: 'z', title: 'Zulu', topic: 'Grammar', raw: { worksheet_type: 'one' } }, score: 0.8 },
+  { resource: { ...full(scopedRows[0]), id: 'a', title: 'Álgebra', topic: 'Grammar', raw: { worksheet_type: 'two' } }, score: 0.8 },
+], unscopedWorkspace, 2);
+assert.deepEqual(unicodeTies.map((row) => row.id), ['z', 'a']); // Python casefold/code-point sort.
+const casefoldDedup = selectScored([
+  { resource: { ...full(scopedRows[0]), id: 'ss', title: 'Straße', topic: 'Straße', raw: { worksheet_type: 'gap_fill' } }, score: 0.8 },
+  { resource: { ...full(scopedRows[0]), id: 'ss2', title: 'Strasse', topic: 'Strasse', raw: { worksheet_type: 'gap_fill' } }, score: 0.7 },
+], unscopedWorkspace, 2);
+assert.deepEqual(casefoldDedup.map((row) => row.id), ['ss']);
 process.stdout.write('Student recommendation assignment-scope selection fixtures passed.\n');

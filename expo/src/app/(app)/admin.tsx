@@ -4,12 +4,13 @@ import { useLocalSearchParams } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppShell, type AppNotification } from '@/components/app-shell';
-import { EmptyState, Field, LoadingState, Panel, TabRail } from '@/components/ui';
+import { Button, EmptyState, Field, LoadingState, Panel, SelectField, TabRail } from '@/components/ui';
 import { Bars, dateLabel, groupCount, KpiGrid, RecordList, SectionHeading, WarningBox } from '@/components/workspace-ui';
 import { useAppPreferences } from '@/providers/app-preferences';
 import { type AdminAiSnapshot, loadAdminAiSnapshot } from '@/services/admin-ai';
 import { type AdminWorkspaceData, loadAdminWorkspace } from '@/services/privileged-workspaces';
 import { colors } from '@/theme';
+import { requireSupabase } from '@/lib/supabase';
 
 type AdminTab = 'overview' | 'operations' | 'pricing' | 'subscriptions' | 'ai' | 'explorer' | 'business' | 'audit';
 type OperationsTab = 'accounts' | 'users' | 'staff';
@@ -27,6 +28,13 @@ export default function AdminScreen() {
   const [page, setPage] = useState(1);
   const [aiExperimentPage, setAiExperimentPage] = useState(1);
   const [aiRunPage, setAiRunPage] = useState(1);
+  const [accessUser, setAccessUser] = useState('');
+  const [accessRole, setAccessRole] = useState('teacher');
+  const [accessPlan, setAccessPlan] = useState('free');
+  const [accessStatus, setAccessStatus] = useState('active');
+  const [accessCanTeach, setAccessCanTeach] = useState(true);
+  const [accessBusy, setAccessBusy] = useState(false);
+  const [accessMessage, setAccessMessage] = useState('');
   const load = useCallback(async () => {
     setError('');
     try { setData(await loadAdminWorkspace()); } catch (reason) { setError(reason instanceof Error ? reason.message : t('admin.loadFailed')); }
@@ -44,6 +52,28 @@ export default function AdminScreen() {
 
   const profiles = useMemo(() => data?.profiles.rows ?? [], [data?.profiles.rows]);
   const subscriptions = data?.subscriptions.rows ?? [];
+  const chooseAccessUser = (value: string) => {
+    setAccessUser(value); setAccessMessage('');
+    const profile = profiles.find((row) => String(row.user_id) === value);
+    const subscription = subscriptions.find((row) => String(row.user_id) === value);
+    setAccessRole(String(profile?.role || 'teacher'));
+    setAccessCanTeach(profile?.can_teach === true || (profile?.can_teach == null && ['teacher', 'tutor'].includes(String(profile?.primary_role || profile?.role))));
+    setAccessPlan(String(subscription?.plan_id || profile?.current_plan || 'free'));
+    setAccessStatus(String(subscription?.subscription_status || profile?.subscription_status || 'active'));
+  };
+  const saveAccess = async () => {
+    if (!accessUser || accessBusy) return;
+    setAccessBusy(true); setAccessMessage('');
+    try {
+      const { data: session } = await requireSupabase().auth.getSession();
+      if (!session.session) throw new Error(t('admin.accessDenied'));
+      const response = await fetch('/api/admin-access', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.session.access_token}` }, body: JSON.stringify({ userId: accessUser, role: accessRole, canTeach: accessCanTeach, planId: accessPlan, subscriptionStatus: accessStatus }) });
+      const result = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(result.error || t('admin.accessSaveFailed'));
+      await load(); setAccessMessage(t('admin.accessSaved'));
+    } catch (reason) { setAccessMessage(reason instanceof Error ? reason.message : t('admin.accessSaveFailed')); }
+    finally { setAccessBusy(false); }
+  };
   const [renderedAt] = useState(() => Date.now());
   const searchableProfiles = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase();
@@ -95,7 +125,7 @@ export default function AdminScreen() {
       </> : null}
 
       {tab === 'pricing' ? <><SectionHeading title={t('admin.pricingTitle')} body={t('admin.protectedMutationHelp')} /><RecordList rows={data.plans.rows} page={page} onPageChange={setPage} emptyTitle={t('admin.noPlans')} emptyBody={t('admin.noPlansBody')} describe={(row) => ({ title: String(row.name || row.id), summary: `${row.currency || ''} ${row.price_monthly ?? row.monthly_price ?? '—'}` })} fields={Object.keys(data.plans.rows[0] ?? {}).slice(0, 12).map((key) => ({ key, label: key.replaceAll('_', ' ') }))} /></> : null}
-      {tab === 'subscriptions' ? <><KpiGrid items={groupCount(subscriptions, 'subscription_status').map(([label, value]) => ({ label, value }))} /><RecordList rows={subscriptions} page={page} onPageChange={setPage} emptyTitle={t('admin.noSubscriptions')} emptyBody={t('admin.noSubscriptionsBody')} describe={(row) => ({ title: String(row.user_id), summary: `${row.plan_id || 'free'} · ${row.subscription_status || 'free'}` })} fields={[{ key: 'plan_id', label: t('admin.plan') }, { key: 'subscription_status', label: t('admin.status') }, { key: 'provider_customer_id', label: t('admin.providerCustomer') }, { key: 'manual_override', label: t('admin.manualOverride') }, { key: 'updated_at', label: t('common.updated'), format: dateLabel }]} /></> : null}
+      {tab === 'subscriptions' ? <><Panel><SectionHeading title={t('admin.manageAccess')} body={t('admin.manageAccessHelp')} /><View style={styles.topGap}><SelectField label={t('admin.account')} value={accessUser} options={[{ value: '', label: t('admin.chooseAccount') }, ...profiles.map((row) => ({ value: String(row.user_id), label: String(row.email || row.display_name || row.user_id) }))]} onChange={chooseAccessUser} />{accessUser ? <><SelectField label={t('admin.role')} value={accessRole} options={['teacher', 'student', 'admin'].map((value) => ({ value, label: t(`admin.accessRole.${value}`) }))} onChange={setAccessRole} /><SelectField label={t('admin.teachingAccess')} value={accessCanTeach ? 'yes' : 'no'} options={[{ value: 'yes', label: t('resources.yes') }, { value: 'no', label: t('resources.no') }]} onChange={(value) => setAccessCanTeach(value === 'yes')} /><SelectField label={t('admin.plan')} value={accessPlan} options={data.plans.rows.filter((row) => row.active !== false).map((row) => ({ value: String(row.id), label: String(row.name || row.id) }))} onChange={setAccessPlan} /><SelectField label={t('admin.subscriptionStatus')} value={accessStatus} options={['free', 'active', 'trialing', 'past_due', 'canceled', 'expired'].map((value) => ({ value, label: value.replaceAll('_', ' ') }))} onChange={setAccessStatus} /><Button disabled={accessBusy} onPress={() => void saveAccess()}>{accessBusy ? t('common.saving') : t('admin.saveAccess')}</Button>{accessMessage ? <Text style={styles.note}>{accessMessage}</Text> : null}</> : null}</View></Panel><KpiGrid items={groupCount(subscriptions, 'subscription_status').map(([label, value]) => ({ label, value }))} /><RecordList rows={subscriptions} page={page} onPageChange={setPage} emptyTitle={t('admin.noSubscriptions')} emptyBody={t('admin.noSubscriptionsBody')} describe={(row) => ({ title: String(row.user_id), summary: `${row.plan_id || 'free'} · ${row.subscription_status || 'free'}` })} fields={[{ key: 'plan_id', label: t('admin.plan') }, { key: 'subscription_status', label: t('admin.status') }, { key: 'provider_customer_id', label: t('admin.providerCustomer') }, { key: 'manual_override', label: t('admin.manualOverride') }, { key: 'updated_at', label: t('common.updated'), format: dateLabel }]} /></> : null}
       {tab === 'ai' ? <><SectionHeading title={t('admin.aiTitle')} body={t('admin.aiBody')} />
         <KpiGrid items={[{ label: t('admin.contentTotal'), value: Object.values(aiSnapshot?.contentCounts ?? data.contentCounts).reduce<number>((sum, value) => sum + Number(value || 0), 0) }, { label: t('admin.explorerPending'), value: data.explorerMoves.rows.filter((row) => row.status === 'pending').length }, { label: t('admin.published'), value: data.explorerMoves.rows.filter((row) => row.status === 'published').length }]} />
         {aiSnapshot ? <>

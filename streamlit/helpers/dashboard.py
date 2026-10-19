@@ -217,7 +217,7 @@ def _rebuild_dashboard_from_frames(
     )
 
     def _window_end(row) -> pd.Timestamp:
-        ends = [today]
+        ends = [today + pd.Timedelta(days=1)]
         if pd.notna(row.get("next_pkg_start")):
             ends.append(pd.to_datetime(row["next_pkg_start"], errors="coerce"))
         ends = [e for e in ends if pd.notna(e)]
@@ -288,7 +288,7 @@ def _rebuild_dashboard_from_frames(
 
     dash["Raw_Left_Units"] = dash["Effective_Purchased_Units"] - dash["Lessons_Taken_Units"]
     dash["Overused_Units"] = dash["Raw_Left_Units"].apply(lambda x: abs(int(x)) if int(x) < 0 else 0)
-    dash["Lessons_Left_Units"] = dash["Raw_Left_Units"].clip(lower=0).astype(int)
+    dash["Lessons_Left_Units"] = dash["Raw_Left_Units"].astype(int)
 
     dash["Last_Lesson_Date"] = pd.to_datetime(dash["Last_Lesson_Date"], errors="coerce")
     dash["Payment_Date_dt"] = pd.to_datetime(dash["Payment_Date"], errors="coerce")
@@ -313,7 +313,7 @@ def _rebuild_dashboard_from_frames(
     )
 
     dash["Is_Dropout"] = (~dash["Is_Active_6m"]) & (~dash["Closed_By_Expiry"])
-    dash.loc[dash["Closed_By_Expiry"] | dash["Closed_By_Old_Payment"] | dash["Is_Dropout"], "Lessons_Left_Units"] = 0
+    dash.loc[dash["Closed_By_Old_Payment"] | dash["Is_Dropout"], "Lessons_Left_Units"] = 0
 
     def _status(r) -> str:
         # return ONLY lowercase codes

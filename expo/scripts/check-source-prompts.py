@@ -5,6 +5,7 @@ Run from the repository root with
 """
 
 import json
+import difflib
 import subprocess
 import tempfile
 from pathlib import Path
@@ -40,5 +41,6 @@ process.stdout.write(JSON.stringify({plan,worksheet,exam}));
     expo_prompts = json.loads(result.stdout)
     for kind, expected in source_prompts().items():
         if expo_prompts[kind] != expected:
-            raise SystemExit(f"{kind} default user prompt differs from Python")
+            difference = "".join(difflib.unified_diff(expected.splitlines(keepends=True), expo_prompts[kind].splitlines(keepends=True), fromfile=f"python/{kind}", tofile=f"expo/{kind}"))
+            raise SystemExit(f"{kind} default user prompt differs from Python:\n{difference[:6000]}")
     print("Plan, worksheet, and exam default user prompts match Python byte-for-byte.")

@@ -1171,7 +1171,9 @@ def _section_type_rules(exercise_type: str, subject_group: str = "") -> str:
         ),
         "short_answer": (
             "Each question is a text string requiring a short written answer. "
-            "Provide suggested answers in 'answers'."
+            "Provide suggested answers in 'answers'. Every question must be self-contained; never refer to an unseen passage or text above. "
+            "Assess application, explanation, comparison, reasoning, or a subject-specific skill. "
+            "If source_text is supplied, show it and require synthesis or application beyond basic reading recall; use reading_comprehension for passage-detail questions."
         ),
         "reading_comprehension": (
             "Include a 'source_text' field with a reading passage or source text. "
@@ -1522,6 +1524,7 @@ Design principles:
 - Keep content factually accurate and pedagogically sound.
 - Each section includes both questions AND answers.
 - If the subject is custom or interdisciplinary, adapt intelligently to the topic rather than forcing a narrow template.
+- In short_answer sections, every question must be self-contained; never refer to an unseen text or "the passage above". Assess application, explanation, comparison, reasoning, or a subject-specific skill. If source_text is supplied, show it and ask for synthesis or application beyond basic reading recall. Use reading_comprehension for passage-detail questions.
 
 Profile quality guidance:
 {_exam_profile_guidance(payload)}

@@ -9,10 +9,7 @@ const truthy = (value: unknown) => value === true || ['1', 'true', 'yes', 'on'].
 export function studentTopicTokens(...values: unknown[]) {
   const tokens = new Set<string>();
   for (const value of values) {
-    for (const raw of text(value).replaceAll('/', ' ').replaceAll('-', ' ').split(/\s+/)) {
-      const cleaned = [...raw.toLocaleLowerCase()].filter((character) => /[\p{L}\p{N}]/u.test(character)).join('');
-      if (cleaned.length >= 3) tokens.add(cleaned);
-    }
+    for (const token of text(value).toLocaleLowerCase().split(/[^\p{L}\p{N}]+/u)) if (token.length >= 3) tokens.add(token);
   }
   return tokens;
 }

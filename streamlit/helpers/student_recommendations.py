@@ -1131,7 +1131,7 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
             "title": topic,
             "topic": topic,
             "objective": " ".join(str(item or "") for item in (program_signals.get("next_topics") or []) if str(item or "")),
-            "next_topics": list(program_signals.get("next_topic_tokens") or set()),
+            "next_topics": sorted(program_signals.get("next_topic_tokens") or set()),
             "weak_topics": list(student_profile.get("topic_need", {}).keys()),
         },
     )

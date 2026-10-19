@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Button, Disclosure, Field, Panel } from '@/components/ui';
+import { ActionFeedback, Button, Disclosure, Field, Panel } from '@/components/ui';
 import { useAppPreferences } from '@/providers/app-preferences';
 import { downloadResourcePdf } from '@/services/document-exports';
 import { buildTemplateCv, CV_COUNTRIES, profileCvDefaults, saveTemplateCv, type CvLocale, type TemplateCvInput } from '@/services/professional-cv';
@@ -23,7 +23,7 @@ export function ProfessionalCvBuilder({ onSaved }: { onSaved: () => Promise<void
   const [input, setInput] = useState<TemplateCvInput>(EMPTY);
   const [document, setDocument] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(''); const [messageTone, setMessageTone] = useState<'success' | 'error'>('error');
   useEffect(() => { let active = true; void getProfileWorkspace().then((profile) => { if (!active) return; const defaults = profileCvDefaults(profile); setInput((current) => { if (current === EMPTY) return { ...EMPTY, ...defaults }; const next = { ...current }; for (const [key, value] of Object.entries(defaults) as [keyof TemplateCvInput, string][]) if (!next[key] && value) Object.assign(next, { [key]: value }); return next; }); }).catch(() => {}); return () => { active = false; }; }, []);
   const change = (key: keyof TemplateCvInput, value: string) => setInput((current) => ({ ...current, [key]: value }));
   const countryMatches = input.location.trim() && !CV_COUNTRIES.includes(input.location.trim()) ? CV_COUNTRIES.filter((country) => country.toLocaleLowerCase().includes(input.location.trim().toLocaleLowerCase())).slice(0, 8) : [];
@@ -36,13 +36,13 @@ export function ProfessionalCvBuilder({ onSaved }: { onSaved: () => Promise<void
     { key: 'skills', label: copy.skills }, { key: 'availability', label: copy.availability }, { key: 'rate', label: copy.rate },
   ];
   const create = async () => {
-    if (![input.fullName, input.location, input.subjects, input.teachingStages, input.teachingLanguages].every((value) => value.trim())) { setMessage(copy.required); return; }
+    if (![input.fullName, input.location, input.subjects, input.teachingStages, input.teachingLanguages].every((value) => value.trim())) { setMessageTone('error'); setMessage(copy.required); return; }
     setBusy(true); setMessage('');
     try {
       const next = buildTemplateCv(input, locale);
       await saveTemplateCv(next);
-      setDocument(next); setMessage(copy.saved); await onSaved();
-    } catch (error) { const detail = error instanceof Error ? error.message : ''; setMessage(detail === 'Choose a valid country.' ? copy.invalidCountry : detail.startsWith('Enter a phone number') ? copy.invalidPhone : detail || copy.required); }
+      setDocument(next); await onSaved(); setMessageTone('success'); setMessage(copy.saved);
+    } catch (error) { setMessageTone('error'); const detail = error instanceof Error ? error.message : ''; setMessage(detail === 'Choose a valid country.' ? copy.invalidCountry : detail.startsWith('Enter a phone number') ? copy.invalidPhone : detail || copy.required); }
     finally { setBusy(false); }
   };
 
@@ -52,8 +52,8 @@ export function ProfessionalCvBuilder({ onSaved }: { onSaved: () => Promise<void
     <View style={styles.roles}><Button secondary={input.role !== 'teacher'} onPress={() => change('role', 'teacher')}>{copy.teacher}</Button><Button secondary={input.role !== 'tutor'} onPress={() => change('role', 'tutor')}>{copy.tutor}</Button></View>
     <View style={styles.field}><Text style={styles.label}>{copy.location}</Text><Field value={input.location} onChangeText={(value) => change('location', value)} placeholder={copy.location} />{countryMatches.length ? <View style={styles.suggestions}>{countryMatches.map((country) => <Pressable accessibilityRole="button" key={country} onPress={() => change('location', country)} style={styles.suggestion}><Text style={styles.suggestionText}>{country}</Text></Pressable>)}</View> : null}</View>
     <View style={styles.fields}>{fields.map((field) => <View key={field.key} style={styles.field}><Text style={styles.label}>{field.label}</Text><Field value={input[field.key]} onChangeText={(value) => change(field.key, value)} multiline={field.multiline} numberOfLines={field.multiline ? 3 : 1} style={field.multiline ? styles.multiline : undefined} /></View>)}</View>
-    {message ? <Text style={styles.message}>{message}</Text> : null}
-    <View style={styles.actions}><Button disabled={busy} onPress={() => void create()}>{busy ? copy.creating : copy.create}</Button>{document ? <Button secondary onPress={() => void downloadResourcePdf(String(document.title), document, locale)}>{copy.download}</Button> : null}</View>
+
+    <View style={styles.actions}><Button disabled={busy} onPress={() => void create()}>{busy ? copy.creating : copy.create}</Button>{document ? <Button secondary onPress={() => void downloadResourcePdf(String(document.title), document, locale)}>{copy.download}</Button> : null}</View><ActionFeedback message={message} tone={messageTone} />
   </Panel></Disclosure>;
 }
 

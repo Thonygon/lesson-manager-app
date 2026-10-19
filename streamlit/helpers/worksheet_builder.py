@@ -205,6 +205,17 @@ def _worksheet_quality_issues(ws: dict) -> list[str]:
             if nonempty_answers < expected_count:
                 issues.append("reading_comprehension requires one usable answer per question")
 
+    if ws_type == "short_answer":
+        student_text = " ".join([_clean_str(ws.get("instructions", "")), *[_clean_str(question) for question in (ws.get("questions") or [])]]).casefold()
+        refers_to_source = any(phrase in student_text for phrase in (
+            "lee el siguiente texto", "lea el siguiente texto", "read the following text",
+            "primer párrafo", "segundo párrafo", "tercer párrafo", "último párrafo",
+            "first paragraph", "second paragraph", "third paragraph", "last paragraph",
+            "aşağıdaki metni oku", "ilk paragraf", "ikinci paragraf",
+        ))
+        if refers_to_source and not _clean_str(ws.get("source_text", "")):
+            issues.append("short_answer questions refer to a missing source_text")
+
     if ws_type == "error_correction":
         if len(ws.get("questions") or []) < 3:
             issues.append("error_correction needs at least 3 valid incorrect sentences")
@@ -550,8 +561,9 @@ def normalize_worksheet_output(raw: dict, *, include_visuals: bool = True) -> di
     if ws_type != "reading_comprehension":
         out["reading_passage"] = ""
 
-    if ws_type != "true_false":
+    if ws_type not in {"true_false", "short_answer"}:
         out["source_text"] = ""
+    if ws_type != "true_false":
         out["true_false_statements"] = []
 
     if ws_type != "matching":
@@ -632,7 +644,8 @@ def normalize_worksheet_output(raw: dict, *, include_visuals: bool = True) -> di
         out["matching_pairs"] = []
         out["left_items"] = []
         out["right_items"] = []
-        out["source_text"] = ""
+        if ws_type != "short_answer":
+            out["source_text"] = ""
         out["true_false_statements"] = []
         out["multiple_choice_items"] = []
         if _worksheet_instruction_needs_reset(ws_type, out.get("instructions", "")):
@@ -761,6 +774,9 @@ Worksheet-specific rules for word_search_vocab:
 Worksheet-specific rules for short_answer:
 - Put the items in "questions".
 - Questions should require short written answers.
+- Assess application, explanation, comparison, reasoning, editing, or a subject-specific skill rather than passage-detail recall.
+- For B2, C1, and C2 language tasks, a complete source_text may support style editing, paraphrasing, register, argument analysis, or synthesis. Do not use reading_passage for this type.
+- If any instruction or question refers to a paragraph, passage, or supplied text, include the complete student-facing text in source_text. Never refer to an unseen text. Use reading_comprehension for passage-detail recall.
 - Do NOT prefix statements with numbers or letters.
 - Do NOT return 1., 2., 3. or A., B., C. inside the statement text.
 - The renderer will add numbering.
@@ -886,6 +902,7 @@ Design principles:
 - Avoid outputs that would leave the final page half empty.
 - Prefer fewer, better-distributed items over too many short items.
 - For short_answer and reading_comprehension, create questions that reasonably allow student writing space below each item.
+- For short_answer, assess application, explanation, comparison, reasoning, editing, or a subject-specific skill. At B2, C1, and C2 in language subjects, a short source text can support style improvement, paraphrasing, argument analysis, or synthesis. If any question refers to a paragraph, phrase, passage, or text, include the COMPLETE student-facing text in source_text. Never refer to an unseen text. Keep reading_passage empty for short_answer. Questions must practice the target skill, not merely recall passage details; use reading_comprehension for passage-detail recall.
 - When a worksheet needs a reading_passage or source_text, choose the text form deliberately:
   - passage, article, essay, email, letter, message, or dialogue.
   - Put that value in "text_kind".
@@ -935,7 +952,7 @@ Required JSON structure:
 
 Global validation rules:
 - Only reading_comprehension may use "reading_passage".
-- Only true_false may use "source_text" and "true_false_statements".
+- true_false must use "true_false_statements" and normally uses "source_text". short_answer may also use "source_text" when questions analyze or transform a supplied text. Other exercise types should leave unrelated text fields empty.
 - Only matching may use "matching_pairs", "left_items", or "right_items".
 - Only multiple_choice may use "multiple_choice_items".
 - matching must not be sentence completion.

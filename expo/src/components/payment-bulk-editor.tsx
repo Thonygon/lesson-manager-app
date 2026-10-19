@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { updatePayment, type ClassioRecord } from '@/services/classio-data';
 import { colors } from '@/theme';
-import { Button, Field, Panel, SelectField } from './ui';
+import { ActionFeedback, Button, Field, Panel, SelectField } from './ui';
 
 const SUBJECTS = ['English', 'Spanish', 'Mathematics', 'Science', 'Music', 'Study Skills', 'Other'];
 type Draft = { paymentDate: string; units: string; amount: string; modality: 'Online' | 'Offline'; subject: string; customSubject: string; startDate: string; expiryDate: string; adjustment: string; normalized: boolean; note: string };
@@ -15,7 +15,7 @@ export function PaymentBulkEditor({ student, records, onSaved }: { student: stri
   const rows = records.filter((row) => String(row.student || '').trim() === student);
   const [changes, setChanges] = useState<Record<string, Draft>>({});
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(''); const [messageTone, setMessageTone] = useState<'success' | 'error'>('error');
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(rows.length / 8));
   const currentPage = Math.min(page, totalPages);
@@ -37,8 +37,8 @@ export function PaymentBulkEditor({ student, records, onSaved }: { student: stri
         const item = changes[String(row.id)];
         await updatePayment(String(row.id), { student, lessonUnits: Number(item.units), paymentDate: item.paymentDate, paidAmount: Number(item.amount), currency: String(row.currency || 'TRY'), modality: item.modality, subject: item.subject, customSubject: item.customSubject, packageStartDate: item.startDate, packageExpiryDate: item.expiryDate, adjustmentUnits: Number(item.adjustment), normalized: item.normalized, normalizedNote: item.note });
       }
-      setChanges({}); await onSaved(); setMessage(`${changedRows.length} payment${changedRows.length === 1 ? '' : 's'} updated.`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Some payment changes could not be saved. Refresh and review the rows.'); }
+      setChanges({}); await onSaved(); setMessageTone('success'); setMessage(`${changedRows.length} payment${changedRows.length === 1 ? '' : 's'} updated.`);
+    } catch (error) { setMessageTone('error'); setMessage(error instanceof Error ? error.message : 'Some payment changes could not be saved. Refresh and review the rows.'); }
     finally { setBusy(false); }
   };
 
@@ -65,7 +65,7 @@ export function PaymentBulkEditor({ student, records, onSaved }: { student: stri
       </View></ScrollView>
       <View style={styles.actions}><Button secondary disabled={busy || currentPage <= 1} onPress={() => setPage(currentPage - 1)}>Previous</Button><Text style={styles.help}>{currentPage} / {totalPages}</Text><Button secondary disabled={busy || currentPage >= totalPages} onPress={() => setPage(currentPage + 1)}>Next</Button><Button disabled={busy || changedRows.length === 0} onPress={() => void apply()}>{busy ? 'Applying…' : `Apply ${changedRows.length} changed ${changedRows.length === 1 ? 'payment' : 'payments'}`}</Button></View>
     </>}
-    {message ? <Text style={styles.message}>{message}</Text> : null}
+    <ActionFeedback message={message} tone={messageTone} />
   </View>;
 }
 

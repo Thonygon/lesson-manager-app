@@ -96,11 +96,9 @@ export async function loadDeveloperWorkspace(): Promise<DeveloperWorkspaceData> 
   const client = requireSupabase();
   const { data: auth } = await client.auth.getUser();
   if (!auth.user) throw new Error('Developer access requires an authenticated account.');
-  const [{ data: profile }, { data: roles }] = await Promise.all([
-    client.from('profiles').select('role').eq('user_id', auth.user.id).maybeSingle(),
-    client.from('user_staff_roles').select('role_key').eq('user_id', auth.user.id).eq('is_active', true),
-  ]);
-  const allowed = profile?.role === 'admin' || (roles ?? []).some((row) => row.role_key === 'developer' || row.role_key === 'data_scientist');
+  const { data: roles, error: rolesError } = await client.from('user_staff_roles').select('role_key').eq('user_id', auth.user.id).eq('is_active', true);
+  if (rolesError) throw rolesError;
+  const allowed = (roles ?? []).some((row) => row.role_key === 'developer' || row.role_key === 'data_scientist');
   if (!allowed) throw new Error('Developer or data scientist access is required for this workspace.');
 
   const [experiments, runs, models, artifacts, jobs, audit, diagnostics, recommendationEvents] = await Promise.all([

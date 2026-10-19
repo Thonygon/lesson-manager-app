@@ -56,6 +56,7 @@ Design principles:
 - Avoid outputs that would leave the final page half empty.
 - Prefer fewer, better-distributed items over too many short items.
 - For short_answer and reading_comprehension, create questions that reasonably allow student writing space below each item.
+- For short_answer, assess application, explanation, comparison, reasoning, editing, or a subject-specific skill. At B2, C1, and C2 in language subjects, a short source text can support style improvement, paraphrasing, argument analysis, or synthesis. If any question refers to a paragraph, phrase, passage, or text, include the COMPLETE student-facing text in source_text. Never refer to an unseen text. Keep reading_passage empty for short_answer. Questions must practice the target skill, not merely recall passage details; use reading_comprehension for passage-detail recall.
 - When a worksheet needs a reading_passage or source_text, choose the text form deliberately:
   - passage, article, essay, email, letter, message, or dialogue.
   - Put that value in "text_kind".
@@ -105,7 +106,7 @@ Required JSON structure:
 
 Global validation rules:
 - Only reading_comprehension may use "reading_passage".
-- Only true_false may use "source_text" and "true_false_statements".
+- true_false must use "true_false_statements" and normally uses "source_text". short_answer may also use "source_text" when questions analyze or transform a supplied text. Other exercise types should leave unrelated text fields empty.
 - Only matching may use "matching_pairs", "left_items", or "right_items".
 - Only multiple_choice may use "multiple_choice_items".
 - matching must not be sentence completion.

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from functools import lru_cache
 import json
+import hashlib
+import os
 from pathlib import Path
 import pickle
 import re
@@ -14,7 +16,8 @@ from core.database import get_sb
 from helpers.resource_gallery import extract_resource_language_value
 
 
-RUNS_ROOT = Path("reports") / "ml_architecture" / "resource_affinity_unsupervised" / "runs"
+STREAMLIT_ROOT = Path(__file__).resolve().parents[1]
+RUNS_ROOT = STREAMLIT_ROOT / "reports" / "ml_architecture" / "resource_affinity_unsupervised" / "runs"
 MIN_QUERY_ANCHOR_SIMILARITY = 0.38
 REPRESENTATION_MANIFEST_FILENAME = "resource_affinity_representation_manifest.json"
 MIN_FEATURE_SCHEMA_VERSION = "resource_affinity_unsupervised.v5"
@@ -174,6 +177,22 @@ def _load_pickle(path: Path) -> Any:
         return pickle.load(handle)
 
 
+def _representation_file(representation: dict[str, Any], key: str) -> Path:
+    raw = _clean_text((representation.get("files") or {}).get(key))
+    if not raw:
+        raise ValueError(f"missing_representation_file:{key}")
+    path = Path(raw)
+    if not path.is_absolute():
+        path = STREAMLIT_ROOT / path
+    path = path.resolve()
+    if not path.is_relative_to(RUNS_ROOT.resolve()):
+        raise ValueError(f"representation_file_outside_runs:{key}")
+    expected = _clean_text((representation.get("file_checksums") or {}).get(key))
+    if expected and hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+        raise ValueError(f"representation_checksum_mismatch:{key}")
+    return path
+
+
 def _model_family(value: Any) -> str:
     return _norm_key(value).split("_", 1)[0]
 
@@ -238,14 +257,22 @@ def _best_run_dir() -> Path | None:
 
 @lru_cache(maxsize=1)
 def load_resource_affinity_index() -> dict[str, Any]:
-    pinned_row = _current_validated_run_row()
+    configured_run = _clean_text(os.getenv("CLASSIO_RESOURCE_AFFINITY_RUN_ID"))
+    if configured_run and not re.fullmatch(r"[A-Za-z0-9_-]{6,80}", configured_run):
+        return {"available": False, "reason": "invalid_configured_run_id"}
+    pinned_row = {"run_id": configured_run} if configured_run else _current_validated_run_row()
     run_dir = RUNS_ROOT / _clean_text(pinned_row.get("run_id")) if _clean_text(pinned_row.get("run_id")) else None
     if run_dir and (not run_dir.exists() or not run_dir.is_dir()):
+        if configured_run:
+            return {"available": False, "reason": "configured_run_not_found"}
         run_dir = None
     if run_dir is None:
         run_dir = _best_run_dir()
     if not run_dir:
         return {"available": False, "reason": "no_validated_artifacts"}
+    configured_summary = _read_json(run_dir / "resource_affinity_run_summary.json") if configured_run else {}
+    if configured_run and _clean_text((configured_summary.get("dataset") or {}).get("feature_schema_version")) < MIN_FEATURE_SCHEMA_VERSION:
+        return {"available": False, "reason": "configured_run_schema_unsupported"}
     try:
         frozen = pd.read_csv(run_dir / "resource_affinity_dataset_frozen.csv").fillna("")
         clusters = pd.read_csv(run_dir / "resource_affinity_cluster_assignments.csv").fillna("")
@@ -257,15 +284,13 @@ def load_resource_affinity_index() -> dict[str, Any]:
         return {"available": False, "reason": "empty_index"}
 
     merged = frozen.merge(clusters[["resource_key", "cluster_id"]], on="resource_key", how="left")
-    files = representation.get("files") or {}
     try:
-        vectorizer = _load_pickle(Path(str(files.get("vectorizer") or "")))
-        normalizer = _load_pickle(Path(str(files.get("normalizer") or "")))
-        svd_path = _clean_text(files.get("svd"))
-        svd = _load_pickle(Path(svd_path)) if svd_path else None
-        with np.load(Path(str(files.get("vectors") or ""))) as vectors_payload:
+        vectorizer = _load_pickle(_representation_file(representation, "vectorizer"))
+        normalizer = _load_pickle(_representation_file(representation, "normalizer"))
+        svd = _load_pickle(_representation_file(representation, "svd")) if (representation.get("files") or {}).get("svd") else None
+        with np.load(_representation_file(representation, "vectors")) as vectors_payload:
             matrix = np.asarray(vectors_payload["vectors"], dtype=float).copy()
-        ordered_keys = json.loads(Path(str(files.get("resource_keys") or "")).read_text(encoding="utf-8"))
+        ordered_keys = json.loads(_representation_file(representation, "resource_keys").read_text(encoding="utf-8"))
     except Exception as exc:
         return {"available": False, "reason": f"fitted_representation_load_failed:{exc}"}
     merged_keys = merged["resource_key"].astype(str).tolist()
@@ -289,7 +314,7 @@ def load_resource_affinity_index() -> dict[str, Any]:
         "run_dir": str(run_dir),
         "winner": _clean_text(best_row.get("model_name")),
         "model_family": _model_family(best_row.get("model_name")),
-        "selection_source": "human_review_runtime_pin" if pinned_model_name else "artifact_winner_scan",
+        "selection_source": "configured_run_id" if configured_run else "human_review_runtime_pin" if pinned_model_name else "artifact_winner_scan",
         "runtime_model_policy": f"preferred_family={PREFERRED_RUNTIME_MODEL_FAMILY}; fallback={'allowed' if ALLOW_NON_KMEANS_RUNTIME_FALLBACK else 'disabled'}",
         "silhouette_score": _safe_float(best_row.get("silhouette_score")),
         "selection_score": _safe_float(best_row.get("selection_score")),

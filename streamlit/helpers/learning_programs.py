@@ -2038,11 +2038,18 @@ def _build_program_unit_enrichment_prompts(prompt_payload: dict, program_skeleto
     unit_context = {
         "program_title": program_skeleton.get("title"),
         "program_overview": program_skeleton.get("program_overview"),
-        "subject_family": program_skeleton.get("subject_family"),
+        "subject_family": program_skeleton.get("subject_family") or prompt_payload.get("subject_family"),
+        "best_practice_frameworks": prompt_payload.get("best_practice_frameworks"),
+        "best_practice_principles": prompt_payload.get("best_practice_principles"),
         "entry_profile": program_skeleton.get("entry_profile"),
         "exit_profile": program_skeleton.get("exit_profile"),
         "core_progression_priorities": program_skeleton.get("core_progression_priorities"),
+        "progression_chain_context": prompt_payload.get("progression_chain_context") or {},
+        "prior_units_context": unit_skeleton.get("prior_units_context") or _summarize_prior_units(program_skeleton, int(unit_skeleton.get("unit_number") or 0)),
         "unit": unit_skeleton,
+        "program_track": prompt_payload.get("program_track"),
+        "exam_prep_target": prompt_payload.get("exam_prep_target"),
+        "program_track_guidance": prompt_payload.get("program_track_guidance"),
         "recommended_lesson_purposes": prompt_payload.get("recommended_lesson_purposes"),
         "recommended_worksheet_types": prompt_payload.get("recommended_worksheet_types"),
         "recommended_exam_exercise_types": prompt_payload.get("recommended_exam_exercise_types"),
@@ -2050,6 +2057,9 @@ def _build_program_unit_enrichment_prompts(prompt_payload: dict, program_skeleto
         "delivery_mode_guidance": prompt_payload.get("delivery_mode_guidance"),
         "subject_progression_profile": prompt_payload.get("subject_progression_profile"),
         "student_native_language": prompt_payload.get("student_native_language"),
+        "program_language": prompt_payload.get("program_language"),
+        "student_material_language": prompt_payload.get("student_material_language"),
+        "additional_notes": unit_skeleton.get("additional_notes") or prompt_payload.get("additional_notes"),
     }
 
     user_prompt = f"""
@@ -2060,9 +2070,9 @@ Unit context:
 
 Rules:
 - Return JSON only.
-- Keep the existing unit title, overview, topic order, and topic titles coherent.
+- Preserve the existing unit title, overview, topic order, topic titles, and lesson_purpose values.
 - Follow program_track_guidance closely. If program_track is exam_prep, all enrichments must stay faithful to the chosen exam target.
-- Add unit_objectives, recommended resource types, recommended complementary activities, and delivery_notes.
+- Add unit_objectives, recommended resource types, complementary activities, delivery_notes, and estimated_lessons.
 - For each topic, add learning_objectives, success_criteria, student_can_do, suggested_worksheet_types, suggested_exam_exercise_types, suggested_non_classio_activities, delivery_notes, homework_idea, teacher_notes, student_summary, and estimated_lessons.
 - Keep suggested_worksheet_types inside recommended_worksheet_types.
 - Keep suggested_exam_exercise_types inside recommended_exam_exercise_types.
@@ -2073,6 +2083,7 @@ Rules:
 - If student_native_language is provided and the level is beginner/A1/A2 or the activity needs access support, use that language for brief support notes instead of assuming English or Spanish.
 - Do not over-translate higher-level topics; keep the requested student_material_language as the main student-facing language.
 - Keep each list concise and useful.
+- Treat suggested worksheet types, exam exercise types, and lesson purposes as editable recommendations for later teacher generations; do not make them exclusive requirements when the teacher selects another valid type.
 {_program_language_instruction_block(prompt_payload.get("program_language", ""), prompt_payload.get("student_material_language", ""))}
 
 Required output shape:

@@ -1,4 +1,6 @@
 import { requireSupabase } from '@/lib/supabase';
+import { isValidRecordDate, isValidUnitAdjustment, isValidUnitCount } from '@/lib/record-input-validation';
+import { readTeacherHistory } from '@/services/teacher-history-pagination';
 
 export type DashboardCounts = {
   students: number;
@@ -105,7 +107,7 @@ export async function getAssignmentWorkspace(): Promise<AssignmentWorkspace> {
   const teacherId = userData.user.id;
   const [assignmentResult, attemptResult, reviewResult, studentResult] = await Promise.all([
     client.from('teacher_assignments').select(LISTS.assignments.select).eq('teacher_id', teacherId).neq('status', 'archived').order('created_at', { ascending: false }).limit(1000),
-    client.from('teacher_assignment_attempts').select('id,assignment_id,student_id,attempt_number,status,score_pct,total_questions,correct_count,teacher_feedback,started_at,submitted_at,graded_at,completed_at,created_at').eq('teacher_id', teacherId).order('created_at', { ascending: false }).limit(2000),
+    client.from('teacher_assignment_attempts').select('id,assignment_id,student_id,practice_session_id,attempt_number,status,score_pct,total_questions,correct_count,teacher_feedback,started_at,submitted_at,graded_at,completed_at,created_at').eq('teacher_id', teacherId).order('created_at', { ascending: false }).limit(2000),
     client.from('teacher_review_requests').select('id,student_id,assignment_id,practice_session_id,subject_key,subject_label,source_type,source_id,title,status,request_note,teacher_feedback,override_score_pct,requested_at,reviewed_at,created_at').eq('teacher_id', teacherId).order('requested_at', { ascending: false }).limit(1000),
     client.from('students').select('student,linked_student_user_id').eq('user_id', teacherId).not('linked_student_user_id', 'is', null).limit(1000),
   ]);
@@ -126,7 +128,23 @@ export async function getAssignmentDetail(id: string | number): Promise<ClassioR
   if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
   const { data, error } = await client.from('teacher_assignments').select('id,teacher_id,student_id,assignment_type,source_type,source_record_id,title,topic,subject_key,subject_label,teacher_note,content_snapshot,status,score_pct,total_questions,correct_count,due_at,assigned_at,opened_at,viewed_at,submitted_at,graded_at,completed_at,created_at,updated_at,learning_program_assignment_id,learning_program_topic_id').eq('id', id).eq('teacher_id', userData.user.id).single();
   if (error) throw error;
-  return data as unknown as ClassioRecord;
+  const assignment = data as unknown as ClassioRecord;
+  const sourceId = String(assignment.source_record_id || '');
+  const type = String(assignment.assignment_type || '');
+  if (sourceId && (type === 'worksheet' || type === 'exam')) {
+    const source = type === 'worksheet' ? await client.from('worksheets').select('worksheet_json').eq('id', sourceId).eq('user_id', userData.user.id).maybeSingle()
+      : await client.from('quick_exams').select('exam_data,answer_key').eq('id', sourceId).eq('user_id', userData.user.id).maybeSingle();
+    if (!source.error && source.data) { const payload = source.data as Record<string, unknown>; assignment.content_snapshot = { ...(assignment.content_snapshot as Record<string, unknown> || {}), ...(type === 'worksheet' ? { worksheet: payload.worksheet_json } : { exam_data: payload.exam_data, answer_key: payload.answer_key }) }; }
+  }
+  if (sourceId && type === 'lesson_plan_topic') {
+    const { data: plan, error: planError } = await client.from('lesson_plans').select('plan_json').eq('id', sourceId).eq('user_id', userData.user.id).maybeSingle();
+    if (!planError && plan?.plan_json) assignment.content_snapshot = { ...(assignment.content_snapshot as Record<string, unknown> || {}), plan_json: plan.plan_json };
+  }
+  if (sourceId && type === 'video') {
+    const { data: video, error: videoError } = await client.from('videos').select('title,description,youtube_url,video_id,thumbnail_url').eq('id', sourceId).eq('user_id', userData.user.id).maybeSingle();
+    if (!videoError && video) assignment.content_snapshot = { ...(assignment.content_snapshot as Record<string, unknown> || {}), ...video };
+  }
+  return assignment;
 }
 
 export type TeacherReviewDetail = {
@@ -136,10 +154,27 @@ export type TeacherReviewDetail = {
 };
 
 export async function getTeacherReviewDetail(reviewId: string | number): Promise<TeacherReviewDetail> {
+  const { data: session } = await requireSupabase().auth.getSession();
+  if (session.session?.access_token) {
+    const repair = await fetch('/api/practice-regrade', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.session.access_token}` }, body: JSON.stringify({ kind: 'review', reviewId }) });
+    if (!repair.ok) console.warn('Review score refresh unavailable; showing saved responses.');
+  }
   const { data, error } = await requireSupabase().rpc('classio_teacher_review_detail', { p_review_id: reviewId });
   if (error) throw error;
   const payload = (data ?? {}) as unknown as TeacherReviewDetail;
   return { review: payload.review ?? {}, session: payload.session ?? {}, answers: Array.isArray(payload.answers) ? payload.answers : [] };
+}
+
+export async function ensureTeacherAttemptReview(assignmentId: string | number, practiceSessionId: string | number): Promise<ClassioRecord> {
+  const client = requireSupabase();
+  const { data, error } = await client.rpc('classio_request_teacher_revision', { p_assignment_id: Number(assignmentId), p_practice_session_id: Number(practiceSessionId) });
+  if (error) throw error;
+  const review = (data ?? {}) as ClassioRecord;
+  if (!review.existing && review.id) {
+    const { error: closeError } = await client.from('teacher_review_requests').update({ status: 'closed', review_payload: { initiated_by: 'teacher' } }).eq('id', review.id);
+    if (closeError) throw closeError;
+  }
+  return review;
 }
 
 export async function submitTeacherReview(input: { reviewId: string | number; overrides: Record<string, 'keep' | 'correct' | 'incorrect'>; feedback: string }) {
@@ -176,6 +211,7 @@ export async function addLesson(input: {
   customSubject?: string;
   note?: string;
 }) {
+  if (!isValidRecordDate(input.lessonDate) || !isValidUnitCount(input.units, 10)) throw new Error('Enter a valid lesson date and 1–10 whole units.');
   const client = requireSupabase();
   const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
@@ -194,6 +230,7 @@ export async function addLesson(input: {
 }
 
 export async function updateLesson(id: string | number, input: { student: string; lessonDate: string; units: number; modality: 'Online' | 'Offline'; subject: string; customSubject?: string; note?: string }) {
+  if (!isValidRecordDate(input.lessonDate) || !isValidUnitCount(input.units, 10)) throw new Error('Enter a valid lesson date and 1–10 whole units.');
   const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
   const { data: previous } = await client.from('classes').select('student').eq('id', id).eq('user_id', userData.user.id).maybeSingle();
@@ -221,6 +258,7 @@ export async function addPayment(input: {
   customSubject?: string;
   packageStartDate?: string;
 }) {
+  if (!isValidRecordDate(input.paymentDate) || (input.packageStartDate && !isValidRecordDate(input.packageStartDate)) || !isValidUnitCount(input.lessonUnits, 500) || !Number.isFinite(input.paidAmount) || input.paidAmount < 0) throw new Error('Check the payment dates, amount, and 1–500 whole units.');
   const client = requireSupabase();
   const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
@@ -246,6 +284,8 @@ export async function addPayment(input: {
 }
 
 export async function updatePayment(id: string | number, input: { student: string; lessonUnits: number; paymentDate: string; paidAmount: number; currency: string; modality: 'Online' | 'Offline'; subject: string; customSubject?: string; packageStartDate?: string; packageExpiryDate?: string; adjustmentUnits?: number; normalized?: boolean; normalizedNote?: string }) {
+  if (!isValidRecordDate(input.paymentDate) || (input.packageStartDate && !isValidRecordDate(input.packageStartDate)) || (input.packageExpiryDate && !isValidRecordDate(input.packageExpiryDate)) || !isValidUnitCount(input.lessonUnits, 500) || !Number.isFinite(input.paidAmount) || input.paidAmount < 0 || !isValidUnitAdjustment(input.adjustmentUnits ?? 0)) throw new Error('Check the payment dates, amount, and unit counts.');
+  if (input.packageExpiryDate && input.packageExpiryDate < (input.packageStartDate || input.paymentDate)) throw new Error('The package expiry date must follow its start date.');
   const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
   const { data: previous } = await client.from('payments').select('student').eq('id', id).eq('user_id', userData.user.id).maybeSingle();
@@ -385,20 +425,57 @@ export async function renameStudentEverywhere(oldName: string, newName: string) 
   const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
   const { data, error } = await client.rpc('classio_rename_student_everywhere', { p_old_name: oldValue, p_new_name: newValue });
-  if (error) throw error;
-  return data as { renamed?: boolean; name?: string; students?: number; classes?: number; payments?: number; schedules?: number; calendar_overrides?: number } | null;
+  if (!error) {
+    const result = data as { renamed?: boolean; name?: string; students?: number; classes?: number; payments?: number; schedules?: number; calendar_overrides?: number } | null;
+    if (!result?.renamed) throw new Error('The student name was not changed.');
+    return result;
+  }
+  // Older Supabase projects may not have this optional atomic workflow installed.
+  // Match the Streamlit rename path only when PostgREST confirms the RPC is absent.
+  if (error.code !== 'PGRST202' && error.code !== '42883') throw error;
+  const uid = userData.user.id;
+  const { data: students, error: studentsError } = await client.from('students').select('id,student').eq('user_id', uid).limit(1000);
+  if (studentsError) throw studentsError;
+  const normalize = (value: unknown) => String(value || '').trim().toLocaleLowerCase();
+  if ((students ?? []).some((row) => normalize(row.student) === normalize(newValue))) throw new Error('student_name_exists');
+  if (!(students ?? []).some((row) => String(row.student || '') === oldValue)) throw new Error('student_not_found');
+
+  const changed: { table: string; column: string; owner: string }[] = [];
+  const targets = [
+    { table: 'students', column: 'student', owner: 'user_id' },
+    { table: 'classes', column: 'student', owner: 'user_id' },
+    { table: 'payments', column: 'student', owner: 'user_id' },
+    { table: 'schedules', column: 'student', owner: 'user_id' },
+    { table: 'calendar_overrides', column: 'student', owner: 'user_id' },
+    { table: 'learning_program_assignments', column: 'student_name', owner: 'teacher_id' },
+  ];
+  try {
+    for (const target of targets) {
+      const { error: updateError } = await client.from(target.table).update({ [target.column]: newValue }).eq(target.owner, uid).eq(target.column, oldValue);
+      if (updateError) throw updateError;
+      changed.push(target);
+    }
+  } catch (updateError) {
+    // Best effort compensation keeps the teacher's records consistent if one table rejects the change.
+    const rollback = await Promise.allSettled(changed.reverse().map((target) => client.from(target.table).update({ [target.column]: oldValue }).eq(target.owner, uid).eq(target.column, newValue)));
+    if (rollback.some((result) => result.status === 'rejected' || result.value.error)) throw new Error('The rename could not be completed and some records may need review.');
+    throw updateError;
+  }
+  const { data: verified, error: verifyError } = await client.from('students').select('id').eq('user_id', uid).eq('student', newValue).limit(1);
+  if (verifyError) throw verifyError;
+  if (!verified?.length) throw new Error('The student name was not saved.');
+  return { renamed: true, name: newValue };
 }
 
 export async function getStudentHistory(student: string): Promise<{ lessons: ClassioRecord[]; payments: ClassioRecord[] }> {
   const client = requireSupabase();
   const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
-  const [lessonResult, paymentResult] = await Promise.all([
-    client.from('classes').select('id,lesson_date,number_of_lesson,modality,subject,subject_custom,note').eq('user_id', userData.user.id).eq('student', student).order('lesson_date', { ascending: false }).limit(200),
-    client.from('payments').select('id,payment_date,number_of_lesson,paid_amount,currency,modality,subject,subject_custom,package_start_date,package_expiry_date,lesson_adjustment_units,package_normalized').eq('user_id', userData.user.id).eq('student', student).order('payment_date', { ascending: false }).limit(100),
+  const [lessons, payments] = await Promise.all([
+    readTeacherHistory(client, userData.user.id, 'classes', 'id,student,lesson_date,number_of_lesson,modality,subject,subject_custom,note', 'lesson_date', student),
+    readTeacherHistory(client, userData.user.id, 'payments', 'id,student,payment_date,number_of_lesson,paid_amount,currency,modality,subject,subject_custom,package_start_date,package_expiry_date,lesson_adjustment_units,package_normalized', 'payment_date', student),
   ]);
-  if (lessonResult.error || paymentResult.error) throw lessonResult.error ?? paymentResult.error;
-  return { lessons: (lessonResult.data ?? []) as unknown as ClassioRecord[], payments: (paymentResult.data ?? []) as unknown as ClassioRecord[] };
+  return { lessons: lessons as ClassioRecord[], payments: payments as ClassioRecord[] };
 }
 
 export async function addSchedule(input: { student: string; weekday: number; time: string; durationMinutes: number; startDate: string; endDate?: string; active: boolean; timezone: string }) {
@@ -406,6 +483,17 @@ export async function addSchedule(input: { student: string; weekday: number; tim
   const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
   const { error } = await client.from('schedules').insert({ user_id: userData.user.id, student: input.student.trim(), weekday: input.weekday, time: input.time, duration_minutes: input.durationMinutes, active: input.active, timezone: input.timezone, start_date: input.startDate, end_date: input.endDate || null });
+  if (error) throw error;
+}
+
+export async function addSchedules(input: { student: string; weekdays: number[]; time: string; durationMinutes: number; startDate: string; endDate?: string; active: boolean; timezone: string }) {
+  const weekdays = [...new Set(input.weekdays)].filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+  if (!weekdays.length) throw new Error('Choose at least one day.');
+  const client = requireSupabase();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
+  const rows = weekdays.map((weekday) => ({ user_id: userData.user.id, student: input.student.trim(), weekday, time: input.time, duration_minutes: input.durationMinutes, active: input.active, timezone: input.timezone, start_date: input.startDate, end_date: input.endDate || null }));
+  const { error } = await client.from('schedules').insert(rows);
   if (error) throw error;
 }
 

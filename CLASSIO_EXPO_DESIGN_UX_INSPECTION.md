@@ -4,6 +4,7 @@ Updated: 2026-09-30. Source of behavioral parity: `streamlit/app_pages` and `str
 
 ## Shared app
 
+- [x] Profile is now opened by clicking the user's avatar/name rather than a separate navigation item. Desktop keeps that identity at the foot of the sidebar; compact layouts show it in the page header. The shared shell applies this to student, teacher, admin, and data scientist workspaces; the existing protected `/profile` screen remains the destination. TypeScript, targeted ESLint, whitespace check, and web export passed. EAS deployment `5iz704gdnc` was promoted; versioned and production `/profile` returned HTTP 200 with local bundle `entry-9440dbc033b8ea595e45ea0c99a412d8.js`. Authenticated visual and click review remains for the user's account.
 - [x] Design rule for future tasks: every resource gallery uses the teacher Home filter pattern—search and result count above three visible subject, learner-stage, and level selects. Reuse `expo/src/components/resource-filters.tsx` so spacing, labels, and responsive wrapping remain consistent. Public Explore, teacher Home, Resources, and student Practice now use it. Keep resource-type tabs and any page-specific filters below this shared row. Browser checks on staging confirmed that Subject selection changes Public Explore from 9 to 6 results and Resources from 10 to 6 results.
 - [x] Public Explore, teacher Home, student Home, and Resources now use one clickable `ResourceShowcaseCard` design, with consistent image, metadata, theme colors, hover response, and accessible labels. Resource filters remain the shared pattern above the gallery.
 - [x] Rebuilt public Explore for teachers and students: two hero paths, switchable role preview, matching role cards, dark/light surfaces, and complete authored EN/ES/TR interface copy. Localized the income planner choices and resource metadata. The source-authored resource titles and descriptions retain their original language. Reviewed the deployed desktop page in the browser; TypeScript, targeted ESLint, whitespace check, and 26-route web export passed. Staging deployment: `https://classio--q9px1v2iy4.expo.app`.
@@ -32,6 +33,9 @@ Updated: 2026-09-30. Source of behavioral parity: `streamlit/app_pages` and `str
 - [ ] Audit Dashboard, Students, Lessons, Calendar, Resources, Smart Tools, Payments, Analytics, Community, Profile, Billing, and Account for hierarchy, mobile layout, and Streamlit workflow parity.
 
 ## Student
+
+- [x] 2026-10-09 load-pressure pass: replaced the all-page student workspace query with Home, Assignments, Study Plan, and Practice scopes. Large assignment/practice payloads open on demand and public practice resources reuse a brief user-scoped cache. Streamlit's actions and score/progress data remain available. TypeScript and targeted ESLint pass.
+- [ ] Confirm student load times, Supabase health, and open/detail/resume behavior with an authenticated staging learner before production deployment.
 
 - [x] Removed redundant Open labels from clickable Home navigation cards.
 - [x] Moved Home assignment and review notifications into the header inbox, preserving the Assignments destination.

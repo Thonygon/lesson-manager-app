@@ -1,4 +1,5 @@
 import source from './source-exam-guidance.json';
+import { examLengthRule } from '../lib/exam-generation-rules';
 
 // Source: streamlit/helpers/quick_exam_builder.py:_build_exam_prompts.
 export type ExamPromptInput = { subject: string; topic: string; learnerStage: string; levelOrBand: string; examTitle: string; examLength: string; exerciseTypes: string[]; planLanguage: string; studentMaterialLanguage: string; instructions?: string; studentProfile?: Record<string, unknown>; studentProfileBlock?: string; programContextBlock?: string };
@@ -24,8 +25,8 @@ function passageGuidance(selected: string[], group: string) {
 
 export function buildExamUserPrompt(input: ExamPromptInput) {
   const group = subjectGroup(input.subject);
-  const spec = input.examLength === 'short' ? { sections: 3, min: 4, max: 5 } : input.examLength === 'long' ? { sections: 5, min: 6, max: 10 } : { sections: 4, min: 5, max: 7 };
-  const selected = input.exerciseTypes.slice(0, spec.sections);
+  const spec = examLengthRule(input.examLength);
+  const selected = input.exerciseTypes;
   const typeDetails = selected.map((type) => { const rule = source.type_rules[`${type}|${group}` as keyof typeof source.type_rules] || ''; return rule ? `- ${type}: ${rule}` : `- ${type}`; }).join('\n');
   const blueprint = selected.map((type, index) => `- Section ${index + 1}: ${type} | group=${typeGroup[type] || 'core'} | label=${source.labels[type as keyof typeof source.labels] || type.replaceAll('_', ' ')}`).join('\n');
   const sequence = `- ${starts[group] || starts.general}\n- Vary the response demand across sections so the paper does not feel repetitive.\n- Make each section earn its place in the assessment by measuring a distinct but relevant skill.`;
@@ -53,7 +54,7 @@ ${JSON.stringify(payload, null, 2)}
 
 Exam structure:
 - ${selected.length} sections
-- ${spec.min}-${spec.max} questions per section
+- ${spec.questionsMin}-${spec.questionsMax} questions per section
 - Exercise types to include (in order):
 ${typeDetails}
 
@@ -94,6 +95,7 @@ Design principles:
 - Keep content factually accurate and pedagogically sound.
 - Each section includes both questions AND answers.
 - If the subject is custom or interdisciplinary, adapt intelligently to the topic rather than forcing a narrow template.
+- In short_answer sections, every question must be self-contained; never refer to an unseen text or "the passage above". Assess application, explanation, comparison, reasoning, or a subject-specific skill. If source_text is supplied, show it and ask for synthesis or application beyond basic reading recall. Use reading_comprehension for passage-detail questions.
 
 Profile quality guidance:
 ${profile}

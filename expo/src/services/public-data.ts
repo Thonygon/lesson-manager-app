@@ -36,7 +36,7 @@ const DIRECT_IMAGE_KEYS = [
 ];
 const BASE64_IMAGE_KEYS = ['b64_json', 'image_base64', 'cover_image_base64', 'thumbnail_base64', 'base64'];
 const NESTED_IMAGE_KEYS = [
-  'visual_support', 'cover_image', 'hero_image', 'image', 'thumbnail', 'program_data',
+  'cover_image', 'visual_support', 'hero_image', 'image', 'thumbnail', 'program_data',
   'program_json', 'plan_json', 'lesson_plan_json', 'worksheet_json', 'exam_data',
   'content_snapshot',
 ];
@@ -106,12 +106,18 @@ export async function getPublicResources(kinds: PublicResourceKind[] = Object.ke
         .neq('status', 'archived')
         .order(definition.order, { ascending: false })
         .limit(boundedLimit);
-      const { data, error } = await Promise.race([
-        request,
-        new Promise<{ data: null; error: Error }>((resolve) => setTimeout(() => resolve({ data: null, error: new Error(`Timed out loading ${kind} resources.`) }), 8000)),
-      ]);
-      if (error) throw new Error(`Unable to load ${kind} resources: ${error.message}`);
-      return (data ?? []).map((row) => normalize(kind, row as unknown as Record<string, unknown>));
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      try {
+        const { data, error } = await request.abortSignal(controller.signal);
+        if (error) throw new Error(`Unable to load ${kind} resources: ${error.message}`);
+        return (data ?? []).map((row) => normalize(kind, row as unknown as Record<string, unknown>));
+      } catch (reason) {
+        if (controller.signal.aborted) throw new Error(`Timed out loading ${kind} resources.`);
+        throw reason;
+      } finally {
+        clearTimeout(timeout);
+      }
     }),
   );
   return results.flat();
@@ -120,7 +126,7 @@ export async function getPublicResources(kinds: PublicResourceKind[] = Object.ke
 export async function getPublicResourceDetail(kind: PublicResourceKind, id: string): Promise<PublicResource> {
   const definition = DEFINITIONS[kind];
   const client = requireSupabase();
-  const { data, error } = await client.from(definition.table).select('*').eq('id', id).eq('is_public', true).maybeSingle();
+  const { data, error } = await client.from(definition.table).select('*').eq('id', id).eq('is_public', true).neq('status', 'archived').maybeSingle();
   if (error) throw error;
   if (!data) throw new Error('This public resource is no longer available.');
   if (kind !== 'program') return normalize(kind, data as unknown as Record<string, unknown>);
