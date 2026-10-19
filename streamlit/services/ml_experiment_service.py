@@ -11,6 +11,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import traceback
 from typing import Any
 import uuid
@@ -1810,6 +1811,13 @@ def _persist_run_results(run_id: str, job_id: str, run_dir: Path, review_result:
     review_section = run_summary.get("review") or {}
     run_status, integrity_status = _normalize_run_status_from_review(review_result)
     feature_excluded = _feature_exclusion_map(run_dir / str(runtime.get("feature_audit_filename") or FEATURE_AUDIT_FILENAME))
+    backup_warning = ""
+    if experiment_id == RESOURCE_AFFINITY_EXPERIMENT_ID and run_status in FINAL_VALIDATED_RUN_STATES:
+        try:
+            _stage_resource_affinity_runtime_bundle(run_dir, _clean_text(evaluation.get("winner")))
+        except Exception:
+            logger.exception("Private resource affinity backup failed for run %s", run_id)
+            backup_warning = "Private model-file backup failed. Publish this run before the Streamlit server restarts."
 
     payload = {
         "job_id": job_id,
@@ -1838,7 +1846,9 @@ def _persist_run_results(run_id: str, job_id: str, run_dir: Path, review_result:
         "overall_model_selection": evaluation.get("winner"),
         "artifact_root": str(run_dir),
         "validation_notes": str(review_section.get("label_reconciliation", {}).get("summary") or ""),
-        "warning_summary": "; ".join(review_section.get("label_reconciliation", {}).get("limitations") or []),
+        "warning_summary": "; ".join(
+            [*(review_section.get("label_reconciliation", {}).get("limitations") or []), *([backup_warning] if backup_warning else [])]
+        ),
         **_run_counts_from_dataset_summary(dataset_summary),
     }
     _update_run_row(run_id, payload)
@@ -1878,6 +1888,58 @@ def _persist_run_results(run_id: str, job_id: str, run_dir: Path, review_result:
     return payload
 
 
+def _private_runtime_storage():
+    sb = get_sb()
+    try:
+        bucket = sb.storage.get_bucket(RUNTIME_BUNDLE_BUCKET)
+    except Exception:
+        bucket = sb.storage.create_bucket(RUNTIME_BUNDLE_BUCKET, options={"public": False})
+    if bool(getattr(bucket, "public", False) or (isinstance(bucket, dict) and bucket.get("public"))):
+        raise ValueError("Runtime artifact bucket must be private.")
+    return sb.storage.from_(RUNTIME_BUNDLE_BUCKET)
+
+
+def _upload_runtime_bundle(storage, run_dir: Path, model_name: str, prefix: str) -> dict[str, Any]:
+    manifest = runtime_bundle_manifest(run_dir, model_name)
+    payloads = {name: (run_dir / name).read_bytes() for name in manifest["files"]}
+    payloads[RUNTIME_BUNDLE_MANIFEST] = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    for name, payload in payloads.items():
+        object_path = prefix + name
+        try:
+            storage.upload(object_path, payload, file_options={"content-type": "application/octet-stream", "upsert": "true" if name == RUNTIME_BUNDLE_MANIFEST else "false"})
+        except Exception:
+            existing = storage.download(object_path)
+            if hashlib.sha256(existing).digest() != hashlib.sha256(payload).digest():
+                raise ValueError("An existing runtime artifact differs from this validated run.")
+    return manifest
+
+
+def _stage_resource_affinity_runtime_bundle(run_dir: Path, model_name: str) -> None:
+    """Back up validated files before a Streamlit Cloud restart can erase them."""
+    if not model_name:
+        raise ValueError("The validated run has no selected model to back up.")
+    storage = _private_runtime_storage()
+    _upload_runtime_bundle(storage, run_dir, model_name, f"resource_affinity/staged/{run_dir.name}/")
+
+
+def _restore_staged_resource_affinity_bundle(storage, run_id: str, destination: Path) -> None:
+    prefix = f"resource_affinity/staged/{run_id}/"
+    staged = json.loads(storage.download(prefix + RUNTIME_BUNDLE_MANIFEST))
+    if staged.get("run_id") != run_id or staged.get("schema_version") != 1:
+        raise ValueError("The private backup does not match this run.")
+    files = staged.get("files") or {}
+    if not isinstance(files, dict) or not files:
+        raise ValueError("The private backup manifest has no files.")
+    destination.mkdir(parents=True, exist_ok=True)
+    for name, metadata in files.items():
+        if not isinstance(name, str) or Path(name).name != name or not isinstance(metadata, dict):
+            raise ValueError("The private backup contains an invalid file name.")
+        payload = storage.download(prefix + name)
+        if hashlib.sha256(payload).hexdigest() != metadata.get("sha256") or len(payload) != metadata.get("size"):
+            raise ValueError("The private backup failed its checksum verification.")
+        (destination / name).write_bytes(payload)
+
+
 def publish_approved_resource_affinity_runtime_bundle(run_id: str) -> tuple[bool, str]:
     """Copy only the active, reviewed runtime representation to private Storage."""
     require_capability(CAPABILITY_RUN_APPROVED_EXPERIMENTS, message="Developer or data scientist access required.")
@@ -1893,34 +1955,43 @@ def publish_approved_resource_affinity_runtime_bundle(run_id: str) -> tuple[bool
         or not _clean_text(run_row.get("human_review_recommended_model_name"))
     ):
         return False, "Only the active, integrity-validated, human-reviewed run can be published."
+    if not safe_run_id.replace("-", "").replace("_", "").isalnum():
+        return False, "Invalid run ID."
     run_dir = _run_dir(safe_run_id, RESOURCE_AFFINITY_EXPERIMENT_ID)
     try:
-        manifest = runtime_bundle_manifest(run_dir, _clean_text(run_row["human_review_recommended_model_name"]))
-        sb = get_sb()
+        model_name = _clean_text(run_row["human_review_recommended_model_name"])
+        local_manifest = None
         try:
-            bucket = sb.storage.get_bucket(RUNTIME_BUNDLE_BUCKET)
-        except Exception:
-            bucket = sb.storage.create_bucket(RUNTIME_BUNDLE_BUCKET, options={"public": False})
-        if bool(getattr(bucket, "public", False) or (isinstance(bucket, dict) and bucket.get("public"))):
-            return False, "Runtime artifact bucket must be private."
-        storage = sb.storage.from_(RUNTIME_BUNDLE_BUCKET)
-        prefix = f"resource_affinity/{safe_run_id}/"
-        payloads = {name: (run_dir / name).read_bytes() for name in manifest["files"]}
-        payloads[RUNTIME_BUNDLE_MANIFEST] = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        for name, payload in payloads.items():
-            object_path = prefix + name
+            local_manifest = runtime_bundle_manifest(run_dir, model_name)
+        except FileNotFoundError:
+            pass
+        if local_manifest is None and not run_dir.exists():
+            # Runs created before private backups were introduced cannot be
+            # reconstructed from registry metadata after their local files go.
             try:
-                storage.upload(object_path, payload, file_options={"content-type": "application/octet-stream", "upsert": "true" if name == RUNTIME_BUNDLE_MANIFEST else "false"})
+                storage = _private_runtime_storage()
+                with tempfile.TemporaryDirectory() as temp_root:
+                    restored_dir = Path(temp_root) / safe_run_id
+                    _restore_staged_resource_affinity_bundle(storage, safe_run_id, restored_dir)
+                    manifest = _upload_runtime_bundle(storage, restored_dir, model_name, f"resource_affinity/{safe_run_id}/")
             except Exception:
-                existing = storage.download(object_path)
-                if hashlib.sha256(existing).digest() != hashlib.sha256(payload).digest():
-                    return False, "An existing runtime artifact differs from the approved run."
+                logger.exception("No usable local or private backup for resource affinity run %s", safe_run_id)
+                return False, "This run's model files are no longer on the Streamlit server and no private backup is available. Launch and review a new evaluation."
+        else:
+            storage = _private_runtime_storage()
+            if local_manifest is None:
+                with tempfile.TemporaryDirectory() as temp_root:
+                    restored_dir = Path(temp_root) / safe_run_id
+                    _restore_staged_resource_affinity_bundle(storage, safe_run_id, restored_dir)
+                    manifest = _upload_runtime_bundle(storage, restored_dir, model_name, f"resource_affinity/{safe_run_id}/")
+            else:
+                manifest = _upload_runtime_bundle(storage, run_dir, model_name, f"resource_affinity/{safe_run_id}/")
         record_privileged_action(
             action_type="resource_affinity_runtime_bundle_published",
             entity_type="ml_experiment_run",
             entity_id=safe_run_id,
             before_json={},
-            after_json={"bucket": RUNTIME_BUNDLE_BUCKET, "file_count": len(payloads), "model_name": manifest["model_name"]},
+            after_json={"bucket": RUNTIME_BUNDLE_BUCKET, "file_count": len(manifest["files"]) + 1, "model_name": manifest["model_name"]},
             reason="Published the active reviewed runtime bundle to private storage for authenticated inference.",
         )
         return True, "Approved runtime bundle published to private storage."

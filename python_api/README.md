@@ -29,11 +29,17 @@ Expo-to-Python identity boundary separately from model readiness. The Expo
 Developer ML Lab has a control that checks both authentication and the active
 model without exposing credentials.
 
-The active run's files are currently local to the Streamlit worker. After an
-authorized data scientist activates a validated resource affinity run, use
+For newly validated resource affinity runs, Streamlit backs up the runtime
+representation to a private staging path in Supabase Storage while the run
+files are still present. This backup is not available to inference before
+human approval. After an authorized data scientist activates a validated run, use
 **Publish approved model files for the Python API** in Streamlit's Developer
 Workspace. This copies the minimal runtime representation to the private
 `ml-runtime-artifacts` Supabase Storage bucket with an immutable manifest. The
+button can also publish from the verified private backup after a Streamlit
+restart. Runs made before this backup existed cannot be restored from database
+metadata alone if their local files have disappeared; they need a fresh
+evaluation and human review. The
 Python API downloads the bundle on first use, verifies the approval in
 `ml_experiment_runs`, checks file hashes and then loads the frozen estimator.
 Render's ephemeral disk may clear between restarts; the bundle is downloaded
