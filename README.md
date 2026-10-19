@@ -11,6 +11,10 @@ The two applications use the same Supabase project and data model. Browser-safe 
 
 ## Run the Streamlit application
 
+Streamlit Cloud can launch the root `app.py`; it delegates to
+`streamlit/app.py` and installs the same dependencies through the root
+`requirements.txt`. The original local workflow remains:
+
 ```bash
 cd streamlit
 python -m pip install --requirement requirements.lock.txt
