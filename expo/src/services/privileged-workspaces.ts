@@ -62,10 +62,21 @@ export async function loadAdminWorkspace(): Promise<AdminWorkspaceData> {
   const client = requireSupabase();
   const { data: session } = await client.auth.getSession();
   if (!session.session) throw new Error('Admin access requires an authenticated account.');
-  const response = await fetch('/api/admin-workspace', { headers: { Authorization: `Bearer ${session.session.access_token}` }, cache: 'no-store' });
-  const result = await response.json().catch(() => ({})) as AdminWorkspaceData & { error?: string };
-  if (!response.ok) throw new Error(result.error || 'Admin data could not be loaded.');
-  return result;
+  const sections = ['accounts', 'platform', 'resourcesA', 'resourcesB', 'operations'];
+  const results = await Promise.all(sections.map(async (section) => {
+    const response = await fetch(`/api/admin-workspace?section=${section}`, { headers: { Authorization: `Bearer ${session.session!.access_token}` }, cache: 'no-store' });
+    const result = await response.json().catch(() => ({})) as Partial<AdminWorkspaceData> & { error?: string };
+    if (!response.ok) throw new Error(`${section}: ${result.error || 'Admin data could not be loaded.'}`);
+    return result;
+  }));
+  const [accounts, platform, resourcesA, resourcesB, operations] = results;
+  if (!accounts.profiles || !accounts.subscriptions || !accounts.plans || !platform.platformCounts || !resourcesA.contentCounts || !resourcesB.contentCounts || !operations.paymentEvents || !operations.overrides || !operations.staffRoles || !operations.explorerMoves) throw new Error('Admin data is incomplete. Refresh and try again.');
+  return {
+    profiles: accounts.profiles, subscriptions: accounts.subscriptions, plans: accounts.plans,
+    paymentEvents: operations.paymentEvents, overrides: operations.overrides, staffRoles: operations.staffRoles, explorerMoves: operations.explorerMoves,
+    contentCounts: { ...resourcesA.contentCounts, ...resourcesB.contentCounts }, platformCounts: platform.platformCounts,
+    warnings: accounts.warnings || [],
+  };
 }
 
 export async function loadDeveloperWorkspace(): Promise<DeveloperWorkspaceData> {

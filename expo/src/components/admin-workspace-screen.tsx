@@ -119,7 +119,7 @@ export function AdminWorkspaceScreen({ area }: { area: AdminArea }) {
     return profiles.filter((row) => (roleFilter === 'all' || row.role === roleFilter) && (statusFilter === 'all' || row.account_status === statusFilter) && (planFilter === 'all' || row.current_plan === planFilter) && (!needle || [row.email, row.display_name, row.role, row.current_plan, row.account_status].some((value) => String(value ?? '').toLocaleLowerCase().includes(needle))));
   }, [profiles, search, roleFilter, statusFilter, planFilter]);
   const thirtyDaysAgo = renderedAt - 30 * 86400000;
-  const paid = profiles.filter((row) => !['', 'free', 'null', 'undefined'].includes(String(row.current_plan ?? '').toLowerCase()));
+  const paid = profiles.filter((row) => !['', 'free', 'beta_lifetime', 'null', 'undefined'].includes(String(row.current_plan ?? '').toLowerCase()) && ['active', 'trialing', 'past_due'].includes(String(row.subscription_status ?? '').toLowerCase()));
   const newUsers = profiles.filter((row) => new Date(String(row.created_at ?? '')).getTime() >= thirtyDaysAgo);
   const suspended = profiles.filter((row) => row.account_status === 'suspended');
   const pendingMoves = data?.explorerMoves.rows.filter((row) => row.status === 'pending').length ?? 0;
