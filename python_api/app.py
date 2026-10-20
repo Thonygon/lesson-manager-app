@@ -16,6 +16,8 @@ from typing import Annotated, Literal
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from helpers.recommendation_models import _fit_linear_model, _score_linear_model
@@ -62,6 +64,16 @@ class StudentScoreRequest(BaseModel):
     samples: list[TrainingSample] = Field(max_length=400)
     diagnostic_samples: list[TrainingSample] = Field(default_factory=list, max_length=400)
     candidates: list[dict[str, float]] = Field(min_length=1, max_length=100)
+
+
+class AdminResetRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=100)
+    scope: Literal["student", "teacher", "full"]
+    archive_shared_resources: bool = True
+    remove_relationships: bool = True
+    notes: str = Field(default="", max_length=1000)
+    confirm: bool = False
+    confirmation_phrase: str = ""
 
 
 def _settings() -> tuple[str, str]:
@@ -174,6 +186,142 @@ async def actor_token(authorization: Annotated[str | None, Header()] = None) -> 
     if not actor:
         raise HTTPException(401, "Classio session has expired")
     return actor, token
+
+
+async def admin_actor(actor: Annotated[tuple[str, str], Depends(actor_token)]) -> str:
+    user_id, _ = actor
+    base, _ = _settings()
+    secret = os.getenv("SUPABASE_SECRET_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY") or ""
+    if not secret:
+        raise HTTPException(503, "Private admin data access is not configured")
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"{base}/rest/v1/profiles",
+                params={"select": "role", "user_id": f"eq.{user_id}", "limit": "1"},
+                headers={"apikey": secret, "Authorization": f"Bearer {secret}"},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, "Admin access could not be verified") from exc
+    if response.status_code != 200:
+        raise HTTPException(503, "Admin access could not be verified")
+    rows = response.json()
+    if not rows or rows[0].get("role") != "admin":
+        raise HTTPException(403, "Admin access is required")
+    os.environ["SUPABASE_KEY"] = secret
+    return user_id
+
+
+@app.post("/v1/admin/account-reset/preview")
+async def admin_account_reset_preview(request: AdminResetRequest, _admin: Annotated[str, Depends(admin_actor)]) -> dict:
+    from core.database import get_sb
+    from services.account_reset_service import build_user_reset_preview
+
+    target = await run_in_threadpool(lambda: get_sb().table("profiles").select("user_id").eq("user_id", request.user_id).limit(1).execute())
+    if not getattr(target, "data", None):
+        raise HTTPException(404, "Account not found")
+
+    return await run_in_threadpool(
+        build_user_reset_preview,
+        request.user_id,
+        request.scope,
+        archive_shared_resources=request.archive_shared_resources,
+        remove_relationships=request.remove_relationships,
+    )
+
+
+@app.post("/v1/admin/account-reset/execute")
+async def admin_account_reset_execute(request: AdminResetRequest, admin_id: Annotated[str, Depends(admin_actor)]) -> dict:
+    expected = f"RESTART {request.scope.upper()}"
+    if not request.confirm or request.confirmation_phrase.strip().upper() != expected:
+        raise HTTPException(400, "Account reset confirmation is incomplete")
+    if request.user_id == admin_id:
+        raise HTTPException(400, "An admin cannot reset their own account")
+    from core.database import get_sb
+    from services.account_reset_service import execute_user_reset
+
+    def perform() -> dict:
+        target = get_sb().table("profiles").select("user_id").eq("user_id", request.user_id).limit(1).execute()
+        if not getattr(target, "data", None):
+            raise HTTPException(404, "Account not found")
+        ok, message, counters = execute_user_reset(
+            request.user_id,
+            request.scope,
+            notes=request.notes,
+            archive_shared_resources=request.archive_shared_resources,
+            remove_relationships=request.remove_relationships,
+        )
+        if not ok:
+            raise HTTPException(500, f"Account reset failed: {message}")
+        try:
+            audit = get_sb().table("admin_overrides").insert({
+                "user_id": request.user_id,
+                "override_type": "restart_account",
+                "reason": f"{request.scope}: {request.notes or 'Account reset'}",
+                "created_by": admin_id,
+            }).execute()
+            audited = bool(getattr(audit, "data", None))
+        except Exception:
+            audited = False
+        return {"ok": True, "audited": audited, "counters": counters}
+
+    return await run_in_threadpool(perform)
+
+
+@app.get("/v1/admin/intelligence")
+async def admin_intelligence(_admin: Annotated[str, Depends(admin_actor)], language: Literal["en", "es", "tr"] = "en") -> dict:
+    """Reuse the exact Streamlit EIC business rules for the Expo admin view."""
+    from services import eic_service
+    from services.eic_report_service import list_available_eic_reports
+
+    def load() -> dict:
+        summary = eic_service.get_intelligence_business_summary()
+        validated = eic_service.list_validated_experiment_summaries(limit=10)
+        latest = summary.get("latest_validated_run") or {}
+        run_id = str(latest.get("run_id") or "")
+        reports = list_available_eic_reports(run_id, set(), language=language) if run_id else []
+        return {
+            "summary": summary,
+            "portfolio": eic_service.get_intelligence_component_portfolio(),
+            "validated_runs": validated,
+            "telemetry": eic_service.get_business_telemetry_health(),
+            "decisions": eic_service.get_prioritized_intelligence_decisions(),
+            "trend": eic_service.get_evidence_trend(),
+            "business_detail": eic_service.get_experiment_business_detail(run_id) if run_id else {},
+            "academic_evidence": eic_service.get_academic_evidence_summary(run_id) if run_id else {},
+            "reports": [{key: row.get(key) for key in ("report_type", "title", "description", "status", "download_ready", "modified_at")} for row in reports],
+        }
+
+    return await run_in_threadpool(load)
+
+
+@app.get("/v1/admin/intelligence/reports/{report_type}")
+async def admin_intelligence_report(
+    report_type: str,
+    _actor: Annotated[str, Depends(admin_actor)],
+    language: Literal["en", "es", "tr"] = "en",
+) -> FileResponse:
+    if report_type != "experiment_docx":
+        raise HTTPException(404, "Report unavailable")
+    from pathlib import Path
+    from services import eic_service
+    from services.eic_report_service import list_available_eic_reports
+
+    def ready_report() -> Path:
+        latest = (eic_service.get_intelligence_business_summary().get("latest_validated_run") or {})
+        run_id = str(latest.get("run_id") or "")
+        if not run_id:
+            raise HTTPException(404, "No validated report is available")
+        report = next((row for row in list_available_eic_reports(run_id, set(), language=language) if row.get("report_type") == report_type), None)
+        if not report or not report.get("download_ready"):
+            raise HTTPException(404, "The validated report has not been prepared")
+        path = Path(str(report.get("path") or ""))
+        if not path.is_file():
+            raise HTTPException(404, "The validated report is unavailable")
+        return path
+
+    path = await run_in_threadpool(ready_report)
+    return FileResponse(path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=path.name)
 
 
 @app.get("/health")

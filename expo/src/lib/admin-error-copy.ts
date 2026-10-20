@@ -7,6 +7,8 @@ const copy: Record<string, [string, string]> = {
   'Your Classio session has expired.': ['Tu sesión de Classio ha vencido.', 'Classio oturumunuzun süresi doldu.'],
   'An account already uses this email.': ['Ya existe una cuenta con este correo.', 'Bu e-posta adresiyle zaten bir hesap var.'],
   'The selected plan is unavailable.': ['El plan seleccionado no está disponible.', 'Seçilen plan kullanılamıyor.'],
+  'Choose valid account access settings.': ['Selecciona ajustes válidos de acceso a la cuenta.', 'Geçerli hesap erişim ayarları seçin.'],
+  'An admin cannot remove or suspend their own admin access.': ['No puedes quitar ni suspender tu propio acceso de administrador.', 'Kendi yönetici erişiminizi kaldıramaz veya askıya alamazsınız.'],
   'The account or plan is unavailable.': ['La cuenta o el plan no está disponible.', 'Hesap veya plan kullanılamıyor.'],
   'The user no longer exists.': ['La cuenta ya no existe.', 'Kullanıcı artık mevcut değil.'],
   'This staff role is already active.': ['Este rol del personal ya está activo.', 'Bu personel rolü zaten etkin.'],

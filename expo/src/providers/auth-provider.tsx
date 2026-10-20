@@ -39,7 +39,7 @@ async function loadProfile(session: Session | null): Promise<ClassioProfile | nu
   const { data, error } = await supabase
     .from('profiles')
     .select(
-      'user_id,email,display_name,username,avatar_url,role,primary_role,can_teach,can_study,last_active_mode,onboarding_completed',
+      'user_id,email,display_name,username,avatar_url,role,primary_role,can_teach,can_study,last_active_mode,onboarding_completed,login_count',
     )
     .eq('user_id', session.user.id)
     .maybeSingle();

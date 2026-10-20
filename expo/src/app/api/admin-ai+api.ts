@@ -23,25 +23,18 @@ export async function GET(request: Request) {
     if (profileError) throw profileError;
     if (profile?.role !== 'admin') return json({ error: 'Admin access is required.' }, 403);
 
-    // Planned counts avoid loading platform-wide rows into the server or browser.
-    const contentTables = ['worksheets', 'quick_exams', 'lesson_plans', 'videos', 'learning_programs'] as const;
-    const [counts, experiments, runs, jobs, validated] = await Promise.all([
-      Promise.all(contentTables.map(async (table) => {
-        const { count, error } = await server.from(table).select('id', { count: 'planned', head: true });
-        return { table, count: count ?? null, error: error?.message || '' };
-      })),
+    // Python EIC owns the telemetry summary; this Worker only reads small evidence lists.
+    const [experiments, runs, jobs, validated] = await Promise.all([
       server.from('ml_experiments').select('experiment_id,name,is_active,updated_at').order('updated_at', { ascending: false }).limit(20),
       server.from('ml_experiment_runs').select('run_id,experiment_id,run_status,integrity_status,evidence_verdict,maturity_verdict,operational_use,source_row_count,teachers_represented,students_represented,resources_represented,created_at').order('created_at', { ascending: false }).limit(24),
       server.from('system_jobs').select('job_id,job_type,status,progress_pct,current_stage,error_code,created_at').order('created_at', { ascending: false }).limit(24),
       server.from('ml_experiment_runs').select('run_id,experiment_id,run_status,integrity_status,evidence_verdict,maturity_verdict,operational_use,primary_metric_leader,source_row_count,teachers_represented,students_represented,resources_represented,completed_at').eq('is_current_validated_run', true).order('completed_at', { ascending: false }).limit(10),
     ]);
     const errors = [
-      ...counts.filter((row) => row.error).map((row) => `${row.table}: ${row.error}`),
       experiments.error?.message, runs.error?.message, jobs.error?.message, validated.error?.message,
     ].filter(Boolean);
     return json({
-      contentCounts: Object.fromEntries(counts.map((row) => [row.table, row.count])),
-      countMethod: 'planned',
+      contentCounts: {},
       experiments: experiments.data || [],
       recentRuns: runs.data || [],
       recentJobs: jobs.data || [],

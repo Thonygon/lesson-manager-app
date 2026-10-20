@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps, react-hooks/set-state-in-effect */
 import { useEffect, useMemo, useState } from 'react';
 import { Image } from 'expo-image';
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { AppShell } from '@/components/app-shell';
 import { ResourceFilters } from '@/components/resource-filters';
 import { ActionFeedback, Button, Disclosure, EmptyState, Field, LoadingState, Pagination, Panel } from '@/components/ui';
@@ -12,6 +12,7 @@ import { getCommunityProfiles, getStudentTeacherConnections, requestTeacherConne
 import { enableTeacherMode } from '@/services/profile';
 import { colors } from '@/theme';
 import { canonicalSubjectLabel } from '@/lib/subjects';
+import { educationLabel } from '@/lib/education-label';
 
 function values(row: ClassioRecord) { const primary = (Array.isArray(row.primary_subjects) ? row.primary_subjects as unknown[] : []).map(String).filter((value) => value && value !== 'other'); const custom = (Array.isArray(row.custom_subjects) ? row.custom_subjects as unknown[] : []).map(String).filter(Boolean); return [...new Set([...primary, ...custom])]; }
 function languageCode(value: unknown) { const key = String(value || '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase(); return ['en', 'english', 'ingles', 'ingilizce'].includes(key) ? 'en' : ['es', 'spanish', 'espanol', 'ispanyolca'].includes(key) ? 'es' : ['tr', 'turkish', 'turco', 'turkce'].includes(key) ? 'tr' : ''; }
@@ -25,6 +26,8 @@ function TeacherAvatar({ url, name }: { url: string; name: string }) {
 }
 
 export default function StudentFindTeacherScreen() {
+  const { width } = useWindowDimensions();
+  const compactCards = width < 650;
   const { t } = useAppPreferences(); const { profile, refreshProfile } = useAuth(); const [profiles, setProfiles] = useState<ClassioRecord[]>([]); const [links, setLinks] = useState<ClassioRecord[]>([]); const [query, setQuery] = useState(''); const [subject, setSubject] = useState('__all__'); const [selectedLanguage, setSelectedLanguage] = useState('__all__'); const [page, setPage] = useState(1); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [selected, setSelected] = useState<ClassioRecord | null>(null); const [requestSubjects, setRequestSubjects] = useState<string[]>([]); const [note, setNote] = useState(''); const [busy, setBusy] = useState(false); const [message, setMessage] = useState(''); const [messageTone, setMessageTone] = useState<'success' | 'error'>('error'); const [messageContext, setMessageContext] = useState<'request' | 'connection' | 'teacher'>('request'); const [confirmingLinkId, setConfirmingLinkId] = useState(''); const [confirmedEnd, setConfirmedEnd] = useState(false); const [enablingTeacher, setEnablingTeacher] = useState(false);
   const load = async () => { setLoading(true); try { const [rows, connections] = await Promise.all([getCommunityProfiles(), getStudentTeacherConnections()]); setProfiles(rows.filter((row) => Boolean(row.can_teach) || String(row.role || row.primary_role) === 'teacher')); setLinks(connections); setError(''); } catch (reason) { setError(reason instanceof Error ? reason.message : t('student.loadFailed')); } finally { setLoading(false); } };
   useEffect(() => { void load(); }, [t]);
@@ -42,7 +45,36 @@ export default function StudentFindTeacherScreen() {
     {activeLinks.length ? <Disclosure title={t('student.myTeachers')} summary={t('student.connectionCount', { count: activeLinks.length })} defaultOpen><View style={styles.relationships}>{activeLinks.map((link) => { const teacher = profileMap.get(String(link.teacher_id)); const sourceSubjects = String(link.status) === 'active' && Array.isArray(link.active_subjects) ? link.active_subjects : link.requested_subjects; const requested = Array.isArray(sourceSubjects) ? (sourceSubjects as Record<string, unknown>[]).map((item) => canonicalSubjectLabel(item.subject_label || item.subject_key, t)).filter(Boolean) : []; const pending = String(link.status) === 'pending'; const confirming = confirmingLinkId === String(link.id); return <Panel key={String(link.id)} style={styles.relationship}><TeacherAvatar url={String(link.teacher_avatar_url || teacher?.avatar_url || '')} name={String(link.teacher_name || teacher?.display_name || teacher?.username || t('student.teacher'))} /><View style={styles.relationshipCopy}><Text style={styles.name}>{String(link.teacher_name || teacher?.display_name || teacher?.username || t('student.teacher'))}</Text><Text style={styles.meta}>{t(`student.connection.${String(link.status)}`)} · {requested.join(', ')}</Text></View><Button secondary disabled={busy} onPress={() => { if (pending) void closeLink(link); else { setConfirmingLinkId(confirming ? '' : String(link.id)); setConfirmedEnd(false); } }}>{pending ? t('student.withdrawRequest') : t('student.endConnection')}</Button>{confirming && !pending ? <View style={styles.confirmation}><Text style={styles.meta}>{t('student.endConnectionWarning')}</Text><Pressable accessibilityRole="checkbox" accessibilityState={{ checked: confirmedEnd }} onPress={() => setConfirmedEnd((current) => !current)}><Text style={styles.meta}>{confirmedEnd ? '☑' : '☐'} {t('student.confirmEndConnection')}</Text></Pressable><Button disabled={busy || !confirmedEnd} onPress={() => void closeLink(link)}>{t('student.confirmEndConnectionAction')}</Button></View> : null}</Panel>; })}</View></Disclosure> : null}{messageContext === 'connection' ? <ActionFeedback message={message} tone={messageTone} /> : null}
     <ResourceFilters query={query} onQueryChange={(value) => { setQuery(value); setPage(1); }} searchLabel={t('common.search')} searchPlaceholder={t('student.searchTeachers')} count={visible.length} facets={[{ key: 'language', label: t('profile.teachingLanguages'), value: selectedLanguage, allValue: '__all__', allLabel: t('common.all'), options: TEACHING_LANGUAGE_OPTIONS.map((value) => ({ value, label: t(`language.${value}`) })), onChange: (value) => { setSelectedLanguage(value); setSubject('__all__'); setPage(1); } }, { key: 'subject', label: t('community.subject'), value: subject, allValue: '__all__', allLabel: t('community.allSubjects'), options: subjects.map((value) => ({ value, label: canonicalSubjectLabel(value, t) })), onChange: (value) => { setSubject(value); setPage(1); } }]} />
     {messageContext === 'request' && !selected ? <ActionFeedback message={message} tone={messageTone} /> : null}
-    {loading ? <LoadingState /> : error ? <EmptyState title={t('student.loadFailed')} body={error} /> : !shown.length ? <EmptyState title={t('student.noTeachers')} body={t('student.noTeachersBody')} /> : <View style={styles.grid}>{shown.map((row) => <Panel key={String(row.user_id)} style={styles.card}><View style={styles.profileHeader}><TeacherAvatar url={String(row.avatar_url || '')} name={String(row.display_name || row.username || t('community.member'))} /><View style={styles.profileDetails}><Text style={styles.name}>{String(row.display_name || row.username || t('community.member'))}</Text><Text style={styles.meta}>{[values(row).map((value) => canonicalSubjectLabel(value, t)).join(', '), languages(row).map((value) => t(`language.${value}`)).join(', '), row.country, row.education_level, `${String(row.active_student_count || 0)} ${t('community.active')}`].filter(Boolean).join(' · ')}</Text>{Boolean(row.show_community_contact) && String(row.email || '').trim() ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(`mailto:${encodeURIComponent(String(row.email).trim())}`)}><Text style={styles.contact}>✉️ {String(row.email).trim()}</Text></Pressable> : null}</View></View><Disclosure title={t('student.connect')} summary={selected?.user_id === row.user_id ? t('student.requestOpen') : t('student.connectHelp')}><Button secondary onPress={() => { setSelected(row); setRequestSubjects([]); setNote(''); }}>{t('student.chooseTeacher')}</Button>{selected?.user_id === row.user_id ? <View style={styles.form}><Text style={styles.label}>{t('student.requestSubjects')}</Text><View style={styles.chips}>{values(row).map((value) => { const chosen = requestSubjects.includes(value); return <Pressable key={value} accessibilityRole="checkbox" accessibilityState={{ checked: chosen }} accessibilityLabel={canonicalSubjectLabel(value, t)} onPress={() => setRequestSubjects((current) => chosen ? current.filter((item) => item !== value) : [...current, value])}><Text style={[styles.chip, chosen && styles.chipSelected]}>{canonicalSubjectLabel(value, t)}</Text></Pressable>; })}</View><Text style={styles.label}>{t('student.requestNote')}</Text><Field value={note} onChangeText={setNote} multiline numberOfLines={3} /><Button disabled={busy} onPress={() => void send()}>{busy ? t('common.saving') : t('student.sendRequest')}</Button></View> : null}</Disclosure></Panel>)}</View>}
+    {loading ? <LoadingState /> : error ? <EmptyState title={t('student.loadFailed')} body={error} /> : !shown.length ? <EmptyState title={t('student.noTeachers')} body={t('student.noTeachersBody')} /> : <View style={styles.grid}>
+      {shown.map((row) => {
+        const teacherName = String(row.display_name || row.username || t('community.member'));
+        const isOpen = String(selected?.user_id) === String(row.user_id);
+        return <Panel key={String(row.user_id)} style={[styles.card, compactCards && styles.cardCompact]}>
+          <View style={[styles.cardTop, compactCards && styles.cardTopCompact]}>
+            <View style={[styles.profileHeader, compactCards && styles.profileHeaderCompact]}>
+              <TeacherAvatar url={String(row.avatar_url || '')} name={teacherName} />
+              <View style={styles.profileDetails}>
+                <Text style={styles.name}>{teacherName}</Text>
+                <Text style={styles.meta}>{[values(row).map((value) => canonicalSubjectLabel(value, t)).join(', '), languages(row).map((value) => t(`language.${value}`)).join(', '), row.country, educationLabel(row.education_level, t), `${String(row.active_student_count || 0)} ${t('community.active')}`].filter(Boolean).join(' · ')}</Text>
+                {Boolean(row.show_community_contact) && String(row.email || '').trim() ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(`mailto:${encodeURIComponent(String(row.email).trim())}`)}><Text style={styles.contact}>✉️ {String(row.email).trim()}</Text></Pressable> : null}
+              </View>
+            </View>
+            <Pressable accessibilityRole="button" accessibilityState={{ expanded: isOpen }} onPress={() => { setSelected(isOpen ? null : row); setRequestSubjects([]); setNote(''); setMessage(''); }} style={({ pressed }) => [styles.connectControl, compactCards && styles.connectControlCompact, pressed && styles.connectPressed]}>
+              <Text style={styles.connectLabel}>{t('student.connect')}</Text>
+              <Text style={styles.connectChevron}>{isOpen ? '−' : '+'}</Text>
+            </Pressable>
+          </View>
+          {isOpen ? <View style={styles.form}>
+            <Text style={styles.label}>{t('student.requestSubjects')}</Text>
+            <View style={styles.chips}>{values(row).map((value) => { const chosen = requestSubjects.includes(value); return <Pressable key={value} accessibilityRole="checkbox" accessibilityState={{ checked: chosen }} accessibilityLabel={canonicalSubjectLabel(value, t)} onPress={() => setRequestSubjects((current) => chosen ? current.filter((item) => item !== value) : [...current, value])}><Text style={[styles.chip, chosen && styles.chipSelected]}>{canonicalSubjectLabel(value, t)}</Text></Pressable>; })}</View>
+            <Text style={styles.label}>{t('student.requestNote')}</Text>
+            <Field value={note} onChangeText={setNote} multiline numberOfLines={3} />
+            <Button disabled={busy} onPress={() => void send()}>{busy ? t('common.saving') : t('student.sendRequest')}</Button>
+            {messageContext === 'request' ? <ActionFeedback message={message} tone={messageTone} /> : null}
+          </View> : null}
+        </Panel>;
+      })}
+    </View>}
     <Pagination page={Math.min(page, pages)} totalPages={pages} totalItems={visible.length} onPageChange={setPage} />
     {!canTeach ? <Panel style={styles.becomeTeacher}><View style={styles.becomeTeacherCopy}><Text style={styles.becomeTeacherTitle}>{t('student.becomeTeacherTitle')}</Text><Text style={styles.becomeTeacherBody}>{t('student.becomeTeacherBody')}</Text><Text style={styles.becomeTeacherCaption}>{t('student.becomeTeacherCaption')}</Text></View><Button disabled={enablingTeacher} onPress={() => void becomeTeacher()}>{enablingTeacher ? t('common.saving') : t('student.becomeTeacherAction')}</Button></Panel> : null}
   </AppShell>;
@@ -56,19 +88,28 @@ const styles = StyleSheet.create({
   relationshipCopy: { flex: 1, minWidth: 160 },
   confirmation: { width: '100%', gap: 8, paddingTop: 8 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 11 },
-  card: { flexGrow: 1, flexBasis: 310, minWidth: 280 },
-  profileHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  card: { flexGrow: 1, flexShrink: 1, flexBasis: 560, minWidth: 0, maxWidth: '100%' },
+  cardCompact: { flexBasis: '100%' },
+  cardTop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 16 },
+  cardTopCompact: { flexDirection: 'column', alignItems: 'stretch' },
+  profileHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, flexGrow: 1, flexShrink: 1, flexBasis: 220, minWidth: 0 },
+  profileHeaderCompact: { flexBasis: 'auto', flexGrow: 0, width: '100%' },
   avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primarySoft },
   avatarFallback: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft },
   avatarInitial: { color: colors.primary, fontSize: 22, fontWeight: '900' },
-  profileDetails: { flex: 1 },
+  profileDetails: { flex: 1, minWidth: 0 },
+  connectControl: { flexGrow: 1, flexBasis: 220, maxWidth: 260, minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: colors.surface, paddingHorizontal: 14, paddingVertical: 9 },
+  connectControlCompact: { flexBasis: 'auto', width: '100%', maxWidth: '100%', flexGrow: 0 },
+  connectPressed: { opacity: 0.65 },
+  connectLabel: { flex: 1, color: colors.ink, fontSize: 12, fontWeight: '800' },
+  connectChevron: { color: colors.primary, fontSize: 22, fontWeight: '700' },
   contact: { color: colors.primary, fontSize: 11, marginTop: 5 },
   name: { color: colors.ink, fontSize: 16, fontWeight: '900' },
   meta: { color: colors.muted, fontSize: 10, lineHeight: 16, marginTop: 5 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { color: colors.ink, backgroundColor: colors.surface, borderColor: colors.line, borderWidth: 1, borderRadius: 12, overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 9, fontSize: 11, fontWeight: '800', textTransform: 'capitalize' },
   chipSelected: { color: colors.inverse, backgroundColor: colors.primary, borderColor: colors.primary },
-  form: { gap: 6, marginTop: 10 },
+  form: { gap: 6, marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.line },
   label: { color: colors.ink, fontSize: 11, fontWeight: '800', marginTop: 4 },
   becomeTeacher: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginTop: 22 },
   becomeTeacherCopy: { flex: 1, minWidth: 240, gap: 6 },

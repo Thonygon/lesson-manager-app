@@ -15,8 +15,8 @@ export type AdminWorkspaceData = {
   overrides: WorkspaceResult;
   staffRoles: WorkspaceResult;
   explorerMoves: WorkspaceResult;
-  contentCounts: Record<string, number>;
-  platformCounts: Record<string, number>;
+  contentCounts: Record<string, number | null>;
+  platformCounts: Record<string, number | null>;
   warnings: string[];
 };
 
@@ -58,24 +58,64 @@ function warnings(results: WorkspaceResult[], more: string[] = []) {
   return [...results.map((result) => result.warning).filter((item): item is string => Boolean(item)), ...more.filter(Boolean)];
 }
 
-export async function loadAdminWorkspace(): Promise<AdminWorkspaceData> {
+type AdminSection = 'accounts' | 'staff' | 'payments' | 'explorer' | 'audit' | 'platform' | 'resourcesA' | 'resourcesB';
+type AdminSectionResult = Partial<AdminWorkspaceData>;
+const adminSectionCache = new Map<AdminSection, { value: AdminSectionResult; expires: number; userId: string }>();
+const adminSectionPending = new Map<string, Promise<AdminSectionResult>>();
+
+export function invalidateAdminWorkspace() { adminSectionCache.clear(); }
+
+function sectionsForAdminTab(tab: string): AdminSection[] {
+  if (tab === 'overview') return ['accounts', 'platform', 'resourcesA', 'resourcesB'];
+  if (tab === 'business') return ['accounts', 'platform', 'resourcesA', 'resourcesB'];
+  if (tab === 'operations') return ['accounts', 'staff'];
+  if (tab === 'subscriptions') return ['accounts', 'staff', 'payments'];
+  if (tab === 'explorer') return ['accounts', 'explorer'];
+  if (tab === 'pricing') return ['accounts'];
+  if (tab === 'audit') return ['audit'];
+  return [];
+}
+
+export async function loadAdminWorkspace(tab: string, force = false): Promise<AdminWorkspaceData> {
   const client = requireSupabase();
   const { data: session } = await client.auth.getSession();
   if (!session.session) throw new Error('Admin access requires an authenticated account.');
-  const sections = ['accounts', 'platform', 'resourcesA', 'resourcesB', 'operations'];
+  const userId = session.session.user.id;
+  if (force) invalidateAdminWorkspace();
+  const sections = sectionsForAdminTab(tab);
   const results = await Promise.all(sections.map(async (section) => {
-    const response = await fetch(`/api/admin-workspace?section=${section}`, { headers: { Authorization: `Bearer ${session.session!.access_token}` }, cache: 'no-store' });
-    const result = await response.json().catch(() => ({})) as Partial<AdminWorkspaceData> & { error?: string };
-    if (!response.ok) throw new Error(`${section}: ${result.error || 'Admin data could not be loaded.'}`);
-    return result;
+    const cached = adminSectionCache.get(section);
+    if (cached?.userId === userId && cached.expires > Date.now()) return [section, cached.value] as const;
+    const key = `${userId}:${section}`;
+    let pending = adminSectionPending.get(key);
+    if (!pending) {
+      pending = (async () => {
+        const response = await fetch(`/api/admin-workspace?section=${section}`, { headers: { Authorization: `Bearer ${session.session!.access_token}` }, cache: 'no-store' });
+        const result = await response.json().catch(() => ({})) as AdminSectionResult & { error?: string };
+        if (response.status === 429) throw new Error('admin.rateLimited');
+        if (!response.ok) throw new Error(`${section}: ${result.error || 'Admin data could not be loaded.'}`);
+        adminSectionCache.set(section, { value: result, expires: Date.now() + 60_000, userId });
+        return result;
+      })();
+      adminSectionPending.set(key, pending);
+      void pending.finally(() => { if (adminSectionPending.get(key) === pending) adminSectionPending.delete(key); }).catch(() => {});
+    }
+    return [section, await pending] as const;
   }));
-  const [accounts, platform, resourcesA, resourcesB, operations] = results;
-  if (!accounts.profiles || !accounts.subscriptions || !accounts.plans || !platform.platformCounts || !resourcesA.contentCounts || !resourcesB.contentCounts || !operations.paymentEvents || !operations.overrides || !operations.staffRoles || !operations.explorerMoves) throw new Error('Admin data is incomplete. Refresh and try again.');
+  const sectionData = Object.fromEntries(results) as Partial<Record<AdminSection, AdminSectionResult>>;
+  const accounts = sectionData.accounts ?? {}, platform = sectionData.platform ?? {};
+  const empty = { rows: [] };
+  const platformCounts = { ...(platform.platformCounts ?? {}) };
+  if (accounts.profiles?.rows.length != null && accounts.profiles.rows.length < 500 && platformCounts.profiles == null) platformCounts.profiles = accounts.profiles.rows.length;
+  if (accounts.subscriptions?.rows.length != null && accounts.subscriptions.rows.length < 500 && platformCounts.subscriptions == null) platformCounts.subscriptions = accounts.subscriptions.rows.length;
   return {
-    profiles: accounts.profiles, subscriptions: accounts.subscriptions, plans: accounts.plans,
-    paymentEvents: operations.paymentEvents, overrides: operations.overrides, staffRoles: operations.staffRoles, explorerMoves: operations.explorerMoves,
-    contentCounts: { ...resourcesA.contentCounts, ...resourcesB.contentCounts }, platformCounts: platform.platformCounts,
-    warnings: accounts.warnings || [],
+    profiles: accounts.profiles ?? empty, subscriptions: accounts.subscriptions ?? empty, plans: accounts.plans ?? empty,
+    paymentEvents: sectionData.payments?.paymentEvents ?? sectionData.audit?.paymentEvents ?? empty,
+    overrides: sectionData.audit?.overrides ?? empty,
+    staffRoles: sectionData.staff?.staffRoles ?? empty,
+    explorerMoves: sectionData.explorer?.explorerMoves ?? empty,
+    contentCounts: { ...sectionData.resourcesA?.contentCounts, ...sectionData.resourcesB?.contentCounts }, platformCounts,
+    warnings: results.flatMap(([, result]) => result.warnings ?? []).filter((warning) => !(warning.startsWith('user_subscriptions:') && platformCounts.subscriptions != null) && !(warning.startsWith('profiles:') && platformCounts.profiles != null)),
   };
 }
 

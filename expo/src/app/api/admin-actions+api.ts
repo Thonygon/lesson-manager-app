@@ -46,7 +46,14 @@ export async function POST(request: Request) {
     };
     if (action === 'account_create') {
       const email = clean(input.email, 254).toLowerCase(), name = clean(input.name, 160), role = clean(input.role, 30), planId = clean(input.planId, 80);
+      const canTeach = typeof input.canTeach === 'boolean' ? input.canTeach : role !== 'student';
+      const canStudy = typeof input.canStudy === 'boolean' ? input.canStudy : role === 'student';
+      const staffRole = clean(input.staffRole, 40), activeMode = clean(input.activeMode || (canTeach ? 'teacher' : 'student'), 40);
+      const accountStatus = clean(input.accountStatus || 'active', 20), subscriptionStatus = clean(input.subscriptionStatus || (planId === 'free' ? 'free' : 'active'), 20);
+      const notes = clean(input.notes, 1000);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !['teacher', 'student', 'school_admin', 'admin'].includes(role) || !planId || !reason) return json({ error: 'Enter an email, role, plan, and reason.' }, 400);
+      if (!['', 'developer', 'data_scientist'].includes(staffRole) || !['active', 'suspended'].includes(accountStatus) || !['free', 'active', 'trialing', 'past_due', 'canceled', 'expired'].includes(subscriptionStatus)) return json({ error: 'Choose valid account access settings.' }, 400);
+      if (!((activeMode === 'teacher' && canTeach) || (activeMode === 'student' && canStudy) || (activeMode === 'admin' && role === 'admin') || (activeMode === 'developer_workspace' && (role === 'admin' || Boolean(staffRole))))) return json({ error: 'The default workspace must be enabled for this account.' }, 400);
       const { data: plan, error: planError } = await server.from('plans').select('id,active').eq('id', planId).maybeSingle();
       if (planError) throw planError;
       if (!plan || plan.active === false) return json({ error: 'The selected plan is unavailable.' }, 400);
@@ -55,12 +62,50 @@ export async function POST(request: Request) {
       if (existing) return json({ error: 'An account already uses this email.' }, 409);
       const { data: invitation, error: invitationError } = await server.auth.admin.inviteUserByEmail(email);
       if (invitationError || !invitation.user) throw invitationError ?? new Error('The invitation could not be created.');
-      const userId = invitation.user.id, canTeach = role !== 'student';
-      const { error: profileError } = await server.from('profiles').upsert({ user_id: userId, email, display_name: name || email.split('@')[0], role, primary_role: canTeach ? 'teacher' : 'student', can_teach: canTeach, can_study: !canTeach, last_active_mode: canTeach ? 'teacher' : 'student', current_plan: planId, subscription_status: planId === 'free' ? 'free' : 'active', account_status: 'active', admin_notes: reason, onboarding_completed: false }, { onConflict: 'user_id' });
+      const userId = invitation.user.id;
+      const { error: profileError } = await server.from('profiles').upsert({ user_id: userId, email, display_name: name || email.split('@')[0], preferred_ui_language: 'en', timezone: 'Europe/Istanbul', default_lesson_duration: 45, role, primary_role: canTeach ? 'teacher' : 'student', can_teach: canTeach, can_study: canStudy, last_active_mode: activeMode, current_plan: planId, subscription_status: subscriptionStatus, account_status: accountStatus, admin_notes: notes, primary_subjects: [], teaching_stages: [], teaching_languages: [], login_count: 0, active_student_count: 0, onboarding_completed: false }, { onConflict: 'user_id' });
       if (profileError) throw profileError;
-      const { error: subscriptionError } = await server.from('user_subscriptions').upsert({ user_id: userId, plan_id: planId, subscription_status: planId === 'free' ? 'free' : 'active', manual_override: true }, { onConflict: 'user_id' });
+      const { error: subscriptionError } = await server.from('user_subscriptions').upsert({ user_id: userId, plan_id: planId, subscription_status: subscriptionStatus, manual_override: true }, { onConflict: 'user_id' });
       if (subscriptionError) throw subscriptionError;
-      return json({ ok: true, userId, audited: await audit(userId, 'account_create', reason) });
+      if (staffRole) {
+        const { error: staffError } = await server.from('user_staff_roles').insert({ user_id: userId, role_key: staffRole, is_active: true, assigned_by: actorId, assigned_at: new Date().toISOString(), assignment_reason: reason, metadata: {} });
+        if (staffError) throw staffError;
+      }
+      return json({ ok: true, userId, audited: await audit(userId, 'account_create', `${reason}; role=${role}; staff=${staffRole || 'none'}; plan=${planId}; status=${subscriptionStatus}`) });
+    }
+    if (action === 'user_update') {
+      const email = clean(input.email, 254).toLowerCase(), name = clean(input.name, 160), role = clean(input.role, 30), planId = clean(input.planId, 80);
+      const canTeach = input.canTeach, canStudy = input.canStudy;
+      const activeMode = clean(input.activeMode, 40), accountStatus = clean(input.accountStatus, 20), subscriptionStatus = clean(input.subscriptionStatus, 20), notes = clean(input.notes, 1000);
+      if (!userId || !reason || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !['teacher', 'student', 'school_admin', 'admin'].includes(role) || !planId || typeof canTeach !== 'boolean' || typeof canStudy !== 'boolean' || !['active', 'suspended'].includes(accountStatus) || !['free', 'active', 'trialing', 'past_due', 'canceled', 'expired'].includes(subscriptionStatus)) return json({ error: 'Choose valid account access settings.' }, 400);
+      if (!((activeMode === 'teacher' && canTeach) || (activeMode === 'student' && canStudy) || (activeMode === 'admin' && role === 'admin') || activeMode === 'developer_workspace')) return json({ error: 'The default workspace must be enabled for this account.' }, 400);
+      if (userId === actorId && (role !== 'admin' || accountStatus !== 'active')) return json({ error: 'An admin cannot remove or suspend their own admin access.' }, 400);
+      const [{ data: target, error: targetError }, { data: plan, error: planError }, { data: duplicate, error: duplicateError }] = await Promise.all([
+        server.from('profiles').select('user_id,email').eq('user_id', userId).maybeSingle(),
+        server.from('plans').select('id').eq('id', planId).maybeSingle(),
+        server.from('profiles').select('user_id').eq('email', email).neq('user_id', userId).limit(1),
+      ]);
+      if (targetError || planError || duplicateError) throw targetError || planError || duplicateError;
+      if (!target || !plan) return json({ error: 'The account or plan is unavailable.' }, 404);
+      if (duplicate?.length) return json({ error: 'An account already uses this email.' }, 409);
+      if (activeMode === 'developer_workspace' && role !== 'admin') {
+        const { data: staff, error: staffError } = await server.from('user_staff_roles').select('id').eq('user_id', userId).eq('is_active', true).in('role_key', ['developer', 'data_scientist']).limit(1);
+        if (staffError) throw staffError;
+        if (!staff?.length) return json({ error: 'Developer workspace requires an active staff role.' }, 400);
+      }
+      const previousEmail = clean(target.email, 254).toLowerCase();
+      if (email !== previousEmail) {
+        const { error: authError } = await server.auth.admin.updateUserById(userId, { email, email_confirm: true });
+        if (authError) throw authError;
+      }
+      const { error: profileError } = await server.from('profiles').update({ email, display_name: name, role, primary_role: canTeach ? 'teacher' : 'student', can_teach: canTeach, can_study: canStudy, last_active_mode: activeMode, account_status: accountStatus, current_plan: planId, subscription_status: subscriptionStatus, admin_notes: notes }).eq('user_id', userId);
+      if (profileError) {
+        if (email !== previousEmail && previousEmail) await server.auth.admin.updateUserById(userId, { email: previousEmail, email_confirm: true });
+        throw profileError;
+      }
+      const { error: subscriptionError } = await server.from('user_subscriptions').upsert({ user_id: userId, plan_id: planId, subscription_status: subscriptionStatus, manual_override: true, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      if (subscriptionError) throw subscriptionError;
+      return json({ ok: true, audited: await audit(userId, 'user_row_update', reason) });
     }
     if (action === 'staff_assign') {
       const role = clean(input.role, 40);

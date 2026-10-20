@@ -14,6 +14,7 @@ export type ClassioProfile = {
   can_study: boolean;
   last_active_mode: ProductRole | null;
   onboarding_completed: boolean;
+  login_count?: number | null;
 };
 
 export type AuthState = {

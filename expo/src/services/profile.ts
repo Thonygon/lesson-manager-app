@@ -47,6 +47,16 @@ export async function activateProfileWorkspaceMode(mode: 'teacher' | 'student') 
   if (error) throw error;
 }
 
+/** Persist the first-login choice before opening either workspace. */
+export async function chooseInitialWorkspaceRole(mode: 'teacher' | 'student', language: 'en' | 'es' | 'tr') {
+  const client = requireSupabase();
+  const { data: session, error: sessionError } = await client.auth.getSession();
+  if (sessionError || !session.session) throw sessionError ?? new Error('Your session has expired.');
+  const response = await fetch('/api/choose-role', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.session.access_token}` }, body: JSON.stringify({ mode, language }) });
+  const result = await response.json().catch(() => ({})) as { error?: string };
+  if (!response.ok) throw new Error(result.error || 'Your choice could not be saved.');
+}
+
 export async function uploadProfileAvatar(file: Blob & { name?: string; type?: string }) {
   if (!file.type?.startsWith('image/')) throw new Error('Choose a PNG, JPG, JPEG, or WebP image.');
   if (!file.size) throw new Error('The selected image is empty.');

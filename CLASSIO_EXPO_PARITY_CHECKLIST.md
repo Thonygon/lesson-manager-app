@@ -525,6 +525,12 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 
 ## Administration and operations
 
+### 2026-10-20 Admin UX and hosting load
+
+- [x] The Operations → Users tab now goes straight to a searchable user editor and account reset controls; the duplicate read-only directory remains only in Accounts. Search selects the first matching user as the query changes.
+- [x] Admin workspace loads four bounded protected sections, coalesces concurrent loads, and reuses a user-scoped one-minute snapshot across the three Admin routes. The earlier two-section aggregation exceeded the Worker subrequest budget. Mutations force a fresh load. A hosting 429 receives a localized message and a refresh action. The generic count query now handles tables without an `id` column, including `user_subscriptions`.
+- [ ] Full Streamlit AI decision/report and experiment execution parity remains open. The authenticated Python worker endpoints and durable run artifacts identified below are required; the current Expo read-only evidence panels are not equivalent to those actions.
+
 ### 2026-09-26 admin/developer reinspection
 
 - [x] Reinspected authenticated EAS staging Admin and Developer against `streamlit/app_pages/admin.py`, `streamlit/app_pages/developer_workspace.py`, `streamlit/services/ml_experiment_service.py`, and `streamlit/services/eic_report_service.py`. The hosted Admin AI tab currently has only content/Explorer counts; Developer shows live evidence (3 experiments, 27 runs, 12 validated) but no Python launch, integrity, or report actions. Detailed source-to-target findings and deployment boundary: `CLASSIO_ADMIN_DEVELOPER_PARITY_AUDIT_2026-09-26.md`.
@@ -618,3 +624,11 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 - Signed-in browser verification passed for Dashboard, Analytics, Calendar, Students, Lessons, Payments, Resources, Assignments, and Smart Tools with no runtime console errors.
 - Native Smart Tools completed a real authenticated lesson-plan generation and rendered the structured preview. The test result was deliberately not saved to live teacher data.
 - Month/day calendar states, lesson/payment edit-and-delete forms, resource detail controls, connection management, and linked-student progress/program data were inspected without mutating live records.
+
+### Admin load budget (local, awaiting live verification)
+
+- Expo Admin now requests data when its tab needs it: overview uses account and count sections; user operations use accounts and staff; subscriptions add recent payment events; Explorer loads its queue; audit loads payment/override history; AI no longer loads the general admin directory.
+- Admin sections and AI/EIC responses are cached per signed-in user for 60 seconds and concurrent reads are coalesced. Manual refresh invalidates the relevant caches. This follows Streamlit's bounded, short-lived admin reads while avoiding full-page reloads for every tab.
+- The AI Worker no longer counts five resource tables or reads up to 10,000 exposure/event rows. The Python EIC endpoint supplies telemetry. Missing telemetry is shown as unavailable instead of zero.
+- Account, subscription, and Auth activity reads are capped at 500 rows, matching Streamlit's bounded profile strategy. Exact platform counts are separate; detailed lists and derived charts are samples above that cap. Server-side search/pagination remains necessary before operating accounts beyond the first 500.
+- Static verification: TypeScript, targeted ESLint, admin AI API fixture, and `git diff --check` pass. No production request budget or live Supabase load has been measured for this local change.

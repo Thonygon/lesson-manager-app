@@ -39,10 +39,11 @@ async function main() {
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), 'private, no-store');
     const payload = await response.json();
-    assert.equal(payload.contentCounts.quick_exams, 2);
-    assert.equal(payload.countMethod, 'planned');
+    assert.deepEqual(payload.contentCounts, {});
+    assert.equal(payload.telemetry, undefined);
     assert.equal(payload.recentRuns.length, 1);
-    assert.equal(selected.length, 9);
+    assert.equal(selected.length, 5);
+    assert.deepEqual([...new Set(selected)].sort(), ['ml_experiment_runs', 'ml_experiments', 'profiles', 'system_jobs']);
   } finally {
     for (const [name, value] of Object.entries({ SUPABASE_URL: original.url, SUPABASE_ANON_KEY: original.anon, SUPABASE_SECRET_KEY: original.secret })) {
       if (value === undefined) delete process.env[name]; else process.env[name] = value;

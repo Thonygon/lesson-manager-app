@@ -33,7 +33,7 @@ export async function POST(request: Request) {
     if (targetId === identity.user.id && role !== 'admin') return respond({ error: 'An admin cannot remove their own admin access here.' }, 400);
     if (targetId === identity.user.id && accountStatus !== 'active') return respond({ error: 'An admin cannot suspend their own account here.' }, 400);
     if ((activeMode === 'teacher' && !canTeach) || (activeMode === 'student' && !canStudy) || (activeMode === 'admin' && role !== 'admin')) return respond({ error: 'The default workspace must be enabled for this account.' }, 400);
-    if (activeMode === 'developer_workspace') {
+    if (activeMode === 'developer_workspace' && role !== 'admin') {
       const { data: staff, error: staffError } = await server.from('user_staff_roles').select('id').eq('user_id', targetId).eq('is_active', true).in('role_key', ['developer', 'data_scientist']).limit(1);
       if (staffError) throw staffError;
       if (!staff?.length) return respond({ error: 'Developer workspace requires an active staff role.' }, 400);

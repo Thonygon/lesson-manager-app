@@ -15,6 +15,13 @@ export function activeFace(profile: ClassioProfile | null) {
   return role === 'student' ? 'student' : 'teacher';
 }
 
+export function requiresRoleSelection(profile: ClassioProfile | null) {
+  if (!profile) return true;
+  if (profile.role === 'admin' || profile.role === 'school_admin') return false;
+  if (profile.onboarding_completed === true) return false;
+  return Number(profile.login_count ?? 0) === 0;
+}
+
 export function authorizedDestination(pathname: string, profile: ClassioProfile | null, access?: { loading: boolean; isAdmin: boolean; canUseDeveloperWorkspace: boolean }) {
   if (!profile || matches(pathname, SHARED_ROUTES)) return null;
   if (matches(pathname, ADMIN_ROUTES)) {
