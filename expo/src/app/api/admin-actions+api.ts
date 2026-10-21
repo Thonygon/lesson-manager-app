@@ -39,6 +39,10 @@ export async function POST(request: Request) {
     const input = await request.json().catch(() => null) as Record<string, unknown> | null;
     if (!input) return json({ error: 'Choose an admin action.' }, 400);
     const action = clean(input.action, 40), userId = clean(input.userId, 100), reason = clean(input.reason, 800);
+    // A durable intent record is required before any privileged write. If a later
+    // step fails, this record still identifies the attempted action for recovery.
+    const { error: intentError } = await server.from('admin_overrides').insert({ user_id: userId || actorId, override_type: 'admin_action_attempt', reason: `${action}: ${reason}`, created_by: actorId });
+    if (intentError) throw intentError;
     const audit = async (target: string, type: string, note: string) => {
       const { error } = await server.from('admin_overrides').insert({ user_id: target || actorId, override_type: type, reason: note, created_by: actorId });
       if (error) console.error('Admin audit write failed', { type, message: error.message });
@@ -117,9 +121,10 @@ export async function POST(request: Request) {
       if (targetError || existingError) throw targetError || existingError;
       if (!target) return json({ error: 'The user no longer exists.' }, 404);
       if (existing?.length) return json({ error: 'This staff role is already active.' }, 409);
-      const { error } = await server.from('user_staff_roles').insert({ user_id: userId, role_key: role, is_active: true, assigned_by: actorId, assigned_at: new Date().toISOString(), assignment_reason: reason, metadata: {} });
+      const { data, error } = await server.rpc('classio_admin_change_staff', { p_actor_id: actorId, p_action: 'assign', p_target_id: userId, p_role: role, p_assignment_id: null, p_reason: reason });
       if (error) throw error;
-      return json({ ok: true, audited: await audit(userId, 'staff_role_assigned', `${role}: ${reason}`) });
+      if (!data?.assignment_id) throw new Error('Staff assignment could not be confirmed.');
+      return json({ ok: true, audited: true });
     }
     if (action === 'staff_revoke') {
       const id = Number(input.assignmentId);
@@ -127,9 +132,10 @@ export async function POST(request: Request) {
       const { data: assignment, error: lookupError } = await server.from('user_staff_roles').select('id,user_id,role_key').eq('id', id).eq('is_active', true).maybeSingle();
       if (lookupError) throw lookupError;
       if (!assignment) return json({ error: 'That staff assignment is no longer active.' }, 404);
-      const { error } = await server.from('user_staff_roles').update({ is_active: false, revoked_by: actorId, revoked_at: new Date().toISOString(), updated_at: new Date().toISOString(), assignment_reason: reason }).eq('id', id).eq('is_active', true);
+      const { data, error } = await server.rpc('classio_admin_change_staff', { p_actor_id: actorId, p_action: 'revoke', p_target_id: assignment.user_id, p_role: assignment.role_key, p_assignment_id: id, p_reason: reason });
       if (error) throw error;
-      return json({ ok: true, audited: await audit(assignment.user_id, 'staff_role_revoked', `${assignment.role_key}: ${reason}`) });
+      if (data?.assignment_id !== id) throw new Error('Staff revocation could not be confirmed.');
+      return json({ ok: true, audited: true });
     }
     if (action === 'account_status' || action === 'reset_usage') {
       if (!userId || !reason) return json({ error: 'Choose a user and enter a reason.' }, 400);
@@ -140,15 +146,15 @@ export async function POST(request: Request) {
       if (action === 'account_status') {
         const status = clean(input.status, 20);
         if (!['active', 'suspended'].includes(status)) return json({ error: 'Choose an allowed account status.' }, 400);
-        const { error } = await server.from('profiles').update({ account_status: status, admin_notes: reason }).eq('user_id', userId);
+        const { data, error } = await server.rpc('classio_admin_account_control', { p_actor_id: actorId, p_target_id: userId, p_action: 'account_status', p_status: status, p_reason: reason });
         if (error) throw error;
-        return json({ ok: true, audited: await audit(userId, status === 'suspended' ? 'suspend_user' : 'unsuspend_user', reason) });
+        if (data !== true) throw new Error('Account status change could not be confirmed.');
+        return json({ ok: true, audited: true });
       }
-      const payload = { user_id: userId, ai_generations: 0, pdf_exports: 0, word_exports: 0, students_count: 0, classes_count: 0, monthly_reset_date: new Date().toISOString().slice(0, 10) };
-      let reset = await server.from('usage_tracking').upsert(payload, { onConflict: 'user_id' });
-      if (reset.error?.message.includes('word_exports')) { const { word_exports: _unused, ...legacy } = payload; reset = await server.from('usage_tracking').upsert(legacy, { onConflict: 'user_id' }); }
-      if (reset.error) throw reset.error;
-      return json({ ok: true, audited: await audit(userId, 'reset_usage', reason) });
+      const { data, error } = await server.rpc('classio_admin_account_control', { p_actor_id: actorId, p_target_id: userId, p_action: 'reset_usage', p_status: null, p_reason: reason });
+      if (error) throw error;
+      if (data !== true) throw new Error('Usage reset could not be confirmed.');
+      return json({ ok: true, audited: true });
     }
     if (action === 'plan_save') {
       const plan = input.plan && typeof input.plan === 'object' && !Array.isArray(input.plan) ? input.plan as Record<string, unknown> : null;
@@ -157,7 +163,7 @@ export async function POST(request: Request) {
       if (!id || !name || !['month', 'year', 'lifetime', 'custom'].includes(interval) || typeof plan?.active !== 'boolean' || (price !== null && (!Number.isInteger(price) || price < 0 || price > 100000000))) return json({ error: 'Check the plan settings and USD price in cents.' }, 400);
       const rawLimits = plan?.limits_json && typeof plan.limits_json === 'object' && !Array.isArray(plan.limits_json) ? plan.limits_json as Record<string, unknown> : {};
       const safeLimits: Record<string, number> = {};
-      for (const key of ['ai_generations', 'pdf_exports', 'word_exports', 'students_count', 'classes_count']) { const value = Number(rawLimits[key] ?? 0); if (!Number.isInteger(value) || value < 0 || value > 10000000) return json({ error: `Check ${key}.` }, 400); safeLimits[key] = value; }
+      for (const key of ['ai_generations', 'pdf_exports', 'word_exports', 'students_count', 'classes_count']) { const value = Number(rawLimits[key] ?? (key === 'ai_generations' ? 10 : 0)); if (!Number.isInteger(value) || value < 0 || value > 10000000) return json({ error: `Check ${key}.` }, 400); safeLimits[key] = value; }
       const features = plan?.features_json && typeof plan.features_json === 'object' && !Array.isArray(plan.features_json) ? plan.features_json as Record<string, unknown> : {};
       if (Object.keys(features).length > 100 || Object.entries(features).some(([key, value]) => key.length > 100 || !(typeof value === 'boolean' || Array.isArray(value)))) return json({ error: 'Check the plan features.' }, 400);
       const { error } = await server.from('plans').upsert({ id, name, price, billing_interval: interval, active: plan.active, features_json: features, limits_json: safeLimits }, { onConflict: 'id' });

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from core.database import get_sb
 from core.state import get_current_user_id
 from services.subscription_service import get_user_plan, get_usage, _usage_tracking_upsert
@@ -20,16 +22,18 @@ def get_feature_limit(user_id: str | None, feature: str) -> int | None:
     limits = plan.get("limits_json") or {}
     limit = limits.get(feature)
     if limit is None:
-        return None
+        return 10 if feature == "ai_generations" else None
     try:
         return int(limit)
     except Exception:
-        return None
+        return 10 if feature == "ai_generations" else None
 
 
 def get_feature_usage_status(user_id: str | None, feature: str) -> dict:
     usage = get_usage(user_id)
     used = int(usage.get(feature) or 0)
+    if feature == "ai_generations" and str(usage.get("monthly_reset_date") or "")[:7] < datetime.now(timezone.utc).strftime("%Y-%m"):
+        used = 0
     limit = get_feature_limit(user_id, feature)
     remaining = None if limit is None else max(0, limit - used)
     return {
@@ -82,3 +86,18 @@ def can_export_word(user_id: str | None = None) -> bool:
 def can_use_ai_tool(user_id: str | None = None) -> bool:
     uid = user_id or get_current_user_id()
     return user_has_feature(uid, "ai_tools") and check_usage_limit(uid, "ai_generations")
+
+
+def reserve_ai_tool(user_id: str | None = None) -> bool:
+    """Reserve an AI provider attempt atomically before sending the request."""
+    uid = str(user_id or get_current_user_id() or "").strip()
+    limit = get_feature_limit(uid, "ai_generations") if uid else None
+    if not uid or not user_has_feature(uid, "ai_tools") or limit is None or limit < 0:
+        return False
+    try:
+        result = get_sb().rpc(
+            "classio_reserve_ai_generation", {"p_user_id": uid, "p_limit": limit}
+        ).execute()
+        return bool((getattr(result, "data", None) or {}).get("allowed") is True)
+    except Exception:
+        return False

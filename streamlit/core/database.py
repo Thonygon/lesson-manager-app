@@ -8,6 +8,7 @@ import logging
 import json
 import math
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 from supabase import create_client
@@ -928,9 +929,9 @@ def add_payment(
     package_normalized: bool = False,
     normalized_note: str = "",
     currency: str = "TRY",
+    request_id: str | None = None,
 ) -> None:
     student = str(student).strip()
-    ensure_student(student)
     if not package_start_date:
         package_start_date = payment_date
     sb = get_sb()
@@ -950,9 +951,15 @@ def add_payment(
         "normalized_at": datetime.now(timezone.utc).isoformat() if (package_normalized or normalized_note) else None,
         "currency": str(currency or "TRY").strip(),
     })
-    sb.table("payments").insert(payload).execute()
+    owner_id = get_current_user_id()
+    if not owner_id:
+        raise ValueError("A signed-in teacher is required to record a payment.")
+    sb.rpc("classio_add_manual_payment", {
+        "p_user_id": owner_id,
+        "p_request_id": request_id or str(uuid.uuid4()),
+        "p_payment": payload,
+    }).execute()
     clear_app_caches()
-    recalculate_package_dates(student)
 
 
 def delete_row(table_name: str, row_id: int) -> None:
@@ -1302,46 +1309,13 @@ def recalculate_package_dates(student: Optional[str] = None) -> dict:
 
 
 # ── Account deletion ────────────────────────────────────────────────────
-_DELETE_TABLES = [
-    "classes",
-    "payments",
-    "students",
-    "schedules",
-    "calendar_overrides",
-    "pricing_items",
-    "app_settings",
-    "lesson_plans",
-    "learning_programs",
-    "ai_usage_logs",
-    "user_activity_log",
-    "professional_profiles",
-    "worksheets",
-]
-
-
 def delete_user_data(user_id: str) -> bool:
-    """Hard-delete all user data from every content table, then mark profile as deleted."""
+    """Delete private data atomically; retain active public resources."""
     if not user_id:
         return False
-    sb = get_sb()
-    for tbl in _DELETE_TABLES:
-        try:
-            sb.table(tbl).delete().eq("user_id", str(user_id)).execute()
-        except Exception:
-            pass
-
-    sb.table("profiles").update({
-        "account_status": "deleted",
-        "deleted_at": datetime.now(timezone.utc).isoformat(),
-        "display_name": None,
-        "avatar_url": None,
-        "phone_number": None,
-        "show_community_profile": False,
-        "show_community_contact": False,
-        "onboarding_completed": False,
-        "login_count": 0,
-        "active_student_count": 0,
-    }).eq("user_id", str(user_id)).execute()
+    result = get_sb().rpc("classio_delete_account_data", {"p_user_id": str(user_id)}).execute()
+    if getattr(result, "data", None) is not True:
+        raise RuntimeError("Account deletion could not be confirmed")
     clear_app_caches()
     return True
 

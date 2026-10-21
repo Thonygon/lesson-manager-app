@@ -13,7 +13,8 @@ import { programFallback, fallbackProgramUnit } from '../../server/program-fallb
 import { programLanguageIssues } from '../../server/program-language-quality';
 import { mergePreviousProgramRows, previousProgramFromStorage, previousProgramComplete, summarizePreviousProgram } from '../../server/program-continuation';
 import { configuredAiProviders, requestAiProvider } from '../../server/ai-provider-chain';
-import { checkAiGenerationUsage, incrementAiGenerationUsage, logAiGeneration, type UsageContext } from '../../server/ai-generation-usage';
+import { reserveGuestGeneration } from '../../server/guest-generation-quota';
+import { checkAiGenerationUsage, reserveAiGenerationUsage, logAiGeneration, type UsageContext } from '../../server/ai-generation-usage';
 import { findGenerationMatches } from '../../server/generation-reuse';
 import { sourceSystemPrompt } from '../../server/source-system-prompts';
 import { examLengthRule } from '../../lib/exam-generation-rules';
@@ -63,9 +64,6 @@ function validGeneratedDocument(kind: ToolKind, document: Record<string, unknown
 }
 const noStore = { 'Cache-Control': 'private, no-store', Vary: 'Authorization' };
 const json = (body: unknown, status = 200, extra?: Record<string, string>) => Response.json(body, { status, headers: { ...noStore, ...extra } });
-const guestBits: Record<string, number> = { plan: 1, worksheet: 2, exam: 4 };
-async function guestSignature(mask: number, secret: string) { const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']); const bytes = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`classio-guest:${mask}`))); return Array.from(bytes).map((byte) => byte.toString(16).padStart(2, '0')).join(''); }
-async function guestMask(request: Request, secret: string) { const cookie = request.headers.get('cookie')?.match(/(?:^|;\s*)classio_guest_tools=([0-7])\.([a-f0-9]{64})/); if (!cookie) return 0; const mask = Number(cookie[1]); return await guestSignature(mask, secret) === cookie[2] ? mask : 0; }
 
 function canTeach(profile: { can_teach?: boolean | null; primary_role?: string | null; role?: string | null }) {
   if (profile.can_teach !== null && profile.can_teach !== undefined) return profile.can_teach === true;
@@ -156,13 +154,14 @@ export async function POST(request: Request) {
       userId = userIdFromAccessToken(token);
       if (!userId) return json({ error: 'Your Classio session has expired.' }, 401);
       const profileUrl = new URL(`${supabaseUrl.replace(/\/$/, '')}/rest/v1/profiles`);
-      profileUrl.searchParams.set('select', 'role,primary_role,can_teach,current_plan');
+      profileUrl.searchParams.set('select', 'role,primary_role,can_teach,current_plan,account_status');
       profileUrl.searchParams.set('user_id', `eq.${userId}`);
       profileUrl.searchParams.set('limit', '1');
       const profileCheck = await fetch(profileUrl, { headers: { apikey: anonKey, Authorization: `Bearer ${token}`, Accept: 'application/json' } });
       if (!profileCheck.ok) return json({ error: 'Your teaching access could not be verified.', code: 'teaching_access_unavailable' }, 503);
-      const profiles = await profileCheck.json() as { can_teach?: boolean | null; primary_role?: string | null; role?: string | null; current_plan?: string | null }[];
+      const profiles = await profileCheck.json() as { can_teach?: boolean | null; primary_role?: string | null; role?: string | null; current_plan?: string | null; account_status?: string | null }[];
       if (!Array.isArray(profiles) || profiles.length !== 1 || !canTeach(profiles[0])) return json({ error: 'Teacher access is required.', code: 'teacher_access_required' }, 403);
+      if (profiles[0].account_status && profiles[0].account_status !== 'active') return json({ error: 'This account cannot generate resources.', code: 'account_inactive' }, 403);
       profilePlan = profiles[0].current_plan || 'free';
     }
     phase = 'request';
@@ -242,11 +241,11 @@ export async function POST(request: Request) {
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,
       AI_MODEL: process.env.AI_MODEL,
       OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
-    });
+      GEMINI_MODEL: process.env.GEMINI_MODEL,
+    }).filter((provider) => !guest || provider.provider !== 'openai');
     if (!providers.length) return fallbackProgram() ?? fallbackPlan() ?? json({ error: 'Classio AI is not connected.' }, 503);
     let usageContext: UsageContext | null = null;
-    let previousAiGenerations = 0;
-    let usageSource: 'counter' | 'logs' = 'counter';
+    let usageLimit = 0;
     if (!guest) {
       const serverKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
       if (!serverKey) return json({ error: 'AI usage protection is not configured.', code: 'usage_unavailable' }, 503);
@@ -256,15 +255,26 @@ export async function POST(request: Request) {
       try { usage = await checkAiGenerationUsage(usageContext); }
       catch (error) { console.error('AI usage check failed', error); return json({ error: 'AI usage could not be verified.', code: 'usage_unavailable' }, 503); }
       if (!usage.allowed) return json({ error: usage.reason, code: usage.status === 403 ? 'permission_blocked' : usage.remainingSeconds ? 'cooldown_active' : 'limit_reached', remainingSeconds: usage.remainingSeconds }, usage.status);
-      if (kind !== 'program') {
-        previousAiGenerations = usage.used;
-        usageSource = usage.source || 'counter';
+      if (!Number.isSafeInteger(usage.limit) || Number(usage.limit) < 0) return json({ error: 'AI usage limit is not configured.', code: 'usage_unavailable' }, 503);
+      usageLimit = Number(usage.limit);
+    }
+    let guestCookie = '';
+    if (guest) {
+      phase = 'guest_usage_reservation';
+      try {
+        const reservation = await reserveGuestGeneration(request, {
+          base: supabaseUrl,
+          serverKey: process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+          secret: process.env.CLASSIO_GUEST_QUOTA_SECRET || '',
+        });
+        if (!reservation.allowed) return json({ error: 'Three free generations are available each day. Sign in for more.', code: 'guest_limit_reached' }, 429);
+        guestCookie = reservation.cookie;
+      } catch (error) {
+        console.error('Guest quota reservation failed', error);
+        return json({ error: 'Free generation is temporarily unavailable.', code: 'usage_unavailable' }, 503);
       }
     }
-    const guestSecret = process.env.CLASSIO_GUEST_COOKIE_SECRET || providers[0].key;
-    const priorGuestMask = guest ? await guestMask(request, guestSecret) : 0;
-    if (guest && (!guestBits[kind] || (priorGuestMask & guestBits[kind]))) return json({ error: 'This free try has been used. Sign in to create more.' }, 429);
-    const controls = [`Generation mode: ${text(body.generationMode, 40) || 'AI'}`, body.student ? `Selected student: ${text(body.student, 120)}` : '', body.nativeLanguage ? `Student native language: ${text(body.nativeLanguage, 80)}` : '', body.lessonPurpose ? `Lesson purpose: ${text(body.lessonPurpose, 80)}` : '', body.worksheetType ? `Worksheet type: ${text(body.worksheetType, 80)}` : '', body.examLength ? `Exam length: ${text(body.examLength, 40)}` : '', selectedExamTypes.length ? `Exercise types: ${selectedExamTypes.join(', ')}` : '', body.instructions ? `Special instructions: ${text(body.instructions)}` : '', kind === 'program' ? `Requested units: ${programStructure.units}` : '', kind === 'program' ? `Lessons per unit: ${programStructure.lessonsPerUnit}` : '', body.programTrack ? `Program track: ${text(body.programTrack, 80)}` : '', body.examTarget ? `Exam target: ${text(body.examTarget, 100)}` : ''].filter(Boolean).join('. ');
+    const controls = [`Generation mode: ${text(body.generationMode, 40) || 'AI'}`, body.nativeLanguage ? `Student native language: ${text(body.nativeLanguage, 80)}` : '', body.lessonPurpose ? `Lesson purpose: ${text(body.lessonPurpose, 80)}` : '', body.worksheetType ? `Worksheet type: ${text(body.worksheetType, 80)}` : '', body.examLength ? `Exam length: ${text(body.examLength, 40)}` : '', selectedExamTypes.length ? `Exercise types: ${selectedExamTypes.join(', ')}` : '', body.instructions ? `Special instructions: ${text(body.instructions)}` : '', kind === 'program' ? `Requested units: ${programStructure.units}` : '', kind === 'program' ? `Lessons per unit: ${programStructure.lessonsPerUnit}` : '', body.programTrack ? `Program track: ${text(body.programTrack, 80)}` : '', body.examTarget ? `Exam target: ${text(body.examTarget, 100)}` : ''].filter(Boolean).join('. ');
     const shapeRules = kind === 'plan' ? 'Include all required sections. All activity sections and success_criteria must be arrays of strings; core_material must be a JSON object. Use an empty string or empty array where a section is not needed.' : kind === 'worksheet' ? `Use worksheet_type ${text(body.worksheetType, 80)}. Put only the relevant item family in questions, true_false_statements, matching_pairs, multiple_choice_items, or vocabulary_bank. Do not mix unrelated task families. Answer every item in answer_key, except a vocabulary word search. Keep teacher_notes separate from student instructions.` : kind === 'exam' ? `Create ${selectedExamTypes.length} sections, ${examSpec.range} questions per section. Exercise types in order: ${selectedExamTypes.join(', ')}. Each section must include both questions and aligned answers. Section instructions must match the actual response mode.` : '';
     const promptBase = kind === 'plan' ? buildLessonPlanUserPrompt({ subject, topic, learnerStage: stage, levelOrBand: level, lessonPurpose: text(body.lessonPurpose, 100), planLanguage, studentMaterialLanguage: language, programContextBlock: programBlock }) : kind === 'worksheet' ? buildWorksheetUserPrompt({ subject, topic, learnerStage: stage, levelOrBand: level, worksheetType: text(body.worksheetType, 80), planLanguage, studentMaterialLanguage: language, programContextBlock: programBlock }) : kind === 'exam' ? buildExamUserPrompt({ subject, topic, examTitle: text(body.examTitle, 200), learnerStage: stage, levelOrBand: level, examLength: length, exerciseTypes, planLanguage, studentMaterialLanguage: language, instructions: text(body.instructions), programContextBlock: programBlock }) : `Create a classroom-ready ${kind} for a teacher. Subject: ${subject}. Topic: ${topic}. Learner stage: ${stage}. Level: ${level}. Teacher-facing plan_language: ${planLanguage}. Student-facing student_material_language: ${language}. ${body.duration ? `Duration: ${text(body.duration, 50)}.` : ''} ${controls}. Teacher context: ${notes || 'None provided'}. ${programBlock} ${shapeRules} Use accurate, age-appropriate content, clear instructions, inclusive examples, and practical assessment. Return ONLY valid JSON matching this shape: ${schema}`;
     const objectiveInstruction = kind === 'plan' && text(body.objective, 500) ? `\n\nTeacher-selected lesson objective: ${text(body.objective, 500)}\nUse this objective as the plan's objective, phrased clearly for the selected learners. Program topic objectives are suggestions; the teacher's selected objective takes precedence.` : '';
@@ -273,18 +283,29 @@ export async function POST(request: Request) {
     const programPrompts = kind === 'program' ? body.programPhase === 'unit' ? programUnitPrompts(programContext, body.programSkeleton!, programUnitIndex) : programSkeletonPrompts(programContext) : null;
     let document: Record<string, unknown> | null = null;
     let providerName = '';
+    let providerModel = '';
     let failure = 'The AI provider could not complete this generation. Try again.';
     let providerCalls = 0;
     phase = 'provider_generation';
     for (const provider of providers) {
       let repair = '';
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      for (let attempt = 0; attempt < (providers.length === 1 ? 2 : 1); attempt += 1) {
         if (providerCalls >= 2) break;
+        if (usageContext) {
+          phase = 'usage_reservation';
+          let reservation;
+          try { reservation = await reserveAiGenerationUsage(usageContext, usageLimit); }
+          catch (error) { console.error('AI usage reservation failed', error); return json({ error: 'AI usage could not be reserved.', code: 'usage_unavailable' }, 503); }
+          if (!reservation.allowed) return json({ error: 'Your AI generation limit has been reached.', code: 'limit_reached' }, 429);
+        }
         providerCalls += 1;
+        phase = 'provider_generation';
         let content: string;
+        let model = '';
         try {
           const response = await requestAiProvider(provider, programPrompts?.system || sourceSystemPrompt(kind), repair ? `${programPrompts?.user || prompt}\n\nThe previous response was ${repair}. Return a complete, valid JSON document matching every required field and answer.` : programPrompts?.user || prompt);
           content = response.content;
+          model = response.model;
         } catch (error) {
           console.error('AI provider request failed', provider.provider, error instanceof Error ? error.message : 'unknown error');
           continue;
@@ -295,23 +316,16 @@ export async function POST(request: Request) {
         if (kind === 'worksheet') document = normalizeWorksheetAnswerKey(document);
         if (kind === 'exam') document = repairExamAnswerKey(document);
         const qualityIssues = kind === 'program' && body.programPhase === 'skeleton' ? [...programSkeletonIssues(document, programStructure.units, programStructure.lessonsPerUnit), ...programLanguageIssues(document, planLanguage, language)] : kind === 'program' && body.programPhase === 'unit' ? [...programUnitIssues(document, programUnits[programUnitIndex]), ...programLanguageIssues(document, planLanguage, language, true)] : kind === 'plan' ? lessonPlanQualityIssues(document, { subject, stage, level, purpose, programContext: programBlock }) : kind === 'worksheet' ? worksheetQualityIssues(document) : kind === 'exam' ? examQualityIssues(document, length) : programQualityIssues(document, programStructure.units, programStructure.lessonsPerUnit);
-        if ((kind === 'program' || validGeneratedDocument(kind, document, body)) && qualityIssues.length === 0) { providerName = provider.provider; break; }
+        if ((kind === 'program' || validGeneratedDocument(kind, document, body)) && qualityIssues.length === 0) { providerName = provider.provider; providerModel = model; break; }
         document = null; repair = qualityIssues.length ? qualityIssues.join('; ') : 'incomplete'; failure = 'The AI provider returned an incomplete document. Try again.';
       }
       if (document || providerCalls >= 2) break;
     }
     if (!document) {
-      if (usageContext) await logAiGeneration(usageContext, 'failed', { subject, topic, reason: failure }).catch((error) => console.error('AI usage failure log failed', error));
+      if (usageContext) await logAiGeneration(usageContext, 'failed', { prompt_version: 'expo-generate-v1', result: 'provider_failed', provider_calls: providerCalls }).catch((error) => console.error('AI usage failure log failed', error));
       return fallbackProgram() ?? fallbackPlan() ?? json({ error: failure }, 502);
     }
-    if (usageContext) {
-      if (usageSource === 'logs') {
-        try { await logAiGeneration(usageContext, 'success', { subject, topic, provider: providerName }); }
-        catch (error) { console.error('AI usage success log failed', error); return json({ error: 'AI usage could not be recorded.', code: 'usage_unavailable' }, 503); }
-      } else await logAiGeneration(usageContext, 'success', { subject, topic, provider: providerName }).catch((error) => console.error('AI usage success log failed', error));
-      await incrementAiGenerationUsage(usageContext, previousAiGenerations).catch((error) => console.error('AI usage counter update failed', error));
-    }
-    const cookie = guest ? `classio_guest_tools=${priorGuestMask | guestBits[kind]}.${await guestSignature(priorGuestMask | guestBits[kind], guestSecret)}; Path=/api/generate; HttpOnly; Secure; SameSite=Lax` : '';
-    return json({ document, model: 'ai', generatedAt: new Date().toISOString() }, 200, cookie ? { 'Set-Cookie': cookie } : undefined);
+    if (usageContext) await logAiGeneration(usageContext, 'success', { prompt_version: 'expo-generate-v1', provider: providerName, model: providerModel, result: 'accepted', provider_calls: providerCalls }).catch((error) => console.error('AI usage success log failed', error));
+    return json({ document, model: 'ai', generatedAt: new Date().toISOString() }, 200, guestCookie ? { 'Set-Cookie': guestCookie } : undefined);
   } catch (error) { console.error('Generation route error', phase, error); return json({ error: 'Generation failed.', code: 'generation_failed', phase }, 500); }
 }

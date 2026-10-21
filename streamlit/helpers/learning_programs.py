@@ -4268,7 +4268,10 @@ def render_learning_program_library_cards(
                         if author_id not in profile_cache:
                             profile_cache[author_id] = load_profile_row(author_id)
                         profile = profile_cache.get(author_id) or {}
-                        author_name = _clean_display_text(profile.get("display_name") or profile.get("username") or profile.get("email"))
+                        author_name = (
+                            "Classio" if profile.get("account_status") == "deleted"
+                            else _clean_display_text(profile.get("display_name") or profile.get("username") or profile.get("email"))
+                        )
                         if author_name:
                             meta += f'<div class="cm-resource-meta">👤 {html.escape(t("author_label_value", author=author_name))}</div>'
                 if not is_complete:

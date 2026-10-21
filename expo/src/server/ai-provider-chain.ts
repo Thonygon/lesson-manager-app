@@ -1,14 +1,15 @@
-/** Prefer the provider that has successfully generated Classio resources in production. */
+/** Try free-capable providers before paid fallbacks. */
 export type AiProvider = 'openrouter' | 'gemini' | 'openai';
 export type AiProviderConfig = { provider: AiProvider; key: string; model: string };
-type ProviderEnvironment = Partial<Record<'OPENROUTER_API_KEY' | 'GEMINI_API_KEY' | 'OPENAI_API_KEY' | 'AI_MODEL' | 'OPENROUTER_MODEL', string>>;
+type ProviderEnvironment = Partial<Record<'OPENROUTER_API_KEY' | 'GEMINI_API_KEY' | 'OPENAI_API_KEY' | 'AI_MODEL' | 'OPENROUTER_MODEL' | 'GEMINI_MODEL', string>>;
 
 export function configuredAiProviders(env: ProviderEnvironment): AiProviderConfig[] {
-  const commonModel = env.AI_MODEL?.trim() || '';
+  const openRouterModel = env.OPENROUTER_MODEL?.trim() || '';
+  const freeOpenRouterModel = openRouterModel === 'openrouter/free' || openRouterModel.endsWith(':free') ? openRouterModel : 'openrouter/free';
   return ([
-    { provider: 'gemini', key: env.GEMINI_API_KEY?.trim() || '', model: commonModel || 'gemini-2.5-flash' },
-    { provider: 'openrouter', key: env.OPENROUTER_API_KEY?.trim() || '', model: commonModel || env.OPENROUTER_MODEL?.trim() || 'openrouter/free' },
-    { provider: 'openai', key: env.OPENAI_API_KEY?.trim() || '', model: commonModel || 'gpt-4o-mini' },
+    { provider: 'openrouter', key: env.OPENROUTER_API_KEY?.trim() || '', model: freeOpenRouterModel },
+    { provider: 'gemini', key: env.GEMINI_API_KEY?.trim() || '', model: env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash' },
+    { provider: 'openai', key: env.OPENAI_API_KEY?.trim() || '', model: env.AI_MODEL?.trim() || 'gpt-4o-mini' },
   ] as AiProviderConfig[]).filter((item) => Boolean(item.key));
 }
 

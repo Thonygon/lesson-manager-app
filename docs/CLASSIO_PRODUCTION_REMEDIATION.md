@@ -1,0 +1,33 @@
+# CLASSIO — Seguimiento de la remediación de producción
+
+Estado local a 2026-10-21. La matriz conserva los identificadores S01–S13 de la auditoría comercial. «Corregido en código» significa que existe una implementación y una prueba local; no significa que la migración esté aplicada ni que el entorno desplegado esté validado. No se han desplegado estos cambios ni se ha modificado Supabase de producción.
+
+| ID | Estado de cierre | Avance y evidencia pendiente |
+|---|---|---|
+| S01 | Pendiente de staging | Borrado de cuenta movido a una RPC transaccional; fixture comprueba que un error no se confirma. Falta inyectar fallos de SQL con cuentas sintéticas y comprobar todas las tablas en staging. |
+| S02 | Pendiente de staging | La RPC borra recursos privados o archivados y conserva los públicos activos; anonimiza la atribución. Falta matriz real por tipo/visibilidad/estado, incluidos `quick_exams`, y comprobar acceso público posterior. |
+| S03 | Pendiente de staging | Cupo anónimo diario por IP del proxy y cookie, con hashes y limpieza a las 48 horas; fixture local cubre el borrado de cookie y el cambio de IP. Falta aplicar y probar RPC, Cron y límites de coste/abuso en staging. |
+| S04 | Pendiente de staging | Reserva atómica antes de cada llamada externa, incluidos programas; reinicio mensual y fallback de 10 para planes sin cifra. Falta prueba concurrente real y conciliación de llamadas, contador y logs con 503. |
+| S05 | Abierto | Intento de auditoría previo; acceso, roles internos, suspensión y reinicio de cupos ya usan RPC transaccionales con auditoría obligatoria. Siguen secuenciales la creación y actualización de cuentas con Supabase Auth y varias acciones de Explorer. Falta probar rollback en staging e idempotencia de invitaciones. |
+| S06 | Diferido | Stripe no se activará ahora. Webhook firmado, eventos duplicados, reembolsos y conciliación son obligatorios antes de aceptar pagos. |
+| S07 | Parcial en código local | El alta de pagos manuales en Expo y Streamlit usa una RPC transaccional e idempotente con clave estable durante reintentos; incluye el alta implícita del estudiante. Fixture local y tipado pasan. Edición/borrado de pagos y cambios en clases aún hacen escrituras separadas. Falta probar rollback y concurrencia con datos sintéticos en staging. |
+| S08 | Cerrado en código local | `generate+api.ts` rechaza perfiles suspendidos o eliminados antes del proveedor; fixture prueba acceso antes y después de la suspensión. La aceptación desplegada queda bajo S10. |
+| S09 | Parcial en código local | Política definida por el titular: solo señales educativas y referencia numérica seudónima, sin nombre. Los prompts de planes, fichas y exámenes de Streamlit reducen el perfil a campos estructurados; fixture sintético comprueba ausencia de nombre, correo y UUID del perfil. Expo ya no agrega el nombre del estudiante al prompt y sus logs nuevos omiten tema y materia libres, registrando versión, proveedor y modelo cuando hay éxito. Migración programa borrar esos logs a los 90 días. Siguen pendientes campos libres, contextos de programas, trazabilidad de cada intento y todas las rutas Python; no se considera cerrado. |
+| S10 | No verificado | Las 64 migraciones versionadas pasan la verificación local. Falta comparar esquema, RLS, Storage y secretos efectivos con cuentas sintéticas en staging. |
+| S11 | Abierto | Cierre de prácticas sigue en varias escrituras; faltan transacción, reintentos seguros e inyección de fallos. |
+| S12 | Abierto | Explorer aún requiere URL por entorno en móvil, aislamiento de fallos por categoría y paginación de exámenes. |
+| S13 | Abierto | Faltan timeout uniforme, límites de salida y presupuesto para portadas y otras llamadas externas. |
+
+## Política acordada para S09
+
+- A proveedores externos se envían únicamente señales educativas estructuradas y una referencia numérica seudónima por estudiante. Nunca deben recibir el nombre, correo, UUID, notas personales ni el perfil completo.
+- La trazabilidad técnica debe registrar versión de prompt, proveedor, modelo, hora y resultado, sin el texto completo. Se conserva **90 días** y después se elimina. Expo registra parte de esos metadatos por generación y una migración programa el borrado diario; faltan eventos por intento, cobertura de Python y verificación del Cron en staging.
+- Los campos de texto libre y los contextos de programas todavía pueden contener datos identificables. Hay que cerrar esas rutas con fixtures sintéticos antes de declarar S09 resuelto y antes de habilitar su uso con datos reales en producción.
+- Los registros de uso anteriores pueden contener `subject` y `topic` en `meta_json`. Hay que inventariarlos y definir una depuración segura en staging antes de aplicar cualquier limpieza a producción.
+
+## Puerta de aceptación inmediata
+
+1. Aplicar las migraciones nuevas únicamente en staging y probar sus RPC con identidades sintéticas.
+2. Inyectar errores en cada paso de borrado, cuotas, administración y cierre de prácticas; comprobar rollback, límites e idempotencia.
+3. Verificar RLS, permisos de Storage y acceso cruzado de roles en staging antes de datos personales reales.
+4. Mantener Stripe desactivado hasta que su flujo completo y conciliación pasen las pruebas.

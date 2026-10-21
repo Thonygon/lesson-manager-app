@@ -73,9 +73,7 @@ export async function uploadProfileAvatar(file: Blob & { name?: string; type?: s
 export async function deleteCurrentUserData() {
   const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
-  const uid = userData.user.id;
-  const tables = ['student_schedule_freezes', 'teacher_review_requests', 'teacher_assignments', 'teacher_student_subjects', 'teacher_student_links', 'practice_progress', 'classes', 'payments', 'students', 'schedules', 'calendar_overrides', 'pricing_items', 'app_settings', 'lesson_plans', 'learning_programs', 'ai_usage_logs', 'user_activity_log', 'professional_profiles', 'worksheets'];
-  for (const table of tables) await client.from(table).delete().eq('user_id', uid);
-  const { error } = await client.from('profiles').update({ account_status: 'deleted', deleted_at: new Date().toISOString(), display_name: null, avatar_url: null, phone_number: null, show_community_profile: false, show_community_contact: false, onboarding_completed: false, login_count: 0, active_student_count: 0 }).eq('user_id', uid);
+  const { data, error } = await client.rpc('classio_delete_account_data', { p_user_id: userData.user.id });
   if (error) throw error;
+  if (data !== true) throw new Error('Account deletion could not be confirmed.');
 }

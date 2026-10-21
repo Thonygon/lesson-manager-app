@@ -257,30 +257,28 @@ export async function addPayment(input: {
   subject: string;
   customSubject?: string;
   packageStartDate?: string;
-}) {
+}, requestId: string) {
   if (!isValidRecordDate(input.paymentDate) || (input.packageStartDate && !isValidRecordDate(input.packageStartDate)) || !isValidUnitCount(input.lessonUnits, 500) || !Number.isFinite(input.paidAmount) || input.paidAmount < 0) throw new Error('Check the payment dates, amount, and 1–500 whole units.');
+  if (!input.student.trim() || !input.currency.trim() || !input.subject.trim() || !requestId) throw new Error('Complete the payment fields before saving.');
   const client = requireSupabase();
   const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
-  const { error } = await client.from('payments').insert({
-    user_id: userData.user.id,
-    student: input.student.trim(),
-    number_of_lesson: input.lessonUnits,
-    payment_date: input.paymentDate,
-    paid_amount: input.paidAmount,
-    currency: input.currency,
-    modality: input.modality,
-    subject: input.subject === 'Other' ? 'Other' : input.subject,
-    subject_custom: input.subject === 'Other' ? input.customSubject?.trim() || null : null,
-    package_start_date: input.packageStartDate || input.paymentDate,
-    package_expiry_date: null,
-    lesson_adjustment_units: 0,
-    package_normalized: false,
-    normalized_note: '',
-    normalized_at: null,
+  const { error } = await client.rpc('classio_add_manual_payment', {
+    p_user_id: userData.user.id,
+    p_request_id: requestId,
+    p_payment: {
+      student: input.student.trim(),
+      number_of_lesson: input.lessonUnits,
+      payment_date: input.paymentDate,
+      paid_amount: input.paidAmount,
+      currency: input.currency,
+      modality: input.modality,
+      subject: input.subject === 'Other' ? 'Other' : input.subject,
+      subject_custom: input.subject === 'Other' ? input.customSubject?.trim() || null : null,
+      package_start_date: input.packageStartDate || input.paymentDate,
+    },
   });
   if (error) throw error;
-  await recalculatePackageDates(input.student);
 }
 
 export async function updatePayment(id: string | number, input: { student: string; lessonUnits: number; paymentDate: string; paidAmount: number; currency: string; modality: 'Online' | 'Offline'; subject: string; customSubject?: string; packageStartDate?: string; packageExpiryDate?: string; adjustmentUnits?: number; normalized?: boolean; normalizedNote?: string }) {

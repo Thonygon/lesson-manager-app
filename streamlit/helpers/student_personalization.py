@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from helpers.ai_prompt_privacy import minimize_student_profile_for_ai
+
 import pandas as pd
 
 from core.database import get_sb, load_profile_row
@@ -345,6 +347,7 @@ def build_student_profile_prompt_block(
     product: str = "general",
     selected_formats: list[str] | None = None,
 ) -> str:
+    profile = minimize_student_profile_for_ai(profile)
     if not profile:
         return ""
 
@@ -357,7 +360,7 @@ def build_student_profile_prompt_block(
     include_format_hints = product == "lesson_plan" or not normalized_selected_formats
     lines = [
         "Student personalization profile:",
-        f"- Student: {_clean_text(profile.get('student_name')) or 'Selected student'}",
+        f"- Learner numeric reference: {profile.get('learner_id', 'unassigned')}",
     ]
     if _clean_text(profile.get("learner_stage")):
         lines.append(f"- Learner stage signal: {_clean_text(profile.get('learner_stage'))}")

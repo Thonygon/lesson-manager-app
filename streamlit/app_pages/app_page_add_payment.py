@@ -1,6 +1,7 @@
 import streamlit as st
 import datetime
 import math
+import uuid
 from datetime import datetime as _dt, timezone
 import pandas as pd
 from core.i18n import t
@@ -210,6 +211,15 @@ def _render_add_payment_form():
                 st.error(t("subject_other_required"))
                 st.stop()
 
+            payment_fingerprint = (
+                student_p, int(lessons_paid), payment_date.isoformat(), float(paid_amount),
+                str(modality_p), pay_subject_db, pay_subject_custom,
+                pkg_start.isoformat() if pkg_start else payment_date.isoformat(), pay_currency,
+            )
+            pending = st.session_state.get("payment_insert_request")
+            if not pending or pending[0] != payment_fingerprint:
+                pending = (payment_fingerprint, str(uuid.uuid4()))
+                st.session_state["payment_insert_request"] = pending
             add_payment(
                 student=student_p,
                 number_of_lesson=int(lessons_paid),
@@ -224,7 +234,9 @@ def _render_add_payment_form():
                 package_normalized=False,
                 normalized_note="",
                 currency=pay_currency,
+                request_id=pending[1],
             )
+            st.session_state.pop("payment_insert_request", None)
             st.session_state["payment_saved"] = True
             st.rerun()
 

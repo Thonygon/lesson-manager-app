@@ -75,6 +75,12 @@ async function main() {
         return Response.json(similarResources);
       }
       if (target.includes('/rest/v1/plans')) return failOptionalUsageReads ? new Response(null, { status: 503 }) : Response.json([{ active: true, features_json: { ai_tools: true }, limits_json: { ai_generations: 10 } }]);
+      if (target.includes('/rest/v1/rpc/classio_reserve_ai_generation')) {
+        const payload = JSON.parse(options.body);
+        assert.equal(payload.p_user_id, '12345678-1234-1234-1234-123456789012');
+        assert.equal(payload.p_limit, 10);
+        return failUsageWrites ? new Response(null, { status: 503 }) : Response.json({ allowed: true, used: 1 });
+      }
       if (target.includes('/rest/v1/usage_tracking')) return options.method === 'POST' ? new Response(null, { status: failUsageWrites ? 503 : 201 }) : Response.json([{ ai_generations: 0 }]);
       if (target.includes('/rest/v1/ai_usage_logs')) return options.method === 'POST' ? new Response(null, { status: failUsageWrites ? 503 : 201 }) : failOptionalUsageReads ? new Response(null, { status: 503 }) : Response.json([]);
       if (target.includes('/rest/v1/learning_programs')) {
@@ -105,6 +111,11 @@ async function main() {
     assert.equal(providerCalls, 0);
     profile = { role: 'student', primary_role: 'student', can_teach: true };
     assert.equal((await POST(request())).status, 200);
+    profile = { ...profile, account_status: 'suspended' };
+    const suspended = await POST(request());
+    assert.equal(suspended.status, 403);
+    assert.equal((await suspended.json()).code, 'account_inactive');
+    profile = { ...profile, account_status: 'active' };
     const objectiveRequest = new Request('https://classio.test/api/generate', { method: 'POST', headers: { Authorization: `Bearer ${validToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'plan', subject: 'Spanish', topic: 'Greetings', stage: 'adult_stage', level: 'A2', lessonPurpose: 'introduce_concept', objective: 'Students can greet a visitor politely.' }) });
     const objectiveResponse = await POST(objectiveRequest);
     assert.equal(objectiveResponse.status, 200);
@@ -117,9 +128,9 @@ async function main() {
     const originalConsoleError = console.error;
     const expectedWriteErrors = [];
     console.error = (...args) => { expectedWriteErrors.push(args); };
-    try { assert.equal((await POST(request())).status, 200); }
+    try { assert.equal((await POST(request())).status, 503); }
     finally { failUsageWrites = false; console.error = originalConsoleError; }
-    assert.equal(expectedWriteErrors.length, 2);
+    assert.equal(expectedWriteErrors.length, 1);
     failOptionalUsageReads = true;
     console.error = (...args) => { expectedWriteErrors.push(args); };
     try { assert.equal((await POST(request())).status, 200); }
