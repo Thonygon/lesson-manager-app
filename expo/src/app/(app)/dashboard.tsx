@@ -17,6 +17,7 @@ import { getTeacherDayTopics } from '@/services/teacher-day-topics';
 import { getTeacherTodayAgenda } from '@/services/teacher-day-agenda';
 import { buildTeacherNextMoves, loadActiveNextMove, loadTeacherNextMoveContext, saveActiveNextMove, selectActiveNextMove, type NextMoveContext } from '@/services/teacher-best-next-move';
 import { useAppPreferences } from '@/providers/app-preferences';
+import { useHomeIntro } from '@/providers/home-intro-provider';
 
 function formatDate(value: string) { return value ? new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '—'; }
 function money(value: number) { return value.toLocaleString(undefined, { maximumFractionDigits: 0 }); }
@@ -31,6 +32,7 @@ function IconAction({ icon, label, onPress, disabled = false, tone = 'primary' }
 }
 export default function DashboardScreen() {
   const { language: interfaceLanguage, t } = useAppPreferences();
+  const { markReady } = useHomeIntro();
   const router = useRouter();
   const { profile, user } = useAuth(); const userId = user?.id || ''; const [data, setData] = useState<TeacherDataset | null>(null); const [error, setError] = useState('');
   const [waLanguage, setWaLanguage] = useState<MessageLanguage>('en'); const [waTemplate, setWaTemplate] = useState<MessageTemplate>('package'); const [waStudent, setWaStudent] = useState(''); const [waMessage, setWaMessage] = useState(''); const [packagePage, setPackagePage] = useState(1);
@@ -38,6 +40,7 @@ export default function DashboardScreen() {
   const [nextMoveContext, setNextMoveContext] = useState<NextMoveContext | null>(null);
   const [activeMoveId, setActiveMoveId] = useState('');
   const load = useCallback(async () => { setError(''); try { const [loaded, context, storedMoveId] = await Promise.all([getTeacherDataset(), loadTeacherNextMoveContext(userId), loadActiveNextMove(userId)]); const [prices, inactive] = await Promise.all([getPricingItems(), getInactiveDashboardStudents()]); let agenda: ClassioRecord[]; try { agenda = await getTeacherTodayAgenda(userId, loaded.schedules); } catch (reason) { console.warn('Calendar changes unavailable; showing weekly schedule', reason); agenda = todaySchedules(loaded); } setPricing(prices); setInactiveStudents(inactive); setActiveMoveId(storedMoveId); setNextMoveContext(context); setTodayAgenda(agenda); setData(loaded); void getTeacherDayTopics(userId, agenda.filter((row) => !inactive.includes(String(row.student || ''))).map((row) => ({ name: String(row.student || ''), userId: String(loaded.students.find((student) => String(student.student || '') === String(row.student || ''))?.linked_student_user_id || '') }))).then(setDayTopics).catch((reason) => console.warn('Today’s program topics unavailable', reason)); } catch (reason) { setError(reason instanceof Error ? reason.message : 'The teacher dashboard could not be loaded.'); } }, [userId]);
+  useEffect(() => { markReady('/dashboard', Boolean(error || (data && todayAgenda))); }, [data, error, markReady, todayAgenda]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   const name = profile?.display_name || profile?.username || user?.email?.split('@')[0] || t('home.teacher'); const packages = useMemo(() => data ? buildPackageInsights(data).filter((row) => !inactiveStudents.includes(row.student)) : [], [data, inactiveStudents]); const todays = useMemo(() => (todayAgenda || []).filter((row) => !inactiveStudents.includes(String(row.student || ''))), [todayAgenda, inactiveStudents]); const studentMeta = useMemo(() => new Map((data?.students || []).map((row) => [String(row.student || ''), row])), [data]); const actionPackages = useMemo(() => packages.filter((row) => row.status !== 'active'), [packages]); const packagePages = Math.max(1, Math.ceil(actionPackages.length / 6)); const currentPackagePage = Math.min(packagePage, packagePages); const pagedActionPackages = actionPackages.slice((currentPackagePage - 1) * 6, currentPackagePage * 6); const currentYear = new Date().getFullYear(); const ytdPayments = data?.payments.filter((row) => String(row.payment_date || '').startsWith(String(currentYear))) || []; const incomeByCurrency = ytdPayments.reduce<Record<string, number>>((acc, row) => ({ ...acc, [String(row.currency || 'TRY')]: (acc[String(row.currency || 'TRY')] || 0) + Number(row.paid_amount || 0) }), {}); const primaryIncome = incomeByCurrency[data?.goalCurrency || 'TRY'] || 0; const goalProgress = data?.yearGoal ? Math.min(100, Math.round(primaryIncome / data.yearGoal * 100)) : 0;
   const pendingReviews = useMemo(() => (data?.reviewRequests || []).filter((row) => String(row.status) === 'requested'), [data?.reviewRequests]);

@@ -7,6 +7,7 @@ import { AppShell } from '@/components/app-shell';
 import { Button, EmptyState, LoadingState } from '@/components/ui';
 import { useAuth } from '@/providers/auth-provider';
 import { useAppPreferences } from '@/providers/app-preferences';
+import { useHomeIntro } from '@/providers/home-intro-provider';
 import { getPublicResourcePreviewImages, type PublicResource, type PublicResourceKind } from '@/services/public-data';
 import { getStudentWorkspace, type StudentWorkspace } from '@/services/student-data';
 import { getStudentPublicPracticeResources } from '@/services/student-resource-access';
@@ -28,10 +29,12 @@ function withinHomeDeadline<T>(request: Promise<T>, message: string): Promise<T>
 }
 
 export default function StudentHomeScreen() {
+  const { markReady } = useHomeIntro();
   const { width } = useWindowDimensions();
   const phone = width < 560;
   const isFocused = useIsFocused();
   const { profile } = useAuth(); const { t } = useAppPreferences(); const [workspace, setWorkspace] = useState<StudentWorkspace | null>(null); const [resources, setResources] = useState<PublicResource[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [now] = useState(() => Date.now());
+  useEffect(() => { markReady('/student-home', !loading); }, [loading, markReady]);
   const hydratedImages = useRef(new Set<string>());
   const load = useCallback(async () => {
     setLoading(true);

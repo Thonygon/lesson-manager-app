@@ -11,11 +11,15 @@ import { GoogleSignIn } from '@/components/google-sign-in';
 import { useAuth } from '@/providers/auth-provider';
 import { requiresRoleSelection } from '@/lib/route-access';
 import { useAppPreferences } from '@/providers/app-preferences';
+import { useHomeIntro } from '@/providers/home-intro-provider';
+import { beginDirectGoogleSignIn, takeDirectGoogleResponse } from '@/lib/google-direct-sign-in';
 import { colors } from '@/theme';
 
 export default function SignInScreen() {
   const { width } = useWindowDimensions();
   const [webWidth, setWebWidth] = useState<number | null>(null);
+  // The OAuth redirect result is consumed once after browser navigation.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const update = () => setWebWidth(window.innerWidth);
@@ -25,18 +29,42 @@ export default function SignInScreen() {
   }, []);
   const compact = (Platform.OS === 'web' ? webWidth ?? width : width) < 850;
   const { t } = useAppPreferences();
-  const { configured, loading, user, profile, signIn, signInWithMagicLink, signInWithGoogle, signUp } = useAuth();
+  const { configured, loading, user, profile, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signUp } = useAuth();
+  const { start: startHomeIntro, cancel: cancelHomeIntro } = useHomeIntro();
   const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState<string | null>(null); const [messageTone, setMessageTone] = useState<'success' | 'error'>('error'); const [messageContext, setMessageContext] = useState<'password' | 'magic' | 'google'>('password');
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    if (Platform.OS !== 'web' || loading) return;
+    const response = takeDirectGoogleResponse();
+    if (!response) return;
+    // A restored session can finish loading after the Google redirect. In that
+    // case the user is already signed in, so the callback must not show an
+    // error while the authenticated route is opening.
+    if (user) return;
+    if (response.error || !response.token || !response.nonce) {
+      setMessageTone('error'); setMessageContext('google'); setMessage(response.error || 'Google sign-in failed.');
+      return;
+    }
+    startHomeIntro();
+    setSubmitting(true);
+    void signInWithGoogleIdToken(response.token, response.nonce).then((error) => {
+      setSubmitting(false);
+      if (error) { cancelHomeIntro(); setMessageTone('error'); setMessageContext('google'); setMessage(error); }
+      else router.replace('/home');
+    });
+  }, [cancelHomeIntro, loading, signInWithGoogleIdToken, startHomeIntro, user]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   const submit = async () => {
+    if (mode === 'sign-in') startHomeIntro();
     setSubmitting(true); setMessage(null);
     const error = mode === 'sign-in' ? await signIn(email, password) : await signUp(email, password);
     setSubmitting(false);
-    if (error) { setMessageTone('error'); setMessageContext('password'); setMessage(error); }
+    if (error) { cancelHomeIntro(); setMessageTone('error'); setMessageContext('password'); setMessage(error); }
     else if (mode === 'sign-up') { setMessageTone('success'); setMessageContext('password'); setMessage(t('auth.confirmEmail')); }
     else router.replace('/home');
   };
@@ -50,8 +78,8 @@ export default function SignInScreen() {
 
   const openGoogle = async () => {
     setSubmitting(true); setMessage(null);
-    const error = await signInWithGoogle();
-    if (error) { setMessageTone('error'); setMessageContext('google'); setMessage(error); }
+    const error = Platform.OS === 'web' ? await beginDirectGoogleSignIn() : await signInWithGoogle();
+    if (error) { cancelHomeIntro(); setMessageTone('error'); setMessageContext('google'); setMessage(error); }
     setSubmitting(false);
   };
 
