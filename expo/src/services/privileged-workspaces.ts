@@ -119,7 +119,30 @@ export async function loadAdminWorkspace(tab: string, force = false): Promise<Ad
   };
 }
 
-export async function loadDeveloperWorkspace(): Promise<DeveloperWorkspaceData> {
+type DeveloperSection = keyof Omit<DeveloperWorkspaceData, 'warnings'>;
+const developerSpecs: Record<DeveloperSection, { table: string; order: string; limit: number }> = {
+  experiments: { table: 'ml_experiments', order: 'updated_at', limit: 250 },
+  runs: { table: 'ml_experiment_runs', order: 'created_at', limit: 500 },
+  models: { table: 'ml_run_models', order: 'created_at', limit: 500 },
+  artifacts: { table: 'ml_run_artifacts', order: 'created_at', limit: 500 },
+  jobs: { table: 'system_jobs', order: 'created_at', limit: 500 },
+  audit: { table: 'privileged_action_audit_log', order: 'created_at', limit: 500 },
+  diagnostics: { table: 'application_diagnostic_events', order: 'last_seen_at', limit: 500 },
+  recommendationEvents: { table: 'learning_program_recommendation_events', order: 'created_at', limit: 500 },
+};
+const developerCache = new Map<string, { value: WorkspaceResult; expires: number }>();
+const developerPending = new Map<string, Promise<WorkspaceResult>>();
+export function invalidateDeveloperWorkspace() { developerCache.clear(); }
+function developerSections(tab: string): DeveloperSection[] {
+  if (tab === 'overview') return ['experiments', 'runs', 'jobs'];
+  if (tab === 'lab') return ['experiments', 'runs', 'jobs'];
+  if (tab === 'evidence') return ['experiments', 'runs', 'models', 'artifacts'];
+  if (tab === 'telemetry') return ['diagnostics', 'recommendationEvents'];
+  if (tab === 'jobs') return ['jobs'];
+  return ['audit'];
+}
+
+export async function loadDeveloperWorkspace(tab: string): Promise<DeveloperWorkspaceData> {
   const client = requireSupabase();
   const { data: auth } = await client.auth.getUser();
   if (!auth.user) throw new Error('Developer access requires an authenticated account.');
@@ -128,16 +151,30 @@ export async function loadDeveloperWorkspace(): Promise<DeveloperWorkspaceData> 
   const allowed = (roles ?? []).some((row) => row.role_key === 'developer' || row.role_key === 'data_scientist');
   if (!allowed) throw new Error('Developer or data scientist access is required for this workspace.');
 
-  const [experiments, runs, models, artifacts, jobs, audit, diagnostics, recommendationEvents] = await Promise.all([
-    readRows('ml_experiments', '*', { order: 'updated_at', limit: 250 }),
-    readRows('ml_experiment_runs', '*', { order: 'created_at', limit: 500 }),
-    readRows('ml_run_models', '*', { order: 'created_at', limit: 500 }),
-    readRows('ml_run_artifacts', '*', { order: 'created_at', limit: 500 }),
-    readRows('system_jobs', '*', { order: 'created_at', limit: 500 }),
-    readRows('privileged_action_audit_log', '*', { order: 'created_at', limit: 500 }),
-    readRows('application_diagnostic_events', '*', { order: 'last_seen_at', limit: 500 }),
-    readRows('learning_program_recommendation_events', '*', { order: 'created_at', limit: 1000 }),
-  ]);
-  const all = [experiments, runs, models, artifacts, jobs, audit, diagnostics, recommendationEvents];
-  return { experiments, runs, models, artifacts, jobs, audit, diagnostics, recommendationEvents, warnings: warnings(all) };
+  const selected = developerSections(tab);
+  const result = await Promise.all(selected.map(async (section) => {
+    const key = `${auth.user!.id}:${section}`;
+    const cached = developerCache.get(key);
+    if (cached && cached.expires > Date.now()) return [section, cached.value] as const;
+    let pending = developerPending.get(key);
+    if (!pending) {
+      const spec = developerSpecs[section];
+      pending = readRows(spec.table, '*', { order: spec.order, limit: spec.limit }).then((value) => {
+        developerCache.set(key, { value, expires: Date.now() + 60_000 });
+        return value;
+      });
+      developerPending.set(key, pending);
+      void pending.finally(() => { if (developerPending.get(key) === pending) developerPending.delete(key); }).catch(() => {});
+    }
+    return [section, await pending] as const;
+  }));
+  const bySection = Object.fromEntries(result) as Partial<Record<DeveloperSection, WorkspaceResult>>;
+  const empty = { rows: [] };
+  return {
+    experiments: bySection.experiments ?? empty, runs: bySection.runs ?? empty,
+    models: bySection.models ?? empty, artifacts: bySection.artifacts ?? empty,
+    jobs: bySection.jobs ?? empty, audit: bySection.audit ?? empty,
+    diagnostics: bySection.diagnostics ?? empty, recommendationEvents: bySection.recommendationEvents ?? empty,
+    warnings: warnings(result.map(([, value]) => value)),
+  };
 }

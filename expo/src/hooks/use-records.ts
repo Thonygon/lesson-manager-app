@@ -19,7 +19,8 @@ export function useRecords(key: ListKey) {
     }
   }, [key]);
 
+  // The initial fetch uses the same loading transition as manual refresh.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void refresh(); }, [refresh]);
   return { records, loading, error, refresh };
 }
-

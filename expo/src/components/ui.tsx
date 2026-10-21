@@ -1,3 +1,4 @@
+import { pressableActive } from "@/lib/pressable-state";
 import { useState, type PropsWithChildren, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, type StyleProp, type TextInputProps, type TextStyle, View } from 'react-native';
 
@@ -28,7 +29,7 @@ export function EditIconButton({ onPress, accessibilityLabel }: { onPress: () =>
       accessibilityLabel={accessibilityLabel}
       hitSlop={6}
       onPress={onPress}
-      style={({ pressed, hovered }) => [styles.editIconButton, (pressed || hovered) && styles.editIconButtonActive]}
+      style={(state) => [styles.editIconButton, pressableActive(state) && styles.editIconButtonActive]}
     >
       <Text style={styles.editIconGlyph}>✎</Text>
     </Pressable>

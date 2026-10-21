@@ -28,12 +28,16 @@ new Function('module', 'exports', 'require', compiled)(moduleRef, moduleRef.expo
 });
 
 (async () => {
-  await assert.rejects(moduleRef.exports.loadDeveloperWorkspace(), /Developer or data scientist access/);
+  await assert.rejects(moduleRef.exports.loadDeveloperWorkspace('overview'), /Developer or data scientist access/);
   assert.deepEqual(calls, ['user_staff_roles'], 'a product admin alone cannot read the ML workspace');
   calls.length = 0;
   staffRoles = [{ role_key: 'data_scientist' }];
-  const workspace = await moduleRef.exports.loadDeveloperWorkspace();
-  assert.ok(workspace.experiments && workspace.runs && workspace.artifacts);
+  const workspace = await moduleRef.exports.loadDeveloperWorkspace('overview');
+  assert.ok(workspace.experiments && workspace.runs && workspace.jobs);
   assert.ok(calls.includes('ml_experiments'));
+  assert.ok(!calls.includes('ml_run_artifacts'), 'overview does not load evidence artifacts');
+  calls.length = 0;
+  await moduleRef.exports.loadDeveloperWorkspace('evidence');
+  assert.ok(calls.includes('ml_run_artifacts'), 'evidence tab loads artifacts');
   process.stdout.write('Developer workspace staff-role access fixture passed.\n');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

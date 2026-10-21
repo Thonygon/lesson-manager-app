@@ -12,6 +12,8 @@ function toDraft(row: ClassioRecord): Draft { return { id: String(row.id), stude
 
 export function BulkLessonEditor({ rows, onSaved }: { rows: ClassioRecord[]; onSaved: () => Promise<void> }) {
   const { t } = useAppPreferences(); const [drafts, setDrafts] = useState<Draft[]>(rows.map(toDraft)); const [saving, setSaving] = useState(false); const [message, setMessage] = useState(''); const [messageTone, setMessageTone] = useState<'success' | 'error'>('error');
+  // Refresh editable drafts when the source rows change.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setDrafts(rows.map(toDraft)); }, [rows]);
   const change = (id: string, updates: Partial<Draft>) => setDrafts((current) => current.map((draft) => draft.id === id ? { ...draft, ...updates } : draft));
   const save = async () => { setSaving(true); setMessage(''); try { for (const draft of drafts) { const units = Number(draft.units); if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.lessonDate) || !Number.isInteger(units) || units < 1 || (draft.subject === 'Other' && !draft.customSubject.trim())) throw new Error(t('lessons.bulkValidation')); await updateLesson(draft.id, { student: draft.student, lessonDate: draft.lessonDate, units, modality: draft.modality, subject: draft.subject, customSubject: draft.customSubject, note: draft.note }); } await onSaved(); setMessageTone('success'); setMessage(t('lessons.bulkSaved')); } catch (reason) { setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : t('lessons.bulkFailed')); } finally { setSaving(false); } };

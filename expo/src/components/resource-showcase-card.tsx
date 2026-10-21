@@ -1,3 +1,4 @@
+import { pressableActive } from "@/lib/pressable-state";
 import { Image } from 'expo-image';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -15,7 +16,7 @@ function displayResourceDescription(value: string, t: (key: string) => string) {
 export function ResourceShowcaseCard({ item, onPress, description, eyebrow, compact = false, assigned = false, done = false }: { item: ShowcaseResource; onPress: () => void; description?: string; eyebrow?: string; compact?: boolean; assigned?: boolean; done?: boolean }) {
   const { t } = useAppPreferences();
   const stage = learnerStageLabel(item.stage, t);
-  return <Pressable accessibilityRole="button" accessibilityLabel={[item.title, assigned ? t('students.recommendationAssigned') : '', done ? t('students.recommendationDoneProactively') : ''].filter(Boolean).join(', ')} onPress={onPress} style={({ pressed, hovered }) => [styles.card, compact && styles.compact, (pressed || hovered) && styles.hover]}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={[item.title, assigned ? t('students.recommendationAssigned') : '', done ? t('students.recommendationDoneProactively') : ''].filter(Boolean).join(', ')} onPress={onPress} style={(state) => [styles.card, compact && styles.compact, pressableActive(state) && styles.hover]}>
     <View style={styles.visual}>{item.imageUrl ? <Image source={item.imageUrl} style={styles.image} contentFit="cover" transition={180} /> : <Text style={styles.icon}>{KIND_ICON[item.kind]}</Text>}</View>
     <View style={styles.copy}>{assigned || done ? <View style={styles.badges}>{assigned ? <Text style={styles.assignedBadge}>{t('students.recommendationAssigned')}</Text> : null}{done ? <Text style={styles.doneBadge}>{t('students.recommendationDoneProactively')}</Text> : null}</View> : null}{eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}<Text numberOfLines={2} style={styles.title}>{item.title}</Text><Text numberOfLines={assigned || done ? 1 : 2} style={styles.description}>{displayResourceDescription(description || item.description || item.topic, t)}</Text><Text style={styles.meta}>{[canonicalSubjectLabel(item.subject, t), stage, item.level].filter(Boolean).join(' · ')}</Text></View>
   </Pressable>;

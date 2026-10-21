@@ -23,6 +23,8 @@ function PricingSection({ modality, items, busy, onChanged }: { modality: Modali
   const [addPrice, setAddPrice] = useState('0');
   const [addCurrency, setAddCurrency] = useState('TRY');
 
+  // Saved price changes replace the local edit fields.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setHourlyPrice(String(hourly?.price || 0)); setHourlyCurrency(hourly?.currency || 'TRY'); }, [hourly?.id, hourly?.price, hourly?.currency]);
 
   const validNumber = (value: string, minimum: number) => Number.isFinite(Number(value)) && Number(value) >= minimum;
@@ -60,6 +62,8 @@ function PricingSection({ modality, items, busy, onChanged }: { modality: Modali
 export function PricingEditor() {
   const { t } = useAppPreferences(); const [items, setItems] = useState<PricingItem[]>([]); const [loading, setLoading] = useState(false); const [busy, setBusy] = useState(false); const [message, setMessage] = useState(''); const [messageTone, setMessageTone] = useState<'success' | 'error'>('error');
   const load = async () => { setLoading(true); try { setItems(await getPricingItems()); } catch (reason) { setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : t('pricing.loadFailed')); } finally { setLoading(false); } };
+  // Load the editor data on mount through the shared refresh function.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, []);
   const changed = async (nextMessage: string) => { setBusy(true); try { setItems(await getPricingItems()); setMessageTone('success'); setMessage(nextMessage); } catch (reason) { setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : t('pricing.saveFailed')); } finally { setBusy(false); } };
   const hasPrice = items.some((item) => item.price > 0);

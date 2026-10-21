@@ -13,6 +13,7 @@ const localRequire = (name) => {
   if (name === '@/lib/subjects') return { canonicalSubjectLabel: (value) => value };
   if (name === '@/lib/supabase') return { requireSupabase: () => { throw Error('fixture must not query Supabase'); } };
   if (name === '@/services/teacher-history-pagination') return { readTeacherHistory: () => { throw Error('fixture must not query teacher history'); } };
+  if (name === '@/services/teacher-currency') return { ANALYTICS_CURRENCIES: [] };
   return require(name);
 };
 new Function('module', 'exports', 'require', compiled)(moduleRef, moduleRef.exports, localRequire);

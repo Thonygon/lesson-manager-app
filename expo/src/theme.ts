@@ -34,6 +34,16 @@ export const colors = {
   shadow: token('shadow', '#0F172A'),
 };
 
+export const introOverlayCss = `
+#root #classio-intro-overlay{position:fixed!important;inset:0!important;z-index:9999!important;background-color:#F4F8FF!important;background-image:radial-gradient(circle at 18% 25%,#DBEAFE 0%,transparent 43%),radial-gradient(circle at 83% 75%,#D6F5EB 0%,transparent 42%)!important;}
+#classio-intro-overlay #classio-intro-center{animation:classio-intro-arrive 1.15s ease-out both}
+#classio-intro-overlay [id^="classio-intro-star-"]{animation:classio-intro-glow 1.35s ease-in-out both}
+@keyframes classio-intro-arrive{from{opacity:.65}to{opacity:1}}
+@keyframes classio-intro-glow{from{opacity:.45}to{opacity:1}}
+html[data-classio-theme="dark"] #root #classio-intro-overlay{background-color:#0B1730!important;background-image:radial-gradient(circle at 18% 25%,#173669 0%,transparent 43%),radial-gradient(circle at 83% 75%,#0B4E49 0%,transparent 42%)!important;}
+@media(prefers-color-scheme:dark){html:not([data-classio-theme="light"]) #root #classio-intro-overlay{background-color:#0B1730!important;background-image:radial-gradient(circle at 18% 25%,#173669 0%,transparent 43%),radial-gradient(circle at 83% 75%,#0B4E49 0%,transparent 42%)!important;}}
+`;
+
 export const classioThemeCss = `
 :root {
   color-scheme: light;
@@ -79,6 +89,7 @@ html,body,#root{background:var(--classio-canvas);min-height:100%;}
 #root>div>div>div>div>div>div,
 #root>div>div>div>div>div>div>div,
 #root>div>div>div>div>div>div>div>div{background-color:transparent!important;}
+${introOverlayCss}
 #classio-live-background{
   position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;
   background:

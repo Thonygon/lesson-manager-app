@@ -1,5 +1,7 @@
 # Classio
 
+For an academic overview of the system, evidence, and limitations, see the [TFM repository guide](docs/TFM_REPOSITORY_GUIDE.md).
+
 Classio is migrating from a Streamlit application to a universal Expo Router application. The repository deliberately keeps both deployments available until feature parity, security review, and production validation are complete.
 
 ## Applications
