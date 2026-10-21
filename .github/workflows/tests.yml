@@ -41,6 +41,17 @@ jobs:
           PYTHONWARNINGS: default
         run: python -m unittest discover -s tests
 
+      - name: Install Python API dependencies
+        run: python -m pip install --requirement ../python_api/requirements.txt
+
+      - name: Test Python inference boundary
+        env:
+          PYTHONPATH: ../streamlit:..
+        run: python -m unittest discover -s ../python_api/tests
+
+      - name: Test offline TFM evaluator
+        run: python -m unittest discover -s ../scripts -p 'test_tfm_*.py'
+
   expo:
     runs-on: ubuntu-latest
     timeout-minutes: 20
