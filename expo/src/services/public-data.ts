@@ -1,4 +1,5 @@
 import { requireSupabase } from '@/lib/supabase';
+import { Platform } from 'react-native';
 
 export type PublicResourceKind = 'program' | 'plan' | 'worksheet' | 'exam' | 'video';
 
@@ -93,11 +94,22 @@ function normalize(kind: PublicResourceKind, row: Record<string, unknown>): Publ
   };
 }
 
+async function publicExamRows(id?: string): Promise<Record<string, unknown>[]> {
+  const base = Platform.OS === 'web' ? '' : 'https://classio.expo.app';
+  const response = await fetch(`${base}/api/public-exams${id ? `?id=${encodeURIComponent(id)}` : ''}`);
+  if (!response.ok) throw new Error(`Unable to load public exams (${response.status}).`);
+  const payload = await response.json() as { exam?: Record<string, unknown>; exams?: Record<string, unknown>[] };
+  return id ? payload.exam ? [payload.exam] : [] : payload.exams ?? [];
+}
+
 export async function getPublicResources(kinds: PublicResourceKind[] = Object.keys(DEFINITIONS) as PublicResourceKind[], perKindLimit = 60): Promise<PublicResource[]> {
   const client = requireSupabase();
   const boundedLimit = Math.max(1, Math.min(120, Math.floor(perKindLimit) || 60));
   const results = await Promise.all(
     kinds.map(async (kind) => {
+      if (kind === 'exam') {
+        return (await publicExamRows()).slice(0, boundedLimit).map((row) => normalize(kind, row));
+      }
       const definition = DEFINITIONS[kind];
       const request = client
         .from(definition.table)
@@ -124,6 +136,11 @@ export async function getPublicResources(kinds: PublicResourceKind[] = Object.ke
 }
 
 export async function getPublicResourceDetail(kind: PublicResourceKind, id: string): Promise<PublicResource> {
+  if (kind === 'exam') {
+    const [row] = await publicExamRows(id);
+    if (!row) throw new Error('This public resource is no longer available.');
+    return normalize(kind, row);
+  }
   const definition = DEFINITIONS[kind];
   const client = requireSupabase();
   const { data, error } = await client.from(definition.table).select('*').eq('id', id).eq('is_public', true).neq('status', 'archived').maybeSingle();
@@ -140,6 +157,7 @@ export async function getPublicResourceDetail(kind: PublicResourceKind, id: stri
 
 export async function getPublicResourcePreviewImages(kind: PublicResourceKind, ids: string[]): Promise<Record<string, string>> {
   if (!ids.length || kind === 'video') return {};
+  if (kind === 'exam') return {};
   const payloadColumn: Record<Exclude<PublicResourceKind, 'video'>, string> = { program: 'program_data', plan: 'plan_json', worksheet: 'worksheet_json', exam: 'exam_data' };
   const { data, error } = await requireSupabase().from(DEFINITIONS[kind].table).select(`id,${payloadColumn[kind]}`).in('id', ids).eq('is_public', true);
   if (error) return {};
