@@ -1,3 +1,4 @@
+import { pressableActive } from "@/lib/pressable-state";
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -25,7 +26,7 @@ function monthRange(month: string) { const start = parseDate(month.slice(0, 7) +
 function weekRange(dateValue: string) { const date = parseDate(dateValue); const day = (date.getDay() + 6) % 7; date.setDate(date.getDate() - day); return { start: localDate(date), end: shiftDate(localDate(date), 6) }; }
 function Choice({ active, label, onPress }: { active: boolean; label: string; onPress: () => void }) { return <Pressable onPress={onPress} style={[styles.choice, active && styles.choiceActive]}><Text style={[styles.choiceText, active && styles.choiceTextActive]}>{label}</Text></Pressable>; }
 const calendarError = messageOf;
-function NavIcon({ label, glyph, onPress }: { label: string; glyph: string; onPress: () => void }) { return <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={6} onPress={onPress} style={({ pressed, hovered }) => [styles.navIcon, (pressed || hovered) && styles.navIconActive]}><Text style={styles.navGlyph}>{glyph}</Text></Pressable>; }
+function NavIcon({ label, glyph, onPress }: { label: string; glyph: string; onPress: () => void }) { return <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={6} onPress={onPress} style={(state) => [styles.navIcon, pressableActive(state) && styles.navIconActive]}><Text style={styles.navGlyph}>{glyph}</Text></Pressable>; }
 
 function EventCard({ student, time, duration, note, source }: { student: string; time: string; duration: number; note: string; source: string }) { const { t } = useAppPreferences(); return <View style={styles.eventCard}><View style={styles.eventTime}><Text style={styles.eventTimeText}>{time}</Text><Text style={styles.eventDuration}>{duration} min</Text></View><View style={styles.eventCopy}><Text style={styles.eventStudent}>{student}</Text><Text style={styles.eventMeta}>{t(source === 'override' ? 'calendar.eventOverride' : 'calendar.weekly')}{note ? ` · ${note}` : ''}</Text></View></View>; }
 
