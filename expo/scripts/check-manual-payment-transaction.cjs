@@ -18,6 +18,8 @@ assert.match(sql, /primary key \(user_id, request_id\)/i);
 assert.match(sql, /pg_advisory_xact_lock/);
 assert.match(sql, /insert into public\.payments/);
 assert.match(sql, /insert into public\.students/);
+assert.match(sql, /values \(p_user_id::uuid, v_student\)/);
+assert.match(sql, /where user_id = p_user_id::uuid and student = v_student/);
 assert.match(sql, /update public\.payments/);
 assert.match(sql, /v_saved\.payment_id is not null/);
 assert.doesNotMatch(sql, /payload jsonb not null/i);

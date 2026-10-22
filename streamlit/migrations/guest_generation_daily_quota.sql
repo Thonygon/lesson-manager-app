@@ -6,6 +6,7 @@ create table if not exists public.classio_guest_generation_daily (
     created_at timestamptz not null default now(),
     primary key (identity_hash, usage_date)
 );
+alter table public.classio_guest_generation_daily enable row level security;
 alter table public.classio_guest_generation_daily
     add column if not exists created_at timestamptz not null default now();
 create index if not exists classio_guest_generation_daily_created_at_idx

@@ -58,12 +58,12 @@
     {"name": "teacher_review_requests_source_id_text.sql", "sha256": "b708f68788961d8362e3db08b6f23753b6716a3d4849b192855433a25ed77a2f"},
     {"name": "teacher_student_assignments.sql", "sha256": "e862148365e59fbab3a0e8b4028232bb41e5b0d1f4235f83566161bc15ab05df"},
     {"name": "reserve_ai_generation_atomically.sql", "sha256": "f04b6dc3be13b132b0a910ce36a0bfe21c236cd1d83b256dc6eb6b2369bf0ae7"},
-    {"name": "guest_generation_daily_quota.sql", "sha256": "bf889ca8a3b91ef64c9e9424d4f1601885558d392154cb664b2d90008839e98c"},
-    {"name": "delete_account_transaction.sql", "sha256": "c530530ca2aa5223fb5030b739fcaf3b5eea40a4bfae35d41d6193266798c2ac"},
+    {"name": "guest_generation_daily_quota.sql", "sha256": "9aec5a8806b5fa1fc84be721bf3b035a0d913a10920ccbd9433f12e2fca96684"},
+    {"name": "delete_account_transaction.sql", "sha256": "3d3f40486eb8b387d108b941c79587eb0302fe6d5d193e3616bfa319666945b8"},
     {"name": "admin_access_transaction.sql", "sha256": "4cc34fff344d0ab3feb25d868dbf9316008eaf2a78042093b193b983798feb2b"},
     {"name": "admin_staff_transaction.sql", "sha256": "1b221eab623bf48ecafe9cf53b1199ba785ae3b6dc4acceb36a07e3976554c2f"},
     {"name": "admin_account_control_transaction.sql", "sha256": "8ee23b0367f08859b84f010c62987e5f275258f04383daab5afd400add4863c2"},
-    {"name": "manual_payment_insert_transaction.sql", "sha256": "70b24da3a529eddc152cb85064a48ab342409c051aa0064a4c85817bc3bbfc81"},
+    {"name": "manual_payment_insert_transaction.sql", "sha256": "381b93837d718d366e580695d404104e6d1575712d49377e57c5619f1335aa48"},
     {"name": "ai_prompt_trace_retention.sql", "sha256": "82dd226035494b39d67434d3c796bba8164d141390d04339262b9f586745a393"}
   ]
 }

@@ -71,8 +71,8 @@ begin
                                   'updated', 0, 'mismatches', 0);
     end if;
 
-    if not exists (select 1 from public.students where user_id = p_user_id and student = v_student) then
-        insert into public.students(user_id, student) values (p_user_id, v_student);
+    if not exists (select 1 from public.students where user_id = p_user_id::uuid and student = v_student) then
+        insert into public.students(user_id, student) values (p_user_id::uuid, v_student);
     end if;
 
     insert into public.payments(user_id, student, number_of_lesson, payment_date,
@@ -80,7 +80,7 @@ begin
                                 package_start_date, package_expiry_date,
                                 lesson_adjustment_units, package_normalized,
                                 normalized_note, normalized_at)
-    values (p_user_id, v_student, v_units, v_payment_date, v_amount,
+    values (p_user_id::uuid, v_student, v_units, v_payment_date, v_amount,
             trim(coalesce(p_payment->>'currency','')),
             p_payment->>'modality', p_payment->>'subject',
             nullif(trim(coalesce(p_payment->>'subject_custom','')),''),
@@ -94,7 +94,7 @@ begin
                    order by coalesce(package_start_date::date, payment_date::date), payment_date::date, id
                ) as next_start_on
         from public.payments
-        where user_id = p_user_id and student = v_student
+        where user_id = p_user_id::uuid and student = v_student
         order by coalesce(package_start_date::date, payment_date::date), payment_date::date, id
     loop
         v_purchased := greatest(0, coalesce(v_package.number_of_lesson,0)
@@ -105,7 +105,7 @@ begin
             for v_lesson in
                 select lesson_date::date as lesson_on, number_of_lesson, note
                 from public.classes
-                where user_id = p_user_id and student = v_student
+                where user_id = p_user_id::uuid and student = v_student
                   and lesson_date::date >= v_package.start_on
                   and (v_package.next_start_on is null or lesson_date::date < v_package.next_start_on)
                 order by lesson_date::date, id
@@ -124,7 +124,7 @@ begin
         if v_used > v_purchased then v_mismatches := v_mismatches + 1; end if;
         update public.payments
         set package_start_date = v_package.start_on, package_expiry_date = v_expiry
-        where id = v_package.id and user_id = p_user_id
+        where id = v_package.id and user_id = p_user_id::uuid
           and (package_start_date::date is distinct from v_package.start_on
                or package_expiry_date::date is distinct from v_expiry);
         if found then v_updated := v_updated + 1; end if;

@@ -32,6 +32,7 @@ async function main() {
   const migration = fs.readFileSync(path.join(__dirname, '../../streamlit/migrations/delete_account_transaction.sql'), 'utf8');
   assert.match(migration, /is_public is distinct from true or status = ''archived''/);
   assert.match(migration, /author_name = ''Classio''/);
+  assert.match(migration, /where user_id = \$1::uuid and \(is_public/);
   assert.doesNotMatch(migration, /delete from public\.payments/i);
   assert.doesNotMatch(migration, /delete from public\.admin_overrides/i);
   process.stdout.write('Account deletion fixtures passed.\n');

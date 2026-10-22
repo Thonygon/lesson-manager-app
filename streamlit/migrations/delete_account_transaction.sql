@@ -54,9 +54,19 @@ begin
 
     for v_table in select unnest(array['lesson_plans','learning_programs','worksheets','quick_exams','videos']) loop
         if to_regclass(format('public.%I', v_table)) is null then continue; end if;
-        execute format('delete from public.%I where user_id = $1 and (is_public is distinct from true or status = ''archived'')', v_table) using p_user_id;
+        select data_type into v_type from information_schema.columns
+        where table_schema = 'public' and table_name = v_table and column_name = 'user_id';
+        if v_type = 'uuid' then
+            execute format('delete from public.%I where user_id = $1::uuid and (is_public is distinct from true or status = ''archived'')', v_table) using p_user_id;
+        else
+            execute format('delete from public.%I where user_id = $1 and (is_public is distinct from true or status = ''archived'')', v_table) using p_user_id;
+        end if;
         if v_table <> 'learning_programs' then
-            execute format('update public.%I set author_name = ''Classio'' where user_id = $1 and is_public = true and status <> ''archived''', v_table) using p_user_id;
+            if v_type = 'uuid' then
+                execute format('update public.%I set author_name = ''Classio'' where user_id = $1::uuid and is_public = true and status <> ''archived''', v_table) using p_user_id;
+            else
+                execute format('update public.%I set author_name = ''Classio'' where user_id = $1 and is_public = true and status <> ''archived''', v_table) using p_user_id;
+            end if;
         end if;
     end loop;
 
