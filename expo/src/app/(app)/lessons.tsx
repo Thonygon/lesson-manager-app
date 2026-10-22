@@ -43,6 +43,8 @@ export default function LessonsScreen() {
   const [message, setMessage] = useState(''); const [messageTone, setMessageTone] = useState<'success' | 'error'>('error');
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<ClassioRecord | null>(null); const [confirmDelete, setConfirmDelete] = useState(false); const [query, setQuery] = useState(''); const [year, setYear] = useState('All years'); const [page, setPage] = useState(1);
+  const pendingChange = useRef<{ payload: string; requestId: string } | null>(null);
+  const changeRequestKey = (value: object) => { const payload = JSON.stringify(value); if (pendingChange.current?.payload !== payload) pendingChange.current = { payload, requestId: crypto.randomUUID() }; return pendingChange.current.requestId; };
   const studentNames = students.records.map((record) => String(record.student || '')).filter(Boolean);
   const studentOptions = students.records.map((record) => ({ value: String(record.student || ''), label: String(record.student || ''), detail: [record.email, record.phone].filter(Boolean).join(' · ') }));
   const selectStudent = (name: string) => { setStudent(name); const recent = packages.records.find((row) => String(row.student || '') === name); if (!recent) return; setModality(String(recent.modality) === 'Offline' ? 'Offline' : 'Online'); setSubject(String(recent.subject || 'English')); setCustomSubject(String(recent.subject_custom || '')); };
@@ -50,8 +52,8 @@ export default function LessonsScreen() {
   const years = ['All years', ...Array.from(new Set(lessons.records.map((row) => String(row.lesson_date || '').slice(0, 4)).filter(Boolean))).sort().reverse()];
   const filtered = useMemo(() => { const needle = query.trim().toLowerCase(); return lessons.records.filter((record) => (year === 'All years' || String(record.lesson_date || '').startsWith(year)) && (!needle || [record.student, record.subject, record.subject_custom, record.modality, record.note].join(' ').toLowerCase().includes(needle))); }, [lessons.records, query, year]); const pages = Math.max(1, Math.ceil(filtered.length / 18)); const currentPage = Math.min(page, pages); const pageRows = filtered.slice((currentPage - 1) * 18, currentPage * 18);
 
-  const clearForm = () => { setEditing(null); setStudent(''); setLessonDate(dateValue()); setUnits('1'); setModality('Online'); setSubject('English'); setCustomSubject(''); setNote(''); setConfirmDelete(false); setShowForm(false); };
-  const edit = (record: ClassioRecord) => { setEditing(record); setStudent(String(record.student || '')); setLessonDate(String(record.lesson_date || '').slice(0, 10)); setUnits(String(record.number_of_lesson || 1)); setModality(String(record.modality) === 'Offline' ? 'Offline' : 'Online'); setSubject(String(record.subject || 'English')); setCustomSubject(String(record.subject_custom || '')); setNote(String(record.note || '')); setConfirmDelete(false); setShowForm(true); };
+  const clearForm = () => { pendingChange.current = null; setEditing(null); setStudent(''); setLessonDate(dateValue()); setUnits('1'); setModality('Online'); setSubject('English'); setCustomSubject(''); setNote(''); setConfirmDelete(false); setShowForm(false); };
+  const edit = (record: ClassioRecord) => { pendingChange.current = null; setEditing(record); setStudent(String(record.student || '')); setLessonDate(String(record.lesson_date || '').slice(0, 10)); setUnits(String(record.number_of_lesson || 1)); setModality(String(record.modality) === 'Offline' ? 'Offline' : 'Online'); setSubject(String(record.subject || 'English')); setCustomSubject(String(record.subject_custom || '')); setNote(String(record.note || '')); setConfirmDelete(false); setShowForm(true); };
 
   const save = async () => {
     setMessageTone('error');
@@ -63,7 +65,8 @@ export default function LessonsScreen() {
     if (subject === 'Other' && !customSubject.trim()) return setMessage('Enter the custom subject name.');
     setSaving(true); setMessage('');
     try {
-      if (editing) await updateLesson(String(editing.id), { student: chosenStudent, lessonDate, units: unitCount, modality, subject, customSubject, note }); else await addLesson({ student: chosenStudent, lessonDate, units: unitCount, modality, subject, customSubject, note });
+      const input = { student: chosenStudent, lessonDate, units: unitCount, modality, subject, customSubject, note };
+      if (editing) await updateLesson(String(editing.id), input, changeRequestKey({ action: 'update', id: editing.id, input })); else await addLesson(input, changeRequestKey({ action: 'add', input }));
       setMessageTone('success'); setMessage(editing ? 'Lesson updated.' : 'Lesson recorded. The dashboard and analytics will now include it.');
       clearForm();
       await lessons.refresh();
@@ -71,7 +74,7 @@ export default function LessonsScreen() {
       setMessageTone('error'); setMessage(error instanceof Error ? error.message : 'The lesson could not be saved.');
     } finally { setSaving(false); }
   };
-  const remove = async () => { if (!editing) return; if (!confirmDelete) return setConfirmDelete(true); setSaving(true); try { await deleteLesson(String(editing.id)); setMessageTone('success'); setMessage('Lesson deleted.'); clearForm(); await lessons.refresh(); } catch (reason) { setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : 'The lesson could not be deleted.'); } finally { setSaving(false); } };
+  const remove = async () => { if (!editing) return; if (!confirmDelete) return setConfirmDelete(true); setSaving(true); try { await deleteLesson(String(editing.id), changeRequestKey({ action: 'delete', id: editing.id })); setMessageTone('success'); setMessage('Lesson deleted.'); clearForm(); await lessons.refresh(); } catch (reason) { setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : 'The lesson could not be deleted.'); } finally { setSaving(false); } };
 
   return <AppShell title={t('pages.lessons')} eyebrow={t('pages.lessonsEyebrow')}>
     <View style={styles.hero}><View style={styles.heroCopy}><Text style={styles.intro}>Record attendance and keep a clear, searchable history of every lesson delivered.</Text></View><View style={styles.heroActions}><Button secondary onPress={() => router.push({ pathname: '/smart-tools', params: { tool: 'plan', subject: subject === 'Other' ? customSubject || 'General' : subject, topic: note, student: student || studentNames[0] || '' } })}>{t('lessons.planNext')}</Button><Button onPress={() => showForm ? clearForm() : setShowForm(true)}>{showForm ? 'Close form' : '+ Record lesson'}</Button></View></View>{!showForm ? <ActionFeedback message={message} tone={messageTone} /> : null}
