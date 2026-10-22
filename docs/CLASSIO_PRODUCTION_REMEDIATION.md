@@ -27,12 +27,22 @@ Estado local a 2026-10-22. La matriz conserva los identificadores S01–S13 de l
 
 ## Criterios de cierre de S07 en staging
 
+Decisión del titular (2026-10-22): no crear ahora un proyecto o rama que genere costes adicionales. La validación de base de datos queda pendiente. Las pruebas manuales con su propia cuenta aportarán evidencia funcional cuando la nueva RPC y las aplicaciones estén desplegadas, pero no sustituyen las pruebas de rollback, permisos entre propietarios ni concurrencia. No desplegar el cliente que depende de `classio_mutate_teacher_ledger` antes de instalar y validar esa función.
+
 1. Aplicar `teacher_ledger_mutations_transaction.sql` en una base de staging con el mismo esquema y RLS que producción. Verificar las firmas, permisos y el trabajo programado de limpieza de claves a 90 días.
 2. Con dos docentes y estudiantes sintéticos, comprobar que uno no puede editar, borrar ni recalcular los apuntes del otro; el rol anónimo tampoco puede llamar a las RPC.
 3. Dar de alta, editar, mover entre estudiantes y borrar clases y cobros manuales. En cada paso, comprobar que las fechas y saldos de paquetes de ambos estudiantes reflejan el resultado confirmado.
 4. Repetir cada petición con la misma clave tras simular pérdida de respuesta: debe devolverse el resultado original sin duplicar el apunte. Reutilizar la clave con otro contenido debe fallar.
 5. Inyectar un fallo en el recálculo y confirmar que el apunte, la posible alta del estudiante y la clave de idempotencia revierten juntos. Ejecutar operaciones concurrentes sobre el mismo estudiante y verificar que no quedan fechas obsoletas.
 6. En la edición masiva, provocar un fallo a mitad del lote y comprobar que las filas ya confirmadas se muestran como guardadas al refrescar. Cada fila es atómica; el lote completo no lo es.
+
+### Prueba funcional que puede hacer el titular tras el despliegue
+
+1. Crear dos estudiantes de prueba con nombres ficticios, por ejemplo `S07-A` y `S07-B`, sin datos personales ni pagos reales.
+2. Registrar para `S07-A` un paquete de dos clases y dos clases de una unidad. Comprobar que la fecha de vencimiento del paquete coincide con la segunda clase.
+3. Editar la fecha o las unidades de una clase y comprobar que el vencimiento cambia. Mover esa clase a `S07-B` y verificar el historial de ambos estudiantes.
+4. Editar el paquete, luego borrar una clase y el apunte de cobro ficticio. Refrescar la página tras cada paso y comprobar que las fechas quedan coherentes.
+5. Si aparece un error, anotar la operación, la hora aproximada y el mensaje visible, sin enviar nombres ni datos reales de estudiantes. No repetir un cobro real para probar idempotencia.
 
 ## Puerta de aceptación inmediata
 
