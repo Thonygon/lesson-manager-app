@@ -44,14 +44,15 @@ export async function POST(request: Request) {
     ]);
     if (targetError || planError) throw targetError || planError;
     if (!target || !plan || plan.active === false) return respond({ error: 'The account or plan is unavailable.' }, 404);
-    const now = new Date().toISOString();
-    const { error: subscriptionError } = await server.from('user_subscriptions').upsert({ user_id: targetId, plan_id: planId, subscription_status: status, manual_override: true, updated_at: now }, { onConflict: 'user_id' });
-    if (subscriptionError) throw subscriptionError;
-    const { error: profileError } = await server.from('profiles').update({ role, primary_role: canTeach ? 'teacher' : 'student', can_teach: canTeach, can_study: canStudy, last_active_mode: activeMode, account_status: accountStatus, admin_notes: notes, current_plan: planId, subscription_status: status }).eq('user_id', targetId);
-    if (profileError) throw profileError;
-    const { error: auditError } = await server.from('admin_overrides').insert({ user_id: targetId, override_type: 'role_access', reason: `role=${role}; can_teach=${canTeach}; can_study=${canStudy}; mode=${activeMode}; account=${accountStatus}; plan=${planId}; status=${status}. ${notes}`, created_by: identity.user.id, created_at: now });
-    if (auditError) console.error('Admin access audit write failed', auditError);
-    return respond({ ok: true, audited: !auditError });
+    const { data, error } = await server.rpc('classio_admin_set_access', {
+      p_actor_id: identity.user.id, p_target_id: targetId, p_role: role,
+      p_plan_id: planId, p_subscription_status: status, p_can_teach: canTeach,
+      p_can_study: canStudy, p_account_status: accountStatus,
+      p_active_mode: activeMode, p_notes: notes,
+    });
+    if (error) throw error;
+    if (data !== true) throw new Error('Access transaction could not be confirmed.');
+    return respond({ ok: true, audited: true });
   } catch (error) {
     console.error('Admin access assignment failed', error);
     return respond({ error: 'Access settings could not be saved.' }, 502);

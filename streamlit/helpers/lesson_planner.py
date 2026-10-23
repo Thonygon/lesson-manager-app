@@ -10,14 +10,17 @@ from openai import OpenAI
 
 from core.i18n import t
 from helpers.ai_retry import run_with_ai_retries
+from helpers.ai_request_limits import MAX_TEXT_OUTPUT_TOKENS, TEXT_TIMEOUT_MS, bounded_ai_text
 from helpers.generation_guidance import (
     build_expert_panel_prompt_blurb,
     build_generation_profile_guidance,
     infer_subject_family,
 )
 from helpers.program_resource_context import build_program_topic_prompt_block
+from helpers.ai_prompt_privacy import minimize_student_profile_for_ai
 from helpers.student_personalization import build_student_profile_prompt_block
 from services.ai_usage_service import with_provider_chain
+from services.ai_economic_events import run_recorded_provider_attempt
 from services.operational_diagnostics_service import capture_exception
 
 # ============================================================
@@ -2144,15 +2147,19 @@ def get_default_model_for_provider(provider: str) -> str:
 
 
 def get_ai_model_for_provider(provider: str) -> str:
+    provider = str(provider or "").strip().lower()
+    setting = "OPENROUTER_MODEL" if provider == "openrouter" else "GEMINI_MODEL" if provider == "gemini" else "AI_MODEL"
     custom_model = ""
     try:
-        custom_model = str(st.secrets.get("AI_MODEL", "")).strip()
+        custom_model = str(st.secrets.get(setting, "")).strip()
     except Exception:
         custom_model = ""
 
     if not custom_model:
-        custom_model = str(os.getenv("AI_MODEL", "")).strip()
+        custom_model = str(os.getenv(setting, "")).strip()
 
+    if provider == "openrouter" and custom_model != "openrouter/free" and not custom_model.endswith(":free"):
+        return "openrouter/free"
     return custom_model or get_default_model_for_provider(provider)
 
 
@@ -2233,6 +2240,7 @@ def _subject_specific_core_keys(subject: str) -> list[str]:
 
 
 def _build_ai_prompts(prompt_payload: dict) -> tuple[str, str]:
+    prompt_payload = {**prompt_payload, "student_profile": minimize_student_profile_for_ai(prompt_payload.get("student_profile"))}
     profile_guidance = build_generation_profile_guidance(
         prompt_payload.get("subject", ""),
         prompt_payload.get("learner_stage", ""),
@@ -2307,21 +2315,22 @@ def _generate_with_openrouter(system_prompt: str, user_prompt: str) -> str:
         raise RuntimeError(t("missing_openrouter_api_key"))
 
     def _request() -> str:
-        client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
-        response = client.chat.completions.create(
-            model=get_ai_model_for_provider("openrouter"),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.4,
+        from services.permissions_service import reserve_ai_tool
+        if not reserve_ai_tool():
+            raise RuntimeError("AI generation limit reached")
+        client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=TEXT_TIMEOUT_MS / 1000, max_retries=0)
+        model = get_ai_model_for_provider("openrouter")
+        return run_recorded_provider_attempt(
+            "openrouter", model,
+            lambda: client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                temperature=0.4, max_tokens=MAX_TEXT_OUTPUT_TOKENS,
+            ),
+            lambda response: bounded_ai_text(str(response.choices[0].message.content or "").strip()),
         )
-        raw_text = str(response.choices[0].message.content or "").strip()
-        if not raw_text:
-            raise ValueError(t("empty_ai_response"))
-        return raw_text
 
-    return run_with_ai_retries(_request)
+    return run_with_ai_retries(_request, max_attempts=1)
 
 
 def _generate_with_gemini(system_prompt: str, user_prompt: str) -> str:
@@ -2340,17 +2349,21 @@ def _generate_with_gemini(system_prompt: str, user_prompt: str) -> str:
         raise RuntimeError(t("missing_gemini_api_key"))
 
     def _request() -> str:
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=get_ai_model_for_provider("gemini"),
-            contents=f"{system_prompt}\n\n{user_prompt}",
+        from services.permissions_service import reserve_ai_tool
+        if not reserve_ai_tool():
+            raise RuntimeError("AI generation limit reached")
+        client = genai.Client(api_key=api_key, http_options={"timeout": TEXT_TIMEOUT_MS})
+        model = get_ai_model_for_provider("gemini")
+        return run_recorded_provider_attempt(
+            "gemini", model,
+            lambda: client.models.generate_content(
+                model=model, contents=f"{system_prompt}\n\n{user_prompt}",
+                config={"max_output_tokens": MAX_TEXT_OUTPUT_TOKENS},
+            ),
+            lambda response: bounded_ai_text(str(getattr(response, "text", "") or "").strip()),
         )
-        raw_text = str(getattr(response, "text", "") or "").strip()
-        if not raw_text:
-            raise ValueError(t("empty_gemini_response"))
-        return raw_text
 
-    return run_with_ai_retries(_request)
+    return run_with_ai_retries(_request, max_attempts=1)
 
 
 def _generate_with_openai(system_prompt: str, user_prompt: str) -> str:
@@ -2367,21 +2380,22 @@ def _generate_with_openai(system_prompt: str, user_prompt: str) -> str:
         raise RuntimeError(t("missing_openai_api_key"))
 
     def _request() -> str:
-        client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model=get_ai_model_for_provider("openai"),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.4,
+        from services.permissions_service import reserve_ai_tool
+        if not reserve_ai_tool():
+            raise RuntimeError("AI generation limit reached")
+        client = OpenAI(api_key=api_key, timeout=TEXT_TIMEOUT_MS / 1000, max_retries=0)
+        model = get_ai_model_for_provider("openai")
+        return run_recorded_provider_attempt(
+            "openai", model,
+            lambda: client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                temperature=0.4, max_tokens=MAX_TEXT_OUTPUT_TOKENS,
+            ),
+            lambda response: bounded_ai_text(str(response.choices[0].message.content or "").strip()),
         )
-        raw_text = str(response.choices[0].message.content or "").strip()
-        if not raw_text:
-            raise ValueError(t("empty_ai_response"))
-        return raw_text
 
-    return run_with_ai_retries(_request)
+    return run_with_ai_retries(_request, max_attempts=1)
 
 
 def generate_ai_lesson_plan(
@@ -2500,7 +2514,7 @@ def generate_quick_lesson_plan_with_fallback(
         return template_plan, "template", None
 
     from helpers.planner_storage import get_ai_planner_usage_status, log_ai_usage
-    from services.permissions_service import can_use_ai_tool, increment_usage
+    from services.permissions_service import can_use_ai_tool
 
     if enforce_usage_limits and not can_use_ai_tool():
         log_ai_usage("quick_lesson_ai", "success", {**template_meta, "reason": "permission_blocked"})
@@ -2545,8 +2559,6 @@ def generate_quick_lesson_plan_with_fallback(
             status="success",
             meta={"subject": subject, "topic": topic, "lesson_purpose": lesson_purpose, "provider": provider},
         )
-        if enforce_usage_limits:
-            increment_usage(None, "ai_generations")
         return ai_plan, "ai", None
 
     except Exception as e:

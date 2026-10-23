@@ -1,5 +1,7 @@
 # Classio Streamlit → Expo parity audit and completion plan
 
+**Archivo histórico (corte de septiembre de 2026).** Conservar los hallazgos, fixtures y verificaciones de su fecha. El estado actual y la única cola de equivalencia están en el [checklist de paridad](CLASSIO_EXPO_PARITY_CHECKLIST.md); los controles de seguridad y operación pasan a la [auditoría tecnológica](docs/CLASSIO_TECHNOLOGY_AUDIT.md). No reabrir como pendientes actuales las fases y estados de este informe sin comprobar el código vigente.
+
 Audit date: 2026-09-22  
 Blueprint: the current Streamlit implementation  
 Target: `https://classio--staging.expo.app`  

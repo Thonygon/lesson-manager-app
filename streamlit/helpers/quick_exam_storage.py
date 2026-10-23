@@ -1,3 +1,7 @@
+from functools import partial
+from services.document_export_events import recorded_download_button as _recorded_download_button
+recorded_download_button = partial(_recorded_download_button, document_kind="exam")
+
 # CLASSIO — Quick Exam Storage, PDF, UI
 # ============================================================
 import streamlit as st
@@ -1282,6 +1286,7 @@ def render_exam_result(
     allow_image_generation: bool | None = None,
     allow_auto_image_generation: bool = True,
     on_image_update=None,
+    feedback_surface: str = "resource_page",
     show_clear_result: bool = False,
     **meta,
 ) -> None:
@@ -1679,7 +1684,7 @@ def render_exam_result(
                     st.session_state["explore_ai_tools_keep_open"] = True
                 st.rerun()
         else:
-            st.download_button(
+            recorded_download_button(
                 label=t("download_exam") if t("download_exam") != "download_exam" else "Download Student Exam",
                 data=student_pdf,
                 file_name=f"{safe_title}_student.pdf",
@@ -1702,7 +1707,7 @@ def render_exam_result(
                     st.session_state["explore_ai_tools_keep_open"] = True
                 st.rerun()
         else:
-            st.download_button(
+            recorded_download_button(
                 label=t("download_answer_key") if t("download_answer_key") != "download_answer_key" else "Download Answer Key",
                 data=answer_pdf,
                 file_name=f"{safe_title}_answers.pdf",
@@ -1726,7 +1731,7 @@ def render_exam_result(
                     st.session_state["explore_ai_tools_keep_open"] = True
                 st.rerun()
         else:
-            st.download_button(
+            recorded_download_button(
                 label=t("download_student_word"),
                 data=student_docx,
                 file_name=f"{safe_title}_student.docx",
@@ -1749,7 +1754,7 @@ def render_exam_result(
                     st.session_state["explore_ai_tools_keep_open"] = True
                 st.rerun()
         else:
-            st.download_button(
+            recorded_download_button(
                 label=t("download_teacher_word"),
                 data=teacher_docx,
                 file_name=f"{safe_title}_teacher.docx",
@@ -1757,6 +1762,9 @@ def render_exam_result(
                 key=f"{action_key_prefix}_dl_exam_tch_docx_{safe_title}",
                 use_container_width=True,
             )
+    if resource_record_id and not comparison_mode:
+        from helpers.quality_feedback import render_generation_intent_question
+        render_generation_intent_question("exam", resource_record_id, surface=feedback_surface, key_prefix=action_key_prefix)
     if show_clear_result and not signup_required_actions:
         if st.button(
             "🗑️ " + (t("clear_result") if t("clear_result") != "clear_result" else "Clear result"),

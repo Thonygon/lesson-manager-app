@@ -56,6 +56,18 @@
     {"name": "teacher_assignments_source_record_text.sql", "sha256": "5d6b7d438741aa5e1d28d326cb8c6fef628ebcd351a462c176ef68ee8a2fa64f"},
     {"name": "teacher_review_requests.sql", "sha256": "ecc86d08824ead114a8fabc430f9f3cb890e473a0e84c4a1a123c337e8772ead"},
     {"name": "teacher_review_requests_source_id_text.sql", "sha256": "b708f68788961d8362e3db08b6f23753b6716a3d4849b192855433a25ed77a2f"},
-    {"name": "teacher_student_assignments.sql", "sha256": "e862148365e59fbab3a0e8b4028232bb41e5b0d1f4235f83566161bc15ab05df"}
+    {"name": "teacher_student_assignments.sql", "sha256": "e862148365e59fbab3a0e8b4028232bb41e5b0d1f4235f83566161bc15ab05df"},
+    {"name": "reserve_ai_generation_atomically.sql", "sha256": "f04b6dc3be13b132b0a910ce36a0bfe21c236cd1d83b256dc6eb6b2369bf0ae7"},
+    {"name": "guest_generation_daily_quota.sql", "sha256": "9aec5a8806b5fa1fc84be721bf3b035a0d913a10920ccbd9433f12e2fca96684"},
+    {"name": "delete_account_transaction.sql", "sha256": "3d3f40486eb8b387d108b941c79587eb0302fe6d5d193e3616bfa319666945b8"},
+    {"name": "admin_access_transaction.sql", "sha256": "4cc34fff344d0ab3feb25d868dbf9316008eaf2a78042093b193b983798feb2b"},
+    {"name": "admin_staff_transaction.sql", "sha256": "1b221eab623bf48ecafe9cf53b1199ba785ae3b6dc4acceb36a07e3976554c2f"},
+    {"name": "admin_account_control_transaction.sql", "sha256": "8ee23b0367f08859b84f010c62987e5f275258f04383daab5afd400add4863c2"},
+    {"name": "manual_payment_insert_transaction.sql", "sha256": "381b93837d718d366e580695d404104e6d1575712d49377e57c5619f1335aa48"},
+    {"name": "ai_prompt_trace_retention.sql", "sha256": "82dd226035494b39d67434d3c796bba8164d141390d04339262b9f586745a393"},
+    {"name": "teacher_ledger_mutations_transaction.sql", "sha256": "062beec626f61a990b5470dead1ddc3e2ab7a42c039e9b760edad60c3421b952"},
+    {"name": "classio_ai_economic_events.sql", "sha256": "d7c6f2fe6fe1e288cb6f4415582dd31e2346e5658b6b29fe040d7fddbf85604a"},
+    {"name": "classio_document_export_events.sql", "sha256": "667833e60b8475513cd868b30906141cafef7186b7a638887b48334a4e303c1d"},
+    {"name": "classio_ai_quality_feedback.sql", "sha256": "8b638555ed164d55b484e2203bac3f4f7cf5c88d114668e51d53c7ddc9678620"}
   ]
 }

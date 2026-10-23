@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { updatePayment, type ClassioRecord } from '@/services/classio-data';
@@ -14,6 +14,7 @@ const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Numbe
 export function PaymentBulkEditor({ student, records, onSaved }: { student: string; records: ClassioRecord[]; onSaved: () => Promise<unknown> }) {
   const rows = records.filter((row) => String(row.student || '').trim() === student);
   const [changes, setChanges] = useState<Record<string, Draft>>({});
+  const pending = useRef(new Map<string, { payload: string; requestId: string }>());
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(''); const [messageTone, setMessageTone] = useState<'success' | 'error'>('error');
   const [page, setPage] = useState(1);
@@ -35,15 +36,19 @@ export function PaymentBulkEditor({ student, records, onSaved }: { student: stri
     try {
       for (const row of changedRows) {
         const item = changes[String(row.id)];
-        await updatePayment(String(row.id), { student, lessonUnits: Number(item.units), paymentDate: item.paymentDate, paidAmount: Number(item.amount), currency: String(row.currency || 'TRY'), modality: item.modality, subject: item.subject, customSubject: item.customSubject, packageStartDate: item.startDate, packageExpiryDate: item.expiryDate, adjustmentUnits: Number(item.adjustment), normalized: item.normalized, normalizedNote: item.note });
+        const input = { student, lessonUnits: Number(item.units), paymentDate: item.paymentDate, paidAmount: Number(item.amount), currency: String(row.currency || 'TRY'), modality: item.modality, subject: item.subject, customSubject: item.customSubject, packageStartDate: item.startDate, packageExpiryDate: item.expiryDate, adjustmentUnits: Number(item.adjustment), normalized: item.normalized, normalizedNote: item.note };
+        const payload = JSON.stringify(input); const key = String(row.id); const previous = pending.current.get(key);
+        const requestId = previous?.payload === payload ? previous.requestId : crypto.randomUUID();
+        pending.current.set(key, { payload, requestId });
+        await updatePayment(key, input, requestId);
       }
-      setChanges({}); await onSaved(); setMessageTone('success'); setMessage(`${changedRows.length} payment${changedRows.length === 1 ? '' : 's'} updated.`);
+      await onSaved(); pending.current.clear(); setChanges({}); setMessageTone('success'); setMessage(`${changedRows.length} payment${changedRows.length === 1 ? '' : 's'} updated.`);
     } catch (error) { setMessageTone('error'); setMessage(error instanceof Error ? error.message : 'Some payment changes could not be saved. Refresh and review the rows.'); }
     finally { setBusy(false); }
   };
 
   return <View style={styles.root}>
-    <Text style={styles.help}>Edit several packages for {student}, then apply the changed rows together. Dates use YYYY-MM-DD.</Text>
+    <Text style={styles.help}>Edit several packages for {student}. Each changed row saves with its package dates in one transaction. Dates use YYYY-MM-DD.</Text>
     {rows.length === 0 ? <Text style={styles.help}>No payments for this student yet.</Text> : <>
       <ScrollView horizontal showsHorizontalScrollIndicator><View style={styles.table}>
         {visible.map((row) => { const item = changes[String(row.id)] || draftFor(row); return <Panel key={String(row.id)} style={styles.row}>

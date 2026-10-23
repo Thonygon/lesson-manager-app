@@ -1,5 +1,29 @@
 # Classio Streamlit → Expo parity checklist
 
+## Feedback docente y generativo — código del 23-10-2026
+
+- [x] Expo y Streamlit permiten seleccionar una tarjeta recomendada, abrir recurso/asignación y marcar «No relevante» con `Tema incorrecto` o `No apto para este estudiante`. El rechazo persiste por contexto, se excluye antes de buscar el reemplazo y puede deshacerse. Expo ofrece PDF/Word en la tarjeta seleccionada para materiales documentales. La asignación solo se señala después de confirmar la escritura; Streamlit deja de señalar como asignación la apertura del diálogo.
+- [x] La pregunta «¿Es lo que buscabas?» aparece en el material recién generado y al final del recurso guardado para planes, fichas y exámenes de IA todavía sin edición sustantiva. El registro guarda origen `generation_preview` o `resource_page`, respuesta, razón opcional, operación, recurso y un evento histórico. Cambios automáticos de imagen no retiran la pregunta. EN/ES/TR cubre todas las claves nuevas.
+- [x] Migración versionada y verificada localmente; TypeScript, lint sin errores, fixtures de rutas y pruebas Python acotadas pasan. El evaluador lee etiquetas por motivo y origen sin reentrenar modelos automáticamente.
+- [x] Las tres migraciones de esta entrega se aplicaron en Supabase producción y quedaron registradas con checksum. Expo Hosting publicó `vge431y82l` en `https://classio.expo.app` con entorno `preview`.
+- [ ] Aceptación con la cuenta beta en Expo y Streamlit: rechazo y reemplazo, deshacer tras volver, asignación real, satisfacción antes/después de editar y persistencia de origen. El programa de varias fases queda fuera de esta pregunta hasta atribuir la respuesta al conjunto de llamadas y no solo al esqueleto.
+
+## Estado consolidado al 22-10-2026 (`248ad2838`)
+
+Este documento es un historial de entregas además de una lista de aceptación. Las notas fechadas y las casillas antiguas describen el estado de su momento; esta sección prevalece cuando una afirmación histórica quedó desactualizada. [Índice de auditorías](docs/AUDITORIAS_ESTADO_2026-10-22.md).
+
+**Responsabilidad:** esta auditoría mantiene solo la equivalencia de recorridos, resultados, documentos y errores entre Expo y Streamlit, incluido S12. S07 pertenece a [finanzas](financial_analysis/README.md) y los controles compartidos de identidad/RLS/privacidad a [tecnología](docs/CLASSIO_TECHNOLOGY_AUDIT.md); aquí se verifica cómo se comportan en ambos clientes. Los informes de paridad fechados de septiembre y octubre quedan como evidencia histórica, no como planes paralelos.
+
+| Flujo | Evidencia actual de código | Aceptación pendiente |
+| --- | --- | --- |
+| Libro docente de clases, cobros y paquetes | `expo/src/services/classio-data.ts` y `streamlit/core/database.py` llaman ahora `classio_mutate_teacher_ledger` también para el alta de cobros; la migración `teacher_ledger_mutations_transaction.sql` recalcula paquetes dentro de la misma transacción e implementa reintento idempotente. La corrección del alta es local, posterior al despliegue S07. Pasan el fixture actualizado de alta y la comparación congelada del libro. | Publicar la corrección en un despliegue autorizado y hacer el flujo funcional con el titular; siguen pendientes concurrencia real y comprobación de limpieza de claves a 90 días. La edición masiva confirma cada fila por separado. |
+| Generación y acceso | Expo verifica autenticación, estado de cuenta y cuota y reserva antes del proveedor; hay fixtures locales en `expo/scripts/`. El 22-10-2026 se quitó el nombre que Recomendaciones añadía al prompt, se añadió limpieza de identificadores directos reconocibles en el límite del proveedor y comparación tolerante con el nombre del alumno seleccionado, junto con un aviso breve sin clic para Smart Tools, demo, retoque y portadas. Desde una recomendación o la selección de un alumno vinculado en Smart Tools, Expo consulta en servidor hasta 120 tareas calificadas de ese alumno y docente, filtra por materia y grupo de tema (ID de tema o al menos dos términos comunes), o por materia para programas sin tema único, y recupera los últimos intentos de hasta seis recursos comparables. El prompt incluye el título y tema pedagógicos de cada recurso, su nota y un resumen de aciertos por tipo de ejercicio; los títulos/temas pasan por limpieza de identificadores. No incluye ID, respuestas libres ni registros de otros alumnos. Materia, etapa, nivel y lengua materna permanecen en la personalización. Es código local todavía sin publicar. | Aceptación autenticada y anónima tras un despliegue autorizado; con datos ficticios comparar generación con y sin recursos del mismo grupo, verificar que el prompt contiene títulos/temas limpios y patrones de errores, no respuestas libres, y valorar si la práctica refuerza el contenido concreto. Revisar también riesgo de nombres/direcciones no reconocidos (S09), cuotas y fallos reales de proveedor. |
+| Experimentos e informes de Developer | Expo muestra datos acotados; Streamlit ejecuta pipelines e informes Python. | Lanzamiento, integridad, descarga y regeneración no tienen paridad funcional en Expo. Requieren servicio Python autenticado y artefactos durables. |
+| Recomendaciones y alumno | Hay comparaciones congeladas Python/Expo de puntuación y selección, y rutas de afinidad en `python_api/app.py`. | Orden y resultados con datos reales, feedback/RLS y latencia aceptados por rol. Los fixtures no acreditan equivalencia pedagógica general. |
+| Publicación | [S07](docs/CLASSIO_PRODUCTION_REMEDIATION.md) registra migración de producción y publicación Expo; esta lista contiene múltiples verificaciones históricas de alias. | No equivale a aceptación integral de producción ni a una ejecución verde actual de CI. |
+
+**Orden de cierre de esta auditoría:** (1) verificar un recorrido docente y otro alumno en Expo frente a Streamlit, incluidas las respuestas de S07 ya aceptadas por finanzas y tecnología; (2) resolver S12 y conectar el worker de experimentos/informes; (3) completar comparación de documentos, accesibilidad y dispositivos. Registrar en cada caso commit, entorno y resultado, sin convertir un HTTP 200 en paridad funcional.
+
 Student-facing Supabase load and failure-mode comparison: `CLASSIO_STUDENT_SUPABASE_PARITY_AUDIT_2026-10-11.md`. The audit identifies source protections, Expo gaps, and two local load-safety fixes. It does not certify live Supabase health or hosted parity.
 
 This is the acceptance ledger for the Expo migration. A checked item means the workflow is implemented in Expo and has passed a local build. Live staging verification is recorded separately; a page title or placeholder alone does not count as complete.
@@ -192,7 +216,7 @@ Deployment target from 2026-10-01: `https://classio.expo.app`. Historical releas
 - [x] Topic alignment now reads its own student-filtered, non-archived assignment reference window (180 days, 1,200 rows, ordered by `updated_at`) instead of depending on the general 1,000-row assignment workspace. Source: `streamlit/helpers/recommendation_models.py` (`_load_topic_resource_reference_rows`); targets: `expo/src/services/student-data.ts`, `expo/src/services/student-recommendation-ranking.ts`. Its age cutoff is also fixture checked. Query errors surface as workspace errors rather than silently discarding ranking signals.
 - [ ] The new reference/event/video reads and existing recommendation exposure/open-event writes still need one bounded authenticated staging acceptance pass. Expo now supports separate assignment-scoped cards and rule-based explanations, but lacks Python ML feedback blending, exact ordering, and the ML-fit reason. Next: inspect `user_activity_log` owner RLS, port protected ML feedback inputs through a safe bounded client/server boundary, and compare ordered Python/Expo fixtures.
 
-The detailed source-and-live audit from 2026-09-22 is recorded in `CLASSIO_PARITY_AUDIT_2026-09-22.md`. It supersedes optimistic checks in this historical implementation ledger when a workflow is marked partial there.
+The detailed source-and-live audit from 2026-09-22 is retained in `CLASSIO_PARITY_AUDIT_2026-09-22.md` as dated evidence. For current status, use the consolidated section at the top of this checklist and verify the code and deployment under review.
 
 ## 2026-09-27 parity slices: student recommendation reference integrity
 
@@ -564,12 +588,12 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
   - [x] Authenticated transactional student-renaming RPC
   - [ ] Server-side PDF report generation
   - [x] Transactional grading and feedback
-  - [ ] Server-side package recalculation RPC (the current Expo workflow recalculates after every lesson/payment write)
+  - [x] Server-side package recalculation RPC for individual lesson/payment mutations via `classio_mutate_teacher_ledger`; functional and concurrent acceptance remains open under S07
 - [ ] Role-by-role end-to-end acceptance suite
 - [ ] Accessibility audit and keyboard navigation
 - [ ] Responsive verification across phone, tablet, and desktop
 - [ ] Error monitoring, analytics, and privacy review
-- [ ] Production EAS deployment and production-domain auth redirects
+- [x] Production EAS deployment recorded in S07 and historical notes; production-domain auth redirects and full role acceptance remain open
 
 ## Staging verification notes
 

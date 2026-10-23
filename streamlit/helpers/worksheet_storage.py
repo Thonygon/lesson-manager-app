@@ -1,3 +1,7 @@
+from functools import partial
+from services.document_export_events import recorded_download_button as _recorded_download_button
+recorded_download_button = partial(_recorded_download_button, document_kind="worksheet")
+
 # CLASSIO — Worksheet Storage
 # ============================================================
 import streamlit as st
@@ -1453,6 +1457,7 @@ def render_worksheet_result(
     allow_image_generation: bool | None = None,
     allow_auto_image_generation: bool = True,
     on_image_update=None,
+    feedback_surface: str = "resource_page",
     show_clear_result: bool = False,
     **meta,
 ) -> None:
@@ -1795,7 +1800,7 @@ def render_worksheet_result(
     if read_only:
         dc1, dc2 = st.columns(2)
         with dc1:
-            st.download_button(
+            recorded_download_button(
                 label=t("download_student_pdf"),
                 data=student_pdf,
                 file_name=f"{safe_title}_student.pdf",
@@ -1804,7 +1809,7 @@ def render_worksheet_result(
                 use_container_width=True,
             )
         with dc2:
-            st.download_button(
+            recorded_download_button(
                 label=t("download_teacher_pdf"),
                 data=teacher_pdf,
                 file_name=f"{safe_title}_teacher.pdf",
@@ -1828,7 +1833,7 @@ def render_worksheet_result(
                         st.session_state["explore_ai_tools_keep_open"] = True
                     st.rerun()
             else:
-                st.download_button(
+                recorded_download_button(
                     label=t("download_student_word"),
                     data=student_docx,
                     file_name=f"{safe_title}_student.docx",
@@ -1851,7 +1856,7 @@ def render_worksheet_result(
                         st.session_state["explore_ai_tools_keep_open"] = True
                     st.rerun()
             else:
-                st.download_button(
+                recorded_download_button(
                     label=t("download_teacher_word"),
                     data=teacher_docx,
                     file_name=f"{safe_title}_teacher.docx",
@@ -1890,7 +1895,7 @@ def render_worksheet_result(
 
         dc1, dc2 = st.columns(2)
         with dc1:
-            st.download_button(
+            recorded_download_button(
                 label=t("download_student_pdf"),
                 data=student_pdf,
                 file_name=f"{safe_title}_student.pdf",
@@ -1899,7 +1904,7 @@ def render_worksheet_result(
                 use_container_width=True,
             )
         with dc2:
-            st.download_button(
+            recorded_download_button(
                 label=t("download_teacher_pdf"),
                 data=teacher_pdf,
                 file_name=f"{safe_title}_teacher.pdf",
@@ -1909,7 +1914,7 @@ def render_worksheet_result(
             )
         dw1, dw2 = st.columns(2)
         with dw1:
-            st.download_button(
+            recorded_download_button(
                 label=t("download_student_word"),
                 data=student_docx,
                 file_name=f"{safe_title}_student.docx",
@@ -1918,7 +1923,7 @@ def render_worksheet_result(
                 use_container_width=True,
             )
         with dw2:
-            st.download_button(
+            recorded_download_button(
                 label=t("download_teacher_word"),
                 data=teacher_docx,
                 file_name=f"{safe_title}_teacher.docx",
@@ -1934,6 +1939,9 @@ def render_worksheet_result(
             ):
                 _wb().reset_worksheet_maker_state()
                 st.rerun()
+    if resource_record_id and not comparison_mode:
+        from helpers.quality_feedback import render_generation_intent_question
+        render_generation_intent_question("worksheet", resource_record_id, surface=feedback_surface, key_prefix=action_key_prefix)
 
 
 def _persist_saved_worksheet_visuals(worksheet_id: int | str, worksheet: dict) -> bool:
@@ -2963,6 +2971,13 @@ def render_quick_worksheet_maker_expander(*, embedded: bool = False) -> None:
                     )
                     if _saved_ws_id and _saved_ws_id is not True:
                         st.session_state["worksheet_record_id"] = _saved_ws_id
+                        if generation_result.get("generation_operation_id"):
+                            try:
+                                from helpers.quality_feedback import bind_generated_resource
+                                if not bind_generated_resource("worksheet", _saved_ws_id, generation_result["generation_operation_id"]):
+                                    st.warning(t("generation_intent_unavailable"))
+                            except Exception:
+                                st.warning(t("generation_intent_unavailable"))
 
                     if ab_debug_enabled and selected_student:
                         st.session_state["worksheet_ab_debug_compare"] = {
@@ -2991,6 +3006,7 @@ def render_quick_worksheet_maker_expander(*, embedded: bool = False) -> None:
                 topic=st.session_state.get("ws_effective_topic") or topic,
                 assign_expanded=bool(st.session_state.get("worksheet_assign_expanded", False)),
                 resource_record_id=st.session_state.get("worksheet_record_id"),
+                feedback_surface="generation_preview",
                 show_clear_result=True,
             )
 

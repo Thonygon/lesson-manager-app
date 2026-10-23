@@ -17,6 +17,7 @@ from helpers.generation_guidance import (
     build_generation_profile_guidance,
     infer_subject_family,
 )
+from helpers.ai_prompt_privacy import minimize_student_profile_for_ai
 from helpers.student_personalization import build_student_profile_prompt_block
 from helpers.student_personalization import (
     NATIVE_LANGUAGE_OPTIONS,
@@ -1440,6 +1441,7 @@ def _exam_quality_guardrails() -> str:
 
 
 def _build_exam_prompts(payload: dict) -> tuple[str, str]:
+    payload = {**payload, "student_profile": minimize_student_profile_for_ai(payload.get("student_profile"))}
     length_key = payload.get("exam_length", "medium")
     spec = _LENGTH_SPEC.get(length_key, _LENGTH_SPEC["medium"])
     exercise_types = payload.get("exercise_types", [])
@@ -1652,7 +1654,7 @@ def generate_exam_with_limit(
     enforce_usage_limits: bool = True,
 ) -> tuple[dict, dict, str | None]:
     from helpers.quick_exam_storage import get_ai_exam_usage_status, log_exam_ai_usage
-    from services.permissions_service import can_use_ai_tool, increment_usage
+    from services.permissions_service import can_use_ai_tool
 
     if enforce_usage_limits and not can_use_ai_tool():
         return {}, {}, t("ai_limit_reached") if "ai_limit_reached" in I18N.get(get_plan_language(), {}) else "AI plan limit reached."
@@ -1694,8 +1696,6 @@ def generate_exam_with_limit(
         provider = str(exam_data.pop("_ai_provider", "") or "") if isinstance(exam_data, dict) else ""
 
         log_exam_ai_usage("success", {"subject": subject, "topic": topic, "provider": provider})
-        if enforce_usage_limits:
-            increment_usage(None, "ai_generations")
         return exam_data, answer_key, None
 
     except Exception as e:
@@ -2057,6 +2057,13 @@ def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
                     )
                     if _saved_id:
                         st.session_state["exam_record_id"] = _saved_id
+                        if generation_result.get("generation_operation_id"):
+                            try:
+                                from helpers.quality_feedback import bind_generated_resource
+                                if not bind_generated_resource("exam", _saved_id, generation_result["generation_operation_id"]):
+                                    st.warning(t("generation_intent_unavailable"))
+                            except Exception:
+                                st.warning(t("generation_intent_unavailable"))
 
                     if ab_debug_enabled and selected_student:
                         st.session_state["exam_ab_debug_compare"] = {
@@ -2082,6 +2089,7 @@ def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
                 allow_assign=True,
                 assign_expanded=bool(st.session_state.get("exam_assign_expanded", False)),
                 resource_record_id=st.session_state.get("exam_record_id"),
+                feedback_surface="generation_preview",
                 show_clear_result=True,
                 subject=effective_subject,
                 topic=st.session_state.get("quick_exam_effective_topic") or topic,

@@ -202,6 +202,23 @@ export async function addStudent(input: { name: string; email?: string; phone?: 
   if (error) throw error;
 }
 
+async function mutateTeacherLedger(entity: 'class' | 'payment', action: 'add' | 'update' | 'delete', id: string | number | null, payload: Record<string, unknown> | null, requestId: string) {
+  if (!requestId) throw new Error('A request key is required.');
+  const client = requireSupabase();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
+  const { data, error } = await client.rpc('classio_mutate_teacher_ledger', {
+    p_user_id: userData.user.id,
+    p_request_id: requestId,
+    p_entity: entity,
+    p_action: action,
+    p_row_id: id,
+    p_payload: payload,
+  });
+  if (error) throw error;
+  return data as { id: number; updated: number; mismatches: number; replayed: boolean };
+}
+
 export async function addLesson(input: {
   student: string;
   lessonDate: string;
@@ -210,13 +227,9 @@ export async function addLesson(input: {
   subject: string;
   customSubject?: string;
   note?: string;
-}) {
+}, requestId: string) {
   if (!isValidRecordDate(input.lessonDate) || !isValidUnitCount(input.units, 10)) throw new Error('Enter a valid lesson date and 1–10 whole units.');
-  const client = requireSupabase();
-  const { data: userData, error: userError } = await client.auth.getUser();
-  if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
-  const { error } = await client.from('classes').insert({
-    user_id: userData.user.id,
+  await mutateTeacherLedger('class', 'add', null, {
     student: input.student.trim(),
     lesson_date: input.lessonDate,
     number_of_lesson: input.units,
@@ -224,27 +237,16 @@ export async function addLesson(input: {
     subject: input.subject === 'Other' ? 'Other' : input.subject,
     subject_custom: input.subject === 'Other' ? input.customSubject?.trim() || null : null,
     note: input.note?.trim() || '',
-  });
-  if (error) throw error;
-  await recalculatePackageDates(input.student);
+  }, requestId);
 }
 
-export async function updateLesson(id: string | number, input: { student: string; lessonDate: string; units: number; modality: 'Online' | 'Offline'; subject: string; customSubject?: string; note?: string }) {
+export async function updateLesson(id: string | number, input: { student: string; lessonDate: string; units: number; modality: 'Online' | 'Offline'; subject: string; customSubject?: string; note?: string }, requestId: string = crypto.randomUUID()) {
   if (!isValidRecordDate(input.lessonDate) || !isValidUnitCount(input.units, 10)) throw new Error('Enter a valid lesson date and 1–10 whole units.');
-  const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser();
-  if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
-  const { data: previous } = await client.from('classes').select('student').eq('id', id).eq('user_id', userData.user.id).maybeSingle();
-  const { error } = await client.from('classes').update({ student: input.student.trim(), lesson_date: input.lessonDate, number_of_lesson: input.units, modality: input.modality, subject: input.subject === 'Other' ? 'Other' : input.subject, subject_custom: input.subject === 'Other' ? input.customSubject?.trim() || null : null, note: input.note?.trim() || '' }).eq('id', id).eq('user_id', userData.user.id);
-  if (error) throw error;
-  await Promise.all(Array.from(new Set([String(previous?.student || '').trim(), input.student.trim()].filter(Boolean))).map(recalculatePackageDates));
+  await mutateTeacherLedger('class', 'update', id, { student: input.student.trim(), lesson_date: input.lessonDate, number_of_lesson: input.units, modality: input.modality, subject: input.subject === 'Other' ? 'Other' : input.subject, subject_custom: input.subject === 'Other' ? input.customSubject?.trim() || null : null, note: input.note?.trim() || '' }, requestId);
 }
 
-export async function deleteLesson(id: string | number) {
-  const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser();
-  if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
-  const { data: previous } = await client.from('classes').select('student').eq('id', id).eq('user_id', userData.user.id).maybeSingle();
-  const { error } = await client.from('classes').delete().eq('id', id).eq('user_id', userData.user.id); if (error) throw error;
-  if (previous?.student) await recalculatePackageDates(String(previous.student));
+export async function deleteLesson(id: string | number, requestId: string = crypto.randomUUID()) {
+  await mutateTeacherLedger('class', 'delete', id, null, requestId);
 }
 
 export async function addPayment(input: {
@@ -257,13 +259,10 @@ export async function addPayment(input: {
   subject: string;
   customSubject?: string;
   packageStartDate?: string;
-}) {
+}, requestId: string) {
   if (!isValidRecordDate(input.paymentDate) || (input.packageStartDate && !isValidRecordDate(input.packageStartDate)) || !isValidUnitCount(input.lessonUnits, 500) || !Number.isFinite(input.paidAmount) || input.paidAmount < 0) throw new Error('Check the payment dates, amount, and 1–500 whole units.');
-  const client = requireSupabase();
-  const { data: userData, error: userError } = await client.auth.getUser();
-  if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
-  const { error } = await client.from('payments').insert({
-    user_id: userData.user.id,
+  if (!input.student.trim() || !input.currency.trim() || !input.subject.trim() || !requestId) throw new Error('Complete the payment fields before saving.');
+  await mutateTeacherLedger('payment', 'add', null, {
     student: input.student.trim(),
     number_of_lesson: input.lessonUnits,
     payment_date: input.paymentDate,
@@ -273,34 +272,18 @@ export async function addPayment(input: {
     subject: input.subject === 'Other' ? 'Other' : input.subject,
     subject_custom: input.subject === 'Other' ? input.customSubject?.trim() || null : null,
     package_start_date: input.packageStartDate || input.paymentDate,
-    package_expiry_date: null,
-    lesson_adjustment_units: 0,
-    package_normalized: false,
-    normalized_note: '',
-    normalized_at: null,
-  });
-  if (error) throw error;
-  await recalculatePackageDates(input.student);
+  }, requestId);
 }
 
-export async function updatePayment(id: string | number, input: { student: string; lessonUnits: number; paymentDate: string; paidAmount: number; currency: string; modality: 'Online' | 'Offline'; subject: string; customSubject?: string; packageStartDate?: string; packageExpiryDate?: string; adjustmentUnits?: number; normalized?: boolean; normalizedNote?: string }) {
+export async function updatePayment(id: string | number, input: { student: string; lessonUnits: number; paymentDate: string; paidAmount: number; currency: string; modality: 'Online' | 'Offline'; subject: string; customSubject?: string; packageStartDate?: string; packageExpiryDate?: string; adjustmentUnits?: number; normalized?: boolean; normalizedNote?: string }, requestId: string = crypto.randomUUID()) {
   if (!isValidRecordDate(input.paymentDate) || (input.packageStartDate && !isValidRecordDate(input.packageStartDate)) || (input.packageExpiryDate && !isValidRecordDate(input.packageExpiryDate)) || !isValidUnitCount(input.lessonUnits, 500) || !Number.isFinite(input.paidAmount) || input.paidAmount < 0 || !isValidUnitAdjustment(input.adjustmentUnits ?? 0)) throw new Error('Check the payment dates, amount, and unit counts.');
   if (input.packageExpiryDate && input.packageExpiryDate < (input.packageStartDate || input.paymentDate)) throw new Error('The package expiry date must follow its start date.');
-  const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser();
-  if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
-  const { data: previous } = await client.from('payments').select('student').eq('id', id).eq('user_id', userData.user.id).maybeSingle();
   const normalized = Boolean(input.normalized || input.normalizedNote?.trim());
-  const { error } = await client.from('payments').update({ student: input.student.trim(), number_of_lesson: input.lessonUnits, payment_date: input.paymentDate, paid_amount: input.paidAmount, currency: input.currency, modality: input.modality, subject: input.subject === 'Other' ? 'Other' : input.subject, subject_custom: input.subject === 'Other' ? input.customSubject?.trim() || null : null, package_start_date: input.packageStartDate || input.paymentDate, package_expiry_date: input.packageExpiryDate || null, lesson_adjustment_units: input.adjustmentUnits || 0, package_normalized: normalized, normalized_note: input.normalizedNote?.trim() || '', normalized_at: normalized ? new Date().toISOString() : null }).eq('id', id).eq('user_id', userData.user.id);
-  if (error) throw error;
-  await Promise.all(Array.from(new Set([String(previous?.student || '').trim(), input.student.trim()].filter(Boolean))).map(recalculatePackageDates));
+  await mutateTeacherLedger('payment', 'update', id, { student: input.student.trim(), number_of_lesson: input.lessonUnits, payment_date: input.paymentDate, paid_amount: input.paidAmount, currency: input.currency, modality: input.modality, subject: input.subject === 'Other' ? 'Other' : input.subject, subject_custom: input.subject === 'Other' ? input.customSubject?.trim() || null : null, package_start_date: input.packageStartDate || input.paymentDate, package_expiry_date: input.packageExpiryDate || null, lesson_adjustment_units: input.adjustmentUnits || 0, package_normalized: normalized, normalized_note: input.normalizedNote?.trim() || '' }, requestId);
 }
 
-export async function deletePayment(id: string | number) {
-  const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser();
-  if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
-  const { data: previous } = await client.from('payments').select('student').eq('id', id).eq('user_id', userData.user.id).maybeSingle();
-  const { error } = await client.from('payments').delete().eq('id', id).eq('user_id', userData.user.id); if (error) throw error;
-  if (previous?.student) await recalculatePackageDates(String(previous.student));
+export async function deletePayment(id: string | number, requestId: string = crypto.randomUUID()) {
+  await mutateTeacherLedger('payment', 'delete', id, null, requestId);
 }
 
 export type PricingItem = {
@@ -367,35 +350,13 @@ export async function deletePricingItem(id: string | number): Promise<void> {
   if (error) throw error;
 }
 
-function dateOnly(value: unknown) { return value ? String(value).slice(0, 10) : ''; }
-function countableLessonUnits(row: ClassioRecord) {
-  const note = String(row.note || '').toUpperCase();
-  return ['[FREE]', '[DEMO]', '[DONT COUNT]', "[DON'T COUNT]"].some((token) => note.includes(token)) ? 0 : Math.max(0, Number(row.number_of_lesson || 0));
-}
-
 export async function recalculatePackageDates(student: string) {
   const name = student.trim(); if (!name) return { updated: 0, mismatches: 0 };
   const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
-  const uid = userData.user.id;
-  const [paymentResult, lessonResult] = await Promise.all([
-    client.from('payments').select('id,number_of_lesson,payment_date,package_start_date,package_expiry_date,lesson_adjustment_units').eq('user_id', uid).eq('student', name).order('payment_date').order('id'),
-    client.from('classes').select('id,lesson_date,number_of_lesson,note').eq('user_id', uid).eq('student', name).order('lesson_date').order('id'),
-  ]);
-  if (paymentResult.error || lessonResult.error) throw paymentResult.error ?? lessonResult.error;
-  const packages = (paymentResult.data ?? []) as unknown as ClassioRecord[];
-  const lessons = (lessonResult.data ?? []) as unknown as ClassioRecord[];
-  let updated = 0; let mismatches = 0;
-  for (let index = 0; index < packages.length; index += 1) {
-    const payment = packages[index]; const start = dateOnly(payment.package_start_date || payment.payment_date); const nextStart = dateOnly(packages[index + 1]?.package_start_date || packages[index + 1]?.payment_date);
-    const purchased = Math.max(0, Number(payment.number_of_lesson || 0) + Number(payment.lesson_adjustment_units || 0));
-    let used = 0; let expiry = '';
-    if (start && purchased > 0) for (const lesson of lessons) { const date = dateOnly(lesson.lesson_date); if (!date || date < start || (nextStart && date >= nextStart)) continue; used += countableLessonUnits(lesson); if (!expiry && used >= purchased) expiry = date; }
-    if (used > purchased) mismatches += 1;
-    const updates: ClassioRecord = {}; if (!payment.package_start_date && start) updates.package_start_date = start; if (dateOnly(payment.package_expiry_date) !== expiry) updates.package_expiry_date = expiry || null;
-    if (Object.keys(updates).length) { const { error } = await client.from('payments').update(updates).eq('id', payment.id).eq('user_id', uid); if (error) throw error; updated += 1; }
-  }
-  return { updated, mismatches };
+  const { data, error } = await client.rpc('classio_recalculate_teacher_packages', { p_user_id: userData.user.id, p_student: name });
+  if (error) throw error;
+  return { updated: Number((data as Record<string, unknown> | null)?.updated || 0), mismatches: Number((data as Record<string, unknown> | null)?.mismatches || 0) };
 }
 
 export async function updateStudentProfile(id: string, input: {

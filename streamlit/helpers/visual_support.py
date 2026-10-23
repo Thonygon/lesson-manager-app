@@ -11,8 +11,10 @@ import streamlit as st
 from PIL import Image
 
 from core.i18n import t
+from helpers.ai_request_limits import IMAGE_TIMEOUT_MS, bounded_ai_image_data_url, read_bounded_ai_image
 from helpers.ai_retry import run_with_ai_retries
 from services.ai_usage_service import log_ai_usage_event, with_provider_chain
+from services.ai_economic_events import run_recorded_provider_attempt
 
 
 logger = logging.getLogger(__name__)
@@ -228,13 +230,13 @@ def _get_gemini_image_model() -> str:
 @st.cache_resource(show_spinner=False)
 def _get_gemini_client(api_key: str):
     from google import genai
-    return genai.Client(api_key=api_key)
+    return genai.Client(api_key=api_key, http_options={"timeout": IMAGE_TIMEOUT_MS})
 
 
 @st.cache_resource(show_spinner=False)
 def _get_openai_client(api_key: str):
     from openai import OpenAI
-    return OpenAI(api_key=api_key)
+    return OpenAI(api_key=api_key, timeout=IMAGE_TIMEOUT_MS / 1000, max_retries=0)
 
 
 def _image_generation_enabled() -> bool:
@@ -646,12 +648,12 @@ def _extract_image_data_url(response) -> str:
             b64 = getattr(item, "b64_json", None)
             url = getattr(item, "url", None)
         if b64:
-            return "data:image/png;base64," + b64
+            return bounded_ai_image_data_url("data:image/png;base64," + b64)
         if url:
             try:
-                with urlopen(url) as resp:
-                    raw = resp.read()
-                return "data:image/png;base64," + base64.b64encode(raw).decode("ascii")
+                with urlopen(url, timeout=IMAGE_TIMEOUT_MS / 1000) as resp:
+                    raw = read_bounded_ai_image(resp)
+                return bounded_ai_image_data_url("data:image/png;base64," + base64.b64encode(raw).decode("ascii"))
             except Exception:
                 continue
     return ""
@@ -669,7 +671,7 @@ def _extract_openrouter_image_data_url(payload: dict) -> str:
         first = images[0] or {}
         image_url = first.get("image_url") or first.get("imageUrl") or {}
         url = image_url.get("url") if isinstance(image_url, dict) else ""
-        return _clean_text(url)
+        return bounded_ai_image_data_url(_clean_text(url))
     except Exception:
         return ""
 
@@ -680,8 +682,9 @@ def _generate_with_openrouter(prompt: str) -> str:
         raise RuntimeError("missing_openrouter_api_key")
 
     def _request() -> str:
+        model = _get_openrouter_image_model()
         body = {
-            "model": _get_openrouter_image_model(),
+            "model": model,
             "messages": [{"role": "user", "content": prompt}],
             "modalities": ["image", "text"],
             "stream": False,
@@ -701,11 +704,12 @@ def _generate_with_openrouter(prompt: str) -> str:
             },
             method="POST",
         )
-        with urlopen(req, timeout=90) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-        return _extract_openrouter_image_data_url(payload)
+        def _call():
+            with urlopen(req, timeout=IMAGE_TIMEOUT_MS / 1000) as resp:
+                return json.loads(read_bounded_ai_image(resp).decode("utf-8"))
+        return run_recorded_provider_attempt("openrouter", model, _call, _extract_openrouter_image_data_url, modality="image", image_size_requested="1K 4:3")
 
-    return run_with_ai_retries(_request)
+    return run_with_ai_retries(_request, max_attempts=1)
 
 
 def _generate_with_gemini(prompt: str) -> str:
@@ -715,11 +719,15 @@ def _generate_with_gemini(prompt: str) -> str:
 
     def _request() -> str:
         client = _get_gemini_client(api_key)
-        response = client.models.generate_content(
-            model=_get_gemini_image_model(),
-            contents=[prompt],
+        model = _get_gemini_image_model()
+        return run_recorded_provider_attempt(
+            "gemini", model,
+            lambda: client.models.generate_content(model=model, contents=[prompt]),
+            _extract_image,
+            modality="image",
         )
 
+    def _extract_image(response) -> str:
         candidate_parts = []
         candidate_parts.extend(getattr(response, "parts", None) or [])
         for candidate in getattr(response, "candidates", None) or []:
@@ -744,10 +752,10 @@ def _generate_with_gemini(prompt: str) -> str:
                 encoded = data
             else:
                 encoded = base64.b64encode(data).decode("ascii")
-            return f"data:{mime_type or 'image/png'};base64,{encoded}"
+            return bounded_ai_image_data_url(f"data:{mime_type or 'image/png'};base64,{encoded}")
         return ""
 
-    return run_with_ai_retries(_request)
+    return run_with_ai_retries(_request, max_attempts=1)
 
 
 def _extract_openai_image_data_url(response) -> str:
@@ -756,12 +764,12 @@ def _extract_openai_image_data_url(response) -> str:
         b64 = getattr(item, "b64_json", None) if not isinstance(item, dict) else item.get("b64_json")
         url = getattr(item, "url", None) if not isinstance(item, dict) else item.get("url")
         if b64:
-            return f"data:image/png;base64,{b64}"
+            return bounded_ai_image_data_url(f"data:image/png;base64,{b64}")
         if url:
             try:
-                with urlopen(url) as resp:
-                    raw = resp.read()
-                return "data:image/png;base64," + base64.b64encode(raw).decode("ascii")
+                with urlopen(url, timeout=IMAGE_TIMEOUT_MS / 1000) as resp:
+                    raw = read_bounded_ai_image(resp)
+                return bounded_ai_image_data_url("data:image/png;base64," + base64.b64encode(raw).decode("ascii"))
             except Exception:
                 continue
     return ""
@@ -774,15 +782,15 @@ def _generate_with_openai(prompt: str) -> str:
 
     def _request() -> str:
         client = _get_openai_client(api_key)
-        response = client.images.generate(
-            model="gpt-image-1",
-            prompt=prompt,
-            size="1024x1024",
-            quality="low",
+        return run_recorded_provider_attempt(
+            "openai", "gpt-image-1",
+            lambda: client.images.generate(model="gpt-image-1", prompt=prompt, size="1024x1024", quality="low"),
+            _extract_openai_image_data_url,
+            modality="image",
+            image_size_requested="1024x1024",
         )
-        return _extract_openai_image_data_url(response)
 
-    return run_with_ai_retries(_request)
+    return run_with_ai_retries(_request, max_attempts=1)
 
 
 @st.cache_data(show_spinner=False, ttl=60 * 60 * 24 * 7, max_entries=128)

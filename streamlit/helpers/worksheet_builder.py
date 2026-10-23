@@ -15,6 +15,7 @@ from helpers.generation_guidance import (
     infer_subject_family,
 )
 from helpers.program_resource_context import build_program_topic_prompt_block
+from helpers.ai_prompt_privacy import minimize_student_profile_for_ai
 from helpers.student_personalization import build_student_profile_prompt_block
 from helpers.visual_support import enrich_worksheet_with_visuals
 from helpers.structured_text import build_text_asset, preserve_text_format
@@ -844,6 +845,7 @@ def _worksheet_page_plan(worksheet_type: str, learner_stage: str, level_or_band:
 
 
 def _build_worksheet_prompts(payload: dict) -> tuple[str, str]:
+    payload = {**payload, "student_profile": minimize_student_profile_for_ai(payload.get("student_profile"))}
     worksheet_type = payload.get("worksheet_type", "")
     learner_stage = payload.get("learner_stage", "")
     level_or_band = payload.get("level_or_band", "")
@@ -1025,7 +1027,7 @@ def generate_worksheet_with_limit(
     enforce_usage_limits: bool = True,
 ) -> tuple[dict, str | None]:
     from helpers.worksheet_storage import get_ai_worksheet_usage_status, log_ai_usage
-    from services.permissions_service import can_use_ai_tool, increment_usage
+    from services.permissions_service import can_use_ai_tool
 
     if enforce_usage_limits and not can_use_ai_tool():
         return {}, t("ai_limit_reached")
@@ -1069,8 +1071,6 @@ def generate_worksheet_with_limit(
             status="success",
             meta={"subject": subject, "topic": topic, "worksheet_type": worksheet_type, "provider": provider},
         )
-        if enforce_usage_limits:
-            increment_usage(None, "ai_generations")
         return ws, None
 
     except Exception as e:

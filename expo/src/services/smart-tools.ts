@@ -8,17 +8,48 @@ import { programReady } from '../shared/program-completion';
 import { uniqueProgramTopics } from '@/lib/learning-program-topics';
 
 export type SmartToolKind = 'plan' | 'worksheet' | 'exam' | 'program';
-export type SmartToolInput = { kind: SmartToolKind; subject: string; customSubject?: string; topic: string; stage: string; level: string; language: string; planLanguage?: string; nativeLanguage?: string; student?: string; generationMode?: string; lessonPurpose?: string; objective?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration: string; questionCount?: number; notes: string; programId?: string; programTopicId?: string; previousProgramId?: string; reuseConfirmed?: boolean };
+export type SmartToolInput = { kind: SmartToolKind; subject: string; customSubject?: string; topic: string; stage: string; level: string; language: string; planLanguage?: string; nativeLanguage?: string; generationMode?: string; generationId?: string; lessonPurpose?: string; objective?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration: string; questionCount?: number; notes: string; programId?: string; programTopicId?: string; previousProgramId?: string; reuseConfirmed?: boolean };
 export class GenerationReuseError extends Error {
   constructor(public readonly matches: GenerationMatch[], message: string) { super(message); this.name = 'GenerationReuseError'; }
 }
 export class GenerationRequestError extends Error {
   constructor(public readonly status: number, public readonly code: string, public readonly phase: string, message?: string) { super(message || code); this.name = 'GenerationRequestError'; }
 }
-export type GeneratedMaterial = { document: Record<string, unknown>; model: string; generatedAt: string; fallbackReason?: 'ai_unavailable' };
+export type GeneratedMaterial = { document: Record<string, unknown>; model: string; generatedAt: string; generationId?: string; fallbackReason?: 'ai_unavailable' };
+
+async function generationFeedbackRequest(path: string, body?: Record<string, unknown>) {
+  const client = requireSupabase(); const { data, error } = await client.auth.getSession();
+  if (error || !data.session) throw error ?? new Error('Your session has expired.');
+  const response = await fetch(`/api/generation-feedback${path}`, { method: body ? 'POST' : 'GET', headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${data.session.access_token}` }, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
+  const payload = await response.json().catch(() => ({})) as { error?: string; eligible?: boolean; generationId?: string; satisfied?: boolean | null; reason?: string | null };
+  if (!response.ok) throw new Error(payload.error || 'Generation feedback is unavailable.');
+  return payload;
+}
+
+export async function bindGeneratedResource(generationId: string, resourceType: SmartToolKind, resourceId: string) {
+  await generationFeedbackRequest('', { action: 'bind', generationId, resourceType, resourceId });
+}
+
+export async function getGenerationFeedbackForResource(resourceType: SmartToolKind, resourceId: string) {
+  return generationFeedbackRequest(`?resourceType=${encodeURIComponent(resourceType)}&resourceId=${encodeURIComponent(resourceId)}`);
+}
+
+export async function saveGenerationIntentFeedback(generationId: string, satisfied: boolean, surface: 'generation_preview' | 'resource_page', reason?: 'content' | 'level' | 'format' | 'other'): Promise<void> {
+  await generationFeedbackRequest('', { generationId, satisfied, surface, reason });
+}
 
 export type SmartToolProgram = { id: string; title: string; subject: string; customSubject: string; stage: string; level: string; sequenceGroupId: string; sequenceOrder: number };
 export type SmartToolProgramTopic = { id: string; title: string; unitTitle: string; unitNumber: number; topicNumber: number; lessonPurpose: string; learningObjectives: string[]; suggestedWorksheetTypes: string[]; suggestedExamTypes: string[] };
+export type PersonalizationStudent = { id: string; name: string; nativeLanguage: string };
+
+export async function getPersonalizationStudents(): Promise<PersonalizationStudent[]> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError || !auth.user) throw authError ?? new Error('Your session has expired.');
+  const { data, error } = await client.from('students').select('student,linked_student_user_id,native_language').eq('user_id', auth.user.id).not('linked_student_user_id', 'is', null).order('student').limit(500);
+  if (error) throw error;
+  return (data ?? []).filter((row) => row.linked_student_user_id).map((row) => ({ id: String(row.linked_student_user_id), name: String(row.student || 'Student'), nativeLanguage: String(row.native_language || '') }));
+}
 
 export async function getSmartToolPrograms(): Promise<SmartToolProgram[]> {
   const client = requireSupabase();
@@ -71,10 +102,10 @@ export async function getSimilarTeachingResources(input: SmartToolInput): Promis
   return findGenerationMatches(base, key, data.session.access_token, data.session.user.id, { kind: input.kind, subject, topic: input.topic.trim(), stage: input.stage, level: input.level, lessonPurpose: input.lessonPurpose, worksheetType: input.worksheetType, exerciseTypes: input.exerciseTypes, programTrack: input.programTrack, examTarget: input.examTarget });
 }
 
-export async function generateMaterial(input: SmartToolInput, onProgress?: (message: string) => void): Promise<GeneratedMaterial> {
+export async function generateMaterial(input: SmartToolInput, onProgress?: (message: string) => void, studentNameForRedaction = '', studentIdForEvidence = ''): Promise<GeneratedMaterial> {
   const client = requireSupabase(); const { data, error } = await client.auth.getSession(); if (error || !data.session) throw error ?? new Error('Sign in to generate teaching material.');
   const request = async (body: Record<string, unknown>): Promise<GeneratedMaterial> => {
-    const response = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify(body) });
+    const response = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify({ ...body, studentNameForRedaction, studentIdForEvidence }) });
     const payload = await response.json().catch(() => ({})) as GeneratedMaterial & { error?: string; code?: string; phase?: string; matches?: GenerationMatch[] };
     if (response.status === 409 && payload.matches?.length) throw new GenerationReuseError(payload.matches, payload.error || 'Similar resources already exist.');
     if (!response.ok) throw new GenerationRequestError(response.status, payload.code || (response.status >= 500 ? 'generation_failed' : 'request_failed'), payload.phase || '', payload.error);
@@ -88,14 +119,14 @@ export async function generateMaterial(input: SmartToolInput, onProgress?: (mess
 }
 
 
-export async function generateProgramUnit(input: SmartToolInput, skeleton: Record<string, unknown>, unitIndex: number): Promise<Record<string, unknown>> {
+export async function generateProgramUnit(input: SmartToolInput, skeleton: Record<string, unknown>, unitIndex: number, studentNameForRedaction = '', studentIdForEvidence = ''): Promise<Record<string, unknown>> {
   const client = requireSupabase();
   const { data, error } = await client.auth.getSession();
   if (error || !data.session) throw error ?? new Error('Sign in to continue the program.');
   const units = Array.isArray(skeleton.units) ? skeleton.units as Record<string, unknown>[] : [];
   const unit = units[unitIndex];
   if (!unit || !Number.isSafeInteger(unitIndex) || unitIndex < 0) throw new Error('Choose a valid program unit.');
-  const response = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify({ ...input, programPhase: 'unit', programSkeleton: skeleton, programUnitIndex: unitIndex, reuseConfirmed: true }) });
+  const response = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify({ ...input, programPhase: 'unit', programSkeleton: skeleton, programUnitIndex: unitIndex, reuseConfirmed: true, studentNameForRedaction, studentIdForEvidence }) });
   const payload = await response.json().catch(() => ({})) as GeneratedMaterial & { error?: string; code?: string; phase?: string };
   if (!response.ok) throw new GenerationRequestError(response.status, payload.code || 'generation_failed', payload.phase || '', payload.error);
   const details = payload.document;
@@ -144,7 +175,7 @@ export async function getSavedProgramGeneration(id: string): Promise<{ input: Sm
   const subject = ({ english: 'English', spanish: 'Spanish', mathematics: 'Mathematics', science: 'Science', music: 'Music', study_skills: 'Study skills', other: 'Other' } as Record<string, string>)[subjectKey] || 'Other';
   const document = row.program_data && typeof row.program_data === 'object' ? row.program_data as Record<string, unknown> : {};
   const input: SmartToolInput = { kind: 'program', subject, customSubject: String(row.custom_subject_name || ''), topic: '', stage: String(row.learner_stage || ''), level: String(row.level_or_band || ''), language: String(row.student_material_language || 'en'), planLanguage: String(row.program_language || 'en'), nativeLanguage: String(config.student_native_language || ''), generationMode: 'ai', requestedUnits: Number(config.requested_units || (Array.isArray(document.units) ? document.units.length : 0)), requestedLessons: Number(config.requested_lessons_per_unit || 4), programTrack: String(config.program_track || 'general_language'), examTarget: String(config.exam_prep_target || ''), duration: '60 minutes', notes: String(config.additional_notes || ''), previousProgramId: row.parent_program_id ? String(row.parent_program_id) : undefined, visibility: 'private' };
-  return { input, result: { document, model: String(row.source_type || 'ai'), generatedAt: String(row.updated_at || '') } };
+  return { input, result: { document, model: String(row.source_type || 'ai'), generationId: String(config.generation_id || '') || undefined, generatedAt: String(row.updated_at || '') } };
 }
 
 export async function saveGeneratedMaterial(input: SmartToolInput, document: Record<string, unknown>) {
@@ -196,7 +227,7 @@ export async function saveGeneratedMaterial(input: SmartToolInput, document: Rec
     status: complete ? 'active' : 'draft',
     total_units: units.length,
     total_topics: totalTopics,
-    builder_config: { expo_native: true, generation_path: parent ? 'next_level' : 'standalone', previous_program_id: parent?.id || null, requested_units: input.requestedUnits, requested_lessons_per_unit: input.requestedLessons, program_track: input.programTrack || 'general_language', exam_prep_target: input.examTarget || '', student_native_language: input.nativeLanguage || '', additional_notes: input.notes || '' },
+    builder_config: { expo_native: true, generation_path: parent ? 'next_level' : 'standalone', previous_program_id: parent?.id || null, generation_id: input.generationId || null, requested_units: input.requestedUnits, requested_lessons_per_unit: input.requestedLessons, program_track: input.programTrack || 'general_language', exam_prep_target: input.examTarget || '', student_native_language: input.nativeLanguage || '', additional_notes: input.notes || '' },
     program_data: savedDocument,
     updated_at: now,
     created_at: now,

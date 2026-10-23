@@ -1,3 +1,7 @@
+from functools import partial
+from services.document_export_events import recorded_download_button as _recorded_download_button
+recorded_download_button = partial(_recorded_download_button, document_kind="student_report")
+
 import streamlit as st
 import datetime
 import urllib.parse
@@ -392,7 +396,7 @@ def _render_loaded_student_report(student: str, dashboard_df: pd.DataFrame) -> N
         _can_download_pdf = can_export_pdf()
         if not _can_download_pdf:
             st.warning(t("ai_limit_reached") if t("ai_limit_reached") != "ai_limit_reached" else "PDF export limit reached.")
-        _downloaded_pdf = st.download_button(
+        _downloaded_pdf = recorded_download_button(
             label=f"\U0001f4c4 {t('download_pdf')}",
             data=_rpt_pdf,
             file_name=_rpt_file,

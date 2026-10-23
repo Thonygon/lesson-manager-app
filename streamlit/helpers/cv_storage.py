@@ -1,3 +1,7 @@
+from functools import partial
+from services.document_export_events import recorded_download_button as _recorded_download_button
+recorded_download_button = partial(_recorded_download_button, document_kind="cv")
+
 # CV_STORAGE.PY
 #===============================
 
@@ -16,7 +20,7 @@ from helpers.native_language import native_language_label, normalize_native_lang
 from core.timezone import today_local, get_app_tz
 from core.database import clear_app_caches, get_sb, insert_row_with_retries, load_table
 from services.ai_usage_service import log_ai_usage_event, with_provider_chain
-from services.permissions_service import can_use_ai_tool, get_feature_usage_status, increment_usage
+from services.permissions_service import can_use_ai_tool, get_feature_usage_status
 from helpers.archive_utils import ACTIVE_STATUS, ARCHIVED_STATUS, filter_archived_rows, is_archived_status
 from helpers.resource_deletion import render_archive_delete_button, render_archive_delete_confirmation
 
@@ -603,7 +607,7 @@ def render_cv_result(
 
     safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(cv.get("full_name") or "cv").strip()) or "cv"
     pdf_bytes = build_cv_pdf_bytes(cv)
-    st.download_button(
+    recorded_download_button(
         label=t("download_cv_pdf"),
         data=pdf_bytes,
         file_name=f"cv_{safe_name}.pdf",
@@ -1288,7 +1292,6 @@ def render_quick_cv_builder_expander(*, embedded: bool = False) -> None:
                                 user_prompt=cv_ai_prompt,
                             )
                             _log_ai_cv("success", {"doc": "cv", "provider": str(generated_cv.pop('_ai_provider', '') or '')})
-                            increment_usage(None, "ai_generations")
                         else:
                             _log_ai_cv("success", {"doc": "cv", "used_ai": False, "generation_mode": "template_only"})
                             generated_cv = _cv().build_template_cv(**_kwargs)
@@ -1335,7 +1338,6 @@ def render_quick_cv_builder_expander(*, embedded: bool = False) -> None:
                                 user_prompt=cv_cl_prompt,
                             )
                             _log_ai_cv("success", {"doc": "cover_letter", "provider": provider})
-                            increment_usage(None, "ai_generations")
                             st.session_state["quick_cl_result"] = cl_text
                             _cl_title = (
                                 f"{t('cover_letter')} – {cv_full_name.strip()}"
@@ -1392,7 +1394,8 @@ def render_quick_cv_builder_expander(*, embedded: bool = False) -> None:
             cl_title = st.session_state.get("quick_cl_title", t("my_cover_letter"))
             cl_pdf   = build_cover_letter_pdf_bytes(cl_result, cl_title)
             safe_cl  = re.sub(r"[^A-Za-z0-9._-]+", "_", cl_title) or "cover_letter"
-            st.download_button(
+            _recorded_download_button(
+                document_kind="cover_letter",
                 label=t("download_cl_pdf"),
                 data=cl_pdf,
                 file_name=f"{safe_cl}.pdf",

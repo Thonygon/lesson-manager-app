@@ -1,5 +1,7 @@
 # Classio Expo design and UX inspection
 
+**Historical design inspection.** For current Streamlit–Expo acceptance, use the [parity checklist](CLASSIO_EXPO_PARITY_CHECKLIST.md) and the [single audit register](docs/AUDITORIAS_ESTADO_2026-10-22.md). This inspection remains design evidence, not a separate audit queue.
+
 Updated: 2026-09-30. Source of behavioral parity: `streamlit/app_pages` and `streamlit/helpers`; Expo routes: `expo/src/app/(app)`. This checklist is for the visual and interaction pass. The detailed data and workflow parity ledger remains in `CLASSIO_EXPO_PARITY_CHECKLIST.md`.
 
 ## Shared app

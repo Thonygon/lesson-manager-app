@@ -751,7 +751,7 @@ def _merge_profiles_subscriptions(
     return pd.DataFrame(rows)
 
 
-def _is_paid_user_row(row: dict | pd.Series) -> bool:
+def _has_commercial_plan_access(row: dict | pd.Series) -> bool:
     plan_id = str((row.get("current_plan") if hasattr(row, "get") else "") or "").strip().lower()
     subscription_status = str((row.get("subscription_status") if hasattr(row, "get") else "") or "").strip().lower()
     if plan_id in {"", "free", "beta_lifetime"}:
@@ -763,13 +763,13 @@ def _business_metrics(df: pd.DataFrame) -> dict[str, int]:
     today = today_local()
     last_30 = pd.Timestamp(today - timedelta(days=30))
     created_at = pd.to_datetime(df.get("created_at"), errors="coerce", utc=True) if not df.empty and "created_at" in df.columns else pd.Series(dtype="datetime64[ns, UTC]")
-    paid_users = int(sum(_is_paid_user_row(row) for row in df.to_dict("records"))) if not df.empty else 0
+    commercial_plan_access = int(sum(_has_commercial_plan_access(row) for row in df.to_dict("records"))) if not df.empty else 0
     return {
         "total_users": int(len(df)),
         "teachers": int((df.get("role", pd.Series(dtype=str)).astype(str) == "teacher").sum()) if not df.empty else 0,
         "students": int((df.get("role", pd.Series(dtype=str)).astype(str) == "student").sum()) if not df.empty else 0,
         "admins": int((df.get("role", pd.Series(dtype=str)).astype(str) == "admin").sum()) if not df.empty else 0,
-        "paid_users": paid_users,
+        "commercial_plan_access": commercial_plan_access,
         "suspended_users": int((df.get("account_status", pd.Series(dtype=str)).astype(str) == "suspended").sum()) if not df.empty else 0,
         "new_last_30": int((created_at >= last_30.tz_localize("UTC")).sum()) if not created_at.empty else 0,
     }
@@ -2225,7 +2225,7 @@ def _render_admin_hero(df: pd.DataFrame) -> None:
     metrics = _business_metrics(df)
     chips = [
         t("admin_hero_users_chip", count=metrics["total_users"]),
-        t("admin_hero_paid_chip", count=metrics["paid_users"]),
+        t("admin_hero_plan_access_chip", count=metrics["commercial_plan_access"]),
         t("admin_hero_admins_chip", count=metrics["admins"]),
         t("admin_hero_new_30d_chip", count=metrics["new_last_30"]),
     ]
@@ -2249,11 +2249,12 @@ def _render_overview(df: pd.DataFrame, subscriptions: list[dict]) -> None:
     _render_kpi_row(
         [
             (t("admin_metric_users"), str(metrics["total_users"])),
-            (t("admin_metric_paid_users"), str(metrics["paid_users"])),
+            (t("admin_metric_plan_access"), str(metrics["commercial_plan_access"])),
             (t("admin_metric_new_30d"), str(metrics["new_last_30"])),
             (t("admin_metric_suspended"), str(metrics["suspended_users"])),
         ]
     )
+    st.caption(t("admin_plan_access_not_revenue"))
     st.markdown("")
     _render_kpi_row(
         [

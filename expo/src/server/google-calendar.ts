@@ -54,7 +54,7 @@ function stateUser(state: string) {
 }
 
 async function tokenRequest(body: URLSearchParams) {
-  const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+  const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(15000) });
   const data = await response.json() as Record<string, unknown>;
   if (!response.ok || !data.access_token) throw new Error(String(data.error_description || data.error || 'Google authorization failed.'));
   return data;
@@ -108,7 +108,7 @@ function dateInTimezone(date: Date, timezone: string) {
 }
 
 async function googleRequest(token: string, method: string, path: string, body?: unknown) {
-  return fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events${path}`, { method, headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  return fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events${path}`, { method, headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15000) });
 }
 
 export async function syncGoogleCalendar(uid: string) {

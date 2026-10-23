@@ -137,7 +137,7 @@ function AdminPlanEditor({ plan, plans, selected, onSelect, reload, t }: { plan:
   const [customPricing, setCustomPricing] = useState(plan.price == null);
   const [interval, setInterval] = useState(id(plan.billing_interval || 'month')), [active, setActive] = useState(plan.active !== false);
   const initialLimits = plan.limits_json && typeof plan.limits_json === 'object' ? plan.limits_json as Row : {};
-  const [limits, setLimits] = useState<Record<string, string>>(Object.fromEntries(['ai_generations', 'pdf_exports', 'word_exports', 'students_count', 'classes_count'].map((key) => [key, id(initialLimits[key] || '0')])));
+  const [limits, setLimits] = useState<Record<string, string>>(Object.fromEntries(['ai_generations', 'pdf_exports', 'word_exports', 'students_count', 'classes_count'].map((key) => [key, id(initialLimits[key] ?? (key === 'ai_generations' ? 10 : 0))])));
   const initialFeatures = plan.features_json && typeof plan.features_json === 'object' ? plan.features_json as Row : {};
   const [features, setFeatures] = useState<Record<string, boolean>>(Object.fromEntries(PLAN_FEATURE_KEYS.map((key) => [key, key in initialFeatures ? initialFeatures[key] === true : inferredPlanFeature(key, initialFeatures)])));
   const [premium, setPremium] = useState<Record<string, boolean>>(Object.fromEntries(PREMIUM_TOOL_CANDIDATES.map((key) => [key, inferredPremiumHighlight(key, initialFeatures)])));
