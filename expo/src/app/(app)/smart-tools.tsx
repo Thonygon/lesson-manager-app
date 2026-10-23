@@ -158,7 +158,7 @@ export default function SmartToolsScreen() {
     } catch (error) {
       setMessageTone('error');
       if (error instanceof GenerationReuseError) { setReuseMatches(error.matches); setPendingReuseInput(confirmedInput || { ...input }); setConfirmReuse(true); setMessage(''); }
-      else if (error instanceof GenerationRequestError) setMessage(error.code === 'exam_type_limit' ? t('smart.examTooMany', { sections: examRule.sections }) : t(error.code === 'teacher_access_required' ? 'smart.teacherAccessRequired' : error.code === 'teaching_access_unavailable' ? 'smart.teacherAccessUnavailable' : error.code === 'permission_blocked' ? 'smart.permissionDenied' : error.code === 'limit_reached' ? 'smart.limitReached' : error.code === 'cooldown_active' ? 'smart.cooldown' : error.code === 'usage_unavailable' ? 'smart.usageUnavailable' : error.code === 'reuse_unavailable' || error.phase === 'similar_resources' ? 'smart.reuseLookupFailed' : 'smart.generationFailed'));
+      else if (error instanceof GenerationRequestError) setMessage(error.code === 'exam_type_limit' ? t('smart.examTooMany', { sections: examRule.sections }) : t(error.code === 'teacher_access_required' ? 'smart.teacherAccessRequired' : error.code === 'teaching_access_unavailable' ? 'smart.teacherAccessUnavailable' : error.code === 'permission_blocked' ? 'smart.permissionDenied' : error.code === 'limit_reached' ? 'smart.limitReached' : error.code === 'cooldown_active' ? 'smart.cooldown' : error.code === 'usage_unavailable' ? 'smart.usageUnavailable' : error.code === 'provider_unavailable' ? 'smart.providerUnavailable' : error.code === 'reuse_unavailable' || error.phase === 'similar_resources' ? 'smart.reuseLookupFailed' : 'smart.generationFailed'));
       else setMessage(messageOf(error, t('smart.saveFailed')));
     } finally { setBusy(false); }
   };
@@ -170,7 +170,7 @@ export default function SmartToolsScreen() {
       await syncGeneratedProgramUnit(savedResourceId, document, unitIndex);
       setResult({ ...result, document });
       setMessageTone('success'); setMessage(t(programReady(document) ? 'smart.programComplete' : 'smart.programUnitSaved', { number: unitIndex + 1 }));
-    } catch (error) { setMessageTone('error'); setMessage(error instanceof GenerationRequestError ? t('smart.generationFailed') : messageOf(error, t('smart.saveFailed'))); }
+    } catch (error) { setMessageTone('error'); setMessage(error instanceof GenerationRequestError ? t(error.code === 'provider_unavailable' ? 'smart.providerUnavailable' : 'smart.generationFailed') : messageOf(error, t('smart.saveFailed'))); }
     finally { setUnitBusy(null); }
   };
   const save = async () => {

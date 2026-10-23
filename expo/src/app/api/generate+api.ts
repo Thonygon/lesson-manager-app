@@ -14,13 +14,13 @@ import { programLanguageIssues } from '../../server/program-language-quality';
 import { mergePreviousProgramRows, previousProgramFromStorage, previousProgramComplete, summarizePreviousProgram } from '../../server/program-continuation';
 import { configuredAiProviders, requestAiProvider } from '../../server/ai-provider-chain';
 import { reserveGuestGeneration } from '../../server/guest-generation-quota';
-import { logAiGeneration, type UsageContext } from '../../server/ai-generation-usage';
+import type { UsageContext } from '../../server/ai-generation-usage';
 import { findGenerationMatches } from '../../server/generation-reuse';
 import { sourceSystemPrompt } from '../../server/source-system-prompts';
 import { examLengthRule } from '../../lib/exam-generation-rules';
 import { programExamTargets } from '../../shared/program-builder-options';
 import { gradeEvidencePrompt, loadMatchedGradeEvidence, loadRosterProgramEvidence } from '../../server/student-generation-evidence';
-import { beginAiOperation, beginProviderAttempt, beginReservedGenerationAttempt, finishAiOperation, finishProviderAttempt, type AiEconomicContext } from '../../server/ai-economic-events';
+import { beginAiOperation, beginProviderAttempt, beginReservedGenerationAttempt, finishGenerationOperation, type AiEconomicContext, type AttemptResult } from '../../server/ai-economic-events';
 
 type ToolKind = 'plan' | 'worksheet' | 'exam' | 'program';
 type GenerationRequest = { kind?: ToolKind; subject?: string; customSubject?: string; topic?: string; stage?: string; level?: string; language?: string; planLanguage?: string; nativeLanguage?: string; generationMode?: string; lessonPurpose?: string; objective?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration?: string; questionCount?: number; notes?: string; programId?: string; programTopicId?: string; previousProgramId?: string; programPhase?: 'skeleton' | 'unit'; programSkeleton?: Record<string, unknown>; programUnitIndex?: number; reuseConfirmed?: boolean; studentNameForRedaction?: string; studentIdForEvidence?: string };
@@ -142,6 +142,14 @@ export async function POST(request: Request) {
   let phase = 'authorization';
   let economicContext: AiEconomicContext | null = null;
   let economicOperationId = '';
+  const attemptResults: { attemptId: string; result: AttemptResult }[] = [];
+  async function finalize(status: 'success' | 'failed', errorKind = '', meta: Record<string, unknown> = {}) {
+    if (!economicContext || !economicOperationId) return;
+    const operationId = economicOperationId;
+    economicOperationId = '';
+    try { await finishGenerationOperation(economicContext, operationId, status, attemptResults, errorKind, meta); }
+    catch (error) { console.error('AI economic operation finalization failed', error); }
+  }
   try {
     const authorization = request.headers.get('authorization') || ''; const token = authorization.replace(/^Bearer\s+/i, '').trim();
     const guest = !token;
@@ -298,6 +306,7 @@ export async function POST(request: Request) {
     let providerName = '';
     let providerModel = '';
     let failure = 'The AI provider could not complete this generation. Try again.';
+    let failureCode = 'generation_failed';
     let providerCalls = 0;
     const economicKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
     economicContext = { base: supabaseUrl, serverKey: economicKey, actorUserId: userId || null, source: 'expo' };
@@ -320,13 +329,11 @@ export async function POST(request: Request) {
           try { reservation = await beginReservedGenerationAttempt(economicContext, profilePlan, `generate_${kind}`, proposedOperationId, proposedAttemptId, attemptNo, provider.provider, provider.model); }
           catch (error) {
             console.error('AI usage reservation failed', error);
-            if (economicOperationId) await finishAiOperation(economicContext, economicOperationId, 'failed', 'reservation_failed').catch((failure) => console.error('AI economic operation finalization failed', failure));
-            economicOperationId = '';
+            await finalize('failed', 'reservation_failed', { prompt_version: 'expo-generate-v1', result: 'reservation_failed', provider_calls: providerCalls });
             return json({ error: 'AI usage could not be reserved.', code: 'usage_unavailable' }, 503);
           }
           if (!reservation.allowed) {
-            if (economicOperationId) await finishAiOperation(economicContext, economicOperationId, 'failed', reservation.reason || 'limit_reached').catch((failure) => console.error('AI economic operation finalization failed', failure));
-            economicOperationId = '';
+            await finalize('failed', reservation.reason || 'limit_reached', { prompt_version: 'expo-generate-v1', result: reservation.reason || 'limit_reached', provider_calls: providerCalls });
             return json({ error: reservation.status === 403 ? 'AI tools are not included in your plan.' : 'Your AI generation limit has been reached.', code: reservation.reason || 'limit_reached' }, reservation.status);
           }
           economicOperationId = proposedOperationId;
@@ -351,29 +358,30 @@ export async function POST(request: Request) {
         } catch (error) {
           console.error('AI provider request failed', provider.provider, error instanceof Error ? error.message : 'unknown error');
           const status = /HTTP (\d{3})/.exec(error instanceof Error ? error.message : '');
-          await finishProviderAttempt(economicContext, economicAttemptId, { status: 'failed', httpStatus: status ? Number(status[1]) : undefined, errorKind: status ? 'provider_http' : 'transport_error' });
+          attemptResults.push({ attemptId: economicAttemptId, result: { status: 'failed', httpStatus: status ? Number(status[1]) : undefined, errorKind: status ? 'provider_http' : 'transport_error' } });
+          failureCode = 'provider_unavailable';
+          if (status?.[1] === '402') failure = 'The AI provider has no available credit. Try again later.';
+          else if (error instanceof Error && /timed out/i.test(error.message)) failure = 'The AI provider took too long to respond. Try again.';
           continue;
         }
         try { document = jsonFromModel(content); }
-        catch { document = null; repair = 'not valid JSON'; failure = 'The AI provider returned an invalid document. Try again.'; await finishProviderAttempt(economicContext, economicAttemptId, { status: 'failed', modelReported: model, providerRequestId, httpStatus: providerHttpStatus, ...providerUsage, errorKind: 'invalid_json' }); continue; }
+        catch { document = null; repair = 'not valid JSON'; failure = 'The AI provider returned an invalid document. Try again.'; failureCode = 'generation_failed'; attemptResults.push({ attemptId: economicAttemptId, result: { status: 'failed', modelReported: model, providerRequestId, httpStatus: providerHttpStatus, ...providerUsage, errorKind: 'invalid_json' } }); continue; }
         if (kind === 'plan' && text(body.objective, 500)) document.objective = text(body.objective, 500);
         if (kind === 'worksheet') document = normalizeWorksheetAnswerKey(document);
         if (kind === 'exam') document = repairExamAnswerKey(document);
         const qualityIssues = kind === 'program' && body.programPhase === 'skeleton' ? [...programSkeletonIssues(document, programStructure.units, programStructure.lessonsPerUnit), ...programLanguageIssues(document, planLanguage, language)] : kind === 'program' && body.programPhase === 'unit' ? [...programUnitIssues(document, programUnits[programUnitIndex]), ...programLanguageIssues(document, planLanguage, language, true)] : kind === 'plan' ? lessonPlanQualityIssues(document, { subject, stage, level, purpose, programContext: programBlock }) : kind === 'worksheet' ? worksheetQualityIssues(document) : kind === 'exam' ? examQualityIssues(document, length) : programQualityIssues(document, programStructure.units, programStructure.lessonsPerUnit);
-        if ((kind === 'program' || validGeneratedDocument(kind, document, body)) && qualityIssues.length === 0) { await finishProviderAttempt(economicContext, economicAttemptId, { status: 'success', modelReported: model, providerRequestId, httpStatus: providerHttpStatus, ...providerUsage }); providerName = provider.provider; providerModel = model; break; }
-        await finishProviderAttempt(economicContext, economicAttemptId, { status: 'failed', modelReported: model, providerRequestId, httpStatus: providerHttpStatus, ...providerUsage, errorKind: 'invalid_output' });
-        document = null; repair = qualityIssues.length ? qualityIssues.join('; ') : 'incomplete'; failure = 'The AI provider returned an incomplete document. Try again.';
+        if ((kind === 'program' || validGeneratedDocument(kind, document, body)) && qualityIssues.length === 0) { attemptResults.push({ attemptId: economicAttemptId, result: { status: 'success', modelReported: model, providerRequestId, httpStatus: providerHttpStatus, ...providerUsage } }); providerName = provider.provider; providerModel = model; break; }
+        attemptResults.push({ attemptId: economicAttemptId, result: { status: 'failed', modelReported: model, providerRequestId, httpStatus: providerHttpStatus, ...providerUsage, errorKind: 'invalid_output' } });
+        document = null; repair = qualityIssues.length ? qualityIssues.join('; ') : 'incomplete'; failure = 'The AI provider returned an incomplete document. Try again.'; failureCode = 'generation_failed';
       }
       if (document || providerCalls >= 2) break;
     }
     if (!document) {
-      await finishAiOperation(economicContext, economicOperationId, 'failed', 'provider_failed'); economicOperationId = '';
-      if (usageContext) await logAiGeneration(usageContext, 'failed', { prompt_version: 'expo-generate-v1', result: 'provider_failed', provider_calls: providerCalls }).catch((error) => console.error('AI usage failure log failed', error));
-      return fallbackProgram() ?? fallbackPlan() ?? json({ error: failure }, 502);
+      await finalize('failed', 'provider_failed', { prompt_version: 'expo-generate-v1', result: 'provider_failed', provider_calls: providerCalls });
+      return fallbackProgram() ?? fallbackPlan() ?? json({ error: failure, code: failureCode }, 502);
     }
     const completedOperationId = economicOperationId;
-    await finishAiOperation(economicContext, economicOperationId, 'success'); economicOperationId = '';
-    if (usageContext) await logAiGeneration(usageContext, 'success', { prompt_version: 'expo-generate-v1', provider: providerName, model: providerModel, result: 'accepted', provider_calls: providerCalls }).catch((error) => console.error('AI usage success log failed', error));
+    await finalize('success', '', { prompt_version: 'expo-generate-v1', provider: providerName, model: providerModel, result: 'accepted', provider_calls: providerCalls });
     return json({ document, model: 'ai', generationId: userId ? completedOperationId : undefined, generatedAt: new Date().toISOString() }, 200, guestCookie ? { 'Set-Cookie': guestCookie } : undefined);
-  } catch (error) { if (economicContext && economicOperationId) await finishAiOperation(economicContext, economicOperationId, 'failed', 'unexpected_error').catch((failure) => console.error('AI economic operation finalization failed', failure)); console.error('Generation route error', phase, error); return json({ error: 'Generation failed.', code: 'generation_failed', phase }, 500); }
+  } catch (error) { await finalize('failed', 'unexpected_error', { prompt_version: 'expo-generate-v1', result: 'unexpected_error' }); console.error('Generation route error', phase, error); return json({ error: 'Generation failed.', code: 'generation_failed', phase }, 500); }
 }

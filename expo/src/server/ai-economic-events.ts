@@ -120,3 +120,36 @@ export async function finishProviderAttempt(context: AiEconomicContext, attemptI
     error_kind: result.errorKind?.slice(0, 80) || null,
   }, { column: 'attempt_id', value: attemptId });
 }
+
+/** Complete a generation's attempts, operation and usage log in one Worker subrequest. */
+export async function finishGenerationOperation(context: AiEconomicContext, operationId: string, status: 'success' | 'failed', attempts: { attemptId: string; result: AttemptResult }[], errorKind = '', usageMeta: Record<string, unknown> = {}): Promise<void> {
+  if (!context.base || !context.serverKey || !operationId) throw new Error('AI generation telemetry is not configured.');
+  const response = await fetch(`${context.base.replace(/\/$/, '')}/rest/v1/rpc/classio_finish_ai_generation`, {
+    method: 'POST',
+    headers: { apikey: context.serverKey, Authorization: `Bearer ${context.serverKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      p_operation_id: operationId,
+      p_user_id: context.actorUserId || null,
+      p_status: status,
+      p_error_kind: errorKind || null,
+      p_attempts: attempts.map(({ attemptId, result }) => ({
+        attempt_id: attemptId,
+        status: result.status,
+        model_reported: result.modelReported?.slice(0, 160) || null,
+        http_status: result.httpStatus || null,
+        provider_request_id: result.providerRequestId?.slice(0, 160) || null,
+        input_tokens: result.input_tokens ?? null,
+        output_tokens: result.output_tokens ?? null,
+        cached_input_tokens: result.cached_input_tokens ?? null,
+        reasoning_tokens: result.reasoning_tokens ?? null,
+        usage_observed: result.usage_observed ?? false,
+        usage_json: result.usage_json ?? {},
+        error_kind: result.errorKind?.slice(0, 80) || null,
+      })),
+      p_usage_meta: usageMeta,
+    }),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok || await response.json() !== true) throw new Error(`AI generation telemetry finalization failed (${response.status}).`);
+}

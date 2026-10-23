@@ -41,9 +41,11 @@ let previousTopics = [];
 let lastProviderPrompt = '';
 let similarResources = [];
 let failUsageWrites = false;
+let failFinalization = false;
 let deniedUsage = false;
 let subrequestsBeforeProvider = 0;
 let requestsInInvocation = 0;
+let finalizationCalls = 0;
 const validPlan = { title: 'Greetings', objective: 'Greet a peer', success_criteria: ['Greet clearly', 'Respond appropriately'], warm_up: ['Recall a greeting', 'Practice a response'], main_activity: ['Role play'], guided_practice: ['Model a conversation'], practice_questions: ['What greeting fits?', 'How would you reply?'], reading_passage: 'A short dialogue between two peers.', core_material: { target_vocabulary: ['hello', 'goodbye', 'please'], gist_questions: ['Who is speaking?'], detail_questions: ['What did they say?'] } };
 let providerDocument = validPlan;
 const validToken = `header.${Buffer.from(JSON.stringify({ sub: '12345678-1234-1234-1234-123456789012' })).toString('base64url')}.signature`;
@@ -82,6 +84,16 @@ async function main() {
         assert.match(payload.p_feature_name, /^generate_(plan|worksheet|exam|program)$/);
         return failUsageWrites ? new Response(null, { status: 503 }) : Response.json(deniedUsage ? { allowed: false, status: 429, reason: 'limit_reached' } : { allowed: true, used: 1 });
       }
+      if (target.includes('/rest/v1/rpc/classio_finish_ai_generation')) {
+        finalizationCalls += 1;
+        if (failFinalization) throw new Error('Too many subrequests by single Worker invocation.');
+        const payload = JSON.parse(options.body);
+        assert.match(payload.p_operation_id, /^[0-9a-f-]{36}$/);
+        assert.ok(['success', 'failed'].includes(payload.p_status));
+        assert.ok(Array.isArray(payload.p_attempts));
+        assert.ok(payload.p_attempts.length <= 2);
+        return Response.json(true);
+      }
       if (target.includes('/rest/v1/classio_ai_operations') || target.includes('/rest/v1/classio_provider_attempts')) return options.method === 'PATCH' ? Response.json([{ id: 1 }]) : new Response(null, { status: 201 });
       if (target.includes('/rest/v1/ai_usage_logs')) return new Response(null, { status: 201 });
       if (target.includes('/rest/v1/learning_programs')) {
@@ -115,6 +127,8 @@ async function main() {
     requestsInInvocation = 0;
     assert.equal((await POST(request())).status, 200);
     assert.ok(subrequestsBeforeProvider <= 3, `Unexpectedly expensive generation preflight: ${subrequestsBeforeProvider} subrequests`);
+    assert.ok(requestsInInvocation <= 5, `Unexpectedly expensive completed generation: ${requestsInInvocation} subrequests`);
+    assert.equal(finalizationCalls, 1);
     profile = { ...profile, account_status: 'suspended' };
     const suspended = await POST(request());
     assert.equal(suspended.status, 403);
@@ -183,6 +197,17 @@ async function main() {
     const unavailable = await POST(request());
     assert.equal(unavailable.status, 200);
     assert.equal((await unavailable.json()).model, 'template');
+    providerFailures = 2;
+    failFinalization = true;
+    const loggedErrors = [];
+    console.error = (...args) => loggedErrors.push(args);
+    try {
+      const failedWorksheet = await POST(request(validToken, 'worksheet'));
+      assert.equal(failedWorksheet.status, 502);
+      assert.equal((await failedWorksheet.json()).code, 'provider_unavailable');
+    }
+    finally { console.error = originalConsoleError; failFinalization = false; }
+    assert.ok(loggedErrors.some((args) => String(args[0]).includes('finalization failed')));
     providerDocument = { title: 'Practice', worksheet_type: 'short_answer', instructions: 'Answer both questions.', questions: ['A?', 'B?'], answer_key: '' };
     assert.equal((await POST(request(validToken, 'worksheet'))).status, 502);
     providerDocument.answer_key = '1. A; 2. B';

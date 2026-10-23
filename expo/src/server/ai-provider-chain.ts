@@ -21,15 +21,16 @@ export async function requestAiProvider(
 ): Promise<{ content: string; model: string; usage: ProviderUsage; providerRequestId: string; httpStatus: number }> {
   const commonHeaders = { 'Content-Type': 'application/json' };
   const providerPrompt = redactDirectIdentifiers(userPrompt, knownStudentNames);
+  const timeoutMs = provider.provider === 'openrouter' ? 75000 : 45000;
   const response = provider.provider === 'gemini'
     ? await fetchBoundedAiJson(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(provider.model)}:generateContent`, {
       method: 'POST', headers: { ...commonHeaders, 'x-goog-api-key': provider.key },
       body: JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt }] }, contents: [{ role: 'user', parts: [{ text: providerPrompt }] }], generationConfig: { temperature: 0.35, responseMimeType: 'application/json', maxOutputTokens: 16384 } }),
-    }, { timeoutMs: 30000, maxResponseBytes: 512 * 1024 }, fetcher)
+    }, { timeoutMs, maxResponseBytes: 512 * 1024 }, fetcher)
     : await fetchBoundedAiJson(provider.provider === 'openrouter' ? 'https://openrouter.ai/api/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions', {
       method: 'POST', headers: { ...commonHeaders, Authorization: `Bearer ${provider.key}`, ...(provider.provider === 'openrouter' ? { 'HTTP-Referer': 'https://classio.expo.app', 'X-Title': 'Classio' } : {}) },
       body: JSON.stringify({ model: provider.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: providerPrompt }], temperature: 0.35, response_format: { type: 'json_object' }, max_tokens: 16384 }),
-    }, { timeoutMs: 30000, maxResponseBytes: 512 * 1024 }, fetcher);
+    }, { timeoutMs, maxResponseBytes: 512 * 1024 }, fetcher);
   if (!response.ok) throw new Error(`${provider.provider} returned HTTP ${response.status}.`);
   const result = response.body;
   const candidates = Array.isArray(result.candidates) ? result.candidates : [];
