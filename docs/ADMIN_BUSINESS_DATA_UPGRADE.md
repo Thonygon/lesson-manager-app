@@ -2,7 +2,7 @@
 
 **Señales de calidad añadidas en código (23-10-2026):** respuestas a generación y relevancia docente quedan en tablas separadas de `classio_ai_operations`, costes y libros de pago. Una futura vista Admin puede cruzar volumen, éxito técnico, coste y satisfacción por versión/modelo/superficie sin guardar prompts ni tratar un «No apto para este estudiante» como fallo temático. `streamlit/scripts/evaluate_quality_feedback.py` prepara el corte agregado; faltan etiquetas beta, aceptación y el diseño de umbrales antes de convertirlo en un indicador de calidad o presupuesto.
 
-Estado: propuesta de producto e instrumentación basada en la inspección del repositorio del 22 de octubre de 2026. Las primeras capas de cobertura de IA y PDF/Word están preparadas en código local, sin despliegue ni aceptación beta. No valida las cifras del informe financiero.
+Estado: propuesta de producto e instrumentación basada en la inspección del repositorio del 22 de octubre de 2026. Las primeras capas de cobertura de IA y PDF/Word se aplicaron en Supabase y se publicaron en Expo el 23 de octubre; falta aceptación beta y conciliación. No valida las cifras del informe financiero.
 
 Este es el diseño de implementación de la [auditoría financiera activa](../financial_analysis/README.md). Sus etapas son entregables de esa auditoría y no una cola independiente; el orden entre finanzas, tecnología, paridad y academia está en el [registro único](AUDITORIAS_ESTADO_2026-10-22.md).
 
