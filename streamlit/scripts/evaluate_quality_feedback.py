@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 TABLE_COLUMNS = {
     "classio_generation_intent_feedback": "generation_id,feature_name,feedback_surface,satisfied,reason,answered_at",
     "classio_explorer_generation_feedback": "operation_id,feature_name,feedback_surface,satisfied,reason,answered_at",
+    "classio_legacy_generation_intent_feedback": "resource_type,resource_id,feedback_surface,satisfied,reason,answered_at",
     "classio_teacher_relevance_feedback": "exposure_id,reason,active,resource_is_public,topic_id,updated_at",
     "classio_teacher_relevance_feedback_events": "action,created_at",
     "resource_exposures": "exposure_id,exposure_type,shown_at",
@@ -39,6 +40,7 @@ def _after(value: object, since: datetime) -> bool:
 def build_report(snapshot: dict, since: datetime) -> dict:
     generations = [row for row in snapshot.get("classio_generation_intent_feedback", []) if _after(row.get("answered_at"), since)]
     explorer = [row for row in snapshot.get("classio_explorer_generation_feedback", []) if _after(row.get("answered_at"), since)]
+    legacy = [row for row in snapshot.get("classio_legacy_generation_intent_feedback", []) if _after(row.get("answered_at"), since)]
     rejected = [row for row in snapshot.get("classio_teacher_relevance_feedback", []) if row.get("active") is True and _after(row.get("updated_at"), since)]
     events = [row for row in snapshot.get("classio_teacher_relevance_feedback_events", []) if _after(row.get("created_at"), since)]
     displayed = {str(row.get("exposure_id")) for row in snapshot.get("resource_exposures", []) if row.get("exposure_type") == "teacher_resource_recommendation" and _after(row.get("shown_at"), since)}
@@ -63,6 +65,13 @@ def build_report(snapshot: dict, since: datetime) -> dict:
             "by_feature": dict(Counter(str(row.get("feature_name") or "unknown") for row in explorer)),
             "negative_reasons": dict(Counter(str(row.get("reason")) for row in explorer if row.get("satisfied") is False and row.get("reason"))),
         },
+        "legacy_resource_intent": {
+            "answers": len(legacy),
+            "yes": sum(row.get("satisfied") is True for row in legacy),
+            "no": sum(row.get("satisfied") is False for row in legacy),
+            "negative_reasons": dict(Counter(str(row.get("reason")) for row in legacy if row.get("satisfied") is False and row.get("reason"))),
+            "model_attribution": "unknown",
+        },
         "teacher_relevance": {
             "active_wrong_topic": sum(row.get("reason") == "wrong_topic" for row in rejected),
             "active_student_unfit": sum(row.get("reason") == "student_unfit" for row in rejected),
@@ -80,7 +89,7 @@ def build_report(snapshot: dict, since: datetime) -> dict:
 
 
 def _fetch_table(base: str, key: str, table: str, columns: str, since: datetime) -> list[dict]:
-    date_column = {"classio_generation_intent_feedback": "answered_at", "classio_explorer_generation_feedback": "answered_at", "classio_teacher_relevance_feedback": "updated_at", "classio_teacher_relevance_feedback_events": "created_at", "resource_exposures": "shown_at", "resource_exposure_events": "event_at"}[table]
+    date_column = {"classio_generation_intent_feedback": "answered_at", "classio_explorer_generation_feedback": "answered_at", "classio_legacy_generation_intent_feedback": "answered_at", "classio_teacher_relevance_feedback": "updated_at", "classio_teacher_relevance_feedback_events": "created_at", "resource_exposures": "shown_at", "resource_exposure_events": "event_at"}[table]
     result: list[dict] = []
     for offset in range(0, 100000, 1000):
         query = urlencode({"select": columns, date_column: f"gte.{since.isoformat()}", "limit": "1000", "offset": str(offset), "order": f"{date_column}.asc"})

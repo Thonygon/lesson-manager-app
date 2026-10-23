@@ -37,6 +37,15 @@ export async function GET(request: Request) {
         }
       }
     }
+    if (!link && ['plan', 'worksheet', 'exam'].includes(resourceType)) {
+      const resource = resources[0];
+      const created = Date.parse(String(resource.created_at || ''));
+      const updated = Date.parse(String(resource.updated_at || ''));
+      if ((resourceType === 'exam' || resource.source_type === 'ai') && Number.isFinite(created) && Number.isFinite(updated) && Math.abs(updated - created) <= 60000) {
+        const answers = await readRows(auth.base, auth.serverKey, 'classio_legacy_generation_intent_feedback', { actor_user_id: `eq.${auth.userId}`, resource_type: `eq.${resourceType}`, resource_id: `eq.${resourceId}` }, 'satisfied,reason');
+        return feedbackJson({ eligible: true, generationId: `legacy:${resourceType}:${resourceId}`, satisfied: answers[0]?.satisfied ?? null, reason: answers[0]?.reason ?? null });
+      }
+    }
     if (!link || link.edited_at) return feedbackJson({ eligible: false });
     const answers = await readRows(auth.base, auth.serverKey, 'classio_generation_intent_feedback', { generation_id: `eq.${link.generation_id}`, actor_user_id: `eq.${auth.userId}` }, 'satisfied,reason');
     return feedbackJson({ eligible: true, generationId: link.generation_id, satisfied: answers[0]?.satisfied ?? null, reason: answers[0]?.reason ?? null });
@@ -51,9 +60,28 @@ export async function POST(request: Request) {
     if (raw.length > 1200) return feedbackJson({ error: 'Feedback is too large.' }, 413);
     let body: { generationId?: unknown; satisfied?: unknown; reason?: unknown; action?: unknown; resourceType?: unknown; resourceId?: unknown; surface?: unknown };
     try { body = JSON.parse(raw); } catch { return feedbackJson({ error: 'Choose a valid answer.' }, 400); }
-    const generationId = uuid(body.generationId);
+    const rawGenerationId = String(body.generationId || '');
+    const generationId = uuid(rawGenerationId);
+    const legacy = /^legacy:(plan|worksheet|exam):([1-9]\d{0,17})$/.exec(rawGenerationId);
     const action = String(body.action || 'answer');
-    if (!generationId || !['answer', 'bind'].includes(action) || (action === 'answer' && (typeof body.satisfied !== 'boolean' || (body.reason && !reasons.has(String(body.reason))) || !['generation_preview', 'resource_page'].includes(String(body.surface))))) return feedbackJson({ error: 'Choose a valid answer.' }, 400);
+    if ((!generationId && !legacy) || !['answer', 'bind'].includes(action) || (action === 'answer' && (typeof body.satisfied !== 'boolean' || (body.reason && !reasons.has(String(body.reason))) || !['generation_preview', 'resource_page'].includes(String(body.surface))))) return feedbackJson({ error: 'Choose a valid answer.' }, 400);
+    if (legacy) {
+      if (action !== 'answer' || body.surface !== 'resource_page') return feedbackJson({ error: 'Choose a valid resource answer.' }, 400);
+      const [, resourceType, resourceId] = legacy;
+      const resources = await readRows(auth.base, auth.serverKey, resourceTables[resourceType], { id: `eq.${resourceId}`, user_id: `eq.${auth.userId}` }, resourceType === 'exam' ? 'id,created_at,updated_at' : 'id,created_at,updated_at,source_type');
+      const resource = resources[0];
+      if (!resource || (resourceType !== 'exam' && resource.source_type !== 'ai')) return feedbackJson({ error: 'This AI resource is unavailable.' }, 404);
+      const created = Date.parse(String(resource.created_at || ''));
+      const updated = Date.parse(String(resource.updated_at || ''));
+      if (!Number.isFinite(created) || !Number.isFinite(updated) || Math.abs(updated - created) > 60000) return feedbackJson({ error: 'This resource has been edited.' }, 409);
+      const links = await readRows(auth.base, auth.serverKey, 'classio_generation_resources', { resource_type: `eq.${resourceType}`, resource_id: `eq.${resourceId}`, actor_user_id: `eq.${auth.userId}` }, 'generation_id,edited_at');
+      if (links.length) return feedbackJson({ error: 'This resource has a generation record.' }, 409);
+      const now = new Date().toISOString();
+      const answer = { actor_user_id: auth.userId, resource_type: resourceType, resource_id: resourceId, feedback_surface: 'resource_page', satisfied: body.satisfied, reason: body.satisfied ? null : reasons.has(String(body.reason)) ? body.reason : null, answered_at: now, updated_at: now };
+      await upsertRow(auth.base, auth.serverKey, 'classio_legacy_generation_intent_feedback', 'actor_user_id,resource_type,resource_id', answer);
+      await insertRow(auth.base, auth.serverKey, 'classio_legacy_generation_intent_events', { actor_user_id: auth.userId, resource_type: resourceType, resource_id: resourceId, feedback_surface: 'resource_page', satisfied: answer.satisfied, reason: answer.reason });
+      return feedbackJson({ saved: true });
+    }
     const operations = await readRows(auth.base, auth.serverKey, 'classio_ai_operations', { operation_id: `eq.${generationId}`, actor_user_id: `eq.${auth.userId}`, status: 'eq.success' }, 'operation_id,actor_user_id,source,feature_name,modality,started_at,finished_at');
     const operation = operations[0];
     if (!operation || operation.modality !== 'text' || !['expo', 'streamlit'].includes(String(operation.source)) || !['generate_plan', 'generate_worksheet', 'generate_exam', 'generate_program', 'quick_lesson_ai', 'quick_worksheet_ai', 'quick_exam_ai'].includes(String(operation.feature_name))) return feedbackJson({ error: 'This generation is unavailable.' }, 404);

@@ -49,6 +49,12 @@ async function main() {
   assert.equal(written.filter((item) => item.table === 'classio_generation_resources').length, 2);
   rows.lesson_plans[0].updated_at = '2026-10-23T01:00:00Z';
   assert.deepEqual(await (await generation.GET(new Request('https://classio.test/api/generation-feedback?resourceType=plan&resourceId=8'))).json(), { eligible: false });
+  rows.lesson_plans[0].updated_at = rows.lesson_plans[0].created_at;
+  rows.classio_ai_operations.length = 0;
+  assert.deepEqual(await (await generation.GET(new Request('https://classio.test/api/generation-feedback?resourceType=plan&resourceId=8'))).json(), { eligible: true, generationId: 'legacy:plan:8', satisfied: null, reason: null });
+  assert.equal((await generation.POST(post({ generationId: 'legacy:plan:8', satisfied: false, surface: 'resource_page', reason: 'content' }))).status, 200);
+  assert.equal(written.find((item) => item.table === 'classio_legacy_generation_intent_feedback').value.reason, 'content');
+  assert.equal((await generation.POST(post({ generationId: 'legacy:plan:8', satisfied: true, surface: 'generation_preview' }))).status, 400);
   result = await relevance.POST(post({ exposureId: 'exposure-1', action: 'reject', reason: 'wrong_topic' }));
   assert.equal(result.status, 200);
   const feedback = written.find((item) => item.table === 'classio_teacher_relevance_feedback').value;
