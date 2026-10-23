@@ -1,6 +1,6 @@
 # Student-facing parity and Supabase load audit — 2026-10-11
 
-**Archivo histórico.** Los controles de carga y RLS que aún falten se siguen en la [auditoría tecnológica](docs/CLASSIO_TECHNOLOGY_AUDIT.md); la comparación funcional del alumno se sigue en el [checklist de paridad](CLASSIO_EXPO_PARITY_CHECKLIST.md). Las notas de este archivo no son una segunda cola activa. [Registro único](docs/AUDITORIAS_ESTADO_2026-10-22.md).
+**Archivo histórico.** Los controles de carga y RLS que aún falten se siguen en la [auditoría tecnológica](../../CLASSIO_TECHNOLOGY_AUDIT.md); la comparación funcional del alumno se sigue en el [checklist de paridad](../CLASSIO_EXPO_PARITY_CHECKLIST.md). Las notas de este archivo no son una segunda cola activa. [Registro único](../../AUDITORIAS_ESTADO_2026-10-22.md).
 
 This is a source-code audit. It does not establish the live health of the Supabase project: no production query, load test, schema change, or write was run for it. Existing working-tree changes were preserved.
 
@@ -17,7 +17,7 @@ This is a source-code audit. It does not establish the live health of the Supaba
 
 | Area | Current Expo behavior | Gap / risk |
 | --- | --- | --- |
-| Authorization | `expo/src/services/student-data.ts` obtains the signed-in user and filters student-owned tables by that ID. Browser operations use the publishable key and RLS boundary described in `MIGRATION.md`. | Authenticated RLS acceptance remains required; local code cannot verify the deployed policies. |
+| Authorization | `expo/src/services/student-data.ts` obtains the signed-in user and filters student-owned tables by that ID. Browser operations use the publishable key and RLS boundary described in `docs/MIGRATION.md`. | Authenticated RLS acceptance remains required; local code cannot verify the deployed policies. |
 | Read size | Student workspace queries select explicit columns in most places, use per-query limits, and scope study/assignment screens. Public practice resources are capped at 120 per type in `expo/src/services/public-data.ts`. | The practice workspace still uses a broad `practice_progress` select and several parallel reads. Limits should be checked against real row counts before changing them, to avoid silently losing history. |
 | Repeated navigation | `expo/src/services/student-resource-access.ts` shares a 15-second resource promise by user. Student workspace had no equivalent protection. | A rapid double load could duplicate the same multi-query workspace fan-out. This audit adds in-flight coalescing by user and scope without retaining potentially stale completed results. Post-mutation refreshes bypass an older in-flight read. |
 | Timeouts | Public resource loads used `Promise.race` with an 8-second timer. | The timer stopped waiting but left the browser request active. This audit passes an `AbortSignal` to each PostgREST request and clears the timer. Browser abort does not prove the database stops work already started on the server. |

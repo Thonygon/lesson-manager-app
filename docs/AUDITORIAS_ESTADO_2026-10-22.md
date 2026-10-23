@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | **Financiera** | [Auditoría y datos](../financial_analysis/README.md), con [brechas de registro](../financial_analysis/11_brechas_arquitectura_registro.md) | Qué se cobró, qué se gastó, qué margen puede demostrarse y qué pertenece al libro privado docente. Incluye la parte económica de la antigua remediación comercial. |
 | **Tecnológica** | [Auditoría tecnológica](CLASSIO_TECHNOLOGY_AUDIT.md) | Si identidad, privacidad, transacciones, cuotas, RLS, rendimiento y despliegue soportan la operación. |
-| **Paridad Expo–Streamlit** | [Checklist y aceptación](../CLASSIO_EXPO_PARITY_CHECKLIST.md) | Qué flujo de Expo reproduce el comportamiento de Streamlit y cuál requiere pruebas o servicio adicional. |
+| **Paridad Expo–Streamlit** | [Checklist y aceptación](parity/CLASSIO_EXPO_PARITY_CHECKLIST.md) | Qué flujo de Expo reproduce el comportamiento de Streamlit y cuál requiere pruebas o servicio adicional. |
 | **Académica** | [Auditoría TFM](TFM_TECHNICAL_AUDIT.md), con [reproducibilidad ML](TFM_ML_REPRODUCIBILITY.md) | Qué afirmaciones OE1–OE3 están medidas, cuáles son experimentales y cuáles son solo funcionalidad implementada. |
 
 ## Destino de los informes existentes
@@ -15,11 +15,11 @@
 | --- | --- | --- |
 | [S01–S13: remediación comercial/producción](CLASSIO_PRODUCTION_REMEDIATION.md) | Evidencia detallada y criterios de cierre por ID; su encabezado indica el responsable. | Según la tabla S-ID inferior. |
 | [Upgrade de Negocio en Admin](ADMIN_BUSINESS_DATA_UPGRADE.md), [01–11 y agregados financieros](../financial_analysis/README.md) | Diseño de panel, fuentes, cifras con corte fijo y modelo de costes. | Financiera; no contar como auditoría adicional. |
-| [Inspección de paridad de septiembre](../CLASSIO_PARITY_AUDIT_2026-09-22.md), [Admin/Developer](../CLASSIO_ADMIN_DEVELOPER_PARITY_AUDIT_2026-09-26.md), [generación/documentos/ML](../CLASSIO_GENERATIVE_DOCUMENT_ML_PARITY_AUDIT_2026-09-27.md), [alumno/Supabase](../CLASSIO_STUDENT_SUPABASE_PARITY_AUDIT_2026-10-11.md) | Fotografías fechadas, fixtures y antecedentes. Sus estados no sustituyen el resumen vigente del checklist. | Paridad; seguridad/carga encontrada allí pasa a tecnológica. |
-| [Diseño y UX](../CLASSIO_EXPO_DESIGN_UX_INSPECTION.md), [contrato de migración](../MIGRATION.md), [calendario](../expo/CALENDAR_UPGRADE.md), [reglas de exámenes](../expo/EXAM_GENERATION_RULES.md) | Especificaciones y antecedentes, no auditorías activas. | Paridad para experiencia; tecnológica para límites de servidor. |
+| [Inspección de paridad de septiembre](parity/archive/CLASSIO_PARITY_AUDIT_2026-09-22.md), [Admin/Developer](parity/archive/CLASSIO_ADMIN_DEVELOPER_PARITY_AUDIT_2026-09-26.md), [generación/documentos/ML](parity/archive/CLASSIO_GENERATIVE_DOCUMENT_ML_PARITY_AUDIT_2026-09-27.md), [alumno/Supabase](parity/archive/CLASSIO_STUDENT_SUPABASE_PARITY_AUDIT_2026-10-11.md) | Fotografías fechadas, fixtures y antecedentes. Sus estados no sustituyen el resumen vigente del checklist. | Paridad; seguridad/carga encontrada allí pasa a tecnológica. |
+| [Diseño y UX](design/CLASSIO_EXPO_DESIGN_UX_INSPECTION.md), [contrato de migración](MIGRATION.md), [calendario](../expo/CALENDAR_UPGRADE.md), [reglas de exámenes](../expo/EXAM_GENERATION_RULES.md) | Especificaciones y antecedentes, no auditorías activas. | Paridad para experiencia; tecnológica para límites de servidor. |
 | [Auditoría de IO de Supabase](../streamlit/supabase_io_audit_report.md) | Medidas de forma de consulta y mejoras históricas; falta medición de carga actual. | Tecnológica. |
 | [Guía TFM](TFM_REPOSITORY_GUIDE.md), [blueprint ML](../streamlit/docs/classio_ml_blueprint.md), [informes de experimentos](../streamlit/reports/ml_architecture/) | Método y resultados exploratorios fechados. | Académica; la operación de modelos en producción corresponde a tecnológica. |
-| [Best next move](../BEST_NEXT_MOVE_DESIGN.md), [manual de calculadora](INCOME_CALCULATOR_USER_MANUAL.md) | Contratos de producto y uso. | Paridad para el flujo; académica para demostrar eficacia; financiera solo si se atribuye coste o ingreso. |
+| [Best next move](design/BEST_NEXT_MOVE_DESIGN.md), [manual de calculadora](INCOME_CALCULATOR_USER_MANUAL.md) | Contratos de producto y uso. | Paridad para el flujo; académica para demostrar eficacia; financiera solo si se atribuye coste o ingreso. |
 
 ## Una responsable por S-ID
 

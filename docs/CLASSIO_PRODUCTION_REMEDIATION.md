@@ -2,7 +2,7 @@
 
 Estado a 2026-10-22. La matriz conserva los identificadores S01–S13 de la auditoría comercial. «Corregido en código» significa que existe una implementación y una prueba local; el estado de despliegue y validación se indica por separado. S07 está aplicado en Supabase de producción y publicado en Expo, pero aún requiere aceptación funcional y pruebas de concurrencia.
 
-**Ubicación en las cuatro auditorías:** este es el registro de evidencia de los S-ID, no una quinta auditoría ni un plan paralelo. [Financiera](../financial_analysis/README.md) mantiene S06–S07; [tecnológica](CLASSIO_TECHNOLOGY_AUDIT.md) mantiene S01–S05, S08–S11 y S13; [paridad](../CLASSIO_EXPO_PARITY_CHECKLIST.md) mantiene S12. La [tabla de responsables y plan único](AUDITORIAS_ESTADO_2026-10-22.md) resuelve cruces. Una prueba o despliegue citado aquí no cambia por sí solo el estado a «aceptado».
+**Ubicación en las cuatro auditorías:** este es el registro de evidencia de los S-ID, no una quinta auditoría ni un plan paralelo. [Financiera](../financial_analysis/README.md) mantiene S06–S07; [tecnológica](CLASSIO_TECHNOLOGY_AUDIT.md) mantiene S01–S05, S08–S11 y S13; [paridad](parity/CLASSIO_EXPO_PARITY_CHECKLIST.md) mantiene S12. La [tabla de responsables y plan único](AUDITORIAS_ESTADO_2026-10-22.md) resuelve cruces. Una prueba o despliegue citado aquí no cambia por sí solo el estado a «aceptado».
 
 | ID | Estado de cierre | Avance y evidencia pendiente |
 |---|---|---|
