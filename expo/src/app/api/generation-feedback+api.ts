@@ -3,6 +3,7 @@ import { authorizeQualityFeedback, feedbackJson, insertRow, readRows, upsertRow 
 const uuid = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value) ? value : '';
 const reasons = new Set(['content', 'level', 'format', 'other']);
 const resourceTables: Record<string, string> = { plan: 'lesson_plans', worksheet: 'worksheets', exam: 'quick_exams', program: 'learning_programs' };
+const operationFeatures: Record<string, string[]> = { plan: ['generate_plan', 'quick_lesson_ai'], worksheet: ['generate_worksheet', 'quick_worksheet_ai'], exam: ['generate_exam', 'quick_exam_ai'], program: ['generate_program'] };
 
 export async function GET(request: Request) {
   try {
@@ -12,10 +13,30 @@ export async function GET(request: Request) {
     const resourceType = url.searchParams.get('resourceType') || '';
     const resourceId = url.searchParams.get('resourceId') || '';
     if (!resourceTables[resourceType] || !/^\d{1,18}$/.test(resourceId)) return feedbackJson({ eligible: false });
-    const resources = await readRows(auth.base, auth.serverKey, resourceTables[resourceType], { id: `eq.${resourceId}`, user_id: `eq.${auth.userId}` }, 'id');
+    const resources = await readRows(auth.base, auth.serverKey, resourceTables[resourceType], { id: `eq.${resourceId}`, user_id: `eq.${auth.userId}` }, resourceType === 'exam' ? 'id,created_at,updated_at' : 'id,created_at,updated_at,source_type');
     if (!resources[0]) return feedbackJson({ eligible: false });
     const links = await readRows(auth.base, auth.serverKey, 'classio_generation_resources', { resource_type: `eq.${resourceType}`, resource_id: `eq.${resourceId}`, actor_user_id: `eq.${auth.userId}` }, 'generation_id,edited_at');
-    const link = links[0];
+    let link = links[0];
+    if (!link) {
+      // Older AI documents predate explicit resource binding. Recover only a
+      // unique operation close to creation, and never revive a known edit.
+      const resource = resources[0];
+      const created = Date.parse(String(resource.created_at || ''));
+      const updated = Date.parse(String(resource.updated_at || ''));
+      const sourceIsAi = resourceType === 'exam' || String(resource.source_type || '') === 'ai';
+      if (sourceIsAi && Number.isFinite(created) && Number.isFinite(updated) && Math.abs(updated - created) <= 60000) {
+        const features = operationFeatures[resourceType];
+        const candidates = await readRows(auth.base, auth.serverKey, 'classio_ai_operations', { actor_user_id: `eq.${auth.userId}`, status: 'eq.success', feature_name: `in.(${features.join(',')})`, finished_at: `gte.${new Date(created - 300000).toISOString()}`, order: 'finished_at.desc' }, 'operation_id,finished_at', 10);
+        const nearby = candidates.filter((row) => created >= Date.parse(String(row.finished_at || '')) - 10000 && created <= Date.parse(String(row.finished_at || '')) + 300000);
+        if (nearby.length === 1) {
+          const previous = await readRows(auth.base, auth.serverKey, 'classio_generation_resources', { generation_id: `eq.${nearby[0].operation_id}` }, 'generation_id');
+          if (!previous.length) {
+            await upsertRow(auth.base, auth.serverKey, 'classio_generation_resources', 'generation_id', { generation_id: nearby[0].operation_id, actor_user_id: auth.userId, resource_type: resourceType, resource_id: resourceId });
+            link = { generation_id: nearby[0].operation_id, edited_at: null };
+          }
+        }
+      }
+    }
     if (!link || link.edited_at) return feedbackJson({ eligible: false });
     const answers = await readRows(auth.base, auth.serverKey, 'classio_generation_intent_feedback', { generation_id: `eq.${link.generation_id}`, actor_user_id: `eq.${auth.userId}` }, 'satisfied,reason');
     return feedbackJson({ eligible: true, generationId: link.generation_id, satisfied: answers[0]?.satisfied ?? null, reason: answers[0]?.reason ?? null });
@@ -33,13 +54,15 @@ export async function POST(request: Request) {
     const generationId = uuid(body.generationId);
     const action = String(body.action || 'answer');
     if (!generationId || !['answer', 'bind'].includes(action) || (action === 'answer' && (typeof body.satisfied !== 'boolean' || (body.reason && !reasons.has(String(body.reason))) || !['generation_preview', 'resource_page'].includes(String(body.surface))))) return feedbackJson({ error: 'Choose a valid answer.' }, 400);
-    const operations = await readRows(auth.base, auth.serverKey, 'classio_ai_operations', { operation_id: `eq.${generationId}`, actor_user_id: `eq.${auth.userId}`, source: 'eq.expo', status: 'eq.success' }, 'operation_id,actor_user_id,feature_name,modality,started_at,finished_at');
+    const operations = await readRows(auth.base, auth.serverKey, 'classio_ai_operations', { operation_id: `eq.${generationId}`, actor_user_id: `eq.${auth.userId}`, status: 'eq.success' }, 'operation_id,actor_user_id,source,feature_name,modality,started_at,finished_at');
     const operation = operations[0];
-    if (!operation || operation.modality !== 'text' || !String(operation.feature_name).startsWith('generate_')) return feedbackJson({ error: 'This generation is unavailable.' }, 404);
+    if (!operation || operation.modality !== 'text' || !['expo', 'streamlit'].includes(String(operation.source)) || !['generate_plan', 'generate_worksheet', 'generate_exam', 'generate_program', 'quick_lesson_ai', 'quick_worksheet_ai', 'quick_exam_ai'].includes(String(operation.feature_name))) return feedbackJson({ error: 'This generation is unavailable.' }, 404);
     if (action === 'bind') {
       const resourceType = String(body.resourceType || '');
       const resourceId = String(body.resourceId || '');
       if (!resourceTables[resourceType] || !/^\d{1,18}$/.test(resourceId)) return feedbackJson({ error: 'Choose a valid resource.' }, 400);
+      const expected = operationFeatures[resourceType];
+      if (!expected.includes(String(operation.feature_name))) return feedbackJson({ error: 'This generation does not match the resource.' }, 409);
       const resources = await readRows(auth.base, auth.serverKey, resourceTables[resourceType], { id: `eq.${resourceId}`, user_id: `eq.${auth.userId}` }, 'id,created_at');
       if (!resources[0]) return feedbackJson({ error: 'This resource is unavailable.' }, 404);
       const createdAt = Date.parse(String(resources[0].created_at || ''));
@@ -54,8 +77,8 @@ export async function POST(request: Request) {
     const prior = await readRows(auth.base, auth.serverKey, 'classio_generation_intent_feedback', { generation_id: `eq.${generationId}`, actor_user_id: `eq.${auth.userId}` }, 'shown_at,resource_type,resource_id');
     const now = new Date().toISOString();
     await upsertRow(auth.base, auth.serverKey, 'classio_generation_intent_feedback', 'generation_id', {
-      generation_id: generationId, operation_id: generationId, actor_user_id: auth.userId, source: 'expo', feature_name: operation.feature_name,
-      generation_mode: 'ai', prompt_version: 'expo-generate-v1', model_name: String(attempts[0]?.model_reported || attempts[0]?.model_requested || '').slice(0, 160),
+      generation_id: generationId, operation_id: generationId, actor_user_id: auth.userId, source: operation.source, feature_name: operation.feature_name,
+      generation_mode: 'ai', prompt_version: operation.source === 'expo' ? 'expo-generate-v1' : 'streamlit-beta-v1', model_name: String(attempts[0]?.model_reported || attempts[0]?.model_requested || '').slice(0, 160),
       resource_type: links[0].resource_type || prior[0]?.resource_type || '', resource_id: links[0].resource_id || prior[0]?.resource_id || '', shown_at: prior[0]?.shown_at || now,
       feedback_surface: body.surface, satisfied: body.satisfied, reason: body.satisfied ? null : reasons.has(String(body.reason)) ? body.reason : null, answered_at: now, updated_at: now,
     });

@@ -23,7 +23,6 @@ const NAV = [
   { href: '/analytics', icon: '↗', labelKey: 'nav.analytics', roles: ['teacher', 'school_admin', 'admin'] },
   { href: '/branding', icon: '✎', labelKey: 'branding.title', roles: ['teacher', 'school_admin', 'admin'] },
   { href: '/community', icon: '◎', labelKey: 'nav.community', roles: ['teacher', 'school_admin', 'admin'] },
-  { href: '/billing', icon: '◇', labelKey: 'nav.billing', roles: ['teacher', 'school_admin', 'admin'] },
   { href: '/student-practice', icon: '✦', labelKey: 'nav.practice', roles: ['student'] },
   { href: '/student-study-plan', icon: '▤', labelKey: 'nav.studyPlan', roles: ['student'] },
   { href: '/student-assignments', icon: '▣', labelKey: 'nav.assignments', roles: ['student'] },

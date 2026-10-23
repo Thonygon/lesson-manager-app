@@ -2301,7 +2301,7 @@ Profile quality guidance:
     return system_prompt, user_prompt
 
 
-def _generate_with_openrouter(system_prompt: str, user_prompt: str) -> str:
+def _generate_with_openrouter(system_prompt: str, user_prompt: str, *, reserve_account_quota: bool = True) -> str:
     api_key = ""
     try:
         api_key = str(st.secrets.get("OPENROUTER_API_KEY", "")).strip()
@@ -2315,9 +2315,10 @@ def _generate_with_openrouter(system_prompt: str, user_prompt: str) -> str:
         raise RuntimeError(t("missing_openrouter_api_key"))
 
     def _request() -> str:
-        from services.permissions_service import reserve_ai_tool
-        if not reserve_ai_tool():
-            raise RuntimeError("AI generation limit reached")
+        if reserve_account_quota:
+            from services.permissions_service import reserve_ai_tool
+            if not reserve_ai_tool():
+                raise RuntimeError("AI generation limit reached")
         client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=TEXT_TIMEOUT_MS / 1000, max_retries=0)
         model = get_ai_model_for_provider("openrouter")
         return run_recorded_provider_attempt(
@@ -2333,7 +2334,7 @@ def _generate_with_openrouter(system_prompt: str, user_prompt: str) -> str:
     return run_with_ai_retries(_request, max_attempts=1)
 
 
-def _generate_with_gemini(system_prompt: str, user_prompt: str) -> str:
+def _generate_with_gemini(system_prompt: str, user_prompt: str, *, reserve_account_quota: bool = True) -> str:
     from google import genai
 
     api_key = ""
@@ -2349,9 +2350,10 @@ def _generate_with_gemini(system_prompt: str, user_prompt: str) -> str:
         raise RuntimeError(t("missing_gemini_api_key"))
 
     def _request() -> str:
-        from services.permissions_service import reserve_ai_tool
-        if not reserve_ai_tool():
-            raise RuntimeError("AI generation limit reached")
+        if reserve_account_quota:
+            from services.permissions_service import reserve_ai_tool
+            if not reserve_ai_tool():
+                raise RuntimeError("AI generation limit reached")
         client = genai.Client(api_key=api_key, http_options={"timeout": TEXT_TIMEOUT_MS})
         model = get_ai_model_for_provider("gemini")
         return run_recorded_provider_attempt(
@@ -2366,7 +2368,7 @@ def _generate_with_gemini(system_prompt: str, user_prompt: str) -> str:
     return run_with_ai_retries(_request, max_attempts=1)
 
 
-def _generate_with_openai(system_prompt: str, user_prompt: str) -> str:
+def _generate_with_openai(system_prompt: str, user_prompt: str, *, reserve_account_quota: bool = True) -> str:
     api_key = ""
     try:
         api_key = str(st.secrets.get("OPENAI_API_KEY", "")).strip()
@@ -2380,9 +2382,10 @@ def _generate_with_openai(system_prompt: str, user_prompt: str) -> str:
         raise RuntimeError(t("missing_openai_api_key"))
 
     def _request() -> str:
-        from services.permissions_service import reserve_ai_tool
-        if not reserve_ai_tool():
-            raise RuntimeError("AI generation limit reached")
+        if reserve_account_quota:
+            from services.permissions_service import reserve_ai_tool
+            if not reserve_ai_tool():
+                raise RuntimeError("AI generation limit reached")
         client = OpenAI(api_key=api_key, timeout=TEXT_TIMEOUT_MS / 1000, max_retries=0)
         model = get_ai_model_for_provider("openai")
         return run_recorded_provider_attempt(
@@ -2407,6 +2410,8 @@ def generate_ai_lesson_plan(
     plan_language: str,
     student_material_language: str,
     student_profile: dict | None = None,
+    *,
+    reserve_account_quota: bool = True,
 ) -> dict:
     prompt_payload = {
         "subject": subject,
@@ -2448,11 +2453,11 @@ def generate_ai_lesson_plan(
     for p in provider_order:
         try:
             if p == "gemini":
-                raw_text = _generate_with_gemini(system_prompt, user_prompt)
+                raw_text = _generate_with_gemini(system_prompt, user_prompt, reserve_account_quota=reserve_account_quota)
             elif p == "openrouter":
-                raw_text = _generate_with_openrouter(system_prompt, user_prompt)
+                raw_text = _generate_with_openrouter(system_prompt, user_prompt, reserve_account_quota=reserve_account_quota)
             else:
-                raw_text = _generate_with_openai(system_prompt, user_prompt)
+                raw_text = _generate_with_openai(system_prompt, user_prompt, reserve_account_quota=reserve_account_quota)
             parsed = _extract_json_object_from_text(raw_text)
             normalized = _sanitize_generated_lesson_plan(parsed, subject)
             quality_issues = _lesson_plan_quality_issues(
@@ -2550,6 +2555,7 @@ def generate_quick_lesson_plan_with_fallback(
             plan_language=get_plan_language(),
             student_material_language=get_student_material_language(subject),
             student_profile=student_profile or {},
+            reserve_account_quota=enforce_usage_limits,
         )
         provider = str(ai_plan.pop("_ai_provider", "") or "") if isinstance(ai_plan, dict) else ""
         ai_plan = normalize_planner_output(ai_plan)

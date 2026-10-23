@@ -26,7 +26,7 @@ def run_lesson_plan_generation(
     from services.ai_economic_events import latest_successful_generation_operation_id
 
     effective_subject = resolve_effective_subject(subject, custom_subject_name)
-    previous_operation_id = latest_successful_generation_operation_id()
+    previous_operation_id = latest_successful_generation_operation_id(allow_anonymous=not capabilities.enforce_platform_usage_limits)
     plan, mode_used, warning = lp.generate_quick_lesson_plan_with_fallback(
         mode=mode,
         subject=effective_subject,
@@ -39,7 +39,7 @@ def run_lesson_plan_generation(
         page_key=capabilities.page_key,
         user_face=capabilities.user_face,
     )
-    latest_operation_id = latest_successful_generation_operation_id()
+    latest_operation_id = latest_successful_generation_operation_id(allow_anonymous=not capabilities.enforce_platform_usage_limits)
     generation_operation_id = latest_operation_id if mode_used == "ai" and plan and latest_operation_id != previous_operation_id else ""
     if anonymous_counter_key and str(mode).strip().lower() == "ai" and str(mode_used).strip().lower() == "ai" and bool(plan):
         mark_anonymous_ai_generation(anonymous_counter_key)
@@ -70,7 +70,7 @@ def run_worksheet_generation(
     from services.ai_economic_events import latest_successful_generation_operation_id
 
     effective_subject = resolve_effective_subject(subject, custom_subject_name)
-    previous_operation_id = latest_successful_generation_operation_id()
+    previous_operation_id = latest_successful_generation_operation_id(allow_anonymous=not capabilities.enforce_platform_usage_limits)
     ws, warning = generate_worksheet_with_limit(
         subject=effective_subject,
         learner_stage=learner_stage,
@@ -80,7 +80,7 @@ def run_worksheet_generation(
         student_profile=student_profile or {},
         enforce_usage_limits=capabilities.enforce_platform_usage_limits,
     )
-    latest_operation_id = latest_successful_generation_operation_id()
+    latest_operation_id = latest_successful_generation_operation_id(allow_anonymous=not capabilities.enforce_platform_usage_limits)
     generation_operation_id = latest_operation_id if ws and latest_operation_id != previous_operation_id else ""
     if anonymous_counter_key and bool(ws):
         mark_anonymous_ai_generation(anonymous_counter_key)
@@ -120,7 +120,7 @@ def run_exam_generation(
     from services.ai_economic_events import latest_successful_generation_operation_id
 
     effective_subject = resolve_effective_subject(subject, custom_subject_name)
-    previous_operation_id = latest_successful_generation_operation_id()
+    previous_operation_id = latest_successful_generation_operation_id(allow_anonymous=not capabilities.enforce_platform_usage_limits)
     selected_types = list(exercise_types or [])
     length_spec = _LENGTH_SPEC.get(exam_length, _LENGTH_SPEC["medium"])
     max_recommended_sections = int(length_spec.get("sections", len(selected_types) or 1))
@@ -139,7 +139,7 @@ def run_exam_generation(
         student_profile=student_profile or {},
         enforce_usage_limits=capabilities.enforce_platform_usage_limits,
     )
-    latest_operation_id = latest_successful_generation_operation_id()
+    latest_operation_id = latest_successful_generation_operation_id(allow_anonymous=not capabilities.enforce_platform_usage_limits)
     generation_operation_id = latest_operation_id if exam_data and latest_operation_id != previous_operation_id else ""
     if anonymous_counter_key and bool(exam_data):
         mark_anonymous_ai_generation(anonymous_counter_key)

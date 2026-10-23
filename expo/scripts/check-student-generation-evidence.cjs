@@ -13,7 +13,7 @@ function load(relative, dependencies = {}) {
 
 const subjects = load('../src/lib/subjects.ts');
 const redaction = load('../src/server/ai-privacy-redaction.ts');
-const { summarizeMatchedGrades, gradeEvidencePrompt, loadMatchedGradeEvidence } = load('../src/server/student-generation-evidence.ts', { '../lib/subjects': subjects, './ai-privacy-redaction': redaction });
+const { summarizeMatchedGrades, gradeEvidencePrompt, loadMatchedGradeEvidence, loadRosterProgramEvidence } = load('../src/server/student-generation-evidence.ts', { '../lib/subjects': subjects, './ai-privacy-redaction': redaction });
 const rows = [
   { id: 1, subject_key: 'mathematics', topic: 'Adding fractions', title: 'Fraction vocabulary for Ana García', learning_program_topic_id: 42, assignment_type: 'worksheet', status: 'graded', score_pct: 55 },
   { id: 2, subject_key: 'math', topic: 'Adding unlike fractions', title: 'Adding unlike fractions exam', assignment_type: 'exam', status: 'completed', score_pct: 75 },
@@ -80,5 +80,21 @@ assert.match(prompt, /\[student name removed\]/);
   await assert.rejects(loadMatchedGradeEvidence('https://example.test', 'anon-key', 'teacher-token', teacherId, 'invalid', 'math', 'Adding fractions', 42, fetcher));
   assert.equal(calls, 2);
   await assert.rejects(loadMatchedGradeEvidence('https://example.test', 'anon-key', 'teacher-token', teacherId, studentId, 'math', 'Adding fractions', 42, async () => ({ ok: false })));
+  const localFetcher = async (url, options) => {
+    assert.equal(options.headers.Authorization, 'Bearer teacher-token');
+    const table = url.pathname.split('/').at(-1);
+    if (table === 'students') { assert.equal(url.searchParams.get('id'), 'eq.42'); assert.equal(url.searchParams.get('user_id'), `eq.${teacherId}`); return { ok: true, json: async () => [{ id: 42 }] }; }
+    if (table === 'learning_program_assignments') { assert.equal(url.searchParams.get('roster_student_id'), 'eq.42'); return { ok: true, json: async () => [{ id: 17, program_id: 8 }] }; }
+    if (table === 'learning_programs') return { ok: true, json: async () => [{ id: 8, subject: 'mathematics' }] };
+    if (table === 'learning_program_topics') return { ok: true, json: async () => [{ id: 1, program_id: 8, title: 'Adding fractions' }, { id: 2, program_id: 8, title: 'Fractions for Ana García' }] };
+    if (table === 'learning_program_progress') return { ok: true, json: async () => [{ assignment_id: 17, topic_id: 1, teacher_done: true }] };
+    throw new Error(`Unexpected table ${table}`);
+  };
+  const localPrompt = await loadRosterProgramEvidence('https://example.test', 'anon-key', 'teacher-token', teacherId, 'roster:42', 'mathematics', 'Ana García', localFetcher);
+  assert.match(localPrompt, /1\/2 topics complete/);
+  assert.match(localPrompt, /Upcoming topics/);
+  assert.ok(!localPrompt.includes('Ana García'));
+  await assert.rejects(loadRosterProgramEvidence('https://example.test', 'anon-key', 'teacher-token', teacherId, 'roster:bad', 'mathematics', '', localFetcher));
+  await assert.rejects(loadRosterProgramEvidence('https://example.test', 'anon-key', 'teacher-token', teacherId, 'roster:42', 'mathematics', '', async (url) => ({ ok: true, json: async () => url.pathname.endsWith('/students') ? [] : [] })));
   process.stdout.write('Student generation resource and exercise evidence fixtures passed.\n');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

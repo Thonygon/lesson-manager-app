@@ -197,7 +197,7 @@ export async function loadTeacherObjectiveModel(): Promise<Record<string, number
   if (cached && cached.expires > Date.now()) return cached.promise;
   const promise = (async () => {
     const cutoff = new Date(Date.now() - 180 * 86400000).toISOString();
-    const programResult = await client.from('learning_program_assignments').select('id,program_id,student_user_id,status,assigned_at,updated_at').eq('teacher_id', teacherId).neq('status', 'archived').order('updated_at', { ascending: false }).limit(240);
+    const programResult = await client.from('learning_program_assignments').select('id,program_id,student_user_id,roster_student_id,status,assigned_at,updated_at').eq('teacher_id', teacherId).neq('status', 'archived').order('updated_at', { ascending: false }).limit(240);
     if (programResult.error) throw programResult.error;
     const programAssignments = (programResult.data ?? []) as ClassioRecord[];
     if (!programAssignments.length) return BASE;
@@ -223,7 +223,7 @@ export async function loadTeacherObjectiveModel(): Promise<Record<string, number
     const allProgress = (progress.data ?? []) as ClassioRecord[];
     const allTopics = (topics.data ?? []) as ClassioRecord[];
     const samples = programAssignments.flatMap((row) => {
-      const studentId = String(row.student_user_id || '');
+      const studentId = String(row.student_user_id || (row.roster_student_id ? `roster:${row.roster_student_id}` : ''));
       if (!studentId) return [];
       const workspace: StudentLearningWorkspace = {
         assignments: assignments.filter((item) => String(item.student_id) === studentId),

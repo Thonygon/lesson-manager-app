@@ -19,7 +19,7 @@ import { findGenerationMatches } from '../../server/generation-reuse';
 import { sourceSystemPrompt } from '../../server/source-system-prompts';
 import { examLengthRule } from '../../lib/exam-generation-rules';
 import { programExamTargets } from '../../shared/program-builder-options';
-import { gradeEvidencePrompt, loadMatchedGradeEvidence } from '../../server/student-generation-evidence';
+import { gradeEvidencePrompt, loadMatchedGradeEvidence, loadRosterProgramEvidence } from '../../server/student-generation-evidence';
 import { beginAiOperation, beginProviderAttempt, finishAiOperation, finishProviderAttempt, type AiEconomicContext } from '../../server/ai-economic-events';
 
 type ToolKind = 'plan' | 'worksheet' | 'exam' | 'program';
@@ -218,8 +218,12 @@ export async function POST(request: Request) {
       if (guest) return json({ error: 'Teacher access is required for learner history.' }, 403);
       phase = 'student_grade_evidence';
       try {
-        const evidence = await loadMatchedGradeEvidence(supabaseUrl, anonKey, token, userId, text(body.studentIdForEvidence, 80), subject, topic, positiveId(body.programTopicId) || undefined);
-        gradeBlock = gradeEvidencePrompt(evidence, text(body.studentNameForRedaction, 120));
+        const studentReference = text(body.studentIdForEvidence, 80);
+        if (studentReference.startsWith('roster:')) gradeBlock = await loadRosterProgramEvidence(supabaseUrl, anonKey, token, userId, studentReference, subject, text(body.studentNameForRedaction, 120));
+        else {
+          const evidence = await loadMatchedGradeEvidence(supabaseUrl, anonKey, token, userId, studentReference, subject, topic, positiveId(body.programTopicId) || undefined);
+          gradeBlock = gradeEvidencePrompt(evidence, text(body.studentNameForRedaction, 120));
+        }
       } catch (error) {
         console.error('Learner grade evidence failed', error instanceof Error ? error.message : 'unknown error');
         return json({ error: 'Learner grade history could not be checked. Try again.', code: 'grade_evidence_unavailable' }, 503);

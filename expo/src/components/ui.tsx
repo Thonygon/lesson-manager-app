@@ -1,6 +1,6 @@
 import { pressableActive } from "@/lib/pressable-state";
-import { useState, type PropsWithChildren, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, type StyleProp, type TextInputProps, type TextStyle, View } from 'react-native';
+import { useEffect, useState, type PropsWithChildren, type ReactNode } from 'react';
+import { ActivityIndicator, Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, type StyleProp, type TextInputProps, type TextStyle, View } from 'react-native';
 
 import { colors } from '@/theme';
 import { useAppPreferences } from '@/providers/app-preferences';
@@ -61,7 +61,18 @@ export function LoadingState() {
 
 export function ActionFeedback({ message, tone }: { message: string | null | undefined; tone: 'success' | 'error' }) {
   if (!message) return null;
-  return <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.actionFeedback, tone === 'success' ? styles.actionFeedbackSuccess : styles.actionFeedbackError]}><Text style={[styles.actionFeedbackText, tone === 'success' ? styles.actionFeedbackSuccessText : styles.actionFeedbackErrorText]}>{message}</Text></View>;
+  return <TransientActionFeedback key={`${tone}:${message}`} message={message} tone={tone} />;
+}
+
+function TransientActionFeedback({ message, tone }: { message: string; tone: 'success' | 'error' }) {
+  const [opacity] = useState(() => new Animated.Value(1));
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    const timer = setTimeout(() => Animated.timing(opacity, { toValue: 0, duration: 350, useNativeDriver: true }).start(({ finished }) => { if (finished) setVisible(false); }), 4000);
+    return () => { clearTimeout(timer); opacity.stopAnimation(); };
+  }, [opacity]);
+  if (!visible) return null;
+  return <Animated.View accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.actionFeedback, { opacity }]}><Text style={[styles.actionFeedbackText, tone === 'success' ? styles.actionFeedbackSuccessText : styles.actionFeedbackErrorText]}>{message}</Text></Animated.View>;
 }
 
 export function Pagination({ page, totalPages, totalItems, onPageChange }: { page: number; totalPages: number; totalItems?: number; onPageChange: (page: number) => void }) {
@@ -131,9 +142,7 @@ const styles = StyleSheet.create({
   emptyTitle: { color: colors.ink, fontSize: 17, fontWeight: '700' },
   emptyBody: { color: colors.muted, fontSize: 14, lineHeight: 21 },
   loading: { minHeight: 180, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  actionFeedback: { alignSelf: 'stretch', borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, marginTop: 8 },
-  actionFeedbackSuccess: { backgroundColor: colors.successSoft, borderColor: colors.success },
-  actionFeedbackError: { backgroundColor: colors.dangerSoft, borderColor: colors.danger },
+  actionFeedback: { alignSelf: 'stretch', paddingVertical: 8, marginTop: 8 },
   actionFeedbackText: { fontSize: 12, lineHeight: 18, fontWeight: '700' },
   actionFeedbackSuccessText: { color: colors.success },
   actionFeedbackErrorText: { color: colors.danger },
