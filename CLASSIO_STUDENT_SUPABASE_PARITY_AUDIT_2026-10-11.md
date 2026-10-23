@@ -1,5 +1,7 @@
 # Student-facing parity and Supabase load audit — 2026-10-11
 
+**Archivo histórico.** Los controles de carga y RLS que aún falten se siguen en la [auditoría tecnológica](docs/CLASSIO_TECHNOLOGY_AUDIT.md); la comparación funcional del alumno se sigue en el [checklist de paridad](CLASSIO_EXPO_PARITY_CHECKLIST.md). Las notas de este archivo no son una segunda cola activa. [Registro único](docs/AUDITORIAS_ESTADO_2026-10-22.md).
+
 This is a source-code audit. It does not establish the live health of the Supabase project: no production query, load test, schema change, or write was run for it. Existing working-tree changes were preserved.
 
 ## How Streamlit protects the student workflows

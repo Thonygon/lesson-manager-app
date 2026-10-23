@@ -8,8 +8,10 @@ async function rows(client: SupabaseClient, table: string, columns: string, orde
   return error ? { rows: [] as Row[], warning: `${table}: ${error.message || 'Unable to read rows.'}` } : { rows: (data ?? []) as unknown as Row[] };
 }
 
-async function count(client: SupabaseClient, table: string): Promise<{ count: number | null; warning?: string }> {
-  const { count: total, error } = await client.from(table).select('*', { count: 'exact', head: true });
+async function count(client: SupabaseClient, table: string, filter?: { column: string; value: string | boolean }): Promise<{ count: number | null; warning?: string }> {
+  let query = client.from(table).select('*', { count: 'exact', head: true });
+  if (filter) query = query.eq(filter.column, filter.value);
+  const { count: total, error } = await query;
   return error ? { count: null, warning: `${table}: ${error.message || 'Unable to count rows.'}` } : { count: total ?? 0 };
 }
 
@@ -43,8 +45,16 @@ export async function GET(request: Request) {
       return json({ profiles: profilesWithActivity, subscriptions, plans, warnings: [profiles.warning, subscriptions.warning, plans.warning, authUsers?.error ? `auth.users: ${authUsers.error.message}` : '', profiles.rows.length === 500 ? 'profiles: showing the latest 500 accounts; total count is shown separately.' : '', subscriptions.rows.length === 500 ? 'user_subscriptions: showing the latest 500 subscriptions.' : ''].filter(Boolean) });
     }
     if (section === 'platform') {
-      const [profiles, subscriptions, paymentEvents, aiUsage] = await Promise.all(['profiles', 'user_subscriptions', 'payment_events', 'ai_usage_logs'].map((table) => count(server, table)));
-      return json({ platformCounts: { profiles: profiles.count, subscriptions: subscriptions.count, paymentEvents: paymentEvents.count, aiUsage: aiUsage.count }, warnings: [profiles.warning, subscriptions.warning, paymentEvents.warning, aiUsage.warning].filter(Boolean) });
+      const [profiles, subscriptions, paymentEvents, aiUsage, aiOperations, providerAttempts, pendingAiOperations, attemptsMissingUsage, pdfExportEvents, wordExportEvents, failedExportEvents, pendingExportEvents] = await Promise.all([
+        ...['profiles', 'user_subscriptions', 'payment_events', 'ai_usage_logs', 'classio_ai_operations', 'classio_provider_attempts'].map((table) => count(server, table)),
+        count(server, 'classio_ai_operations', { column: 'status', value: 'started' }),
+        count(server, 'classio_provider_attempts', { column: 'usage_observed', value: false }),
+        count(server, 'classio_document_export_events', { column: 'format', value: 'pdf' }),
+        count(server, 'classio_document_export_events', { column: 'format', value: 'docx' }),
+        count(server, 'classio_document_export_events', { column: 'status', value: 'failed' }),
+        count(server, 'classio_document_export_events', { column: 'status', value: 'started' }),
+      ]);
+      return json({ platformCounts: { profiles: profiles.count, subscriptions: subscriptions.count, paymentEvents: paymentEvents.count, aiUsage: aiUsage.count, aiOperations: aiOperations.count, providerAttempts: providerAttempts.count, pendingAiOperations: pendingAiOperations.count, attemptsMissingUsage: attemptsMissingUsage.count, pdfExportEvents: pdfExportEvents.count, wordExportEvents: wordExportEvents.count, failedExportEvents: failedExportEvents.count, pendingExportEvents: pendingExportEvents.count }, warnings: [profiles.warning, subscriptions.warning, paymentEvents.warning, aiUsage.warning, aiOperations.warning, providerAttempts.warning, pendingAiOperations.warning, attemptsMissingUsage.warning, pdfExportEvents.warning, wordExportEvents.warning, failedExportEvents.warning, pendingExportEvents.warning].filter(Boolean) });
     }
     if (section === 'resourcesA') {
       const [worksheets, exams, lessonPlans] = await Promise.all(['worksheets', 'quick_exams', 'lesson_plans'].map((table) => count(server, table)));

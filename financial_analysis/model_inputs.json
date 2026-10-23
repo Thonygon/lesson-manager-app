@@ -1,0 +1,18 @@
+{
+  "price_usd_per_month": 19,
+  "scales": [10, 100, 1000],
+  "profiles": {
+    "ligero": {"ai_calls": null, "images": null, "pdf": null, "word": null, "storage_gb": null, "egress_gb": null},
+    "referencia": {"ai_calls": null, "images": null, "pdf": null, "word": null, "storage_gb": null, "egress_gb": null},
+    "intensivo": {"ai_calls": null, "images": null, "pdf": null, "word": null, "storage_gb": null, "egress_gb": null},
+    "estres_cuotas": {"ai_calls": 250, "images": null, "pdf": 100, "word": 100, "storage_gb": null, "egress_gb": null}
+  },
+  "unit_cost_usd": {"ai_calls": null, "images": null, "pdf": null, "word": null, "storage_gb": null, "egress_gb": null},
+  "payment_fee_fraction": null,
+  "fixed_operating_usd_per_month": null,
+  "progressive_paid_subscribers_by_month": {
+    "10": null,
+    "100": null,
+    "1000": null
+  }
+}

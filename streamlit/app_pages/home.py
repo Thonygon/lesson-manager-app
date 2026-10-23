@@ -1,3 +1,7 @@
+from functools import partial
+from services.document_export_events import recorded_download_button as _recorded_download_button
+recorded_download_button = partial(_recorded_download_button, document_kind="cover_letter")
+
 import datetime
 import html as _html
 import json
@@ -547,7 +551,7 @@ def _render_resource_viewer_shell(kind: str) -> bool:
 
             cl_pdf = build_cover_letter_pdf_bytes(cl_content, cl_title)
             safe_name = _re.sub(r"[^A-Za-z0-9._-]+", "_", cl_title) or "cover_letter"
-            st.download_button(
+            recorded_download_button(
                 t("download_pdf"),
                 data=cl_pdf,
                 file_name=f"{safe_name}.pdf",
@@ -2675,7 +2679,7 @@ def render_home(*, panel_override: str | None = None, show_home_actions: bool = 
                 import re as _re
                 cl_pdf = build_cover_letter_pdf_bytes(cl_content, cl_title)
                 _safe = _re.sub(r"[^A-Za-z0-9._-]+", "_", cl_title) or "cover_letter"
-                st.download_button(
+                recorded_download_button(
                     label=t("download_cl_pdf"),
                     data=cl_pdf,
                     file_name=f"{_safe}.pdf",

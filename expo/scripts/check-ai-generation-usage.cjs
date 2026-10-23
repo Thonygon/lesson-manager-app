@@ -59,14 +59,15 @@ async function main() {
     assert.equal(fromLogs.source, 'logs');
     assert.equal(fromLogs.used, 3);
     counterUnavailable = false;
-    await logAiGeneration(context, 'requested', { subject: 'Spanish' });
+    await logAiGeneration(context, 'requested', { prompt_version: 'expo-generate-v1' });
     assert.equal(writes[0].table, 'ai_usage_logs');
     assert.equal(writes[0].body.user_id, 'owner-id');
+    assert.equal(writes[0].body.meta_json.subject, undefined);
     const program = { ...context, kind: 'program' };
     assert.equal((await checkAiGenerationUsage(program)).allowed, true);
     used = 10;
     assert.equal((await checkAiGenerationUsage(program)).status, 429);
-    resetDate = 2020-01-01;
+    resetDate = '2020-01-01';
     assert.equal((await checkAiGenerationUsage(program)).used, 0);
   } finally { global.fetch = originalFetch; }
   process.stdout.write('AI generation usage fixtures passed.\n');

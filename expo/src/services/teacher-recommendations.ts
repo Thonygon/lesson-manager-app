@@ -119,10 +119,10 @@ function teacherFocusBonus(focus: string, kind: string) {
   return 0;
 }
 
-export function rankTeacherResources(resources: PublicResource[], need: RecommendationNeed, model: RecommendationModel, affinityScores?: Map<string, number>) {
+export function rankTeacherResources(resources: PublicResource[], need: RecommendationNeed, model: RecommendationModel, affinityScores?: Map<string, number>, excluded?: Set<string>, studentId = '') {
   const context = needContext(need); const queryTokens = tokens(need.title || need.topic, need.objective);
   const query = searchText([need.title || need.topic, need.objective].filter(Boolean).join(' '));
-  const candidates = resources.map((resource) => {
+  const candidates = resources.filter((resource) => !excluded?.has(teacherFeedbackKey(studentId, need, resource))).map((resource) => {
     const kind = key(resource.kind); const resourceTokens = tokens(resource.title, resource.topic);
     const topicId = Number(need.topicId) || 0; const topicFeatures = topicId > 0 ? model.alignment?.(kind, resource.id, [topicId]) : null;
     const raw = resource.raw; const exerciseTypes = Array.isArray(raw.exercise_types) ? raw.exercise_types : [];
@@ -165,11 +165,33 @@ export function rankTeacherResources(resources: PublicResource[], need: Recommen
   return order.flatMap((kind) => winning.filter((item) => item.resource.kind === kind).slice(0, 3));
 }
 
-export async function recordTeacherRecommendationExposures(need: RecommendationNeed, ranked: { resource: PublicResource; score: number }[], studentId: string) {
-  if (!ranked.length) return; const client = requireSupabase(); const { data: userData } = await client.auth.getUser(); const teacherId = userData.user?.id; if (!teacherId) return;
+export function teacherFeedbackKey(studentId: string, need: RecommendationNeed, resource: Pick<PublicResource, 'kind' | 'id'>) {
+  return [studentId, need.topicId ? `topic:${need.topicId}` : `need:${need.id}`, resource.kind, resource.id].join(':');
+}
+
+export async function loadTeacherRelevanceFeedback(studentId: string): Promise<Set<string>> {
+  const client = requireSupabase(); const { data, error } = await client.auth.getSession(); if (error || !data.session) throw error ?? new Error('Your session has expired.');
+  const response = await fetch(`/api/teacher-relevance-feedback?studentId=${encodeURIComponent(studentId)}`, { headers: { Authorization: `Bearer ${data.session.access_token}` }, cache: 'no-store' });
+  if (!response.ok) throw new Error('Teacher feedback could not be loaded.');
+  const payload = await response.json() as { rows?: { context_key?: string }[] };
+  return new Set((payload.rows || []).map((row) => String(row.context_key || '')).filter(Boolean));
+}
+
+export async function saveTeacherRelevanceFeedback(exposureId: string, action: 'reject' | 'undo', reason?: 'wrong_topic' | 'student_unfit') {
+  const client = requireSupabase(); const { data, error } = await client.auth.getSession(); if (error || !data.session) throw error ?? new Error('Your session has expired.');
+  const response = await fetch('/api/teacher-relevance-feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify({ exposureId, action, reason }), cache: 'no-store' });
+  const payload = await response.json().catch(() => ({})) as { error?: string; contextKey?: string };
+  if (!response.ok) throw new Error(payload.error || 'Teacher feedback could not be saved.');
+  return payload;
+}
+
+export async function recordTeacherRecommendationExposures(need: RecommendationNeed, ranked: { resource: PublicResource; score: number }[], studentId: string): Promise<Map<string, string>> {
+  if (!ranked.length) return new Map(); const client = requireSupabase(); const { data: userData } = await client.auth.getUser(); const teacherId = userData.user?.id; if (!teacherId) return new Map();
   const shownAt = new Date().toISOString(); const context = needContext(need); const cycle = `${teacherId}:${studentId}:${need.id}:${shownAt.slice(0, 16)}`;
-  const rows = ranked.map(({ resource, score }, index) => { const exposureId = `${cycle}:${resource.kind}:${resource.id}`; return { exposure_id: exposureId, idempotency_key: exposureId, teacher_id: teacherId, student_id: studentId || null, viewer_user_id: teacherId, resource_id: resource.id, resource_type: resource.kind, exposure_type: 'teacher_resource_recommendation', surface: 'student_learning_recommendations', position: index + 1, recommendation_bucket: context.bucket, recommendation_focus_kind: context.focus, shown_at: shownAt, model_component_id: 'teacher_recommendation_resource_ranker', model_version: 'expo-port-v1', learned_score: score, final_score: score, context_json: { subject: resource.subject, topic: resource.topic, recommendation_id: need.id } }; });
-  await client.from('resource_exposures').upsert(rows, { onConflict: 'idempotency_key', ignoreDuplicates: true });
+  const rows = ranked.map(({ resource, score }, index) => { const exposureId = `${cycle}:${resource.kind}:${resource.id}`; return { exposure_id: exposureId, idempotency_key: exposureId, teacher_id: teacherId, student_id: studentId || null, viewer_user_id: teacherId, resource_id: resource.id, resource_type: resource.kind, exposure_type: 'teacher_resource_recommendation', surface: 'student_learning_recommendations', position: index + 1, recommendation_bucket: context.bucket, recommendation_focus_kind: context.focus, learning_program_topic_id: need.topicId || null, shown_at: shownAt, model_component_id: 'teacher_recommendation_resource_ranker', model_version: 'expo-port-v1', learned_score: score, final_score: score, context_json: { subject: resource.subject, topic: resource.topic, recommendation_id: need.id } }; });
+  const { error } = await client.from('resource_exposures').upsert(rows, { onConflict: 'idempotency_key', ignoreDuplicates: true });
+  if (error) throw error;
+  return new Map(rows.map((row) => [`${need.id}:${row.resource_type}:${row.resource_id}`, row.exposure_id]));
 }
 
 export async function recordTeacherObjectiveExposures(items: TeacherObjectiveRecommendation[], studentId: string) {
@@ -188,13 +210,13 @@ export async function recordTeacherObjectiveExposures(items: TeacherObjectiveRec
   await client.from('resource_exposures').upsert(rows, { onConflict: 'idempotency_key', ignoreDuplicates: true });
 }
 
-export async function recordTeacherRecommendationAction(item: TeacherObjectiveRecommendation, studentId: string, eventType: 'prefill' | 'resource_opened' | 'teacher_marked_done', resource?: PublicResource) {
+export async function recordTeacherRecommendationAction(item: TeacherObjectiveRecommendation, studentId: string, eventType: 'prefill' | 'resource_opened' | 'resource_assigned' | 'teacher_marked_done', resource?: PublicResource) {
   if (!studentId) return;
   const client = requireSupabase(); const { data } = await client.auth.getUser(); const teacherId = data.user?.id; if (!teacherId) return;
   const now = new Date().toISOString();
   await client.from('learning_program_recommendation_events').insert({ teacher_id: teacherId, student_id: studentId,
     learning_program_assignment_id: item.programAssignmentId || null, learning_program_topic_id: item.topicId || null, program_id: item.programId || null,
     recommendation_bucket: item.bucket, recommendation_focus_kind: item.focus, resource_kind: eventType === 'teacher_marked_done' ? 'lesson' : resource?.kind || (item.tool === 'plan' ? 'lesson_plan' : item.tool),
-    resource_record_id: resource ? Number(resource.id) || null : null, event_type: eventType, event_weight: eventType === 'prefill' ? 0.18 : eventType === 'teacher_marked_done' ? 0.42 : 0.32,
+    resource_record_id: resource ? Number(resource.id) || null : null, event_type: eventType, event_weight: eventType === 'prefill' ? 0.18 : eventType === 'teacher_marked_done' ? 0.42 : eventType === 'resource_assigned' ? 0.55 : 0.32,
     metadata: { title: item.title, ...(eventType === 'teacher_marked_done' && item.resolvedLowScoreSignature ? { resolved_low_score_signature: item.resolvedLowScoreSignature } : {}) }, created_at: now, updated_at: now });
 }

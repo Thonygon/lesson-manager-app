@@ -19,9 +19,11 @@ import { findGenerationMatches } from '../../server/generation-reuse';
 import { sourceSystemPrompt } from '../../server/source-system-prompts';
 import { examLengthRule } from '../../lib/exam-generation-rules';
 import { programExamTargets } from '../../shared/program-builder-options';
+import { gradeEvidencePrompt, loadMatchedGradeEvidence } from '../../server/student-generation-evidence';
+import { beginAiOperation, beginProviderAttempt, finishAiOperation, finishProviderAttempt, type AiEconomicContext } from '../../server/ai-economic-events';
 
 type ToolKind = 'plan' | 'worksheet' | 'exam' | 'program';
-type GenerationRequest = { kind?: ToolKind; subject?: string; customSubject?: string; topic?: string; stage?: string; level?: string; language?: string; planLanguage?: string; nativeLanguage?: string; student?: string; generationMode?: string; lessonPurpose?: string; objective?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration?: string; questionCount?: number; notes?: string; programId?: string; programTopicId?: string; previousProgramId?: string; programPhase?: 'skeleton' | 'unit'; programSkeleton?: Record<string, unknown>; programUnitIndex?: number; reuseConfirmed?: boolean };
+type GenerationRequest = { kind?: ToolKind; subject?: string; customSubject?: string; topic?: string; stage?: string; level?: string; language?: string; planLanguage?: string; nativeLanguage?: string; generationMode?: string; lessonPurpose?: string; objective?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration?: string; questionCount?: number; notes?: string; programId?: string; programTopicId?: string; previousProgramId?: string; programPhase?: 'skeleton' | 'unit'; programSkeleton?: Record<string, unknown>; programUnitIndex?: number; reuseConfirmed?: boolean; studentNameForRedaction?: string; studentIdForEvidence?: string };
 
 const SCHEMAS: Record<ToolKind, string> = {
   plan: `{"title":"...","objective":"...","recommended_level":"...","plan_language":"...","student_material_language":"...","success_criteria":["..."],"warm_up":["..."],"main_activity":["..."],"core_examples":["..."],"guided_practice":["..."],"practice_questions":["..."],"freer_task":["..."],"wrap_up":["..."],"teacher_moves":["..."],"extension_task":"...","homework":"...","reading_passage":"...","listening_script":"...","core_material":{}}`,
@@ -138,6 +140,8 @@ async function readPreviousProgram(base: string, key: string, token: string, own
 
 export async function POST(request: Request) {
   let phase = 'authorization';
+  let economicContext: AiEconomicContext | null = null;
+  let economicOperationId = '';
   try {
     const authorization = request.headers.get('authorization') || ''; const token = authorization.replace(/^Bearer\s+/i, '').trim();
     const guest = !token;
@@ -208,6 +212,18 @@ export async function POST(request: Request) {
       if (guest || kind !== 'plan') return json({ error: 'This template is not available for the selected tool or subject.' }, 400);
       if (!templateDocument) return json({ error: 'This template is not available for the selected stage or level.' }, 400);
       return json({ document: templateDocument, model: 'template', generatedAt: new Date().toISOString() });
+    }
+    let gradeBlock = '';
+    if (body.studentIdForEvidence) {
+      if (guest) return json({ error: 'Teacher access is required for learner history.' }, 403);
+      phase = 'student_grade_evidence';
+      try {
+        const evidence = await loadMatchedGradeEvidence(supabaseUrl, anonKey, token, userId, text(body.studentIdForEvidence, 80), subject, topic, positiveId(body.programTopicId) || undefined);
+        gradeBlock = gradeEvidencePrompt(evidence, text(body.studentNameForRedaction, 120));
+      } catch (error) {
+        console.error('Learner grade evidence failed', error instanceof Error ? error.message : 'unknown error');
+        return json({ error: 'Learner grade history could not be checked. Try again.', code: 'grade_evidence_unavailable' }, 503);
+      }
     }
     const fallbackPlan = (reason = 'ai_unavailable') => templateDocument && !guest ? json({ document: templateDocument, model: 'template', fallbackReason: reason, generatedAt: new Date().toISOString() }) : null;
     const schema = SCHEMAS[kind];
@@ -281,11 +297,16 @@ export async function POST(request: Request) {
     const prompt = `${kind === 'program' || !notes ? promptBase : `${promptBase}\n\nAdditional teacher context (apply only when compatible with the selected tool and learner level):\n${notes}`}${objectiveInstruction}`;
     const programContext = { subject, subjectKey: selectedSubject === 'Other' ? 'other' : selectedSubject.toLowerCase().replaceAll(' ', '_'), topic, stage, level, units: programStructure.units, lessonsPerUnit: programStructure.lessonsPerUnit, planLanguage, studentLanguage: language, nativeLanguage: text(body.nativeLanguage, 80), programTrack: text(body.programTrack, 80), examTarget: text(body.examTarget, 100), notes, previousContext };
     const programPrompts = kind === 'program' ? body.programPhase === 'unit' ? programUnitPrompts(programContext, body.programSkeleton!, programUnitIndex) : programSkeletonPrompts(programContext) : null;
+    const providerUserPrompt = `${programPrompts?.user || prompt}${gradeBlock}`;
     let document: Record<string, unknown> | null = null;
     let providerName = '';
     let providerModel = '';
     let failure = 'The AI provider could not complete this generation. Try again.';
     let providerCalls = 0;
+    const economicKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    economicContext = { base: supabaseUrl, serverKey: economicKey, actorUserId: userId || null, source: 'expo' };
+    try { economicOperationId = await beginAiOperation(economicContext, `generate_${kind}`, 'text'); }
+    catch (error) { console.error('AI economic operation start failed', error); return json({ error: 'AI usage could not be recorded.', code: 'usage_unavailable' }, 503); }
     phase = 'provider_generation';
     for (const provider of providers) {
       let repair = '';
@@ -295,37 +316,50 @@ export async function POST(request: Request) {
           phase = 'usage_reservation';
           let reservation;
           try { reservation = await reserveAiGenerationUsage(usageContext, usageLimit); }
-          catch (error) { console.error('AI usage reservation failed', error); return json({ error: 'AI usage could not be reserved.', code: 'usage_unavailable' }, 503); }
-          if (!reservation.allowed) return json({ error: 'Your AI generation limit has been reached.', code: 'limit_reached' }, 429);
+          catch (error) { console.error('AI usage reservation failed', error); await finishAiOperation(economicContext, economicOperationId, 'failed', 'reservation_failed'); economicOperationId = ''; return json({ error: 'AI usage could not be reserved.', code: 'usage_unavailable' }, 503); }
+          if (!reservation.allowed) { await finishAiOperation(economicContext, economicOperationId, 'failed', 'limit_reached'); economicOperationId = ''; return json({ error: 'Your AI generation limit has been reached.', code: 'limit_reached' }, 429); }
         }
         providerCalls += 1;
         phase = 'provider_generation';
+        const economicAttemptId = await beginProviderAttempt(economicContext, economicOperationId, providerCalls, provider.provider, provider.model, 'text');
         let content: string;
         let model = '';
+        let providerUsage: Awaited<ReturnType<typeof requestAiProvider>>['usage'] | null = null;
+        let providerRequestId = '';
+        let providerHttpStatus: number | undefined;
         try {
-          const response = await requestAiProvider(provider, programPrompts?.system || sourceSystemPrompt(kind), repair ? `${programPrompts?.user || prompt}\n\nThe previous response was ${repair}. Return a complete, valid JSON document matching every required field and answer.` : programPrompts?.user || prompt);
+          const response = await requestAiProvider(provider, programPrompts?.system || sourceSystemPrompt(kind), repair ? `${providerUserPrompt}\n\nThe previous response was ${repair}. Return a complete, valid JSON document matching every required field and answer.` : providerUserPrompt, fetch, body.studentNameForRedaction ? [text(body.studentNameForRedaction, 120)] : []);
           content = response.content;
           model = response.model;
+          providerUsage = response.usage;
+          providerRequestId = response.providerRequestId;
+          providerHttpStatus = response.httpStatus;
         } catch (error) {
           console.error('AI provider request failed', provider.provider, error instanceof Error ? error.message : 'unknown error');
+          const status = /HTTP (\d{3})/.exec(error instanceof Error ? error.message : '');
+          await finishProviderAttempt(economicContext, economicAttemptId, { status: 'failed', httpStatus: status ? Number(status[1]) : undefined, errorKind: status ? 'provider_http' : 'transport_error' });
           continue;
         }
         try { document = jsonFromModel(content); }
-        catch { document = null; repair = 'not valid JSON'; failure = 'The AI provider returned an invalid document. Try again.'; continue; }
+        catch { document = null; repair = 'not valid JSON'; failure = 'The AI provider returned an invalid document. Try again.'; await finishProviderAttempt(economicContext, economicAttemptId, { status: 'failed', modelReported: model, providerRequestId, httpStatus: providerHttpStatus, ...providerUsage, errorKind: 'invalid_json' }); continue; }
         if (kind === 'plan' && text(body.objective, 500)) document.objective = text(body.objective, 500);
         if (kind === 'worksheet') document = normalizeWorksheetAnswerKey(document);
         if (kind === 'exam') document = repairExamAnswerKey(document);
         const qualityIssues = kind === 'program' && body.programPhase === 'skeleton' ? [...programSkeletonIssues(document, programStructure.units, programStructure.lessonsPerUnit), ...programLanguageIssues(document, planLanguage, language)] : kind === 'program' && body.programPhase === 'unit' ? [...programUnitIssues(document, programUnits[programUnitIndex]), ...programLanguageIssues(document, planLanguage, language, true)] : kind === 'plan' ? lessonPlanQualityIssues(document, { subject, stage, level, purpose, programContext: programBlock }) : kind === 'worksheet' ? worksheetQualityIssues(document) : kind === 'exam' ? examQualityIssues(document, length) : programQualityIssues(document, programStructure.units, programStructure.lessonsPerUnit);
-        if ((kind === 'program' || validGeneratedDocument(kind, document, body)) && qualityIssues.length === 0) { providerName = provider.provider; providerModel = model; break; }
+        if ((kind === 'program' || validGeneratedDocument(kind, document, body)) && qualityIssues.length === 0) { await finishProviderAttempt(economicContext, economicAttemptId, { status: 'success', modelReported: model, providerRequestId, httpStatus: providerHttpStatus, ...providerUsage }); providerName = provider.provider; providerModel = model; break; }
+        await finishProviderAttempt(economicContext, economicAttemptId, { status: 'failed', modelReported: model, providerRequestId, httpStatus: providerHttpStatus, ...providerUsage, errorKind: 'invalid_output' });
         document = null; repair = qualityIssues.length ? qualityIssues.join('; ') : 'incomplete'; failure = 'The AI provider returned an incomplete document. Try again.';
       }
       if (document || providerCalls >= 2) break;
     }
     if (!document) {
+      await finishAiOperation(economicContext, economicOperationId, 'failed', 'provider_failed'); economicOperationId = '';
       if (usageContext) await logAiGeneration(usageContext, 'failed', { prompt_version: 'expo-generate-v1', result: 'provider_failed', provider_calls: providerCalls }).catch((error) => console.error('AI usage failure log failed', error));
       return fallbackProgram() ?? fallbackPlan() ?? json({ error: failure }, 502);
     }
+    const completedOperationId = economicOperationId;
+    await finishAiOperation(economicContext, economicOperationId, 'success'); economicOperationId = '';
     if (usageContext) await logAiGeneration(usageContext, 'success', { prompt_version: 'expo-generate-v1', provider: providerName, model: providerModel, result: 'accepted', provider_calls: providerCalls }).catch((error) => console.error('AI usage success log failed', error));
-    return json({ document, model: 'ai', generatedAt: new Date().toISOString() }, 200, guestCookie ? { 'Set-Cookie': guestCookie } : undefined);
-  } catch (error) { console.error('Generation route error', phase, error); return json({ error: 'Generation failed.', code: 'generation_failed', phase }, 500); }
+    return json({ document, model: 'ai', generationId: userId ? completedOperationId : undefined, generatedAt: new Date().toISOString() }, 200, guestCookie ? { 'Set-Cookie': guestCookie } : undefined);
+  } catch (error) { if (economicContext && economicOperationId) await finishAiOperation(economicContext, economicOperationId, 'failed', 'unexpected_error').catch((failure) => console.error('AI economic operation finalization failed', failure)); console.error('Generation route error', phase, error); return json({ error: 'Generation failed.', code: 'generation_failed', phase }, 500); }
 }

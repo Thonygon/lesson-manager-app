@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 
 import { getBrandingSettings } from '@/services/branding';
+import { recordedDocumentExport, type DocumentKind } from '@/services/document-export-events';
 import { canonicalSubjectKey } from '@/lib/subjects';
 import { canonicalLearnerStageKey } from '@/lib/learner-stages';
 import { lessonPurposeKey } from '@/lib/lesson-purpose';
@@ -814,7 +815,8 @@ export function downloadResourcePdf(title: string, detail: Record<string, unknow
   const documentLocale: DocumentLocale = resourceKind === 'worksheet' && ['en', 'es', 'tr'].includes(String(worksheetLanguage)) ? String(worksheetLanguage) as DocumentLocale : locale;
   const profileDocument = detail.full_name ? 'cv' : typeof detail.cover_letter === 'string' ? 'letter' : null;
   const displayTitle = profileDocument === 'cv' ? String(detail.full_name) : resourceKind === 'exam' && variant !== 'student' && variant !== 'full' ? `${title} - ${COPY[documentLocale].answerKey}` : title;
-  return savePdf(displayTitle, subtitle, resourceSections(detail, variant, documentLocale), `${title}${suffix}`, documentLocale, resourceKind === 'worksheet' || resourceKind === 'exam', false, resourceKind, resourceMetaLine(detail, resourceKind, documentLocale), profileDocument, String(detail.avatar_url || ''));
+  const documentKind: DocumentKind = resourceKind === 'plan' ? 'lesson_plan' : resourceKind || (profileDocument === 'letter' ? 'cover_letter' : profileDocument) || 'other';
+  return recordedDocumentExport('pdf', documentKind, variant, () => savePdf(displayTitle, subtitle, resourceSections(detail, variant, documentLocale), `${title}${suffix}`, documentLocale, resourceKind === 'worksheet' || resourceKind === 'exam', false, resourceKind, resourceMetaLine(detail, resourceKind, documentLocale), profileDocument, String(detail.avatar_url || '')));
 }
 
 export function downloadResourceDocx(title: string, detail: Record<string, unknown>, locale: DocumentLocale = 'en', variant: ResourceVariant = 'full') {
@@ -824,15 +826,16 @@ export function downloadResourceDocx(title: string, detail: Record<string, unkno
   const worksheetLanguage = record(detail.worksheet_json).plan_language ?? detail.plan_language;
   const documentLocale: DocumentLocale = resourceKind === 'worksheet' && ['en', 'es', 'tr'].includes(String(worksheetLanguage)) ? String(worksheetLanguage) as DocumentLocale : locale;
   const displayTitle = resourceKind === 'exam' && variant !== 'student' && variant !== 'full' ? `${title} - ${COPY[documentLocale].answerKey}` : title;
-  return saveDocx(displayTitle, subtitle, resourceSections(detail, variant, documentLocale), `${title}${suffix}`, documentLocale, resourceKind === 'worksheet' || resourceKind === 'exam', false, resourceKind, resourceKind === 'plan' ? resourceMetaLine(detail, resourceKind, documentLocale) : '');
+  const documentKind: DocumentKind = resourceKind === 'plan' ? 'lesson_plan' : resourceKind || 'other';
+  return recordedDocumentExport('docx', documentKind, variant, () => saveDocx(displayTitle, subtitle, resourceSections(detail, variant, documentLocale), `${title}${suffix}`, documentLocale, resourceKind === 'worksheet' || resourceKind === 'exam', false, resourceKind, resourceKind === 'plan' ? resourceMetaLine(detail, resourceKind, documentLocale) : ''));
 }
 
 export function downloadStudentReportPdf(studentName: string, workspace: StudentLearningWorkspace, locale: DocumentLocale = 'en') {
-  return savePdf(`${studentName} · ${COPY[locale].progress}`, COPY[locale].studentEvidence, studentSections(workspace, locale), `${studentName}-progress-report`, locale);
+  return recordedDocumentExport('pdf', 'student_report', 'full', () => savePdf(`${studentName} · ${COPY[locale].progress}`, COPY[locale].studentEvidence, studentSections(workspace, locale), `${studentName}-progress-report`, locale));
 }
 
 export function downloadStudentReportDocx(studentName: string, workspace: StudentLearningWorkspace, locale: DocumentLocale = 'en') {
-  return saveDocx(`${studentName} · ${COPY[locale].progress}`, COPY[locale].studentEvidence, studentSections(workspace, locale), `${studentName}-progress-report`, locale);
+  return recordedDocumentExport('docx', 'student_report', 'full', () => saveDocx(`${studentName} · ${COPY[locale].progress}`, COPY[locale].studentEvidence, studentSections(workspace, locale), `${studentName}-progress-report`, locale));
 }
 
 type HistoryBalance = { subject: string; modality: string; purchased: number; delivered: number; remaining: number; startDate?: string; expiryDate?: string } | null;
@@ -854,9 +857,9 @@ function studentHistorySections(lessons: Record<string, unknown>[], payments: Re
 }
 
 export function downloadStudentHistoryPdf(studentName: string, lessons: Record<string, unknown>[], payments: Record<string, unknown>[], locale: DocumentLocale = 'en', balance: HistoryBalance = null) {
-  return savePdf(`${{ en: 'Student report', es: 'Informe del estudiante', tr: 'Öğrenci raporu' }[locale]} · ${studentName}`, new Date().toISOString().slice(0, 10), studentHistorySections(lessons, payments, locale, balance), `${studentName}-student-report`, locale);
+  return recordedDocumentExport('pdf', 'student_history', 'full', () => savePdf(`${{ en: 'Student report', es: 'Informe del estudiante', tr: 'Öğrenci raporu' }[locale]} · ${studentName}`, new Date().toISOString().slice(0, 10), studentHistorySections(lessons, payments, locale, balance), `${studentName}-student-report`, locale));
 }
 
 export function downloadStudentHistoryDocx(studentName: string, lessons: Record<string, unknown>[], payments: Record<string, unknown>[], locale: DocumentLocale = 'en', balance: HistoryBalance = null) {
-  return saveDocx(`${{ en: 'Student report', es: 'Informe del estudiante', tr: 'Öğrenci raporu' }[locale]} · ${studentName}`, new Date().toISOString().slice(0, 10), studentHistorySections(lessons, payments, locale, balance), `${studentName}-student-report`, locale);
+  return recordedDocumentExport('docx', 'student_history', 'full', () => saveDocx(`${{ en: 'Student report', es: 'Informe del estudiante', tr: 'Öğrenci raporu' }[locale]} · ${studentName}`, new Date().toISOString().slice(0, 10), studentHistorySections(lessons, payments, locale, balance), `${studentName}-student-report`, locale));
 }

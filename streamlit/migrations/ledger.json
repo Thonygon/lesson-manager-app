@@ -65,6 +65,9 @@
     {"name": "admin_account_control_transaction.sql", "sha256": "8ee23b0367f08859b84f010c62987e5f275258f04383daab5afd400add4863c2"},
     {"name": "manual_payment_insert_transaction.sql", "sha256": "381b93837d718d366e580695d404104e6d1575712d49377e57c5619f1335aa48"},
     {"name": "ai_prompt_trace_retention.sql", "sha256": "82dd226035494b39d67434d3c796bba8164d141390d04339262b9f586745a393"},
-    {"name": "teacher_ledger_mutations_transaction.sql", "sha256": "062beec626f61a990b5470dead1ddc3e2ab7a42c039e9b760edad60c3421b952"}
+    {"name": "teacher_ledger_mutations_transaction.sql", "sha256": "062beec626f61a990b5470dead1ddc3e2ab7a42c039e9b760edad60c3421b952"},
+    {"name": "classio_ai_economic_events.sql", "sha256": "d7c6f2fe6fe1e288cb6f4415582dd31e2346e5658b6b29fe040d7fddbf85604a"},
+    {"name": "classio_document_export_events.sql", "sha256": "667833e60b8475513cd868b30906141cafef7186b7a638887b48334a4e303c1d"},
+    {"name": "classio_ai_quality_feedback.sql", "sha256": "8b638555ed164d55b484e2203bac3f4f7cf5c88d114668e51d53c7ddc9678620"}
   ]
 }

@@ -1,3 +1,7 @@
+from functools import partial
+from services.document_export_events import recorded_download_button as _recorded_download_button
+recorded_download_button = partial(_recorded_download_button, document_kind="lesson_plan")
+
 # CLASSIO — Planner Storage (Full Replacement)
 # ============================================================
 import html
@@ -1259,6 +1263,7 @@ def render_quick_lesson_plan_result(
     comparison_mode: bool = False,
     allow_image_generation: bool | None = None,
     on_image_update=None,
+    feedback_surface: str = "resource_page",
     show_clear_result: bool = False,
 ) -> None:
     def _scoped_expander_label(label: str, scope_key: str) -> str:
@@ -1547,7 +1552,7 @@ def render_quick_lesson_plan_result(
         dc1, dc2 = st.columns(2)
         with dc1:
             if pdf_bytes:
-                st.download_button(
+                recorded_download_button(
                     label=t("download_pdf"),
                     data=pdf_bytes,
                     file_name=f"{safe_title}.pdf",
@@ -1571,7 +1576,7 @@ def render_quick_lesson_plan_result(
                             st.session_state["explore_ai_tools_keep_open"] = True
                         st.rerun()
                 else:
-                    st.download_button(
+                    recorded_download_button(
                         label=t("download_word"),
                         data=docx_bytes,
                         file_name=f"{safe_title}.docx",
@@ -1607,7 +1612,7 @@ def render_quick_lesson_plan_result(
         a1, a2 = st.columns(2)
         with a1:
             if pdf_bytes:
-                st.download_button(
+                recorded_download_button(
                     label=t("download_pdf"),
                     data=pdf_bytes,
                     file_name=f"{safe_title}.pdf",
@@ -1617,7 +1622,7 @@ def render_quick_lesson_plan_result(
                 )
         with a2:
             if docx_bytes:
-                st.download_button(
+                recorded_download_button(
                     label=t("download_word"),
                     data=docx_bytes,
                     file_name=f"{safe_title}.docx",
@@ -1631,7 +1636,7 @@ def render_quick_lesson_plan_result(
         a1, a2 = st.columns(2)
         with a1:
             if pdf_bytes:
-                st.download_button(
+                recorded_download_button(
                     label=t("download_pdf"),
                     data=pdf_bytes,
                     file_name=f"{safe_title}.pdf",
@@ -1641,7 +1646,7 @@ def render_quick_lesson_plan_result(
                 )
         with a2:
             if docx_bytes:
-                st.download_button(
+                recorded_download_button(
                     label=t("download_word"),
                     data=docx_bytes,
                     file_name=f"{safe_title}.docx",
@@ -1649,6 +1654,9 @@ def render_quick_lesson_plan_result(
                     key=f"{action_key_prefix}_download_docx_inline2",
                     use_container_width=True,
                 )
+    if resource_record_id and not comparison_mode:
+        from helpers.quality_feedback import render_generation_intent_question
+        render_generation_intent_question("plan", resource_record_id, surface=feedback_surface, key_prefix=action_key_prefix)
     if show_clear_result and not read_only:
         if st.button(
             "🗑️ " + (t("clear_result") if t("clear_result") != "clear_result" else "Clear result"),
@@ -2270,6 +2278,13 @@ def render_quick_lesson_planner_expander(*, embedded: bool = False) -> None:
                     )
                     if _saved_plan_id and _saved_plan_id is not True:
                         st.session_state["quick_lesson_plan_record_id"] = _saved_plan_id
+                        if generation_result.get("generation_operation_id"):
+                            try:
+                                from helpers.quality_feedback import bind_generated_resource
+                                if not bind_generated_resource("plan", _saved_plan_id, generation_result["generation_operation_id"]):
+                                    st.warning(t("generation_intent_unavailable"))
+                            except Exception:
+                                st.warning(t("generation_intent_unavailable"))
 
                 log_user_activity(
                     activity_type="planner_generate",
@@ -2312,6 +2327,7 @@ def render_quick_lesson_planner_expander(*, embedded: bool = False) -> None:
                 topic=st.session_state.get("quick_plan_effective_topic") or topic,
                 assign_expanded=bool(st.session_state.get("quick_lesson_plan_assign_expanded", False)),
                 resource_record_id=st.session_state.get("quick_lesson_plan_record_id"),
+                feedback_surface="generation_preview",
                 show_clear_result=True,
             )
 

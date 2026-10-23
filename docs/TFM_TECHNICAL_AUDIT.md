@@ -1,12 +1,31 @@
-# Auditoría técnica de Classio para el TFM
+# Auditoría académica de Classio para el TFM
 
-Fecha de revisión: 21 de octubre de 2026. Alcance: código y artefactos versionados en este repositorio, más estado público de la ejecución de GitHub Actions [39434508082](https://github.com/Thonygon/lesson-manager-app/actions/runs/39434508082). Una prueba unitaria demuestra comportamiento acotado; no equivale a aceptación de usuarios ni a eficacia pedagógica.
+## Evidencia nueva de código — 23 de octubre de 2026
 
-## Prioridades y estado
+`classio_teacher_relevance_feedback` registra un juicio explícito por docente, alumno, contexto y recurso: `wrong_topic` es candidato a etiqueta negativa de afinidad temática; `student_unfit` evalúa adecuación al alumno y queda separado. El rechazo oculta el recurso y el ranking elige el siguiente candidato disponible; el deshacer conserva el historial. Para planes, fichas y exámenes de IA, `classio_generation_intent_feedback` captura Sí/No, razón opcional y origen de pantalla, ligado a la operación y al recurso mientras no exista edición sustantiva. `streamlit/scripts/evaluate_quality_feedback.py` resume esas señales y deja las celdas FN/TN de la matriz sin estimar porque solo observa recursos mostrados. Las asignaciones son positivos débiles, no juicios independientes. No se ha demostrado mejoría de relevancia ni se ha aprobado un reentrenamiento; primero hacen falta etiquetas beta, separación temporal y revisión de sesgos. El experimento de predicción de apertura permanece suspendido.
+
+**Función en el registro único:** auditoría **académica** de afirmaciones OE1–OE3, experimentos y reproducibilidad. La seguridad y operación tienen una [auditoría tecnológica propia](CLASSIO_TECHNOLOGY_AUDIT.md); la equivalencia funcional tiene el [checklist de paridad](../CLASSIO_EXPO_PARITY_CHECKLIST.md). La evidencia técnica de este documento sustenta o limita afirmaciones del TFM, pero no crea una segunda cola de remediación de producción.
+
+Fecha de revisión original: 21 de octubre de 2026. Alcance: código y artefactos versionados en este repositorio, más estado público de la ejecución de GitHub Actions [39434508082](https://github.com/Thonygon/lesson-manager-app/actions/runs/39434508082). Una prueba unitaria demuestra comportamiento acotado; no equivale a aceptación de usuarios ni a eficacia pedagógica.
+
+## Actualización del código — 22 de octubre de 2026
+
+Corte: `248ad2838`. La sección de CI inferior describe una ejecución **histórica** sobre `ef1713ec`; no es el estado de la rama actual. El workflow versionado instala con pnpm 11.19.0, comprueba TypeScript, lint y export web, y ejecuta pruebas de Streamlit, API Python y evaluador TFM. No se verificó una ejecución completa de Actions para este corte. En esta revisión, el verificador local de 65 migraciones, la comparación congelada del libro docente y el fixture de cuota de IA pasaron; `expo/scripts/check-manual-payment-transaction.cjs` falló porque todavía exige la RPC antigua `classio_add_manual_payment` en el código Python, que ahora llama `classio_mutate_teacher_ledger`. El fixture debe actualizarse antes de usarlo como puerta de CI; su fallo no demuestra un error de la nueva RPC.
+
+| Área | Evidencia posterior a la revisión original | Límite vigente |
+| --- | --- | --- |
+| Integridad del libro docente | `expo/src/services/classio-data.ts` y `streamlit/core/database.py` invocan `classio_mutate_teacher_ledger`; `streamlit/migrations/teacher_ledger_mutations_transaction.sql` reúne mutación, recálculo de paquetes e idempotencia. [Seguimiento S07](CLASSIO_PRODUCTION_REMEDIATION.md) registra migración y publicación en producción. | Falta aceptación funcional con la cuenta del titular, concurrencia real y ejecución observada del cron. Una publicación no valida todos los flujos. |
+| Generación y cuotas | `generate+api.ts` reserva uso antes de llamar al proveedor y `ai-generation-usage.ts` aplica el límite del plan; existen fixtures locales de autenticación y cuota. | El log final no conserva cada intento ni tokens/coste; la cuota no prueba gasto. La privacidad S09 y la validación de límites S04 siguen parcialmente abiertas. |
+| Superficies y paridad | El checklist de Expo registra implementaciones de estudiante, docente y Admin y múltiples despliegues; el API Python expone puntuación de afinidad y recomendaciones. | La aceptación por rol y la paridad de experimentos/informes del Developer siguen abiertas. `student-recommendations/score` ajusta muestras enviadas por el cliente; no demuestra eficacia pedagógica ni un modelo desplegado sobre datos verificados. |
+| Producción | [S01–S13](CLASSIO_PRODUCTION_REMEDIATION.md) distingue corrección local, despliegue y cierre. | S01–S05, S09–S13 mantienen validaciones o trabajo pendiente; S06 está diferido. No se infiere certificación de producción del build local. |
+
+**Próximo cierre académico:** completar medición controlada OE1, juicios independientes y ablación OE2, y análisis de viabilidad OE3. El fixture desfasado, CI, S07 y RLS se siguen en las auditorías responsables. Las hipótesis OE1/OE2 conservan sus pruebas empíricas pendientes; el despliegue no las confirma. [Registro y orden de auditorías](AUDITORIAS_ESTADO_2026-10-22.md).
+
+## Prioridades de la revisión académica original
 
 | Prioridad | Hallazgo | Acción / límite |
 | --- | --- | --- |
-| P0 | Expo fallaba al instalar dependencias con pnpm 11 (`ERR_PNPM_IGNORED_BUILDS` por el valor provisional de `core-js`). | `expo/pnpm-workspace.yaml` fija `core-js: false`; instalación limpia local comprobada. Falta una nueva ejecución real de Actions. |
+| P0 histórico | Expo fallaba al instalar dependencias con pnpm 11 (`ERR_PNPM_IGNORED_BUILDS` por el valor provisional de `core-js`) en la ejecución citada. | `expo/pnpm-workspace.yaml` fija `core-js: false`; instalación limpia local comprobada en esa revisión. Falta verificar Actions para el corte actual. |
 | P0 | Las conclusiones experimentales podían confundirse con el ranking operativo. | Esta matriz separa experimentos, inferencia y evidencia humana pendiente. |
 | P1 | Afinidad Python puede modificar el conjunto final de recursos; el modelo supervisado de apertura no es el modelo de ranking. | Protocolo offline en [reproducibilidad](TFM_ML_REPRODUCIBILITY.md); comparación empírica pendiente. |
 | P1 | Los endpoints dependen de Supabase y de un artefacto aprobado externo. | Revisar con pruebas aisladas y aceptación con cuentas autorizadas antes de alegar integración completa. |

@@ -1,5 +1,7 @@
 # Classio Supabase Disk IO Audit
 
+**Historical query-shape report.** Its improvements and follow-ups feed the [active technology audit](../docs/CLASSIO_TECHNOLOGY_AUDIT.md). The measurements below describe this earlier code pass, not current production IOPS or a separate audit queue.
+
 ## Root Causes Found
 
 - Streamlit reruns were re-executing the same read-heavy loader functions without enough cache coverage.

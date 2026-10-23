@@ -2,6 +2,8 @@
 
 Classio es una plataforma de apoyo a la planificación docente, creación de materiales y seguimiento del aprendizaje. El TFM estudia tres cuestiones: si reduce el tiempo de trabajo con calidad equivalente (OE1), si sus recomendaciones son más pertinentes que un baseline de reglas (OE2), y si una evolución modular con Expo y servicios Python es viable técnica y económicamente (OE3). **Esos objetivos son hipótesis de evaluación, no resultados demostrados por la existencia del código.**
 
+Esta guía pertenece a la [auditoría académica](TFM_TECHNICAL_AUDIT.md). El [registro único](AUDITORIAS_ESTADO_2026-10-22.md) separa sus afirmaciones de las auditorías financiera, tecnológica y de paridad.
+
 ## Cómo leer el repositorio
 
 | Ruta | Contenido | Madurez |
@@ -9,7 +11,7 @@ Classio es una plataforma de apoyo a la planificación docente, creación de mat
 | `streamlit/` | Aplicación Python existente: gestión, materiales, recomendaciones, pruebas y experimentos | Implementación operativa con pruebas de unidad; aceptación y efecto académico por evaluar |
 | `expo/` | Cliente React Native/web en migración, con flujos de docentes y estudiantes | Implementación parcial; paridad y aceptación pendientes |
 | `python_api/` | API autenticada para inferencia y otras operaciones protegidas | Integración condicionada a Supabase y modelos aprobados |
-| `.github/workflows/tests.yml` | Compilación, pruebas Python, instalación y verificaciones Expo | La última ejecución pública pasó Streamlit y falló Expo antes de sus verificaciones; hay corrección local pendiente de CI |
+| `.github/workflows/tests.yml` | Compilación, pruebas Python, instalación y verificaciones Expo | La ejecución 39434508082 de `ef1713ec` pasó Streamlit y falló Expo antes de sus verificaciones; el estado de CI del corte actual no está acreditado aquí |
 | `streamlit/reports/ml_architecture/` | Resúmenes, informes y algunos artefactos de experimentos | Evidencia histórica exploratoria; los CSV privados por fila no están en Git |
 | `docs/TFM_TECHNICAL_AUDIT.md` | Matriz de afirmaciones, código, evidencia y límites | Punto de partida para auditar afirmaciones |
 | `docs/TFM_ML_REPRODUCIBILITY.md` | Fuentes, particiones, artefactos y protocolo de ablación | Método reproducible sujeto a acceso autorizado a datos |

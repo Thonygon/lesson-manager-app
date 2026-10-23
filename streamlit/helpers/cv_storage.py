@@ -1,3 +1,7 @@
+from functools import partial
+from services.document_export_events import recorded_download_button as _recorded_download_button
+recorded_download_button = partial(_recorded_download_button, document_kind="cv")
+
 # CV_STORAGE.PY
 #===============================
 
@@ -603,7 +607,7 @@ def render_cv_result(
 
     safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(cv.get("full_name") or "cv").strip()) or "cv"
     pdf_bytes = build_cv_pdf_bytes(cv)
-    st.download_button(
+    recorded_download_button(
         label=t("download_cv_pdf"),
         data=pdf_bytes,
         file_name=f"cv_{safe_name}.pdf",
@@ -1390,7 +1394,8 @@ def render_quick_cv_builder_expander(*, embedded: bool = False) -> None:
             cl_title = st.session_state.get("quick_cl_title", t("my_cover_letter"))
             cl_pdf   = build_cover_letter_pdf_bytes(cl_result, cl_title)
             safe_cl  = re.sub(r"[^A-Za-z0-9._-]+", "_", cl_title) or "cover_letter"
-            st.download_button(
+            _recorded_download_button(
+                document_kind="cover_letter",
                 label=t("download_cl_pdf"),
                 data=cl_pdf,
                 file_name=f"{safe_cl}.pdf",

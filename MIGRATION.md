@@ -1,5 +1,7 @@
 # Streamlit to Expo migration
 
+**Current audit routing:** use the [single audit register](docs/AUDITORIAS_ESTADO_2026-10-22.md) and the [active parity checklist](CLASSIO_EXPO_PARITY_CHECKLIST.md). The migration table and run contract below record earlier phases; some `Planned` and staging statuses predate later code and production deployments. Security issues belong to the [technology audit](docs/CLASSIO_TECHNOLOGY_AUDIT.md), and billing/teacher-ledger integrity to the [financial audit](financial_analysis/README.md).
+
 ## Goal
 
 Replace the Streamlit UI with an Expo Router application without exposing privileged credentials or removing the known-good deployment before feature parity is proven.
@@ -83,7 +85,7 @@ The Expo migration is complete only when all currently used Streamlit workflows 
 
 ## Recurring parity work contract
 
-Use `CLASSIO_PARITY_AUDIT_2026-09-22.md` for known gaps and `CLASSIO_EXPO_PARITY_CHECKLIST.md` as the acceptance ledger. At the start of each run, inspect the current diff and those files; preserve work already in progress. Treat `streamlit/` as the behavioral source of truth and keep it read-only during parity work. The production Streamlit deployment remains in use.
+Use `CLASSIO_EXPO_PARITY_CHECKLIST.md` for current gaps and acceptance; `CLASSIO_PARITY_AUDIT_2026-09-22.md` is dated evidence. At the start of each run, inspect the current diff, the checklist, and the single audit register; preserve work already in progress. Treat `streamlit/` as the behavioral source of truth for parity comparisons. The production Streamlit deployment remains in use.
 
 For each slice:
 

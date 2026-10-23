@@ -2,6 +2,8 @@
 
 For an academic overview of the system, evidence, and limitations, see the [TFM repository guide](docs/TFM_REPOSITORY_GUIDE.md).
 
+For current findings and one action plan across finance, technology, Expo–Streamlit parity, and academic evidence, see the [single audit register](docs/AUDITORIAS_ESTADO_2026-10-22.md). Dated audit reports are retained as historical evidence.
+
 Classio is migrating from a Streamlit application to a universal Expo Router application. The repository deliberately keeps both deployments available until feature parity, security review, and production validation are complete.
 
 ## Applications

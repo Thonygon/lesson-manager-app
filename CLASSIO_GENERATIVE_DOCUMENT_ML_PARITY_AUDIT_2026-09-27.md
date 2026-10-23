@@ -1,5 +1,11 @@
 # Generative tools, documents, and ML parity audit — 2026-09-27
 
+## Actualización posterior: feedback explícito, 23-10-2026
+
+El corte histórico de septiembre permanece abajo. En código, ambas superficies captan rechazo contextual de recomendaciones docentes con motivo y deshacer; el recurso oculto sale del ranking antes de elegir el reemplazo. Los recursos de IA tipo plan, ficha y examen captan «¿Es lo que buscabas?» desde la generación y desde la página del recurso, solo mientras el contenido pedagógico no se haya editado. Cada respuesta registra su origen y conserva un evento histórico. La edición y la generación visual automática se distinguen en el vínculo persistente. La apertura predictiva sigue suspendida; las nuevas etiquetas se evalúan por separado y no promueven pesos automáticamente. Esquema, despliegue y aceptación beta se registran en el checklist activo.
+
+**Archivo histórico.** Las diferencias descritas reflejan el corte de septiembre y algunas se implementaron después. El [checklist activo](CLASSIO_EXPO_PARITY_CHECKLIST.md) mantiene equivalencia de generación y documentos; la [auditoría tecnológica](docs/CLASSIO_TECHNOLOGY_AUDIT.md) mantiene privacidad, cuotas y límites de proveedor; la [académica](docs/TFM_TECHNICAL_AUDIT.md) evalúa afirmaciones sobre ML. [Registro único](docs/AUDITORIAS_ESTADO_2026-10-22.md).
+
 This compares the Python Streamlit source with the local Expo tree and the last verified EAS staging release (`gypmkvglva`). Local changes in this audit are **not deployed**. A visible control or successful generic AI response is not output parity.
 
 | Workflow | Streamlit source behavior | Expo / hosted difference | Completion path |

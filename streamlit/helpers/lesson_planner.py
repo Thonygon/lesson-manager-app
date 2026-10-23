@@ -10,6 +10,7 @@ from openai import OpenAI
 
 from core.i18n import t
 from helpers.ai_retry import run_with_ai_retries
+from helpers.ai_request_limits import MAX_TEXT_OUTPUT_TOKENS, TEXT_TIMEOUT_MS, bounded_ai_text
 from helpers.generation_guidance import (
     build_expert_panel_prompt_blurb,
     build_generation_profile_guidance,
@@ -19,6 +20,7 @@ from helpers.program_resource_context import build_program_topic_prompt_block
 from helpers.ai_prompt_privacy import minimize_student_profile_for_ai
 from helpers.student_personalization import build_student_profile_prompt_block
 from services.ai_usage_service import with_provider_chain
+from services.ai_economic_events import run_recorded_provider_attempt
 from services.operational_diagnostics_service import capture_exception
 
 # ============================================================
@@ -2316,21 +2318,19 @@ def _generate_with_openrouter(system_prompt: str, user_prompt: str) -> str:
         from services.permissions_service import reserve_ai_tool
         if not reserve_ai_tool():
             raise RuntimeError("AI generation limit reached")
-        client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
-        response = client.chat.completions.create(
-            model=get_ai_model_for_provider("openrouter"),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.4,
+        client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=TEXT_TIMEOUT_MS / 1000, max_retries=0)
+        model = get_ai_model_for_provider("openrouter")
+        return run_recorded_provider_attempt(
+            "openrouter", model,
+            lambda: client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                temperature=0.4, max_tokens=MAX_TEXT_OUTPUT_TOKENS,
+            ),
+            lambda response: bounded_ai_text(str(response.choices[0].message.content or "").strip()),
         )
-        raw_text = str(response.choices[0].message.content or "").strip()
-        if not raw_text:
-            raise ValueError(t("empty_ai_response"))
-        return raw_text
 
-    return run_with_ai_retries(_request)
+    return run_with_ai_retries(_request, max_attempts=1)
 
 
 def _generate_with_gemini(system_prompt: str, user_prompt: str) -> str:
@@ -2352,17 +2352,18 @@ def _generate_with_gemini(system_prompt: str, user_prompt: str) -> str:
         from services.permissions_service import reserve_ai_tool
         if not reserve_ai_tool():
             raise RuntimeError("AI generation limit reached")
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=get_ai_model_for_provider("gemini"),
-            contents=f"{system_prompt}\n\n{user_prompt}",
+        client = genai.Client(api_key=api_key, http_options={"timeout": TEXT_TIMEOUT_MS})
+        model = get_ai_model_for_provider("gemini")
+        return run_recorded_provider_attempt(
+            "gemini", model,
+            lambda: client.models.generate_content(
+                model=model, contents=f"{system_prompt}\n\n{user_prompt}",
+                config={"max_output_tokens": MAX_TEXT_OUTPUT_TOKENS},
+            ),
+            lambda response: bounded_ai_text(str(getattr(response, "text", "") or "").strip()),
         )
-        raw_text = str(getattr(response, "text", "") or "").strip()
-        if not raw_text:
-            raise ValueError(t("empty_gemini_response"))
-        return raw_text
 
-    return run_with_ai_retries(_request)
+    return run_with_ai_retries(_request, max_attempts=1)
 
 
 def _generate_with_openai(system_prompt: str, user_prompt: str) -> str:
@@ -2382,21 +2383,19 @@ def _generate_with_openai(system_prompt: str, user_prompt: str) -> str:
         from services.permissions_service import reserve_ai_tool
         if not reserve_ai_tool():
             raise RuntimeError("AI generation limit reached")
-        client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model=get_ai_model_for_provider("openai"),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.4,
+        client = OpenAI(api_key=api_key, timeout=TEXT_TIMEOUT_MS / 1000, max_retries=0)
+        model = get_ai_model_for_provider("openai")
+        return run_recorded_provider_attempt(
+            "openai", model,
+            lambda: client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                temperature=0.4, max_tokens=MAX_TEXT_OUTPUT_TOKENS,
+            ),
+            lambda response: bounded_ai_text(str(response.choices[0].message.content or "").strip()),
         )
-        raw_text = str(response.choices[0].message.content or "").strip()
-        if not raw_text:
-            raise ValueError(t("empty_ai_response"))
-        return raw_text
 
-    return run_with_ai_retries(_request)
+    return run_with_ai_retries(_request, max_attempts=1)
 
 
 def generate_ai_lesson_plan(

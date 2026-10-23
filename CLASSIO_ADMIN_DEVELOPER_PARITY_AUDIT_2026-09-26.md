@@ -1,5 +1,7 @@
 # Admin and developer parity inspection — 2026-09-26
 
+**Archivo histórico.** Las observaciones del despliegue y del código pertenecen a esta fecha. El [checklist activo](CLASSIO_EXPO_PARITY_CHECKLIST.md) mantiene la brecha vigente de ejecución e informes Python; [tecnología](docs/CLASSIO_TECHNOLOGY_AUDIT.md) mantiene autorización y servicio seguro. Consultar el [registro único](docs/AUDITORIAS_ESTADO_2026-10-22.md) antes de planificar.
+
 This inspection compares the active Streamlit Python workflows with the Expo source and the authenticated `classio--staging.expo.app` admin/developer pages. The hosted observations describe the currently deployed build; the local Expo changes below have not been deployed.
 
 | Workflow | Python source | Expo/hosted state | Remaining connection |

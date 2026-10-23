@@ -91,7 +91,7 @@ def exchange_code_for_tokens(code: str) -> Optional[dict]:
             "client_secret": cfg["client_secret"],
             "redirect_uri": _get_redirect_uri(),
             "grant_type": "authorization_code",
-        })
+        }, timeout=15)
         data = resp.json()
         if resp.status_code != 200 or "access_token" not in data:
             err_msg = data.get("error_description") or data.get("error") or resp.text

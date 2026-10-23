@@ -1,3 +1,7 @@
+from functools import partial
+from services.document_export_events import recorded_download_button as _recorded_download_button
+recorded_download_button = partial(_recorded_download_button, document_kind="student_report")
+
 import streamlit as st
 import datetime
 import html as _html
@@ -90,6 +94,7 @@ from helpers.exposure_telemetry import (
     attach_teacher_resource_recommendation_exposures,
     record_exposure_event,
 )
+from helpers.quality_feedback import hidden_recommendation_keys, recommendation_resource_key, set_recommendation_relevance
 from helpers.recommendation_models import score_teacher_resource_candidate
 from helpers.teacher_recommendation_ml import score_teacher_recommendation_objective
 
@@ -547,12 +552,14 @@ def _load_recommendation_resource_pool() -> list[dict]:
     return load_material_pool()
 
 
-def _recommended_resources_for_item(item: dict, resource_pool: list[dict]) -> dict[str, list[dict]]:
+def _recommended_resources_for_item(item: dict, resource_pool: list[dict], hidden_keys: set[str] | None = None) -> dict[str, list[dict]]:
     grouped: dict[str, list[dict]] = {"plan": [], "worksheet": [], "exam": [], "video": []}
     candidates: list[dict] = []
     requested_subject = _normalize_subject_key(item.get("subject_key") or "")
 
     for resource in resource_pool:
+        if hidden_keys and recommendation_resource_key(item, resource) in hidden_keys:
+            continue
         kind = str(resource.get("kind") or "").strip()
         if kind not in grouped:
             continue
@@ -713,13 +720,13 @@ def _open_recommended_resource(resource: dict, recommendation_item: dict | None 
         if exposure_id:
             record_exposure_event(
                 exposure_id=exposure_id,
-                event_type="assigned" if assign else "opened",
+                event_type="opened",
                 teacher_id=str(get_current_user_id() or "").strip(),
                 student_id=str(recommendation_item.get("student_id") or "").strip(),
                 viewer_user_id=str(get_current_user_id() or "").strip(),
             )
         record_recommendation_event(
-            event_type="resource_assigned" if assign else "resource_opened",
+            event_type="resource_opened",
             teacher_id=str(get_current_user_id() or "").strip(),
             student_id=str(recommendation_item.get("student_id") or "").strip(),
             learning_program_assignment_id=int(recommendation_item.get("learning_program_assignment_id") or 0) or None,
@@ -729,7 +736,7 @@ def _open_recommended_resource(resource: dict, recommendation_item: dict | None 
             recommendation_focus_kind=str(recommendation_item.get("focus_kind") or "").strip(),
             resource_kind=str(kind or ""),
             resource_record_id=_normalized_resource_record_id(row.get("id")),
-            event_weight=0.3 if assign else 0.12,
+            event_weight=0.12,
             metadata={"source": source, "title": str(row.get("title") or "").strip()},
         )
 
@@ -2205,7 +2212,13 @@ def _render_recommended_resources_for_item(
     assigned_resource_keys: set[tuple[str, str]] | None = None,
     done_resource_keys: set[tuple[str, str]] | None = None,
 ) -> None:
-    grouped_resources = _recommended_resources_for_item(item, resource_pool)
+    item = {**item, "id": str(item.get("id") or f"{item.get('recommendation_bucket')}:{item.get('focus_kind')}:{item.get('title')}")[:160]}
+    try:
+        hidden_keys = hidden_recommendation_keys(str(item.get("student_id") or ""))
+    except Exception:
+        st.error(t("recommended_feedback_unavailable"))
+        return
+    grouped_resources = _recommended_resources_for_item(item, resource_pool, hidden_keys)
     ordered_kinds = _recommended_resource_kind_order(str(item.get("focus_kind") or ""))
     total_matches = sum(len(grouped_resources.get(kind) or []) for kind in ordered_kinds)
     assigned_resource_keys = assigned_resource_keys or set()
@@ -2216,6 +2229,28 @@ def _render_recommended_resources_for_item(
         _scoped_expander_label(expander_label, key_prefix),
         expanded=False,
     ):
+        last_hidden = st.session_state.get("_last_recommendation_hide") or {}
+        if last_hidden.get("student_id") == str(item.get("student_id") or "") and last_hidden.get("context_key") in hidden_keys:
+            if st.button(t("recommended_feedback_undo"), key=f"{key_prefix}_undo"):
+                try:
+                    set_recommendation_relevance(str(last_hidden.get("exposure_id") or ""), reason=None)
+                    st.session_state.pop("_last_recommendation_hide", None)
+                    st.rerun()
+                except Exception:
+                    st.error(t("recommended_feedback_unavailable"))
+
+        @st.dialog(t("recommended_feedback_question"))
+        def relevance_dialog(exposure_id: str, resource_title: str) -> None:
+            st.write(resource_title)
+            for reason, label_key in (("wrong_topic", "recommended_feedback_wrong_topic"), ("student_unfit", "recommended_feedback_student_unfit")):
+                if st.button(t(label_key), key=f"{key_prefix}_{exposure_id}_{reason}", use_container_width=True):
+                    try:
+                        context_key = set_recommendation_relevance(exposure_id, reason=reason)
+                        st.session_state["_last_recommendation_hide"] = {"student_id": str(item.get("student_id") or ""), "context_key": context_key, "exposure_id": exposure_id}
+                        st.rerun()
+                    except Exception:
+                        st.error(t("recommended_feedback_unavailable"))
+
         st.markdown(
             f"""
             <div class="classio-reco-resource-expander-body">
@@ -2309,13 +2344,17 @@ def _render_recommended_resources_for_item(
                         "</div>",
                         unsafe_allow_html=True,
                     )
-                    view_col, assign_col = st.columns(2, gap="small")
-                    with view_col:
-                        if st.button(t("recommended_resource_preview"), key=f"{button_key}_preview", use_container_width=True):
-                            _open_recommended_resource(resource, item, assign=False)
-                    with assign_col:
-                        if st.button(t("recommended_resource_assign"), key=f"{button_key}_assign", use_container_width=True):
-                            _open_recommended_resource(resource, item, assign=True)
+                    if st.checkbox(t("recommended_resource_select"), key=f"{button_key}_select"):
+                        view_col, assign_col = st.columns(2, gap="small")
+                        with view_col:
+                            if st.button(t("recommended_resource_preview"), key=f"{button_key}_preview", use_container_width=True):
+                                _open_recommended_resource(resource, item, assign=False)
+                        with assign_col:
+                            if st.button(t("recommended_resource_assign"), key=f"{button_key}_assign", use_container_width=True):
+                                _open_recommended_resource(resource, item, assign=True)
+                        exposure_id = str(resource.get("_telemetry_exposure_id") or "")
+                        if exposure_id and st.button(t("recommended_feedback_hide"), key=f"{button_key}_hide", use_container_width=True):
+                            relevance_dialog(exposure_id, title)
             _render_teacher_pagination(resources, state_key, page_size=_RECOMMENDED_RESOURCE_PAGE_SIZE)
 def _render_recommendations_tab(
     progress_rows: list[dict],
@@ -3261,7 +3300,7 @@ def render_students():
                     _can_download_pdf = can_export_pdf()
                     if not _can_download_pdf:
                         st.warning(t("ai_limit_reached") if t("ai_limit_reached") != "ai_limit_reached" else "PDF export limit reached.")
-                    _downloaded_pdf = st.download_button(
+                    _downloaded_pdf = recorded_download_button(
                         label=f"📄 {t('download_pdf')}",
                         data=pdf_bytes,
                         file_name=file_name,

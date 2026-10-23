@@ -549,7 +549,7 @@ def attach_teacher_resource_recommendation_exposures(
     assignment_id = _safe_int(recommendation_item.get("learning_program_assignment_id"))
     topic_id = _safe_int(recommendation_item.get("learning_program_topic_id"))
     enriched: list[dict[str, Any]] = []
-    for position, resource in enumerate(safe_resources[:12], start=1):
+    for position, resource in enumerate(safe_resources[:24], start=1):
         row = resource.get("row") if isinstance(resource.get("row"), dict) else {}
         resource_id = _clean_text(row.get("id"))
         if not resource_id:
@@ -575,6 +575,7 @@ def attach_teacher_resource_recommendation_exposures(
             "final_score": _safe_float(resource.get("score")),
             "context_json": {
                 "source": _clean_text(resource.get("source")),
+                "recommendation_id": _clean_text(recommendation_item.get("id")),
                 "subject": _clean_text(row.get("subject")),
                 "topic": _clean_text(row.get("topic")),
             },

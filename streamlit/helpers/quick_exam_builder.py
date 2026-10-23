@@ -2057,6 +2057,13 @@ def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
                     )
                     if _saved_id:
                         st.session_state["exam_record_id"] = _saved_id
+                        if generation_result.get("generation_operation_id"):
+                            try:
+                                from helpers.quality_feedback import bind_generated_resource
+                                if not bind_generated_resource("exam", _saved_id, generation_result["generation_operation_id"]):
+                                    st.warning(t("generation_intent_unavailable"))
+                            except Exception:
+                                st.warning(t("generation_intent_unavailable"))
 
                     if ab_debug_enabled and selected_student:
                         st.session_state["exam_ab_debug_compare"] = {
@@ -2082,6 +2089,7 @@ def render_quick_exam_builder_expander(*, embedded: bool = False) -> None:
                 allow_assign=True,
                 assign_expanded=bool(st.session_state.get("exam_assign_expanded", False)),
                 resource_record_id=st.session_state.get("exam_record_id"),
+                feedback_surface="generation_preview",
                 show_clear_result=True,
                 subject=effective_subject,
                 topic=st.session_state.get("quick_exam_effective_topic") or topic,

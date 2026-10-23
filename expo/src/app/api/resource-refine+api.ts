@@ -1,5 +1,6 @@
 import { configuredAiProviders, requestAiProvider } from '../../server/ai-provider-chain';
 import { worksheetHasSource, worksheetReferencesSource } from '../../lib/worksheet-source';
+import { beginAiOperation, beginProviderAttempt, finishAiOperation, finishProviderAttempt, type AiEconomicContext } from '../../server/ai-economic-events';
 
 type Kind = 'plan' | 'worksheet' | 'exam';
 const TABLE: Record<Kind, { table: string; column: string }> = { plan: { table: 'lesson_plans', column: 'plan_json' }, worksheet: { table: 'worksheets', column: 'worksheet_json' }, exam: { table: 'quick_exams', column: 'exam_data' } };
@@ -28,6 +29,10 @@ export async function POST(request: Request) {
     const serialized = JSON.stringify(original); if (serialized.length > 75000) return json({ error: 'This resource is too large for AI refinement. Use manual editing.' }, 413);
     const providers = configuredAiProviders({ OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY, GEMINI_API_KEY: process.env.GEMINI_API_KEY, OPENAI_API_KEY: process.env.OPENAI_API_KEY, AI_MODEL: process.env.AI_MODEL, OPENROUTER_MODEL: process.env.OPENROUTER_MODEL });
     if (!providers.length) return json({ error: 'Classio AI is not configured on the server.' }, 503);
+    const economicContext: AiEconomicContext = { base, serverKey: process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '', actorUserId: user.id, source: 'expo' };
+    if (!economicContext.serverKey) return json({ error: 'AI usage recording is not configured.' }, 503);
+    const operationId = await beginAiOperation(economicContext, `refine_${body.kind}`, 'text');
+    try {
     const worksheet = body.kind === 'worksheet' ? original as Record<string, unknown> : null;
     const worksheetType = String(worksheet?.worksheet_type || row.worksheet_type || '');
     const sourceField = worksheetType === 'reading_comprehension' ? 'reading_passage' : 'source_text';
@@ -38,21 +43,42 @@ export async function POST(request: Request) {
       const sourceSystem = `You are Classio's worksheet editor. Return ONLY a JSON object with one key, "${sourceField}", containing a complete student-facing source text. Write in the worksheet's student_material_language. Use the existing questions and answer key as constraints: every question must be answerable from the text, and quoted phrases or paragraph references in the questions must appear in the appropriate part of the text. Preserve the intended language skill; for short_answer, support analysis, rewriting, or reasoning rather than simple fact recall. Do not rewrite questions, answers, or metadata. Do not emit markdown.`;
       const sourceInstruction = `Teacher request: ${body.prompt.trim()}\n\nWorksheet context:\n${JSON.stringify(context)}`;
       let sourceError = 'Classio did not generate a usable source text. Please try again.';
-      for (const provider of providers) {
+      for (const [index, provider] of providers.slice(0, 2).entries()) {
+        const attemptId = await beginProviderAttempt(economicContext, operationId, index + 1, provider.provider, provider.model, 'text');
+        let response: Awaited<ReturnType<typeof requestAiProvider>> | null = null;
+        let sourceText = '';
         try {
-          const response = await requestAiProvider(provider, sourceSystem, sourceInstruction);
+          response = await requestAiProvider(provider, sourceSystem, sourceInstruction);
           const candidate = parseObject(response.content);
-          const sourceText = String(candidate[sourceField] || '').trim();
+          sourceText = String(candidate[sourceField] || '').trim();
           if (sourceText.length < 80) throw new Error('Classio did not generate a complete source text. Please try again.');
-          return json({ document: { ...worksheet, [sourceField]: sourceText }, model: response.model });
         } catch (reason) { sourceError = reason instanceof Error ? reason.message : sourceError; }
+        await finishProviderAttempt(economicContext, attemptId, { status: sourceText.length >= 80 ? 'success' : 'failed', modelReported: response?.model, providerRequestId: response?.providerRequestId, httpStatus: response?.httpStatus, ...response?.usage, errorKind: sourceText.length >= 80 ? undefined : response ? 'invalid_output' : 'provider_error' });
+        if (sourceText.length >= 80 && response) { await finishAiOperation(economicContext, operationId, 'success'); return json({ document: { ...worksheet, [sourceField]: sourceText }, model: response.model }); }
       }
+      await finishAiOperation(economicContext, operationId, 'failed', 'provider_failed');
       return json({ error: sourceError }, 503);
     }
     const system = `You are Classio's teaching-resource editor. Return one complete JSON object with the same top-level structure as the supplied resource. Apply only the teacher's requested change. Preserve all unrelated questions, answers, teaching goals, languages, and formatting. Keep answer keys aligned with questions. Do not emit markdown. Do not invent image URLs or image data.`;
     const instruction = `Teacher request: ${body.prompt.trim()}\n\nCurrent ${body.kind} resource JSON:\n${serialized}`;
     let lastError = 'Classio could not refine this resource.';
-    for (const provider of providers) { try { const response = await requestAiProvider(provider, system, instruction); const candidate = parseObject(response.content); const result = preserveVisuals(original, candidate) as Record<string, unknown>; if (body.kind === 'exam' && (!result.exam_data || !result.answer_key)) throw new Error('The revised exam needs both questions and an answer key.'); if (JSON.stringify(result) === serialized) throw new Error('Classio returned the original resource without applying the requested change. Please try again.'); if (body.kind === 'worksheet' && worksheetReferencesSource(result) && !worksheetHasSource(result)) throw new Error('Classio did not add the source text referenced by the questions. Please try again.'); return json({ document: result, model: response.model }); } catch (reason) { lastError = reason instanceof Error ? reason.message : lastError; } }
+    for (const [index, provider] of providers.slice(0, 2).entries()) {
+      const attemptId = await beginProviderAttempt(economicContext, operationId, index + 1, provider.provider, provider.model, 'text');
+      let response: Awaited<ReturnType<typeof requestAiProvider>> | null = null;
+      let result: Record<string, unknown> | null = null;
+      try {
+        response = await requestAiProvider(provider, system, instruction);
+        const candidate = parseObject(response.content);
+        result = preserveVisuals(original, candidate) as Record<string, unknown>;
+        if (body.kind === 'exam' && (!result.exam_data || !result.answer_key)) throw new Error('The revised exam needs both questions and an answer key.');
+        if (JSON.stringify(result) === serialized) throw new Error('Classio returned the original resource without applying the requested change. Please try again.');
+        if (body.kind === 'worksheet' && worksheetReferencesSource(result) && !worksheetHasSource(result)) throw new Error('Classio did not add the source text referenced by the questions. Please try again.');
+      } catch (reason) { result = null; lastError = reason instanceof Error ? reason.message : lastError; }
+      await finishProviderAttempt(economicContext, attemptId, { status: result ? 'success' : 'failed', modelReported: response?.model, providerRequestId: response?.providerRequestId, httpStatus: response?.httpStatus, ...response?.usage, errorKind: result ? undefined : response ? 'invalid_output' : 'provider_error' });
+      if (result && response) { await finishAiOperation(economicContext, operationId, 'success'); return json({ document: result, model: response.model }); }
+    }
+    await finishAiOperation(economicContext, operationId, 'failed', 'provider_failed');
     return json({ error: lastError }, 503);
+    } catch (error) { await finishAiOperation(economicContext, operationId, 'failed', 'unexpected_error').catch((failure) => console.error('AI economic operation finalization failed', failure)); throw error; }
   } catch { return json({ error: 'Classio could not refine this resource.' }, 500); }
 }

@@ -32,6 +32,8 @@ def with_provider_chain(meta: dict[str, Any] | None, providers: list[str] | tupl
 
 
 def log_ai_usage_event(feature_name: str, status: str, meta: dict[str, Any] | None = None) -> None:
+    from services.ai_economic_events import note_functional_event
+    note_functional_event(feature_name, status, meta)
     payload = {
         "feature_name": " ".join(str(feature_name or "").split()).strip() or "unknown",
         "status": " ".join(str(status or "").split()).strip() or "unknown",
