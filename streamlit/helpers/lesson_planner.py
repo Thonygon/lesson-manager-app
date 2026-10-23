@@ -17,7 +17,7 @@ from helpers.generation_guidance import (
     infer_subject_family,
 )
 from helpers.program_resource_context import build_program_topic_prompt_block
-from helpers.ai_prompt_privacy import minimize_student_profile_for_ai
+from helpers.ai_prompt_privacy import minimize_student_profile_for_ai, redact_direct_identifiers
 from helpers.student_personalization import build_student_profile_prompt_block
 from services.ai_usage_service import with_provider_chain
 from services.ai_economic_events import run_recorded_provider_attempt
@@ -2302,6 +2302,8 @@ Profile quality guidance:
 
 
 def _generate_with_openrouter(system_prompt: str, user_prompt: str, *, reserve_account_quota: bool = True) -> str:
+    system_prompt = redact_direct_identifiers(system_prompt)
+    user_prompt = redact_direct_identifiers(user_prompt)
     api_key = ""
     try:
         api_key = str(st.secrets.get("OPENROUTER_API_KEY", "")).strip()
@@ -2335,6 +2337,8 @@ def _generate_with_openrouter(system_prompt: str, user_prompt: str, *, reserve_a
 
 
 def _generate_with_gemini(system_prompt: str, user_prompt: str, *, reserve_account_quota: bool = True) -> str:
+    system_prompt = redact_direct_identifiers(system_prompt)
+    user_prompt = redact_direct_identifiers(user_prompt)
     from google import genai
 
     api_key = ""
@@ -2369,6 +2373,8 @@ def _generate_with_gemini(system_prompt: str, user_prompt: str, *, reserve_accou
 
 
 def _generate_with_openai(system_prompt: str, user_prompt: str, *, reserve_account_quota: bool = True) -> str:
+    system_prompt = redact_direct_identifiers(system_prompt)
+    user_prompt = redact_direct_identifiers(user_prompt)
     api_key = ""
     try:
         api_key = str(st.secrets.get("OPENAI_API_KEY", "")).strip()

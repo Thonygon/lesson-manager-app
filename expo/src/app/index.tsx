@@ -27,7 +27,7 @@ import { PreferenceSwitcher } from '@/components/preference-switcher';
 import { formatPublicCopy, publicCopy } from '@/lib/public-copy';
 import { publicConfig } from '@/lib/supabase';
 import { useAppPreferences } from '@/providers/app-preferences';
-import { getPublicResourceDetail, getPublicResourcePreviewImages, getPublicResources, type PublicResource, type PublicResourceKind } from '@/services/public-data';
+import { getPublicResourceDetail, getPublicResourcePreviewImages, getExplorerPublicResources, type PublicResource, type PublicResourceKind } from '@/services/public-data';
 import { colors } from '@/theme';
 import { canonicalSubjectKey, canonicalSubjectLabel } from '@/lib/subjects';
 import { canonicalLearnerStageKey, learnerStageLabel } from '@/lib/learner-stages';
@@ -133,11 +133,16 @@ export default function HomeScreen() {
       setResourcesLoading(false);
       return;
     }
-    getPublicResources()
-      .then(setResources)
+    getExplorerPublicResources()
+      .then(({ resources: available, failedKinds }) => {
+        setResources(available);
+        if (failedKinds.length === Object.keys(RESOURCE_META).length) setResourceError(copy.libraryFailed);
+        else if (failedKinds.length) setResourceError(`${copy.libraryPartial} ${failedKinds.map((failed) => copy[RESOURCE_META[failed].label]).join(', ')}.`);
+        else setResourceError('');
+      })
       .catch(() => setResourceError(copy.libraryFailed))
       .finally(() => setResourcesLoading(false));
-  }, [copy.libraryConfig, copy.libraryFailed]);
+  }, [copy]);
 
   const kindResources = useMemo(() => resources.filter((item) => item.kind === kind), [kind, resources]);
   const subjects = useMemo(() => [...new Map(resources.map((item) => item.subject).filter(Boolean).map((value) => [canonicalSubjectKey(value), value])).values()].sort((a, b) => canonicalSubjectLabel(a, t).localeCompare(canonicalSubjectLabel(b, t))), [resources, t]);

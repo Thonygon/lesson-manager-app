@@ -13,6 +13,7 @@ from PIL import Image
 from core.i18n import t
 from helpers.ai_request_limits import IMAGE_TIMEOUT_MS, bounded_ai_image_data_url, read_bounded_ai_image
 from helpers.ai_retry import run_with_ai_retries
+from helpers.ai_prompt_privacy import redact_direct_identifiers
 from services.ai_usage_service import log_ai_usage_event, with_provider_chain
 from services.ai_economic_events import run_recorded_provider_attempt
 
@@ -677,6 +678,7 @@ def _extract_openrouter_image_data_url(payload: dict) -> str:
 
 
 def _generate_with_openrouter(prompt: str) -> str:
+    prompt = redact_direct_identifiers(prompt)
     api_key = _get_openrouter_api_key()
     if not api_key:
         raise RuntimeError("missing_openrouter_api_key")
@@ -713,6 +715,7 @@ def _generate_with_openrouter(prompt: str) -> str:
 
 
 def _generate_with_gemini(prompt: str) -> str:
+    prompt = redact_direct_identifiers(prompt)
     api_key = _get_gemini_api_key()
     if not api_key:
         raise RuntimeError("missing_gemini_api_key")
@@ -776,6 +779,7 @@ def _extract_openai_image_data_url(response) -> str:
 
 
 def _generate_with_openai(prompt: str) -> str:
+    prompt = redact_direct_identifiers(prompt)
     api_key = _get_openai_api_key()
     if not api_key:
         raise RuntimeError("missing_openai_api_key")

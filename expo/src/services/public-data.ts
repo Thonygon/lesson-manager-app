@@ -95,7 +95,7 @@ function normalize(kind: PublicResourceKind, row: Record<string, unknown>): Publ
 }
 
 async function publicExamRows(id?: string): Promise<Record<string, unknown>[]> {
-  const base = Platform.OS === 'web' ? '' : 'https://classio.expo.app';
+  const base = Platform.OS === 'web' ? '' : (process.env.EXPO_PUBLIC_HOSTING_URL?.trim() || 'https://classio.expo.app').replace(/\/$/, '');
   const response = await fetch(`${base}/api/public-exams${id ? `?id=${encodeURIComponent(id)}` : ''}`);
   if (!response.ok) throw new Error(`Unable to load public exams (${response.status}).`);
   const payload = await response.json() as { exam?: Record<string, unknown>; exams?: Record<string, unknown>[] };
@@ -133,6 +133,16 @@ export async function getPublicResources(kinds: PublicResourceKind[] = Object.ke
     }),
   );
   return results.flat();
+}
+
+/** Explorer keeps available categories visible when one public query fails. */
+export async function getExplorerPublicResources(perKindLimit = 60): Promise<{ resources: PublicResource[]; failedKinds: PublicResourceKind[] }> {
+  const kinds = Object.keys(DEFINITIONS) as PublicResourceKind[];
+  const results = await Promise.allSettled(kinds.map((kind) => getPublicResources([kind], perKindLimit)));
+  return {
+    resources: results.flatMap((result) => result.status === 'fulfilled' ? result.value : []),
+    failedKinds: kinds.filter((_, index) => results[index].status === 'rejected'),
+  };
 }
 
 export async function getPublicResourceDetail(kind: PublicResourceKind, id: string): Promise<PublicResource> {
