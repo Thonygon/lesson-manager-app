@@ -74,6 +74,7 @@
     {"name": "learning_program_roster_link_guard.sql", "sha256": "82669279676464b7fb9514089d2376bda4570abcb6aa4c8c8715dc56edc5a10c"},
     {"name": "legacy_generation_intent_feedback.sql", "sha256": "c843966cfed897dfbe3cb5a4f71e17bbd8910178d8f070b7fbfc77072550efbb"},
     {"name": "begin_ai_generation_attempt_atomically.sql", "sha256": "3bef5acbf27bca6262b1492a32df2f0494a5c48f8848bf19b095e871553af283"},
-    {"name": "finish_ai_generation_atomically.sql", "sha256": "4f42a64b27f34a360d84e78b3f2c84cdc4e253625aea1595c6842d6a08a8d211"}
+    {"name": "finish_ai_generation_atomically.sql", "sha256": "4f42a64b27f34a360d84e78b3f2c84cdc4e253625aea1595c6842d6a08a8d211"},
+    {"name": "link_saved_generation_in_resource_insert.sql", "sha256": "ff88fc95df6ce3168bc85c85d3dd383f655ab35d8a883f2b0c8e1dc6e2797c2f"}
   ]
 }

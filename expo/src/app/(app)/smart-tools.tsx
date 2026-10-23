@@ -12,7 +12,7 @@ import { ExamView } from '@/components/exam-view';
 import { LearningProgramView } from '@/components/learning-program-view';
 import { ActionFeedback, Button, Disclosure, Field, OrderedMultiSelectField, Panel, SelectField } from '@/components/ui';
 import { downloadResourceDocx, downloadResourcePdf } from '@/services/document-exports';
-import { GenerationRequestError, GenerationReuseError, generateMaterial, generateProgramUnit, syncGeneratedProgramUnit, getSimilarTeachingResources, getSmartToolPrograms, getSmartToolProgramTopics, getSmartToolPreviousProgramComplete, getSavedProgramGeneration, getPersonalizationStudents, saveGeneratedMaterial, bindGeneratedResource, setGeneratedMaterialVisibility, updateGeneratedMaterial, type GeneratedMaterial, type SmartToolInput, type SmartToolKind, type SmartToolProgram, type SmartToolProgramTopic, type PersonalizationStudent } from '@/services/smart-tools';
+import { GenerationRequestError, GenerationReuseError, generateMaterial, generateProgramUnit, syncGeneratedProgramUnit, getSimilarTeachingResources, getSmartToolPrograms, getSmartToolProgramTopics, getSmartToolPreviousProgramComplete, getSavedProgramGeneration, getPersonalizationStudents, saveGeneratedMaterial, setGeneratedMaterialVisibility, updateGeneratedMaterial, type GeneratedMaterial, type SmartToolInput, type SmartToolKind, type SmartToolProgram, type SmartToolProgramTopic, type PersonalizationStudent } from '@/services/smart-tools';
 import type { GenerationMatch } from '@/server/generation-reuse';
 import { getPythonProgramTopicRecommendations } from '@/services/python-models';
 import { colors } from '@/theme';
@@ -148,12 +148,7 @@ export default function SmartToolsScreen() {
       if (requestInput.kind === 'program' || generated.model !== 'template') {
         const saved = await saveGeneratedMaterial({ ...requestInput, generationId: generated.generationId, generationMode: generated.model === 'template' ? 'template' : 'ai' }, generated.document);
         setSavedResourceId(saved.id);
-        let feedbackReady = true;
-        if (generated.generationId && requestInput.kind !== 'program') {
-          try { await bindGeneratedResource(generated.generationId, requestInput.kind, saved.id); }
-          catch { feedbackReady = false; }
-        }
-        setMessageTone(feedbackReady ? 'success' : 'error'); setMessage(feedbackReady ? t('smart.saved') : `${t('smart.saved')} ${t('smart.intentUnavailable')}`);
+        setMessageTone('success'); setMessage(t('smart.saved'));
       } else setMessage('');
     } catch (error) {
       setMessageTone('error');
@@ -177,14 +172,9 @@ export default function SmartToolsScreen() {
     if (!result || !resultInput || savedResourceId !== null || saving) return;
     setSaving(true); setMessageContext('preview'); setMessage('');
     try {
-      const saved = await saveGeneratedMaterial({ ...resultInput, generationId: result.generationId, visibility: visibility.toLowerCase(), generationMode: result.model === 'template' ? 'template' : 'ai' }, result.document);
+      const saved = await saveGeneratedMaterial({ ...resultInput, generationId: previewEdited ? undefined : result.generationId, visibility: visibility.toLowerCase(), generationMode: result.model === 'template' ? 'template' : 'ai' }, result.document);
       setSavedResourceId(saved.id);
-      let feedbackReady = true;
-      if (result.generationId && resultInput.kind !== 'program' && !previewEdited) {
-        try { await bindGeneratedResource(result.generationId, resultInput.kind, saved.id); }
-        catch { feedbackReady = false; }
-      }
-      setMessageTone(feedbackReady ? 'success' : 'error'); setMessage(feedbackReady ? t(visibility === 'Public' ? 'smart.savedPublic' : 'smart.saved') : `${t('smart.saved')} ${t('smart.intentUnavailable')}`);
+      setMessageTone('success'); setMessage(t(visibility === 'Public' ? 'smart.savedPublic' : 'smart.saved'));
     } catch (error) { setMessageTone('error'); setMessage(messageOf(error, t('smart.saveFailed'))); }
     finally { setSaving(false); }
   };
