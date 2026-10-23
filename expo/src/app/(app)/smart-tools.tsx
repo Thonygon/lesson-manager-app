@@ -161,8 +161,8 @@ export default function SmartToolsScreen() {
     if (!result || !resultInput || resultInput.kind !== 'program' || !savedResourceId || unitBusy !== null || busy) return;
     setUnitBusy(unitIndex); setMessageContext('preview'); setMessage('');
     try {
-      const document = await generateProgramUnit(resultInput, result.document, unitIndex, selectedStudentName, selectedStudentId);
-      await syncGeneratedProgramUnit(savedResourceId, document, unitIndex);
+      const { document, generationId } = await generateProgramUnit(resultInput, result.document, unitIndex, selectedStudentName, selectedStudentId);
+      await syncGeneratedProgramUnit(savedResourceId, document, unitIndex, generationId);
       setResult({ ...result, document });
       setMessageTone('success'); setMessage(t(programReady(document) ? 'smart.programComplete' : 'smart.programUnitSaved', { number: unitIndex + 1 }));
     } catch (error) { setMessageTone('error'); setMessage(error instanceof GenerationRequestError ? t(error.code === 'provider_unavailable' ? 'smart.providerUnavailable' : 'smart.generationFailed') : messageOf(error, t('smart.saveFailed'))); }

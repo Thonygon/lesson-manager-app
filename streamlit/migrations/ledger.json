@@ -77,6 +77,8 @@
     {"name": "finish_ai_generation_atomically.sql", "sha256": "4f42a64b27f34a360d84e78b3f2c84cdc4e253625aea1595c6842d6a08a8d211"},
     {"name": "link_saved_generation_in_resource_insert.sql", "sha256": "ff88fc95df6ce3168bc85c85d3dd383f655ab35d8a883f2b0c8e1dc6e2797c2f"},
     {"name": "classio_ai_resource_link_coverage.sql", "sha256": "57e7caa340b4c4b6910093d77a50f179f7da5ea9de95ec038044013c748371b0"},
-    {"name": "complete_student_practice_transaction.sql", "sha256": "a08ba36a3e2c9678e20e37627e65a49cdc7a3aa77ae832b2ba67a873b7745f8c"}
+    {"name": "complete_student_practice_transaction.sql", "sha256": "a08ba36a3e2c9678e20e37627e65a49cdc7a3aa77ae832b2ba67a873b7745f8c"},
+    {"name": "record_student_video_watch_transaction.sql", "sha256": "e45c02f7dddb6882a5756eeb8e1fcb959bcff2f8751e434c6b572e2841c336b2"},
+    {"name": "link_program_generation_operations.sql", "sha256": "5c17ea70f6f0fdb0597fc9083e0ce3259d19619cdf4d3813237e16aa3b7da146"}
   ]
 }

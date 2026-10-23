@@ -14,7 +14,7 @@ Este documento es un historial de entregas además de una lista de aceptación. 
 
 **Responsabilidad:** esta auditoría mantiene solo la equivalencia de recorridos, resultados, documentos y errores entre Expo y Streamlit, incluido S12. S07 pertenece a [finanzas](financial_analysis/README.md) y los controles compartidos de identidad/RLS/privacidad a [tecnología](docs/CLASSIO_TECHNOLOGY_AUDIT.md); aquí se verifica cómo se comportan en ambos clientes. Los informes de paridad fechados de septiembre y octubre quedan como evidencia histórica, no como planes paralelos.
 
-**S12, recuperación parcial de Explorer (23-10-2026):** Expo conserva los resultados de las categorías públicas que respondieron aunque una de las cinco consultas falle, y avisa en EN/ES/TR qué categoría quedó sin cargar. El endpoint de exámenes móvil usa `EXPO_PUBLIC_HOSTING_URL` cuando el build la define. Estos cambios están en código; falta publicar y comparar en beta. El endpoint conserva el límite de 120 y falta fijar la URL de cada entorno móvil, por lo que S12 no está cerrado.
+**S12, recuperación parcial de Explorer (23-10-2026):** Expo conserva los resultados de las categorías públicas que respondieron aunque una de las cinco consultas falle, y avisa en EN/ES/TR qué categoría quedó sin cargar. El endpoint de exámenes pagina con orden estable, y Explorer permite pedir páginas adicionales de 60, sin duplicar tarjetas. El endpoint móvil usa `EXPO_PUBLIC_HOSTING_URL` cuando el build la define. Falta fijar la URL de cada entorno móvil y verificar filtros/paginación en beta; S12 sigue abierto.
 
 | Flujo | Evidencia actual de código | Aceptación pendiente |
 | --- | --- | --- |

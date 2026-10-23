@@ -102,6 +102,14 @@ async function publicExamRows(id?: string): Promise<Record<string, unknown>[]> {
   return id ? payload.exam ? [payload.exam] : [] : payload.exams ?? [];
 }
 
+export async function getExplorerPublicExamPage(page: number, limit = 60): Promise<{ resources: PublicResource[]; hasMore: boolean }> {
+  const base = Platform.OS === 'web' ? '' : (process.env.EXPO_PUBLIC_HOSTING_URL?.trim() || 'https://classio.expo.app').replace(/\/$/, '');
+  const response = await fetch(`${base}/api/public-exams?page=${page}&limit=${limit}`);
+  if (!response.ok) throw new Error(`Unable to load public exams (${response.status}).`);
+  const payload = await response.json() as { exams?: Record<string, unknown>[]; hasMore?: boolean };
+  return { resources: (payload.exams ?? []).map((row) => normalize('exam', row)), hasMore: Boolean(payload.hasMore) };
+}
+
 export async function getPublicResources(kinds: PublicResourceKind[] = Object.keys(DEFINITIONS) as PublicResourceKind[], perKindLimit = 60): Promise<PublicResource[]> {
   const client = requireSupabase();
   const boundedLimit = Math.max(1, Math.min(120, Math.floor(perKindLimit) || 60));
@@ -136,12 +144,14 @@ export async function getPublicResources(kinds: PublicResourceKind[] = Object.ke
 }
 
 /** Explorer keeps available categories visible when one public query fails. */
-export async function getExplorerPublicResources(perKindLimit = 60): Promise<{ resources: PublicResource[]; failedKinds: PublicResourceKind[] }> {
+export async function getExplorerPublicResources(perKindLimit = 60): Promise<{ resources: PublicResource[]; failedKinds: PublicResourceKind[]; examHasMore: boolean }> {
   const kinds = Object.keys(DEFINITIONS) as PublicResourceKind[];
-  const results = await Promise.allSettled(kinds.map((kind) => getPublicResources([kind], perKindLimit)));
+  const results = await Promise.allSettled(kinds.map((kind) => kind === 'exam' ? getExplorerPublicExamPage(1, perKindLimit) : getPublicResources([kind], perKindLimit).then((resources) => ({ resources, hasMore: false }))));
+  const examResult = results[kinds.indexOf('exam')];
   return {
-    resources: results.flatMap((result) => result.status === 'fulfilled' ? result.value : []),
+    resources: results.flatMap((result) => result.status === 'fulfilled' ? result.value.resources : []),
     failedKinds: kinds.filter((_, index) => results[index].status === 'rejected'),
+    examHasMore: examResult.status === 'fulfilled' && examResult.value.hasMore,
   };
 }
 

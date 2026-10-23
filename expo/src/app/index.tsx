@@ -27,7 +27,7 @@ import { PreferenceSwitcher } from '@/components/preference-switcher';
 import { formatPublicCopy, publicCopy } from '@/lib/public-copy';
 import { publicConfig } from '@/lib/supabase';
 import { useAppPreferences } from '@/providers/app-preferences';
-import { getPublicResourceDetail, getPublicResourcePreviewImages, getExplorerPublicResources, type PublicResource, type PublicResourceKind } from '@/services/public-data';
+import { getPublicResourceDetail, getPublicResourcePreviewImages, getExplorerPublicResources, getExplorerPublicExamPage, type PublicResource, type PublicResourceKind } from '@/services/public-data';
 import { colors } from '@/theme';
 import { canonicalSubjectKey, canonicalSubjectLabel } from '@/lib/subjects';
 import { canonicalLearnerStageKey, learnerStageLabel } from '@/lib/learner-stages';
@@ -90,6 +90,10 @@ export default function HomeScreen() {
   const [resources, setResources] = useState<PublicResource[]>([]);
   const [resourcesLoading, setResourcesLoading] = useState(true);
   const [resourceError, setResourceError] = useState('');
+  const [examPageLoaded, setExamPageLoaded] = useState(1);
+  const [examHasMore, setExamHasMore] = useState(false);
+  const [examLoadingMore, setExamLoadingMore] = useState(false);
+  const [examLoadError, setExamLoadError] = useState(false);
   const [sharedResourceError, setSharedResourceError] = useState('');
   const [kind, setKind] = useState<PublicResourceKind>('program');
   const [query, setQuery] = useState('');
@@ -134,8 +138,10 @@ export default function HomeScreen() {
       return;
     }
     getExplorerPublicResources()
-      .then(({ resources: available, failedKinds }) => {
+      .then(({ resources: available, failedKinds, examHasMore: more }) => {
         setResources(available);
+        setExamHasMore(more);
+        setExamPageLoaded(1);
         if (failedKinds.length === Object.keys(RESOURCE_META).length) setResourceError(copy.libraryFailed);
         else if (failedKinds.length) setResourceError(`${copy.libraryPartial} ${failedKinds.map((failed) => copy[RESOURCE_META[failed].label]).join(', ')}.`);
         else setResourceError('');
@@ -143,6 +149,26 @@ export default function HomeScreen() {
       .catch(() => setResourceError(copy.libraryFailed))
       .finally(() => setResourcesLoading(false));
   }, [copy]);
+
+  const loadMoreExams = async () => {
+    if (examLoadingMore || !examHasMore) return;
+    setExamLoadingMore(true);
+    setExamLoadError(false);
+    try {
+      const next = examPageLoaded + 1;
+      const page = await getExplorerPublicExamPage(next);
+      setResources((current) => {
+        const known = new Set(current.filter((item) => item.kind === 'exam').map((item) => item.id));
+        return [...current, ...page.resources.filter((item) => !known.has(item.id))];
+      });
+      setExamPageLoaded(next);
+      setExamHasMore(page.hasMore);
+    } catch {
+      setExamLoadError(true);
+    } finally {
+      setExamLoadingMore(false);
+    }
+  };
 
   const kindResources = useMemo(() => resources.filter((item) => item.kind === kind), [kind, resources]);
   const subjects = useMemo(() => [...new Map(resources.map((item) => item.subject).filter(Boolean).map((value) => [canonicalSubjectKey(value), value])).values()].sort((a, b) => canonicalSubjectLabel(a, t).localeCompare(canonicalSubjectLabel(b, t))), [resources, t]);
@@ -265,6 +291,8 @@ export default function HomeScreen() {
               {pagedResources.map((item) => <View key={`${item.kind}-${item.id}`} style={styles.resourceSlot}><ResourceShowcaseCard compact item={item} onPress={() => setSelected(item)} description={item.description || item.topic || copy.resourceFallback} eyebrow={copy[RESOURCE_META[item.kind].label]} /></View>)}
             </View>
             <Pagination page={resourcePage} totalPages={totalResourcePages} totalItems={visibleResources.length} onPageChange={setResourcePage} />
+            {kind === 'exam' && examHasMore ? <Pressable accessibilityRole="button" disabled={examLoadingMore} onPress={() => void loadMoreExams()} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>{examLoadingMore ? copy.libraryLoading : copy.libraryMoreExams}</Text></Pressable> : null}
+            {kind === 'exam' && examLoadError ? <Text style={styles.muted}>{copy.libraryMoreFailed}</Text> : null}
             </>}
           </View>
 
