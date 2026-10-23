@@ -70,7 +70,7 @@ export function PaymentBulkEditor({ student, records, onSaved }: { student: stri
       </View></ScrollView>
       <View style={styles.actions}><Button secondary disabled={busy || currentPage <= 1} onPress={() => setPage(currentPage - 1)}>Previous</Button><Text style={styles.help}>{currentPage} / {totalPages}</Text><Button secondary disabled={busy || currentPage >= totalPages} onPress={() => setPage(currentPage + 1)}>Next</Button><Button disabled={busy || changedRows.length === 0} onPress={() => void apply()}>{busy ? 'Applying…' : `Apply ${changedRows.length} changed ${changedRows.length === 1 ? 'payment' : 'payments'}`}</Button></View>
     </>}
-    <ActionFeedback message={message} tone={messageTone} />
+    <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} />
   </View>;
 }
 

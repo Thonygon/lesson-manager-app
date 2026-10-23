@@ -51,7 +51,7 @@ export function AddVideoResource({ onSaved }: { onSaved: () => Promise<void> }) 
       <View style={styles.full}><Text style={styles.label}>{t('resources.videoDescription')}</Text><Field multiline numberOfLines={3} value={description} onChangeText={setDescription} style={styles.description} /></View>
     </View>
     {selectedTopic ? <Text style={styles.hint}>{t('resources.videoLinkedFieldsLocked')}</Text> : null}
-    <View style={styles.actions}><Button secondary={isPublic} onPress={() => setIsPublic(false)}>{t('resources.private')}</Button><Button secondary={!isPublic} onPress={() => setIsPublic(true)}>{t('resources.public')}</Button><Button disabled={saving || !valid} onPress={() => void save()}>{saving ? t('common.saving') : t('resources.saveVideo')}</Button></View><ActionFeedback message={message} tone={messageTone} />
+    <View style={styles.actions}><Button secondary={isPublic} onPress={() => setIsPublic(false)}>{t('resources.private')}</Button><Button secondary={!isPublic} onPress={() => setIsPublic(true)}>{t('resources.public')}</Button><Button disabled={saving || !valid} onPress={() => void save()}>{saving ? t('common.saving') : t('resources.saveVideo')}</Button></View><ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} />
   </Disclosure>;
 }
 
@@ -74,7 +74,7 @@ export function EditVideoResource({ id, detail, onSaved }: { id: string; detail:
     <Text style={styles.label}>{t('resources.level')}</Text>{linked ? <Field editable={false} value={levelLabel(levelValue(linked.program.level), t)} /> : <SelectField label={t('resources.level')} value={level} options={(subject.toLowerCase() === 'english' || subject.toLowerCase() === 'spanish' || subject.toLowerCase() === 'turkish' ? LEVELS.slice(3) : LEVELS.slice(0, 3)).map((item) => ({ value: levelKey(item), label: levelLabel(item, t) }))} onChange={setLevel} />}
     <Text style={styles.label}>{t('resources.videoLanguage')}</Text><SelectField label={t('resources.videoLanguage')} value={language} options={LANGUAGES.map((item) => ({ value: languageKey(item), label: canonicalSubjectLabel(item, t) }))} onChange={setLanguage} />
     <Text style={styles.label}>{t('resources.videoDescription')}</Text><Field multiline numberOfLines={3} value={description} onChangeText={setDescription} style={styles.description} />
-    <View style={styles.actions}><Button secondary={isPublic} onPress={() => setIsPublic(false)}>{t('resources.private')}</Button><Button secondary={!isPublic} onPress={() => setIsPublic(true)}>{t('resources.public')}</Button><Button disabled={saving || !youtubeVideoId(url) || !title.trim() || (subject === 'Other' && !customSubject.trim())} onPress={() => void save()}>{saving ? t('common.saving') : t('resources.saveMetadata')}</Button></View><ActionFeedback message={message} tone={messageTone} />
+    <View style={styles.actions}><Button secondary={isPublic} onPress={() => setIsPublic(false)}>{t('resources.private')}</Button><Button secondary={!isPublic} onPress={() => setIsPublic(true)}>{t('resources.public')}</Button><Button disabled={saving || !youtubeVideoId(url) || !title.trim() || (subject === 'Other' && !customSubject.trim())} onPress={() => void save()}>{saving ? t('common.saving') : t('resources.saveMetadata')}</Button></View><ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} />
   </View>;
 }
 

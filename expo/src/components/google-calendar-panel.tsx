@@ -49,7 +49,7 @@ export function GoogleCalendarPanel({ callbackStatus }: { callbackStatus?: strin
     <View style={styles.actions}>
       {status?.configured && !status.connected ? <Button disabled={busy} onPress={() => void action('connect')}>{t('calendar.googleConnect')}</Button> : null}
       {status?.connected ? <><Button disabled={busy} onPress={() => void action('sync')}>{busy ? t('calendar.googleSyncing') : t('calendar.googleSync')}</Button><Button secondary disabled={busy} onPress={() => void action('disconnect')}>{t('calendar.googleDisconnect')}</Button></> : null}
-    </View><ActionFeedback message={message} tone={messageTone} />
+    </View><ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} />
   </Panel>;
 }
 

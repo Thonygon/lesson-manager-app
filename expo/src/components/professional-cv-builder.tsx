@@ -53,7 +53,7 @@ export function ProfessionalCvBuilder({ onSaved }: { onSaved: () => Promise<void
     <View style={styles.field}><Text style={styles.label}>{copy.location}</Text><Field value={input.location} onChangeText={(value) => change('location', value)} placeholder={copy.location} />{countryMatches.length ? <View style={styles.suggestions}>{countryMatches.map((country) => <Pressable accessibilityRole="button" key={country} onPress={() => change('location', country)} style={styles.suggestion}><Text style={styles.suggestionText}>{country}</Text></Pressable>)}</View> : null}</View>
     <View style={styles.fields}>{fields.map((field) => <View key={field.key} style={styles.field}><Text style={styles.label}>{field.label}</Text><Field value={input[field.key]} onChangeText={(value) => change(field.key, value)} multiline={field.multiline} numberOfLines={field.multiline ? 3 : 1} style={field.multiline ? styles.multiline : undefined} /></View>)}</View>
 
-    <View style={styles.actions}><Button disabled={busy} onPress={() => void create()}>{busy ? copy.creating : copy.create}</Button>{document ? <Button secondary onPress={() => void downloadResourcePdf(String(document.title), document, locale)}>{copy.download}</Button> : null}</View><ActionFeedback message={message} tone={messageTone} />
+    <View style={styles.actions}><Button disabled={busy} onPress={() => void create()}>{busy ? copy.creating : copy.create}</Button>{document ? <Button secondary onPress={() => void downloadResourcePdf(String(document.title), document, locale)}>{copy.download}</Button> : null}</View><ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} />
   </Panel></Disclosure>;
 }
 

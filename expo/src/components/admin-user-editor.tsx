@@ -60,7 +60,7 @@ function Editor({ row, plans, staffRoles, reload }: { row: Row; plans: Row[]; st
     <Text style={styles.label}>{t('admin.reason')}</Text><Field accessibilityLabel={t('admin.reason')} value={reason} onChangeText={setReason} placeholder={t('admin.reasonRequired')} />
     <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: confirmed }} onPress={() => setConfirmed(!confirmed)} style={styles.confirm}><Text style={styles.mark}>{confirmed ? '☑' : '☐'}</Text><Text style={styles.confirmText}>{t('admin.confirmUserEdit')}</Text></Pressable>
     <Button disabled={busy || !confirmed || !reason.trim() || !selectedMode || !email.trim()} onPress={() => void save()}>{busy ? t('common.saving') : t('admin.saveAccess')}</Button>
-    <ActionFeedback message={message} tone={tone} />
+    <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={tone} />
   </Panel><AdminAccountResetPanel userId={text(row.user_id)} initialNotes={text(row.admin_notes)} reload={reload} /></View>;
 }
 

@@ -85,6 +85,22 @@ export async function beginProviderAttempt(context: AiEconomicContext, operation
   return attemptId;
 }
 
+/** One Worker subrequest covers plan checks, atomic quota reservation and both start records. */
+export async function beginReservedGenerationAttempt(context: AiEconomicContext, profilePlan: string, featureName: string, operationId: string, attemptId: string, attemptNo: number, provider: 'openrouter' | 'gemini' | 'openai', model: string): Promise<{ allowed: boolean; status: number; reason: string }> {
+  if (!context.base || !context.serverKey || !context.actorUserId) throw new Error('AI generation reservation is not configured.');
+  const response = await fetch(`${context.base.replace(/\/$/, '')}/rest/v1/rpc/classio_begin_ai_generation_attempt`, {
+    method: 'POST',
+    headers: { apikey: context.serverKey, Authorization: `Bearer ${context.serverKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ p_user_id: context.actorUserId, p_profile_plan: profilePlan, p_feature_name: featureName, p_provider: provider, p_model: model, p_operation_id: operationId, p_attempt_id: attemptId, p_attempt_no: attemptNo }),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) throw new Error(`AI generation reservation failed (${response.status}).`);
+  const result = await response.json() as { allowed?: unknown; status?: unknown; reason?: unknown };
+  if (typeof result.allowed !== 'boolean') throw new Error('AI generation reservation was not confirmed.');
+  return { allowed: result.allowed, status: Number(result.status) || 200, reason: String(result.reason || '') };
+}
+
 export async function finishProviderAttempt(context: AiEconomicContext, attemptId: string, result: AttemptResult): Promise<void> {
   await write(context, 'classio_provider_attempts', 'PATCH', {
     status: result.status,

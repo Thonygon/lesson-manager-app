@@ -51,7 +51,7 @@ export default function ChooseRoleScreen() {
         </Pressable>
       </View>
       {busy ? <Text style={styles.busy}>{t('auth.wait')}</Text> : null}
-      {error ? <Panel style={styles.feedback}><ActionFeedback message={error} tone="error" /></Panel> : null}
+      {error ? <Panel style={styles.feedback}><ActionFeedback message={error} onDismiss={(shown) => setError((current) => current === shown ? '' : current)} tone="error" /></Panel> : null}
       <Text style={styles.hint}>{t('auth.chooseRoleHint')}</Text>
     </SafeAreaView>
   </ScrollView>;

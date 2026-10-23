@@ -14,13 +14,13 @@ import { programLanguageIssues } from '../../server/program-language-quality';
 import { mergePreviousProgramRows, previousProgramFromStorage, previousProgramComplete, summarizePreviousProgram } from '../../server/program-continuation';
 import { configuredAiProviders, requestAiProvider } from '../../server/ai-provider-chain';
 import { reserveGuestGeneration } from '../../server/guest-generation-quota';
-import { checkAiGenerationUsage, reserveAiGenerationUsage, logAiGeneration, type UsageContext } from '../../server/ai-generation-usage';
+import { logAiGeneration, type UsageContext } from '../../server/ai-generation-usage';
 import { findGenerationMatches } from '../../server/generation-reuse';
 import { sourceSystemPrompt } from '../../server/source-system-prompts';
 import { examLengthRule } from '../../lib/exam-generation-rules';
 import { programExamTargets } from '../../shared/program-builder-options';
 import { gradeEvidencePrompt, loadMatchedGradeEvidence, loadRosterProgramEvidence } from '../../server/student-generation-evidence';
-import { beginAiOperation, beginProviderAttempt, finishAiOperation, finishProviderAttempt, type AiEconomicContext } from '../../server/ai-economic-events';
+import { beginAiOperation, beginProviderAttempt, beginReservedGenerationAttempt, finishAiOperation, finishProviderAttempt, type AiEconomicContext } from '../../server/ai-economic-events';
 
 type ToolKind = 'plan' | 'worksheet' | 'exam' | 'program';
 type GenerationRequest = { kind?: ToolKind; subject?: string; customSubject?: string; topic?: string; stage?: string; level?: string; language?: string; planLanguage?: string; nativeLanguage?: string; generationMode?: string; lessonPurpose?: string; objective?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration?: string; questionCount?: number; notes?: string; programId?: string; programTopicId?: string; previousProgramId?: string; programPhase?: 'skeleton' | 'unit'; programSkeleton?: Record<string, unknown>; programUnitIndex?: number; reuseConfirmed?: boolean; studentNameForRedaction?: string; studentIdForEvidence?: string };
@@ -265,18 +265,10 @@ export async function POST(request: Request) {
     }).filter((provider) => !guest || provider.provider !== 'openai');
     if (!providers.length) return fallbackProgram() ?? fallbackPlan() ?? json({ error: 'Classio AI is not connected.' }, 503);
     let usageContext: UsageContext | null = null;
-    let usageLimit = 0;
     if (!guest) {
       const serverKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
       if (!serverKey) return json({ error: 'AI usage protection is not configured.', code: 'usage_unavailable' }, 503);
       usageContext = { base: supabaseUrl, serverKey, userId, kind, profilePlan };
-      phase = 'usage_check';
-      let usage;
-      try { usage = await checkAiGenerationUsage(usageContext); }
-      catch (error) { console.error('AI usage check failed', error); return json({ error: 'AI usage could not be verified.', code: 'usage_unavailable' }, 503); }
-      if (!usage.allowed) return json({ error: usage.reason, code: usage.status === 403 ? 'permission_blocked' : usage.remainingSeconds ? 'cooldown_active' : 'limit_reached', remainingSeconds: usage.remainingSeconds }, usage.status);
-      if (!Number.isSafeInteger(usage.limit) || Number(usage.limit) < 0) return json({ error: 'AI usage limit is not configured.', code: 'usage_unavailable' }, 503);
-      usageLimit = Number(usage.limit);
     }
     let guestCookie = '';
     if (guest) {
@@ -309,23 +301,41 @@ export async function POST(request: Request) {
     let providerCalls = 0;
     const economicKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
     economicContext = { base: supabaseUrl, serverKey: economicKey, actorUserId: userId || null, source: 'expo' };
-    try { economicOperationId = await beginAiOperation(economicContext, `generate_${kind}`, 'text'); }
-    catch (error) { console.error('AI economic operation start failed', error); return json({ error: 'AI usage could not be recorded.', code: 'usage_unavailable' }, 503); }
+    if (guest) {
+      try { economicOperationId = await beginAiOperation(economicContext, `generate_${kind}`, 'text'); }
+      catch (error) { console.error('AI economic operation start failed', error); return json({ error: 'AI usage could not be recorded.', code: 'usage_unavailable' }, 503); }
+    }
     phase = 'provider_generation';
     for (const provider of providers) {
       let repair = '';
       for (let attempt = 0; attempt < (providers.length === 1 ? 2 : 1); attempt += 1) {
         if (providerCalls >= 2) break;
+        phase = 'usage_reservation';
+        const attemptNo = providerCalls + 1;
+        let economicAttemptId: string;
         if (usageContext) {
-          phase = 'usage_reservation';
+          const proposedOperationId = economicOperationId || crypto.randomUUID();
+          const proposedAttemptId = crypto.randomUUID();
           let reservation;
-          try { reservation = await reserveAiGenerationUsage(usageContext, usageLimit); }
-          catch (error) { console.error('AI usage reservation failed', error); await finishAiOperation(economicContext, economicOperationId, 'failed', 'reservation_failed'); economicOperationId = ''; return json({ error: 'AI usage could not be reserved.', code: 'usage_unavailable' }, 503); }
-          if (!reservation.allowed) { await finishAiOperation(economicContext, economicOperationId, 'failed', 'limit_reached'); economicOperationId = ''; return json({ error: 'Your AI generation limit has been reached.', code: 'limit_reached' }, 429); }
+          try { reservation = await beginReservedGenerationAttempt(economicContext, profilePlan, `generate_${kind}`, proposedOperationId, proposedAttemptId, attemptNo, provider.provider, provider.model); }
+          catch (error) {
+            console.error('AI usage reservation failed', error);
+            if (economicOperationId) await finishAiOperation(economicContext, economicOperationId, 'failed', 'reservation_failed').catch((failure) => console.error('AI economic operation finalization failed', failure));
+            economicOperationId = '';
+            return json({ error: 'AI usage could not be reserved.', code: 'usage_unavailable' }, 503);
+          }
+          if (!reservation.allowed) {
+            if (economicOperationId) await finishAiOperation(economicContext, economicOperationId, 'failed', reservation.reason || 'limit_reached').catch((failure) => console.error('AI economic operation finalization failed', failure));
+            economicOperationId = '';
+            return json({ error: reservation.status === 403 ? 'AI tools are not included in your plan.' : 'Your AI generation limit has been reached.', code: reservation.reason || 'limit_reached' }, reservation.status);
+          }
+          economicOperationId = proposedOperationId;
+          economicAttemptId = proposedAttemptId;
+        } else {
+          economicAttemptId = await beginProviderAttempt(economicContext, economicOperationId, attemptNo, provider.provider, provider.model, 'text');
         }
-        providerCalls += 1;
+        providerCalls = attemptNo;
         phase = 'provider_generation';
-        const economicAttemptId = await beginProviderAttempt(economicContext, economicOperationId, providerCalls, provider.provider, provider.model, 'text');
         let content: string;
         let model = '';
         let providerUsage: Awaited<ReturnType<typeof requestAiProvider>>['usage'] | null = null;
