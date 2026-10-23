@@ -35,6 +35,25 @@ export async function getTeacherConnections(): Promise<TeacherConnection[]> {
   return (links.data ?? []).map((row) => { const profile = profileMap.get(String(row.student_id)); const localStudent = rosterMap.get(String(row.student_id)); const studentName = String(profile?.display_name || profile?.username || localStudent?.student || profile?.email?.split('@')[0] || 'Student'); const studentEmail = String(profile?.email || localStudent?.email || ''); const candidates = (roster.data ?? []).flatMap((candidate) => { if (candidate.linked_student_user_id && String(candidate.linked_student_user_id) !== String(row.student_id)) return []; const emailMatch = Boolean(normalized(studentEmail) && normalized(candidate.email) === normalized(studentEmail)); const nameMatch = normalized(candidate.student) === normalized(studentName); return emailMatch || nameMatch ? [{ id: String(candidate.id), student: String(candidate.student || 'Student'), email: String(candidate.email || ''), match: emailMatch ? 'email' as const : 'name' as const }] : []; }); const canonicalSubjects = new Map<string, ClassioRecord>(); (subjects.data ?? []).filter((scope) => String(scope.link_id) === String(row.id)).forEach((scope) => { const key = canonicalSubjectKey(scope.subject_key || scope.subject_label); canonicalSubjects.set(key, { ...(scope as unknown as ClassioRecord), subject_key: key, subject_label: canonicalSubjectLabel(scope.subject_label || scope.subject_key) }); }); return { ...(row as unknown as ClassioRecord), requested_subjects: cleanScopes(row.requested_subjects), student_name: studentName, student_email: studentEmail, subjects: [...canonicalSubjects.values()], roster_candidates: candidates } as TeacherConnection; });
 }
 
+export async function getProgramAssignmentTargets(): Promise<TeacherConnection[]> {
+  const client = requireSupabase();
+  const uid = await currentUserId();
+  const [connections, roster] = await Promise.all([
+    getTeacherConnections(),
+    client.from('students').select('id,student,email,linked_student_user_id').eq('user_id', uid).order('student').limit(1000),
+  ]);
+  if (roster.error) throw roster.error;
+  const linked = new Set(connections.filter((row) => String(row.status) === 'active').map((row) => String(row.student_id)));
+  return [
+    ...connections.filter((row) => String(row.status) === 'active'),
+    ...(roster.data ?? []).filter((row) => !row.linked_student_user_id || !linked.has(String(row.linked_student_user_id))).map((row) => ({
+      id: `roster:${row.id}`, teacher_id: uid, student_id: row.linked_student_user_id || '',
+      roster_student_id: row.id, student_name: String(row.student || ''), student_email: String(row.email || ''),
+      status: 'active', subjects: [], roster_candidates: [],
+    } as TeacherConnection)),
+  ];
+}
+
 export async function respondToTeacherConnection(connection: TeacherConnection, accept: boolean, selectedSubjectKeys?: string[], rosterId?: string) {
   const client = requireSupabase(); const uid = await currentUserId(); const now = new Date().toISOString();
   if (!accept) { const { error } = await client.from('teacher_student_links').update({ status: 'rejected', responded_at: now, responded_by: uid, updated_at: now }).eq('id', connection.id).eq('teacher_id', uid); if (error) throw error; return; }
@@ -73,16 +92,17 @@ export async function requestTeacherRevision(assignment: ClassioRecord, attempt:
   const { data, error } = await client.rpc('classio_request_teacher_revision', { p_assignment_id: Number(assignment.id), p_practice_session_id: practiceSessionId }); if (error) throw error; return (data ?? {}) as unknown as ClassioRecord;
 }
 
-export async function getStudentLearningWorkspace(studentName: string, studentUserId?: string): Promise<StudentLearningWorkspace> {
+export async function getStudentLearningWorkspace(studentName: string, studentUserId?: string, rosterStudentId?: string): Promise<StudentLearningWorkspace> {
   const client = requireSupabase(); const uid = await currentUserId(); const safeName = studentName.trim();
-  const [assignmentResult, reviewResult, programByIdResult, programByNameResult] = await Promise.all([
+  const [assignmentResult, reviewResult, programByIdResult, programByNameResult, programByRosterResult] = await Promise.all([
     studentUserId ? client.from('teacher_assignments').select('id,student_id,title,topic,subject_key,subject_label,assignment_type,source_type,source_record_id,status,score_pct,total_questions,correct_count,due_at,assigned_at,opened_at,submitted_at,graded_at,completed_at,created_at,updated_at,learning_program_assignment_id,learning_program_topic_id').eq('teacher_id', uid).eq('student_id', studentUserId).neq('status', 'archived').order('created_at', { ascending: false }).limit(2000) : Promise.resolve({ data: [], error: null }),
     studentUserId ? client.from('teacher_review_requests').select('id,student_id,assignment_id,practice_session_id,title,subject_key,subject_label,status,request_note,teacher_feedback,override_score_pct,requested_at,reviewed_at').eq('teacher_id', uid).eq('student_id', studentUserId).order('requested_at', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
     studentUserId ? client.from('learning_program_assignments').select('id,program_id,student_user_id,student_name,status,start_on,target_completion_on,teacher_note,assigned_at,updated_at').eq('teacher_id', uid).eq('student_user_id', studentUserId).order('updated_at', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
-    safeName ? client.from('learning_program_assignments').select('id,program_id,student_user_id,student_name,status,start_on,target_completion_on,teacher_note,assigned_at,updated_at').eq('teacher_id', uid).eq('student_name', safeName).order('updated_at', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
-  ]); const error = assignmentResult.error ?? reviewResult.error ?? programByIdResult.error ?? programByNameResult.error; if (error) throw error;
+    safeName ? client.from('learning_program_assignments').select('id,program_id,student_user_id,student_name,status,start_on,target_completion_on,teacher_note,assigned_at,updated_at').eq('teacher_id', uid).eq('student_name', safeName).is('roster_student_id', null).order('updated_at', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
+    rosterStudentId ? client.from('learning_program_assignments').select('id,program_id,student_user_id,student_name,roster_student_id,status,start_on,target_completion_on,teacher_note,assigned_at,updated_at').eq('teacher_id', uid).eq('roster_student_id', rosterStudentId).order('updated_at', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
+  ]); const error = assignmentResult.error ?? reviewResult.error ?? programByIdResult.error ?? programByNameResult.error ?? programByRosterResult.error; if (error) throw error;
   const assignments = assignmentResult.data ?? []; const reviews = reviewResult.data ?? [];
-  const programs = [...new Map([...(programByIdResult.data ?? []), ...(programByNameResult.data ?? [])].map((row) => [String(row.id), row])).values()];
+  const programs = [...new Map([...(programByIdResult.data ?? []), ...(programByNameResult.data ?? []), ...(programByRosterResult.data ?? [])].map((row) => [String(row.id), row])).values()];
   const assignmentIds = assignments.map((row) => row.id); const programIds = [...new Set(programs.map((row) => row.program_id))]; const programAssignmentIds = programs.map((row) => row.id);
   const [attemptResult, titleResult, progressResult, eventResult, proactiveCompletedResources] = await Promise.all([
     assignmentIds.length ? client.from('teacher_assignment_attempts').select('id,assignment_id,student_id,practice_session_id,attempt_number,status,score_pct,total_questions,correct_count,teacher_feedback,submitted_at,graded_at,completed_at,created_at').eq('teacher_id', uid).in('assignment_id', assignmentIds).order('created_at', { ascending: false }) : Promise.resolve({ data: [], error: null }),

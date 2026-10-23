@@ -1,6 +1,7 @@
 import unittest
 
 from helpers.ai_prompt_privacy import minimize_student_profile_for_ai
+from helpers.student_personalization import build_student_profile_prompt_block
 
 
 class AiPromptPrivacyTests(unittest.TestCase):
@@ -28,6 +29,29 @@ class AiPromptPrivacyTests(unittest.TestCase):
     def test_rejects_unstructured_values_in_signal_fields(self):
         safe = minimize_student_profile_for_ai({"learner_stage": "A2 for Private Student", "native_language": "x@y.test"})
         self.assertEqual(safe, {})
+
+    def test_keeps_bounded_pedagogical_signals_in_final_prompt(self):
+        profile = {
+            "student_user_id": "55bbd13d-1eb5-4cdc-81ec-06b27e23c45c",
+            "student_name": "Private Student",
+            "weak_topics": ["Fractions", "Private Student needs ratios", "https://example.test"],
+            "strong_topics": ["Percentages"],
+            "weak_formats": ["short_answer"],
+            "program_context": {
+                "current_program_title": "Algebra foundations",
+                "next_topics": ["Linear equations", "Private Student's address"],
+                "suggested_worksheet_types": ["matching"],
+            },
+        }
+        safe = minimize_student_profile_for_ai(profile)
+        self.assertEqual(safe, minimize_student_profile_for_ai(safe))
+        self.assertEqual(safe["weak_topics"], ["Fractions"])
+        self.assertEqual(safe["program_context"]["next_topics"], ["Linear equations"])
+        prompt = build_student_profile_prompt_block(safe, product="lesson_plan")
+        for signal in ("Fractions", "Percentages", "short answer", "Algebra foundations", "Linear equations"):
+            self.assertIn(signal, prompt)
+        self.assertNotIn("Private Student", prompt)
+        self.assertNotIn("example.test", prompt)
 
 
 if __name__ == "__main__":

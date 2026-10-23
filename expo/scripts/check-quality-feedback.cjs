@@ -5,7 +5,7 @@ const ts = require('typescript');
 
 const generationId = '11111111-1111-4111-8111-111111111111';
 const rows = {
-  lesson_plans: [{ id: '8', user_id: 'teacher-1', is_public: false, status: 'active', created_at: '2026-10-23T00:01:00Z' }],
+  lesson_plans: [{ id: '8', user_id: 'teacher-1', is_public: false, status: 'active', source_type: 'ai', created_at: '2026-10-23T00:01:00Z', updated_at: '2026-10-23T00:01:00Z' }],
   classio_ai_operations: [{ operation_id: generationId, actor_user_id: 'teacher-1', source: 'expo', status: 'success', feature_name: 'generate_plan', modality: 'text', started_at: '2026-10-23T00:00:00Z', finished_at: '2026-10-23T00:00:50Z' }],
   classio_provider_attempts: [{ operation_id: generationId, status: 'success', model_reported: 'fixture-model' }],
   classio_generation_resources: [{ generation_id: generationId, actor_user_id: 'teacher-1', resource_type: 'plan', resource_id: '8', edited_at: null }],
@@ -17,7 +17,7 @@ const written = [];
 const helper = {
   authorizeQualityFeedback: async () => ({ base: 'test', serverKey: 'test', userId: 'teacher-1' }),
   feedbackJson: (value, status = 200) => Response.json(value, { status }),
-  readRows: async (_base, _key, table, filters = {}) => (rows[table] || []).filter((row) => Object.entries(filters).every(([key, value]) => !value.startsWith('eq.') || String(row[key]) === value.slice(3))),
+  readRows: async (_base, _key, table, filters = {}) => (rows[table] || []).filter((row) => Object.entries(filters).every(([key, value]) => value.startsWith('eq.') ? String(row[key]) === value.slice(3) : value.startsWith('in.(') ? value.slice(4, -1).split(',').includes(String(row[key])) : value.startsWith('gte.') ? String(row[key]) >= value.slice(4) : true)),
   upsertRow: async (_base, _key, table, _conflict, value) => { written.push({ table, value }); return { id: 7, ...value }; },
   insertRow: async (_base, _key, table, value) => { written.push({ table, value }); },
 };
@@ -44,6 +44,17 @@ async function main() {
   assert.equal((await generation.POST(post({ generationId, satisfied: true, surface: 'generation_preview' }))).status, 409);
   rows.classio_generation_resources[0].edited_at = null;
   assert.equal((await generation.POST(post({ action: 'bind', generationId, resourceType: 'plan', resourceId: '8' }))).status, 200);
+  rows.classio_generation_resources.length = 0;
+  assert.deepEqual(await (await generation.GET(new Request('https://classio.test/api/generation-feedback?resourceType=plan&resourceId=8'))).json(), { eligible: true, generationId, satisfied: null, reason: null });
+  assert.equal(written.filter((item) => item.table === 'classio_generation_resources').length, 2);
+  rows.lesson_plans[0].updated_at = '2026-10-23T01:00:00Z';
+  assert.deepEqual(await (await generation.GET(new Request('https://classio.test/api/generation-feedback?resourceType=plan&resourceId=8'))).json(), { eligible: false });
+  rows.lesson_plans[0].updated_at = rows.lesson_plans[0].created_at;
+  rows.classio_ai_operations.length = 0;
+  assert.deepEqual(await (await generation.GET(new Request('https://classio.test/api/generation-feedback?resourceType=plan&resourceId=8'))).json(), { eligible: true, generationId: 'legacy:plan:8', satisfied: null, reason: null });
+  assert.equal((await generation.POST(post({ generationId: 'legacy:plan:8', satisfied: false, surface: 'resource_page', reason: 'content' }))).status, 200);
+  assert.equal(written.find((item) => item.table === 'classio_legacy_generation_intent_feedback').value.reason, 'content');
+  assert.equal((await generation.POST(post({ generationId: 'legacy:plan:8', satisfied: true, surface: 'generation_preview' }))).status, 400);
   result = await relevance.POST(post({ exposureId: 'exposure-1', action: 'reject', reason: 'wrong_topic' }));
   assert.equal(result.status, 200);
   const feedback = written.find((item) => item.table === 'classio_teacher_relevance_feedback').value;

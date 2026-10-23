@@ -977,6 +977,7 @@ def generate_ai_worksheet(
     student_profile: dict | None = None,
     *,
     include_visuals: bool = True,
+    reserve_account_quota: bool = True,
 ) -> dict:
     payload = {
         "subject": subject,
@@ -996,11 +997,11 @@ def generate_ai_worksheet(
     for p in provider_order:
         try:
             if p == "gemini":
-                raw = _lp()._generate_with_gemini(system_prompt, user_prompt)
+                raw = _lp()._generate_with_gemini(system_prompt, user_prompt, reserve_account_quota=reserve_account_quota)
             elif p == "openrouter":
-                raw = _lp()._generate_with_openrouter(system_prompt, user_prompt)
+                raw = _lp()._generate_with_openrouter(system_prompt, user_prompt, reserve_account_quota=reserve_account_quota)
             else:
-                raw = _lp()._generate_with_openai(system_prompt, user_prompt)
+                raw = _lp()._generate_with_openai(system_prompt, user_prompt, reserve_account_quota=reserve_account_quota)
 
             parsed = _lp()._extract_json_object_from_text(raw)
             normalized = normalize_worksheet_output(parsed, include_visuals=include_visuals)
@@ -1062,6 +1063,7 @@ def generate_worksheet_with_limit(
             plan_language=get_plan_language(),
             student_material_language=get_student_material_language(subject),
             student_profile=student_profile or {},
+            reserve_account_quota=enforce_usage_limits,
         )
         provider = str(ws.pop("_ai_provider", "") or "") if isinstance(ws, dict) else ""
         ws = normalize_worksheet_output(ws)

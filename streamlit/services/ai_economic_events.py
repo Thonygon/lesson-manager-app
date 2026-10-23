@@ -178,7 +178,7 @@ def _finish_operation(operation: _Operation, status: str, error_kind: str | None
     try:
         result = get_sb().table("classio_ai_operations").update(payload).eq("operation_id", operation.operation_id).execute()
         _confirm_update(result, "operation")
-        if status == "success" and operation.modality == "text" and _actor_id():
+        if status == "success" and operation.modality == "text":
             try:
                 import streamlit as st
                 st.session_state["_classio_last_successful_ai_operation"] = {"id": operation.operation_id, "actor_id": _actor_id(), "finished_at": payload["finished_at"]}
@@ -189,12 +189,13 @@ def _finish_operation(operation: _Operation, status: str, error_kind: str | None
         raise RuntimeError("AI economic operation could not finish") from None
 
 
-def latest_successful_generation_operation_id() -> str:
+def latest_successful_generation_operation_id(*, allow_anonymous: bool = False) -> str:
     """Return the current teacher's most recent successful text operation."""
     try:
         import streamlit as st
         row = st.session_state.get("_classio_last_successful_ai_operation") or {}
-        if row.get("actor_id") != _actor_id():
+        actor = _actor_id()
+        if row.get("actor_id") != actor or (actor is None and not allow_anonymous):
             return ""
         finished_at = datetime.fromisoformat(str(row.get("finished_at") or ""))
         if abs((datetime.now(timezone.utc) - finished_at).total_seconds()) > 3600:

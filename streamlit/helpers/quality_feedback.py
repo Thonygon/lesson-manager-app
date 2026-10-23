@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import hashlib
+import secrets
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -50,6 +52,59 @@ def bind_generated_resource(kind: str, resource_id: int | str, operation_id: str
         "resource_type": kind, "resource_id": str(resource_id),
     }, on_conflict="generation_id").execute()
     return bool(result.data)
+
+
+def render_explorer_generation_intent_question(operation_id: str, *, key_prefix: str) -> None:
+    """Collect a label for an anonymous AI preview without requiring an account."""
+    if get_current_user_id():
+        return
+    try:
+        operation_id = str(UUID(operation_id))
+        sb = _feedback_db()
+        rows = (sb.table("classio_ai_operations").select("operation_id,feature_name")
+                .eq("operation_id", operation_id).is_("actor_user_id", "null")
+                .eq("source", "streamlit").eq("status", "success")
+                .limit(1).execute().data or [])
+        if not rows:
+            return
+        session_key = "_classio_explorer_feedback_session"
+        if session_key not in st.session_state:
+            st.session_state[session_key] = secrets.token_urlsafe(32)
+        session_hash = hashlib.sha256(st.session_state[session_key].encode()).hexdigest()
+        answers = (sb.table("classio_explorer_generation_feedback").select("satisfied,reason,session_hash")
+                   .eq("operation_id", operation_id).limit(1).execute().data or [])
+        if answers and answers[0].get("session_hash") != session_hash:
+            return
+    except Exception:
+        return
+
+    def answer(satisfied: bool, reason: str | None = None) -> None:
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            sb.table("classio_explorer_generation_feedback").upsert({
+                "operation_id": operation_id, "session_hash": session_hash,
+                "feature_name": str(rows[0].get("feature_name") or "")[:80],
+                "feedback_surface": "explorer_preview", "satisfied": satisfied,
+                "reason": None if satisfied else reason, "answered_at": now, "updated_at": now,
+            }, on_conflict="operation_id").execute()
+            st.rerun()
+        except Exception:
+            st.error(t("generation_intent_failed"))
+
+    selected = answers[0].get("satisfied") if answers else None
+    st.markdown(f"**{t('generation_intent_question')}**")
+    yes_col, no_col = st.columns(2)
+    with yes_col:
+        if st.button(t("generation_intent_yes"), key=f"{key_prefix}_intent_yes", type="primary" if selected is True else "secondary"):
+            answer(True)
+    with no_col:
+        if st.button(t("generation_intent_no"), key=f"{key_prefix}_intent_no", type="primary" if selected is False else "secondary"):
+            answer(False)
+    if selected is False:
+        st.caption(t("generation_intent_reason"))
+        for reason, label in (("content", "generation_intent_content"), ("level", "generation_intent_level"), ("format", "generation_intent_format"), ("other", "generation_intent_other")):
+            if st.button(t(label), key=f"{key_prefix}_intent_{reason}"):
+                answer(False, reason)
 
 
 def render_generation_intent_question(kind: str, resource_id: int | str | None, *, surface: str, key_prefix: str) -> None:

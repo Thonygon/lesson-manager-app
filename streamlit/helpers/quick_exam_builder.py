@@ -1586,6 +1586,7 @@ def generate_ai_exam(
     student_profile: dict | None = None,
     *,
     include_visuals: bool = True,
+    reserve_account_quota: bool = True,
 ) -> tuple[dict, dict]:
     subject_group = get_subject_group(subject)
 
@@ -1611,11 +1612,11 @@ def generate_ai_exam(
     for p in provider_order:
         try:
             if p == "gemini":
-                raw = _lp()._generate_with_gemini(system_prompt, user_prompt)
+                raw = _lp()._generate_with_gemini(system_prompt, user_prompt, reserve_account_quota=reserve_account_quota)
             elif p == "openrouter":
-                raw = _lp()._generate_with_openrouter(system_prompt, user_prompt)
+                raw = _lp()._generate_with_openrouter(system_prompt, user_prompt, reserve_account_quota=reserve_account_quota)
             else:
-                raw = _lp()._generate_with_openai(system_prompt, user_prompt)
+                raw = _lp()._generate_with_openai(system_prompt, user_prompt, reserve_account_quota=reserve_account_quota)
 
             parsed = _lp()._extract_json_object_from_text(raw)
             exam_data, answer_key = normalize_exam_output(parsed)
@@ -1692,6 +1693,7 @@ def generate_exam_with_limit(
             plan_language=get_plan_language(),
             student_material_language=get_student_material_language(subject),
             student_profile=student_profile or {},
+            reserve_account_quota=enforce_usage_limits,
         )
         provider = str(exam_data.pop("_ai_provider", "") or "") if isinstance(exam_data, dict) else ""
 

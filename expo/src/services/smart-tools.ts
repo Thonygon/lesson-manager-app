@@ -46,9 +46,9 @@ export async function getPersonalizationStudents(): Promise<PersonalizationStude
   const client = requireSupabase();
   const { data: auth, error: authError } = await client.auth.getUser();
   if (authError || !auth.user) throw authError ?? new Error('Your session has expired.');
-  const { data, error } = await client.from('students').select('student,linked_student_user_id,native_language').eq('user_id', auth.user.id).not('linked_student_user_id', 'is', null).order('student').limit(500);
+  const { data, error } = await client.from('students').select('id,student,linked_student_user_id,native_language').eq('user_id', auth.user.id).order('student').limit(500);
   if (error) throw error;
-  return (data ?? []).filter((row) => row.linked_student_user_id).map((row) => ({ id: String(row.linked_student_user_id), name: String(row.student || 'Student'), nativeLanguage: String(row.native_language || '') }));
+  return (data ?? []).map((row) => ({ id: String(row.linked_student_user_id || `roster:${row.id}`), name: String(row.student || 'Student'), nativeLanguage: String(row.native_language || '') }));
 }
 
 export async function getSmartToolPrograms(): Promise<SmartToolProgram[]> {

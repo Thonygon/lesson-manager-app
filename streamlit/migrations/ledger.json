@@ -68,6 +68,10 @@
     {"name": "teacher_ledger_mutations_transaction.sql", "sha256": "062beec626f61a990b5470dead1ddc3e2ab7a42c039e9b760edad60c3421b952"},
     {"name": "classio_ai_economic_events.sql", "sha256": "d7c6f2fe6fe1e288cb6f4415582dd31e2346e5658b6b29fe040d7fddbf85604a"},
     {"name": "classio_document_export_events.sql", "sha256": "667833e60b8475513cd868b30906141cafef7186b7a638887b48334a4e303c1d"},
-    {"name": "classio_ai_quality_feedback.sql", "sha256": "8b638555ed164d55b484e2203bac3f4f7cf5c88d114668e51d53c7ddc9678620"}
+    {"name": "classio_ai_quality_feedback.sql", "sha256": "8b638555ed164d55b484e2203bac3f4f7cf5c88d114668e51d53c7ddc9678620"},
+    {"name": "learning_program_roster_students.sql", "sha256": "be41654384d02cc0b540e1f77210c84b577f3efe7d974936f8be4e2f92aadfca"},
+    {"name": "anonymous_explorer_generation_feedback.sql", "sha256": "0d85162ac4b7ad32ee6a399d3aebd149dba607df400a9e97684f933f0ea8ddf3"},
+    {"name": "learning_program_roster_link_guard.sql", "sha256": "82669279676464b7fb9514089d2376bda4570abcb6aa4c8c8715dc56edc5a10c"},
+    {"name": "legacy_generation_intent_feedback.sql", "sha256": "c843966cfed897dfbe3cb5a4f71e17bbd8910178d8f070b7fbfc77072550efbb"}
   ]
 }

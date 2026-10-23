@@ -26,9 +26,10 @@ export function classifyGenerationMatch(input: SearchInput, row: StoredRow, owne
   const config = row.builder_config && typeof row.builder_config === 'object' ? row.builder_config as StoredRow : {};
   const sameTrack = normalize(config.program_track || 'general_language') === normalize(input.programTrack || 'general_language');
   const sameTarget = normalize(config.exam_prep_target || config.exam_target || '') === normalize(input.examTarget || '');
+  const levelMatch = normalize(row[source.level]) === normalize(input.level);
+  if (input.kind === 'program' && (!levelMatch || !sameTrack || !sameTarget)) return null;
   const fit = input.kind === 'program' && !input.topic.trim() ? sameTrack && sameTarget ? 1 : 0 : topicFit(input.topic, String(row.topic || programTopic || row.title || ''));
   if (fit < 0.5) return null;
-  const levelMatch = normalize(row[source.level]) === normalize(input.level);
   const subtypeMatch = input.kind === 'program' ? true : input.kind === 'exam'
     ? (input.exerciseTypes || []).some((value) => Array.isArray(row.exercise_types) && row.exercise_types.some((stored) => normalize(stored) === normalize(value)))
     : normalize(row[source.subtype]) === normalize(input.kind === 'plan' ? input.lessonPurpose : input.worksheetType);

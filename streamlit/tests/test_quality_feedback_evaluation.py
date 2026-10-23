@@ -13,6 +13,9 @@ class QualityFeedbackEvaluationTests(unittest.TestCase):
                 {"feature_name": "generate_plan", "feedback_surface": "generation_preview", "satisfied": True, "answered_at": timestamp},
                 {"feature_name": "generate_plan", "feedback_surface": "resource_page", "satisfied": False, "reason": "level", "answered_at": timestamp},
             ],
+            "classio_legacy_generation_intent_feedback": [
+                {"resource_type": "plan", "feedback_surface": "resource_page", "satisfied": False, "reason": "content", "answered_at": timestamp},
+            ],
             "classio_teacher_relevance_feedback": [
                 {"exposure_id": "wrong", "reason": "wrong_topic", "active": True, "resource_is_public": True, "topic_id": 3, "updated_at": timestamp},
                 {"exposure_id": "fit", "reason": "student_unfit", "active": True, "resource_is_public": True, "topic_id": 3, "updated_at": timestamp},
@@ -27,6 +30,8 @@ class QualityFeedbackEvaluationTests(unittest.TestCase):
         }
         report = build_report(snapshot, since)
         self.assertEqual(report["generation_intent"]["by_surface"], {"generation_preview": 1, "resource_page": 1})
+        self.assertEqual(report["legacy_resource_intent"]["answers"], 1)
+        self.assertEqual(report["legacy_resource_intent"]["model_attribution"], "unknown")
         self.assertEqual(report["teacher_relevance"]["active_student_unfit"], 1)
         self.assertEqual(report["observed_confusion"]["true_positive"], 1)
         self.assertEqual(report["observed_confusion"]["false_positive"], 1)

@@ -2589,6 +2589,7 @@ def _render_explore_worksheet_maker() -> None:
                     ws = generation_result["worksheet"]
                     effective_subject = generation_result["subject"]
                     st.session_state["explore_generated_worksheet"] = ws
+                    st.session_state["explore_generated_worksheet_operation_id"] = generation_result.get("generation_operation_id") or ""
                     st.session_state["explore_generated_worksheet_meta"] = {
                         "subject": effective_subject,
                         "learner_stage": learner_stage,
@@ -2618,6 +2619,9 @@ def _render_explore_worksheet_maker() -> None:
             worksheet_type=ws_meta.get("worksheet_type", ""),
             topic=ws_meta.get("topic", ""),
         )
+
+        from helpers.quality_feedback import render_explorer_generation_intent_question
+        render_explorer_generation_intent_question(st.session_state.get("explore_generated_worksheet_operation_id", ""), key_prefix="explore_worksheet")
 
         if st.button(
             t("explore_save_worksheet_cta"),
@@ -2758,6 +2762,7 @@ def _render_explore_exam_builder() -> None:
                     effective_subject = generation_result["subject"]
                     exercise_types = generation_result["exercise_types"]
                     st.session_state["explore_generated_exam"] = exam_data
+                    st.session_state["explore_generated_exam_operation_id"] = generation_result.get("generation_operation_id") or ""
                     st.session_state["explore_generated_exam_ak"] = answer_key
                     st.session_state["explore_generated_exam_meta"] = {
                         "subject": effective_subject,
@@ -2796,6 +2801,8 @@ def _render_explore_exam_builder() -> None:
             move_id=st.session_state.get("explore_generated_exam_move_id"),
         )
 
+        from helpers.quality_feedback import render_explorer_generation_intent_question
+        render_explorer_generation_intent_question(st.session_state.get("explore_generated_exam_operation_id", ""), key_prefix="explore_exam")
 
 # ─────────────────────────────────────────────────────────────
 # Explore-page learning program maker (generation requires signup)
@@ -2991,6 +2998,7 @@ def _render_explore_lesson_planner() -> None:
                     plan = generation_result["plan"]
                     effective_subject = generation_result["subject"]
                     st.session_state["explore_generated_plan"] = plan
+                    st.session_state["explore_generated_plan_operation_id"] = generation_result.get("generation_operation_id") or ""
                     st.session_state["explore_generated_plan_meta"] = {
                         "subject": effective_subject,
                         "learner_stage": learner_stage,
@@ -3029,6 +3037,10 @@ def _render_explore_lesson_planner() -> None:
             read_only=True,
             action_key_prefix="explore_plan",
         )
+
+        from helpers.quality_feedback import render_explorer_generation_intent_question
+        if resolved_mode == "ai":
+            render_explorer_generation_intent_question(st.session_state.get("explore_generated_plan_operation_id", ""), key_prefix="explore_plan")
 
         if st.button(
             t("explore_save_plan_cta"),
