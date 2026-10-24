@@ -146,9 +146,14 @@ export async function POST(request: Request) {
   async function finalize(status: 'success' | 'failed', errorKind = '', meta: Record<string, unknown> = {}) {
     if (!economicContext || !economicOperationId) return;
     const operationId = economicOperationId;
-    economicOperationId = '';
-    try { await finishGenerationOperation(economicContext, operationId, status, attemptResults, errorKind, meta); }
-    catch (error) { console.error('AI economic operation finalization failed', error); }
+    try {
+      await finishGenerationOperation(economicContext, operationId, status, attemptResults, errorKind, meta);
+      economicOperationId = '';
+    } catch (error) {
+      console.error('AI economic operation finalization failed', error);
+      if (status === 'success') throw error;
+      economicOperationId = '';
+    }
   }
   try {
     const authorization = request.headers.get('authorization') || ''; const token = authorization.replace(/^Bearer\s+/i, '').trim();
@@ -381,7 +386,13 @@ export async function POST(request: Request) {
       return fallbackProgram() ?? fallbackPlan() ?? json({ error: failure, code: failureCode }, 502);
     }
     const completedOperationId = economicOperationId;
+    phase = 'economic_finalization';
     await finalize('success', '', { prompt_version: 'expo-generate-v1', provider: providerName, model: providerModel, result: 'accepted', provider_calls: providerCalls });
     return json({ document, model: 'ai', generationId: userId ? completedOperationId : undefined, generatedAt: new Date().toISOString() }, 200, guestCookie ? { 'Set-Cookie': guestCookie } : undefined);
-  } catch (error) { await finalize('failed', 'unexpected_error', { prompt_version: 'expo-generate-v1', result: 'unexpected_error' }); console.error('Generation route error', phase, error); return json({ error: 'Generation failed.', code: 'generation_failed', phase }, 500); }
+  } catch (error) {
+    if (phase !== 'economic_finalization') await finalize('failed', 'unexpected_error', { prompt_version: 'expo-generate-v1', result: 'unexpected_error' });
+    console.error('Generation route error', phase, error);
+    if (phase === 'economic_finalization') return json({ error: 'The generated resource could not be confirmed. Try again later.', code: 'generation_finalization_unavailable', phase }, 503);
+    return json({ error: 'Generation failed.', code: 'generation_failed', phase }, 500);
+  }
 }
