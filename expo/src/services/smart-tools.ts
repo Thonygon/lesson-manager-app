@@ -141,32 +141,22 @@ export async function generateProgramUnit(input: SmartToolInput, skeleton: Recor
   return { document: { ...skeleton, units: units.map((current, index) => index === unitIndex ? mergedUnit : current) }, generationId: payload.generationId };
 }
 
-export async function syncGeneratedProgramUnit(id: string, document: Record<string, unknown>, unitIndex: number, generationId?: string): Promise<void> {
+export async function syncGeneratedProgramUnit(id: string, document: Record<string, unknown>, unitIndex: number, generationId?: string): Promise<Record<string, unknown>> {
   const client = requireSupabase();
-  const { data: auth, error: authError } = await client.auth.getUser();
-  if (authError || !auth.user) throw authError ?? new Error('Your session has expired.');
   const units = Array.isArray(document.units) ? document.units as Record<string, unknown>[] : [];
   const unit = units[unitIndex];
-  if (!unit) throw new Error('The generated unit is missing.');
+  if (!unit || !generationId) throw new Error('The generated unit or operation is missing.');
   const unitNumber = unitIndex + 1;
-  const { data: owned, error: ownedError } = await client.from('learning_programs').select('id,status').eq('id', id).eq('user_id', auth.user.id).neq('status', 'archived').maybeSingle();
-  if (ownedError || !owned) throw ownedError ?? new Error('The saved program is unavailable.');
-  const { data: savedUnit, error: unitLookupError } = await client.from('learning_program_units').select('id').eq('program_id', id).eq('unit_number', unitNumber).maybeSingle();
-  if (unitLookupError || !savedUnit) throw unitLookupError ?? new Error('The saved unit is unavailable.');
   const topics = Array.isArray(unit.topics) ? unit.topics as Record<string, unknown>[] : [];
-  const { data: savedTopics, error: topicLookupError } = await client.from('learning_program_topics').select('id,topic_number').eq('program_id', id).eq('unit_number', unitNumber);
-  if (topicLookupError) throw topicLookupError;
-  for (const [index, topic] of topics.entries()) {
-    const saved = (savedTopics || []).find((row) => Number(row.topic_number) === index + 1);
-    if (!saved) throw new Error('A saved program topic is missing.');
-    const { error: topicError } = await client.from('learning_program_topics').update({ ...programTopicRow(topic, index, unitNumber), updated_at: new Date().toISOString() }).eq('id', saved.id).eq('program_id', id);
-    if (topicError) throw topicError;
-  }
-  const complete = programReady(document);
-  const { error: programError } = await client.from('learning_programs').update({ program_data: document, status: complete ? 'active' : 'draft', is_public: complete ? undefined : false, visibility: complete ? undefined : 'private', updated_at: new Date().toISOString() }).eq('id', id).eq('user_id', auth.user.id);
-  if (programError) throw programError;
-  const { error: unitError } = await client.from('learning_program_units').update({ ...programUnitRow(unit, unitIndex), generation_operation_id: generationId || null, updated_at: new Date().toISOString() }).eq('id', savedUnit.id).eq('program_id', id);
-  if (unitError) throw unitError;
+  const { data: saved, error } = await client.rpc('classio_sync_generated_program_unit', {
+    p_program_id: Number(id), p_unit_number: unitNumber, p_unit: unit,
+    p_unit_row: programUnitRow(unit, unitIndex),
+    p_topic_rows: topics.map((topic, index) => programTopicRow(topic, index, unitNumber)),
+    p_generation_id: generationId,
+  });
+  if (error) throw error;
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) throw new Error('The saved program is unavailable.');
+  return saved as Record<string, unknown>;
 }
 
 export async function getSavedProgramGeneration(id: string): Promise<{ input: SmartToolInput; result: GeneratedMaterial }> {
