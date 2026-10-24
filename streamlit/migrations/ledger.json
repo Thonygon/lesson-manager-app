@@ -84,6 +84,7 @@
     {"name": "record_unsaved_generation_decision.sql", "sha256": "5d4167b92422a4af58a13788c84e53023eef7b0ba566213f635806f0b643a07a"},
     {"name": "save_learning_program_unit_atomically.sql", "sha256": "ae4b80ab56d22e01f24b1124c9b8df74a283ecbca5e65e775c516dfe79172423"},
     {"name": "apply_practice_regrade_atomically.sql", "sha256": "8c5790c51ee60e2b43f62aea95ae9daa27a6fb04a8ff3850f1170aaaa82c3e8f"},
-    {"name": "sync_generated_program_unit_atomically.sql", "sha256": "d488e0aff50b0de0db3ac3d5f9832e46d99f1bd74aeb1d0347e0ec41aba09dc3"}
+    {"name": "sync_generated_program_unit_atomically.sql", "sha256": "d488e0aff50b0de0db3ac3d5f9832e46d99f1bd74aeb1d0347e0ec41aba09dc3"},
+    {"name": "fix_saved_cover_resource_lookup.sql", "sha256": "ad732f475fecfdded0dfd0a6ada6c020b9b0bd3c2f614ec39f6df326e040adac"}
   ]
 }

@@ -239,7 +239,17 @@ export async function savePractice(material: PracticeMaterial, answers: Record<s
   };
   const { data, error } = await client.rpc('classio_complete_student_practice', { p_session_id: Number(sessionId), p_result: result });
   if (error || !data) throw error ?? new Error('Practice completion was not confirmed.');
-  return { sessionId: String(data), total: graded.total, correct: graded.correct, score: graded.score, xp: graded.xp, bestStreak: graded.bestStreak };
+  // A retry may return an already completed draft. Show the committed result,
+  // including any answer-key correction, rather than this request's local grade.
+  const persisted = await client.from('practice_sessions')
+    .select('id,total_questions,correct_count,score_pct,xp_earned,best_streak,status')
+    .eq('id', Number(data)).eq('user_id', uid).single();
+  if (persisted.error || persisted.data?.status !== 'completed') throw persisted.error ?? new Error('Practice result could not be loaded.');
+  return {
+    sessionId: String(persisted.data.id), total: Number(persisted.data.total_questions),
+    correct: Number(persisted.data.correct_count), score: Number(persisted.data.score_pct),
+    xp: Number(persisted.data.xp_earned), bestStreak: Number(persisted.data.best_streak),
+  };
 }
 export async function requestTeacherReview(material: PracticeMaterial, sessionId: string, note: string, selectedTeacherId?: string) {
   const teacherId = material.teacherId || selectedTeacherId; if (!teacherId) throw new Error('Choose a connected teacher for this review.'); const client = requireSupabase(); const auth = await client.auth.getUser(); const uid = auth.data.user?.id; if (!uid) throw new Error('Your session has expired.');
