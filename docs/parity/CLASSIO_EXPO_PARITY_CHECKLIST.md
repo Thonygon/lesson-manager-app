@@ -1,5 +1,11 @@
 # Classio Streamlit → Expo parity checklist
 
+## Tres cierres de código — 24-10-2026
+
+- [x] La portada generada devuelve su ID de operación; la actualización del recurso la vincula transaccionalmente mediante `link_saved_cover_generation.sql`. Cada regeneración conserva su operación. Falta aplicar la migración y la prueba beta de guardado/regeneración.
+- [x] Cuando falla el guardado automático de un plan, ficha o examen de IA sin editar, Smart Tools permite descartarlo de forma explícita. `record_unsaved_generation_decision.sql` registra esa decisión una sola vez y bloquea un guardado posterior de la misma operación. Se excluyen las vistas previas editadas porque hoy no conservan el vínculo económico al guardar. Las pestañas cerradas sin decisión permanecen desconocidas. EN/ES/TR incluyen el control y sus resultados. Falta aplicar la migración y aceptar el caso beta.
+- [x] Los perfiles de build móvil `preview` y `production` fijan `EXPO_PUBLIC_HOSTING_URL` al servicio público de Classio; el código de Explorer consume esa variable. Falta crear un build móvil nuevo y verificar filtros/paginación de exámenes en el dispositivo.
+
 ## Feedback docente y generativo — código del 23-10-2026
 
 - [x] Expo y Streamlit permiten seleccionar una tarjeta recomendada, abrir recurso/asignación y marcar «No relevante» con `Tema incorrecto` o `No apto para este estudiante`. El rechazo persiste por contexto, se excluye antes de buscar el reemplazo y puede deshacerse. Expo ofrece PDF/Word en la tarjeta seleccionada para materiales documentales. La asignación solo se señala después de confirmar la escritura; Streamlit deja de señalar como asignación la apertura del diálogo.
@@ -14,7 +20,7 @@ Este documento es un historial de entregas además de una lista de aceptación. 
 
 **Responsabilidad:** esta auditoría mantiene solo la equivalencia de recorridos, resultados, documentos y errores entre Expo y Streamlit, incluido S12. S07 pertenece a [finanzas](../../financial_analysis/README.md) y los controles compartidos de identidad/RLS/privacidad a [tecnología](../CLASSIO_TECHNOLOGY_AUDIT.md); aquí se verifica cómo se comportan en ambos clientes. Los informes de paridad fechados de septiembre y octubre quedan como evidencia histórica, no como planes paralelos.
 
-**S12, recuperación parcial de Explorer (23-10-2026):** Expo conserva los resultados de las categorías públicas que respondieron aunque una de las cinco consultas falle, y avisa en EN/ES/TR qué categoría quedó sin cargar. El endpoint de exámenes pagina con orden estable, y Explorer permite pedir páginas adicionales de 60, sin duplicar tarjetas. El endpoint móvil usa `EXPO_PUBLIC_HOSTING_URL` cuando el build la define. Falta fijar la URL de cada entorno móvil y verificar filtros/paginación en beta; S12 sigue abierto.
+**S12, recuperación parcial de Explorer (24-10-2026):** Expo conserva los resultados de las categorías públicas que respondieron aunque una de las cinco consultas falle, y avisa en EN/ES/TR qué categoría quedó sin cargar. El endpoint de exámenes pagina con orden estable, y Explorer permite pedir páginas adicionales de 60, sin duplicar tarjetas. Los perfiles móviles `preview` y `production` fijan `EXPO_PUBLIC_HOSTING_URL`; falta crear un build nuevo y verificar filtros/paginación en beta. S12 sigue abierto.
 
 | Flujo | Evidencia actual de código | Aceptación pendiente |
 | --- | --- | --- |

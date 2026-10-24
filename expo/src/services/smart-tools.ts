@@ -38,6 +38,11 @@ export async function saveGenerationIntentFeedback(generationId: string, satisfi
   await generationFeedbackRequest('', { generationId, satisfied, surface, reason });
 }
 
+export async function discardUnsavedGeneration(generationId: string): Promise<void> {
+  const { error } = await requireSupabase().rpc('classio_record_unsaved_generation_decision', { p_operation_id: generationId });
+  if (error) throw error;
+}
+
 export type SmartToolProgram = { id: string; title: string; subject: string; customSubject: string; stage: string; level: string; sequenceGroupId: string; sequenceOrder: number };
 export type SmartToolProgramTopic = { id: string; title: string; unitTitle: string; unitNumber: number; topicNumber: number; lessonPurpose: string; learningObjectives: string[]; suggestedWorksheetTypes: string[]; suggestedExamTypes: string[] };
 export type PersonalizationStudent = { id: string; name: string; nativeLanguage: string };

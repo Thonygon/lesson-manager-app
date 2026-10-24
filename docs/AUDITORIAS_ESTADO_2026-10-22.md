@@ -91,3 +91,32 @@ La numeración original se conserva para no perder trazabilidad. La [matriz de r
 **Dos frentes adicionales de código (23-10-2026):** S11 registra vídeo mediante una RPC que confirma sesión, progreso e intento/asignación juntos; un UUID por visualización evita duplicados al reintentar. Finanzas vincula por separado la operación que creó el esquema de un programa y cada operación de unidad, incluidas regeneraciones, y Admin muestra ambos recuentos. Explorer ya permite cargar páginas adicionales de exámenes. Las dos migraciones se aplicaron a Supabase producción, se registraron con checksum y pasaron pruebas SQL reversibles. Quedan el retoque transaccional de notas, la atomicidad de todas las escrituras de una unidad, la URL efectiva de builds móviles y la aceptación beta.
 
 **Publicación verificada (23-10-2026):** `6988f6f96` y `9808ee847` se enviaron a `origin/ver/42`. El último corte se desplegó en Expo Hosting como `https://classio--sf9q0nogoj.expo.app` y se promovió a `https://classio.expo.app` (HTTP 200). El endpoint público de exámenes devolvió dos páginas consecutivas de dos elementos sin IDs repetidos. Pasaron TypeScript, lint sin errores (nueve avisos previos), exportación web, 79 checksums locales y las pruebas SQL reversibles de las dos migraciones nuevas. La prueba de uso real en beta sigue a cargo del titular.
+
+## Cola consolidada de cierre — 24-10-2026
+
+Hay **22 paquetes de cierre abiertos** en las cuatro auditorías activas. Se cuentan resultados únicos, no cada casilla histórica del checklist ni cada aparición de un S-ID en varios documentos. «En código» permite la prueba beta; no significa «desplegado» o «aceptado». Los tres cambios de este corte son: vínculo transaccional de portadas, decisión explícita de descartar una generación sin guardar y URL de Explorer en perfiles de build móvil. Pasaron TypeScript, exportación web, lint sin errores (avisos previos) y 81 checksums locales; las dos migraciones aún no están aplicadas y el build móvil nuevo no existe.
+
+| ID | Auditoría | Pendiente único | Cierre que aún falta |
+| --- | --- | --- | --- |
+| F1 | Financiera | Atribución de portadas y generaciones sin recurso | Aplicar las dos migraciones nuevas, comprobar vínculo/regeneración/descarte con casos sintéticos y aceptar beta. El estado desconocido se conserva. |
+| F2 | Financiera | Reconciliación de operaciones e intentos de IA abiertos | Crear y ejecutar un proceso de conciliación idempotente; contrastar intentos con registros del proveedor sin inferir coste de los ausentes. |
+| F3 | Financiera | Exportaciones, imágenes, ciclo de vida y cuotas | Completar eventos/vínculos y período de cuota; medir solicitudes y resultado real distinguible de entrega al navegador. |
+| F4 | Financiera | Ledger SaaS S06 | Elegir procesador y definición fiscal con asesoría; después implementar webhook, facturas, reembolsos e idempotencia y conciliar extractos. |
+| F5 | Financiera | Facturas de proveedores y asignación de costes | Importar facturas reales de IA, Supabase, Expo y otros, con moneda/período; definir reglas de asignación y conciliar. |
+| F6 | Financiera | Agregados y presupuesto de Admin | Derivar períodos completos, cobertura y fecha de corte desde libros conciliados; verificar cifras con facturas/extractos, sin usar pagos docentes como ingresos SaaS. |
+| F7 | Financiera | Libro privado docente S07 | Probar concurrencia, reintento y cron de claves en el entorno efectivo; aceptar ambos clientes con el titular. |
+| T1 | Tecnológica | Privacidad, secretos, RLS, Storage y retención S09/S10 | Revisar configuración efectiva con identidades sintéticas, payloads y cron de retención; corregir cualquier acceso cruzado. |
+| T2 | Tecnológica | Borrado de cuenta S01/S02 | Inyectar fallos, comprobar rollback y conservación/acceso de recursos públicos por tipo. |
+| T3 | Tecnológica | Cupos anónimos y concurrentes S03/S04 | Ejecutar carreras y cron reales; conciliar reservas, solicitudes e intentos. |
+| T4 | Tecnológica | Admin/Auth y autorización S05/S08 | Probar rollback, idempotencia y denegación por rol de invitaciones y acciones privilegiadas. |
+| T5 | Tecnológica | Atomicidad restante S11 | Convertir retoque de notas y guardado completo de unidades a transacciones; probar rollback/reintento y aceptar práctica con alumno beta. |
+| T6 | Tecnológica | Resiliencia de proveedores S13 | Probar 429/503, timeout, respuesta grande y límites de subrequests con proveedores reales; resolver disponibilidad/saldo externo. |
+| T7 | Tecnológica | CI, carga y recuperación | Registrar CI verde del corte desplegado, latencia/carga bajo límites, cron y procedimiento de recuperación observado. |
+| P1 | Paridad | Explorer S12 | Crear builds móviles nuevos con la URL fijada; aceptar categorías parciales, filtros y paginación en navegador/dispositivo. |
+| P2 | Paridad | Generación y documentos | Comparar salidas, continuación y páginas PDF/Word Expo–Streamlit con fixtures renderizados y recorridos beta. |
+| P3 | Paridad | Recomendaciones docente/alumno | Comparar orden y razones con la misma cuenta/datos; verificar RLS, señales y latencia en Expo. |
+| P4 | Paridad | Experimentos e informes Python | Montar worker autenticado y almacenamiento duradero; conectar ejecución, revisión, informes y descargas de Expo. |
+| P5 | Paridad | Resto de recorridos y accesibilidad | Cerrar CV, calendario, analítica y páginas restantes con comparación fuente, teclado, idiomas y tamaños de pantalla. |
+| A1 | Académica | OE1 tiempo y calidad | Estudio controlado con docentes, tiempos y calidad evaluada independientemente. |
+| A2 | Académica | OE2 pertinencia y ablación | Reunir etiquetas independientes, negativos no mostrados y muestras temporales; medir NDCG y ablación antes de reentrenar. |
+| A3 | Académica | OE3 viabilidad | TCO y escenarios con costes e ingresos conciliados; revisión de arquitectura y supuestos documentados. |
