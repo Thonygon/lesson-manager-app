@@ -59,8 +59,9 @@ export async function POST(request: Request) {
         return json({ error: 'The image provider returned no usable image.' }, 503);
       }
       await finishProviderAttempt(economicContext, attemptId, { status: 'success', modelReported: model, httpStatus: response.status, providerRequestId: response.requestId, ...usage, imageCount: 1, imageSizeRequested: '16:9' }); attemptId = '';
-      await finishAiOperation(economicContext, operationId, 'success'); operationId = '';
-      return json({ cover_image: { generator: 'classio_ai_resource_cover_v1', image_data_url: `data:${image.mimeType || 'image/png'};base64,${image.data}`, resource_type: kind === 'worksheet' ? 'Worksheet' : kind === 'exam' ? 'Exam' : 'Lesson plan' } });
+      await finishAiOperation(economicContext, operationId, 'success');
+      const completedOperationId = operationId; operationId = '';
+      return json({ cover_image: { generator: 'classio_ai_resource_cover_v1', operation_id: completedOperationId, image_data_url: `data:${image.mimeType || 'image/png'};base64,${image.data}`, resource_type: kind === 'worksheet' ? 'Worksheet' : kind === 'exam' ? 'Exam' : 'Lesson plan' } });
     } catch (error) {
       console.error('Image provider request failed', error instanceof Error ? error.message : 'unknown error');
       if (attemptId) await finishProviderAttempt(economicContext, attemptId, { status: 'failed', errorKind: 'transport_or_telemetry' }).catch((failure) => console.error('AI image attempt finalization failed', failure));

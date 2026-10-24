@@ -1,10 +1,17 @@
 import unittest
 
-from helpers.ai_prompt_privacy import minimize_student_profile_for_ai
+from helpers.ai_prompt_privacy import minimize_student_profile_for_ai, redact_direct_identifiers
 from helpers.student_personalization import build_student_profile_prompt_block
 
 
 class AiPromptPrivacyTests(unittest.TestCase):
+    def test_provider_boundary_redacts_recognizable_identifiers(self):
+        prompt = 'Fractions for student_name: "Ada Example", email ada@example.test, phone +90 555 111 2233, address: 17 Sample Street.'
+        safe = redact_direct_identifiers(prompt)
+        self.assertIn('Fractions', safe)
+        for private in ('Ada Example', 'ada@example.test', '+90 555 111 2233', '17 Sample Street'):
+            self.assertNotIn(private, safe)
+
     def test_student_identity_and_free_text_are_removed(self):
         profile = {
             "student_user_id": "55bbd13d-1eb5-4cdc-81ec-06b27e23c45c",

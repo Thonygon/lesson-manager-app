@@ -38,6 +38,11 @@ export async function saveGenerationIntentFeedback(generationId: string, satisfi
   await generationFeedbackRequest('', { generationId, satisfied, surface, reason });
 }
 
+export async function discardUnsavedGeneration(generationId: string): Promise<void> {
+  const { error } = await requireSupabase().rpc('classio_record_unsaved_generation_decision', { p_operation_id: generationId });
+  if (error) throw error;
+}
+
 export type SmartToolProgram = { id: string; title: string; subject: string; customSubject: string; stage: string; level: string; sequenceGroupId: string; sequenceOrder: number };
 export type SmartToolProgramTopic = { id: string; title: string; unitTitle: string; unitNumber: number; topicNumber: number; lessonPurpose: string; learningObjectives: string[]; suggestedWorksheetTypes: string[]; suggestedExamTypes: string[] };
 export type PersonalizationStudent = { id: string; name: string; nativeLanguage: string };
@@ -119,7 +124,7 @@ export async function generateMaterial(input: SmartToolInput, onProgress?: (mess
 }
 
 
-export async function generateProgramUnit(input: SmartToolInput, skeleton: Record<string, unknown>, unitIndex: number, studentNameForRedaction = '', studentIdForEvidence = ''): Promise<Record<string, unknown>> {
+export async function generateProgramUnit(input: SmartToolInput, skeleton: Record<string, unknown>, unitIndex: number, studentNameForRedaction = '', studentIdForEvidence = ''): Promise<{ document: Record<string, unknown>; generationId?: string }> {
   const client = requireSupabase();
   const { data, error } = await client.auth.getSession();
   if (error || !data.session) throw error ?? new Error('Sign in to continue the program.');
@@ -133,35 +138,25 @@ export async function generateProgramUnit(input: SmartToolInput, skeleton: Recor
   const baseTopics = Array.isArray(unit.topics) ? unit.topics as Record<string, unknown>[] : [];
   const detailTopics = Array.isArray(details.topics) ? details.topics as Record<string, unknown>[] : [];
   const mergedUnit = { ...unit, ...details, unit_number: unitIndex + 1, title: unit.title, overview: unit.overview, topics: baseTopics.map((topic, index) => ({ ...topic, ...(detailTopics[index] || {}), topic_number: index + 1, title: topic.title, lesson_purpose: topic.lesson_purpose })) };
-  return { ...skeleton, units: units.map((current, index) => index === unitIndex ? mergedUnit : current) };
+  return { document: { ...skeleton, units: units.map((current, index) => index === unitIndex ? mergedUnit : current) }, generationId: payload.generationId };
 }
 
-export async function syncGeneratedProgramUnit(id: string, document: Record<string, unknown>, unitIndex: number): Promise<void> {
+export async function syncGeneratedProgramUnit(id: string, document: Record<string, unknown>, unitIndex: number, generationId?: string): Promise<Record<string, unknown>> {
   const client = requireSupabase();
-  const { data: auth, error: authError } = await client.auth.getUser();
-  if (authError || !auth.user) throw authError ?? new Error('Your session has expired.');
   const units = Array.isArray(document.units) ? document.units as Record<string, unknown>[] : [];
   const unit = units[unitIndex];
-  if (!unit) throw new Error('The generated unit is missing.');
+  if (!unit || !generationId) throw new Error('The generated unit or operation is missing.');
   const unitNumber = unitIndex + 1;
-  const { data: owned, error: ownedError } = await client.from('learning_programs').select('id,status').eq('id', id).eq('user_id', auth.user.id).neq('status', 'archived').maybeSingle();
-  if (ownedError || !owned) throw ownedError ?? new Error('The saved program is unavailable.');
-  const { data: savedUnit, error: unitLookupError } = await client.from('learning_program_units').select('id').eq('program_id', id).eq('unit_number', unitNumber).maybeSingle();
-  if (unitLookupError || !savedUnit) throw unitLookupError ?? new Error('The saved unit is unavailable.');
-  const { error: unitError } = await client.from('learning_program_units').update({ ...programUnitRow(unit, unitIndex), updated_at: new Date().toISOString() }).eq('id', savedUnit.id).eq('program_id', id);
-  if (unitError) throw unitError;
   const topics = Array.isArray(unit.topics) ? unit.topics as Record<string, unknown>[] : [];
-  const { data: savedTopics, error: topicLookupError } = await client.from('learning_program_topics').select('id,topic_number').eq('program_id', id).eq('unit_number', unitNumber);
-  if (topicLookupError) throw topicLookupError;
-  for (const [index, topic] of topics.entries()) {
-    const saved = (savedTopics || []).find((row) => Number(row.topic_number) === index + 1);
-    if (!saved) throw new Error('A saved program topic is missing.');
-    const { error: topicError } = await client.from('learning_program_topics').update({ ...programTopicRow(topic, index, unitNumber), updated_at: new Date().toISOString() }).eq('id', saved.id).eq('program_id', id);
-    if (topicError) throw topicError;
-  }
-  const complete = programReady(document);
-  const { error: programError } = await client.from('learning_programs').update({ program_data: document, status: complete ? 'active' : 'draft', is_public: complete ? undefined : false, visibility: complete ? undefined : 'private', updated_at: new Date().toISOString() }).eq('id', id).eq('user_id', auth.user.id);
-  if (programError) throw programError;
+  const { data: saved, error } = await client.rpc('classio_sync_generated_program_unit', {
+    p_program_id: Number(id), p_unit_number: unitNumber, p_unit: unit,
+    p_unit_row: programUnitRow(unit, unitIndex),
+    p_topic_rows: topics.map((topic, index) => programTopicRow(topic, index, unitNumber)),
+    p_generation_id: generationId,
+  });
+  if (error) throw error;
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) throw new Error('The saved program is unavailable.');
+  return saved as Record<string, unknown>;
 }
 
 export async function getSavedProgramGeneration(id: string): Promise<{ input: SmartToolInput; result: GeneratedMaterial }> {
@@ -182,9 +177,10 @@ export async function saveGeneratedMaterial(input: SmartToolInput, document: Rec
   const client = requireSupabase(); const { data, error: userError } = await client.auth.getUser(); if (userError || !data.user) throw userError ?? new Error('Your session has expired.'); const uid = data.user.id; const now = new Date().toISOString(); const title = String(document.title || `${input.topic} ${input.kind}`).trim();
   const storedSubject = input.subject === 'Other' && input.customSubject?.trim() ? input.customSubject.trim() : input.subject;
   const makePublic = input.visibility === 'public' && !(await hasCustomBranding());
-  if (input.kind === 'plan') { const { data: saved, error } = await client.from('lesson_plans').insert({ user_id: uid, title, subject: storedSubject, topic: input.topic, learner_stage: input.stage, level_or_band: input.level, lesson_purpose: input.lessonPurpose || 'introduce_concept', plan_language: input.planLanguage || input.language, student_material_language: input.language, source_type: input.generationMode === 'template' ? 'template' : 'ai', planner_mode: input.generationMode || 'ai', plan_json: document, author_name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'Teacher', subject_display: storedSubject, is_public: makePublic, status: 'active', created_at: now }).select('id').single(); if (error || !saved) throw error ?? new Error('Resource could not be saved.'); return { id: String(saved.id) }; }
-  if (input.kind === 'worksheet') { const { data: saved, error } = await client.from('worksheets').insert({ user_id: uid, title, subject: storedSubject, topic: input.topic, learner_stage: input.stage, level_or_band: input.level, worksheet_type: input.worksheetType || 'mixed_practice', plan_language: input.planLanguage || input.language, student_material_language: input.language, source_type: 'ai', worksheet_json: document, author_name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'Teacher', subject_display: storedSubject, is_public: makePublic, status: 'active', created_at: now, updated_at: now }).select('id').single(); if (error || !saved) throw error ?? new Error('Resource could not be saved.'); return { id: String(saved.id) }; }
-  if (input.kind === 'exam') { const sections = Array.isArray(document.sections) ? document.sections as Record<string, unknown>[] : []; const answerKey = document.answer_key || { sections: sections.map((section) => ({ title: section.title, answers: section.answers || [] })) }; const { data: saved, error } = await client.from('quick_exams').insert({ user_id: uid, title, subject: storedSubject, topic: input.topic, learner_stage: input.stage, level: input.level, exam_length: input.examLength || 'medium', exercise_types: input.exerciseTypes?.length ? input.exerciseTypes : ['mixed'], plan_language: input.planLanguage || input.language, student_material_language: input.language, exam_data: document, answer_key: answerKey, is_public: makePublic, status: 'active', created_at: now, updated_at: now }).select('id').single(); if (error || !saved) throw error ?? new Error('Resource could not be saved.'); return { id: String(saved.id) }; }
+  const generationOperationId = input.generationMode === 'ai' && input.generationId ? input.generationId : null;
+  if (input.kind === 'plan') { const { data: saved, error } = await client.from('lesson_plans').insert({ user_id: uid, title, subject: storedSubject, topic: input.topic, learner_stage: input.stage, level_or_band: input.level, lesson_purpose: input.lessonPurpose || 'introduce_concept', plan_language: input.planLanguage || input.language, student_material_language: input.language, source_type: input.generationMode === 'template' ? 'template' : 'ai', planner_mode: input.generationMode || 'ai', plan_json: document, generation_operation_id: generationOperationId, author_name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'Teacher', subject_display: storedSubject, is_public: makePublic, status: 'active', created_at: now }).select('id').single(); if (error || !saved) throw error ?? new Error('Resource could not be saved.'); return { id: String(saved.id) }; }
+  if (input.kind === 'worksheet') { const { data: saved, error } = await client.from('worksheets').insert({ user_id: uid, title, subject: storedSubject, topic: input.topic, learner_stage: input.stage, level_or_band: input.level, worksheet_type: input.worksheetType || 'mixed_practice', plan_language: input.planLanguage || input.language, student_material_language: input.language, source_type: 'ai', worksheet_json: document, generation_operation_id: generationOperationId, author_name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'Teacher', subject_display: storedSubject, is_public: makePublic, status: 'active', created_at: now, updated_at: now }).select('id').single(); if (error || !saved) throw error ?? new Error('Resource could not be saved.'); return { id: String(saved.id) }; }
+  if (input.kind === 'exam') { const sections = Array.isArray(document.sections) ? document.sections as Record<string, unknown>[] : []; const answerKey = document.answer_key || { sections: sections.map((section) => ({ title: section.title, answers: section.answers || [] })) }; const { data: saved, error } = await client.from('quick_exams').insert({ user_id: uid, title, subject: storedSubject, topic: input.topic, learner_stage: input.stage, level: input.level, exam_length: input.examLength || 'medium', exercise_types: input.exerciseTypes?.length ? input.exerciseTypes : ['mixed'], plan_language: input.planLanguage || input.language, student_material_language: input.language, exam_data: document, answer_key: answerKey, generation_operation_id: generationOperationId, is_public: makePublic, status: 'active', created_at: now, updated_at: now }).select('id').single(); if (error || !saved) throw error ?? new Error('Resource could not be saved.'); return { id: String(saved.id) }; }
   const units = (Array.isArray(document.units) ? document.units as Record<string, unknown>[] : []).map((unit, unitIndex) => ({
     ...unit,
     topics: uniqueProgramTopics((Array.isArray(unit.topics) ? unit.topics as Record<string, unknown>[] : []).map((topic) => ({ ...topic, unit_number: unitIndex + 1 }))).map((topic, topicIndex) => ({ ...topic, topic_number: topicIndex + 1 })),

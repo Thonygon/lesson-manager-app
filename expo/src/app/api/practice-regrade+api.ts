@@ -1,14 +1,14 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import { exerciseDataForMaterial, gradePractice, materialFromAssignment, materialFromSession, type PracticeMaterial } from '@/services/student-practice';
-import { aggregatePracticeProgress, practiceAccuracyPct } from '@/services/student-practice-progress';
+import { aggregatePracticeProgress } from '@/services/student-practice-progress';
 
 const headers = { 'Cache-Control': 'private, no-store', Vary: 'Authorization' };
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers });
 const row = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const resourceTable = { worksheet: 'worksheets', exam: 'quick_exams' } as const;
 const RESOURCE_REPAIR_BATCH = 2;
-const REGRADE_VERSION = 3;
+const REGRADE_VERSION = 4;
 
 function assignmentSnapshot(value: unknown, depth = 0): unknown {
   if (depth > 6) return undefined;
@@ -67,82 +67,29 @@ async function repairSession(server: SupabaseClient, session: Record<string, unk
     }
     return false;
   }
-  const { data: reviewed, error: reviewedError } = await server.from('teacher_review_requests').select('id').eq('practice_session_id', sessionId).eq('status', 'reviewed').limit(1);
-  if (reviewedError) throw reviewedError;
-  const manuallyReviewed = Boolean(reviewed?.length);
-  const updatedAnswers: { id: unknown; exerciseType: string; answer: string; isCorrect: boolean }[] = [];
-  const insertedAnswers: Record<string, unknown>[] = [];
-  for (const question of graded.rows) {
-    const old = savedByQuestion.get(`${question.exerciseIndex}:${question.questionIndex}`);
-    if (old) {
-      updatedAnswers.push({ id: old.id, exerciseType: question.exerciseType, answer: question.answer, isCorrect: manuallyReviewed ? old.is_correct === true : question.isCorrect });
-    } else {
-      insertedAnswers.push({ session_id: sessionId, user_id: userId, exercise_idx: question.exerciseIndex, question_idx: question.questionIndex, exercise_type: question.exerciseType, student_answer: '', correct_answer: question.answer, is_correct: false });
-    }
+  // A corrected key keeps the same question coordinates. Structural revisions
+  // require a separate review so no submitted answer is silently discarded.
+  if (saved.length !== graded.rows.length || graded.rows.some((question) => !savedByQuestion.has(`${question.exerciseIndex}:${question.questionIndex}`))) {
+    throw new Error('Question structure changed; prior submissions need manual review.');
   }
-  // practice_answers.id is GENERATED ALWAYS. PostgREST upsert attempts an
-  // INSERT with that id and PostgreSQL rejects it (428C9). Update rows by id
-  // instead, with bounded concurrency to avoid a burst against Supabase.
-  for (let start = 0; start < updatedAnswers.length; start += 4) {
-    const results = await Promise.all(updatedAnswers.slice(start, start + 4).map((answer) => server.from('practice_answers').update({ exercise_type: answer.exerciseType, correct_answer: answer.answer, is_correct: answer.isCorrect }).eq('id', answer.id).eq('user_id', userId)));
-    for (const result of results) if (result.error) throw result.error;
-  }
-  if (manuallyReviewed) {
-    // Teacher feedback and its manual score remain authoritative, while the
-    // student review receives the corrected resource and expected answers.
-    const { error } = await server.from('practice_sessions').update({ exercise_data: { ...row(refreshedData), regrade_version: REGRADE_VERSION } }).eq('id', sessionId).eq('user_id', userId);
-    if (error) throw error;
-    return true;
-  }
-  if (insertedAnswers.length) {
-    const { error } = await server.from('practice_answers').insert(insertedAnswers);
-    if (error) throw error;
-  }
-  const validKeys = new Set(graded.rows.map((question) => `${question.exerciseIndex}:${question.questionIndex}`));
-  const removedIds = saved.filter((old) => !validKeys.has(`${old.exercise_idx}:${old.question_idx}`)).map((old) => old.id);
-  if (removedIds.length) {
-    const { error } = await server.from('practice_answers').delete().in('id', removedIds).eq('user_id', userId);
-    if (error) throw error;
-  }
-  const exerciseData = { ...row(refreshedData), regrade_version: REGRADE_VERSION };
-  const { error: sessionError } = await server.from('practice_sessions').update({ exercise_data: exerciseData, total_questions: graded.total, correct_count: graded.correct, score_pct: graded.score, xp_earned: graded.xp, best_streak: graded.bestStreak }).eq('id', sessionId).eq('user_id', userId);
-  if (sessionError) throw sessionError;
   const oldProgress = new Map(aggregatePracticeProgress(saved.map((answer) => ({ exerciseType: String(answer.exercise_type || ''), isCorrect: answer.is_correct === true })), Number(session.xp_earned || 0)).map((group) => [group.exerciseType, group]));
   const newProgress = new Map(aggregatePracticeProgress(graded.rows, graded.xp).map((group) => [group.exerciseType, group]));
-  const changesByType = new Map<string, { attempted: number; correct: number; xp: number }>();
-  for (const type of new Set([...oldProgress.keys(), ...newProgress.keys()])) {
-    const before = oldProgress.get(type); const after = newProgress.get(type);
-    changesByType.set(type, { attempted: Number(after?.attempted || 0) - Number(before?.attempted || 0), correct: Number(after?.correct || 0) - Number(before?.correct || 0), xp: Number(after?.xp || 0) - Number(before?.xp || 0) });
-  }
-  for (const [exerciseType, change] of changesByType) {
-    if (!change.attempted && !change.correct && !change.xp) continue;
-    const scopeKey = assignment ? `assignment:${assignment.id}` : 'independent';
-    const { data: progress, error: progressError } = await server.from('practice_progress').select('id,total_attempted,total_correct,total_xp').eq('user_id', userId).eq('scope_key', scopeKey).eq('source_type', material.sourceType).eq('subject', session.subject || '').eq('topic', session.topic || '').eq('exercise_type', exerciseType).eq('level', session.level || '').maybeSingle();
-    if (progressError) throw progressError;
-    if (progress) {
-      const attempted = Math.max(0, Number(progress.total_attempted || 0) + change.attempted);
-      const correct = Math.max(0, Math.min(attempted, Number(progress.total_correct || 0) + change.correct));
-      const { error } = await server.from('practice_progress').update({ total_attempted: attempted, total_correct: correct, accuracy_pct: practiceAccuracyPct(correct, attempted), total_xp: Math.max(0, Number(progress.total_xp || 0) + change.xp) }).eq('id', progress.id).eq('user_id', userId);
-      if (error) throw error;
-    } else if (newProgress.get(exerciseType)?.attempted) {
-      const next = newProgress.get(exerciseType)!;
-      const { error } = await server.from('practice_progress').insert({ user_id: userId, scope_key: scopeKey, source_type: material.sourceType, teacher_id: assignment?.teacher_id || null, assignment_id: assignment ? Number(assignment.id) : null, subject: session.subject || '', topic: session.topic || '', exercise_type: exerciseType, level: session.level || '', total_attempted: next.attempted, total_correct: next.correct, accuracy_pct: practiceAccuracyPct(next.correct, next.attempted), total_xp: next.xp, best_streak: graded.bestStreak, last_practiced: session.completed_at || new Date().toISOString() });
-      if (error) throw error;
-    }
-  }
-  const { data: attempts, error: attemptError } = await server.from('teacher_assignment_attempts').select('id,assignment_id,submission_payload').eq('practice_session_id', sessionId).eq('student_id', userId);
-  if (attemptError) throw attemptError;
-  for (const item of attempts || []) {
-    const payload = row(item.submission_payload);
-    const { error } = await server.from('teacher_assignment_attempts').update({ score_pct: graded.score, total_questions: graded.total, correct_count: graded.correct, submission_payload: { ...payload, result: { ...row(payload.result), total: graded.total, correct: graded.correct, score: graded.score, xp: graded.xp, bestStreak: graded.bestStreak } } }).eq('id', item.id);
-    if (error) throw error;
-    const { data: latest } = await server.from('teacher_assignment_attempts').select('id').eq('assignment_id', item.assignment_id).order('created_at', { ascending: false }).limit(1);
-    if (String(latest?.[0]?.id) === String(item.id)) {
-      const { error: assignmentError } = await server.from('teacher_assignments').update({ score_pct: graded.score, total_questions: graded.total, correct_count: graded.correct }).eq('id', item.assignment_id).eq('student_id', userId);
-      if (assignmentError) throw assignmentError;
-    }
-  }
-  return true;
+  const progressChanges = [...new Set([...oldProgress.keys(), ...newProgress.keys()])].map((exerciseType) => {
+    const before = oldProgress.get(exerciseType); const after = newProgress.get(exerciseType);
+    return { exerciseType, attempted: Number(after?.attempted || 0) - Number(before?.attempted || 0), correct: Number(after?.correct || 0) - Number(before?.correct || 0), xp: Number(after?.xp || 0) - Number(before?.xp || 0) };
+  }).filter((change) => change.attempted || change.correct || change.xp);
+  const payload = {
+    answers: graded.rows.map((question) => {
+      const old = savedByQuestion.get(`${question.exerciseIndex}:${question.questionIndex}`)!;
+      return { id: old.id, exerciseType: question.exerciseType, correctAnswer: question.answer, isCorrect: question.isCorrect };
+    }),
+    exerciseData: { ...row(refreshedData), regrade_version: REGRADE_VERSION },
+    total: graded.total, correct: graded.correct, score: graded.score,
+    xp: graded.xp, bestStreak: graded.bestStreak, progressChanges,
+  };
+  const { data: applied, error: applyError } = await server.rpc('classio_apply_practice_regrade', { p_session_id: sessionId, p_payload: payload });
+  if (applyError) throw applyError;
+  return applied === true;
 }
 
 export async function POST(request: Request) {
@@ -177,7 +124,6 @@ export async function POST(request: Request) {
       const { data: linked, error: linkError } = await server.from('teacher_assignments').select('id,student_id,assignment_type,source_record_id,title,topic,subject_key,subject_label').eq('teacher_id', uid).eq('assignment_type', kind).eq('source_record_id', id);
       if (linkError) throw linkError;
       assignments = new Map((linked || []).map((item) => [String(item.id), row(item)]));
-      if (cursor === 0) await syncAssignmentCopies(server, kind, id, uid, [...assignments.keys()]);
       const sourceIds = [id, ...assignments.keys()];
       const batch = await server.from('practice_sessions').select('id,user_id,source_type,source_id,subject,topic,level,exercise_data,status,score_pct,correct_count,total_questions,xp_earned,completed_at').eq('source_type', kind).in('source_id', sourceIds).eq('status', 'completed').gt('id', cursor).order('id', { ascending: true }).limit(RESOURCE_REPAIR_BATCH);
       if (batch.error) throw batch.error;
@@ -225,7 +171,6 @@ export async function POST(request: Request) {
     const sourceCache = new Map<string, PracticeMaterial | null>();
     for (const session of sessions) {
       const embedded = row(session.exercise_data);
-      if (mode === 'history' && embedded.regrade_version === REGRADE_VERSION) continue;
       let assignmentId = String(embedded.assignment_id || '');
       if ((mode === 'history' || mode === 'review') && !assignmentId) {
         const { data: linked, error: linkedError } = await server.from('teacher_assignment_attempts').select('assignment_id').eq('practice_session_id', session.id).eq('student_id', session.user_id).limit(1);
@@ -251,10 +196,13 @@ export async function POST(request: Request) {
       const cacheKey = `${type}:${sourceId}`;
       if (mode !== 'resource' && !sourceCache.has(cacheKey) && (type === 'worksheet' || type === 'exam') && sourceId) sourceCache.set(cacheKey, await sourceMaterial(server, type, sourceId, assignment));
       const current = mode === 'resource' ? source : sourceCache.get(cacheKey) || null;
-      if (mode === 'resource' && current && embedded.regrade_version === REGRADE_VERSION && JSON.stringify(embedded.exercises || []) === JSON.stringify(exerciseDataForMaterial({ ...current, assignmentId: String(assignment?.id || '') }).exercises || [])) continue;
       if (await repairSession(server, session, current, assignment)) repaired += 1;
     }
     const nextCursor = mode === 'resource' && sessions.length && (moreResourceSessions || sessions.length === RESOURCE_REPAIR_BATCH) ? Number(sessions[sessions.length - 1].id) : null;
+    if (mode === 'resource' && !nextCursor) {
+      const kind = String(body?.resourceKind) as 'worksheet' | 'exam';
+      await syncAssignmentCopies(server, kind, String(body?.resourceId), uid, [...assignments.keys()]);
+    }
     return json({ examined: sessions.length, repaired, nextCursor });
   } catch (error) {
     console.error('Practice score repair failed', error);

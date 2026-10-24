@@ -67,7 +67,7 @@ export function PricingEditor() {
   useEffect(() => { void load(); }, []);
   const changed = async (nextMessage: string) => { setBusy(true); try { setItems(await getPricingItems()); setMessageTone('success'); setMessage(nextMessage); } catch (reason) { setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : t('pricing.saveFailed')); } finally { setBusy(false); } };
   const hasPrice = items.some((item) => item.price > 0);
-  return <Disclosure title={t('pricing.title')} summary={t('pricing.summary')} style={styles.disclosure}>{loading ? <LoadingState /> : <View style={styles.editor}>{!hasPrice ? <Text style={styles.hint}>⚠️ {t('pricing.hint')}</Text> : null}<PricingSection modality="online" items={items} busy={busy} onChanged={changed} /><View style={styles.bigDivider} /><PricingSection modality="offline" items={items} busy={busy} onChanged={changed} /><ActionFeedback message={message} tone={messageTone} /></View>}</Disclosure>;
+  return <Disclosure title={t('pricing.title')} summary={t('pricing.summary')} style={styles.disclosure}>{loading ? <LoadingState /> : <View style={styles.editor}>{!hasPrice ? <Text style={styles.hint}>⚠️ {t('pricing.hint')}</Text> : null}<PricingSection modality="online" items={items} busy={busy} onChanged={changed} /><View style={styles.bigDivider} /><PricingSection modality="offline" items={items} busy={busy} onChanged={changed} /><ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} /></View>}</Disclosure>;
 }
 
 const styles = StyleSheet.create({

@@ -1,6 +1,6 @@
 # Streamlit to Expo migration
 
-**Current audit routing:** use the [single audit register](docs/AUDITORIAS_ESTADO_2026-10-22.md) and the [active parity checklist](CLASSIO_EXPO_PARITY_CHECKLIST.md). The migration table and run contract below record earlier phases; some `Planned` and staging statuses predate later code and production deployments. Security issues belong to the [technology audit](docs/CLASSIO_TECHNOLOGY_AUDIT.md), and billing/teacher-ledger integrity to the [financial audit](financial_analysis/README.md).
+**Current audit routing:** use the [single audit register](AUDITORIAS_ESTADO_2026-10-22.md) and the [active parity checklist](parity/CLASSIO_EXPO_PARITY_CHECKLIST.md). The migration table and run contract below record earlier phases; some `Planned` and staging statuses predate later code and production deployments. Security issues belong to the [technology audit](CLASSIO_TECHNOLOGY_AUDIT.md), and billing/teacher-ledger integrity to the [financial audit](../financial_analysis/README.md).
 
 ## Goal
 
@@ -85,7 +85,7 @@ The Expo migration is complete only when all currently used Streamlit workflows 
 
 ## Recurring parity work contract
 
-Use `CLASSIO_EXPO_PARITY_CHECKLIST.md` for current gaps and acceptance; `CLASSIO_PARITY_AUDIT_2026-09-22.md` is dated evidence. At the start of each run, inspect the current diff, the checklist, and the single audit register; preserve work already in progress. Treat `streamlit/` as the behavioral source of truth for parity comparisons. The production Streamlit deployment remains in use.
+Use `docs/parity/CLASSIO_EXPO_PARITY_CHECKLIST.md` for current gaps and acceptance; `docs/parity/archive/CLASSIO_PARITY_AUDIT_2026-09-22.md` is dated evidence. At the start of each run, inspect the current diff, the checklist, and the single audit register; preserve work already in progress. Treat `streamlit/` as the behavioral source of truth for parity comparisons. The production Streamlit deployment remains in use.
 
 For each slice:
 

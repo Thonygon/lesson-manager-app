@@ -51,7 +51,7 @@
     "lint": "expo lint",
     "export:web": "expo export --platform web --clear",
     "deploy:preview": "eas deploy",
-    "deploy:classio": "eas env:pull --environment preview && expo export --platform web --clear && eas deploy --prod --environment preview --non-interactive",
+    "deploy:classio": "eas env:pull --environment preview && expo export --platform web --clear && eas deploy --prod --no-source-maps --environment preview --non-interactive",
     "deploy:production": "eas deploy --prod"
   }
 }

@@ -41,7 +41,11 @@ let previousTopics = [];
 let lastProviderPrompt = '';
 let similarResources = [];
 let failUsageWrites = false;
-let failOptionalUsageReads = false;
+let failFinalization = false;
+let deniedUsage = false;
+let subrequestsBeforeProvider = 0;
+let requestsInInvocation = 0;
+let finalizationCalls = 0;
 const validPlan = { title: 'Greetings', objective: 'Greet a peer', success_criteria: ['Greet clearly', 'Respond appropriately'], warm_up: ['Recall a greeting', 'Practice a response'], main_activity: ['Role play'], guided_practice: ['Model a conversation'], practice_questions: ['What greeting fits?', 'How would you reply?'], reading_passage: 'A short dialogue between two peers.', core_material: { target_vocabulary: ['hello', 'goodbye', 'please'], gist_questions: ['Who is speaking?'], detail_questions: ['What did they say?'] } };
 let providerDocument = validPlan;
 const validToken = `header.${Buffer.from(JSON.stringify({ sub: '12345678-1234-1234-1234-123456789012' })).toString('base64url')}.signature`;
@@ -59,6 +63,7 @@ async function main() {
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'fixture-service-key';
     global.fetch = async (url, options) => {
       const target = String(url);
+      requestsInInvocation += 1;
       if (target.endsWith('/auth/v1/user')) return Response.json({ id: 'owner-id' });
       if (target.includes('/rest/v1/profiles')) {
         const parsed = new URL(target);
@@ -67,22 +72,30 @@ async function main() {
         assert.equal(options.headers.Authorization, `Bearer ${validToken}`);
         return Response.json([profile], { status: profileStatus });
       }
-      if (target.includes('/rest/v1/user_subscriptions')) return failOptionalUsageReads ? new Response(null, { status: 503 }) : Response.json([]);
       if (['lesson_plans', 'worksheets', 'quick_exams'].some((table) => target.includes(`/rest/v1/${table}`))) {
         const query = new URL(target);
         assert.equal(query.searchParams.get('limit'), '500');
         assert.equal(options.headers.Authorization, `Bearer ${validToken}`);
         return Response.json(similarResources);
       }
-      if (target.includes('/rest/v1/plans')) return failOptionalUsageReads ? new Response(null, { status: 503 }) : Response.json([{ active: true, features_json: { ai_tools: true }, limits_json: { ai_generations: 10 } }]);
-      if (target.includes('/rest/v1/rpc/classio_reserve_ai_generation')) {
+      if (target.includes('/rest/v1/rpc/classio_begin_ai_generation_attempt')) {
         const payload = JSON.parse(options.body);
         assert.equal(payload.p_user_id, '12345678-1234-1234-1234-123456789012');
-        assert.equal(payload.p_limit, 10);
-        return failUsageWrites ? new Response(null, { status: 503 }) : Response.json({ allowed: true, used: 1 });
+        assert.match(payload.p_feature_name, /^generate_(plan|worksheet|exam|program)$/);
+        return failUsageWrites ? new Response(null, { status: 503 }) : Response.json(deniedUsage ? { allowed: false, status: 429, reason: 'limit_reached' } : { allowed: true, used: 1 });
       }
-      if (target.includes('/rest/v1/usage_tracking')) return options.method === 'POST' ? new Response(null, { status: failUsageWrites ? 503 : 201 }) : Response.json([{ ai_generations: 0 }]);
-      if (target.includes('/rest/v1/ai_usage_logs')) return options.method === 'POST' ? new Response(null, { status: failUsageWrites ? 503 : 201 }) : failOptionalUsageReads ? new Response(null, { status: 503 }) : Response.json([]);
+      if (target.includes('/rest/v1/rpc/classio_finish_ai_generation')) {
+        finalizationCalls += 1;
+        if (failFinalization) throw new Error('Too many subrequests by single Worker invocation.');
+        const payload = JSON.parse(options.body);
+        assert.match(payload.p_operation_id, /^[0-9a-f-]{36}$/);
+        assert.ok(['success', 'failed'].includes(payload.p_status));
+        assert.ok(Array.isArray(payload.p_attempts));
+        assert.ok(payload.p_attempts.length <= 2);
+        return Response.json(true);
+      }
+      if (target.includes('/rest/v1/classio_ai_operations') || target.includes('/rest/v1/classio_provider_attempts')) return options.method === 'PATCH' ? Response.json([{ id: 1 }]) : new Response(null, { status: 201 });
+      if (target.includes('/rest/v1/ai_usage_logs')) return new Response(null, { status: 201 });
       if (target.includes('/rest/v1/learning_programs')) {
         const parsed = new URL(target);
         if (parsed.searchParams.get('select')?.includes('builder_config')) return Response.json([]);
@@ -97,6 +110,7 @@ async function main() {
         return Response.json(target.includes('learning_program_units') ? previousUnits : previousTopics);
       }
       if (target.includes('openrouter.ai')) {
+        subrequestsBeforeProvider = requestsInInvocation - 1;
         providerCalls += 1;
         lastProviderPrompt = JSON.parse(options.body).messages[1].content;
         if (providerFailures > 0) { providerFailures -= 1; return Response.json({ error: 'temporary failure' }, { status: 503 }); }
@@ -110,7 +124,11 @@ async function main() {
     assert.equal(denied.headers.get('cache-control'), 'private, no-store');
     assert.equal(providerCalls, 0);
     profile = { role: 'student', primary_role: 'student', can_teach: true };
+    requestsInInvocation = 0;
     assert.equal((await POST(request())).status, 200);
+    assert.ok(subrequestsBeforeProvider <= 3, `Unexpectedly expensive generation preflight: ${subrequestsBeforeProvider} subrequests`);
+    assert.ok(requestsInInvocation <= 5, `Unexpectedly expensive completed generation: ${requestsInInvocation} subrequests`);
+    assert.equal(finalizationCalls, 1);
     profile = { ...profile, account_status: 'suspended' };
     const suspended = await POST(request());
     assert.equal(suspended.status, 403);
@@ -131,10 +149,9 @@ async function main() {
     try { assert.equal((await POST(request())).status, 503); }
     finally { failUsageWrites = false; console.error = originalConsoleError; }
     assert.equal(expectedWriteErrors.length, 1);
-    failOptionalUsageReads = true;
-    console.error = (...args) => { expectedWriteErrors.push(args); };
-    try { assert.equal((await POST(request())).status, 200); }
-    finally { failOptionalUsageReads = false; console.error = originalConsoleError; }
+    deniedUsage = true;
+    assert.equal((await POST(request())).status, 429);
+    deniedUsage = false;
     similarResources = [{ id: 14, user_id: '12345678-1234-1234-1234-123456789012', is_public: false, title: 'Existing greetings', topic: 'Greetings', subject: 'Spanish', learner_stage: 'adult_stage', level_or_band: 'A2', lesson_purpose: 'introduce_concept' }];
     const providerCallsBeforeReuse = providerCalls;
     const reuseResult = await POST(new Request('https://classio.test/api/generate', { method: 'POST', headers: { Authorization: `Bearer ${validToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'plan', subject: 'Spanish', topic: 'Greetings', stage: 'adult_stage', level: 'A2', lessonPurpose: 'introduce_concept' }) }));
@@ -180,6 +197,17 @@ async function main() {
     const unavailable = await POST(request());
     assert.equal(unavailable.status, 200);
     assert.equal((await unavailable.json()).model, 'template');
+    providerFailures = 2;
+    failFinalization = true;
+    const loggedErrors = [];
+    console.error = (...args) => loggedErrors.push(args);
+    try {
+      const failedWorksheet = await POST(request(validToken, 'worksheet'));
+      assert.equal(failedWorksheet.status, 502);
+      assert.equal((await failedWorksheet.json()).code, 'provider_unavailable');
+    }
+    finally { console.error = originalConsoleError; failFinalization = false; }
+    assert.ok(loggedErrors.some((args) => String(args[0]).includes('finalization failed')));
     providerDocument = { title: 'Practice', worksheet_type: 'short_answer', instructions: 'Answer both questions.', questions: ['A?', 'B?'], answer_key: '' };
     assert.equal((await POST(request(validToken, 'worksheet'))).status, 502);
     providerDocument.answer_key = '1. A; 2. B';

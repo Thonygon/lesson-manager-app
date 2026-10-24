@@ -2,14 +2,14 @@ import { requireSupabase } from '@/lib/supabase';
 import type { ClassioRecord } from '@/services/classio-data';
 import { extractResourceImageUrl, type PublicResource } from '@/services/public-data';
 import { invalidateStudentRecommendationFeedback } from '@/services/student-data';
-import { aggregatePracticeProgress, practiceAccuracyPct, practiceSessionScorePct } from '@/services/student-practice-progress';
+import { aggregatePracticeProgress, practiceSessionScorePct } from '@/services/student-practice-progress';
 import { canonicalChoice, canonicalTrueFalse, choiceIndex, normalizePracticeAnswer } from '@/services/student-practice-answer-normalization';
 
 export type WordSearchPlacement = { word: string; coords: [number, number][] };
 export type PracticeQuestion = { prompt: string; options: string[]; answer: string; exerciseIndex: number; questionIndex: number; exerciseType: string; sectionTitle: string; instructions: string; sourceText: string; visualSupportUrl?: string; vocabularyBank?: string[]; grid?: string[][]; words?: string[]; placements?: WordSearchPlacement[] };
 export type PracticeMaterial = { title: string; sourceType: 'worksheet' | 'exam'; sourceId: string; assignmentId?: string; teacherId?: string; learningProgramAssignmentId?: number; subject: string; topic: string; stage: string; level: string; raw: Record<string, unknown>; questions: PracticeQuestion[] };
 export type PracticeResult = { sessionId: string; total: number; correct: number; score: number; xp: number; bestStreak: number };
-export type VideoPracticeInput = { id: string; assignmentId?: string; teacherId?: string; title: string; subject: string; topic: string; stage: string; level: string; url: string };
+export type VideoPracticeInput = { id: string; watchEventId: string; assignmentId?: string; teacherId?: string; title: string; subject: string; topic: string; stage: string; level: string; url: string };
 
 function record(value: unknown): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
@@ -134,7 +134,9 @@ export function materialFromPublic(resource: PublicResource): PracticeMaterial |
 }
 export function materialFromSession(row: ClassioRecord): PracticeMaterial | null { const data = record(row.exercise_data); const sourceType = text(row.source_type || data.source_type); if (sourceType !== 'worksheet' && sourceType !== 'exam') return null; const questions: PracticeQuestion[] = []; list(data.exercises).forEach((section, index) => addSection(questions, record(section), index)); if (!questions.length) return null; return { title: text(row.title || data.title), sourceType, sourceId: text(data.source_id || row.source_id || row.id), assignmentId: text(data.assignment_id) || undefined, learningProgramAssignmentId: Number(data.learning_program_assignment_id) || undefined, subject: text(row.subject), topic: text(row.topic), stage: text(row.learner_stage), level: text(row.level), raw: data, questions }; }
 export async function loadPracticeReview(row: ClassioRecord) {
-  const repairedCount = await repairVisiblePracticeHistory([String(row.id)]);
+  // A structural edit may need teacher review. Keep the student's original
+  // attempt readable even when automatic recalculation cannot be completed.
+  const repairedCount = await repairVisiblePracticeHistory([String(row.id)]).catch(() => 0);
   if (repairedCount) {
     const refreshed = await requireSupabase().from('practice_sessions').select('id,source_type,source_id,title,subject,topic,learner_stage,level,exercise_data,total_questions,correct_count,score_pct,xp_earned,best_streak,status').eq('id', row.id).maybeSingle();
     if (!refreshed.error && refreshed.data) row = refreshed.data as ClassioRecord;
@@ -161,11 +163,17 @@ export async function repairVisiblePracticeHistory(sessionIds: string[]): Promis
   const ids = sessionIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 18);
   if (!ids.length) return 0;
   const { data } = await requireSupabase().auth.getSession();
-  if (!data.session?.access_token) return 0;
-  const response = await fetch('/api/practice-regrade', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify({ kind: 'history', sessionIds: ids }) });
-  if (!response.ok) return 0;
-  const result = await response.json() as { repaired?: number };
-  return Number(result.repaired || 0);
+  if (!data.session?.access_token) throw new Error('Your Classio session has expired.');
+  let repaired = 0;
+  // Each session reads its saved answers and current key. Keep one Worker
+  // request bounded even when a history page contains many attempts.
+  for (let start = 0; start < ids.length; start += 3) {
+    const response = await fetch('/api/practice-regrade', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify({ kind: 'history', sessionIds: ids.slice(start, start + 3) }) });
+    const result = await response.json().catch(() => null) as { repaired?: number; error?: string } | null;
+    if (!response.ok) throw new Error(result?.error || 'Practice scores could not be refreshed.');
+    repaired += Number(result?.repaired || 0);
+  }
+  return repaired;
 }
 export function gradePractice(material: PracticeMaterial, answers: Record<string, string>) {
   let correct = 0; let streak = 0; let bestStreak = 0;
@@ -189,8 +197,13 @@ export async function savePracticeDraft(material: PracticeMaterial, answers: Rec
   const payload = { source_type: material.sourceType, source_id: material.assignmentId || material.sourceId, title: material.title, subject: material.subject, topic: material.topic, learner_stage: material.stage, level: material.level, exercise_data: exerciseDataForMaterial(material, answers), total_questions: material.questions.length, correct_count: 0, score_pct: 0, xp_earned: 0, best_streak: 0, status: 'in_progress', completed_at: null };
   let savedId = sessionId;
   if (savedId) {
-    const { error } = await client.from('practice_sessions').update(payload).eq('id', Number(savedId)).eq('user_id', uid);
+    const { data: updated, error } = await client.from('practice_sessions').update(payload).eq('id', Number(savedId)).eq('user_id', uid).eq('status', 'in_progress').select('id').maybeSingle();
     if (error) throw error;
+    if (!updated) {
+      const { data: existing, error: readError } = await client.from('practice_sessions').select('status').eq('id', Number(savedId)).eq('user_id', uid).maybeSingle();
+      if (readError || existing?.status !== 'completed') throw readError ?? new Error('Practice draft is unavailable.');
+      return savedId;
+    }
   } else {
     const { data, error } = await client.from('practice_sessions').insert({ ...payload, user_id: uid, started_at: now, created_at: now }).select('id').single();
     if (error) throw error;
@@ -211,25 +224,22 @@ export async function savePracticeDraft(material: PracticeMaterial, answers: Rec
 }
 export async function savePractice(material: PracticeMaterial, answers: Record<string, string>, draftSessionId?: string): Promise<PracticeResult> {
   const client = requireSupabase(); const auth = await client.auth.getUser(); const uid = auth.data.user?.id; if (!uid) throw new Error('Your session has expired.');
-  const graded = gradePractice(material, answers); const now = new Date().toISOString();
-  const exerciseData = exerciseDataForMaterial(material); const completedPayload = { source_type: material.sourceType, source_id: material.assignmentId || material.sourceId, title: material.title, subject: material.subject, topic: material.topic, learner_stage: material.stage, level: material.level, exercise_data: exerciseData, total_questions: graded.total, correct_count: graded.correct, score_pct: graded.score, xp_earned: graded.xp, best_streak: graded.bestStreak, status: 'completed', completed_at: now }; const sessionInsert = draftSessionId ? await client.from('practice_sessions').update(completedPayload).eq('id', Number(draftSessionId)).eq('user_id', uid).select('id').single() : await client.from('practice_sessions').insert({ ...completedPayload, user_id: uid, started_at: now, created_at: now }).select('id').single();
-  if (sessionInsert.error) throw sessionInsert.error; const sessionId = String(sessionInsert.data.id);
-  if (graded.rows.length) { if (draftSessionId) { const cleared = await client.from('practice_answers').delete().eq('session_id', Number(sessionId)).eq('user_id', uid); if (cleared.error) throw cleared.error; } const answerInsert = await client.from('practice_answers').insert(graded.rows.map((row) => ({ session_id: Number(sessionId), user_id: uid, exercise_idx: row.exerciseIndex, question_idx: row.questionIndex, exercise_type: row.exerciseType, student_answer: row.studentAnswer, correct_answer: row.answer, is_correct: row.isCorrect, answered_at: now }))); if (answerInsert.error) throw answerInsert.error; }
+  const graded = gradePractice(material, answers);
+  const sessionId = draftSessionId || await savePracticeDraft(material, answers);
   const progressGroups = aggregatePracticeProgress(graded.rows, graded.xp);
-  for (const { exerciseType, attempted, correct: groupCorrect, xp: typeXp } of progressGroups) {
-    const scopeKey = material.assignmentId ? `assignment:${material.assignmentId}` : 'independent';
-    const existing = await client.from('practice_progress').select('id,total_attempted,total_correct,total_xp,best_streak').eq('user_id', uid).eq('scope_key', scopeKey).eq('source_type', material.sourceType).eq('subject', material.subject).eq('topic', material.topic).eq('exercise_type', exerciseType).eq('level', material.level).maybeSingle();
-    const totalAttempted = Number(existing.data?.total_attempted || 0) + attempted;
-    const totalCorrect = Number(existing.data?.total_correct || 0) + groupCorrect;
-    const payload = { user_id: uid, scope_key: scopeKey, source_type: material.sourceType, teacher_id: material.teacherId || null, assignment_id: material.assignmentId ? Number(material.assignmentId) : null, learning_program_assignment_id: material.learningProgramAssignmentId || null, subject: material.subject, topic: material.topic, exercise_type: exerciseType, level: material.level, total_attempted: totalAttempted, total_correct: totalCorrect, accuracy_pct: practiceAccuracyPct(totalCorrect, totalAttempted), total_xp: Number(existing.data?.total_xp || 0) + typeXp, best_streak: Math.max(Number(existing.data?.best_streak || 0), graded.bestStreak), last_practiced: now };
-    const progressResult = existing.data?.id ? await client.from('practice_progress').update(payload).eq('id', existing.data.id) : await client.from('practice_progress').insert({ ...payload, created_at: now }); if (progressResult.error) throw progressResult.error;
-  }
-  if (material.assignmentId && material.teacherId) {
-    const prior = await client.from('teacher_assignment_attempts').select('id').eq('assignment_id', Number(material.assignmentId)).eq('student_id', uid);
-    const attempt = await client.from('teacher_assignment_attempts').insert({ assignment_id: Number(material.assignmentId), teacher_id: material.teacherId, student_id: uid, practice_session_id: Number(sessionId), attempt_number: (prior.data?.length || 0) + 1, status: 'graded', score_pct: graded.score, total_questions: graded.total, correct_count: graded.correct, submission_payload: { result: graded, source_type: material.sourceType, source_id: material.sourceId, title: material.title }, started_at: now, submitted_at: now, graded_at: now, completed_at: now, created_at: now, updated_at: now }); if (attempt.error) throw attempt.error;
-    const assignmentUpdate = await client.from('teacher_assignments').update({ status: 'graded', score_pct: graded.score, total_questions: graded.total, correct_count: graded.correct, opened_at: now, submitted_at: now, graded_at: now, completed_at: now, updated_at: now }).eq('id', Number(material.assignmentId)).eq('student_id', uid); if (assignmentUpdate.error) throw assignmentUpdate.error;
-  }
-  return { sessionId, total: graded.total, correct: graded.correct, score: graded.score, xp: graded.xp, bestStreak: graded.bestStreak };
+  const result = {
+    source_type: material.sourceType, source_id: String(material.assignmentId || material.sourceId),
+    material_source_id: String(material.sourceId), exercise_data: exerciseDataForMaterial(material),
+    total: graded.total, correct: graded.correct, score: graded.score, xp: graded.xp,
+    best_streak: graded.bestStreak, graded,
+    assignment_id: material.assignmentId || null, teacher_id: material.teacherId || null,
+    learning_program_assignment_id: material.learningProgramAssignmentId || null,
+    answers: graded.rows.map((row) => ({ exercise_index: row.exerciseIndex, question_index: row.questionIndex, exercise_type: row.exerciseType, student_answer: row.studentAnswer, correct_answer: row.answer, is_correct: row.isCorrect })),
+    progress: progressGroups.map((group) => ({ exercise_type: group.exerciseType, attempted: group.attempted, correct: group.correct, xp: group.xp })),
+  };
+  const { data, error } = await client.rpc('classio_complete_student_practice', { p_session_id: Number(sessionId), p_result: result });
+  if (error || !data) throw error ?? new Error('Practice completion was not confirmed.');
+  return { sessionId: String(data), total: graded.total, correct: graded.correct, score: graded.score, xp: graded.xp, bestStreak: graded.bestStreak };
 }
 export async function requestTeacherReview(material: PracticeMaterial, sessionId: string, note: string, selectedTeacherId?: string) {
   const teacherId = material.teacherId || selectedTeacherId; if (!teacherId) throw new Error('Choose a connected teacher for this review.'); const client = requireSupabase(); const auth = await client.auth.getUser(); const uid = auth.data.user?.id; if (!uid) throw new Error('Your session has expired.');
@@ -238,11 +248,15 @@ export async function requestTeacherReview(material: PracticeMaterial, sessionId
   const fallback = await client.from('teacher_review_requests').upsert({ teacher_id: teacherId, student_id: uid, subject_key: material.subject, subject_label: material.subject, practice_session_id: Number(sessionId), assignment_id: material.assignmentId ? Number(material.assignmentId) : null, source_type: material.sourceType, source_id: material.sourceId, title: material.title, status: 'requested', request_note: note.trim(), requested_at: now, updated_at: now }, { onConflict: 'teacher_id,practice_session_id' }); if (fallback.error) throw fallback.error;
 }
 export async function recordVideoWatch(video: VideoPracticeInput) {
-  const client = requireSupabase(); const auth = await client.auth.getUser(); const uid = auth.data.user?.id; if (!uid) throw new Error('Your session has expired.'); const now = new Date().toISOString(); const xp = 6; const sourceId = video.assignmentId || video.id; const session = await client.from('practice_sessions').insert({ user_id: uid, source_type: 'video', source_id: sourceId, title: video.title, subject: video.subject, topic: video.topic, learner_stage: video.stage, level: video.level, exercise_data: { source_type: 'video', source_id: video.id, title: video.title, subject: video.subject, topic: video.topic, level: video.level, watch_url: video.url, engagement_type: 'video_watch' }, total_questions: 1, correct_count: 0, score_pct: 0, xp_earned: xp, best_streak: 1, status: 'completed', started_at: now, completed_at: now, created_at: now }).select('id').single(); if (session.error) throw session.error;
-  const scopeKey = video.assignmentId ? `assignment:${video.assignmentId}` : 'independent'; const current = await client.from('practice_progress').select('id,total_attempted,total_correct,total_xp,best_streak').eq('user_id', uid).eq('scope_key', scopeKey).eq('source_type', 'video').eq('subject', video.subject).eq('topic', video.topic).eq('exercise_type', 'video_watch').eq('level', video.level).maybeSingle(); const progressPayload = { user_id: uid, scope_key: scopeKey, source_type: 'video', teacher_id: video.teacherId || null, assignment_id: video.assignmentId ? Number(video.assignmentId) : null, subject: video.subject, topic: video.topic, exercise_type: 'video_watch', level: video.level, total_attempted: Number(current.data?.total_attempted || 0) + 1, total_correct: Number(current.data?.total_correct || 0), accuracy_pct: 0, total_xp: Number(current.data?.total_xp || 0) + xp, best_streak: Math.max(1, Number(current.data?.best_streak || 0)), last_practiced: now }; const progress = current.data?.id ? await client.from('practice_progress').update(progressPayload).eq('id', current.data.id) : await client.from('practice_progress').insert({ ...progressPayload, created_at: now }); if (progress.error) throw progress.error;
-  if (video.assignmentId && video.teacherId) { const attempts = await client.from('teacher_assignment_attempts').select('id').eq('assignment_id', Number(video.assignmentId)).eq('student_id', uid); const attempt = await client.from('teacher_assignment_attempts').insert({ assignment_id: Number(video.assignmentId), teacher_id: video.teacherId, student_id: uid, practice_session_id: session.data.id, attempt_number: (attempts.data?.length || 0) + 1, status: 'completed', score_pct: 100, total_questions: 1, correct_count: 1, submission_payload: { source_type: 'video', source_id: video.id, title: video.title, watch_event: 'student_video_watch' }, started_at: now, submitted_at: now, graded_at: now, completed_at: now, created_at: now, updated_at: now }); if (attempt.error) throw attempt.error; const assignment = await client.from('teacher_assignments').update({ status: 'completed', score_pct: 100, total_questions: 1, correct_count: 1, opened_at: now, submitted_at: now, graded_at: now, completed_at: now, updated_at: now }).eq('id', Number(video.assignmentId)).eq('student_id', uid); if (assignment.error) throw assignment.error; }
-  return String(session.data.id);
+  const client = requireSupabase();
+  const { data, error } = await client.rpc('classio_record_student_video_watch', {
+    p_watch_event_id: video.watchEventId,
+    p_video: { video_id: video.id, assignment_id: video.assignmentId || null, teacher_id: video.teacherId || null },
+  });
+  if (error || !data) throw error ?? new Error('Video watch was not confirmed.');
+  return String(data);
 }
+
 type ScopedRecommendation = PublicResource & { learningProgramAssignmentId?: number; learningProgramTopicId?: number; programId?: number; mlScore?: number; mlBlendWeight?: number; recommendationScore?: number };
 
 async function logRecommendationActivity(resources: ScopedRecommendation[], surface: string, activityType: 'student_recommendation_impression' | 'student_recommendation_open') {

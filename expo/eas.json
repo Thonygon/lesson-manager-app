@@ -1,5 +1,14 @@
 {
   "cli": {
     "version": "24.3.0"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "env": { "EXPO_PUBLIC_HOSTING_URL": "https://classio.expo.app" }
+    },
+    "production": {
+      "env": { "EXPO_PUBLIC_HOSTING_URL": "https://classio.expo.app" }
+    }
   }
 }

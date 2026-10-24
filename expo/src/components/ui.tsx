@@ -1,5 +1,5 @@
 import { pressableActive } from "@/lib/pressable-state";
-import { useEffect, useState, type PropsWithChildren, type ReactNode } from 'react';
+import { useEffect, useEffectEvent, useState, type PropsWithChildren, type ReactNode } from 'react';
 import { ActivityIndicator, Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, type StyleProp, type TextInputProps, type TextStyle, View } from 'react-native';
 
 import { colors } from '@/theme';
@@ -59,18 +59,19 @@ export function LoadingState() {
   return <View style={styles.loading}><ActivityIndicator color={colors.primary} /><Text style={styles.emptyBody}>{t('common.loading')}</Text></View>;
 }
 
-export function ActionFeedback({ message, tone }: { message: string | null | undefined; tone: 'success' | 'error' }) {
+export function ActionFeedback({ message, tone, onDismiss }: { message: string | null | undefined; tone: 'success' | 'error'; onDismiss?: (message: string) => void }) {
   if (!message) return null;
-  return <TransientActionFeedback key={`${tone}:${message}`} message={message} tone={tone} />;
+  return <TransientActionFeedback key={`${tone}:${message}`} message={message} tone={tone} onDismiss={onDismiss} />;
 }
 
-function TransientActionFeedback({ message, tone }: { message: string; tone: 'success' | 'error' }) {
+function TransientActionFeedback({ message, tone, onDismiss }: { message: string; tone: 'success' | 'error'; onDismiss?: (message: string) => void }) {
   const [opacity] = useState(() => new Animated.Value(1));
   const [visible, setVisible] = useState(true);
+  const dismiss = useEffectEvent((shown: string) => onDismiss?.(shown));
   useEffect(() => {
-    const timer = setTimeout(() => Animated.timing(opacity, { toValue: 0, duration: 350, useNativeDriver: true }).start(({ finished }) => { if (finished) setVisible(false); }), 4000);
+    const timer = setTimeout(() => Animated.timing(opacity, { toValue: 0, duration: 350, useNativeDriver: true }).start(({ finished }) => { if (finished) { setVisible(false); dismiss(message); } }), 4000);
     return () => { clearTimeout(timer); opacity.stopAnimation(); };
-  }, [opacity]);
+  }, [message, opacity]);
   if (!visible) return null;
   return <Animated.View accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.actionFeedback, { opacity }]}><Text style={[styles.actionFeedbackText, tone === 'success' ? styles.actionFeedbackSuccessText : styles.actionFeedbackErrorText]}>{message}</Text></Animated.View>;
 }

@@ -46,7 +46,7 @@ export function GenerationIntentQuestion({ resourceType, resourceId, surface, re
       <Button secondary={answer !== false} disabled={busy} onPress={() => void submit(false)}>{t('smart.intentNo')}</Button>
     </View>
     {answer === false ? <><Text style={styles.helper}>{t('smart.intentReason')}</Text><View style={styles.actions}>{(['content', 'level', 'format', 'other'] as const).map((item) => <Button key={item} secondary={reason !== item} disabled={busy} onPress={() => void submit(false, item)}>{t(`smart.intent${item[0].toUpperCase()}${item.slice(1)}`)}</Button>)}</View></> : null}
-    <ActionFeedback message={message} tone={error ? 'error' : 'success'} />
+    <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={error ? 'error' : 'success'} />
   </Panel>;
 }
 

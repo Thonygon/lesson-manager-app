@@ -85,6 +85,22 @@ export async function beginProviderAttempt(context: AiEconomicContext, operation
   return attemptId;
 }
 
+/** One Worker subrequest covers plan checks, atomic quota reservation and both start records. */
+export async function beginReservedGenerationAttempt(context: AiEconomicContext, profilePlan: string, featureName: string, operationId: string, attemptId: string, attemptNo: number, provider: 'openrouter' | 'gemini' | 'openai', model: string): Promise<{ allowed: boolean; status: number; reason: string }> {
+  if (!context.base || !context.serverKey || !context.actorUserId) throw new Error('AI generation reservation is not configured.');
+  const response = await fetch(`${context.base.replace(/\/$/, '')}/rest/v1/rpc/classio_begin_ai_generation_attempt`, {
+    method: 'POST',
+    headers: { apikey: context.serverKey, Authorization: `Bearer ${context.serverKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ p_user_id: context.actorUserId, p_profile_plan: profilePlan, p_feature_name: featureName, p_provider: provider, p_model: model, p_operation_id: operationId, p_attempt_id: attemptId, p_attempt_no: attemptNo }),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) throw new Error(`AI generation reservation failed (${response.status}).`);
+  const result = await response.json() as { allowed?: unknown; status?: unknown; reason?: unknown };
+  if (typeof result.allowed !== 'boolean') throw new Error('AI generation reservation was not confirmed.');
+  return { allowed: result.allowed, status: Number(result.status) || 200, reason: String(result.reason || '') };
+}
+
 export async function finishProviderAttempt(context: AiEconomicContext, attemptId: string, result: AttemptResult): Promise<void> {
   await write(context, 'classio_provider_attempts', 'PATCH', {
     status: result.status,
@@ -103,4 +119,37 @@ export async function finishProviderAttempt(context: AiEconomicContext, attemptI
     usage_json: result.usage_json ?? {},
     error_kind: result.errorKind?.slice(0, 80) || null,
   }, { column: 'attempt_id', value: attemptId });
+}
+
+/** Complete a generation's attempts, operation and usage log in one Worker subrequest. */
+export async function finishGenerationOperation(context: AiEconomicContext, operationId: string, status: 'success' | 'failed', attempts: { attemptId: string; result: AttemptResult }[], errorKind = '', usageMeta: Record<string, unknown> = {}): Promise<void> {
+  if (!context.base || !context.serverKey || !operationId) throw new Error('AI generation telemetry is not configured.');
+  const response = await fetch(`${context.base.replace(/\/$/, '')}/rest/v1/rpc/classio_finish_ai_generation`, {
+    method: 'POST',
+    headers: { apikey: context.serverKey, Authorization: `Bearer ${context.serverKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      p_operation_id: operationId,
+      p_user_id: context.actorUserId || null,
+      p_status: status,
+      p_error_kind: errorKind || null,
+      p_attempts: attempts.map(({ attemptId, result }) => ({
+        attempt_id: attemptId,
+        status: result.status,
+        model_reported: result.modelReported?.slice(0, 160) || null,
+        http_status: result.httpStatus || null,
+        provider_request_id: result.providerRequestId?.slice(0, 160) || null,
+        input_tokens: result.input_tokens ?? null,
+        output_tokens: result.output_tokens ?? null,
+        cached_input_tokens: result.cached_input_tokens ?? null,
+        reasoning_tokens: result.reasoning_tokens ?? null,
+        usage_observed: result.usage_observed ?? false,
+        usage_json: result.usage_json ?? {},
+        error_kind: result.errorKind?.slice(0, 80) || null,
+      })),
+      p_usage_meta: usageMeta,
+    }),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok || await response.json() !== true) throw new Error(`AI generation telemetry finalization failed (${response.status}).`);
 }

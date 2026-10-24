@@ -1,5 +1,7 @@
 # Classio
 
+Browse the [documentation index](docs/README.md) for audits, parity work, design notes, and historical reports.
+
 For an academic overview of the system, evidence, and limitations, see the [TFM repository guide](docs/TFM_REPOSITORY_GUIDE.md).
 
 For current findings and one action plan across finance, technology, Expo–Streamlit parity, and academic evidence, see the [single audit register](docs/AUDITORIAS_ESTADO_2026-10-22.md). Dated audit reports are retained as historical evidence.
@@ -52,4 +54,4 @@ pnpm run lint
 pnpm run export:web
 ```
 
-See [`MIGRATION.md`](MIGRATION.md) for the architecture, security boundaries, parity status, and rollout rules.
+See [`docs/MIGRATION.md`](docs/MIGRATION.md) for the architecture, security boundaries, parity status, and rollout rules.

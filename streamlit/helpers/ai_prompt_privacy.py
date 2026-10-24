@@ -23,6 +23,19 @@ def _safe_pedagogical_text(value: Any, known_name_tokens: set[str]) -> str:
     return text
 
 
+def redact_direct_identifiers(value: str) -> str:
+    """Remove recognizable contact, address and labeled learner identifiers at the provider boundary."""
+    text = str(value or "")
+    text = re.sub(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", "[email removed]", text, flags=re.I)
+    text = re.sub(r"\b(?:https?://)?(?:www\.)?wa\.me/\+?\d{7,15}\b", "[contact removed]", text, flags=re.I)
+    text = re.sub(r"\b(?:phone|tel(?:ephone|éfono|efon)?|mobile|móvil|contacto|whatsapp|gsm)\s*[:#-]?\s*\+?\d[\d\s().-]{6,}\d\b", "[contact removed]", text, flags=re.I)
+    text = re.sub(r"(?<!\w)\+\d[\d\s().-]{7,}\d\b", "[contact removed]", text)
+    text = re.sub(r"\b(?:address|dirección|domicilio|ikamet adresi|adres)\s*:\s*[^\n.;}]{5,120}", "[address removed]", text, flags=re.I)
+    text = re.sub(r"\b(?:calle|avenida|avda\.?|carrera|street|st\.|avenue|ave\.|road|rd\.|sokak|cadde)\s+[^\n.;}]{3,85}\d+[^\n.;}]{0,25}", "[address removed]", text, flags=re.I)
+    text = re.sub(r"([\"']?(?:student_name|learner_name|student_full_name|student_email|student_phone|student_address)[\"']?\s*[:=]\s*)[\"']?[^,\"'\n}]+[\"']?", r'\1"[student identifier removed]"', text, flags=re.I)
+    return re.sub(r"\b(?:student name|nombre del alumno|nombre de la alumna|nombre del estudiante|öğrenci adı)\s*:\s*[^\n.;}]{2,100}", "[student name removed]", text, flags=re.I)
+
+
 def _safe_pedagogical_list(value: Any, known_name_tokens: set[str], limit: int) -> list[str]:
     if not isinstance(value, (list, tuple)):
         return []

@@ -27,7 +27,7 @@ import { PreferenceSwitcher } from '@/components/preference-switcher';
 import { formatPublicCopy, publicCopy } from '@/lib/public-copy';
 import { publicConfig } from '@/lib/supabase';
 import { useAppPreferences } from '@/providers/app-preferences';
-import { getPublicResourceDetail, getPublicResourcePreviewImages, getPublicResources, type PublicResource, type PublicResourceKind } from '@/services/public-data';
+import { getPublicResourceDetail, getPublicResourcePreviewImages, getExplorerPublicResources, getExplorerPublicExamPage, type PublicResource, type PublicResourceKind } from '@/services/public-data';
 import { colors } from '@/theme';
 import { canonicalSubjectKey, canonicalSubjectLabel } from '@/lib/subjects';
 import { canonicalLearnerStageKey, learnerStageLabel } from '@/lib/learner-stages';
@@ -90,6 +90,10 @@ export default function HomeScreen() {
   const [resources, setResources] = useState<PublicResource[]>([]);
   const [resourcesLoading, setResourcesLoading] = useState(true);
   const [resourceError, setResourceError] = useState('');
+  const [examPageLoaded, setExamPageLoaded] = useState(1);
+  const [examHasMore, setExamHasMore] = useState(false);
+  const [examLoadingMore, setExamLoadingMore] = useState(false);
+  const [examLoadError, setExamLoadError] = useState(false);
   const [sharedResourceError, setSharedResourceError] = useState('');
   const [kind, setKind] = useState<PublicResourceKind>('program');
   const [query, setQuery] = useState('');
@@ -118,7 +122,8 @@ export default function HomeScreen() {
     void getPublicResourceDetail(sharedKind as PublicResourceKind, sharedId).then((resource) => { if (active) setSelected(resource); }).catch(() => { if (active) setSharedResourceError('This shared resource is private or no longer available.'); });
     return () => { active = false; };
   }, [params.resourceId, params.resourceKind, params.from, params.tool]);
-  useEffect(() => { if (selected && params.resourceId) requestAnimationFrame(() => pageRef.current?.scrollTo({ y: resourcesY.current, animated: true })); }, [params.resourceId, selected]);
+  const selectedResourceKey = selected ? `${selected.kind}:${selected.id}` : '';
+  useEffect(() => { if (selectedResourceKey) requestAnimationFrame(() => pageRef.current?.scrollTo({ y: resourcesY.current, animated: true })); }, [selectedResourceKey]);
   const resourceKinds = audienceView === 'teacher' ? Object.keys(RESOURCE_META) as PublicResourceKind[] : ['worksheet', 'exam', 'video'] as PublicResourceKind[];
   const selectAudience = (next: 'teacher' | 'student') => { setAudienceView(next); setKind(next === 'teacher' ? 'program' : 'worksheet'); setSelected(null); setResourcePage(1); setStage('All stages'); setLevel('All levels'); setExerciseFilter('All exercises'); };
   const subjectLabels: Record<string, string> = { English: copy.english, Spanish: copy.spanish, Mathematics: copy.mathematics, Science: copy.science, Music: copy.music, 'Study skills': copy.studySkills };
@@ -132,11 +137,38 @@ export default function HomeScreen() {
       setResourcesLoading(false);
       return;
     }
-    getPublicResources()
-      .then(setResources)
+    getExplorerPublicResources()
+      .then(({ resources: available, failedKinds, examHasMore: more }) => {
+        setResources(available);
+        setExamHasMore(more);
+        setExamPageLoaded(1);
+        if (failedKinds.length === Object.keys(RESOURCE_META).length) setResourceError(copy.libraryFailed);
+        else if (failedKinds.length) setResourceError(`${copy.libraryPartial} ${failedKinds.map((failed) => copy[RESOURCE_META[failed].label]).join(', ')}.`);
+        else setResourceError('');
+      })
       .catch(() => setResourceError(copy.libraryFailed))
       .finally(() => setResourcesLoading(false));
-  }, [copy.libraryConfig, copy.libraryFailed]);
+  }, [copy]);
+
+  const loadMoreExams = async () => {
+    if (examLoadingMore || !examHasMore) return;
+    setExamLoadingMore(true);
+    setExamLoadError(false);
+    try {
+      const next = examPageLoaded + 1;
+      const page = await getExplorerPublicExamPage(next);
+      setResources((current) => {
+        const known = new Set(current.filter((item) => item.kind === 'exam').map((item) => item.id));
+        return [...current, ...page.resources.filter((item) => !known.has(item.id))];
+      });
+      setExamPageLoaded(next);
+      setExamHasMore(page.hasMore);
+    } catch {
+      setExamLoadError(true);
+    } finally {
+      setExamLoadingMore(false);
+    }
+  };
 
   const kindResources = useMemo(() => resources.filter((item) => item.kind === kind), [kind, resources]);
   const subjects = useMemo(() => [...new Map(resources.map((item) => item.subject).filter(Boolean).map((value) => [canonicalSubjectKey(value), value])).values()].sort((a, b) => canonicalSubjectLabel(a, t).localeCompare(canonicalSubjectLabel(b, t))), [resources, t]);
@@ -259,6 +291,8 @@ export default function HomeScreen() {
               {pagedResources.map((item) => <View key={`${item.kind}-${item.id}`} style={styles.resourceSlot}><ResourceShowcaseCard compact item={item} onPress={() => setSelected(item)} description={item.description || item.topic || copy.resourceFallback} eyebrow={copy[RESOURCE_META[item.kind].label]} /></View>)}
             </View>
             <Pagination page={resourcePage} totalPages={totalResourcePages} totalItems={visibleResources.length} onPageChange={setResourcePage} />
+            {kind === 'exam' && examHasMore ? <Pressable accessibilityRole="button" disabled={examLoadingMore} onPress={() => void loadMoreExams()} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>{examLoadingMore ? copy.libraryLoading : copy.libraryMoreExams}</Text></Pressable> : null}
+            {kind === 'exam' && examLoadError ? <Text style={styles.muted}>{copy.libraryMoreFailed}</Text> : null}
             </>}
           </View>
 
@@ -301,7 +335,7 @@ export default function HomeScreen() {
           </View>
 
 
-          <View style={styles.finalCta}><Text style={styles.finalEyebrow}>{copy.finalEyebrow}</Text><Text style={[styles.finalTitle, compact && styles.sectionTitle]}>{copy.finalTitle}</Text><Text style={styles.finalBody}>{copy.finalBody}</Text><Pressable onPress={() => router.push('/sign-in')} style={styles.lightButton}><Text style={styles.lightButtonText}>{copy.finalAction}</Text></Pressable></View>
+          <View style={styles.finalCta}><Text style={styles.finalEyebrow}>{copy.finalEyebrow}</Text><Text style={[styles.finalTitle, compact && styles.finalTitleCompact]}>{copy.finalTitle}</Text><Text style={styles.finalBody}>{copy.finalBody}</Text><Pressable onPress={() => router.push('/sign-in')} style={styles.lightButton}><Text style={styles.lightButtonText}>{copy.finalAction}</Text></Pressable></View>
           <View style={styles.footer}><Text style={styles.footerBrand}>CLASSIO</Text><Text style={styles.footerText}>{copy.footer}</Text></View>
         </SafeAreaView>
       </ScrollView>
@@ -333,6 +367,6 @@ const styles = StyleSheet.create({
   selectedArea: { gap: 16, marginTop: 20 }, featureGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 }, featureCard: { flexBasis: '30%', flexGrow: 1, minWidth: 240, minHeight: 180, padding: 18, borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.lineStrong }, featureCardPhone: { flexBasis: '46%', minWidth: 0, minHeight: 150, padding: 13 }, featureIconBubble: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, featureIcon: { fontSize: 21, fontWeight: '900' }, featureTitle: { color: colors.ink, fontSize: 16, fontWeight: '900', marginTop: 11 }, featureTitlePhone: { fontSize: 14, lineHeight: 18 }, featureBody: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 6, flex: 1 }, featureAction: { fontSize: 11, fontWeight: '900', marginTop: 12 },
   previewPanel: { backgroundColor: colors.surface, borderRadius: 22, padding: 24, borderWidth: 1, borderColor: colors.lineStrong, marginTop: 18, overflow: 'hidden' }, previewImage: { width: '100%', height: 230, borderRadius: 16, marginBottom: 20 }, previewHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14 }, previewHeading: { flex: 1, flexDirection: 'row', gap: 13 }, previewIcon: { fontSize: 30 }, previewEyebrow: { color: '#2563EB', fontSize: 9, fontWeight: '900', letterSpacing: 1 }, previewTitle: { color: colors.ink, fontSize: 22, lineHeight: 28, fontWeight: '900', marginTop: 4 }, closeButton: { paddingHorizontal: 12, paddingVertical: 8, backgroundColor: colors.surfaceSoft, borderRadius: 9 }, closeText: { color: colors.muted, fontSize: 12, fontWeight: '800' }, previewDescription: { color: colors.muted, fontSize: 15, lineHeight: 24, marginVertical: 20 }, detailGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 }, detailItem: { minWidth: 140, backgroundColor: colors.canvas, borderRadius: 12, padding: 12 }, detailLabel: { color: colors.subtle, fontSize: 9, fontWeight: '900', letterSpacing: 0.7 }, detailValue: { color: colors.ink, fontSize: 13, fontWeight: '700', marginTop: 4 },
   goalSection: { borderTopWidth: 1, borderTopColor: colors.line }, goalLayout: { flexDirection: 'row', gap: 22 }, goalLayoutCompact: { flexDirection: 'column', alignItems: 'stretch' }, goalPanelCompact: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0 }, goalForm: { flex: 1.2, backgroundColor: colors.surface, borderRadius: 22, padding: 24, borderWidth: 1, borderColor: colors.line }, goalFilters: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }, goalFilterCell: { flexGrow: 1, flexBasis: 190, minWidth: 180, gap: 5 }, goalFilterLabel: { color: colors.ink, fontSize: 10, fontWeight: '800' }, fieldLabel: { color: colors.inkSecondary, fontSize: 12, fontWeight: '800', marginTop: 14, marginBottom: 8 }, wrapChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, inputRow: { flexDirection: 'row', gap: 12 }, inputCell: { flex: 1 }, rateHint: { color: colors.muted, fontSize: 11, marginVertical: 10 }, recommendation: { color: colors.primary, backgroundColor: colors.primarySoft, fontSize: 13, lineHeight: 20, fontWeight: '800', borderRadius: 12, padding: 12, marginTop: 14 }, goalResult: { flex: 0.8, minHeight: 390, backgroundColor: colors.navDark, borderRadius: 22, padding: 26, justifyContent: 'center' }, goalResultIdle: { alignItems: 'center' }, resultIcon: { fontSize: 38 }, resultTitle: { color: colors.inverse, fontSize: 20, fontWeight: '900', marginTop: 15 }, resultBody: { color: colors.subtle, fontSize: 13, lineHeight: 20, marginTop: 5, textAlign: 'center' }, resultTop: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between', alignItems: 'center' }, resultKicker: { color: '#93C5FD', fontSize: 10, fontWeight: '900', letterSpacing: 1 }, feasibility: { color: colors.inverse, fontSize: 12, fontWeight: '900' }, goalAmount: { color: colors.inverse, fontSize: 44, fontWeight: '900', letterSpacing: -1, marginTop: 24 }, metrics: { flexDirection: 'row', gap: 8, marginVertical: 26 }, metricsPhone: { flexWrap: 'wrap' }, metric: { flexGrow: 1, flexBasis: 88, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 13, padding: 12 }, metricValue: { color: colors.inverse, fontSize: 22, fontWeight: '900' }, metricLabel: { color: colors.subtle, fontSize: 9, marginTop: 3 }, advice: { color: colors.inverseMuted, fontSize: 13, lineHeight: 20, marginBottom: 22 }, secondaryButton: { borderWidth: 1, borderColor: colors.lineStrong, borderRadius: 12, padding: 13, alignItems: 'center' }, secondaryButtonText: { color: colors.inverse, fontSize: 13, fontWeight: '800' },
-  finalCta: { backgroundColor: colors.navDark, borderRadius: 28, padding: 54, alignItems: 'center', marginVertical: 40 }, finalEyebrow: { color: colors.inverseMuted, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 }, finalTitle: { color: colors.inverse, fontSize: 38, lineHeight: 45, fontWeight: '900', textAlign: 'center', maxWidth: 760, marginTop: 12 }, finalBody: { color: colors.inverseMuted, fontSize: 15, lineHeight: 23, textAlign: 'center', maxWidth: 620, marginTop: 13 }, lightButton: { backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 22, paddingVertical: 14, marginTop: 24 }, lightButtonText: { color: '#1D4ED8', fontWeight: '900' },
+  finalCta: { backgroundColor: colors.navDark, borderRadius: 28, padding: 54, alignItems: 'center', marginVertical: 40 }, finalEyebrow: { color: colors.inverseMuted, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 }, finalTitle: { color: colors.inverse, fontSize: 38, lineHeight: 45, fontWeight: '900', textAlign: 'center', maxWidth: 760, marginTop: 12 }, finalTitleCompact: { fontSize: 28, lineHeight: 35 }, finalBody: { color: colors.inverseMuted, fontSize: 15, lineHeight: 23, textAlign: 'center', maxWidth: 620, marginTop: 13 }, lightButton: { backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 22, paddingVertical: 14, marginTop: 24 }, lightButtonText: { color: '#1D4ED8', fontWeight: '900' },
   footer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10, paddingTop: 20, borderTopWidth: 1, borderTopColor: colors.line }, footerBrand: { color: colors.ink, fontSize: 13, fontWeight: '900', letterSpacing: 1.4 }, footerText: { color: colors.subtle, fontSize: 12 }, stack: { flexDirection: 'column', alignItems: 'stretch' },
 });

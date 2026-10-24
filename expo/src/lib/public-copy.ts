@@ -1,6 +1,8 @@
 import type { AppLanguage } from '@/providers/app-preferences';
 
 const en = {
+  libraryPartial: 'Some resource categories could not be loaded:',
+  libraryMoreExams: 'Load more exams', libraryMoreFailed: 'More exams could not be loaded. Try again.',
   introTagline: 'Teaching and learning, connected.',
   metaTitle: 'Classio | Teach and learn together', metaDescription: 'Classio connects teachers and students through lessons, practice, resources, and progress.',
   heroEyebrow: 'ONE PLACE TO TEACH AND LEARN', heroTitle: 'Teach with clarity.\nStudy with confidence.', heroBody: 'Classio connects teachers, students, lessons, resources, practice, and progress in one thoughtful learning space.', teach: 'Teach with Classio', study: 'Study with Classio', findTeacher: 'Find your teacher', freeResources: 'Explore free resources below',
@@ -18,6 +20,8 @@ const en = {
 type PublicCopy = { [K in keyof typeof en]: string };
 
 const es: PublicCopy = {
+  libraryPartial: 'No se pudieron cargar estas categorías de recursos:',
+  libraryMoreExams: 'Cargar más exámenes', libraryMoreFailed: 'No se pudieron cargar más exámenes. Inténtalo de nuevo.',
   introTagline: 'Enseñar y aprender, en conexión.',
   metaTitle: 'Classio | Enseñar y aprender juntos', metaDescription: 'Classio conecta docentes y estudiantes con clases, práctica, recursos y progreso.',
   heroEyebrow: 'UN LUGAR PARA ENSEÑAR Y APRENDER', heroTitle: 'Enseña con claridad.\nAprende con confianza.', heroBody: 'Classio conecta docentes, estudiantes, clases, recursos, práctica y progreso en un espacio de aprendizaje pensado para ambos.', teach: 'Enseñar con Classio', study: 'Aprender con Classio', findTeacher: 'Encuentra tu docente', freeResources: 'Explora los recursos gratuitos abajo',
@@ -33,6 +37,8 @@ const es: PublicCopy = {
 };
 
 const tr: PublicCopy = {
+  libraryPartial: 'Şu kaynak kategorileri yüklenemedi:',
+  libraryMoreExams: 'Daha fazla sınav yükle', libraryMoreFailed: 'Daha fazla sınav yüklenemedi. Tekrar dene.',
   introTagline: 'Öğretme ve öğrenme, birlikte.',
   metaTitle: 'Classio | Birlikte öğret ve öğren', metaDescription: 'Classio öğretmenleri ve öğrencileri dersler, alıştırmalar, kaynaklar ve ilerleme ile buluşturur.',
   heroEyebrow: 'ÖĞRETMEK VE ÖĞRENMEK İÇİN TEK YER', heroTitle: 'Netlikle öğret.\nGüvenle öğren.', heroBody: 'Classio öğretmenleri, öğrencileri, dersleri, kaynakları, alıştırmaları ve ilerlemeyi özenle tasarlanmış tek bir öğrenme alanında buluşturur.', teach: 'Classio ile öğret', study: 'Classio ile öğren', findTeacher: 'Öğretmenini bul', freeResources: 'Aşağıdaki ücretsiz kaynakları keşfet',

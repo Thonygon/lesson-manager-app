@@ -10,8 +10,13 @@ export async function GET(request: Request) {
 
   const params = new URL(request.url).searchParams;
   const id = params.get('id');
+  const page = Number(params.get('page') || 1);
+  const limit = Number(params.get('limit') || 120);
   if (id && !/^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[1-9]\d*)$/i.test(id)) {
     return json({ error: 'Invalid exam ID.' }, 400);
+  }
+  if (!id && (!Number.isSafeInteger(page) || page < 1 || page > 10000 || !Number.isSafeInteger(limit) || limit < 1 || limit > 120)) {
+    return json({ error: 'Invalid exam page.' }, 400);
   }
   try {
     const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -21,9 +26,10 @@ export async function GET(request: Request) {
       if (error) throw error;
       return data ? json({ exam: data }) : json({ error: 'Exam not found.' }, 404);
     }
-    const { data, error } = await query.order('updated_at', { ascending: false }).limit(120);
+    const offset = (page - 1) * limit;
+    const { data, error } = await query.order('updated_at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + limit);
     if (error) throw error;
-    return json({ exams: data ?? [] });
+    return json({ exams: (data ?? []).slice(0, limit), hasMore: (data ?? []).length > limit, page });
   } catch (error) {
     console.error('Public exam load failed', error);
     return json({ error: 'Public exams could not be loaded.' }, 502);
