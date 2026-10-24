@@ -146,13 +146,20 @@ export async function POST(request: Request) {
   async function finalize(status: 'success' | 'failed', errorKind = '', meta: Record<string, unknown> = {}) {
     if (!economicContext || !economicOperationId) return;
     const operationId = economicOperationId;
-    try {
-      await finishGenerationOperation(economicContext, operationId, status, attemptResults, errorKind, meta);
-      economicOperationId = '';
-    } catch (error) {
-      console.error('AI economic operation finalization failed', error);
-      if (status === 'success') throw error;
-      economicOperationId = '';
+    for (let attempt = 0; attempt < (status === 'success' ? 2 : 1); attempt += 1) {
+      try {
+        // The RPC is idempotent for a matching completed status. If its first
+        // response was lost, this confirms that same operation and its quota.
+        await finishGenerationOperation(economicContext, operationId, status, attemptResults, errorKind, meta);
+        economicOperationId = '';
+        return;
+      } catch (error) {
+        console.error('AI economic operation finalization failed', error);
+        if (status === 'success' && attempt === 0) continue;
+        if (status === 'success') throw error;
+        economicOperationId = '';
+        return;
+      }
     }
   }
   try {
