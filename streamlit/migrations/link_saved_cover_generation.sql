@@ -1,19 +1,24 @@
 -- A cover's economic operation is linked in the same transaction as the
 -- resource update. Regenerations retain their own operation rows.
-create table if not exists public.classio_cover_generation_resources (
+-- First deployment only: fail on a name collision instead of replacing an
+-- existing production object. Keep the schema change atomic.
+begin;
+set local lock_timeout = '5s';
+set local statement_timeout = '60s';
+create table public.classio_cover_generation_resources (
     operation_id uuid primary key references public.classio_ai_operations(operation_id) on delete cascade,
     actor_user_id uuid not null references auth.users(id) on delete cascade,
     resource_type text not null check (resource_type in ('plan', 'worksheet', 'exam')),
     resource_id text not null,
     linked_at timestamptz not null default now()
 );
-create index if not exists classio_cover_generation_resource_idx
+create index classio_cover_generation_resource_idx
     on public.classio_cover_generation_resources(resource_type, resource_id, linked_at desc);
 alter table public.classio_cover_generation_resources enable row level security;
 revoke all on public.classio_cover_generation_resources from public, anon, authenticated;
 grant select, insert on public.classio_cover_generation_resources to service_role;
 
-create or replace function public.classio_link_saved_cover_generation()
+create function public.classio_link_saved_cover_generation()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare
     v_old_cover jsonb;
@@ -45,12 +50,10 @@ begin
 end;
 $$;
 
-drop trigger if exists classio_link_lesson_plan_cover on public.lesson_plans;
 create trigger classio_link_lesson_plan_cover after update of plan_json on public.lesson_plans
 for each row execute function public.classio_link_saved_cover_generation('plan_json', 'plan', 'cover_plan');
-drop trigger if exists classio_link_worksheet_cover on public.worksheets;
 create trigger classio_link_worksheet_cover after update of worksheet_json on public.worksheets
 for each row execute function public.classio_link_saved_cover_generation('worksheet_json', 'worksheet', 'cover_worksheet');
-drop trigger if exists classio_link_quick_exam_cover on public.quick_exams;
 create trigger classio_link_quick_exam_cover after update of exam_data on public.quick_exams
 for each row execute function public.classio_link_saved_cover_generation('exam_data', 'exam', 'cover_exam');
+commit;
