@@ -80,7 +80,7 @@
     {"name": "complete_student_practice_transaction.sql", "sha256": "a08ba36a3e2c9678e20e37627e65a49cdc7a3aa77ae832b2ba67a873b7745f8c"},
     {"name": "record_student_video_watch_transaction.sql", "sha256": "e45c02f7dddb6882a5756eeb8e1fcb959bcff2f8751e434c6b572e2841c336b2"},
     {"name": "link_program_generation_operations.sql", "sha256": "5c17ea70f6f0fdb0597fc9083e0ce3259d19619cdf4d3813237e16aa3b7da146"},
-    {"name": "link_saved_cover_generation.sql", "sha256": "8eeac61695acf9fda29a324c3f25d6b417a390ca239f9085cd1e5659a6e6024e"},
-    {"name": "record_unsaved_generation_decision.sql", "sha256": "35d29fc1cb36d68869087333f85eb11e452117881040e5783bdb03e6d04264ea"}
+    {"name": "link_saved_cover_generation.sql", "sha256": "0e3a3ee074cc35ad3151c6a7604a9222b519e3bd7c933c6b71274fa2731cb436"},
+    {"name": "record_unsaved_generation_decision.sql", "sha256": "5d4167b92422a4af58a13788c84e53023eef7b0ba566213f635806f0b643a07a"}
   ]
 }

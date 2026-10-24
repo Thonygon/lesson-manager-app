@@ -2,7 +2,7 @@
 
 ## Corte de código — 24-10-2026
 
-La vinculación de portadas y el descarte explícito de generaciones sin guardar usan migraciones versionadas con verificación de propietario y serialización ante guardados concurrentes. Están en código local; requieren aplicación de esquema, rechazo cruzado y rollback en el entorno efectivo. Los perfiles móviles de Expo declaran el origen HTTPS de Explorer; una compilación y aceptación en dispositivo siguen pendientes. Esto no cierra S09/S10, S11 ni la aceptación de S12.
+La vinculación de portadas usa una RPC que actualiza solo la portada y tres triggers nuevos que registran el vínculo histórico desde cualquier ruta de escritura; el descarte explícito de generaciones sin guardar usa una RPC y tres triggers de guarda para serializarlo con inserciones concurrentes. Las migraciones están en código, sin aplicar: requieren comprobación de respaldo, rechazo cruzado, reintento y rollback en un entorno aislado antes de producción. Los perfiles móviles de Expo declaran el origen HTTPS de Explorer; una compilación y aceptación en dispositivo siguen pendientes. Esto no cierra S09/S10, S11 ni la aceptación de S12.
 
 ## Tres avances de código — 23-10-2026
 

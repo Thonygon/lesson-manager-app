@@ -6,8 +6,8 @@ begin;
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
 create table public.classio_unsaved_generation_decisions (
-    operation_id uuid primary key references public.classio_ai_operations(operation_id) on delete cascade,
-    actor_user_id uuid not null references auth.users(id) on delete cascade,
+    operation_id uuid primary key references public.classio_ai_operations(operation_id) on delete restrict,
+    actor_user_id uuid references auth.users(id) on delete set null,
     decision text not null check (decision = 'discarded_by_teacher'),
     decided_at timestamptz not null default now(),
     schema_version smallint not null default 1 check (schema_version = 1)
@@ -16,7 +16,7 @@ create index classio_unsaved_generation_actor_idx
     on public.classio_unsaved_generation_decisions(actor_user_id, decided_at desc);
 alter table public.classio_unsaved_generation_decisions enable row level security;
 revoke all on public.classio_unsaved_generation_decisions from public, anon, authenticated;
-grant select, insert on public.classio_unsaved_generation_decisions to service_role;
+grant select on public.classio_unsaved_generation_decisions to service_role;
 
 create function public.classio_record_unsaved_generation_decision(p_operation_id uuid)
 returns void language plpgsql security definer set search_path = '' as $$

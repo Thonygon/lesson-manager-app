@@ -245,19 +245,15 @@ export async function generateLessonPlanCover(id: string, kind: 'plan' | 'worksh
 
 export async function saveLessonPlanCover(id: string, cover: Record<string, unknown>, kind: 'plan' | 'worksheet' | 'exam' = 'plan'): Promise<void> {
   const client = requireSupabase();
-  const { data: userData, error: userError } = await client.auth.getUser();
-  if (userError || !userData.user) throw userError ?? new Error('Your Classio session has expired.');
-  const table = kind === 'worksheet' ? 'worksheets' : kind === 'exam' ? 'quick_exams' : 'lesson_plans';
-  const payloadColumn = kind === 'worksheet' ? 'worksheet_json' : kind === 'exam' ? 'exam_data' : 'plan_json';
-  const { data: row, error: loadError } = await client.from(table).select(payloadColumn).eq('id', id).eq('user_id', userData.user.id).maybeSingle();
-  if (loadError) throw loadError;
-  if (!row) throw new Error('Only the owner can update this lesson plan.');
-  const payload = (row as Record<string, unknown>)[payloadColumn];
-  const plan = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
-  const update = { [payloadColumn]: { ...plan, cover_image: cover }, ...(kind !== 'plan' ? { updated_at: new Date().toISOString() } : {}) };
-  const { data: saved, error: saveError } = await client.from(table).update(update).eq('id', id).eq('user_id', userData.user.id).select('id').maybeSingle();
-  if (saveError) throw saveError;
-  if (!saved) throw new Error('The lesson plan image could not be saved.');
+  const operationId = typeof cover.operation_id === 'string' ? cover.operation_id : '';
+  if (!operationId) throw new Error('The image generation reference is missing.');
+  const { error } = await client.rpc('classio_save_generated_cover', {
+    p_resource_type: kind,
+    p_resource_id: id,
+    p_operation_id: operationId,
+    p_cover: cover,
+  });
+  if (error) throw error;
 }
 
 export async function getResourcePreviewImages(kind: PublicResourceKind, ids: string[]): Promise<Record<string, string>> {
