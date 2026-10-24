@@ -81,6 +81,8 @@
     {"name": "record_student_video_watch_transaction.sql", "sha256": "e45c02f7dddb6882a5756eeb8e1fcb959bcff2f8751e434c6b572e2841c336b2"},
     {"name": "link_program_generation_operations.sql", "sha256": "5c17ea70f6f0fdb0597fc9083e0ce3259d19619cdf4d3813237e16aa3b7da146"},
     {"name": "link_saved_cover_generation.sql", "sha256": "0e3a3ee074cc35ad3151c6a7604a9222b519e3bd7c933c6b71274fa2731cb436"},
-    {"name": "record_unsaved_generation_decision.sql", "sha256": "5d4167b92422a4af58a13788c84e53023eef7b0ba566213f635806f0b643a07a"}
+    {"name": "record_unsaved_generation_decision.sql", "sha256": "5d4167b92422a4af58a13788c84e53023eef7b0ba566213f635806f0b643a07a"},
+    {"name": "save_learning_program_unit_atomically.sql", "sha256": "ae4b80ab56d22e01f24b1124c9b8df74a283ecbca5e65e775c516dfe79172423"},
+    {"name": "apply_practice_regrade_atomically.sql", "sha256": "8c5790c51ee60e2b43f62aea95ae9daa27a6fb04a8ff3850f1170aaaa82c3e8f"}
   ]
 }

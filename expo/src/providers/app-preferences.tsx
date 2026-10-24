@@ -689,3 +689,6 @@ Object.assign(tr, { 'common.downloadPdf': 'PDF', 'common.downloadWord': 'Word', 
 Object.assign(en, { 'smart.discardUnsaved': 'Discard this generation', 'smart.discarded': 'The unsaved generation was discarded.', 'smart.discardFailed': 'The generation could not be discarded. Try again.' });
 Object.assign(es, { 'smart.discardUnsaved': 'Descartar generación', 'smart.discarded': 'Se descartó la generación sin guardar.', 'smart.discardFailed': 'No se pudo descartar la generación. Inténtalo de nuevo.' });
 Object.assign(tr, { 'smart.discardUnsaved': 'Üretimi sil', 'smart.discarded': 'Kaydedilmemiş üretim silindi.', 'smart.discardFailed': 'Üretim silinemedi. Yeniden deneyin.' });
+Object.assign(en, { 'student.scoreRefreshPending': 'A corrected answer key could not update this score yet. Your previous attempt is still available.' });
+Object.assign(es, { 'student.scoreRefreshPending': 'La clave corregida todavía no pudo actualizar esta calificación. Tu intento anterior sigue disponible.' });
+Object.assign(tr, { 'student.scoreRefreshPending': 'Düzeltilen cevap anahtarı bu puanı henüz güncelleyemedi. Önceki denemeniz hâlâ kullanılabilir.' });

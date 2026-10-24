@@ -134,7 +134,9 @@ export function materialFromPublic(resource: PublicResource): PracticeMaterial |
 }
 export function materialFromSession(row: ClassioRecord): PracticeMaterial | null { const data = record(row.exercise_data); const sourceType = text(row.source_type || data.source_type); if (sourceType !== 'worksheet' && sourceType !== 'exam') return null; const questions: PracticeQuestion[] = []; list(data.exercises).forEach((section, index) => addSection(questions, record(section), index)); if (!questions.length) return null; return { title: text(row.title || data.title), sourceType, sourceId: text(data.source_id || row.source_id || row.id), assignmentId: text(data.assignment_id) || undefined, learningProgramAssignmentId: Number(data.learning_program_assignment_id) || undefined, subject: text(row.subject), topic: text(row.topic), stage: text(row.learner_stage), level: text(row.level), raw: data, questions }; }
 export async function loadPracticeReview(row: ClassioRecord) {
-  const repairedCount = await repairVisiblePracticeHistory([String(row.id)]);
+  // A structural edit may need teacher review. Keep the student's original
+  // attempt readable even when automatic recalculation cannot be completed.
+  const repairedCount = await repairVisiblePracticeHistory([String(row.id)]).catch(() => 0);
   if (repairedCount) {
     const refreshed = await requireSupabase().from('practice_sessions').select('id,source_type,source_id,title,subject,topic,learner_stage,level,exercise_data,total_questions,correct_count,score_pct,xp_earned,best_streak,status').eq('id', row.id).maybeSingle();
     if (!refreshed.error && refreshed.data) row = refreshed.data as ClassioRecord;
@@ -161,11 +163,17 @@ export async function repairVisiblePracticeHistory(sessionIds: string[]): Promis
   const ids = sessionIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 18);
   if (!ids.length) return 0;
   const { data } = await requireSupabase().auth.getSession();
-  if (!data.session?.access_token) return 0;
-  const response = await fetch('/api/practice-regrade', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify({ kind: 'history', sessionIds: ids }) });
-  if (!response.ok) return 0;
-  const result = await response.json() as { repaired?: number };
-  return Number(result.repaired || 0);
+  if (!data.session?.access_token) throw new Error('Your Classio session has expired.');
+  let repaired = 0;
+  // Each session reads its saved answers and current key. Keep one Worker
+  // request bounded even when a history page contains many attempts.
+  for (let start = 0; start < ids.length; start += 3) {
+    const response = await fetch('/api/practice-regrade', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify({ kind: 'history', sessionIds: ids.slice(start, start + 3) }) });
+    const result = await response.json().catch(() => null) as { repaired?: number; error?: string } | null;
+    if (!response.ok) throw new Error(result?.error || 'Practice scores could not be refreshed.');
+    repaired += Number(result?.repaired || 0);
+  }
+  return repaired;
 }
 export function gradePractice(material: PracticeMaterial, answers: Record<string, string>) {
   let correct = 0; let streak = 0; let bestStreak = 0;

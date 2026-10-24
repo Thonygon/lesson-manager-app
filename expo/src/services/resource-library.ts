@@ -70,35 +70,14 @@ export async function getResourceDetail(kind: PublicResourceKind, id: string): P
 
 export async function saveLearningProgramUnit(programId: string, unitId: string, changes: { title: string; overview: string; unitObjectives: string[]; deliveryNotes: string[]; topicChanges: { id: string; title: string; subtopic: string; studentSummary: string }[] }): Promise<void> {
   const client = requireSupabase();
-  const { data: auth, error: authError } = await client.auth.getUser();
-  if (authError || !auth.user) throw authError ?? new Error('Your Classio session has expired.');
-  const { data: program, error: programError } = await client.from('learning_programs').select('id,program_data').eq('id', programId).eq('user_id', auth.user.id).neq('status', 'archived').maybeSingle();
-  if (programError || !program) throw programError ?? new Error('You cannot edit this program.');
   if (!changes.title.trim()) throw new Error('The unit needs a title.');
-  const { data: unit, error: unitError } = await client.from('learning_program_units').update({ title: changes.title.trim(), overview: changes.overview.trim(), unit_objectives: changes.unitObjectives, updated_at: new Date().toISOString() }).eq('id', unitId).eq('program_id', programId).select('id').maybeSingle();
-  if (unitError || !unit) throw unitError ?? new Error('The unit is unavailable.');
-  for (const topic of changes.topicChanges) {
-    if (!topic.title.trim()) continue;
-    const { error } = await client.from('learning_program_topics').update({ title: topic.title.trim(), subtopic: topic.subtopic.trim(), student_summary: topic.studentSummary.trim(), updated_at: new Date().toISOString() }).eq('id', topic.id).eq('unit_id', unitId).eq('program_id', programId);
-    if (error) throw error;
-  }
-  // Streamlit keeps the generated document and the relational unit/topic rows
-  // synchronized. Do the same so later edits and exports do not restore old text.
-  const document = program.program_data as Record<string, unknown> | null;
-  if (document && Array.isArray(document.units)) {
-    const { data: currentUnit, error: lookupError } = await client.from('learning_program_units').select('unit_number').eq('id', unitId).eq('program_id', programId).maybeSingle();
-    if (lookupError) throw lookupError;
-    const unitIndex = Number(currentUnit?.unit_number || 0) - 1;
-    const units = [...document.units] as Record<string, unknown>[];
-    if (unitIndex >= 0 && unitIndex < units.length) {
-      const previous = units[unitIndex];
-      const topics = Array.isArray(previous.topics) ? [...previous.topics] as Record<string, unknown>[] : [];
-      changes.topicChanges.forEach((topic, index) => { if (index < topics.length) topics[index] = { ...topics[index], title: topic.title.trim(), subtopic: topic.subtopic.trim(), student_summary: topic.studentSummary.trim() }; });
-      units[unitIndex] = { ...previous, title: changes.title.trim(), overview: changes.overview.trim(), unit_objectives: changes.unitObjectives, delivery_notes: changes.deliveryNotes, topics };
-      const { error: documentError } = await client.from('learning_programs').update({ program_data: { ...document, units }, updated_at: new Date().toISOString() }).eq('id', programId).eq('user_id', auth.user.id);
-      if (documentError) throw documentError;
-    }
-  }
+  if (changes.topicChanges.some((topic) => !topic.title.trim())) throw new Error('Every topic needs a title.');
+  const { error } = await client.rpc('classio_save_learning_program_unit', {
+    p_program_id: Number(programId),
+    p_unit_id: Number(unitId),
+    p_changes: changes,
+  });
+  if (error) throw error;
 }
 
 export async function updateResourceContent(kind: 'plan' | 'worksheet' | 'exam', id: string, content: Record<string, unknown>): Promise<void> {
