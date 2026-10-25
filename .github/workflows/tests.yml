@@ -85,5 +85,11 @@ jobs:
       - name: Lint Expo application
         run: pnpm run lint
 
+      - name: Check AI provider, response bounds and resource quality
+        run: |
+          node scripts/check-ai-provider-chain.cjs
+          node scripts/check-bounded-ai-request.cjs
+          node scripts/check-resource-quality.cjs
+
       - name: Export EAS Hosting artifact
         run: pnpm run export:web

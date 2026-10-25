@@ -90,7 +90,7 @@ export async function POST(request: Request) {
         }
       }
       await finishAiOperation(economicContext, operationId, 'failed', noCredit ? 'provider_credit' : 'provider_failed'); operationId = '';
-      return json({ error: noCredit ? 'Image generation is unavailable because the configured providers have no credit.' : 'Classio could not generate the image right now.', code: noCredit ? 'image_provider_credit' : 'image_provider_failed' }, 503);
+      return json({ error: 'Classio could not generate the image right now. Please try again later.', code: noCredit ? 'image_provider_credit' : 'image_provider_failed' }, 503);
     } catch (error) {
       console.error('Image provider request failed', error instanceof Error ? error.message : 'unknown error');
       if (attemptId) await finishProviderAttempt(economicContext, attemptId, { status: 'failed', errorKind: 'transport_or_telemetry' }).catch((failure) => console.error('AI image attempt finalization failed', failure));

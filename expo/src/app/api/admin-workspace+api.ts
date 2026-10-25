@@ -12,6 +12,7 @@ async function count(client: SupabaseClient, table: string, filter?: { column: s
   let query = client.from(table).select('*', { count: 'exact', head: true });
   if (filter) query = query.eq(filter.column, filter.value);
   const { count: total, error } = await query;
+  if (table === 'classio_ai_reconciliation_cases' && ['42P01', 'PGRST205'].includes(error?.code || '')) return { count: null };
   return error ? { count: null, warning: `${table}: ${error.message || 'Unable to count rows.'}` } : { count: total ?? 0 };
 }
 
@@ -45,10 +46,11 @@ export async function GET(request: Request) {
       return json({ profiles: profilesWithActivity, subscriptions, plans, warnings: [profiles.warning, subscriptions.warning, plans.warning, authUsers?.error ? `auth.users: ${authUsers.error.message}` : '', profiles.rows.length === 500 ? 'profiles: showing the latest 500 accounts; total count is shown separately.' : '', subscriptions.rows.length === 500 ? 'user_subscriptions: showing the latest 500 subscriptions.' : ''].filter(Boolean) });
     }
     if (section === 'platform') {
-      const [profiles, subscriptions, paymentEvents, aiUsage, aiOperations, providerAttempts, pendingAiOperations, attemptsMissingUsage, pdfExportEvents, wordExportEvents, failedExportEvents, pendingExportEvents] = await Promise.all([
+      const [profiles, subscriptions, paymentEvents, aiUsage, aiOperations, providerAttempts, pendingAiOperations, attemptsMissingUsage, reconciliationCases, pdfExportEvents, wordExportEvents, failedExportEvents, pendingExportEvents] = await Promise.all([
         ...['profiles', 'user_subscriptions', 'payment_events', 'ai_usage_logs', 'classio_ai_operations', 'classio_provider_attempts'].map((table) => count(server, table)),
         count(server, 'classio_ai_operations', { column: 'status', value: 'started' }),
         count(server, 'classio_provider_attempts', { column: 'usage_observed', value: false }),
+        count(server, 'classio_ai_reconciliation_cases', { column: 'review_state', value: 'unknown' }),
         count(server, 'classio_document_export_events', { column: 'format', value: 'pdf' }),
         count(server, 'classio_document_export_events', { column: 'format', value: 'docx' }),
         count(server, 'classio_document_export_events', { column: 'status', value: 'failed' }),
@@ -65,7 +67,7 @@ export async function GET(request: Request) {
         linkedResources: totals.linkedResources + Number(row.linked_resources || 0),
         unlinkedOperations: totals.unlinkedOperations + Number(row.unlinked_operations || 0),
       }), { successfulOperations: 0, linkedResources: 0, unlinkedOperations: 0 });
-      return json({ platformCounts: { profiles: profiles.count, subscriptions: subscriptions.count, paymentEvents: paymentEvents.count, aiUsage: aiUsage.count, aiOperations: aiOperations.count, providerAttempts: providerAttempts.count, pendingAiOperations: pendingAiOperations.count, attemptsMissingUsage: attemptsMissingUsage.count, linkedAiResources: linkTotals?.linkedResources ?? null, unlinkedAiOperations: linkTotals?.unlinkedOperations ?? null, linkEligibleAiOperations: linkTotals?.successfulOperations ?? null, programSkeletonLinks: programSkeletonCount, programUnitLinks: programGenerationLinks.count == null || programSkeletonCount == null ? null : programGenerationLinks.count - programSkeletonCount, pdfExportEvents: pdfExportEvents.count, wordExportEvents: wordExportEvents.count, failedExportEvents: failedExportEvents.count, pendingExportEvents: pendingExportEvents.count }, warnings: [profiles.warning, subscriptions.warning, paymentEvents.warning, aiUsage.warning, aiOperations.warning, providerAttempts.warning, pendingAiOperations.warning, attemptsMissingUsage.warning, resourceLinkCoverage.warning, programGenerationLinks.warning, programSkeletonLinks.error ? `classio_program_generation_operations: ${programSkeletonLinks.error.message}` : '', pdfExportEvents.warning, wordExportEvents.warning, failedExportEvents.warning, pendingExportEvents.warning].filter(Boolean) });
+      return json({ platformCounts: { profiles: profiles.count, subscriptions: subscriptions.count, paymentEvents: paymentEvents.count, aiUsage: aiUsage.count, aiOperations: aiOperations.count, providerAttempts: providerAttempts.count, pendingAiOperations: pendingAiOperations.count, attemptsMissingUsage: attemptsMissingUsage.count, reconciliationCases: reconciliationCases.count, linkedAiResources: linkTotals?.linkedResources ?? null, unlinkedAiOperations: linkTotals?.unlinkedOperations ?? null, linkEligibleAiOperations: linkTotals?.successfulOperations ?? null, programSkeletonLinks: programSkeletonCount, programUnitLinks: programGenerationLinks.count == null || programSkeletonCount == null ? null : programGenerationLinks.count - programSkeletonCount, pdfExportEvents: pdfExportEvents.count, wordExportEvents: wordExportEvents.count, failedExportEvents: failedExportEvents.count, pendingExportEvents: pendingExportEvents.count }, warnings: [profiles.warning, subscriptions.warning, paymentEvents.warning, aiUsage.warning, aiOperations.warning, providerAttempts.warning, pendingAiOperations.warning, attemptsMissingUsage.warning, reconciliationCases.warning, resourceLinkCoverage.warning, programGenerationLinks.warning, programSkeletonLinks.error ? `classio_program_generation_operations: ${programSkeletonLinks.error.message}` : '', pdfExportEvents.warning, wordExportEvents.warning, failedExportEvents.warning, pendingExportEvents.warning].filter(Boolean) });
     }
     if (section === 'resourcesA') {
       const [worksheets, exams, lessonPlans] = await Promise.all(['worksheets', 'quick_exams', 'lesson_plans'].map((table) => count(server, table)));
