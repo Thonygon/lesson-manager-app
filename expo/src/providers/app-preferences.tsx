@@ -589,6 +589,9 @@ Object.assign(tr, { 'admin.aiEconomicCoverage': 'YZ maliyet verisi kapsamı', 'a
 Object.assign(en, { 'admin.reconciliationCases': 'AI operations awaiting review' });
 Object.assign(es, { 'admin.reconciliationCases': 'Operaciones de IA por revisar' });
 Object.assign(tr, { 'admin.reconciliationCases': 'İnceleme bekleyen YZ işlemleri' });
+Object.assign(en, { 'admin.linkedImageCovers': 'Verified saved AI covers' });
+Object.assign(es, { 'admin.linkedImageCovers': 'Portadas de IA guardadas y verificadas' });
+Object.assign(tr, { 'admin.linkedImageCovers': 'Doğrulanmış kayıtlı YZ kapakları' });
 Object.assign(en, { 'admin.programSkeletonLinks': 'Saved program outlines linked to AI', 'admin.programUnitLinks': 'Program unit generations linked to AI' });
 Object.assign(es, { 'admin.programSkeletonLinks': 'Esquemas de programa vinculados a IA', 'admin.programUnitLinks': 'Generaciones de unidades vinculadas a IA' });
 Object.assign(tr, { 'admin.programSkeletonLinks': 'YZ ile bağlantılı kayıtlı program taslakları', 'admin.programUnitLinks': 'YZ ile bağlantılı program ünite üretimleri' });
