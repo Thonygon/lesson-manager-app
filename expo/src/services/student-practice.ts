@@ -147,15 +147,8 @@ export async function loadPracticeReview(row: ClassioRecord) {
   const answerMap = new Map((data ?? []).map((answer) => [`${answer.exercise_idx}:${answer.question_idx}`, text(answer.student_answer)]));
   const answers = Object.fromEntries(material.questions.map((question, index) => [String(index), answerMap.get(`${question.exerciseIndex}:${question.questionIndex}`) || '']));
   const stored = { sessionId: text(row.id), total: Number(row.total_questions || 0), correct: Number(row.correct_count || 0), score: Number(row.score_pct || 0), xp: Number(row.xp_earned || 0), bestStreak: Number(row.best_streak || 0) } satisfies PracticeResult;
-  // Early Expo sessions stored some word-search answer shapes as 0%. Regrade from
-  // the saved found-word set when opening History and repair only an improved score.
-  const includesWordSearch = material.questions.some((question) => question.exerciseType === 'word_search_vocab');
-  const regraded = includesWordSearch ? gradePractice(material, answers) : null;
-  if (regraded && regraded.total > 0 && regraded.score > stored.score) {
-    const repaired = { sessionId: stored.sessionId, total: regraded.total, correct: regraded.correct, score: regraded.score, xp: Math.max(stored.xp, regraded.xp), bestStreak: Math.max(stored.bestStreak, regraded.bestStreak) } satisfies PracticeResult;
-    const { error: repairError } = await client.from('practice_sessions').update({ total_questions: repaired.total, correct_count: repaired.correct, score_pct: repaired.score, xp_earned: repaired.xp, best_streak: repaired.bestStreak }).eq('id', Number(row.id)).eq('user_id', uid);
-    if (!repairError) return { material, answers, result: repaired };
-  }
+  // History repair above uses the atomic RPC for session, answers, progress and
+  // assignment. A structural change keeps the original score for manual review.
   return { material, answers, result: stored };
 }
 

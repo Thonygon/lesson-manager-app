@@ -217,8 +217,8 @@ export async function generateLessonPlanCover(id: string, kind: 'plan' | 'worksh
   const { data } = await requireSupabase().auth.getSession();
   if (!data.session?.access_token) throw new Error('Your Classio session has expired.');
   const response = await fetch('/api/lesson-plan-cover', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify({ id, kind }) });
-  const result = await response.json() as { cover_image?: Record<string, unknown>; error?: string };
-  if (!response.ok || !result.cover_image) throw new Error(result.error || 'Classio could not generate the image.');
+  const result = await response.json() as { cover_image?: Record<string, unknown>; error?: string; code?: string };
+  if (!response.ok || !result.cover_image) throw new Error(result.code === 'image_provider_credit' ? 'image_provider_credit' : result.error || 'Classio could not generate the image.');
   return result.cover_image;
 }
 

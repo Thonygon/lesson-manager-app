@@ -6,6 +6,15 @@ const entries = (value: unknown): Document[] => Array.isArray(value) ? value.fil
 const list = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
 const usable = (value: unknown): boolean => Boolean(text(value));
+const comparable = (value: unknown): string => text(value).normalize('NFKC').replace(/^[A-Z][.)]\s*/i, '').replace(/[.!?]+$/, '').toLocaleLowerCase();
+function choiceAnswer(answer: string, options: string[]): string {
+  const marker = answer.trim().match(/^(?:opci[oó]n|option)?\s*([A-Z]|\d+)\s*[.)]?$/i)?.[1];
+  if (marker) {
+    const index = /^\d+$/.test(marker) ? Number(marker) - 1 : marker.toUpperCase().charCodeAt(0) - 65;
+    if (index >= 0 && index < options.length) return comparable(options[index]);
+  }
+  return comparable(answer);
+}
 
 export function worksheetQualityIssues(document: Document): string[] {
   const issues: string[] = [];
@@ -20,7 +29,29 @@ export function worksheetQualityIssues(document: Document): string[] {
     if (pairs.length < 4 || pairs.some((pair) => !usable(pair.left) || !usable(pair.right))) issues.push('matching needs at least 4 valid pairs');
     if (new Set(pairs.map((pair) => text(pair.right).toLowerCase())).size <= 1) issues.push('matching right side needs varied options');
   }
-  if (kind === 'multiple_choice' && entries(document.multiple_choice_items).some((item) => !usable(item.stem) || list(item.options).length < 3 || !usable(item.answer))) issues.push('multiple_choice needs complete items and answers');
+  if (kind === 'multiple_choice') {
+    const items = entries(document.multiple_choice_items);
+    if (!items.length || items.some((item) => !usable(item.stem) || list(item.options).length < 3 || !usable(item.answer))) issues.push('multiple_choice needs complete items and answers');
+    const keys = splitAnswerKeyItems(document.answer_key, items.length);
+    items.forEach((item, index) => {
+      const options = list(item.options).map(text).filter(Boolean);
+      if (!options.length) return;
+      const inline = choiceAnswer(text(item.answer), options);
+      const key = choiceAnswer(keys[index] || '', options);
+      const valid = new Set(options.map(comparable));
+      if (inline && !valid.has(inline)) issues.push(`multiple_choice item ${index + 1} answer is not an option`);
+      if (key && !valid.has(key)) issues.push(`multiple_choice item ${index + 1} answer key is not an option`);
+      if (inline && key && inline !== key) issues.push(`multiple_choice item ${index + 1} answer and key disagree`);
+      if (new Set(options.map(comparable)).size !== options.length) issues.push(`multiple_choice item ${index + 1} repeats an option`);
+    });
+  }
+  if (kind === 'error_correction') {
+    const keys = splitAnswerKeyItems(document.answer_key, questions.length);
+    questions.forEach((question, index) => {
+      const source = typeof question === 'string' ? question : text((question as Document)?.text || (question as Document)?.question);
+      if (source && keys[index] && comparable(source) === comparable(keys[index])) issues.push(`error_correction item ${index + 1} has no correction`);
+    });
+  }
   if (kind !== 'word_search_vocab' && splitAnswerKeyItems(document.answer_key, count).some((answer) => !answer)) issues.push('answer_key needs one answer per item');
   return issues;
 }

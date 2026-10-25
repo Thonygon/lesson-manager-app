@@ -8,7 +8,9 @@ type ProviderEnvironment = Partial<Record<'OPENROUTER_API_KEY' | 'GEMINI_API_KEY
 
 export function configuredAiProviders(env: ProviderEnvironment): AiProviderConfig[] {
   const openRouterModel = env.OPENROUTER_MODEL?.trim() || '';
-  const freeOpenRouterModel = openRouterModel === 'openrouter/free' || openRouterModel.endsWith(':free') ? openRouterModel : 'openrouter/free';
+  // The free router chooses a model per request. Pin a multilingual JSON-capable
+  // model so teaching material does not change quality unpredictably.
+  const freeOpenRouterModel = openRouterModel.endsWith(':free') ? openRouterModel : 'google/gemma-4-31b-it:free';
   return ([
     { provider: 'openrouter', key: env.OPENROUTER_API_KEY?.trim() || '', model: freeOpenRouterModel },
     { provider: 'gemini', key: env.GEMINI_API_KEY?.trim() || '', model: env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash' },

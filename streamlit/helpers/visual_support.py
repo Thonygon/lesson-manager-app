@@ -214,7 +214,7 @@ def _get_openrouter_image_model() -> str:
         custom = ""
     if not custom:
         custom = str(os.getenv("OPENROUTER_IMAGE_MODEL", "")).strip()
-    return custom or "google/gemini-3.1-flash-image-preview"
+    return custom or "google/gemini-3.1-flash-image"
 
 
 def _get_gemini_image_model() -> str:
@@ -225,7 +225,7 @@ def _get_gemini_image_model() -> str:
         custom = ""
     if not custom:
         custom = str(os.getenv("GEMINI_IMAGE_MODEL", "")).strip()
-    return custom or "gemini-3.1-flash-image-preview"
+    return custom or "gemini-3.1-flash-image"
 
 
 @st.cache_resource(show_spinner=False)
