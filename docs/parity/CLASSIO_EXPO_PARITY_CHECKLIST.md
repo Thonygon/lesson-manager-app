@@ -336,7 +336,7 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 - [x] Email/password account creation
 - [x] Passwordless email-link sign in with Expo redirect
 - [ ] Google sign in on `classio.expo.app`: the web client now requests a Google ID token from Google Identity Services on the Classio origin and exchanges it for a Supabase session with a nonce. The Google Cloud OAuth web client must authorize `https://classio.expo.app` as a JavaScript origin. Confirm the hosted account chooser displays the Classio origin and a signed-in session is created before checking this complete. The native app still uses the Supabase OAuth redirect.
-- [ ] Password reset journey
+- [x] Password reset code: Sign In requests a Supabase recovery email, `/reset-password` accepts web and native recovery sessions, validates and updates the new password, then returns to Sign In. EN/ES/TR copy, recovery-link fixtures, TypeScript, targeted lint, and a 32-route web export pass. The Supabase redirect allow list must include `https://classio.expo.app/reset-password` and the exact native URL produced by `Linking.createURL('/reset-password')` before the user's live email/device acceptance.
 - [ ] English, Spanish, and Turkish public UI
   - [x] Persistent language control on the public, authentication, and signed-in shells
   - [x] Public hero and authentication journey translated in English, Spanish, and Turkish
@@ -560,7 +560,7 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 - [x] Find-teacher directory, subject search/filter, pagination, profile summaries, and connection request
   - [x] Student relationship-status management, pending-request withdrawal, active-connection ending, and self-request prevention
   - [x] Instructional-language filter and displayed teaching-language metadata
-  - [ ] Controlled multi-subject request selector matching Streamlit (free-text fallback still exists)
+  - [x] Controlled multi-subject request selector matching Streamlit: the student chooses one or more subjects offered by that teacher; the request sends only those choices. The old checklist entry was stale.
 
 ## Administration and operations
 

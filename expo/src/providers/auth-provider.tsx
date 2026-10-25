@@ -1,4 +1,5 @@
 import type { Session } from '@supabase/supabase-js';
+import * as Linking from 'expo-linking';
 import { createContext, type PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { authSessionTransition } from '@/lib/auth-session-transition';
@@ -6,12 +7,15 @@ import { supabase } from '@/lib/supabase';
 import type { AuthState, ClassioProfile } from '@/types/auth';
 
 type AuthContextValue = AuthState & {
+  recoverySession: boolean;
   refreshProfile: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<string | null>;
   signInWithMagicLink: (email: string) => Promise<string | null>;
   signInWithGoogle: () => Promise<string | null>;
   signInWithGoogleIdToken: (token: string, nonce: string) => Promise<string | null>;
   signUp: (email: string, password: string) => Promise<string | null>;
+  sendPasswordReset: (email: string) => Promise<string | null>;
+  updatePassword: (password: string) => Promise<string | null>;
   signOut: () => Promise<void>;
 };
 
@@ -53,6 +57,7 @@ async function loadProfile(session: Session | null): Promise<ClassioProfile | nu
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<AuthState>(initialState);
+  const [recoverySession, setRecoverySession] = useState(false);
   const stateRef = useRef<AuthState>(initialState);
   const profileRequest = useRef(0);
 
@@ -93,6 +98,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     // races that event and can discard a route reached during restoration.
     let active = true;
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') setRecoverySession(true);
+      else if (event === 'SIGNED_OUT') setRecoverySession(false);
       // Supabase invokes this callback while its auth lock is held. Defer the
       // profile query so sign-in can settle before we read from the client.
       setTimeout(() => { if (active) void applySession(session, event === 'USER_UPDATED'); }, 0);
@@ -129,6 +136,23 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return error?.message ?? null;
   }, []);
 
+  const sendPasswordReset = useCallback(async (email: string) => {
+    if (!supabase) return 'Supabase is not configured.';
+    const redirectTo = typeof window !== 'undefined'
+      ? `${window.location.origin}/reset-password`
+      : Linking.createURL('/reset-password');
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo });
+    return error?.message ?? null;
+  }, []);
+
+  const updatePassword = useCallback(async (password: string) => {
+    if (!supabase) return 'Supabase is not configured.';
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) return error.message;
+    const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
+    return signOutError?.message ?? null;
+  }, []);
+
   const signInWithGoogle = useCallback(async () => {
     if (!supabase) return 'Supabase is not configured.';
     const redirectTo = typeof window === 'undefined' ? undefined : `${window.location.origin}/home`;
@@ -147,8 +171,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ ...state, refreshProfile, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signUp, signOut }),
-    [refreshProfile, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signOut, signUp, state],
+    () => ({ ...state, recoverySession, refreshProfile, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signUp, sendPasswordReset, updatePassword, signOut }),
+    [refreshProfile, recoverySession, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signOut, signUp, sendPasswordReset, updatePassword, state],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
