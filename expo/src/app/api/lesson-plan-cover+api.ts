@@ -38,8 +38,8 @@ export async function POST(request: Request) {
     const plan = row[payloadColumn] && typeof row[payloadColumn] === 'object' ? row[payloadColumn] as Record<string, unknown> : {};
     const prompt = `Asset type: Classio ${kind === 'worksheet' ? 'worksheet' : kind === 'exam' ? 'exam' : 'lesson plan'} gallery cover image. Title/context: ${String(row.title || plan.title || '').slice(0, 200)}. Subject: ${String(row.subject || '').slice(0, 80)}. Topic: ${String(row.topic || '').slice(0, 120)}. Learner stage: ${String(row.learner_stage || '').slice(0, 80)}. Level/band: ${String(row[levelColumn] || '').slice(0, 40)}. Wide 16:9 modern educational illustration, one clear age-appropriate teaching scene, polished resource-library cover. Absolutely no text, letters, numbers, captions, logos, labels, or watermarks.`;
     const providers = [
-      { provider: 'openrouter' as const, key: openRouterKey, model: process.env.OPENROUTER_IMAGE_MODEL || 'google/gemini-3.1-flash-image-preview' },
-      { provider: 'gemini' as const, key: geminiKey, model: process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image-preview' },
+      { provider: 'openrouter' as const, key: openRouterKey, model: process.env.OPENROUTER_IMAGE_MODEL || 'google/gemini-3.1-flash-image' },
+      { provider: 'gemini' as const, key: geminiKey, model: process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image' },
     ].filter((provider) => provider.key);
     const economicContext: AiEconomicContext = { base, serverKey: process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '', actorUserId: user.id, source: 'expo' };
     if (!economicContext.serverKey) return json({ error: 'AI usage recording is not configured.' }, 503);
