@@ -30,7 +30,6 @@ class TeacherReviewAtomicTests(unittest.TestCase):
             patch.object(tsi, "_load_practice_answers_map", return_value={(0, 1): {"id": 88}}),
             patch.object(tsi, "get_sb", return_value=client),
             patch.object(tsi, "_clear_teacher_student_caches"),
-            patch("helpers.practice_engine.rebuild_practice_progress_for_user"),
         ):
             result = tsi.submit_teacher_review(17, {"0:1": "correct"}, "Good work")
         self.assertEqual((True, "teacher_review_saved"), result)
@@ -58,7 +57,6 @@ class TeacherReviewAtomicTests(unittest.TestCase):
             patch.object(tsi, "_load_practice_answers_map", return_value={}),
             patch.object(tsi, "get_sb", return_value=client),
             patch.object(tsi, "_clear_teacher_student_caches"),
-            patch("helpers.practice_engine.rebuild_practice_progress_for_user"),
         ):
             result = tsi.submit_teacher_review(17, {"0:1": "keep"})
         self.assertEqual((True, "teacher_review_saved"), result)

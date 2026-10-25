@@ -2508,14 +2508,7 @@ def submit_teacher_review(
         ).execute()
         if not isinstance(getattr(result, "data", None), dict):
             return False, "teacher_review_save_failed"
-        # Progress rebuilding is derived and can be retried. The scored answers,
-        # session, review, assignment and attempt above commit together.
-        try:
-            from helpers.practice_engine import rebuild_practice_progress_for_user
-
-            rebuild_practice_progress_for_user(student_id)
-        except Exception:
-            pass
+        # The review RPC refreshes practice_progress in the same transaction.
         _clear_teacher_student_caches()
         return True, "teacher_review_saved"
     except Exception:

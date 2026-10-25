@@ -3127,7 +3127,8 @@ def _maybe_refresh_practice_progress_from_reviews(user_id: str) -> None:
     if str(st.session_state.get(session_key) or "") == latest_reviewed_at:
         return
 
-    rebuild_practice_progress_for_user(uid)
+    # Review RPCs update progress atomically; only the local read cache may lag.
+    _clear_practice_caches()
     st.session_state[session_key] = latest_reviewed_at
 
 
