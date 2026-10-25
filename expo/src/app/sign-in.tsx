@@ -29,9 +29,9 @@ export default function SignInScreen() {
   }, []);
   const compact = (Platform.OS === 'web' ? webWidth ?? width : width) < 850;
   const { t } = useAppPreferences();
-  const { configured, loading, user, profile, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signUp } = useAuth();
+  const { configured, loading, user, profile, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signUp, sendPasswordReset } = useAuth();
   const { start: startHomeIntro, cancel: cancelHomeIntro } = useHomeIntro();
-  const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in');
+  const [mode, setMode] = useState<'sign-in' | 'sign-up' | 'forgot'>('sign-in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState<string | null>(null); const [messageTone, setMessageTone] = useState<'success' | 'error'>('error'); const [messageContext, setMessageContext] = useState<'password' | 'magic' | 'google'>('password');
@@ -76,6 +76,14 @@ export default function SignInScreen() {
     setMessageTone(error ? 'error' : 'success'); setMessageContext('magic'); setMessage(error || t('auth.magicSent'));
   };
 
+  const requestReset = async () => {
+    setSubmitting(true); setMessage(null);
+    const error = await sendPasswordReset(email);
+    setSubmitting(false);
+    setMessageTone(error ? 'error' : 'success'); setMessageContext('password');
+    setMessage(error || t('auth.resetSent'));
+  };
+
   const openGoogle = async () => {
     setSubmitting(true); setMessage(null);
     const error = Platform.OS === 'web' ? await beginDirectGoogleSignIn() : await signInWithGoogle();
@@ -87,7 +95,7 @@ export default function SignInScreen() {
 
   return <ScrollView contentContainerStyle={[styles.page, { backgroundColor: 'transparent' }]} keyboardShouldPersistTaps="handled">
     <SafeAreaView style={styles.safe}>
-      <Head><title>{mode === 'sign-in' ? t('auth.signIn') : t('auth.createAccount')} | Classio</title></Head>
+      <Head><title>{mode === 'forgot' ? t('auth.forgotPassword') : mode === 'sign-in' ? t('auth.signIn') : t('auth.createAccount')} | Classio</title></Head>
       <View style={styles.topbar}><Pressable onPress={() => router.push('/')}><Image source={require('../../assets/images/classio-logo.png')} resizeMode="contain" style={styles.logo} /></Pressable><View style={styles.topbarActions}><PreferenceSwitcher /><BackLink label={t('auth.explore')} onPress={() => router.push('/')} /></View></View>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[styles.layout, compact && styles.layoutCompact]}>
         {!compact ? <View style={styles.story}>
@@ -96,15 +104,16 @@ export default function SignInScreen() {
         </View> : null}
         <Panel style={[styles.card, compact && styles.cardCompact]}>
           <View style={styles.modeTabs}><Pressable onPress={() => { setMode('sign-in'); setMessage(null); }} style={[styles.modeTab, mode === 'sign-in' && styles.modeActive]}><Text style={[styles.modeText, mode === 'sign-in' && styles.modeTextActive]}>{t('auth.signIn')}</Text></Pressable><Pressable onPress={() => { setMode('sign-up'); setMessage(null); }} style={[styles.modeTab, mode === 'sign-up' && styles.modeActive]}><Text style={[styles.modeText, mode === 'sign-up' && styles.modeTextActive]}>{t('auth.createAccount')}</Text></Pressable></View>
-          <Text style={styles.title}>{mode === 'sign-in' ? t('auth.welcome') : t('auth.start')}</Text><Text style={styles.intro}>{mode === 'sign-in' ? t('auth.signInIntro') : t('auth.signUpIntro')}</Text>
+          <Text style={styles.title}>{mode === 'forgot' ? t('auth.forgotPassword') : mode === 'sign-in' ? t('auth.welcome') : t('auth.start')}</Text><Text style={styles.intro}>{mode === 'forgot' ? t('auth.resetIntro') : mode === 'sign-in' ? t('auth.signInIntro') : t('auth.signUpIntro')}</Text>
           {!configured ? <View style={styles.configNotice}><Text style={styles.noticeTitle}>Deployment configuration required</Text><Text style={styles.noticeBody}>This environment needs the Supabase URL and public publishable key.</Text></View> : <>
             <View style={styles.fieldGroup}><Text style={styles.label}>{t('auth.email')}</Text><Field accessibilityLabel={t('auth.email')} autoCapitalize="none" autoComplete="email" keyboardType="email-address" placeholder="you@example.com" value={email} onChangeText={setEmail} /></View>
-            <View style={styles.fieldGroup}><Text style={styles.label}>{t('auth.password')}</Text><Field accessibilityLabel={t('auth.password')} autoCapitalize="none" autoComplete={mode === 'sign-in' ? 'current-password' : 'new-password'} placeholder={mode === 'sign-in' ? t('auth.passwordPlaceholder') : t('auth.newPasswordPlaceholder')} secureTextEntry value={password} onChangeText={setPassword} /></View>
+            {mode !== 'forgot' ? <View style={styles.fieldGroup}><Text style={styles.label}>{t('auth.password')}</Text><Field accessibilityLabel={t('auth.password')} autoCapitalize="none" autoComplete={mode === 'sign-in' ? 'current-password' : 'new-password'} placeholder={mode === 'sign-in' ? t('auth.passwordPlaceholder') : t('auth.newPasswordPlaceholder')} secureTextEntry value={password} onChangeText={setPassword} /></View> : null}
 
-            <Button disabled={submitting || !email || !password} onPress={() => void submit()}>{submitting ? t('auth.wait') : mode === 'sign-in' ? t('auth.signInButton') : t('auth.createButton')}</Button>
-            {mode === 'sign-in' ? <><View style={styles.or}><View style={styles.orLine} /><Text style={styles.orText}>{t('auth.passwordless')}</Text><View style={styles.orLine} /></View><Button disabled={submitting || !email} secondary onPress={() => void sendMagicLink()}>{t('auth.magicLink')}</Button>{messageContext === 'magic' ? <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} /> : null}</> : null}
-            <GoogleSignIn disabled={submitting} label={t('auth.googleButton')} onPress={() => void openGoogle()} />{messageContext === 'google' ? <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} /> : null}
-            <Text style={styles.googleBody}>{t('auth.googleHint')}</Text>
+            {mode === 'forgot' ? <Button disabled={submitting || !email.trim()} onPress={() => void requestReset()}>{submitting ? t('auth.wait') : t('auth.sendReset')}</Button> : <Button disabled={submitting || !email || !password} onPress={() => void submit()}>{submitting ? t('auth.wait') : mode === 'sign-in' ? t('auth.signInButton') : t('auth.createButton')}</Button>}
+            {messageContext === 'password' ? <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} /> : null}
+            {mode === 'forgot' ? <Button secondary onPress={() => { setMode('sign-in'); setMessage(null); }}>{t('auth.backToSignIn')}</Button> : null}
+            {mode === 'sign-in' ? <><Pressable accessibilityRole="button" onPress={() => { setMode('forgot'); setMessage(null); }}><Text style={styles.forgotLink}>{t('auth.forgotPassword')}</Text></Pressable><View style={styles.or}><View style={styles.orLine} /><Text style={styles.orText}>{t('auth.passwordless')}</Text><View style={styles.orLine} /></View><Button disabled={submitting || !email} secondary onPress={() => void sendMagicLink()}>{t('auth.magicLink')}</Button>{messageContext === 'magic' ? <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} /> : null}</> : null}
+            {mode !== 'forgot' ? <><GoogleSignIn disabled={submitting} label={t('auth.googleButton')} onPress={() => void openGoogle()} />{messageContext === 'google' ? <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} /> : null}<Text style={styles.googleBody}>{t('auth.googleHint')}</Text></> : null}
           </>}
           <Text style={styles.security}>{t('auth.security')}</Text>
         </Panel>
@@ -118,4 +127,5 @@ const styles = StyleSheet.create({
   layout: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 70, minHeight: 650, paddingVertical: 36 }, layoutCompact: { flexDirection: 'column', alignItems: 'stretch', gap: 28, paddingTop: 24 }, story: { flex: 1, minWidth: 0 }, storyEyebrow: { color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 1.3, marginBottom: 14 }, storyTitle: { color: colors.ink, fontSize: 48, lineHeight: 54, fontWeight: '900', letterSpacing: -1.7 }, storyBody: { color: colors.muted, fontSize: 17, lineHeight: 27, marginTop: 18, maxWidth: 570 }, promiseList: { marginTop: 34, gap: 18 }, promise: { flexDirection: 'row', gap: 14, alignItems: 'flex-start' }, promiseNumber: { width: 34, height: 34, borderRadius: 17, textAlign: 'center', lineHeight: 34, backgroundColor: colors.primarySoft, color: colors.primary, fontSize: 10, fontWeight: '900' }, promiseCopy: { flex: 1 }, promiseTitle: { color: colors.ink, fontSize: 14, fontWeight: '800' }, promiseBody: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 3 },
   card: { flexGrow: 0, flexShrink: 0, maxWidth: 480, width: '100%', gap: 13, padding: 30, borderRadius: 24, shadowColor: colors.ink, shadowOpacity: 0.08, shadowRadius: 24, shadowOffset: { width: 0, height: 12 } }, cardCompact: { alignSelf: 'center' }, modeTabs: { flexDirection: 'row', backgroundColor: colors.surfaceSoft, borderRadius: 12, padding: 4, marginBottom: 8 }, modeTab: { flex: 1, borderRadius: 9, paddingVertical: 10, alignItems: 'center' }, modeActive: { backgroundColor: colors.surface }, modeText: { color: colors.muted, fontSize: 12, fontWeight: '800' }, modeTextActive: { color: colors.ink }, title: { color: colors.ink, fontSize: 28, fontWeight: '900', textAlign: 'center' }, intro: { color: colors.muted, fontSize: 14, lineHeight: 21, textAlign: 'center', marginBottom: 4 }, fieldGroup: { gap: 6 }, label: { color: colors.ink, fontSize: 11, fontWeight: '800' }, messageBox: { backgroundColor: colors.warningSoft, borderRadius: 10, padding: 11 }, message: { color: colors.warning, fontSize: 12, lineHeight: 18 }, configNotice: { backgroundColor: colors.warningSoft, borderRadius: 12, padding: 15 }, noticeTitle: { color: colors.warning, fontWeight: '800', marginBottom: 5 }, noticeBody: { color: colors.warning, lineHeight: 20 },
   or: { flexDirection: 'row', alignItems: 'center', gap: 9, marginVertical: 2 }, orLine: { height: 1, backgroundColor: colors.line, flex: 1 }, orText: { color: colors.subtle, fontSize: 8, fontWeight: '900', letterSpacing: 0.6 }, googleNotice: { flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: colors.canvas, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.line }, googleIcon: { width: 28, height: 28, borderRadius: 14, textAlign: 'center', lineHeight: 28, color: '#4285F4', backgroundColor: colors.surface, fontWeight: '900' }, googleTitle: { color: colors.ink, fontSize: 11, fontWeight: '800' }, googleBody: { color: colors.muted, fontSize: 10, lineHeight: 15, marginTop: 2 }, security: { color: colors.subtle, fontSize: 10, lineHeight: 15, textAlign: 'center', marginTop: 2 },
+  forgotLink: { color: colors.primary, fontSize: 12, fontWeight: '800', textAlign: 'right', paddingVertical: 8 },
 });

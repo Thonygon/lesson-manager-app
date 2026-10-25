@@ -6,7 +6,12 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from scripts.check_migrations import compare_applied_migrations, validate_local_migrations
+from scripts.check_migrations import (
+    CRITICAL_SCHEMA_OBJECTS,
+    compare_applied_migrations,
+    compare_critical_schema_objects,
+    validate_local_migrations,
+)
 
 
 def _checksum(content: str) -> str:
@@ -70,6 +75,13 @@ class MigrationCheckTests(unittest.TestCase):
             {"applied_checksum_mismatch", "migration_unapplied", "applied_migration_unknown"},
             codes,
         )
+
+    def test_schema_attestation_does_not_trust_a_checksum_row(self):
+        observed = {name: True for name in CRITICAL_SCHEMA_OBJECTS}
+        observed["oidc_review_rpc"] = False
+        issues = compare_critical_schema_objects(observed)
+        self.assertEqual(["oidc_review_rpc"], [issue.message.rsplit(": ", 1)[-1] for issue in issues])
+        self.assertEqual([], compare_critical_schema_objects({name: True for name in CRITICAL_SCHEMA_OBJECTS}))
 
 
 if __name__ == "__main__":

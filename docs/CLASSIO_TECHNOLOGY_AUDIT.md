@@ -1,5 +1,13 @@
 # Auditoría tecnológica de Classio
 
+## Continuación de código — 25-10-2026
+
+**T5, revisiones concurrentes:** `serialize_teacher_review_progress.sql` serializa el recálculo diferido por alumno y ámbito de progreso mediante un bloqueo transaccional. La segunda revisión toma una lectura nueva después de la primera confirmación, evitando que un agregado calculado con datos antiguos sobrescriba el resultado más reciente. La función se aplicó en Supabase y se comprobó que el cuerpo instalado contiene el bloqueo. Queda una prueba de carrera real con dos sesiones y la aceptación beta; T5 sigue abierto.
+
+**T7, objetos instalados:** `attest_critical_schema_objects.sql` ofrece una RPC exclusiva de `service_role` que comprueba siete objetos críticos de conciliación y revisión, incluidos el cron y el trigger. `check_migrations.py --require-objects` consulta esa RPC por separado del ledger; detecta el caso observado en que una fila de checksum existe pero el objeto no. La migración se aplicó, se registraron ambos checksums después de la comprobación y los siete resultados fueron verdaderos también por la API. No cubre todavía las 55 migraciones históricas sin registro ni demuestra restauración; T7 sigue abierto.
+
+**Revisión de código, decisiones docentes:** las dos lecturas de Streamlit que reconstruyen notas y resultados del alumno resuelven `review_payload.answer_overrides` por el ID persistido de `practice_answers` hacia su posición original. Conservan los payloads anteriores con `items`; el RPC de recalificación mantiene los IDs y no sustituye la decisión de una sesión revisada. Pruebas unitarias cubren ambos formatos y la prioridad de la decisión por ID. No se editó la migración histórica aplicada.
+
 ## Corte de código — 24-10-2026
 
 La vinculación de portadas usa una RPC que actualiza solo la portada y tres triggers nuevos que registran el vínculo histórico desde cualquier ruta de escritura; el descarte explícito de generaciones sin guardar usa una RPC y tres triggers de guarda para serializarlo con inserciones concurrentes. Ambas migraciones se aplicaron en Supabase producción el 24-10-2026 y constan en `app_schema_migrations`. Siguen pendientes sus casos de aceptación con cuentas beta y la comprobación de condiciones de carrera. Los perfiles móviles de Expo declaran el origen HTTPS de Explorer; una compilación y aceptación en dispositivo siguen pendientes. Esto no cierra S09/S10, S11 ni la aceptación de S12.
