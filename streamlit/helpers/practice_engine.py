@@ -3300,7 +3300,7 @@ def load_practice_review_state(
         answer_rows = (
             get_sb()
             .table("practice_answers")
-            .select("exercise_idx,question_idx,exercise_type,student_answer,correct_answer,is_correct")
+            .select("id,exercise_idx,question_idx,exercise_type,student_answer,correct_answer,is_correct")
             .eq("session_id", int(session_id))
             .eq("user_id", uid)
             .order("exercise_idx")
@@ -3421,14 +3421,10 @@ def load_practice_review_state(
     except Exception:
         review_rows = []
     review_payload = ((review_rows[0] if review_rows else {}) or {}).get("review_payload") or {}
-    review_items = review_payload.get("items") if isinstance(review_payload, dict) else []
-    for item in review_items or []:
-        if not isinstance(item, dict) or str(item.get("override") or "").strip() not in {"correct", "incorrect"}:
-            continue
-        match = re.fullmatch(r"(\d+):(\d+)", str(item.get("question_key") or "").strip())
-        q_key = old_to_new_key.get((int(match.group(1)), int(match.group(2)))) if match else None
+    for position, final_correct in _resolved_teacher_overrides(review_payload, answer_rows).items():
+        q_key = old_to_new_key.get(position)
         if q_key and q_key in questions:
-            questions[q_key]["is_correct"] = bool(item.get("final_correct"))
+            questions[q_key]["is_correct"] = final_correct
 
     summary: dict = {}
     try:
@@ -3828,7 +3824,32 @@ def _rows_for_resource_assignments(source_type: str, resource_id) -> list[dict]:
     return list(deduped.values())
 
 
-def _teacher_overrides_by_session(session_ids: list[int]) -> dict[int, dict[tuple[int, int], bool]]:
+def _resolved_teacher_overrides(payload: dict, answer_rows: list[dict]) -> dict[tuple[int, int], bool]:
+    """Resolve both legacy positional items and RPC answer-ID decisions."""
+    if not isinstance(payload, dict):
+        return {}
+    overrides: dict[tuple[int, int], bool] = {}
+    for item in payload.get("items") or []:
+        if not isinstance(item, dict) or item.get("override") not in {"correct", "incorrect"}:
+            continue
+        match = re.fullmatch(r"(\d+):(\d+)", str(item.get("question_key") or "").strip())
+        if match:
+            overrides[(int(match.group(1)), int(match.group(2)))] = item.get("final_correct") is True
+
+    rows_by_id = {str(row.get("id")): row for row in answer_rows if row.get("id") is not None}
+    answer_overrides = payload.get("answer_overrides") or {}
+    if isinstance(answer_overrides, dict):
+        for answer_id, decision in answer_overrides.items():
+            row = rows_by_id.get(str(answer_id))
+            if row is not None and decision in {"correct", "incorrect"}:
+                position = (int(row.get("exercise_idx") or 0), int(row.get("question_idx") or 0))
+                overrides[position] = decision == "correct"
+    return overrides
+
+
+def _teacher_overrides_by_session(
+    session_ids: list[int], answer_rows_by_session: dict[int, list[dict]]
+) -> dict[int, dict[tuple[int, int], bool]]:
     if not session_ids:
         return {}
     try:
@@ -3855,14 +3876,7 @@ def _teacher_overrides_by_session(session_ids: list[int]) -> dict[int, dict[tupl
     result: dict[int, dict[tuple[int, int], bool]] = {}
     for session_id, row in latest_by_session.items():
         payload = row.get("review_payload") or {}
-        items = payload.get("items") if isinstance(payload, dict) else []
-        overrides: dict[tuple[int, int], bool] = {}
-        for item in items or []:
-            if not isinstance(item, dict) or str(item.get("override") or "").strip() not in {"correct", "incorrect"}:
-                continue
-            match = re.fullmatch(r"(\d+):(\d+)", str(item.get("question_key") or "").strip())
-            if match:
-                overrides[(int(match.group(1)), int(match.group(2)))] = bool(item.get("final_correct"))
+        overrides = _resolved_teacher_overrides(payload, answer_rows_by_session.get(session_id, []))
         if overrides:
             result[session_id] = overrides
     return result
@@ -4079,7 +4093,7 @@ def rescore_practice_sessions_for_resource(source_type: str, resource_id, exerci
         answer_rows = (
             get_sb()
             .table("practice_answers")
-            .select("session_id,user_id,exercise_idx,question_idx,exercise_type,student_answer,answered_at")
+            .select("id,session_id,user_id,exercise_idx,question_idx,exercise_type,student_answer,answered_at")
             .in_("session_id", session_ids)
             .execute()
         ).data or []
@@ -4090,7 +4104,7 @@ def rescore_practice_sessions_for_resource(source_type: str, resource_id, exerci
     for row in answer_rows:
         answers_by_session.setdefault(int(row.get("session_id") or 0), []).append(row)
 
-    teacher_overrides = _teacher_overrides_by_session(session_ids)
+    teacher_overrides = _teacher_overrides_by_session(session_ids, answers_by_session)
 
     rescored_session_ids: list[int] = []
     impacted_user_ids: set[str] = set()

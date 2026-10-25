@@ -89,6 +89,8 @@
     {"name": "track_stale_ai_operations.sql", "sha256": "eb9d2a67731d81f2ecd76680a66ed17c03e295f760e65641b310add542177276"},
     {"name": "submit_teacher_review_oidc_atomically.sql", "sha256": "44c1d74942d80486d1e2dfee9029cb714e7e61fe72f47653351be237d7329aa3"},
     {"name": "refresh_teacher_review_progress_atomically.sql", "sha256": "0c53cc79df03112080cf6a71868bfc7d2bab1979204ab7f41aec10fcc6ec2d4a"},
-    {"name": "backfill_reviewed_practice_progress.sql", "sha256": "8e1ff9e2a0f3716d812289e544d6617c34e2b0cd403c9f17906be95632f93ac1"}
+    {"name": "backfill_reviewed_practice_progress.sql", "sha256": "8e1ff9e2a0f3716d812289e544d6617c34e2b0cd403c9f17906be95632f93ac1"},
+    {"name": "serialize_teacher_review_progress.sql", "sha256": "467ea5c503df689aa129c70de579aa30a44e7ecc15d3d0a6a7285dd146698ed4"},
+    {"name": "attest_critical_schema_objects.sql", "sha256": "fb0641b527a9f2e01226f4b19ac94a746302044465fef9992d579c66595fa1cd"}
   ]
 }

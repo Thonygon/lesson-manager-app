@@ -16,6 +16,10 @@ from urllib.request import Request, urlopen
 LEDGER_VERSION = 1
 DEFAULT_MIGRATION_DIR = Path("migrations")
 DEFAULT_LEDGER_PATH = DEFAULT_MIGRATION_DIR / "ledger.json"
+CRITICAL_SCHEMA_OBJECTS = frozenset({
+    "stale_cases_table", "stale_scan_rpc", "stale_evidence_rpc", "stale_scan_cron",
+    "oidc_review_rpc", "review_progress_rpc", "review_progress_trigger",
+})
 
 
 @dataclass(frozen=True)
@@ -140,18 +144,45 @@ def load_remote_migration_ledger(url: str, key: str) -> list[dict[str, Any]]:
     return [dict(row) for row in payload if isinstance(row, dict)]
 
 
+def load_critical_schema_objects(url: str, key: str) -> dict[str, Any]:
+    request = Request(
+        f"{url.rstrip('/')}/rest/v1/rpc/classio_critical_schema_objects",
+        data=b"{}",
+        headers={
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+    )
+    with urlopen(request, timeout=15) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Supabase schema attestation response was not an object")
+    return payload
+
+
+def compare_critical_schema_objects(observed: dict[str, Any]) -> list[MigrationIssue]:
+    return [
+        MigrationIssue("schema_object_missing", f"critical schema object is absent or disabled: {name}")
+        for name in sorted(CRITICAL_SCHEMA_OBJECTS)
+        if observed.get(name) is not True
+    ]
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Validate Classio SQL migrations and optional Supabase application ledger.")
     parser.add_argument("--migration-dir", type=Path, default=DEFAULT_MIGRATION_DIR)
     parser.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER_PATH)
     parser.add_argument("--require-applied", action="store_true", help="Compare local migrations with Supabase app_schema_migrations.")
+    parser.add_argument("--require-objects", action="store_true", help="Attest critical database objects independently of migration checksum rows.")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     entries, issues = validate_local_migrations(args.migration_dir, args.ledger)
-    if args.require_applied and not issues:
+    if (args.require_applied or args.require_objects) and not issues:
         url = str(os.getenv("SUPABASE_URL") or "").strip()
         key = str(os.getenv("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
         if not url or not key:
@@ -163,16 +194,23 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             try:
-                issues.extend(compare_applied_migrations(entries, load_remote_migration_ledger(url, key)))
+                if args.require_applied:
+                    issues.extend(compare_applied_migrations(entries, load_remote_migration_ledger(url, key)))
+                if args.require_objects:
+                    issues.extend(compare_critical_schema_objects(load_critical_schema_objects(url, key)))
             except Exception as exc:
-                issues.append(MigrationIssue("remote_ledger_unavailable", f"could not read Supabase migration ledger: {type(exc).__name__}"))
+                issues.append(MigrationIssue("remote_verification_unavailable", f"could not verify Supabase migration state: {type(exc).__name__}"))
 
     if issues:
         for issue in issues:
             print(f"ERROR [{issue.code}] {issue.message}", file=sys.stderr)
         print(f"Migration check failed with {len(issues)} issue(s).", file=sys.stderr)
         return 1
-    scope = "local and applied" if args.require_applied else "local"
+    scope = "local"
+    if args.require_applied:
+        scope += " and ledger"
+    if args.require_objects:
+        scope += " and objects"
     print(f"Migration check passed ({scope}): {len(entries)} migrations verified.")
     return 0
 
