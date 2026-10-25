@@ -48,6 +48,8 @@ Design principles:
 - Include a vocabulary_bank only when it is genuinely useful.
 - teacher_notes should include 2-3 practical tips for differentiation or extension.
 - Keep content factually accurate and pedagogically sound.
+- Before returning JSON, silently proofread every Spanish sentence for spelling, accents, agreement and natural phrasing. Verify each answer key against the actual question and options; never invent a distractor that is not a real word unless the lesson explicitly tests misspellings.
+- For error_correction, each student sentence must contain exactly one intentional error and its answer must be a corrected, grammatical sentence. The corrected answer must differ from the displayed sentence.
 - Do not invent unnecessary sections.
 - Follow this Classio worksheet layout target:
   - target_pages: ${page.targetPages}

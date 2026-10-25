@@ -7,8 +7,8 @@ const source = fs.readFileSync(path.join(__dirname, '../src/server/resource-qual
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const moduleRef = { exports: {} };
 new Function('module', 'exports', 'require', compiled)(moduleRef, moduleRef.exports, (name) => {
-  if (name !== './answer-key') throw new Error(`Unexpected fixture import: ${name}`);
-  const source = fs.readFileSync(path.join(__dirname, '../src/server/answer-key.ts'), 'utf8');
+  if (name !== './answer-key' && name !== '../lib/exam-generation-rules') throw new Error(`Unexpected fixture import: ${name}`);
+  const source = fs.readFileSync(path.join(__dirname, `../src/${name === './answer-key' ? 'server/answer-key.ts' : 'lib/exam-generation-rules.ts'}`), 'utf8');
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   const loaded = { exports: {} };
   new Function('module', 'exports', code)(loaded, loaded.exports);
@@ -22,6 +22,14 @@ worksheet.answer_key = '1. Because of the weather.\n2. By walking.';
 assert.deepEqual(worksheetQualityIssues(worksheet), []);
 worksheet.reading_passage = '';
 assert.match(worksheetQualityIssues(worksheet).join(' '), /reading_passage/);
+const choice = { worksheet_type: 'multiple_choice', multiple_choice_items: [{ stem: 'Choose.', options: ['como', 'comí', 'comía'], answer: 'comía' }], answer_key: 'comí' };
+assert.match(worksheetQualityIssues(choice).join(' '), /answer and key disagree/);
+choice.answer_key = 'comía';
+assert.deepEqual(worksheetQualityIssues(choice), []);
+choice.multiple_choice_items[0].answer = 'comaba';
+assert.match(worksheetQualityIssues(choice).join(' '), /answer is not an option/);
+const correction = { worksheet_type: 'error_correction', questions: ['Yo comía.', 'Ella comen.', 'Tú comiste.'], answer_key: 'Yo comía.\nElla come.\nTú comías.' };
+assert.match(worksheetQualityIssues(correction).join(' '), /no correction/);
 
 const exam = { sections: [{ type: 'table_interpretation', questions: ['1', '2', '3', '4', '5'], table_data: { columns: ['Year'], rows: [['2025']] } }] };
 assert.match(examQualityIssues(exam, 'medium').join(' '), /2 columns and 2 rows/);

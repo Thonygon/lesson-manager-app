@@ -17,8 +17,9 @@ const { configuredAiProviders, requestAiProvider } = transpile('ai-provider-chai
 
 const providers = configuredAiProviders({ OPENROUTER_API_KEY: 'or-key', GEMINI_API_KEY: 'gem-key', OPENAI_API_KEY: 'oa-key' });
 assert.deepEqual(providers.map((item) => item.provider), ['openrouter', 'gemini', 'openai']);
-assert.deepEqual(providers.map((item) => item.model), ['openrouter/free', 'gemini-2.5-flash', 'gpt-4o-mini']);
+assert.deepEqual(providers.map((item) => item.model), ['google/gemma-4-31b-it:free', 'gemini-2.5-flash', 'gpt-4o-mini']);
 assert.deepEqual(configuredAiProviders({ GEMINI_API_KEY: 'gem-key' }).map((item) => item.provider), ['gemini']);
+assert.equal(configuredAiProviders({ OPENROUTER_API_KEY: 'or-key', OPENROUTER_MODEL: 'openrouter/free' })[0].model, 'google/gemma-4-31b-it:free');
 const calls = [];
 const fakeFetch = async (url, options) => {
   calls.push({ url, options });
