@@ -2472,109 +2472,50 @@ def submit_teacher_review(
     if not teacher_id or not detail:
         return False, "teacher_review_save_failed"
 
-    session_row = detail.get("session_row") or {}
     session_id = int(detail.get("practice_session_id") or 0)
     student_id = str(detail.get("student_id") or "").strip()
     if not session_id or not student_id:
         return False, "teacher_review_save_failed"
 
+    # The UI identifies questions by exercise/question index; the RPC accepts
+    # answer-row IDs. Resolve them before making one atomic database call.
     answers_map = _load_practice_answers_map(session_id, student_id)
-    total = 0
-    correct = 0
-    review_items: list[dict] = []
-
-    for item in detail.get("items", []):
-        q_key = item.get("question_key")
-        choice = _clean_text(overrides.get(q_key) or "keep")
-        answer_row = answers_map.get((int(item.get("exercise_idx") or 0), int(item.get("question_idx") or 0)))
-        if not answer_row:
-            continue
-        current_correct = bool(answer_row.get("is_correct"))
-        if choice == "correct":
-            final_correct = True
-        elif choice == "incorrect":
-            final_correct = False
-        else:
-            final_correct = current_correct
-        total += 1
-        correct += 1 if final_correct else 0
-        review_items.append(
-            {
-                "question_key": q_key,
-                "override": choice,
-                "auto_correct": current_correct,
-                "final_correct": final_correct,
-            }
-        )
-        try:
-            get_sb().table("practice_answers").update({"is_correct": final_correct}).eq("id", answer_row.get("id")).eq("user_id", student_id).execute()
-        except Exception:
+    answer_ids = {
+        str(item.get("question_key")): str(answer.get("id"))
+        for item in detail.get("items", [])
+        if (answer := answers_map.get((int(item.get("exercise_idx") or 0), int(item.get("question_idx") or 0))))
+        and answer.get("id") is not None
+    }
+    rpc_overrides: dict[str, str] = {}
+    for question_key, choice in overrides.items():
+        if choice not in ("keep", "correct", "incorrect"):
             return False, "teacher_review_save_failed"
+        if question_key not in answer_ids:
+            if choice == "keep":
+                continue
+            return False, "teacher_review_save_failed"
+        rpc_overrides[answer_ids[question_key]] = choice
 
-    score_pct = round((correct / total) * 100, 1) if total else 0.0
-    now = _now_iso()
     try:
-        get_sb().table("practice_sessions").update(
+        result = get_sb().rpc(
+            "classio_submit_teacher_review_oidc",
             {
-                "correct_count": correct,
-                "score_pct": score_pct,
-                "completed_at": session_row.get("completed_at") or now,
-            }
-        ).eq("id", session_id).eq("user_id", student_id).execute()
-
-        get_sb().table("teacher_review_requests").update(
-            {
-                "status": "reviewed",
-                "teacher_feedback": _clean_teacher_feedback_text(teacher_feedback),
-                "override_score_pct": score_pct,
-                "review_payload": {"items": review_items},
-                "reviewed_at": now,
-                "updated_at": now,
-            }
-        ).eq("id", int(review_id)).eq("teacher_id", teacher_id).execute()
-
-        assignment_id = detail.get("assignment_id")
-        if assignment_id:
-            get_sb().table("teacher_assignments").update(
-                {
-                    "score_pct": score_pct,
-                    "correct_count": correct,
-                    "total_questions": total,
-                    "teacher_note": _clean_teacher_feedback_text(teacher_feedback) or _clean_teacher_feedback_text(detail.get("teacher_feedback")) or "",
-                    "updated_at": now,
-                }
-            ).eq("id", int(assignment_id)).eq("teacher_id", teacher_id).execute()
-
-            attempt_rows = _rows(
-                get_sb()
-                .table("teacher_assignment_attempts")
-                .select("id")
-                .eq("assignment_id", int(assignment_id))
-                .eq("practice_session_id", session_id)
-                .eq("student_id", student_id)
-                .order("created_at", desc=True)
-                .limit(1)
-                .execute()
-            )
-            if attempt_rows:
-                get_sb().table("teacher_assignment_attempts").update(
-                    {
-                        "score_pct": score_pct,
-                        "correct_count": correct,
-                        "total_questions": total,
-                        "teacher_feedback": _clean_teacher_feedback_text(teacher_feedback),
-                        "graded_at": now,
-                        "updated_at": now,
-                    }
-                ).eq("id", attempt_rows[0].get("id")).execute()
-
+                "p_review_id": int(review_id),
+                "p_overrides": rpc_overrides,
+                "p_teacher_feedback": _clean_teacher_feedback_text(teacher_feedback),
+                "p_teacher_id": teacher_id,
+            },
+        ).execute()
+        if not isinstance(getattr(result, "data", None), dict):
+            return False, "teacher_review_save_failed"
+        # Progress rebuilding is derived and can be retried. The scored answers,
+        # session, review, assignment and attempt above commit together.
         try:
             from helpers.practice_engine import rebuild_practice_progress_for_user
 
             rebuild_practice_progress_for_user(student_id)
         except Exception:
             pass
-
         _clear_teacher_student_caches()
         return True, "teacher_review_saved"
     except Exception:
