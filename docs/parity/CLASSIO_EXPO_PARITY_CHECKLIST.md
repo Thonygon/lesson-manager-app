@@ -222,8 +222,10 @@ Deployment target from 2026-10-01: `https://classio.expo.app`. Historical releas
 
 - [x] Calendar create/edit/delete validation, success, and fallback error messages now use EN/ES/TR catalog entries instead of English literals. This covers weekly schedules, one-time exceptions, and student pauses while preserving structured Supabase error detail. Source: `streamlit/app_pages/app_page_calendar.py` and `streamlit/helpers/schedule.py`; targets: `expo/src/app/(app)/calendar.tsx`, `expo/src/providers/app-preferences.tsx`. Direct TypeScript, targeted ESLint, and `git diff --check` passed. No database or staging operation occurred.
 - [x] The Calendar hero summary, week/month/day controls, date accessibility label, and action-form choices now use EN/ES/TR catalog entries. Source: `streamlit/app_pages/app_page_calendar.py`; targets: `expo/src/app/(app)/calendar.tsx`, `expo/src/providers/app-preferences.tsx`. Direct TypeScript, targeted ESLint, and `git diff --check` passed.
+- [x] On 26-10-2026, the Calendar added a guided first-lesson state for teachers who already have students but no schedule: weekly and one-time form actions, with optional Google Calendar sync instructions in EN/ES/TR. TypeScript, targeted ESLint, and diff whitespace checks passed; beta keyboard and locale acceptance is still pending.
 - [x] The Calendar loading failure, retry, today marker, overflow count, and empty-agenda guidance now use EN/ES/TR catalog entries. Source: `streamlit/app_pages/app_page_calendar.py`; targets: `expo/src/app/(app)/calendar.tsx`, `expo/src/providers/app-preferences.tsx`. Direct TypeScript, targeted ESLint, and `git diff --check` passed.
-- [ ] Calendar empty-state guidance and locale/keyboard acceptance remain open; form and agenda labels were completed in the subsequent slice above.
+- [x] Calendar empty-state guidance now gives teachers with students a weekly, one-time, and optional Google Calendar path with direct form actions in EN/ES/TR.
+- [ ] Calendar locale and keyboard acceptance remains open for beta; form and agenda labels were completed in the subsequent slice above.
 
 ## 2026-09-27 parity slice: student topic-resource reference signals
 
@@ -322,10 +324,10 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
   - [x] Lightweight gallery loading with visible-page image hydration for large plans, worksheets, and exams
   - [x] Complete metadata pagination up to the Supabase API maximum instead of truncating each type at 200
   - [ ] Complete content renderers for programs, plans, worksheets, and exams
-  - [ ] Embedded video playback
+  - [x] Embedded video playback on web and native Explorer, with a YouTube fallback link (code complete 26-10-2026; native binary rebuild and beta playback acceptance pending)
   - [x] Pagination
   - [ ] Save-after-sign-up handoff
-- [ ] Pre-login feature walkthrough
+- [x] Pre-login feature walkthrough across six teacher features, including phone layouts and EN/ES/TR navigation (code complete 26-10-2026; beta visual/keyboard acceptance pending)
 - [ ] Income-goal calculator
   - [x] Subject, modality, audience, education, hourly-rate, and target controls
   - [x] Annual hours, weekly hours, student-count, and feasibility calculation

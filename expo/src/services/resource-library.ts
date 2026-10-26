@@ -3,6 +3,7 @@ import { requireSupabase } from '@/lib/supabase';
 import { programReady } from '@/shared/program-completion';
 import { worksheetHasSource, worksheetReferencesSource } from '@/lib/worksheet-source';
 import { canonicalSubjectKey, canonicalSubjectLabel } from '@/lib/subjects';
+import { youtubeVideoId } from '@/lib/youtube';
 import { canonicalChoice } from '@/services/student-practice-answer-normalization';
 import { extractResourceImageUrl, type PublicResource, type PublicResourceKind } from '@/services/public-data';
 import type { TeacherConnection } from '@/services/teacher-students';
@@ -302,17 +303,7 @@ export async function deleteResourcePermanently(kind: PublicResourceKind, id: st
   const { error } = await client.from(DEFINITIONS[kind].table).delete().eq('id', id).eq('user_id', userData.user.id); if (error) throw error;
 }
 
-export function youtubeVideoId(value: string) {
-  const raw = value.trim();
-  try {
-    const url = new URL(raw);
-    const host = url.hostname.toLowerCase();
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return '';
-    if (!['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtube-nocookie.com', 'www.youtube-nocookie.com', 'youtu.be', 'www.youtu.be'].includes(host)) return '';
-    const id = host.endsWith('youtu.be') ? url.pathname.slice(1) : url.pathname === '/watch' ? url.searchParams.get('v') || '' : /^\/(embed|shorts)\//.test(url.pathname) ? url.pathname.split('/')[2] || '' : '';
-    return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : '';
-  } catch { return ''; }
-}
+export { youtubeVideoId };
 
 const VIDEO_STAGES = new Set(['early_primary', 'upper_primary', 'lower_secondary', 'upper_secondary', 'adult_stage']);
 const VIDEO_LANGUAGE_LEVELS = new Set(['A1', 'A2', 'B1', 'B2', 'C1', 'C2']);

@@ -9,6 +9,8 @@
 | **Paridad Expo–Streamlit** | [Checklist y aceptación](parity/CLASSIO_EXPO_PARITY_CHECKLIST.md) | Qué flujo de Expo reproduce el comportamiento de Streamlit y cuál requiere pruebas o servicio adicional. |
 | **Académica** | [Auditoría TFM](TFM_TECHNICAL_AUDIT.md), con [reproducibilidad ML](TFM_ML_REPRODUCIBILITY.md) | Qué afirmaciones OE1–OE3 están medidas, cuáles son experimentales y cuáles son solo funcionalidad implementada. |
 
+**Avance de código 26-10-2026:** Explorer incorpora reproducción embebida de videos públicos, la página previa al registro permite recorrer seis funciones docentes en escritorio y móvil, y el calendario guía la primera clase cuando ya existen estudiantes. Las tres superficies tienen traducciones EN/ES/TR y comprobaciones locales; falta la aceptación beta visual y de teclado. El video nativo requiere una nueva compilación de la app por la dependencia `react-native-webview`. No se añadieron migraciones ni se alteraron datos de pagos, clases o perfiles.
+
 ## Destino de los informes existentes
 
 | Informe o plan | Función desde ahora | Responsable de los pendientes |
