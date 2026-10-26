@@ -1,4 +1,5 @@
 import { requireSupabase } from '@/lib/supabase';
+import { hostingApiUrl } from '@/lib/hosting-api-url';
 import type { ClassioRecord } from '@/services/classio-data';
 
 export const PROFILE_COLUMNS = 'user_id,email,display_name,username,avatar_url,date_of_birth,sex,phone_number,role,primary_role,can_teach,can_study,last_active_mode,preferred_ui_language,timezone,country,preferred_currency,default_lesson_duration,primary_subjects,custom_subjects,teaching_stages,teaching_languages,education_level,show_community_profile,show_community_contact,onboarding_completed';
@@ -52,7 +53,7 @@ export async function chooseInitialWorkspaceRole(mode: 'teacher' | 'student', la
   const client = requireSupabase();
   const { data: session, error: sessionError } = await client.auth.getSession();
   if (sessionError || !session.session) throw sessionError ?? new Error('Your session has expired.');
-  const response = await fetch('/api/choose-role', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.session.access_token}` }, body: JSON.stringify({ mode, language }) });
+  const response = await fetch(hostingApiUrl('/api/choose-role'), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.session.access_token}` }, body: JSON.stringify({ mode, language }) });
   const result = await response.json().catch(() => ({})) as { error?: string };
   if (!response.ok) throw new Error(result.error || 'Your choice could not be saved.');
 }

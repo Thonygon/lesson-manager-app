@@ -4,6 +4,7 @@ import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Button, Disclosure, EditIconButton, Field } from '@/components/ui';
 import { requireSupabase } from '@/lib/supabase';
+import { hostingApiUrl } from '@/lib/hosting-api-url';
 import { canonicalSubjectLabel } from '@/lib/subjects';
 import { programTopics } from '@/lib/learning-program-topics';
 import { useAppPreferences } from '@/providers/app-preferences';
@@ -54,7 +55,7 @@ export function LearningProgramView({ programId, detail, owner = false, onSaved 
   const topics = useMemo<Row[]>(() => programTopics(detail, Array.isArray(detail.topics) ? detail.topics as Row[] : []), [detail]);
   useEffect(() => { let active = true; const load = async () => {
     if (!programId || !topics.length) return;
-    if (!owner) { try { const response = await fetch(`/api/program-topic-videos?programId=${encodeURIComponent(programId)}`); const result = await response.json() as { videos?: Video[] }; if (active && response.ok) setVideos(result.videos || []); } catch { /* Optional videos do not block the program. */ } return; }
+    if (!owner) { try { const response = await fetch(hostingApiUrl(`/api/program-topic-videos?programId=${encodeURIComponent(programId)}`)); const result = await response.json() as { videos?: Video[] }; if (active && response.ok) setVideos(result.videos || []); } catch { /* Optional videos do not block the program. */ } return; }
     const client = requireSupabase();
     const { data: links, error: linkError } = await client.from('learning_program_topic_videos').select('topic_id,video_id').eq('program_id', programId).limit(300);
     if (linkError || !links?.length) return;

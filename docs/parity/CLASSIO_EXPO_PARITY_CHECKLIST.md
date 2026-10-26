@@ -324,7 +324,7 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
   - [x] Stored cover, thumbnail, and generated visual rendering on resource cards and previews
   - [x] Lightweight gallery loading with visible-page image hydration for large plans, worksheets, and exams
   - [x] Complete metadata pagination up to the Supabase API maximum instead of truncating each type at 200
-  - [ ] Complete content renderers for programs, plans, worksheets, and exams
+  - [x] Program, plan, worksheet, and exam content renderers load the full public record and use their dedicated views. Public program topic videos now resolve the hosted API on native builds as well as web. Content and answer-exclusion fixtures pass; beta content and layout acceptance remains open under P1/P2.
   - [x] Embedded video playback on web and native Explorer, with a YouTube fallback link (code complete 26-10-2026; native binary rebuild and beta playback acceptance pending)
   - [x] Pagination
   - [ ] Save-after-sign-up handoff
@@ -356,7 +356,7 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 - [x] Session restoration and sign out
 - [x] Account summary
 - [x] Teacher/student mode switching for dual-role accounts
-- [ ] First-run role choice
+- [x] First-run role choice is routed and saved for teacher/student accounts, with role guards and EN/ES/TR copy. The native chooser now calls the hosted API with an absolute URL; beta account creation on web and device remains to be accepted.
 - [x] First-run onboarding checklist and guided welcome
 - [ ] Editable profile, avatar, language, theme, timezone, currency, and preferences
   - [x] Persistent interface-language and appearance preferences

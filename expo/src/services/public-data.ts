@@ -1,5 +1,5 @@
 import { requireSupabase } from '@/lib/supabase';
-import { Platform } from 'react-native';
+import { hostingApiUrl } from '@/lib/hosting-api-url';
 
 export type PublicResourceKind = 'program' | 'plan' | 'worksheet' | 'exam' | 'video';
 
@@ -95,16 +95,14 @@ function normalize(kind: PublicResourceKind, row: Record<string, unknown>): Publ
 }
 
 async function publicExamRows(id?: string): Promise<Record<string, unknown>[]> {
-  const base = Platform.OS === 'web' ? '' : (process.env.EXPO_PUBLIC_HOSTING_URL?.trim() || 'https://classio.expo.app').replace(/\/$/, '');
-  const response = await fetch(`${base}/api/public-exams${id ? `?id=${encodeURIComponent(id)}` : ''}`);
+  const response = await fetch(hostingApiUrl(`/api/public-exams${id ? `?id=${encodeURIComponent(id)}` : ''}`));
   if (!response.ok) throw new Error(`Unable to load public exams (${response.status}).`);
   const payload = await response.json() as { exam?: Record<string, unknown>; exams?: Record<string, unknown>[] };
   return id ? payload.exam ? [payload.exam] : [] : payload.exams ?? [];
 }
 
 export async function getExplorerPublicExamPage(page: number, limit = 60): Promise<{ resources: PublicResource[]; hasMore: boolean }> {
-  const base = Platform.OS === 'web' ? '' : (process.env.EXPO_PUBLIC_HOSTING_URL?.trim() || 'https://classio.expo.app').replace(/\/$/, '');
-  const response = await fetch(`${base}/api/public-exams?page=${page}&limit=${limit}`);
+  const response = await fetch(hostingApiUrl(`/api/public-exams?page=${page}&limit=${limit}`));
   if (!response.ok) throw new Error(`Unable to load public exams (${response.status}).`);
   const payload = await response.json() as { exams?: Record<string, unknown>[]; hasMore?: boolean };
   return { resources: (payload.exams ?? []).map((row) => normalize('exam', row)), hasMore: Boolean(payload.hasMore) };

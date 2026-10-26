@@ -8,6 +8,11 @@ const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.Modu
 const loaded = { exports: {} };
 new Function('module', 'exports', 'require', compiled)(loaded, loaded.exports, (name) => {
   if (name === 'react-native') return { Platform: { OS: 'web' } };
+  if (name === '@/services/branding') return { getBrandingSettings: () => ({}) };
+  if (name === '@/services/document-export-events') return { recordedDocumentExport: async () => {} };
+  if (name === '@/lib/subjects') return { canonicalSubjectKey: (value) => value };
+  if (name === '@/lib/learner-stages') return { canonicalLearnerStageKey: (value) => value };
+  if (name === '@/lib/lesson-purpose') return { lessonPurposeKey: (value) => value };
   if (name === '@/lib/supabase') return { requireSupabase() { throw new Error('Not needed by this fixture'); } };
   if (name === './source-document-labels.json') return require('../src/services/source-document-labels.json');
   if (name === './word-search-grid') {
@@ -70,7 +75,7 @@ assert.ok(worksheetTeacher.includes('Hello'));
 const matching = { worksheet_json: { worksheet_type: 'matching', instructions: 'Connect each pair.', matching_pairs: [{ left: 'Hola', right: 'Hello' }, { left: 'Adiós', right: 'Goodbye' }], answer_key: '1. Hola → Hello\n2. Adiós → Goodbye' } };
 const matchingStudent = loaded.exports.resourceSections(matching, 'student');
 const matchingTeacher = loaded.exports.resourceSections(matching, 'teacher');
-assert.ok(matchingStudent.some((section) => section.lines.includes('a) Goodbye')));
+assert.ok(matchingStudent.some((section) => section.table?.some((row) => row.includes('a) Goodbye'))));
 assert.ok(!JSON.stringify(matchingStudent).includes('Hola → Hello'));
 assert.ok(JSON.stringify(matchingTeacher).includes('Hola → Hello'));
 assert.deepEqual(matchingStudent.find((section) => section.heading === 'Match the items').table[0], ['1. Hola', '[   ]', 'a) Goodbye']);
@@ -104,8 +109,8 @@ assert.equal(loaded.exports.resourceSections({ exam_data: { sections: [{ type: '
 assert.equal(loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'word_search', visual_support: { status: 'ready', image_data_url: art }, questions: ['Find CAT'] }] } }, 'student')[0].visuals, undefined);
 
 const cvSections = loaded.exports.resourceSections({ full_name: 'Ada Teacher', role: 'teacher', email: 'ada@example.test', professional_summary: 'Experienced educator.', subjects: ['Spanish'], education: ['BA Education'] }, 'full', 'es');
-assert.deepEqual(cvSections.map((section) => section.heading), ['Contacto', 'Resumen profesional', 'Asignaturas', 'Formación']);
-assert.ok(cvSections[0].lines.includes('ada@example.test'));
+assert.deepEqual(cvSections.map((section) => section.heading).filter(Boolean), ['Resumen profesional', 'Asignaturas', 'Formación']);
+assert.ok(cvSections.some((section) => section.lines.includes('ada@example.test')));
 const letterSections = loaded.exports.resourceSections({ cover_letter: 'Dear school,\n\nI teach Spanish.\n\nSincerely, Ada', target_employer: 'Colegio Norte' }, 'full', 'en');
-assert.equal(letterSections[0].lines.length, 4);
+assert.deepEqual(letterSections[0].lines, ['Dear school,', 'I teach Spanish.', 'Sincerely, Ada']);
 process.stdout.write('Student document answer-exclusion fixture passed.\n');

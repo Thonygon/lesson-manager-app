@@ -17,6 +17,8 @@
 
 **Avance de código 26-10-2026:** la bandeja de notificaciones permite marcar cada aviso como leído o no leído y guardar filtros por categoría, usuario y modo en el dispositivo. Perfil muestra las preferencias pertinentes para docente o estudiante. Explorer completa las etiquetas de nivel, tipo de ejercicio y extensión de examen en EN/ES/TR, y traduce los errores de generación anónima. Falta aceptación beta de interacción y de idiomas.
 
+**Dos cierres de paridad de código 26-10-2026:** la elección inicial de rol ya tenía pantalla, persistencia protegida y guardas de rutas; se corrigió su llamada a la API para compilaciones nativas. Las vistas públicas de programas, planes, fichas y exámenes ya cargaban el contenido completo y usaban renderizadores propios; los videos ligados a temas de programas públicos ahora consultan la API alojada también en nativo. Ambas casillas pasan a código completo, con aceptación beta de creación de cuenta, contenido y disposición visual pendiente. No requieren SQL.
+
 ## Destino de los informes existentes
 
 | Informe o plan | Función desde ahora | Responsable de los pendientes |
