@@ -13,6 +13,10 @@
 
 **Avance de código 26-10-2026, calculadora de ingresos:** se verificaron las conversiones de divisa y los factores de modalidad, audiencia y formación con fixtures frente a los supuestos de Streamlit. La meta elegida antes del registro pasa a la cuenta docente al entrar, mediante la configuración anual existente, solo cuando no hay una meta previa; el traspaso caduca y no añade tablas ni migraciones. Queda la prueba beta de registro, acceso y visualización del objetivo.
 
+**Decisión de producto 26-10-2026:** los controles de marca docente se consideran cerrados en la página independiente Branding. El usuario confirmó esa ubicación; no se duplican en Perfil.
+
+**Avance de código 26-10-2026:** la bandeja de notificaciones permite marcar cada aviso como leído o no leído y guardar filtros por categoría, usuario y modo en el dispositivo. Perfil muestra las preferencias pertinentes para docente o estudiante. Explorer completa las etiquetas de nivel, tipo de ejercicio y extensión de examen en EN/ES/TR, y traduce los errores de generación anónima. Falta aceptación beta de interacción y de idiomas.
+
 ## Destino de los informes existentes
 
 | Informe o plan | Función desde ahora | Responsable de los pendientes |

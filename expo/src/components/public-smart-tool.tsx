@@ -48,6 +48,7 @@ export function PublicSmartTool({ initial, onClose }: { initial: Kind; onClose: 
   const [confirmReuse, setConfirmReuse] = useState(false);
   const languageSubject = subject === 'english' || subject === 'spanish';
   const levels = languageSubject ? LANGUAGE_LEVELS : ACADEMIC_LEVELS;
+  const levelLabel = (value: string) => { const key = `smart.level.${value}`; const translated = t(key); return translated === key ? value : translated; };
   const availableExamTypes = [...new Set([...(EXAM_TYPES[subject] || EXAM_TYPES.study_skills), ...exerciseTypes])];
   const examRule = examLengthRule(examLength);
   const examTypeError = kind === 'exam' ? !exerciseTypes.length ? t('smart.examSelectTypes') : exerciseTypes.length > examRule.sections ? t('smart.examTooMany', { sections: examRule.sections }) : '' : '';
@@ -94,9 +95,9 @@ export function PublicSmartTool({ initial, onClose }: { initial: Kind; onClose: 
         return;
       }
       const response = await fetch('/api/generate', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
-      const payload = await response.json() as { document?: Record<string, unknown>; error?: string; matches?: GenerationMatch[] };
+      const payload = await response.json() as { document?: Record<string, unknown>; error?: string; code?: string; matches?: GenerationMatch[] };
       if (response.status === 409 && payload.matches?.length) { setReuseMatches(payload.matches); setPendingReuse(requestBody); setConfirmReuse(true); return; }
-      if (!response.ok || !payload.document) throw new Error(payload.error || copy.toolError);
+      if (!response.ok || !payload.document) throw new Error(payload.code === 'guest_limit_reached' ? copy.toolUsed : copy.toolError);
       setDocument(payload.document); setFeedback(t('smart.previewReady'));
     } catch (failure) { if (failure instanceof GenerationReuseError) { setReuseMatches(failure.matches); setPendingReuse(confirmed || { kind, subject, topic: topic.trim(), stage, level, language: subject === 'english' ? 'en' : subject === 'spanish' ? 'es' : language, planLanguage: language, lessonPurpose, worksheetType, examLength, exerciseTypes, notes, duration: '45 minutes', generationMode: 'ai', visibility: 'private' }); setConfirmReuse(true); } else setError(pendingSaveInput ? t('smart.saveFailed') : failure instanceof Error ? failure.message : copy.toolError); } finally { setBusy(false); }
   }
@@ -120,7 +121,7 @@ export function PublicSmartTool({ initial, onClose }: { initial: Kind; onClose: 
     <View style={[styles.columns, narrow && styles.columnsNarrow]}>
       <Panel style={[styles.builder, narrow && styles.narrowPanel]}>
         <Text style={styles.panelTitle}>{toolLabels[kind]}</Text>
-        <View style={styles.grid}>{select(copy.toolSubject, subject, SUBJECTS, chooseSubject, (value) => canonicalSubjectLabel(value, t))}{select(copy.toolStage, stage, STAGES, setStage, (value) => learnerStageLabel(value, t))}{select(copy.toolLevel, level, levels, setLevel)}{kind !== 'program' ? <View style={styles.fieldCell}><Text style={styles.label}>{copy.toolTopic}</Text><Field value={topic} onChangeText={setTopic} placeholder={copy.toolTopic} /></View> : null}{kind === 'worksheet' ? select(copy.toolType, worksheetType, WORKSHEET_TYPES, setWorksheetType) : null}{kind === 'exam' ? select(copy.toolLength, examLength, ['short', 'medium', 'long'], (value) => { setExamLength(value); setError(''); }) : null}{kind === 'plan' ? select(copy.toolPurpose, lessonPurpose, ['introduce_concept', 'practice_skill', 'review_topic', 'diagnose_difficulty', 'discussion_exploration'], setLessonPurpose, (value) => lessonPurposeLabel(value, t)) : null}</View>
+        <View style={styles.grid}>{select(copy.toolSubject, subject, SUBJECTS, chooseSubject, (value) => canonicalSubjectLabel(value, t))}{select(copy.toolStage, stage, STAGES, setStage, (value) => learnerStageLabel(value, t))}{select(copy.toolLevel, level, levels, setLevel, levelLabel)}{kind !== 'program' ? <View style={styles.fieldCell}><Text style={styles.label}>{copy.toolTopic}</Text><Field value={topic} onChangeText={setTopic} placeholder={copy.toolTopic} /></View> : null}{kind === 'worksheet' ? select(copy.toolType, worksheetType, WORKSHEET_TYPES, setWorksheetType, exerciseLabel) : null}{kind === 'exam' ? select(copy.toolLength, examLength, ['short', 'medium', 'long'], (value) => { setExamLength(value); setError(''); }, (value) => t(`smart.option.${value}`)) : null}{kind === 'plan' ? select(copy.toolPurpose, lessonPurpose, ['introduce_concept', 'practice_skill', 'review_topic', 'diagnose_difficulty', 'discussion_exploration'], setLessonPurpose, (value) => lessonPurposeLabel(value, t)) : null}</View>
         {kind === 'exam' ? <OrderedMultiSelectField label={t('smart.exerciseTypes')} values={exerciseTypes} options={availableExamTypes.map((value) => ({ value, label: exerciseLabel(value) }))} maxItems={examRule.sections} help={t('smart.examLengthRule', { length: t(`smart.option.${examLength}`), sections: examRule.sections, min: examRule.questionsMin, max: examRule.questionsMax })} addLabel={t('smart.addExerciseType')} emptyLabel={t('smart.noExerciseTypes')} moveUpLabel={t('smart.moveExerciseUp')} moveDownLabel={t('smart.moveExerciseDown')} removeLabel={t('smart.removeExerciseType')} onChange={(values) => { setExerciseTypes(values); setError(''); }} /> : null}
         <View><Text style={styles.label}>{copy.toolNotes}</Text><Field value={notes} onChangeText={setNotes} placeholder={copy.toolNotes} multiline numberOfLines={3} style={styles.notes} /></View>
         {kind === 'program' ? <Text style={styles.muted}>{copy.toolProgramNote}</Text> : null}

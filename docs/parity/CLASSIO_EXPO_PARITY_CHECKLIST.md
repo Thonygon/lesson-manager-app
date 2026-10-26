@@ -341,10 +341,10 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 - [ ] Google sign in on `classio.expo.app`: the web client now requests a Google ID token from Google Identity Services on the Classio origin and exchanges it for a Supabase session with a nonce. The Google Cloud OAuth web client must authorize `https://classio.expo.app` as a JavaScript origin. Confirm the hosted account chooser displays the Classio origin and a signed-in session is created before checking this complete. The native app still uses the Supabase OAuth redirect.
 - [x] Password reset code: Sign In requests a Supabase recovery email, `/reset-password` accepts web and native recovery sessions, validates and updates the new password, then returns to Sign In. EN/ES/TR copy, recovery-link fixtures, TypeScript, targeted lint, and a 32-route web export pass. The Supabase redirect allow list must include `https://classio.expo.app/reset-password` and the exact native URL produced by `Linking.createURL('/reset-password')` before the user's live email/device acceptance.
 - [x] Signed-in Google users can set a Classio email/password credential from Profile → Email & password. The form confirms the password, calls Supabase `updateUser` for the current account, and preserves the Google identity. Existing password users can change theirs through the same form. Supabase's configured password and reauthentication policies remain authoritative; functional acceptance with a beta Google account is pending.
-- [ ] English, Spanish, and Turkish public UI
+- [x] English, Spanish, and Turkish public UI (code complete; beta visual acceptance pending)
   - [x] Persistent language control on the public, authentication, and signed-in shells
   - [x] Public hero and authentication journey translated in English, Spanish, and Turkish
-  - [ ] Translate the remaining public explorer, income planner, sample dashboard, and footer copy
+  - [x] Public Explorer, income planner, sample dashboard, footer, and Smart Tool option labels use EN/ES/TR catalogs; anonymous generation failures show localized production copy. User-authored resource content remains in its source language; beta visual acceptance is pending.
 - [x] Auto, light, and dark appearance controls
 
 ## Shared signed-in experience
@@ -362,11 +362,11 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
   - [x] Persistent interface-language and appearance preferences
   - [x] Streamlit-matched Profile route with avatar upload, locked username/email, personal details, role, timezone, country, default currency/duration, teaching subjects/stages/languages, education, community visibility/contact, and guarded account deletion
   - [x] Responsive Profile placement beside Account/Billing in signed-in teacher and student navigation, with the saved avatar reflected in the application shell
-  - [ ] Teacher branding/logo/footer controls embedded in the Streamlit profile dialog
-- [ ] Notification center and notification preferences
+  - [x] Teacher branding/logo/footer controls are available on the dedicated Branding page, with settings, image uploads, preview, and persistence. The user confirmed this page as the intended location on 26-10-2026; no duplicate controls are needed in Profile.
+- [x] Notification center and on-device notification preferences (code complete; beta interaction acceptance pending)
   - [x] Dashboard notification center derived from assignment-review and package-risk signals
   - [x] Student Home notification panel derived from assignment deadlines, new/graded work, and completed teacher reviews
-  - [ ] Stored notification read/unread state and notification preferences
+  - [x] Notification read/unread actions and category preferences persist per user and workspace on this device. Profile offers assignment, review, and payment filters as applicable; beta interaction acceptance is pending. Cross-device syncing is outside this code-only closure.
 - [x] Pricing, plan comparison, and subscription-state display
   - [ ] Live checkout and school-contact billing actions
 - [x] Community teacher/student directories, filters, profiles, pagination, and contact actions
