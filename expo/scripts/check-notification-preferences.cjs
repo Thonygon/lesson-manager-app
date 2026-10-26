@@ -14,6 +14,7 @@ assert.deepEqual(parseNotificationPreferences('{bad json'), { assignments: true,
 assert.equal(notificationCategory('student:due:123'), 'assignments');
 assert.equal(notificationCategory('student:graded:123'), 'assignments');
 assert.equal(notificationCategory('student:review:123'), 'reviews');
+assert.equal(notificationCategory('student:comment:123'), 'reviews');
 assert.equal(notificationCategory('teacher:practice:123'), 'reviews');
 assert.equal(notificationCategory('teacher:payment:123'), 'payments');
 console.log('Notification preference fixtures passed');

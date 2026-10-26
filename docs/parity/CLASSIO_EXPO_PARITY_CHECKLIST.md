@@ -367,6 +367,7 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
   - [x] Dashboard notification center derived from assignment-review and package-risk signals
   - [x] Student Home notification panel derived from assignment deadlines, new/graded work, and completed teacher reviews
   - [x] Notification read/unread actions and category preferences persist per user and workspace on this device. Profile offers assignment, review, and payment filters as applicable; beta interaction acceptance is pending. Cross-device syncing is outside this code-only closure.
+  - [x] Student grade notices use a result icon and distinct copy; actual teacher comments and completed reviews use a comment icon. Each opens the specific practice resource, and saved-session links show the grade or teacher comment beside that resource. When no saved session exists, the notice opens the assigned resource with the available summary. Beta navigation acceptance is pending.
 - [x] Pricing, plan comparison, and subscription-state display
   - [ ] Live checkout and school-contact billing actions
 - [x] Community teacher/student directories, filters, profiles, pagination, and contact actions

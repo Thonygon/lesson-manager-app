@@ -17,6 +17,6 @@ export function parseNotificationPreferences(raw: string | null): NotificationPr
 
 export function notificationCategory(key: string): NotificationCategory {
   if (key.startsWith('teacher:payment:')) return 'payments';
-  if (key.startsWith('teacher:') || key.startsWith('student:review:')) return 'reviews';
+  if (key.startsWith('teacher:') || key.startsWith('student:review:') || key.startsWith('student:comment:')) return 'reviews';
   return 'assignments';
 }
