@@ -116,7 +116,7 @@ Hay **22 paquetes de cierre abiertos** en las cuatro auditorías activas. Se cue
 | P2 | Paridad | Generación y documentos | Comparar salidas, continuación y páginas PDF/Word Expo–Streamlit con fixtures renderizados y recorridos beta. |
 | P3 | Paridad | Recomendaciones docente/alumno | Comparar orden y razones con la misma cuenta/datos; verificar RLS, señales y latencia en Expo. |
 | P4 | Paridad | Experimentos e informes Python | Montar worker autenticado y almacenamiento duradero; conectar ejecución, revisión, informes y descargas de Expo. |
-| P5 | Paridad | Resto de recorridos y accesibilidad | La recuperación de contraseña ya tiene código web/móvil y traducciones; cerrar CV, calendario, analítica y páginas restantes con comparación fuente, teclado, idiomas y tamaños de pantalla. Probar correo y enlaces de recuperación en beta tras verificar la lista de redirecciones de Supabase. |
+| P5 | Paridad | Resto de recorridos y accesibilidad | La recuperación y configuración de contraseña desde Perfil ya tienen código web/móvil y traducciones; cerrar CV, calendario, analítica y páginas restantes con comparación fuente, teclado, idiomas y tamaños de pantalla. Probar contraseña añadida a una cuenta Google y correo/enlaces de recuperación en beta tras verificar la configuración de Supabase. |
 | A1 | Académica | OE1 tiempo y calidad | Estudio controlado con docentes, tiempos y calidad evaluada independientemente. |
 | A2 | Académica | OE2 pertinencia y ablación | Reunir etiquetas independientes, negativos no mostrados y muestras temporales; medir NDCG y ablación antes de reentrenar. |
 | A3 | Académica | OE3 viabilidad | TCO y escenarios con costes e ingresos conciliados; revisión de arquitectura y supuestos documentados. |
