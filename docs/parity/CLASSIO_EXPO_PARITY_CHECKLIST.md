@@ -329,12 +329,12 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
   - [x] Pagination
   - [ ] Save-after-sign-up handoff
 - [x] Pre-login feature walkthrough across six teacher features, including phone layouts and EN/ES/TR navigation (code complete 26-10-2026; beta visual/keyboard acceptance pending)
-- [ ] Income-goal calculator
+- [x] Income-goal calculator (three code paths complete; beta sign-up and visual acceptance pending)
   - [x] Subject, modality, audience, education, hourly-rate, and target controls
   - [x] Annual hours, weekly hours, student-count, and feasibility calculation
-  - [ ] Currency selection and conversion
-  - [ ] Apply modality, audience, and education multipliers to the recommended fee range
-  - [ ] Persist the goal after account creation
+  - [x] Currency selection and conversion using the same fixed planning factors as Streamlit; local conversion fixtures cover USD/EUR/TRY
+  - [x] Apply modality, audience, and education multipliers to the recommended fee range; parity fixtures cover adult/child, qualifications, and mixed modalities
+  - [x] Persist the selected annual goal after account creation: the explicit calculator action saves a short-lived local handoff, and the teacher dashboard writes it to the existing annual-goal setting only when no goal is already saved. Expired or invalid handoffs are discarded; beta sign-up acceptance remains pending
 - [x] Email/password sign in
 - [x] Email/password account creation
 - [x] Passwordless email-link sign in with Expo redirect

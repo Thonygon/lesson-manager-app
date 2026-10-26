@@ -11,6 +11,8 @@
 
 **Avance de código 26-10-2026:** Explorer incorpora reproducción embebida de videos públicos, la página previa al registro permite recorrer seis funciones docentes en escritorio y móvil, y el calendario guía la primera clase cuando ya existen estudiantes. Las tres superficies tienen traducciones EN/ES/TR, pasaron TypeScript, ESLint dirigido y exportación web, y se publicaron con `1b9dadd3c` en Expo web (`https://classio.expo.app`, HTTP 200). Falta la aceptación beta visual y de teclado. El video nativo requiere una nueva compilación de la app por la dependencia `react-native-webview`. No se añadieron migraciones ni se alteraron datos de pagos, clases o perfiles.
 
+**Avance de código 26-10-2026, calculadora de ingresos:** se verificaron las conversiones de divisa y los factores de modalidad, audiencia y formación con fixtures frente a los supuestos de Streamlit. La meta elegida antes del registro pasa a la cuenta docente al entrar, mediante la configuración anual existente, solo cuando no hay una meta previa; el traspaso caduca y no añade tablas ni migraciones. Queda la prueba beta de registro, acceso y visualización del objetivo.
+
 ## Destino de los informes existentes
 
 | Informe o plan | Función desde ahora | Responsable de los pendientes |

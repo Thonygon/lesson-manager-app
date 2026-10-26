@@ -19,6 +19,11 @@ export type IncomeCurrency = keyof typeof CURRENCY_FACTORS;
 const audienceFactor: Record<IncomeAudience, number> = { Kids: .75, Teens: .85, Adults: 1 };
 const educationFactor: Record<IncomeEducation, number> = { Student: .7, 'Bachelor’s': .9, 'Master’s': 1, Doctorate: 1.15 };
 
+export function convertPlanningAmount(amount: number, from: IncomeCurrency, to: IncomeCurrency) {
+  if (!Number.isFinite(amount) || amount < 0) return 0;
+  return Math.round(amount * CURRENCY_FACTORS[to] / CURRENCY_FACTORS[from]);
+}
+
 export function recommendedRange(subject: IncomeSubject, modalities: IncomeModality[], audiences: IncomeAudience[], education: IncomeEducation, currency: IncomeCurrency): [number, number, number] {
   const combinations = modalities.flatMap((modality) => audiences.map((audience) =>
     RATE_RANGES_USD[subject][modality].map((base) => base * audienceFactor[audience] * educationFactor[education] * CURRENCY_FACTORS[currency])));
