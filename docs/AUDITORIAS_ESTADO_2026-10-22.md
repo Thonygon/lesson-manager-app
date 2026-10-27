@@ -29,6 +29,8 @@
 
 **Publicación del 27-10-2026:** el commit `92eadd3a3` se envió a `origin/ver/42`. Expo Hosting publicó `https://classio--c2rtr7tpip.expo.app` y lo promovió a `https://classio.expo.app`; `https://app.masterclassio.com` sirve el mismo bundle `entry-9e8aadeec6e1282b63698d06ed6d1645.js`. Las tres rutas devolvieron HTTP 200. La generación anónima admite ambos orígenes web de Classio y conserva el rechazo de origen ajeno. La aceptación beta de registro, guardado y retirada del marcador queda pendiente.
 
+**Comprobación posterior de Supabase, 27-10-2026:** una consulta de solo lectura mostró 123 pagos docentes, 1.962 clases y 31 perfiles existentes. No se tomó un recuento inmediatamente anterior a esta migración, así que estos valores no demuestran por sí solos ausencia de cambios entre cortes; el SQL aplicado no contiene escrituras sobre esas tres tablas. `authenticated` no puede insertar marcadores directamente, sí puede llamar la RPC; `anon` no puede llamarla.
+
 ## Destino de los informes existentes
 
 | Informe o plan | Función desde ahora | Responsable de los pendientes |
