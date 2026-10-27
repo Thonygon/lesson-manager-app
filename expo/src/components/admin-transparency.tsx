@@ -87,7 +87,7 @@ export function AdminDecisionTrail({ snapshot }: { snapshot: AdminAiSnapshot | n
       <Text style={styles.body}>{`${t('transparency.feedback')}: ${JSON.stringify(row.feedback || [])} · ${t('transparency.actions')}: ${JSON.stringify(row.events || [])}`}</Text>
       <Text style={styles.meta}>{t('transparency.decisionId')}: {format(row.id)}</Text>
     </Disclosure>)}
-    {generations.map((row) => <Disclosure key={value(row.id)} title={`${t('transparency.generation')}: ${format(row.feature_name)}`} summary={`${format(row.source)} · ${format(row.status)} · ${format(row.shown_at)}`}>
+    {generations.map((row) => <Disclosure key={value(row.id)} title={`${t('transparency.generation')}: ${format(row.feature_name)}`} summary={`${format(row.surface)} · ${format(row.status)} · ${format(row.shown_at)}`}>
       <Text style={styles.body}>{`${t('transparency.version')}: ${format(row.prompt_version)} · ${t('transparency.modelCard')}: ${format(row.model_name)}`}</Text>
       <Text style={styles.body}>{`${t('transparency.providerAttempts')}: ${JSON.stringify(row.attempts || [])}`}</Text>
       <Text style={styles.body}>{`${t('transparency.feedback')}: ${JSON.stringify(row.feedback || {})}`}</Text>
