@@ -1,5 +1,7 @@
 # Classio Streamlit → Expo parity checklist
 
+**Estado vigente 27-10-2026:** el traspaso de recursos públicos tras el acceso está implementado y su migración ya está aplicada. La expansión y selección de recomendaciones por programa, el entrenamiento con feedback de apertura/impresión y la API autenticada para `user_activity_log` también existen; las casillas históricas que piden crear esas piezas describen cortes anteriores. Permanecen el ensayo autenticado con la misma cuenta y datos, el runtime privado del artefacto de afinidad docente, la ejecución Python de experimentos/informes y la paridad integral de PDF/Word. La verificación beta de recorridos públicos y de guardado sigue pendiente.
+
 ## Cierres de código — 25-10-2026
 
 - [x] El historial de práctica ya no actualiza una calificación de sopa de letras directamente en `practice_sessions`. La ruta existente de recalificación usa el RPC transaccional para sesión, respuestas, progreso y asignación; si cambió la estructura del ejercicio, se conserva la nota confirmada para revisión docente.
@@ -307,11 +309,12 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 
 - [x] Branded responsive public landing page
 - [ ] Pre-login Explore workspace with AI tool previews
-  - [ ] Quick lesson planner demo
-  - [ ] Worksheet maker demo
-  - [ ] Quick exam builder demo
-  - [ ] Learning-program maker preview
-  - [ ] Anonymous-use limits and sign-up handoff that preserves generated work
+  - [x] Quick lesson planner demo: the existing public Smart Tool opens from its card, accepts subject/stage/level/topic/purpose, calls the anonymous generation route, and renders the resulting plan. Code verified 26-10-2026; live beta generation remains pending.
+  - [x] Worksheet maker demo: the existing public Smart Tool accepts the worksheet type and renders its generated student content. Code verified 26-10-2026; live beta generation remains pending.
+  - [x] Quick exam builder demo: the existing public Smart Tool accepts length and ordered exercise types, validates the section count, and renders the exam. Code verified 26-10-2026; live beta generation remains pending.
+  - [x] Learning-program maker preview: the public builder now exposes stage-specific unit and lesson counts and a live structural summary before sign-in. The summary explicitly says that AI content is generated after sign-in; it carries the selected settings into Smart Tools. Code complete 26-10-2026, beta visual/continuation acceptance pending.
+  - [x] Anonymous-use limits and sign-up handoff for generated work: the existing three-per-day server reservation remains in place; a generated plan, worksheet, or exam and its inputs now survive sign-in in a bounded, 24-hour device draft. Dashboard offers an explicit continuation action; Smart Tools restores the unsaved preview and requires the teacher to save it. No new provider call is made on restoration. Code complete 26-10-2026, beta sign-up/magic-link/save acceptance pending. Anonymous economic operations remain unattributed to a user and the saved resource has no generation-operation link.
+  - [x] Native Explorer demo request routing: public Smart Tools uses the configured hosted API on native builds; the generation route accepts a request without a browser Origin while still rejecting a foreign Origin or `Sec-Fetch-Site: cross-site`, then applies the existing guest quota before calling a provider. Code complete 26-10-2026; a new native build and live beta generation are required for acceptance.
 - [ ] Public teaching-resource explorer
   - [x] Search across resources
   - [x] Subject filter
@@ -327,8 +330,8 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
   - [x] Program, plan, worksheet, and exam content renderers load the full public record and use their dedicated views. Public program topic videos now resolve the hosted API on native builds as well as web. Content and answer-exclusion fixtures pass; beta content and layout acceptance remains open under P1/P2.
   - [x] Embedded video playback on web and native Explorer, with a YouTube fallback link (code complete 26-10-2026; native binary rebuild and beta playback acceptance pending)
   - [x] Pagination
-  - [ ] Save-after-sign-up handoff
-- [x] Pre-login feature walkthrough across six teacher features, including phone layouts and EN/ES/TR navigation (code complete 26-10-2026; beta visual/keyboard acceptance pending)
+  - [x] Save-after-sign-up handoff in code: Explorer holds the selected public resource for at most 24 hours; the teacher dashboard resumes it, and Community saves a durable bookmark without copying or changing the author's resource. A saved-only filter and removal action are available. Supabase migration `add_saved_public_resources.sql` was applied in production with checksum and permissions verified. Sign-up acceptance remains for beta.
+- [x] Six pre-login teacher feature cards with responsive layouts and EN/ES/TR copy. The lower walkthrough panel was removed after beta feedback; each whole card now goes directly to Sign In and says so. Code corrected 26-10-2026; beta visual/keyboard acceptance pending.
 - [x] Income-goal calculator (three code paths complete; beta sign-up and visual acceptance pending)
   - [x] Subject, modality, audience, education, hourly-rate, and target controls
   - [x] Annual hours, weekly hours, student-count, and feasibility calculation

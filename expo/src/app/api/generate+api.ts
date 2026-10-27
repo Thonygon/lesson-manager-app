@@ -170,7 +170,10 @@ export async function POST(request: Request) {
     let profilePlan = 'free';
     if (guest) {
       const origin = request.headers.get('origin') || '';
-      const allowedOrigin = /^https:\/\/classio\.expo\.app$/i.test(origin);
+      // React Native fetch has no browser Origin header. Cross-site browser
+      // requests still need the Classio origin; both paths use the same IP and
+      // guest-cookie reservation before any provider call.
+      const allowedOrigin = !origin || /^https:\/\/(?:classio\.expo\.app|app\.masterclassio\.com)$/i.test(origin);
       if (!allowedOrigin) return json({ error: 'This sample is available from the Classio website.' }, 403);
       if (request.headers.get('sec-fetch-site') === 'cross-site') return json({ error: 'This sample is available from the Classio website.' }, 403);
     } else {

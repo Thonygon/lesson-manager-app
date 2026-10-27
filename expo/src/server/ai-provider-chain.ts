@@ -30,7 +30,7 @@ export async function requestAiProvider(
       body: JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt }] }, contents: [{ role: 'user', parts: [{ text: providerPrompt }] }], generationConfig: { temperature: 0.35, responseMimeType: 'application/json', maxOutputTokens: 16384 } }),
     }, { timeoutMs, maxResponseBytes: 512 * 1024 }, fetcher)
     : await fetchBoundedAiJson(provider.provider === 'openrouter' ? 'https://openrouter.ai/api/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions', {
-      method: 'POST', headers: { ...commonHeaders, Authorization: `Bearer ${provider.key}`, ...(provider.provider === 'openrouter' ? { 'HTTP-Referer': 'https://classio.expo.app', 'X-Title': 'Classio' } : {}) },
+      method: 'POST', headers: { ...commonHeaders, Authorization: `Bearer ${provider.key}`, ...(provider.provider === 'openrouter' ? { 'HTTP-Referer': 'https://app.masterclassio.com', 'X-Title': 'Classio' } : {}) },
       body: JSON.stringify({ model: provider.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: providerPrompt }], temperature: 0.35, response_format: { type: 'json_object' }, max_tokens: 16384 }),
     }, { timeoutMs, maxResponseBytes: 512 * 1024 }, fetcher);
   if (!response.ok) throw new Error(`${provider.provider} returned HTTP ${response.status}.`);

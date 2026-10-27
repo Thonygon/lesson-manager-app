@@ -2,7 +2,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 
 const googleScope = 'https://www.googleapis.com/auth/calendar.events';
-const appUrl = 'https://classio.expo.app';
+const appUrl = 'https://app.masterclassio.com';
 type Tokens = { token?: string; refresh_token?: string; expires_at?: number };
 type FreezeRow = { student: string | null; start_date: string | null; end_date: string | null };
 

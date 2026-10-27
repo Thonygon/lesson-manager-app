@@ -26,6 +26,7 @@
     {"name": "add_resource_language_metadata.sql", "sha256": "01233c14d3e183c9e234f19316ce06272294cd08d1b086ec7a461b88f18716f0"},
     {"name": "add_resource_selector_compatibility_columns.sql", "sha256": "786053bb44c7515c8f0b4fd861a51493f7670bf43242a749452272f1c149bcb4"},
     {"name": "add_resource_updated_at.sql", "sha256": "dc70f69a6c99758c99e1777aa91923fa5bbee1315062897bb15858ed6b5a9b54"},
+    {"name": "add_saved_public_resources.sql", "sha256": "76fe43761f52c13c538858ad31a15233ea019a26d81678aad0da39b4250c1830"},
     {"name": "add_schedule_edit_rpc.sql", "sha256": "77c28617c82bb2505beaa9835fa5dd1c1359dcc4b12fb7a93585dda16d7ae4fe"},
     {"name": "add_schedule_effective_dates.sql", "sha256": "3b9d3b5168f2ab32c984d2b8e14b27692068d25f081efcfce745f9711b9f2dee"},
     {"name": "add_schedule_versioning_rpc.sql", "sha256": "fde4fb538e9a5319d85abe921ab548600efbe60fbe22325a215be2740d48597a"},

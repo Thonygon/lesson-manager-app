@@ -36,8 +36,8 @@ async function main() {
     assert.equal(inserted.length, 1);
     assert.equal(inserted[0].meta_json.resource_id, 42);
     recent = [{ activity_type: 'student_recommendation_impression', meta_json: inserted[0].meta_json }];
-    assert.deepEqual(await (await POST(request([event]))).json(), { inserted: 0 });
-    assert.equal((await POST(request([{ ...event, resourceId: -1 }]))).status, 400);
+    assert.deepEqual(await (await POST(request([event]))).json(), { inserted: 0, skipped: 0 });
+    assert.deepEqual(await (await POST(request([{ ...event, resourceId: -1 }]))).json(), { inserted: 0, skipped: 1 });
     assert.equal((await POST(request([event], 'expired'))).status, 401);
   } finally {
     global.fetch = originalFetch;

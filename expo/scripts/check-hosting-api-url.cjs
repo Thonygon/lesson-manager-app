@@ -10,7 +10,7 @@ new Function('module', 'exports', 'require', compiled)(moduleRef, moduleRef.expo
 const { hostingApiUrl } = moduleRef.exports;
 
 assert.equal(hostingApiUrl('/api/choose-role', 'web'), '/api/choose-role');
-assert.equal(hostingApiUrl('/api/choose-role', 'ios', 'https://classio.expo.app/'), 'https://classio.expo.app/api/choose-role');
+assert.equal(hostingApiUrl('/api/choose-role', 'ios', 'https://app.masterclassio.com/'), 'https://app.masterclassio.com/api/choose-role');
 assert.equal(hostingApiUrl('/api/program-topic-videos?programId=7', 'android', 'https://beta.example/'), 'https://beta.example/api/program-topic-videos?programId=7');
-assert.equal(hostingApiUrl('/api/public-exams?page=2', 'ios', ''), 'https://classio.expo.app/api/public-exams?page=2');
+assert.equal(hostingApiUrl('/api/public-exams?page=2', 'ios', ''), 'https://app.masterclassio.com/api/public-exams?page=2');
 console.log('Hosting API URL fixtures passed');

@@ -54,7 +54,7 @@ export async function POST(request: Request) {
         try {
           const safePrompt = redactDirectIdentifiers(prompt);
           const response = provider.provider === 'openrouter'
-            ? await fetchBoundedAiJson('https://openrouter.ai/api/v1/images', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${provider.key}`, 'HTTP-Referer': 'https://classio.expo.app', 'X-Title': 'Classio' }, body: JSON.stringify({ model: provider.model, prompt: safePrompt, aspect_ratio: '16:9' }) }, { timeoutMs: 60000, maxResponseBytes: 12 * 1024 * 1024 })
+            ? await fetchBoundedAiJson('https://openrouter.ai/api/v1/images', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${provider.key}`, 'HTTP-Referer': 'https://app.masterclassio.com', 'X-Title': 'Classio' }, body: JSON.stringify({ model: provider.model, prompt: safePrompt, aspect_ratio: '16:9' }) }, { timeoutMs: 60000, maxResponseBytes: 12 * 1024 * 1024 })
             : await fetchBoundedAiJson(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(provider.model)}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': provider.key }, body: JSON.stringify({ contents: [{ parts: [{ text: safePrompt }] }], generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: '16:9' } } }) }, { timeoutMs: 60000, maxResponseBytes: 12 * 1024 * 1024 });
           if (!response.ok) {
             noCredit = noCredit && response.status === 402;

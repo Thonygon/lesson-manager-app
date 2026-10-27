@@ -10,6 +10,26 @@ import type { TeacherConnection } from '@/services/teacher-students';
 
 export type ResourceScope = 'mine' | 'community' | 'archive';
 
+export type SavedPublicResource = { resource_kind: PublicResourceKind; resource_id: string };
+
+export async function getSavedPublicResources(): Promise<SavedPublicResource[]> {
+  const { data, error } = await requireSupabase().from('classio_saved_public_resources')
+    .select('resource_kind,resource_id');
+  if (error) throw error;
+  return (data || []) as SavedPublicResource[];
+}
+
+export async function savePublicResource(kind: PublicResourceKind, id: string): Promise<void> {
+  const { error } = await requireSupabase().rpc('classio_save_public_resource', { p_kind: kind, p_resource_id: id });
+  if (error) throw error;
+}
+
+export async function removeSavedPublicResource(kind: PublicResourceKind, id: string): Promise<void> {
+  const { error } = await requireSupabase().from('classio_saved_public_resources')
+    .delete().eq('resource_kind', kind).eq('resource_id', id);
+  if (error) throw error;
+}
+
 const DEFINITIONS: Record<PublicResourceKind, { table: string; columns: string; order: string }> = {
   program: { table: 'learning_programs', columns: 'id,user_id,title,subject,custom_subject_name,learner_stage,level_or_band,program_overview,is_public,status,total_units,total_topics,sequence_order,created_at,updated_at', order: 'updated_at' },
   plan: { table: 'lesson_plans', columns: 'id,user_id,title,subject,topic,learner_stage,level_or_band,lesson_purpose,source_type,planner_mode,author_name,subject_display,is_public,status,created_at', order: 'created_at' },
@@ -48,10 +68,25 @@ export async function getResourceLibrary(scope: ResourceScope): Promise<{ resour
     const { data, error } = await request;
     return { kind, rows: error ? [] : (data ?? []), failed: Boolean(error) };
   }));
-  return {
-    resources: results.flatMap((result) => result.rows.map((row) => normalize(result.kind, row as unknown as Record<string, unknown>))),
-    unavailable: results.filter((result) => result.failed).map((result) => result.kind),
-  };
+  const resources = results.flatMap((result) => result.rows.map((row) => normalize(result.kind, row as unknown as Record<string, unknown>)));
+  // A bookmarked public resource may have fallen outside the latest 1,000 rows.
+  if (scope === 'community' && userData.user) {
+    const saved = await getSavedPublicResources();
+    const present = new Set(resources.map((item) => `${item.kind}:${item.id}`));
+    for (const [kind, definition] of Object.entries(DEFINITIONS) as [PublicResourceKind, (typeof DEFINITIONS)[PublicResourceKind]][]) {
+      const missing = saved.filter((item) => item.resource_kind === kind && !present.has(`${kind}:${item.resource_id}`)).map((item) => item.resource_id);
+      for (let offset = 0; offset < missing.length; offset += 50) {
+        const { data, error } = await client.from(definition.table).select(definition.columns)
+          .in('id', missing.slice(offset, offset + 50)).eq('is_public', true).neq('status', 'archived');
+        if (error) throw error;
+        for (const row of data ?? []) {
+          const item = normalize(kind, row as unknown as Record<string, unknown>);
+          if (!present.has(`${kind}:${item.id}`)) { resources.push(item); present.add(`${kind}:${item.id}`); }
+        }
+      }
+    }
+  }
+  return { resources, unavailable: results.filter((result) => result.failed).map((result) => result.kind) };
 }
 
 export async function getResourceDetail(kind: PublicResourceKind, id: string): Promise<Record<string, unknown>> {
