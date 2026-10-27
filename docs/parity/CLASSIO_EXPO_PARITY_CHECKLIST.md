@@ -4,6 +4,8 @@
 
 **Despliegue 27-10-2026:** commit `92eadd3a3` en GitHub y Expo Hosting `c2rtr7tpip` promovido a producción. La URL de versión, `classio.expo.app` y `app.masterclassio.com` respondieron HTTP 200 con el mismo bundle de la exportación local. La migración de marcadores públicos quedó registrada en Supabase con checksum `76fe43761f52c13c538858ad31a15233ea019a26d81678aad0da39b4250c1830`.
 
+**Documentos 27-10-2026:** los generadores de fixtures PDF y Word se adaptaron a las dependencias de Branding y telemetría de exportación; vuelven a producir muestras de planes, fichas y exámenes sin hacer llamadas reales ni atribuir descargas. Los seis PDF de emparejamiento, apoyo visual y sopa de letras generados en este corte tienen una página cada uno. Esto restaura la verificación local, pero no cierra la comparación visual integral con Streamlit ni las descargas autenticadas de beta.
+
 ## Cierres de código — 25-10-2026
 
 - [x] El historial de práctica ya no actualiza una calificación de sopa de letras directamente en `practice_sessions`. La ruta existente de recalificación usa el RPC transaccional para sesión, respuestas, progreso y asignación; si cambió la estructura del ejercicio, se conserva la nota confirmada para revisión docente.

@@ -9,6 +9,11 @@ const loaded = { exports: {} };
 const moduleRequire = (name) => {
   if (name === 'react-native') return { Platform: { OS: 'web' } };
   if (name === '@/lib/supabase') return { requireSupabase() { throw new Error('Use default branding'); } };
+  if (name === '@/services/branding') return { getBrandingSettings() { throw new Error('Use default branding'); } };
+  if (name === '@/services/document-export-events') return { recordedDocumentExport: async (_format, _kind, _variant, prepare) => prepare() };
+  if (name === '@/lib/subjects') return { canonicalSubjectKey: (value) => String(value || '').toLowerCase() };
+  if (name === '@/lib/learner-stages') return { canonicalLearnerStageKey: (value) => String(value || '').toLowerCase() };
+  if (name === '@/lib/lesson-purpose') return { lessonPurposeKey: (value) => String(value || '').toLowerCase() };
   if (name.startsWith('./')) {
     const filename = path.join(servicePath, name);
     if (name.endsWith('.json')) return require(filename);
