@@ -7,7 +7,7 @@ import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindo
 import { BackLink } from '@/components/back-link';
 import { ResourceShowcaseCard } from '@/components/resource-showcase-card';
 import { AppShell } from '@/components/app-shell';
-import { ActionFeedback, Button, Disclosure, EmptyState, Field, LoadingState, Pagination, Panel, SelectField, TabRail } from '@/components/ui';
+import { ActionFeedback, Button, Disclosure, EmptyState, Field, HelpIcon, LoadingState, Pagination, Panel, SelectField, TabRail } from '@/components/ui';
 import { useRecords } from '@/hooks/use-records';
 import { canonicalSubjectKey, canonicalSubjectLabel } from '@/lib/subjects';
 import { assignmentStatusKey, assignmentTypeKey } from '@/lib/assignment-labels';
@@ -326,7 +326,7 @@ function LearningView({ workspace, studentName, linkedStudentId, rosterStudentId
         const matches = resourcesFor(recommendation);
         const evidence = [recommendation.programTitle, recommendation.progressPercent === null ? '' : t('students.programProgressEvidence', { value: recommendation.progressPercent }), recommendation.recentScore === null ? '' : t('students.recentScoreEvidence', { value: Math.round(recommendation.recentScore) }), recommendation.attempts > 1 ? t('students.attemptEvidence', { count: recommendation.attempts }) : ''].filter(Boolean).join(' · ');
         return <Panel key={recommendation.id} style={[styles.recommendation, recommendation.priority === 'high' && styles.recommendationHigh]}>
-          <View style={styles.recommendationTop}><Text style={styles.recommendationLabel}>{t(`students.priority.${recommendation.priority}`)}</Text><Text style={styles.recommendationSubject}>{canonicalSubjectLabel(recommendation.subject, t)}</Text></View>
+          <View style={styles.recommendationTop}><Text style={styles.recommendationLabel}>{t(`students.priority.${recommendation.priority}`)}</Text><Text style={styles.recommendationSubject}>{canonicalSubjectLabel(recommendation.subject, t)}</Text><HelpIcon title={t('transparency.whyThisObjective')}>{[t('transparency.objectiveMatch', { topic: recommendation.topic, subject: canonicalSubjectLabel(recommendation.subject, t) }), t('transparency.teacherScope'), t('transparency.teacherChallenge')].join('\n\n')}</HelpIcon></View>
           <Text style={styles.recommendationTitle}>{recommendation.title}</Text>
           {recommendation.objective ? <Text style={styles.recommendationBody}>{recommendation.objective}</Text> : null}
           {evidence ? <Text style={styles.recommendationEvidence}>{evidence}</Text> : null}
@@ -342,7 +342,7 @@ function LearningView({ workspace, studentName, linkedStudentId, rosterStudentId
                 const exposureId = exposureIds.get(selectionKey) || '';
                 const assigned = assignedResourceKeys.has(resourceKey);
                 return <View key={resourceKey} style={[styles.recommendationResourceSlot, selected && styles.recommendationResourceSelected]}>
-                  <View style={styles.recommendationResourceCard}><ResourceShowcaseCard compact item={resource} assigned={assigned} done={doneResourceKeys.has(resourceKey)} onPress={() => { recordAction(recommendation, 'resource_opened', resource); router.push({ pathname: '/resources', params: { scope: String(resource.raw.user_id) === recommendationModel?.teacherId ? 'mine' : 'community', kind: resource.kind, resourceId: String(resource.id), from: 'student-recommendations', student: studentUserId, returnNonce: String(Date.now()) } }); }} />
+                  <View style={styles.recommendationResourceCard}><ResourceShowcaseCard compact item={resource} assigned={assigned} done={doneResourceKeys.has(resourceKey)} explanation={[t('transparency.teacherMatch', { topic: recommendation.topic, subject: canonicalSubjectLabel(recommendation.subject, t) }), t('transparency.teacherScope'), t('transparency.teacherChallenge')].join('\n\n')} onPress={() => { recordAction(recommendation, 'resource_opened', resource); router.push({ pathname: '/resources', params: { scope: String(resource.raw.user_id) === recommendationModel?.teacherId ? 'mine' : 'community', kind: resource.kind, resourceId: String(resource.id), from: 'student-recommendations', student: studentUserId, returnNonce: String(Date.now()) } }); }} />
                     <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selected }} accessibilityLabel={`${t('students.selectRecommendationResource')} ${resource.title}`} onPress={() => setSelectedResourceKey(selected ? '' : selectionKey)} style={[styles.recommendationSelect, selected && styles.recommendationSelectActive]}><Text style={styles.recommendationSelectText}>{selected ? '✓' : ''}</Text></Pressable>
                   </View>
                   {selected ? <View style={styles.recommendationResourceActions}>
