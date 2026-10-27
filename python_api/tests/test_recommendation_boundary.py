@@ -21,6 +21,25 @@ class RecommendationBoundaryTests(unittest.TestCase):
         response = self.client.get("/v1/models/resource-affinity")
         self.assertEqual(response.status_code, 401)
 
+    def test_browser_preflight_accepts_both_classio_app_origins(self):
+        for origin in ("https://classio.expo.app", "https://app.masterclassio.com"):
+            with self.subTest(origin=origin):
+                response = self.client.options("/v1/models/resource-affinity", headers={
+                    "Origin": origin,
+                    "Access-Control-Request-Method": "GET",
+                    "Access-Control-Request-Headers": "authorization",
+                })
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.headers.get("access-control-allow-origin"), origin)
+
+    def test_browser_preflight_rejects_unlisted_origin(self):
+        response = self.client.options("/v1/models/resource-affinity", headers={
+            "Origin": "https://not-classio.invalid",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization",
+        })
+        self.assertNotEqual(response.status_code, 200)
+
     def test_model_unavailable_fails_closed(self):
         app.dependency_overrides[actor_token] = lambda: ("synthetic-owner", "synthetic-token")
         with patch("python_api.app._ensure_affinity_bundle", new=AsyncMock(side_effect=HTTPException(503, "No approved run"))):

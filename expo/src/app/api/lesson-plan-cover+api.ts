@@ -1,4 +1,6 @@
 import { redactDirectIdentifiers } from '../../server/ai-privacy-redaction';
+import { approvedAiProviders, EXPO_IMAGE_PROMPT_VERSION } from '../../server/ai-runtime-approval';
+import { recordAiFallback } from '../../server/ai-fallback-telemetry';
 import { fetchBoundedAiJson } from '../../server/bounded-ai-request';
 import { beginAiOperation, beginProviderAttempt, extractProviderUsage, finishAiOperation, finishProviderAttempt, type AiEconomicContext } from '../../server/ai-economic-events';
 
@@ -37,12 +39,21 @@ export async function POST(request: Request) {
     if (!row) return json({ error: 'Only the owner can generate an image.' }, 403);
     const plan = row[payloadColumn] && typeof row[payloadColumn] === 'object' ? row[payloadColumn] as Record<string, unknown> : {};
     const prompt = `Asset type: Classio ${kind === 'worksheet' ? 'worksheet' : kind === 'exam' ? 'exam' : 'lesson plan'} gallery cover image. Title/context: ${String(row.title || plan.title || '').slice(0, 200)}. Subject: ${String(row.subject || '').slice(0, 80)}. Topic: ${String(row.topic || '').slice(0, 120)}. Learner stage: ${String(row.learner_stage || '').slice(0, 80)}. Level/band: ${String(row[levelColumn] || '').slice(0, 40)}. Wide 16:9 modern educational illustration, one clear age-appropriate teaching scene, polished resource-library cover. Absolutely no text, letters, numbers, captions, logos, labels, or watermarks.`;
-    const providers = [
+    const configuredProviders = [
       { provider: 'openrouter' as const, key: openRouterKey, model: process.env.OPENROUTER_IMAGE_MODEL || 'google/gemini-3.1-flash-image' },
       { provider: 'gemini' as const, key: geminiKey, model: process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image' },
     ].filter((provider) => provider.key);
     const economicContext: AiEconomicContext = { base, serverKey: process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '', actorUserId: user.id, source: 'expo' };
     if (!economicContext.serverKey) return json({ error: 'AI usage recording is not configured.' }, 503);
+    const noteUnavailable = async (reason: string) => {
+      const recorded = await recordAiFallback(base, economicContext.serverKey, `cover_${kind}`, 'unavailable', reason);
+      if (!recorded) console.error('AI cover fallback event could not be recorded', { kind, reason });
+    };
+    if (!configuredProviders.length) { await noteUnavailable('provider_not_configured'); return json({ error: 'Image generation is unavailable right now.', code: 'provider_unavailable' }, 503); }
+    let providers;
+    try { providers = await approvedAiProviders(configuredProviders, 'expo_image', EXPO_IMAGE_PROMPT_VERSION, base, economicContext.serverKey); }
+    catch { await noteUnavailable('approval_unavailable'); return json({ error: 'Image release approval could not be verified.', code: 'approval_unavailable' }, 503); }
+    if (!providers.length) { await noteUnavailable('approval_required'); return json({ error: 'Image generation is awaiting release approval.', code: 'approval_required' }, 503); }
     let operationId = '';
     let attemptId = '';
     try {
@@ -90,6 +101,7 @@ export async function POST(request: Request) {
         }
       }
       await finishAiOperation(economicContext, operationId, 'failed', noCredit ? 'provider_credit' : 'provider_failed'); operationId = '';
+      await noteUnavailable(noCredit ? 'provider_credit' : 'provider_failed');
       return json({ error: 'Classio could not generate the image right now. Please try again later.', code: noCredit ? 'image_provider_credit' : 'image_provider_failed' }, 503);
     } catch (error) {
       console.error('Image provider request failed', error instanceof Error ? error.message : 'unknown error');

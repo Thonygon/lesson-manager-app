@@ -92,6 +92,10 @@
     {"name": "refresh_teacher_review_progress_atomically.sql", "sha256": "0c53cc79df03112080cf6a71868bfc7d2bab1979204ab7f41aec10fcc6ec2d4a"},
     {"name": "backfill_reviewed_practice_progress.sql", "sha256": "8e1ff9e2a0f3716d812289e544d6617c34e2b0cd403c9f17906be95632f93ac1"},
     {"name": "serialize_teacher_review_progress.sql", "sha256": "467ea5c503df689aa129c70de579aa30a44e7ecc15d3d0a6a7285dd146698ed4"},
-    {"name": "attest_critical_schema_objects.sql", "sha256": "fb0641b527a9f2e01226f4b19ac94a746302044465fef9992d579c66595fa1cd"}
+    {"name": "attest_critical_schema_objects.sql", "sha256": "fb0641b527a9f2e01226f4b19ac94a746302044465fef9992d579c66595fa1cd"},
+    {"name": "ai_fallback_telemetry.sql", "sha256": "dc46101e51def5766e415002c4b74d5e55b60ca1d104f6f1a746c7fc7a5122cc"},
+    {"name": "ai_runtime_approvals.sql", "sha256": "45bf81cfc4701369243ddbe7378be4ee149c528600a0e6607c6c1fb6d587aa3e"},
+    {"name": "ai_supervision_incidents.sql", "sha256": "a24da5c5a59242dafc9da1d04feaf0ce3b72fec2fd9645b76231d485f882f4b9"},
+    {"name": "ai_runtime_approval_check.sql", "sha256": "67ef0a3ef66e3ebc91b0c04b75fca614b6fc0b722ac5531b26fe0ea0a3ae0fbb"}
   ]
 }

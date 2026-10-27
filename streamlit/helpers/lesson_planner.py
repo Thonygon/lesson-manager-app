@@ -2143,7 +2143,7 @@ def get_default_model_for_provider(provider: str) -> str:
         return "gemini-2.5-flash"
     if provider == "openai":
         return "gpt-4o-mini"
-    return "openrouter/free"
+    return "google/gemma-4-31b-it:free"
 
 
 def get_ai_model_for_provider(provider: str) -> str:
@@ -2158,8 +2158,8 @@ def get_ai_model_for_provider(provider: str) -> str:
     if not custom_model:
         custom_model = str(os.getenv(setting, "")).strip()
 
-    if provider == "openrouter" and custom_model != "openrouter/free" and not custom_model.endswith(":free"):
-        return "openrouter/free"
+    if provider == "openrouter" and (custom_model == "openrouter/free" or (custom_model and not custom_model.endswith(":free"))):
+        return get_default_model_for_provider(provider)
     return custom_model or get_default_model_for_provider(provider)
 
 
@@ -2317,12 +2317,14 @@ def _generate_with_openrouter(system_prompt: str, user_prompt: str, *, reserve_a
         raise RuntimeError(t("missing_openrouter_api_key"))
 
     def _request() -> str:
+        from helpers.ai_runtime_approval import require_ai_runtime_approval, TEXT_PROMPT_VERSION
+        model = get_ai_model_for_provider("openrouter")
+        require_ai_runtime_approval("streamlit_text", "openrouter", model, TEXT_PROMPT_VERSION)
         if reserve_account_quota:
             from services.permissions_service import reserve_ai_tool
             if not reserve_ai_tool():
                 raise RuntimeError("AI generation limit reached")
         client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=TEXT_TIMEOUT_MS / 1000, max_retries=0)
-        model = get_ai_model_for_provider("openrouter")
         return run_recorded_provider_attempt(
             "openrouter", model,
             lambda: client.chat.completions.create(
@@ -2354,12 +2356,14 @@ def _generate_with_gemini(system_prompt: str, user_prompt: str, *, reserve_accou
         raise RuntimeError(t("missing_gemini_api_key"))
 
     def _request() -> str:
+        from helpers.ai_runtime_approval import require_ai_runtime_approval, TEXT_PROMPT_VERSION
+        model = get_ai_model_for_provider("gemini")
+        require_ai_runtime_approval("streamlit_text", "gemini", model, TEXT_PROMPT_VERSION)
         if reserve_account_quota:
             from services.permissions_service import reserve_ai_tool
             if not reserve_ai_tool():
                 raise RuntimeError("AI generation limit reached")
         client = genai.Client(api_key=api_key, http_options={"timeout": TEXT_TIMEOUT_MS})
-        model = get_ai_model_for_provider("gemini")
         return run_recorded_provider_attempt(
             "gemini", model,
             lambda: client.models.generate_content(
@@ -2388,12 +2392,14 @@ def _generate_with_openai(system_prompt: str, user_prompt: str, *, reserve_accou
         raise RuntimeError(t("missing_openai_api_key"))
 
     def _request() -> str:
+        from helpers.ai_runtime_approval import require_ai_runtime_approval, TEXT_PROMPT_VERSION
+        model = get_ai_model_for_provider("openai")
+        require_ai_runtime_approval("streamlit_text", "openai", model, TEXT_PROMPT_VERSION)
         if reserve_account_quota:
             from services.permissions_service import reserve_ai_tool
             if not reserve_ai_tool():
                 raise RuntimeError("AI generation limit reached")
         client = OpenAI(api_key=api_key, timeout=TEXT_TIMEOUT_MS / 1000, max_retries=0)
-        model = get_ai_model_for_provider("openai")
         return run_recorded_provider_attempt(
             "openai", model,
             lambda: client.chat.completions.create(
@@ -2529,16 +2535,22 @@ def generate_quick_lesson_plan_with_fallback(
 
     if enforce_usage_limits and not can_use_ai_tool():
         log_ai_usage("quick_lesson_ai", "success", {**template_meta, "reason": "permission_blocked"})
+        from helpers.ai_runtime_approval import record_streamlit_fallback
+        record_streamlit_fallback("quick_lesson_ai", "permission_blocked")
         return template_plan, "template", t("ai_limit_reached")
 
     if enforce_usage_limits:
         usage = get_ai_planner_usage_status()
         if usage["remaining_today"] <= 0:
             log_ai_usage("quick_lesson_ai", "success", {**template_meta, "reason": "daily_limit_reached"})
+            from helpers.ai_runtime_approval import record_streamlit_fallback
+            record_streamlit_fallback("quick_lesson_ai", "daily_limit_reached")
             return template_plan, "template", t("ai_limit_reached")
 
         if not usage["cooldown_ok"]:
             log_ai_usage("quick_lesson_ai", "success", {**template_meta, "reason": "cooldown_active"})
+            from helpers.ai_runtime_approval import record_streamlit_fallback
+            record_streamlit_fallback("quick_lesson_ai", "cooldown_active")
             return template_plan, "template", t("ai_cooldown_active", seconds=usage["seconds_left"])
 
     provider_order = get_ai_provider_order()
@@ -2583,6 +2595,8 @@ def generate_quick_lesson_plan_with_fallback(
             ),
         )
         log_ai_usage("quick_lesson_ai", "success", {**template_meta, "reason": "ai_fallback_after_failure"})
+        from helpers.ai_runtime_approval import record_streamlit_fallback
+        record_streamlit_fallback("quick_lesson_ai", "provider_failed")
         return template_plan, "template", t("lesson_plan_ai_unavailable_fallback")
 
 

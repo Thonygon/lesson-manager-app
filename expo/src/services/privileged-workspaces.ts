@@ -28,6 +28,10 @@ export type DeveloperWorkspaceData = {
   jobs: WorkspaceResult;
   audit: WorkspaceResult;
   diagnostics: WorkspaceResult;
+  aiCases: WorkspaceResult;
+  aiApprovals: WorkspaceResult;
+  aiApprovalEvents: WorkspaceResult;
+  fallbackEvents: WorkspaceResult;
   recommendationEvents: WorkspaceResult;
   warnings: string[];
 };
@@ -128,6 +132,10 @@ const developerSpecs: Record<DeveloperSection, { table: string; order: string; l
   jobs: { table: 'system_jobs', order: 'created_at', limit: 500 },
   audit: { table: 'privileged_action_audit_log', order: 'created_at', limit: 500 },
   diagnostics: { table: 'application_diagnostic_events', order: 'last_seen_at', limit: 500 },
+  aiCases: { table: 'classio_ai_supervision_cases', order: 'last_seen_at', limit: 200 },
+  aiApprovals: { table: 'classio_ai_runtime_approvals', order: 'reviewed_at', limit: 100 },
+  aiApprovalEvents: { table: 'classio_ai_runtime_approval_events', order: 'created_at', limit: 100 },
+  fallbackEvents: { table: 'classio_ai_fallback_events', order: 'created_at', limit: 200 },
   recommendationEvents: { table: 'learning_program_recommendation_events', order: 'created_at', limit: 500 },
 };
 const developerCache = new Map<string, { value: WorkspaceResult; expires: number }>();
@@ -135,9 +143,9 @@ const developerPending = new Map<string, Promise<WorkspaceResult>>();
 export function invalidateDeveloperWorkspace() { developerCache.clear(); }
 function developerSections(tab: string): DeveloperSection[] {
   if (tab === 'overview') return ['experiments', 'runs', 'jobs'];
-  if (tab === 'lab') return ['experiments', 'runs', 'jobs'];
+  if (tab === 'lab') return ['experiments', 'runs', 'jobs', 'aiApprovals', 'aiApprovalEvents'];
   if (tab === 'evidence') return ['experiments', 'runs', 'models', 'artifacts'];
-  if (tab === 'telemetry') return ['diagnostics', 'recommendationEvents'];
+  if (tab === 'telemetry') return ['diagnostics', 'aiCases', 'fallbackEvents', 'recommendationEvents'];
   if (tab === 'jobs') return ['jobs'];
   return ['audit'];
 }
@@ -174,7 +182,43 @@ export async function loadDeveloperWorkspace(tab: string): Promise<DeveloperWork
     experiments: bySection.experiments ?? empty, runs: bySection.runs ?? empty,
     models: bySection.models ?? empty, artifacts: bySection.artifacts ?? empty,
     jobs: bySection.jobs ?? empty, audit: bySection.audit ?? empty,
-    diagnostics: bySection.diagnostics ?? empty, recommendationEvents: bySection.recommendationEvents ?? empty,
+    diagnostics: bySection.diagnostics ?? empty, aiCases: bySection.aiCases ?? empty, aiApprovals: bySection.aiApprovals ?? empty, aiApprovalEvents: bySection.aiApprovalEvents ?? empty, fallbackEvents: bySection.fallbackEvents ?? empty, recommendationEvents: bySection.recommendationEvents ?? empty,
     warnings: warnings(result.map(([, value]) => value)),
   };
+}
+
+export async function updateAiSupervisionCase(id: number, status: 'triaged' | 'mitigating' | 'resolved', resolutionCode: string | null = null) {
+  const client = requireSupabase();
+  const { data: user } = await client.auth.getUser();
+  if (!user.user) throw new Error('Developer access requires an authenticated account.');
+  const { data, error } = await client.rpc('classio_update_ai_supervision_case', {
+    p_id: id, p_status: status, p_owner_user_id: user.user.id,
+    p_due_at: status === 'resolved' ? null : new Date(Date.now() + 7 * 86400000).toISOString(),
+    p_resolution_code: status === 'resolved' ? resolutionCode : null,
+  });
+  if (error) throw error;
+  if (!data) throw new Error('AI case was not found.');
+  invalidateDeveloperWorkspace();
+}
+
+export async function reviewAiRuntime(surface: string, provider: string, model: string, version: string, status: 'approved' | 'retired', reason: string) {
+  const client = requireSupabase();
+  const { data, error } = await client.rpc('classio_review_ai_runtime', {
+    p_surface: surface, p_provider: provider, p_model: model.trim(),
+    p_prompt_version: version, p_status: status, p_reason: reason.trim(),
+  });
+  if (error) throw error;
+  if (!data) throw new Error('AI runtime could not be reviewed.');
+  invalidateDeveloperWorkspace();
+}
+
+export async function reportAiSupervisionCase(reason: string, severity: string, resourceType: string, resourceId: string) {
+  const client = requireSupabase();
+  const { data, error } = await client.rpc('classio_report_ai_supervision_case', {
+    p_reason: reason, p_severity: severity, p_resource_type: resourceType.trim(),
+    p_resource_id: resourceId.trim(), p_operation_id: null,
+  });
+  if (error) throw error;
+  if (!data) throw new Error('AI case could not be created.');
+  invalidateDeveloperWorkspace();
 }
