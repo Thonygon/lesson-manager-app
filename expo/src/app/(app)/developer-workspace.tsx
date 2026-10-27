@@ -5,15 +5,16 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { AppShell, type AppNotification } from '@/components/app-shell';
 import { AdminBars, AdminTrend } from '@/components/admin-charts';
-import { ActionFeedback, Button, EmptyState, LoadingState, Panel, SelectField, TabRail } from '@/components/ui';
+import { ActionFeedback, Button, EmptyState, Field, LoadingState, Panel, SelectField, TabRail } from '@/components/ui';
 import { PrivilegedRecordList } from '@/components/privileged-record-list';
 import { dateLabel, groupCount, KpiGrid, SectionHeading, WarningBox } from '@/components/workspace-ui';
 import { useAppPreferences } from '@/providers/app-preferences';
-import { type DeveloperWorkspaceData, invalidateDeveloperWorkspace, loadDeveloperWorkspace } from '@/services/privileged-workspaces';
+import { type DeveloperWorkspaceData, invalidateDeveloperWorkspace, loadDeveloperWorkspace, reportAiSupervisionCase, reviewAiRuntime, updateAiSupervisionCase } from '@/services/privileged-workspaces';
 import { checkPythonModelAuthentication, getPythonAffinityModel, pythonModelApiUrl } from '@/services/python-models';
 import { colors } from '@/theme';
 
 type DeveloperTab = 'overview' | 'lab' | 'evidence' | 'telemetry' | 'jobs' | 'audit';
+const AI_APPROVAL_VERSIONS: Record<string, string> = { expo_text: 'expo-generate-v1', expo_image: 'expo-cover-v1', streamlit_text: 'streamlit-generation-v1', streamlit_image: 'streamlit-image-v1' };
 
 export default function DeveloperWorkspaceScreen() {
   const { t } = useAppPreferences();
@@ -26,6 +27,19 @@ export default function DeveloperWorkspaceScreen() {
   const [experimentId, setExperimentId] = useState('');
   const [pythonCheckBusy, setPythonCheckBusy] = useState(false);
   const [pythonCheckResult, setPythonCheckResult] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
+  const [caseBusyId, setCaseBusyId] = useState<number | null>(null);
+  const [caseError, setCaseError] = useState('');
+  const [reportReason, setReportReason] = useState('privacy');
+  const [reportSeverity, setReportSeverity] = useState('high');
+  const [reportResourceType, setReportResourceType] = useState('');
+  const [reportResourceId, setReportResourceId] = useState('');
+  const [caseResolutionCode, setCaseResolutionCode] = useState('other');
+  const [approvalSurface, setApprovalSurface] = useState('expo_text');
+  const [approvalProvider, setApprovalProvider] = useState('gemini');
+  const [approvalModel, setApprovalModel] = useState('');
+  const [approvalReason, setApprovalReason] = useState('');
+  const [approvalBusy, setApprovalBusy] = useState(false);
+  const [approvalMessage, setApprovalMessage] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
   const checkPythonConnection = async () => {
     setPythonCheckBusy(true); setPythonCheckResult(null);
     try {
@@ -46,6 +60,25 @@ export default function DeveloperWorkspaceScreen() {
     try { const next = await loadDeveloperWorkspace(tab); if (sequence === loadSequence.current) { setData(next); setLoadedTab(tab); } }
     catch (reason) { if (sequence === loadSequence.current) setError(reason instanceof Error ? reason.message : t('developer.loadFailed')); }
   }, [t, tab]);
+  const moveCase = async (id: number, status: 'triaged' | 'resolved') => {
+    setCaseBusyId(id); setCaseError('');
+    try { await updateAiSupervisionCase(id, status, status === 'resolved' ? caseResolutionCode : null); await load(); }
+    catch (reason) { setCaseError(reason instanceof Error ? reason.message : t('developer.aiCaseFailed')); }
+    finally { setCaseBusyId(null); }
+  };
+  const reportCase = async () => {
+    setCaseBusyId(-1); setCaseError('');
+    try { await reportAiSupervisionCase(reportReason, reportSeverity, reportResourceType, reportResourceId); await load(); }
+    catch (reason) { setCaseError(reason instanceof Error ? reason.message : t('developer.aiCaseFailed')); }
+    finally { setCaseBusyId(null); }
+  };
+  const submitApproval = async (status: 'approved' | 'retired') => {
+    if (!approvalModel.trim() || approvalReason.trim().length < 8) { setApprovalMessage({ tone: 'error', message: t('developer.aiApprovalRequired') }); return; }
+    setApprovalBusy(true); setApprovalMessage(null);
+    try { await reviewAiRuntime(approvalSurface, approvalProvider, approvalModel, AI_APPROVAL_VERSIONS[approvalSurface], status, approvalReason); await load(); setApprovalMessage({ tone: 'success', message: t('developer.aiApprovalSaved') }); }
+    catch (reason) { setApprovalMessage({ tone: 'error', message: reason instanceof Error ? reason.message : t('developer.aiApprovalFailed') }); }
+    finally { setApprovalBusy(false); }
+  };
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (params.tab && ['overview', 'lab', 'evidence', 'telemetry', 'jobs', 'audit'].includes(params.tab)) setTab(params.tab as DeveloperTab); }, [params.tab]);
 
@@ -100,6 +133,17 @@ export default function DeveloperWorkspaceScreen() {
 
       {tab === 'lab' ? <>
         <SectionHeading title={t('developer.labTitle')} body={t('developer.labBody')} />
+        <Panel><SectionHeading title={t('developer.aiApprovalTitle')} body={t('developer.aiApprovalBody')} />
+          <View style={styles.approvalFields}>
+            <SelectField label={t('developer.aiApprovalSurface')} value={approvalSurface} onChange={setApprovalSurface} options={['expo_text', 'expo_image', 'streamlit_text', 'streamlit_image'].map((value) => ({ value, label: value.replaceAll('_', ' ') }))} />
+            <SelectField label={t('developer.aiApprovalProvider')} value={approvalProvider} onChange={setApprovalProvider} options={['gemini', 'openrouter', 'openai'].map((value) => ({ value, label: value }))} />
+            <Field accessibilityLabel={t('developer.aiApprovalModel')} placeholder={t('developer.aiApprovalModel')} value={approvalModel} onChangeText={setApprovalModel} />
+            <Field accessibilityLabel={t('developer.aiApprovalReason')} placeholder={t('developer.aiApprovalReason')} value={approvalReason} onChangeText={setApprovalReason} />
+          </View><Text style={styles.caseMeta}>{t('developer.version')}: {AI_APPROVAL_VERSIONS[approvalSurface]}</Text><View style={styles.caseActions}><Button disabled={approvalBusy} onPress={() => void submitApproval('approved')}>{t('developer.aiApprove')}</Button><Button secondary disabled={approvalBusy} onPress={() => void submitApproval('retired')}>{t('developer.aiRetire')}</Button></View>
+          <ActionFeedback message={approvalMessage?.message} tone={approvalMessage?.tone || 'error'} />
+          <PrivilegedRecordList filterKey="status" filterLabel={t('developer.status')} rows={data.aiApprovals.rows} emptyTitle={t('developer.aiNoApprovals')} emptyBody={t('developer.aiApprovalBody')} describe={(row) => ({ title: `${row.surface} · ${row.provider} · ${row.model}`, summary: `${row.prompt_version} · ${row.status}` })} fields={[{ key: 'reviewed_by', label: t('developer.actor') }, { key: 'review_reason', label: t('developer.reason') }, { key: 'reviewed_at', label: t('common.created'), format: dateLabel }]} />
+          <PrivilegedRecordList filterKey="new_status" filterLabel={t('developer.status')} rows={data.aiApprovalEvents.rows} emptyTitle={t('developer.aiNoApprovals')} emptyBody={t('developer.aiApprovalBody')} describe={(row) => ({ title: `${row.surface} · ${row.provider} · ${row.model}`, summary: `${row.previous_status || '—'} → ${row.new_status} · ${dateLabel(row.created_at)}` })} fields={[{ key: 'reviewed_by', label: t('developer.actor') }, { key: 'review_reason', label: t('developer.reason') }, { key: 'prompt_version', label: t('developer.version') }]} />
+        </Panel>
         <Panel><SectionHeading title={t('developer.pythonConnection')} body={pythonModelApiUrl()} /><View style={styles.topGap}><Button disabled={pythonCheckBusy} onPress={() => void checkPythonConnection()}>{pythonCheckBusy ? t('common.loading') : t('developer.pythonCheck')}</Button><ActionFeedback message={pythonCheckResult?.message} tone={pythonCheckResult?.tone || 'error'} /></View></Panel>
         <SelectField label={t('developer.selectExperiment')} value={experimentId} options={experimentOptions} placeholder={t('developer.selectExperiment')} onChange={setExperimentId} />
         {selectedExperiment ? <Panel><Text style={styles.question}>{String(selectedExperiment.business_question || selectedExperiment.name)}</Text><View style={styles.meta}><Text style={styles.metaText}>{t('developer.target')}: {String(selectedExperiment.target_version || '—')}</Text><Text style={styles.metaText}>{t('developer.unit')}: {String(selectedExperiment.unit_of_analysis || '—')}</Text><Text style={styles.metaText}>{t('developer.primaryMetric')}: {String(selectedExperiment.primary_metric || '—')}</Text></View></Panel> : null}
@@ -122,6 +166,34 @@ export default function DeveloperWorkspaceScreen() {
 
       {tab === 'telemetry' ? <>
         <SectionHeading title={t('developer.telemetryTitle')} body={t('developer.telemetryBody')} />
+        <Panel><SectionHeading title={t('developer.fallbackTitle')} body={t('developer.fallbackBody')} />
+          <Text style={styles.caseMeta}>{t('developer.fallbackInventory')}</Text>
+          <PrivilegedRecordList filterKey="effective_mode" filterLabel={t('developer.status')} rows={data.fallbackEvents.rows} emptyTitle={t('developer.fallbackEmpty')} emptyBody={t('developer.fallbackBody')} describe={(row) => ({ title: `${row.feature_name} · ${row.effective_mode}`, summary: `${row.reason} · ${dateLabel(row.created_at)}` })} fields={[{ key: 'source', label: t('developer.surfaces') }, { key: 'requested_mode', label: t('developer.fallbackRequested') }, { key: 'effective_mode', label: t('developer.fallbackEffective') }, { key: 'reason', label: t('developer.reason') }]} />
+        </Panel>
+        <Panel><SectionHeading title={t('developer.aiCasesTitle')} body={t('developer.aiCasesBody')} />
+          <View style={styles.approvalFields}>
+            <SelectField label={t('developer.aiCaseReason')} value={reportReason} onChange={setReportReason} options={['privacy', 'unsafe_content', 'wrong_answer', 'model_failure', 'other'].map((value) => ({ value, label: value.replaceAll('_', ' ') }))} />
+            <SelectField label={t('developer.aiCaseSeverity')} value={reportSeverity} onChange={setReportSeverity} options={['low', 'medium', 'high', 'critical'].map((value) => ({ value, label: value }))} />
+            <Field accessibilityLabel={t('developer.aiCaseResourceType')} placeholder={t('developer.aiCaseResourceType')} value={reportResourceType} onChangeText={setReportResourceType} />
+            <Field accessibilityLabel={t('developer.aiCaseResourceId')} placeholder={t('developer.aiCaseResourceId')} value={reportResourceId} onChangeText={setReportResourceId} />
+            <SelectField label={t('developer.aiCaseResolution')} value={caseResolutionCode} onChange={setCaseResolutionCode} options={['model', 'prompt', 'heuristic', 'content', 'privacy', 'duplicate', 'other'].map((value) => ({ value, label: value }))} />
+          </View><Button secondary disabled={caseBusyId !== null} onPress={() => void reportCase()}>{t('developer.aiCaseReport')}</Button>
+          {caseError ? <ActionFeedback message={caseError} tone="error" /> : null}
+          {data.aiCases.rows.length ? data.aiCases.rows.map((item) => {
+            const id = Number(item.id);
+            const status = String(item.status || 'open');
+            return <View key={id} style={styles.caseRow}>
+              <View style={styles.caseCopy}><Text style={styles.caseTitle}>{String(item.source_kind || '')} · {String(item.reason || '')}</Text>
+                <Text style={styles.caseMeta}>{String(item.resource_type || '')} {String(item.resource_id || '')} · {String(item.severity || '')} · {status} · {Number(item.occurrence_count || 1)} ×</Text>
+                <Text style={styles.caseMeta}>{t('developer.aiCaseDue')}: {dateLabel(item.due_at)} · {t('developer.aiCaseOwner')}: {item.owner_user_id ? String(item.owner_user_id) : '—'}</Text>
+              </View>
+              {status !== 'resolved' && status !== 'dismissed' ? <View style={styles.caseActions}>
+                {status === 'open' ? <Button secondary disabled={caseBusyId !== null} onPress={() => void moveCase(id, 'triaged')}>{t('developer.aiCaseTriage')}</Button> : null}
+                <Button secondary disabled={caseBusyId !== null} onPress={() => void moveCase(id, 'resolved')}>{t('developer.aiCaseResolve')}</Button>
+              </View> : null}
+            </View>;
+          }) : <Text style={styles.caseMeta}>{t('developer.aiCasesEmpty')}</Text>}
+        </Panel>
         <KpiGrid items={[
           { label: t('developer.recommendationEvents'), value: data.recommendationEvents.rows.length },
           { label: t('developer.diagnosticGroups'), value: data.diagnostics.rows.length },
@@ -155,4 +227,6 @@ const styles = StyleSheet.create({
   stack: { gap: 18 }, header: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 12 }, headerCopy: { flex: 1, minWidth: 230 }, headerTitle: { color: colors.ink, fontSize: 22, lineHeight: 28, fontWeight: '900' }, headerBody: { color: colors.muted, fontSize: 12, lineHeight: 19, marginTop: 3 },
   workflow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 15 }, workflowStep: { flexGrow: 1, flexBasis: 160, minWidth: 130, borderWidth: 1, borderColor: colors.line, borderRadius: 15, padding: 14, backgroundColor: colors.surfaceSoft }, workflowValue: { color: colors.primary, fontSize: 25, fontWeight: '900' }, workflowLabel: { color: colors.ink, fontSize: 13, fontWeight: '800', marginTop: 5 }, workflowDetail: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 3 },
   topGap: { marginTop: 16 }, twoCols: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 }, flexPanel: { flexGrow: 1, flexBasis: 320 }, question: { color: colors.ink, fontSize: 18, lineHeight: 26, fontWeight: '800' }, meta: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 }, metaText: { color: colors.muted, fontSize: 12, fontWeight: '700' },
+  caseRow: { borderTopWidth: 1, borderTopColor: colors.line, paddingVertical: 12, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12 }, caseCopy: { flex: 1, minWidth: 240 }, caseTitle: { color: colors.ink, fontSize: 13, fontWeight: '800' }, caseMeta: { color: colors.muted, fontSize: 11, lineHeight: 17, marginTop: 3 }, caseActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  approvalFields: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginVertical: 14 },
 });

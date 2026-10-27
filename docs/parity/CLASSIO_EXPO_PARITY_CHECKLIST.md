@@ -1,5 +1,24 @@
 # Classio Streamlit → Expo parity checklist
 
+**Estado vigente 27-10-2026:** el traspaso de recursos públicos tras el acceso está implementado y su migración ya está aplicada. La expansión y selección de recomendaciones por programa, el entrenamiento con feedback de apertura/impresión y la API autenticada para `user_activity_log` también existen; las casillas históricas que piden crear esas piezas describen cortes anteriores. La API Python de Render y el código del runtime privado de afinidad docente existen; faltan comprobar con una cuenta el modelo aprobado y su artefacto en el entorno efectivo. Expo ya genera PDF/Word de planes, fichas y exámenes, con variantes docente/alumno, ejercicios complejos y apoyo visual; falta la comparación exhaustiva de diseño y paginación frente a Streamlit. La API Python no expone todavía el ciclo de ejecución/revisión de experimentos ni generación persistente de informes. La verificación beta de recorridos públicos y de guardado sigue pendiente.
+
+**Reinspección de código 27-10-2026:** `python_api/app.py` ofrece inferencia autenticada de afinidad y recomendación, inteligencia administrativa y descarga de un `experiment_docx` previamente generado en disco. Su README excluye expresamente reentrenar/aprobar ejecuciones. No hay rutas para lanzar evaluaciones, repetir integridad, generar/regenerar informes o descargar el conjunto de artefactos del laboratorio. `get_or_create_validated_report` escribe en `reports/` local, que no constituye almacenamiento duradero en Render. Expo muestra evidencia y descarga el único informe listo, pero no ofrece esas acciones del laboratorio. Los fixtures locales de exportación pasan (`check-document-student-copy.cjs`, 11 DOCX y seis PDF); no existe una matriz automatizada que renderice todos los tipos y variantes tanto en Python como en Expo y compare estructura, páginas e imágenes. `https://classio-python-api.onrender.com/health` devolvió HTTP 200 y `{"status":"ok"}` tras el arranque del servicio. Esto comprueba disponibilidad pública, no autorización ni modelo aprobado con una cuenta real.
+
+**Controles operativos visibles — reinspección 27-10-2026.** Cada fila distingue cierre de código/frontend de aceptación actual con usuarios; el detalle de seguridad y equidad pertenece a las auditorías tecnológica y académica.
+
+| Superficie | Estado de código/frontend y cierre restante | Experiencia en vivo |
+| --- | --- | --- |
+| Recomendación docente | **Cerrado en código:** razones de compatibilidad, selección de recurso, rechazo por tema/no apto, reemplazo y deshacer; faltan ficha del modelo y versión efectiva junto a una explicación consultable por decisión. | **Pendiente:** docente beta valida razones, reemplazo y deshacer; el runtime aprobado en Render no se ha aceptado con esa cuenta. |
+| Recomendación estudiantil | **Parcial:** razones, reglas de elegibilidad y ranking local; falta explicación completa de señal ML/versión y comparación de orden con Python para los mismos datos. | **Pendiente:** alumno beta contrasta pertinencia y acceso a recurso. |
+| Generación IA y corrección | **Cerrado en código para feedback:** «¿Es lo que buscabas?» Sí/No con origen y exclusión tras edición; editor permite corrección. Falta registro/versionado del prompt y ruta visible de escalado cuando la salida es incorrecta repetidamente. | **Pendiente:** generación, edición y señal de feedback con cuenta beta. |
+| Administración/Developer IA | **Parcial:** sistemas, finalidad, evidencia, límites, decisiones agregadas, diagnósticos y auditoría visibles; no hay ficha versionada por modelo, cola de incidentes ni ejecución/revisión/generación persistente de informes desde Expo. | **Documentado históricamente:** la vista de evidencia cargó en staging en septiembre; **pendiente** repetir en el corte actual y probar acciones nuevas cuando existan. |
+| Privacidad y confianza pública | **Abierto:** el sitio y la app necesitan avisos de privacidad EN/ES/TR accesibles desde Explorer/registro/Perfil, con responsable, finalidades, destinatarios/proveedores, transferencias, plazos y vías de derechos; los términos y contacto de seguridad también necesitan enlaces públicos. Mantener avisos contextuales breves al usar IA y al crear perfiles de alumnos, sin reponer el texto técnico interno de limpieza de prompts. La auditoría tecnológica gobierna las bases RGPD/KVKK y el registro de decisiones; aquí se verifica paridad de acceso y comprensión en Expo/Streamlit/web. | **Pendiente:** titular beta comprueba lectura, idioma, contexto y contacto desde cada superficie; no hay experiencia en vivo documentada. |
+| Redes protegidas y dominio | **Sin defecto de enlace:** el sitio apunta a `app.masterclassio.com`; Sites/Expo configuran los dominios. El CORS por defecto de Python se corrigió en código local para ambos orígenes y necesita publicación. El filtro por reputación/categoría de una escuela no se controla desde la UI. | **Documentado por el titular:** el dominio funciona en otra red y falla en Wi-Fi escolar; **pendiente** categoría/razón del administrador escolar y prueba de llamadas Python tras publicar. |
+
+**Despliegue 27-10-2026:** commit `92eadd3a3` en GitHub y Expo Hosting `c2rtr7tpip` promovido a producción. La URL de versión, `classio.expo.app` y `app.masterclassio.com` respondieron HTTP 200 con el mismo bundle de la exportación local. La migración de marcadores públicos quedó registrada en Supabase con checksum `76fe43761f52c13c538858ad31a15233ea019a26d81678aad0da39b4250c1830`.
+
+**Documentos 27-10-2026:** los generadores de fixtures PDF y Word se adaptaron a las dependencias de Branding y telemetría de exportación; vuelven a producir muestras de planes, fichas y exámenes sin hacer llamadas reales ni atribuir descargas. Los seis PDF de emparejamiento, apoyo visual y sopa de letras generados en este corte tienen una página cada uno. Esto restaura la verificación local, pero no cierra la comparación visual integral con Streamlit ni las descargas autenticadas de beta.
+
 ## Cierres de código — 25-10-2026
 
 - [x] El historial de práctica ya no actualiza una calificación de sopa de letras directamente en `practice_sessions`. La ruta existente de recalificación usa el RPC transaccional para sesión, respuestas, progreso y asignación; si cambió la estructura del ejercicio, se conserva la nota confirmada para revisión docente.
@@ -222,8 +241,11 @@ Deployment target from 2026-10-01: `https://classio.expo.app`. Historical releas
 
 - [x] Calendar create/edit/delete validation, success, and fallback error messages now use EN/ES/TR catalog entries instead of English literals. This covers weekly schedules, one-time exceptions, and student pauses while preserving structured Supabase error detail. Source: `streamlit/app_pages/app_page_calendar.py` and `streamlit/helpers/schedule.py`; targets: `expo/src/app/(app)/calendar.tsx`, `expo/src/providers/app-preferences.tsx`. Direct TypeScript, targeted ESLint, and `git diff --check` passed. No database or staging operation occurred.
 - [x] The Calendar hero summary, week/month/day controls, date accessibility label, and action-form choices now use EN/ES/TR catalog entries. Source: `streamlit/app_pages/app_page_calendar.py`; targets: `expo/src/app/(app)/calendar.tsx`, `expo/src/providers/app-preferences.tsx`. Direct TypeScript, targeted ESLint, and `git diff --check` passed.
+- [x] On 26-10-2026, commit `1b9dadd3c` was pushed to `ver/42` and deployed to Expo web at `https://classio--nog8u8f6su.expo.app` (production `https://classio.expo.app`); both URLs returned HTTP 200. Native embedded video playback awaits a new binary build because `react-native-webview` was added.
+- [x] On 26-10-2026, the Calendar added a guided first-lesson state for teachers who already have students but no schedule: weekly and one-time form actions, with optional Google Calendar sync instructions in EN/ES/TR. TypeScript, targeted ESLint, and diff whitespace checks passed; beta keyboard and locale acceptance is still pending.
 - [x] The Calendar loading failure, retry, today marker, overflow count, and empty-agenda guidance now use EN/ES/TR catalog entries. Source: `streamlit/app_pages/app_page_calendar.py`; targets: `expo/src/app/(app)/calendar.tsx`, `expo/src/providers/app-preferences.tsx`. Direct TypeScript, targeted ESLint, and `git diff --check` passed.
-- [ ] Calendar empty-state guidance and locale/keyboard acceptance remain open; form and agenda labels were completed in the subsequent slice above.
+- [x] Calendar empty-state guidance now gives teachers with students a weekly, one-time, and optional Google Calendar path with direct form actions in EN/ES/TR.
+- [ ] Calendar locale and keyboard acceptance remains open for beta; form and agenda labels were completed in the subsequent slice above.
 
 ## 2026-09-27 parity slice: student topic-resource reference signals
 
@@ -304,11 +326,12 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 
 - [x] Branded responsive public landing page
 - [ ] Pre-login Explore workspace with AI tool previews
-  - [ ] Quick lesson planner demo
-  - [ ] Worksheet maker demo
-  - [ ] Quick exam builder demo
-  - [ ] Learning-program maker preview
-  - [ ] Anonymous-use limits and sign-up handoff that preserves generated work
+  - [x] Quick lesson planner demo: the existing public Smart Tool opens from its card, accepts subject/stage/level/topic/purpose, calls the anonymous generation route, and renders the resulting plan. Code verified 26-10-2026; live beta generation remains pending.
+  - [x] Worksheet maker demo: the existing public Smart Tool accepts the worksheet type and renders its generated student content. Code verified 26-10-2026; live beta generation remains pending.
+  - [x] Quick exam builder demo: the existing public Smart Tool accepts length and ordered exercise types, validates the section count, and renders the exam. Code verified 26-10-2026; live beta generation remains pending.
+  - [x] Learning-program maker preview: the public builder now exposes stage-specific unit and lesson counts and a live structural summary before sign-in. The summary explicitly says that AI content is generated after sign-in; it carries the selected settings into Smart Tools. Code complete 26-10-2026, beta visual/continuation acceptance pending.
+  - [x] Anonymous-use limits and sign-up handoff for generated work: the existing three-per-day server reservation remains in place; a generated plan, worksheet, or exam and its inputs now survive sign-in in a bounded, 24-hour device draft. Dashboard offers an explicit continuation action; Smart Tools restores the unsaved preview and requires the teacher to save it. No new provider call is made on restoration. Code complete 26-10-2026, beta sign-up/magic-link/save acceptance pending. Anonymous economic operations remain unattributed to a user and the saved resource has no generation-operation link.
+  - [x] Native Explorer demo request routing: public Smart Tools uses the configured hosted API on native builds; the generation route accepts a request without a browser Origin while still rejecting a foreign Origin or `Sec-Fetch-Site: cross-site`, then applies the existing guest quota before calling a provider. Code complete 26-10-2026; a new native build and live beta generation are required for acceptance.
 - [ ] Public teaching-resource explorer
   - [x] Search across resources
   - [x] Subject filter
@@ -321,26 +344,27 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
   - [x] Stored cover, thumbnail, and generated visual rendering on resource cards and previews
   - [x] Lightweight gallery loading with visible-page image hydration for large plans, worksheets, and exams
   - [x] Complete metadata pagination up to the Supabase API maximum instead of truncating each type at 200
-  - [ ] Complete content renderers for programs, plans, worksheets, and exams
-  - [ ] Embedded video playback
+  - [x] Program, plan, worksheet, and exam content renderers load the full public record and use their dedicated views. Public program topic videos now resolve the hosted API on native builds as well as web. Content and answer-exclusion fixtures pass; beta content and layout acceptance remains open under P1/P2.
+  - [x] Embedded video playback on web and native Explorer, with a YouTube fallback link (code complete 26-10-2026; native binary rebuild and beta playback acceptance pending)
   - [x] Pagination
-  - [ ] Save-after-sign-up handoff
-- [ ] Pre-login feature walkthrough
-- [ ] Income-goal calculator
+  - [x] Save-after-sign-up handoff in code: Explorer holds the selected public resource for at most 24 hours; the teacher dashboard resumes it, and Community saves a durable bookmark without copying or changing the author's resource. A saved-only filter and removal action are available. Supabase migration `add_saved_public_resources.sql` was applied in production with checksum and permissions verified. Sign-up acceptance remains for beta.
+- [x] Six pre-login teacher feature cards with responsive layouts and EN/ES/TR copy. The lower walkthrough panel was removed after beta feedback; each whole card now goes directly to Sign In and says so. Code corrected 26-10-2026; beta visual/keyboard acceptance pending.
+- [x] Income-goal calculator (three code paths complete; beta sign-up and visual acceptance pending)
   - [x] Subject, modality, audience, education, hourly-rate, and target controls
   - [x] Annual hours, weekly hours, student-count, and feasibility calculation
-  - [ ] Currency selection and conversion
-  - [ ] Apply modality, audience, and education multipliers to the recommended fee range
-  - [ ] Persist the goal after account creation
+  - [x] Currency selection and conversion using the same fixed planning factors as Streamlit; local conversion fixtures cover USD/EUR/TRY
+  - [x] Apply modality, audience, and education multipliers to the recommended fee range; parity fixtures cover adult/child, qualifications, and mixed modalities
+  - [x] Persist the selected annual goal after account creation: the explicit calculator action saves a short-lived local handoff, and the teacher dashboard writes it to the existing annual-goal setting only when no goal is already saved. Expired or invalid handoffs are discarded; beta sign-up acceptance remains pending
 - [x] Email/password sign in
 - [x] Email/password account creation
 - [x] Passwordless email-link sign in with Expo redirect
 - [ ] Google sign in on `classio.expo.app`: the web client now requests a Google ID token from Google Identity Services on the Classio origin and exchanges it for a Supabase session with a nonce. The Google Cloud OAuth web client must authorize `https://classio.expo.app` as a JavaScript origin. Confirm the hosted account chooser displays the Classio origin and a signed-in session is created before checking this complete. The native app still uses the Supabase OAuth redirect.
 - [x] Password reset code: Sign In requests a Supabase recovery email, `/reset-password` accepts web and native recovery sessions, validates and updates the new password, then returns to Sign In. EN/ES/TR copy, recovery-link fixtures, TypeScript, targeted lint, and a 32-route web export pass. The Supabase redirect allow list must include `https://classio.expo.app/reset-password` and the exact native URL produced by `Linking.createURL('/reset-password')` before the user's live email/device acceptance.
-- [ ] English, Spanish, and Turkish public UI
+- [x] Signed-in Google users can set a Classio email/password credential from Profile → Email & password. The form confirms the password, calls Supabase `updateUser` for the current account, and preserves the Google identity. Existing password users can change theirs through the same form. Supabase's configured password and reauthentication policies remain authoritative; functional acceptance with a beta Google account is pending.
+- [x] English, Spanish, and Turkish public UI (code complete; beta visual acceptance pending)
   - [x] Persistent language control on the public, authentication, and signed-in shells
   - [x] Public hero and authentication journey translated in English, Spanish, and Turkish
-  - [ ] Translate the remaining public explorer, income planner, sample dashboard, and footer copy
+  - [x] Public Explorer, income planner, sample dashboard, footer, and Smart Tool option labels use EN/ES/TR catalogs; anonymous generation failures show localized production copy. User-authored resource content remains in its source language; beta visual acceptance is pending.
 - [x] Auto, light, and dark appearance controls
 
 ## Shared signed-in experience
@@ -352,17 +376,18 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 - [x] Session restoration and sign out
 - [x] Account summary
 - [x] Teacher/student mode switching for dual-role accounts
-- [ ] First-run role choice
+- [x] First-run role choice is routed and saved for teacher/student accounts, with role guards and EN/ES/TR copy. The native chooser now calls the hosted API with an absolute URL; beta account creation on web and device remains to be accepted.
 - [x] First-run onboarding checklist and guided welcome
 - [ ] Editable profile, avatar, language, theme, timezone, currency, and preferences
   - [x] Persistent interface-language and appearance preferences
   - [x] Streamlit-matched Profile route with avatar upload, locked username/email, personal details, role, timezone, country, default currency/duration, teaching subjects/stages/languages, education, community visibility/contact, and guarded account deletion
   - [x] Responsive Profile placement beside Account/Billing in signed-in teacher and student navigation, with the saved avatar reflected in the application shell
-  - [ ] Teacher branding/logo/footer controls embedded in the Streamlit profile dialog
-- [ ] Notification center and notification preferences
+  - [x] Teacher branding/logo/footer controls are available on the dedicated Branding page, with settings, image uploads, preview, and persistence. The user confirmed this page as the intended location on 26-10-2026; no duplicate controls are needed in Profile.
+- [x] Notification center and on-device notification preferences (code complete; beta interaction acceptance pending)
   - [x] Dashboard notification center derived from assignment-review and package-risk signals
   - [x] Student Home notification panel derived from assignment deadlines, new/graded work, and completed teacher reviews
-  - [ ] Stored notification read/unread state and notification preferences
+  - [x] Notification read/unread actions and category preferences persist per user and workspace on this device. Profile offers assignment, review, and payment filters as applicable; beta interaction acceptance is pending. Cross-device syncing is outside this code-only closure.
+  - [x] Student grade notices use a result icon and distinct copy; actual teacher comments and completed reviews use a comment icon. Each opens the specific practice resource, and saved-session links show the grade or teacher comment beside that resource. When no saved session exists, the notice opens the assigned resource with the available summary. Beta navigation acceptance is pending.
 - [x] Pricing, plan comparison, and subscription-state display
   - [ ] Live checkout and school-contact billing actions
 - [x] Community teacher/student directories, filters, profiles, pagination, and contact actions
@@ -387,7 +412,7 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
   - [x] Public/private visibility controls
   - [x] Resource metadata editing and the correct export controls: plan PDF/Word; worksheet student/teacher PDF/Word; exam student/answer-key PDF and student/teacher Word; no JSON/program/video document exports
   - [x] Owner-scoped saved content editing for plans, worksheets, and exams, with preview and export refresh; AI refine and program content editing remain open
-  - [ ] Full Streamlit PDF/Word document parity. Expo has branded title hierarchy, localized section rendering, response space, Unicode PDF fonts, and footer, with representative Word and matching Word/PDF render checks. Other exercise families, visual support, exact Python page layout, and hosted download acceptance remain open.
+  - [ ] Full Streamlit PDF/Word document parity. Expo ya implementa títulos, secciones localizadas, espacio de respuesta, fuentes Unicode, pie de página, variantes de alumno/docente, emparejamiento, verdadero/falso, sopa de letras y apoyo visual en PDF/Word. Pasan fixtures locales representativos. Falta una matriz Python–Expo de todos los tipos, idiomas y variantes con comparación de estructura, diseño y paginación; la descarga alojada queda para aceptación beta.
   - [x] Assignment to an active, subject-scoped student connection
   - [x] Bulk assignment to multiple students in one action
 

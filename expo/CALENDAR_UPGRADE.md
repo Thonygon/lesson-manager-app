@@ -20,7 +20,7 @@ The server endpoints `/api/google-calendar` and `/api/google-calendar-callback` 
 
 Sync is intentionally one-way and user initiated: Classio → the teacher's primary Google Calendar. It exports weekly series, one-time events, moves, cancellations, and active pauses. Classio marks its own Google events with private metadata, compares content hashes before updates, and removes only stale events marked as Classio-owned. Repeated sync does not recreate unchanged lessons or resend their invitations. Existing one-time events with a `gcal_event_id` are updated in place when possible.
 
-Set `GOOGLE_CAL_CLIENT_ID`, `GOOGLE_CAL_CLIENT_SECRET`, `GOOGLE_CAL_STATE_SECRET`, and `GOOGLE_CAL_REDIRECT_URI` in the EAS Hosting environment. The OAuth client's authorized redirect URI must be `https://classio.expo.app/api/google-calendar-callback`. The Google Calendar panel reports that server setup is needed until these are available. Connecting and syncing require a signed-in teacher and should be verified by the account owner.
+Set `GOOGLE_CAL_CLIENT_ID`, `GOOGLE_CAL_CLIENT_SECRET`, `GOOGLE_CAL_STATE_SECRET`, and `GOOGLE_CAL_REDIRECT_URI` in the EAS Hosting environment. The OAuth client's authorized redirect URI must be `https://app.masterclassio.com/api/google-calendar-callback`. The Google Calendar panel reports that server setup is needed until these are available. Connecting and syncing require a signed-in teacher and should be verified by the account owner.
 Use the same Google OAuth client as Streamlit if existing refresh tokens should continue working. If a different client is used, teachers must reconnect once in Expo.
 
 ## Current data boundary

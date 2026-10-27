@@ -685,6 +685,8 @@ def _generate_with_openrouter(prompt: str) -> str:
 
     def _request() -> str:
         model = _get_openrouter_image_model()
+        from helpers.ai_runtime_approval import require_ai_runtime_approval, IMAGE_PROMPT_VERSION
+        require_ai_runtime_approval("streamlit_image", "openrouter", model, IMAGE_PROMPT_VERSION)
         body = {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
@@ -723,6 +725,8 @@ def _generate_with_gemini(prompt: str) -> str:
     def _request() -> str:
         client = _get_gemini_client(api_key)
         model = _get_gemini_image_model()
+        from helpers.ai_runtime_approval import require_ai_runtime_approval, IMAGE_PROMPT_VERSION
+        require_ai_runtime_approval("streamlit_image", "gemini", model, IMAGE_PROMPT_VERSION)
         return run_recorded_provider_attempt(
             "gemini", model,
             lambda: client.models.generate_content(model=model, contents=[prompt]),
@@ -785,6 +789,8 @@ def _generate_with_openai(prompt: str) -> str:
         raise RuntimeError("missing_openai_api_key")
 
     def _request() -> str:
+        from helpers.ai_runtime_approval import require_ai_runtime_approval, IMAGE_PROMPT_VERSION
+        require_ai_runtime_approval("streamlit_image", "openai", "gpt-image-1", IMAGE_PROMPT_VERSION)
         client = _get_openai_client(api_key)
         return run_recorded_provider_attempt(
             "openai", "gpt-image-1",

@@ -13,6 +13,8 @@ import { programFallback, fallbackProgramUnit } from '../../server/program-fallb
 import { programLanguageIssues } from '../../server/program-language-quality';
 import { mergePreviousProgramRows, previousProgramFromStorage, previousProgramComplete, summarizePreviousProgram } from '../../server/program-continuation';
 import { configuredAiProviders, requestAiProvider } from '../../server/ai-provider-chain';
+import { approvedAiProviders, EXPO_TEXT_PROMPT_VERSION } from '../../server/ai-runtime-approval';
+import { recordAiFallback } from '../../server/ai-fallback-telemetry';
 import { reserveGuestGeneration } from '../../server/guest-generation-quota';
 import type { UsageContext } from '../../server/ai-generation-usage';
 import { findGenerationMatches } from '../../server/generation-reuse';
@@ -170,7 +172,10 @@ export async function POST(request: Request) {
     let profilePlan = 'free';
     if (guest) {
       const origin = request.headers.get('origin') || '';
-      const allowedOrigin = /^https:\/\/classio\.expo\.app$/i.test(origin);
+      // React Native fetch has no browser Origin header. Cross-site browser
+      // requests still need the Classio origin; both paths use the same IP and
+      // guest-cookie reservation before any provider call.
+      const allowedOrigin = !origin || /^https:\/\/(?:classio\.expo\.app|app\.masterclassio\.com)$/i.test(origin);
       if (!allowedOrigin) return json({ error: 'This sample is available from the Classio website.' }, 403);
       if (request.headers.get('sec-fetch-site') === 'cross-site') return json({ error: 'This sample is available from the Classio website.' }, 403);
     } else {
@@ -275,7 +280,7 @@ export async function POST(request: Request) {
       return json({ document, model: 'template', fallbackReason: 'ai_unavailable', generatedAt: new Date().toISOString() });
     };
     phase = 'provider_configuration';
-    const providers = configuredAiProviders({
+    const configuredProviders = configuredAiProviders({
       OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
       GEMINI_API_KEY: process.env.GEMINI_API_KEY,
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,
@@ -283,7 +288,19 @@ export async function POST(request: Request) {
       OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
       GEMINI_MODEL: process.env.GEMINI_MODEL,
     }).filter((provider) => !guest || provider.provider !== 'openai');
-    if (!providers.length) return fallbackProgram() ?? fallbackPlan() ?? json({ error: 'Classio AI is not connected.' }, 503);
+    const noteFallback = async (mode: 'template' | 'unavailable', reason: string) => {
+      const recorded = await recordAiFallback(supabaseUrl, process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '', `generate_${kind}`, mode, reason);
+      if (!recorded) console.error('AI fallback event could not be recorded', { kind, mode, reason });
+    };
+    if (!configuredProviders.length) { const fallback = fallbackProgram() ?? fallbackPlan(); await noteFallback(fallback ? 'template' : 'unavailable', 'provider_not_configured'); return fallback ?? json({ error: 'Classio AI is not connected.' }, 503); }
+    let providers;
+    try {
+      providers = await approvedAiProviders(configuredProviders, 'expo_text', EXPO_TEXT_PROMPT_VERSION,
+        supabaseUrl, process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '');
+    } catch {
+      return json({ error: 'AI release approval could not be verified.', code: 'approval_unavailable' }, 503);
+    }
+    if (!providers.length) { const fallback = fallbackProgram() ?? fallbackPlan(); await noteFallback(fallback ? 'template' : 'unavailable', 'approval_required'); return fallback ?? json({ error: 'AI generation is awaiting release approval.', code: 'approval_required' }, 503); }
     let usageContext: UsageContext | null = null;
     if (!guest) {
       const serverKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -390,7 +407,9 @@ export async function POST(request: Request) {
     }
     if (!document) {
       await finalize('failed', 'provider_failed', { prompt_version: 'expo-generate-v1', result: 'provider_failed', provider_calls: providerCalls });
-      return fallbackProgram() ?? fallbackPlan() ?? json({ error: failure, code: failureCode }, 502);
+      const fallback = fallbackProgram() ?? fallbackPlan();
+      await noteFallback(fallback ? 'template' : 'unavailable', 'provider_failed');
+      return fallback ?? json({ error: failure, code: failureCode }, 502);
     }
     const completedOperationId = economicOperationId;
     phase = 'economic_finalization';

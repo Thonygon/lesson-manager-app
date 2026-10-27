@@ -31,7 +31,9 @@ import { getPublicResourceDetail, getPublicResourcePreviewImages, getExplorerPub
 import { colors } from '@/theme';
 import { canonicalSubjectKey, canonicalSubjectLabel } from '@/lib/subjects';
 import { canonicalLearnerStageKey, learnerStageLabel } from '@/lib/learner-stages';
-import { buildIncomePlan, CURRENCY_FACTORS, recommendedRange, RATE_RANGES_USD, type IncomeAudience, type IncomeCurrency, type IncomeEducation, type IncomeModality, type IncomeSubject } from '@/lib/income-planner';
+import { savePendingIncomeGoal } from '@/lib/income-goal-handoff';
+import { savePublicResourceHandoff } from '@/lib/public-resource-handoff';
+import { buildIncomePlan, convertPlanningAmount, CURRENCY_FACTORS, recommendedRange, RATE_RANGES_USD, type IncomeAudience, type IncomeCurrency, type IncomeEducation, type IncomeModality, type IncomeSubject } from '@/lib/income-planner';
 
 const TOOLS = [
   { icon: '📝', title: 'toolLesson', badge: 'toolLessonBadge', copy: 'toolLessonBody', tint: colors.primarySoft, accent: colors.primary },
@@ -113,15 +115,16 @@ export default function HomeScreen() {
   const [hourlyRate, setHourlyRate] = useState('40');
   const [incomeGoal, setIncomeGoal] = useState('50000');
   const [showPlan, setShowPlan] = useState(false);
+  const [goalHandoffError, setGoalHandoffError] = useState(false);
   const [audienceView, setAudienceView] = useState<'teacher' | 'student'>('teacher');
   useEffect(() => {
     const sharedKind = String(params.resourceKind || ''); const sharedId = String(params.resourceId || '');
     if (!Object.hasOwn(RESOURCE_META, sharedKind) || !/^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[1-9]\d*)$/i.test(sharedId)) return;
     let active = true;
     setAudienceView('teacher'); setKind(sharedKind as PublicResourceKind); setSharedResourceError(''); if (params.from === 'explorer' && ['plan', 'worksheet', 'exam', 'program'].includes(String(params.tool))) setOpenTool(params.tool as SmartToolKind);
-    void getPublicResourceDetail(sharedKind as PublicResourceKind, sharedId).then((resource) => { if (active) setSelected(resource); }).catch(() => { if (active) setSharedResourceError('This shared resource is private or no longer available.'); });
+    void getPublicResourceDetail(sharedKind as PublicResourceKind, sharedId).then((resource) => { if (active) setSelected(resource); }).catch(() => { if (active) setSharedResourceError(copy.sharedUnavailable); });
     return () => { active = false; };
-  }, [params.resourceId, params.resourceKind, params.from, params.tool]);
+  }, [params.resourceId, params.resourceKind, params.from, params.tool, copy.sharedUnavailable]);
   const selectedResourceKey = selected ? `${selected.kind}:${selected.id}` : '';
   useEffect(() => { if (selectedResourceKey) requestAnimationFrame(() => pageRef.current?.scrollTo({ y: resourcesY.current, animated: true })); }, [selectedResourceKey]);
   const resourceKinds = audienceView === 'teacher' ? Object.keys(RESOURCE_META) as PublicResourceKind[] : ['worksheet', 'exam', 'video'] as PublicResourceKind[];
@@ -213,6 +216,18 @@ export default function HomeScreen() {
     setHourlyRate(String(recommendedRange(subject, nextModalities, nextAudiences, nextEducation, nextCurrency)[1]));
     setShowPlan(false);
   };
+  const continueWithGoal = async () => {
+    try { await savePendingIncomeGoal(goal, currency); setGoalHandoffError(false); router.push('/sign-in'); }
+    catch { setGoalHandoffError(true); }
+  };
+  const featureCards = [
+    { icon: '◫', title: explore.featureDashboard, body: explore.featureDashboardBody, accent: colors.primary, tint: colors.primarySoft },
+    { icon: '◉', title: explore.featureStudents, body: explore.featureStudentsBody, accent: colors.success, tint: colors.successSoft },
+    { icon: '✎', title: explore.featureLessons, body: explore.featureLessonsBody, accent: colors.orange, tint: colors.orangeSoft },
+    { icon: '◇', title: explore.featurePayments, body: explore.featurePaymentsBody, accent: colors.warning, tint: colors.warningSoft },
+    { icon: '▦', title: explore.featureCalendar, body: explore.featureCalendarBody, accent: colors.violet, tint: colors.violetSoft },
+    { icon: '▥', title: explore.featureAnalytics, body: explore.featureAnalyticsBody, accent: colors.pink, tint: colors.pinkSoft },
+  ];
   const openSmartTool = (next: SmartToolKind) => { pendingToolScroll.current = true; setOpenTool(next); if (openTool) requestAnimationFrame(() => scrollToSmartTool(selectedToolY.current)); };
   const scrollToSmartTool = (y: number) => {
     if (!pendingToolScroll.current) return;
@@ -276,7 +291,7 @@ export default function HomeScreen() {
           <View style={styles.section} onLayout={(event) => { resourcesY.current = event.nativeEvent.layout.y; }}>
             <SectionHeading eyebrow={copy.libraryEyebrow} title={audienceView === 'teacher' ? copy.libraryTeacherTitle : copy.libraryTitle} body={copy.libraryBody} />
             {sharedResourceError ? <View style={styles.notice}><Text style={styles.noticeTitle}>{sharedResourceError}</Text></View> : null}
-            {selected ? <PublicResourceViewer selected={selected} mode={audienceView} onClose={() => setSelected(null)} /> : <>
+            {selected ? <PublicResourceViewer selected={selected} mode={audienceView} onClose={() => setSelected(null)} onSaveAfterSignIn={async (resource) => { await savePublicResourceHandoff({ kind: resource.kind, id: resource.id, title: resource.title }); router.push('/sign-in'); }} /> : <>
             <TabRail accessibilityLabel={audienceView === 'teacher' ? copy.libraryTeacherTitle : copy.libraryTitle} value={kind} onChange={(value) => { setKind(value as PublicResourceKind); setStage('All stages'); setLevel('All levels'); setExerciseFilter('All exercises'); setSelected(null); }} items={resourceKinds.map((key) => ({ value: key, label: `${RESOURCE_META[key].icon} ${copy[RESOURCE_META[key].label]}` }))} />
             <ResourceFilters query={query} onQueryChange={setQuery} count={resourcesLoading ? undefined : visibleResources.length} searchLabel={copy.searchResources} facets={[
               { key: 'subject', label: t('resources.subject'), value: subject, allValue: 'All subjects', allLabel: t('resources.allSubjects'), options: subjects.map((value) => ({ value, label: canonicalSubjectLabel(value, t) })), onChange: (value) => { setSubject(value); setStage('All stages'); setLevel('All levels'); setExerciseFilter('All exercises'); } },
@@ -311,7 +326,7 @@ export default function HomeScreen() {
                 <View style={styles.goalFilters}>
                   <View style={styles.goalFilterCell}><Text style={styles.goalFilterLabel}>{copy.goalSubject}</Text><SelectField label={copy.goalSubject} value={goalSubject} options={(Object.keys(RATE_RANGES_USD) as IncomeSubject[]).map((item) => ({ value: item, label: subjectLabels[item] }))} onChange={(value) => updatePlanningFilters(value as IncomeSubject, modalities, audiences, education, currency)} /></View>
                   <View style={styles.goalFilterCell}><Text style={styles.goalFilterLabel}>{copy.goalEducation}</Text><SelectField label={copy.goalEducation} value={education} options={(['Student', 'Bachelor’s', 'Master’s', 'Doctorate'] as const).map((item) => ({ value: item, label: educationLabels[item] }))} onChange={(value) => updatePlanningFilters(goalSubject, modalities, audiences, value as IncomeEducation, currency)} /></View>
-                  <View style={styles.goalFilterCell}><Text style={styles.goalFilterLabel}>{copy.goalCurrency}</Text><SelectField label={copy.goalCurrency} value={currency} options={(Object.keys(CURRENCY_FACTORS) as IncomeCurrency[]).map((item) => ({ value: item, label: `${currencySymbols[item] || item} ${item}` }))} onChange={(value) => { const next = value as IncomeCurrency; const factor = CURRENCY_FACTORS[next] / CURRENCY_FACTORS[currency]; setIncomeGoal((current) => String(Math.round((Number(current) || 0) * factor))); setHourlyRate((current) => String(Math.max(1, Math.round((Number(current) || recommended[1]) * factor)))); setCurrency(next); setShowPlan(false); }} /></View>
+                  <View style={styles.goalFilterCell}><Text style={styles.goalFilterLabel}>{copy.goalCurrency}</Text><SelectField label={copy.goalCurrency} value={currency} options={(Object.keys(CURRENCY_FACTORS) as IncomeCurrency[]).map((item) => ({ value: item, label: `${currencySymbols[item] || item} ${item}` }))} onChange={(value) => { const next = value as IncomeCurrency; setIncomeGoal((current) => String(convertPlanningAmount(Number(current) || 0, currency, next))); setHourlyRate((current) => String(Math.max(1, convertPlanningAmount(Number(current) || recommended[1], currency, next)))); setCurrency(next); setShowPlan(false); }} /></View>
                 </View>
                 <Text style={styles.fieldLabel}>{copy.goalModality}</Text><View style={styles.wrapChoices}>{(['Online', 'In person'] as const).map((item) => <Choice key={item} active={modalities.includes(item)} onPress={() => { const next = modalities.includes(item) ? modalities.filter((value) => value !== item) : [...modalities, item]; if (next.length) updatePlanningFilters(goalSubject, next, audiences, education, currency); }}>{modalityLabels[item]}</Choice>)}</View>
                 <Text style={styles.fieldLabel}>{copy.goalAudience}</Text><View style={styles.wrapChoices}>{(['Kids', 'Teens', 'Adults'] as const).map((item) => <Choice key={item} active={audiences.includes(item)} onPress={() => { const next = audiences.includes(item) ? audiences.filter((value) => value !== item) : [...audiences, item]; if (next.length) updatePlanningFilters(goalSubject, modalities, next, education, currency); }}>{audienceLabels[item]}</Choice>)}</View>
@@ -322,7 +337,7 @@ export default function HomeScreen() {
                 <Pressable disabled={!plan} onPress={() => setShowPlan(true)} style={[styles.primaryButton, !plan && { opacity: .45 }]}><Text style={styles.primaryButtonText}>{copy.goalBuild}</Text></Pressable>
               </View>
               <View style={[styles.goalResult, compact && styles.goalPanelCompact, !showPlan && styles.goalResultIdle, showPlan && plan && { backgroundColor: feasibility[1] }]}>
-                {!showPlan || !plan ? <><Text style={styles.resultIcon}>🎯</Text><Text style={styles.resultTitle}>{copy.goalIdleTitle}</Text><Text style={styles.resultBody}>{copy.goalIdleBody}</Text></> : <><View style={styles.resultTop}><Text style={styles.resultKicker}>{copy.goalPlan}</Text><Text style={styles.feasibility}>{feasibility[0]}</Text></View><Text style={styles.goalAmount}>{formattedAmount(goal)}</Text><Text style={styles.resultBody}>{copy.goalAnnual}</Text><Text style={styles.advice}>{formatPublicCopy(copy.goalWeeksNote, { weeks: plan.effectiveWeeks.toLocaleString(language) })}</Text><View style={[styles.metrics, phone && styles.metricsPhone]}><View style={styles.metric}><Text style={styles.metricValue}>{plan.annualHours}</Text><Text style={styles.metricLabel}>{copy.goalHoursYear}</Text></View><View style={styles.metric}><Text style={styles.metricValue}>{plan.weeklyHours}</Text><Text style={styles.metricLabel}>{copy.goalHoursWeek}</Text></View><View style={styles.metric}><Text style={styles.metricValue}>{plan.studentsNeeded}</Text><Text style={styles.metricLabel}>{copy.goalStudents}</Text></View></View><Text style={styles.advice}>{feasibility[2]}</Text><Text style={styles.advice}>{copy.goalGrossNote}</Text><Pressable onPress={() => router.push('/sign-in')} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>{copy.goalCreate}</Text></Pressable></>}
+                {!showPlan || !plan ? <><Text style={styles.resultIcon}>🎯</Text><Text style={styles.resultTitle}>{copy.goalIdleTitle}</Text><Text style={styles.resultBody}>{copy.goalIdleBody}</Text></> : <><View style={styles.resultTop}><Text style={styles.resultKicker}>{copy.goalPlan}</Text><Text style={styles.feasibility}>{feasibility[0]}</Text></View><Text style={styles.goalAmount}>{formattedAmount(goal)}</Text><Text style={styles.resultBody}>{copy.goalAnnual}</Text><Text style={styles.advice}>{formatPublicCopy(copy.goalWeeksNote, { weeks: plan.effectiveWeeks.toLocaleString(language) })}</Text><View style={[styles.metrics, phone && styles.metricsPhone]}><View style={styles.metric}><Text style={styles.metricValue}>{plan.annualHours}</Text><Text style={styles.metricLabel}>{copy.goalHoursYear}</Text></View><View style={styles.metric}><Text style={styles.metricValue}>{plan.weeklyHours}</Text><Text style={styles.metricLabel}>{copy.goalHoursWeek}</Text></View><View style={styles.metric}><Text style={styles.metricValue}>{plan.studentsNeeded}</Text><Text style={styles.metricLabel}>{copy.goalStudents}</Text></View></View><Text style={styles.advice}>{feasibility[2]}</Text><Text style={styles.advice}>{copy.goalGrossNote}</Text><Pressable accessibilityRole="button" onPress={() => void continueWithGoal()} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>{copy.goalCreate}</Text></Pressable>{goalHandoffError ? <Text style={styles.advice}>{copy.goalHandoffFailed}</Text> : null}</>}
               </View>
             </View>
           </View>
@@ -330,7 +345,7 @@ export default function HomeScreen() {
           <View style={[styles.section, compact && styles.sectionCompact]}>
             <SectionHeading eyebrow={explore.featureEyebrow} title={explore.featureTitle} body={explore.featureBody} />
             <View style={styles.featureGrid}>
-              {([['◫', explore.featureDashboard, explore.featureDashboardBody, colors.primary, colors.primarySoft], ['◉', explore.featureStudents, explore.featureStudentsBody, colors.success, colors.successSoft], ['✎', explore.featureLessons, explore.featureLessonsBody, colors.orange, colors.orangeSoft], ['◇', explore.featurePayments, explore.featurePaymentsBody, colors.warning, colors.warningSoft], ['▦', explore.featureCalendar, explore.featureCalendarBody, colors.violet, colors.violetSoft], ['▥', explore.featureAnalytics, explore.featureAnalyticsBody, colors.pink, colors.pinkSoft]] as const).map(([icon, title, body, accent, tint]) => <Pressable key={title} accessibilityRole="button" onPress={() => router.push('/sign-in')} style={(state) => [styles.featureCard, phone && styles.featureCardPhone, pressableActive(state) && styles.toolCardHover]}><View style={[styles.featureIconBubble, { backgroundColor: tint, borderColor: accent }]}><Text style={[styles.featureIcon, { color: accent }]}>{icon}</Text></View><Text numberOfLines={2} style={[styles.featureTitle, phone && styles.featureTitlePhone]}>{title}</Text>{!phone ? <Text style={styles.featureBody}>{body}</Text> : null}<Text style={[styles.featureAction, { color: accent }]}>{phone ? '↗' : `${explore.featureAction} ↗`}</Text></Pressable>)}
+              {featureCards.map(({ icon, title, body, accent, tint }) => <Pressable key={title} accessibilityRole="link" accessibilityLabel={`${title}. ${explore.featureView}`} onPress={() => router.push('/sign-in')} style={(state) => [styles.featureCard, phone && styles.featureCardPhone, pressableActive(state) && styles.toolCardHover]}><View style={[styles.featureIconBubble, { backgroundColor: tint, borderColor: accent }]}><Text style={[styles.featureIcon, { color: accent }]}>{icon}</Text></View><Text numberOfLines={2} style={[styles.featureTitle, phone && styles.featureTitlePhone]}>{title}</Text>{!phone ? <Text style={styles.featureBody}>{body}</Text> : null}<Text style={[styles.featureAction, { color: accent }]}>{explore.featureView} →</Text></Pressable>)}
             </View>
           </View>
 

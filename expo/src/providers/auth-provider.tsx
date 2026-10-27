@@ -15,6 +15,7 @@ type AuthContextValue = AuthState & {
   signInWithGoogleIdToken: (token: string, nonce: string) => Promise<string | null>;
   signUp: (email: string, password: string) => Promise<string | null>;
   sendPasswordReset: (email: string) => Promise<string | null>;
+  setAccountPassword: (password: string) => Promise<string | null>;
   updatePassword: (password: string) => Promise<string | null>;
   signOut: () => Promise<void>;
 };
@@ -145,6 +146,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return error?.message ?? null;
   }, []);
 
+  const setAccountPassword = useCallback(async (password: string) => {
+    if (!supabase) return 'Supabase is not configured.';
+    const { error } = await supabase.auth.updateUser({ password });
+    return error?.message ?? null;
+  }, []);
+
   const updatePassword = useCallback(async (password: string) => {
     if (!supabase) return 'Supabase is not configured.';
     const { error } = await supabase.auth.updateUser({ password });
@@ -171,8 +178,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ ...state, recoverySession, refreshProfile, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signUp, sendPasswordReset, updatePassword, signOut }),
-    [refreshProfile, recoverySession, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signOut, signUp, sendPasswordReset, updatePassword, state],
+    () => ({ ...state, recoverySession, refreshProfile, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signUp, sendPasswordReset, setAccountPassword, updatePassword, signOut }),
+    [refreshProfile, recoverySession, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signOut, signUp, sendPasswordReset, setAccountPassword, updatePassword, state],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

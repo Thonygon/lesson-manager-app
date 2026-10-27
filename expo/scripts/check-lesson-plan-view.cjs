@@ -9,6 +9,7 @@ const loaded = { exports: {} };
 new Function('module', 'exports', 'require', compiled)(loaded, loaded.exports, (name) => {
   if (name === 'react-native') return { Platform: { OS: 'web' } };
   if (name === '@/services/branding') return { getBrandingSettings: () => ({}) };
+  if (name === '@/services/document-export-events') return { recordedDocumentExport: async () => {} };
   if (name === '@/lib/subjects') return { canonicalSubjectKey: (value) => value };
   if (name === '@/lib/learner-stages') return { canonicalLearnerStageKey: (value) => value };
   if (name === '@/lib/lesson-purpose') return { lessonPurposeKey: (value) => value };

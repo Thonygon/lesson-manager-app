@@ -19,6 +19,7 @@ class GenerationQuotaContextTests(unittest.TestCase):
                 patch.object(planner, "OpenAI"), \
                 patch("google.genai.Client"), \
                 patch.object(planner, "get_ai_model_for_provider", return_value="test-model"), \
+                patch("helpers.ai_runtime_approval.require_ai_runtime_approval"), \
                 patch.object(planner, "run_recorded_provider_attempt", return_value="generated"), \
                 patch("services.permissions_service.reserve_ai_tool", return_value=False) as reserve:
                 self.assertEqual(helper("system", "user", reserve_account_quota=False), "generated")
@@ -26,6 +27,7 @@ class GenerationQuotaContextTests(unittest.TestCase):
 
     def test_normal_provider_attempts_still_require_reservation(self):
         with patch.object(planner.st, "secrets", {"OPENROUTER_API_KEY": "test-key"}), \
+            patch("helpers.ai_runtime_approval.require_ai_runtime_approval"), \
             patch("services.permissions_service.reserve_ai_tool", return_value=False) as reserve:
             with self.assertRaisesRegex(RuntimeError, "AI generation limit reached"):
                 planner._generate_with_openrouter("system", "user")

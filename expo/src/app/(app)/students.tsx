@@ -112,6 +112,7 @@ function LearningView({ workspace, studentName, linkedStudentId, rosterStudentId
   const [recommendationResources, setRecommendationResources] = useState<PublicResource[]>([]);
   const [recommendationModel, setRecommendationModel] = useState<RecommendationModel | null>(null);
   const [affinityScores, setAffinityScores] = useState<Map<string, number>>(new Map());
+  const [affinityMode, setAffinityMode] = useState<'checking' | 'python' | 'local'>('checking');
   const [objectiveWeights, setObjectiveWeights] = useState<Record<string, number> | null>(null);
   const [recommendationLoading, setRecommendationLoading] = useState(false);
   const [recommendationLoaded, setRecommendationLoaded] = useState(false);
@@ -145,6 +146,7 @@ function LearningView({ workspace, studentName, linkedStudentId, rosterStudentId
   useEffect(() => {
     if (learningTab !== 'recommendations' || !recommendationModel || !feedbackLoaded) return;
     let active = true;
+    setAffinityMode('checking');
     void (async () => {
       try {
         await getPythonAffinityModel();
@@ -160,8 +162,18 @@ function LearningView({ workspace, studentName, linkedStudentId, rosterStudentId
             if (batch.scores[index]?.matched) scores.set(`${recommendation.id}:${resource.kind}:${resource.id}`, batch.scores[index]!.score);
           });
         }
-        if (active) setAffinityScores(scores);
-      } catch { /* The local Python-equivalent ranker remains available while the inference API is offline. */ }
+        if (active) { setAffinityScores(scores); setAffinityMode('python'); }
+      } catch {
+        if (active) { setAffinityScores(new Map()); setAffinityMode('local'); }
+        void requireSupabase().rpc('record_application_diagnostic', {
+          p_event_id: null, p_fingerprint: 'teacher-affinity-local-fallback',
+          p_severity: 'warning', p_component: 'teacher_recommendation', p_operation: 'python_affinity_fallback',
+          p_page_key: 'students', p_user_face: 'teacher', p_environment: 'production',
+          p_release_version: 'expo-port-v1', p_exception_type: 'remote_unavailable',
+          p_safe_message: 'Local recommendation ranking used after remote affinity failed.',
+          p_safe_stack: '', p_context_json: { fallback_used: 'true', query_name: 'python_affinity' },
+        }).then(() => {}, () => {});
+      }
     })();
     return () => { active = false; };
   }, [feedbackLoaded, hiddenFeedback, learningTab, recommendationModel, recommendationResources, recommendations, studentUserId]);
@@ -307,7 +319,7 @@ function LearningView({ workspace, studentName, linkedStudentId, rosterStudentId
     </Panel> : null}
     {learningTab === 'programs' ? <Panel style={styles.assignmentPanel}><Text style={styles.sectionTitle}>{t('students.programsTab')}</Text>{actionMessage ? <Text style={styles.actionMessage}>{actionMessage}</Text> : null}{pagedPrograms.map((row, index) => { const assignmentId = String(row.id || index); const program = (row.program || {}) as ClassioRecord; const topics = programTopics(program, workspace.topics.filter((item) => String(item.program_id) === String(row.program_id))); const progress = workspace.progress.filter((item) => String(item.assignment_id) === assignmentId); const progressByTopic = new Map(progress.map((item) => [String(item.topic_id), item])); const done = topics.filter((topic) => Boolean(progressByTopic.get(String(topic.id))?.teacher_done)).length; const progressPct = topics.length ? Math.round(done / topics.length * 100) : 0; const units = [...new Set(topics.map((topic) => Number(topic.unit_number || 0)))]; return <View key={assignmentId} style={styles.programAssignment}><View style={styles.programHero}><View style={styles.programHeaderCopy}><Text style={styles.programEyebrow}>{t('students.assignedLearningProgram')}</Text><Text style={styles.programTitle}>{String(program.title || t('students.learningProgram'))}</Text><Text style={styles.programMeta}>{[rowSubject(row), program.level_or_band, row.target_completion_on ? `${t('students.targetDate')}: ${String(row.target_completion_on).slice(0, 10)}` : t('students.startLessonOne')].filter(Boolean).join(' · ')}</Text>{row.teacher_note || program.program_overview ? <Text style={styles.programDescription}>{String(row.teacher_note || program.program_overview)}</Text> : null}</View><View style={styles.programProgress}><Text style={styles.programProgressValue}>{progressPct}%</Text><Text style={styles.metricLabel}>{done}/{topics.length} {t('students.trackedTopics')}</Text></View></View><View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progressPct}%` }]} /></View>{units.map((unitNumber, unitIndex) => { const unitTopics = topics.filter((topic) => Number(topic.unit_number || 0) === unitNumber); return <Disclosure key={`${assignmentId}-${unitNumber}`} title={t('students.unitNumber', { number: unitNumber || unitIndex + 1 })} summary={t('students.unitProgress', { done: unitTopics.filter((topic) => Boolean(progressByTopic.get(String(topic.id))?.teacher_done)).length, total: unitTopics.length })} defaultOpen={unitIndex === 0} style={styles.programUnit}>{unitTopics.map((topic) => { const topicId = String(topic.id); const isDone = Boolean(progressByTopic.get(topicId)?.teacher_done); const needsPractice = isDone && Boolean(progressByTopic.get(topicId)?.student_done); const busy = programBusy === `${assignmentId}:${topicId}`; return <View key={topicId} style={styles.programTopic}><Pressable accessibilityRole="checkbox" accessibilityState={{ checked: isDone, disabled: busy }} disabled={busy} onPress={() => void toggleProgramTopic(assignmentId, topicId, !isDone)} style={[styles.topicCheck, isDone && styles.topicCheckDone]}><Text style={[styles.topicCheckText, isDone && styles.topicCheckTextDone]}>{isDone ? '✓' : ''}</Text></Pressable><View style={styles.topicCopy}><Text style={[styles.topicTitle, isDone && styles.topicTitleDone]}>{t('students.topicNumber', { number: Number(topic.topic_number || 0) })}: {String(topic.title || t('students.topic'))}</Text>{topic.student_summary || topic.lesson_focus || topic.subtopic ? <Text style={styles.topicSummary}>{String(topic.student_summary || topic.lesson_focus || topic.subtopic)}</Text> : null}{needsPractice ? <Text style={styles.practiceRequestBadge}>{t('students.practiceRequestedBadge')}</Text> : null}</View>{needsPractice ? <Button secondary disabled={busy} onPress={() => void addressPractice(assignmentId, topicId)}>{t('students.addressPractice')}</Button> : null}<Button secondary disabled={busy} onPress={() => void toggleProgramTopic(assignmentId, topicId, !isDone)}>{busy ? t('common.saving') : isDone ? t('students.reopenTopic') : t('students.markDone')}</Button></View>; })}</Disclosure>; })}</View>; })}{!filteredPrograms.length ? <Text style={styles.emptyText}>{t('students.noPrograms')}</Text> : null}<Pagination page={currentProgramPage} totalPages={programPages} totalItems={filteredPrograms.length} onPageChange={setProgramPage} /></Panel> : null}
     {learningTab === 'recommendations' ? <>
-      <View style={styles.recommendationHeading}><View><Text style={styles.sectionTitle}>{t('students.recommendations')}</Text><Text style={styles.sectionBody}>{t('students.recommendationsHelp')}</Text></View><Text style={styles.evidenceBadge}>{t('students.evidenceBased')}</Text></View>
+      <View style={styles.recommendationHeading}><View><Text style={styles.sectionTitle}>{t('students.recommendations')}</Text><Text style={styles.sectionBody}>{t('students.recommendationsHelp')}</Text>{affinityMode !== 'checking' ? <Text style={styles.sectionBody}>{t(affinityMode === 'python' ? 'students.affinityPythonMode' : 'students.affinityLocalMode')}</Text> : null}</View><Text style={styles.evidenceBadge}>{t('students.evidenceBased')}</Text></View>
       {actionMessage ? <Text style={styles.actionMessage}>{actionMessage}</Text> : null}
       {lastRejection ? <Button secondary disabled={resourceActionBusy} onPress={() => void undoRejection()}>{t('students.undoRecommendationHide')}</Button> : null}
       {feedbackError ? <Panel><Text style={styles.actionMessage}>{t('students.recommendationFeedbackUnavailable')}</Text><Button onPress={() => setFeedbackRetry((value) => value + 1)}>{t('students.retryRecommendations')}</Button></Panel> : recommendationLoading || !recommendationLoaded || !feedbackLoaded ? <LoadingState /> : filteredRecommendations.length ? <View style={styles.recommendationGrid}>{filteredRecommendations.map((recommendation) => {

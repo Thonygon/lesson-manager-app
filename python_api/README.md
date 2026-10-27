@@ -14,7 +14,7 @@ and representation checksums before unpickling. Set
 `PYTHONPATH=streamlit` and launch `uvicorn python_api.app:app` from the repository
 root. Never include the server key or private model bundle in Expo or Git.
 Set `CLASSIO_EXPO_ORIGINS` to the comma separated Expo web origins allowed to
-call the service; it defaults to `https://classio.expo.app`. Configure Expo's
+call the service; it defaults to `https://classio.expo.app,https://app.masterclassio.com`. Configure Expo's
 `EXPO_PUBLIC_CLASSIO_API_URL` to the HTTPS address of this service.
 
 The Expo client may call `GET /v1/models/resource-affinity`,

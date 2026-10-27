@@ -1,6 +1,8 @@
 import type { AppLanguage } from '@/providers/app-preferences';
 
 const en = {
+  goalHandoffFailed: 'Your goal could not be saved on this device. Please try again.',
+  sharedUnavailable: 'This shared resource could not be opened.',
   libraryPartial: 'Some resource categories could not be loaded:',
   libraryMoreExams: 'Load more exams', libraryMoreFailed: 'More exams could not be loaded. Try again.',
   introTagline: 'Teaching and learning, connected.',
@@ -20,6 +22,8 @@ const en = {
 type PublicCopy = { [K in keyof typeof en]: string };
 
 const es: PublicCopy = {
+  goalHandoffFailed: 'No se pudo guardar la meta en este dispositivo. Inténtalo de nuevo.',
+  sharedUnavailable: 'No se pudo abrir este recurso compartido.',
   libraryPartial: 'No se pudieron cargar estas categorías de recursos:',
   libraryMoreExams: 'Cargar más exámenes', libraryMoreFailed: 'No se pudieron cargar más exámenes. Inténtalo de nuevo.',
   introTagline: 'Enseñar y aprender, en conexión.',
@@ -37,6 +41,8 @@ const es: PublicCopy = {
 };
 
 const tr: PublicCopy = {
+  goalHandoffFailed: 'Hedefiniz bu cihaza kaydedilemedi. Lütfen tekrar deneyin.',
+  sharedUnavailable: 'Bu paylaşılan kaynak açılamadı.',
   libraryPartial: 'Şu kaynak kategorileri yüklenemedi:',
   libraryMoreExams: 'Daha fazla sınav yükle', libraryMoreFailed: 'Daha fazla sınav yüklenemedi. Tekrar dene.',
   introTagline: 'Öğretme ve öğrenme, birlikte.',

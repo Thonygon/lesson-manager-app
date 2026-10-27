@@ -1,5 +1,21 @@
 # Auditoría académica de Classio para el TFM
 
+## Alcance de la propuesta externa de pipeline PII — 27-10-2026
+
+La propuesta de Jorge Huezo sobre detección, clasificación y enmascaramiento PII aporta una metodología útil para Classio: comparar reglas y NER multilingüe con **precisión, recall, matriz de confusión, latencia y coste**, más revisión humana de falsos negativos y positivos. Sus datasets públicos y estimaciones (75 % de ahorro, umbral del 85 %, ROI/VAN/TIR) pertenecen a ese proyecto, no demuestran eficacia ni retorno en Classio. Un corpus académico para Classio debe ser sintético o tener autorización y finalidad explícitas, representar español/turco/inglés y distinguir nombres/identificadores de estudiantes de texto pedagógico legítimo. La propuesta no reemplaza la auditoría de tratamientos, contratos, transferencias, derechos y retención RGPD/KVKK que mantiene la [auditoría tecnológica](CLASSIO_TECHNOLOGY_AUDIT.md#protección-de-datos-rgpd-y-kvkk--integración-de-la-propuesta-de-pipeline-pii-27-10-2026). **Estado:** diseño de evaluación abierto; ninguna métrica PII de Classio ni experiencia en vivo documentada. La predicción de apertura sigue suspendida.
+
+## Controles de equidad y evidencia para beta — reinspección de código 27-10-2026
+
+La captura de clase distingue principios de controles observables. Para Classio, «equidad» exige comparar pertinencia y error por **etapa, nivel, materia y tipo de recurso** antes de atribuir mejora al ML; no basta una matriz de confusión agregada. No se usarán grupos sensibles ni atributos personales adicionales para entrenar sin finalidad, base y revisión apropiadas. La predicción de apertura permanece suspendida.
+
+| Control | Estado en código | Falta para cierre académico/operativo | Experiencia en vivo |
+| --- | --- | --- | --- |
+| Validación por segmentos | **Parcial, offline:** los artefactos/informes de experimentos ofrecen cortes y documentan muestras pequeñas. | Definir mínimos por segmento, negativos no mostrados con juicio independiente y una comparación temporal; bloquear conclusiones o promoción cuando la muestra sea insuficiente. | **Pendiente:** recopilación y valoración docente beta. |
+| Revisión de sesgos | **Parcial:** feedback `wrong_topic`/`student_unfit` separado y revisión humana del run de afinidad. | Informar tasas de error, cobertura y diferencia entre segmentos con intervalos y registrar la decisión humana; las etiquetas de recursos mostrados no estiman FN/TN. | **Pendiente:** revisión humana de casos y de categorías con baja cobertura. |
+| Umbrales y retirada | **Parcial:** existen umbrales/reglas de compatibilidad y métricas de experimento, sin gate versionado por objetivo pedagógico. | Definir criterio de promoción/retirada por caso de uso, responsable y evidencia mínima; conservar fallback heurístico cuando falle el gate. | **Pendiente:** aceptación de relevancia y fallos en cuentas beta. |
+
+Las fichas de modelos, explicación al usuario, aprobación, privacidad y trazabilidad se registran como controles de producción en la [auditoría tecnológica](CLASSIO_TECHNOLOGY_AUDIT.md); aquí solo se juzga si la evidencia permite una afirmación académica. Esta reinspección no ejecutó experimentos ni pruebas con cuentas reales.
+
 ## Evidencia nueva de código — 23 de octubre de 2026
 
 `classio_teacher_relevance_feedback` registra un juicio explícito por docente, alumno, contexto y recurso: `wrong_topic` es candidato a etiqueta negativa de afinidad temática; `student_unfit` evalúa adecuación al alumno y queda separado. El rechazo oculta el recurso y el ranking elige el siguiente candidato disponible; el deshacer conserva el historial. Para planes, fichas y exámenes de IA, `classio_generation_intent_feedback` captura Sí/No, razón opcional y origen de pantalla, ligado a la operación y al recurso mientras no exista edición sustantiva. `streamlit/scripts/evaluate_quality_feedback.py` resume esas señales y deja las celdas FN/TN de la matriz sin estimar porque solo observa recursos mostrados. Las asignaciones son positivos débiles, no juicios independientes. No se ha demostrado mejoría de relevancia ni se ha aprobado un reentrenamiento; primero hacen falta etiquetas beta, separación temporal y revisión de sesgos. El experimento de predicción de apertura permanece suspendido.

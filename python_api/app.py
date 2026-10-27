@@ -30,7 +30,7 @@ from helpers.program_resource_context import build_program_topic_generation_cont
 app = FastAPI(title="Classio Python Models", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in os.getenv("CLASSIO_EXPO_ORIGINS", "https://classio.expo.app").split(",") if origin.strip()],
+    allow_origins=[origin.strip() for origin in os.getenv("CLASSIO_EXPO_ORIGINS", "https://classio.expo.app,https://app.masterclassio.com").split(",") if origin.strip()],
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type"],
 )
