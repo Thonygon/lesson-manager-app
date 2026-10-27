@@ -12,6 +12,7 @@ import { useAppPreferences } from '@/providers/app-preferences';
 import type { ClassioRecord } from '@/services/classio-data';
 import { getPublicResourcePreviewImages, type PublicResource, type PublicResourceKind } from '@/services/public-data';
 import { getStudentAssignmentForPractice, getStudentWorkspace, type StudentWorkspace } from '@/services/student-data';
+import { logStudentRecommendation, logStudentRecommendationOpen } from '@/services/student-practice';
 import { scoreStudentRecommendationCandidates } from '@/services/student-recommendation-ranking';
 import { buildStudentRecommendationEligibility } from '@/services/student-recommendation-safety';
 import { recommendationExcludedIds } from '@/services/student-recommendation-exclusions';
@@ -75,6 +76,11 @@ export default function StudentLessonTopicScreen() {
         - (scores.get(`${left.resource.kind}:${left.resource.id}`) || 0) - left.affinity * 0.45)
       .slice(0, 6).map(({ resource }) => resource);
   }, [assignment, resources, workspace]);
+  useEffect(() => {
+    if (resourcesLoading || !assignment || !recommendations.length) return;
+    const topicId = Number(assignment.learning_program_topic_id) || undefined;
+    void logStudentRecommendation(recommendations.map((resource) => ({ ...resource, learningProgramTopicId: topicId, recommendationReasonCodes: ['subject_match', 'topic_match'] })), 'student_lesson_topic').catch((reason) => console.warn('Lesson topic recommendation exposure failed', reason));
+  }, [resourcesLoading, assignment, recommendations]);
   const assignedResources = useMemo(() => {
     if (!assignment || !workspace) return [];
     const subject = canonicalSubjectKey(assignment.subject_key || assignment.subject_label);
@@ -120,7 +126,7 @@ export default function StudentLessonTopicScreen() {
         const item: PublicResource = { id: text(row.id), kind, title: text(row.title), subject: text(row.subject_label || row.subject_key), topic: text(row.topic), stage: '', level: '', author: '', description: text(row.teacher_note), imageUrl: '', createdAt: text(row.created_at), raw: row };
         return <ResourceShowcaseCard key={`assigned:${row.id}`} item={item} eyebrow={t('student.assignment')} description={text(row.teacher_note || row.topic)} onPress={() => router.push({ pathname: '/student-practice', params: { assignmentId: text(row.id), returnTo: 'student-lesson-topic', topicAssignmentId: assignmentId, topicReturnTo: returnTo || '' } })} />;
       })}</View></View> : null}
-      {recommendations.length ? <View style={styles.resourceSection}><Text style={styles.resourcesTitle}>{t('student.lessonTopic.recommended')}</Text><Text style={styles.resourcesHint}>{t('student.lessonTopic.resourcesHint')}</Text><View style={styles.grid}>{recommendations.map((resource) => <ResourceShowcaseCard key={`${resource.kind}:${resource.id}`} item={resource} eyebrow={t('student.forYou')} description={resource.topic || resource.description || t('resources.noDescription')} onPress={() => router.push({ pathname: '/student-practice', params: { kind: resource.kind, resourceId: resource.id, returnTo: 'student-lesson-topic', topicAssignmentId: assignmentId, topicReturnTo: returnTo || '' } })} />)}</View></View> : null}
+      {recommendations.length ? <View style={styles.resourceSection}><Text style={styles.resourcesTitle}>{t('student.lessonTopic.recommended')}</Text><Text style={styles.resourcesHint}>{t('student.lessonTopic.resourcesHint')}</Text><View style={styles.grid}>{recommendations.map((resource) => <ResourceShowcaseCard key={`${resource.kind}:${resource.id}`} item={resource} eyebrow={t('student.forYou')} description={resource.topic || resource.description || t('resources.noDescription')} explanation={[t('transparency.studentTopicMatch', { topic: resource.topic || resource.title }), t('transparency.studentScope'), t('transparency.studentChallenge')].join('\n\n')} onPress={() => { void logStudentRecommendationOpen({ ...resource, learningProgramTopicId: Number(assignment.learning_program_topic_id) || undefined }, 'student_lesson_topic').catch((reason) => console.warn('Lesson topic recommendation open failed', reason)); router.push({ pathname: '/student-practice', params: { kind: resource.kind, resourceId: resource.id, returnTo: 'student-lesson-topic', topicAssignmentId: assignmentId, topicReturnTo: returnTo || '' } }); }} />)}</View></View> : null}
       {!assignedResources.length && !recommendations.length ? <Text style={styles.caption}>{t('student.lessonTopic.noResources')}</Text> : null}
       </>}
     </View> : null}

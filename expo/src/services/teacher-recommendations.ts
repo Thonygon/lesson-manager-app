@@ -185,10 +185,11 @@ export async function saveTeacherRelevanceFeedback(exposureId: string, action: '
   return payload;
 }
 
-export async function recordTeacherRecommendationExposures(need: RecommendationNeed, ranked: { resource: PublicResource; score: number }[], studentId: string): Promise<Map<string, string>> {
+export async function recordTeacherRecommendationExposures(need: RecommendationNeed, ranked: { resource: PublicResource; score: number; bucket?: string | null }[], studentId: string): Promise<Map<string, string>> {
   if (!ranked.length) return new Map(); const client = requireSupabase(); const { data: userData } = await client.auth.getUser(); const teacherId = userData.user?.id; if (!teacherId) return new Map();
   const shownAt = new Date().toISOString(); const context = needContext(need); const cycle = `${teacherId}:${studentId}:${need.id}:${shownAt.slice(0, 16)}`;
-  const rows = ranked.map(({ resource, score }, index) => { const exposureId = `${cycle}:${resource.kind}:${resource.id}`; return { exposure_id: exposureId, idempotency_key: exposureId, teacher_id: teacherId, student_id: studentId || null, viewer_user_id: teacherId, resource_id: resource.id, resource_type: resource.kind, exposure_type: 'teacher_resource_recommendation', surface: 'student_learning_recommendations', position: index + 1, recommendation_bucket: context.bucket, recommendation_focus_kind: context.focus, learning_program_topic_id: need.topicId || null, shown_at: shownAt, model_component_id: 'teacher_recommendation_resource_ranker', model_version: 'expo-port-v1', learned_score: score, final_score: score, context_json: { subject: resource.subject, topic: resource.topic, recommendation_id: need.id } }; });
+  const shownCandidates = ranked.slice(0, 12).map(({ resource }) => `${resource.kind}:${resource.id}`);
+  const rows = ranked.map(({ resource, score, bucket }, index) => { const exposureId = `${cycle}:${resource.kind}:${resource.id}`; return { exposure_id: exposureId, idempotency_key: exposureId, teacher_id: teacherId, student_id: studentId || null, viewer_user_id: teacherId, resource_id: resource.id, resource_type: resource.kind, exposure_type: 'teacher_resource_recommendation', surface: 'student_learning_recommendations', position: index + 1, recommendation_bucket: context.bucket, recommendation_focus_kind: context.focus, learning_program_topic_id: need.topicId || null, shown_at: shownAt, model_component_id: 'teacher_recommendation_resource_ranker', model_version: 'expo-port-v1', learned_score: score, final_score: score, context_json: { subject: resource.subject, topic: resource.topic, recommendation_id: need.id, displayed_candidates: shownCandidates, reason_codes: ['subject_match', ...(need.topicId ? ['program_topic'] : []), ...(bucket ? [`affinity_${bucket}`] : [])], explanation_version: 'recommendation-explanation-v1' } }; });
   const { error } = await client.from('resource_exposures').upsert(rows, { onConflict: 'idempotency_key', ignoreDuplicates: true });
   if (error) throw error;
   return new Map(rows.map((row) => [`${need.id}:${row.resource_type}:${row.resource_id}`, row.exposure_id]));
@@ -198,6 +199,7 @@ export async function recordTeacherObjectiveExposures(items: TeacherObjectiveRec
   if (!studentId || !items.length) return;
   const client = requireSupabase(); const { data } = await client.auth.getUser(); const teacherId = data.user?.id; if (!teacherId) return;
   const shownAt = new Date().toISOString(); const cycle = `${teacherId}:${studentId}:teacher-objectives:${shownAt.slice(0, 16)}`;
+  const shownCandidates = items.slice(0, 12).map((item) => item.topicId ? `topic:${item.topicId}` : `objective:${item.id}`);
   const rows = items.map((item, index) => {
     const exposureId = `${cycle}:${item.id}`;
     return { exposure_id: exposureId, idempotency_key: exposureId, teacher_id: teacherId, student_id: studentId, viewer_user_id: teacherId,
@@ -205,7 +207,7 @@ export async function recordTeacherObjectiveExposures(items: TeacherObjectiveRec
       surface: 'teacher_student_progress', position: index + 1, recommendation_bucket: item.bucket, recommendation_focus_kind: item.focus,
       learning_program_assignment_id: item.programAssignmentId || null, learning_program_topic_id: item.topicId || null,
       shown_at: shownAt, model_component_id: 'teacher_recommendation_objective_selector', model_version: 'expo-port-v1',
-      learned_score: item.score, final_score: item.score, context_json: { program_id: item.programId || null, subject_key: subject(item.subject), title: item.title } };
+      learned_score: item.score, final_score: item.score, context_json: { program_id: item.programId || null, subject_key: subject(item.subject), title: item.title, displayed_candidates: shownCandidates, reason_codes: [item.bucket, item.focus], explanation_version: 'recommendation-explanation-v1' } };
   });
   await client.from('resource_exposures').upsert(rows, { onConflict: 'idempotency_key', ignoreDuplicates: true });
 }

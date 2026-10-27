@@ -96,6 +96,7 @@
     {"name": "ai_fallback_telemetry.sql", "sha256": "dc46101e51def5766e415002c4b74d5e55b60ca1d104f6f1a746c7fc7a5122cc"},
     {"name": "ai_runtime_approvals.sql", "sha256": "45bf81cfc4701369243ddbe7378be4ee149c528600a0e6607c6c1fb6d587aa3e"},
     {"name": "ai_supervision_incidents.sql", "sha256": "a24da5c5a59242dafc9da1d04feaf0ce3b72fec2fd9645b76231d485f882f4b9"},
-    {"name": "ai_runtime_approval_check.sql", "sha256": "67ef0a3ef66e3ebc91b0c04b75fca614b6fc0b722ac5531b26fe0ea0a3ae0fbb"}
+    {"name": "ai_runtime_approval_check.sql", "sha256": "67ef0a3ef66e3ebc91b0c04b75fca614b6fc0b722ac5531b26fe0ea0a3ae0fbb"},
+    {"name": "ai_model_card_reviews.sql", "sha256": "80f0d84f37f918fefbfc1d15e34c4ee3f8baff624e4ca42ee3af39d2c3574f8d"}
   ]
 }

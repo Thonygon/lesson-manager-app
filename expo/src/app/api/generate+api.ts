@@ -152,7 +152,7 @@ export async function POST(request: Request) {
       try {
         // The RPC is idempotent for a matching completed status. If its first
         // response was lost, this confirms that same operation and its quota.
-        await finishGenerationOperation(economicContext, operationId, status, attemptResults, errorKind, meta);
+        await finishGenerationOperation(economicContext, operationId, status, attemptResults, errorKind, { ...meta, operation_id: operationId });
         economicOperationId = '';
         return;
       } catch (error) {

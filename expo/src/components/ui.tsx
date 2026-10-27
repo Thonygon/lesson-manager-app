@@ -1,6 +1,6 @@
 import { pressableActive } from "@/lib/pressable-state";
 import { useEffect, useEffectEvent, useState, type PropsWithChildren, type ReactNode } from 'react';
-import { ActivityIndicator, Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, type StyleProp, type TextInputProps, type TextStyle, View } from 'react-native';
+import { ActivityIndicator, Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, type StyleProp, type TextInputProps, type TextStyle, View } from 'react-native';
 
 import { colors } from '@/theme';
 import { useAppPreferences } from '@/providers/app-preferences';
@@ -34,6 +34,22 @@ export function EditIconButton({ onPress, accessibilityLabel }: { onPress: () =>
       <Text style={styles.editIconGlyph}>✎</Text>
     </Pressable>
   );
+}
+
+export function HelpIcon({ title, children }: PropsWithChildren<{ title: string }>) {
+  const { t } = useAppPreferences();
+  const [open, setOpen] = useState(false);
+  return <>
+    <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityHint={t('transparency.openExplanation')} onPress={(event) => { event.stopPropagation(); setOpen(true); }} hitSlop={8} style={styles.helpIcon}><Text style={styles.helpIconGlyph}>?</Text></Pressable>
+    <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+      <View style={styles.helpOverlay}><Pressable style={StyleSheet.absoluteFill} accessibilityLabel={t('common.close')} onPress={() => setOpen(false)} />
+        <View accessibilityViewIsModal accessibilityLabel={title} style={styles.helpDialog}>
+          <View style={styles.helpHeader}><Text style={styles.helpTitle}>{title}</Text><Pressable accessibilityRole="button" accessibilityLabel={t('common.close')} onPress={() => setOpen(false)}><Text style={styles.helpClose}>×</Text></Pressable></View>
+          <ScrollView style={styles.helpScroll}>{typeof children === 'string' ? <Text style={styles.helpBody}>{children}</Text> : children}</ScrollView>
+        </View>
+      </View>
+    </Modal>
+  </>;
 }
 
 export function Field(props: TextInputProps) {
@@ -132,6 +148,14 @@ const styles = StyleSheet.create({
   editIconButton: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   editIconButtonActive: { opacity: 0.65 },
   editIconGlyph: { color: colors.primary, fontSize: 16, fontWeight: '700' },
+  helpIcon: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, borderColor: colors.lineStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  helpIconGlyph: { color: colors.primary, fontSize: 15, fontWeight: '900' },
+  helpOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.48)', alignItems: 'center', justifyContent: 'center', padding: 20 },
+  helpDialog: { width: '100%', maxWidth: 520, maxHeight: '80%', borderRadius: 20, backgroundColor: colors.surface, padding: 22 },
+  helpHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 12 },
+  helpTitle: { color: colors.ink, fontSize: 19, fontWeight: '900', flex: 1 },
+  helpClose: { color: colors.muted, fontSize: 28, lineHeight: 30 },
+  helpScroll: { flexGrow: 0 }, helpBody: { color: colors.ink, fontSize: 14, lineHeight: 21 },
   button: { minHeight: 46, maxWidth: '100%', borderRadius: 12, paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary },
   buttonSecondary: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
   buttonDimmed: { opacity: 0.55 },

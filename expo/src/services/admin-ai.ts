@@ -8,6 +8,11 @@ export type AdminAiSnapshot = {
   recentRuns: Record<string, unknown>[];
   recentJobs: Record<string, unknown>[];
   validatedRuns: Record<string, unknown>[];
+  runtimeApprovals: Record<string, unknown>[];
+  modelReviews: Record<string, unknown>[];
+  modelResults: Record<string, unknown>[];
+  recommendationDecisions: Record<string, unknown>[];
+  generationDecisions: Record<string, unknown>[];
   warnings: string[];
   generatedAt: string;
 };
