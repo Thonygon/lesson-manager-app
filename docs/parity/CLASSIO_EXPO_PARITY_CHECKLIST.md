@@ -2,6 +2,8 @@
 
 **Estado vigente 27-10-2026:** el traspaso de recursos públicos tras el acceso está implementado y su migración ya está aplicada. La expansión y selección de recomendaciones por programa, el entrenamiento con feedback de apertura/impresión y la API autenticada para `user_activity_log` también existen; las casillas históricas que piden crear esas piezas describen cortes anteriores. Permanecen el ensayo autenticado con la misma cuenta y datos, el runtime privado del artefacto de afinidad docente, la ejecución Python de experimentos/informes y la paridad integral de PDF/Word. La verificación beta de recorridos públicos y de guardado sigue pendiente.
 
+**Despliegue 27-10-2026:** commit `92eadd3a3` en GitHub y Expo Hosting `c2rtr7tpip` promovido a producción. La URL de versión, `classio.expo.app` y `app.masterclassio.com` respondieron HTTP 200 con el mismo bundle de la exportación local. La migración de marcadores públicos quedó registrada en Supabase con checksum `76fe43761f52c13c538858ad31a15233ea019a26d81678aad0da39b4250c1830`.
+
 ## Cierres de código — 25-10-2026
 
 - [x] El historial de práctica ya no actualiza una calificación de sopa de letras directamente en `practice_sessions`. La ruta existente de recalificación usa el RPC transaccional para sesión, respuestas, progreso y asignación; si cambió la estructura del ejercicio, se conserva la nota confirmada para revisión docente.

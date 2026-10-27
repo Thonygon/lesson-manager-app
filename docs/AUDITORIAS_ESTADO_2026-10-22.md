@@ -27,6 +27,8 @@
 
 **Traspaso de recursos públicos, 27-10-2026:** se agregó la intención de guardar desde la vista docente de Explorer, con caducidad local de 24 horas. Tras el acceso, la biblioteca comunitaria guarda una referencia persistente y permite filtrar o retirar guardados; nunca copia el recurso ni cambia al autor. La migración `add_saved_public_resources.sql` se aplicó en Supabase producción y se verificaron tabla, RPC, checksum y ausencia de lectura anónima. TypeScript, lint dirigido, fixture de caducidad, verificador local de 92 migraciones y exportación web pasaron. La recomendación estudiantil ya expande y ordena recursos por programa y consume feedback de una API autenticada; las notas históricas que lo describen pendiente están superadas. Permanecen la comparación ordenada Python/Expo con la misma cuenta, la paridad completa PDF/Word y la aceptación beta.
 
+**Publicación del 27-10-2026:** el commit `92eadd3a3` se envió a `origin/ver/42`. Expo Hosting publicó `https://classio--c2rtr7tpip.expo.app` y lo promovió a `https://classio.expo.app`; `https://app.masterclassio.com` sirve el mismo bundle `entry-9e8aadeec6e1282b63698d06ed6d1645.js`. Las tres rutas devolvieron HTTP 200. La generación anónima admite ambos orígenes web de Classio y conserva el rechazo de origen ajeno. La aceptación beta de registro, guardado y retirada del marcador queda pendiente.
+
 ## Destino de los informes existentes
 
 | Informe o plan | Función desde ahora | Responsable de los pendientes |
