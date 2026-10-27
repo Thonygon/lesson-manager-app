@@ -12,6 +12,13 @@ class AiPromptPrivacyTests(unittest.TestCase):
         for private in ('Ada Example', 'ada@example.test', '+90 555 111 2233', '17 Sample Street'):
             self.assertNotIn(private, safe)
 
+    def test_national_and_bank_identifiers_are_removed_without_erasing_math(self):
+        safe = redact_direct_identifiers('TCKN: 10000000146; DNI: 12345678Z; IBAN TR33 0006 1005 1978 6457 8413 26.')
+        for private in ('10000000146', '12345678Z', 'TR33 0006'):
+            self.assertNotIn(private, safe)
+        self.assertIn('[identity number removed]', redact_direct_identifiers('10000000146'))
+        self.assertEqual(redact_direct_identifiers('Exercise: 12345678901 + 2'), 'Exercise: 12345678901 + 2')
+
     def test_student_identity_and_free_text_are_removed(self):
         profile = {
             "student_user_id": "55bbd13d-1eb5-4cdc-81ec-06b27e23c45c",
@@ -25,12 +32,13 @@ class AiPromptPrivacyTests(unittest.TestCase):
             "recent_average_score_pct": 62.5,
         }
         safe = minimize_student_profile_for_ai(profile)
-        self.assertIsInstance(safe["learner_id"], int)
+        self.assertNotIn("learner_id", safe)
         self.assertEqual(safe["learner_stage"], "lower_secondary")
         self.assertEqual(safe["recent_average_score_pct"], 62.5)
         self.assertNotIn("Private Student", str(safe))
         self.assertNotIn("private@example.test", str(safe))
         self.assertNotIn(profile["student_user_id"], str(safe))
+        self.assertNotIn("Learner numeric reference", build_student_profile_prompt_block(safe, product="lesson_plan"))
         self.assertEqual(safe, minimize_student_profile_for_ai(profile))
 
     def test_rejects_unstructured_values_in_signal_fields(self):

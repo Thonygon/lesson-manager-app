@@ -3660,6 +3660,7 @@ TR: Dict[str, str] = {
     "developer_workspace_experiment_label": "Deney",
     "developer_workspace_protected_artifacts_title": "Korunan Artefaktlar",
     "developer_workspace_protected_artifacts_caption": "Seçilen çalışma için doğrulanmış saklı artefaktlar.",
+    "developer_workspace_sensitive_artifact_download_blocked": "Deneyin satır düzeyindeki verileri yalnızca iç analiz ortamında kullanılabilir; bu sayfadan indirilemez.",
     "developer_workspace_overview_environment": "Ortam",
     "developer_workspace_overview_environment_help": "Kontrollü teknik işler için mevcut çalışma zamanı.",
     "developer_workspace_overview_code_version": "Kod sürümü",

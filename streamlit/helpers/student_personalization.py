@@ -358,10 +358,7 @@ def build_student_profile_prompt_block(
         if _clean_text(item)
     ]
     include_format_hints = product == "lesson_plan" or not normalized_selected_formats
-    lines = [
-        "Student personalization profile:",
-        f"- Learner numeric reference: {profile.get('learner_id', 'unassigned')}",
-    ]
+    lines = ["Student personalization profile:"]
     if _clean_text(profile.get("learner_stage")):
         lines.append(f"- Learner stage signal: {_clean_text(profile.get('learner_stage'))}")
     if _clean_text(profile.get("level_or_band")):
