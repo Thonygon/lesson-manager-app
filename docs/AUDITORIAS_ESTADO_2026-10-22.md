@@ -41,6 +41,8 @@
 
 **Activación de supervisión IA, 27-10-2026:** las cuatro migraciones de supervisión se aplicaron en Supabase y se verificaron objetos y checksums. Ocho combinaciones predeterminadas de proveedor, modelo y versión quedaron aprobadas para los flujos de Expo y Streamlit, con razón que identifica la aplicación por Codex a solicitud del titular. Expo web se publicó en producción (`classio--omi018cgpo.expo.app`, `classio.expo.app`, HTTP 200). Los tres controles pasan a **cerrado en código y SQL; pendiente en vivo**: todavía no hay aceptación beta funcional de aprobación/retirada, caso escalado ni degradación controlada. El chequeo global de ledger continúa señalando 55 migraciones históricas sin registro, aunque los cuatro checksums nuevos coinciden; es una deuda de trazabilidad, no evidencia de que falten sus objetos.
 
+**Cierre de publicación y permisos, 27-10-2026:** Render publicó la API Python con el origen `https://app.masterclassio.com` agregado a `CLASSIO_EXPO_ORIGINS`; el preflight HTTPS devolvió `200` y `access-control-allow-origin` para ese origen. Se restituyó Auto-Deploy «On Commit» tras el despliegue manual. La revisión de código detectó que el rol `data_scientist` veía botones de aprobación y resolución que las RPC restringen a developer/admin. La interfaz ahora reserva esos controles a dichos roles y conserva para científicos de datos la lectura y el reporte de casos, permitido por la RPC. TypeScript y ESLint dirigido pasaron. **Pendiente en vivo**: comprobar los tres recorridos con cuentas de cada rol y el funcionamiento de la API desde la app; el preflight solo acredita CORS, no el servicio completo.
+
 ## Destino de los informes existentes
 
 | Informe o plan | Función desde ahora | Responsable de los pendientes |

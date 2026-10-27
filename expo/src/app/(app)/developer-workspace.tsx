@@ -9,6 +9,7 @@ import { ActionFeedback, Button, EmptyState, Field, LoadingState, Panel, SelectF
 import { PrivilegedRecordList } from '@/components/privileged-record-list';
 import { dateLabel, groupCount, KpiGrid, SectionHeading, WarningBox } from '@/components/workspace-ui';
 import { useAppPreferences } from '@/providers/app-preferences';
+import { usePrivilegedAccess } from '@/providers/privileged-access-provider';
 import { type DeveloperWorkspaceData, invalidateDeveloperWorkspace, loadDeveloperWorkspace, reportAiSupervisionCase, reviewAiRuntime, updateAiSupervisionCase } from '@/services/privileged-workspaces';
 import { checkPythonModelAuthentication, getPythonAffinityModel, pythonModelApiUrl } from '@/services/python-models';
 import { colors } from '@/theme';
@@ -18,6 +19,8 @@ const AI_APPROVAL_VERSIONS: Record<string, string> = { expo_text: 'expo-generate
 
 export default function DeveloperWorkspaceScreen() {
   const { t } = useAppPreferences();
+  const { isAdmin, staffRoles } = usePrivilegedAccess();
+  const canManageAi = isAdmin || staffRoles.includes('developer');
   const params = useLocalSearchParams<{ tab?: string }>();
   const [data, setData] = useState<DeveloperWorkspaceData | null>(null);
   const [loadedTab, setLoadedTab] = useState<DeveloperTab | null>(null);
@@ -61,6 +64,7 @@ export default function DeveloperWorkspaceScreen() {
     catch (reason) { if (sequence === loadSequence.current) setError(reason instanceof Error ? reason.message : t('developer.loadFailed')); }
   }, [t, tab]);
   const moveCase = async (id: number, status: 'triaged' | 'resolved') => {
+    if (!canManageAi) return;
     setCaseBusyId(id); setCaseError('');
     try { await updateAiSupervisionCase(id, status, status === 'resolved' ? caseResolutionCode : null); await load(); }
     catch (reason) { setCaseError(reason instanceof Error ? reason.message : t('developer.aiCaseFailed')); }
@@ -73,6 +77,7 @@ export default function DeveloperWorkspaceScreen() {
     finally { setCaseBusyId(null); }
   };
   const submitApproval = async (status: 'approved' | 'retired') => {
+    if (!canManageAi) return;
     if (!approvalModel.trim() || approvalReason.trim().length < 8) { setApprovalMessage({ tone: 'error', message: t('developer.aiApprovalRequired') }); return; }
     setApprovalBusy(true); setApprovalMessage(null);
     try { await reviewAiRuntime(approvalSurface, approvalProvider, approvalModel, AI_APPROVAL_VERSIONS[approvalSurface], status, approvalReason); await load(); setApprovalMessage({ tone: 'success', message: t('developer.aiApprovalSaved') }); }
@@ -134,13 +139,13 @@ export default function DeveloperWorkspaceScreen() {
       {tab === 'lab' ? <>
         <SectionHeading title={t('developer.labTitle')} body={t('developer.labBody')} />
         <Panel><SectionHeading title={t('developer.aiApprovalTitle')} body={t('developer.aiApprovalBody')} />
-          <View style={styles.approvalFields}>
+          {canManageAi ? <><View style={styles.approvalFields}>
             <SelectField label={t('developer.aiApprovalSurface')} value={approvalSurface} onChange={setApprovalSurface} options={['expo_text', 'expo_image', 'streamlit_text', 'streamlit_image'].map((value) => ({ value, label: value.replaceAll('_', ' ') }))} />
             <SelectField label={t('developer.aiApprovalProvider')} value={approvalProvider} onChange={setApprovalProvider} options={['gemini', 'openrouter', 'openai'].map((value) => ({ value, label: value }))} />
             <Field accessibilityLabel={t('developer.aiApprovalModel')} placeholder={t('developer.aiApprovalModel')} value={approvalModel} onChangeText={setApprovalModel} />
             <Field accessibilityLabel={t('developer.aiApprovalReason')} placeholder={t('developer.aiApprovalReason')} value={approvalReason} onChangeText={setApprovalReason} />
           </View><Text style={styles.caseMeta}>{t('developer.version')}: {AI_APPROVAL_VERSIONS[approvalSurface]}</Text><View style={styles.caseActions}><Button disabled={approvalBusy} onPress={() => void submitApproval('approved')}>{t('developer.aiApprove')}</Button><Button secondary disabled={approvalBusy} onPress={() => void submitApproval('retired')}>{t('developer.aiRetire')}</Button></View>
-          <ActionFeedback message={approvalMessage?.message} tone={approvalMessage?.tone || 'error'} />
+          <ActionFeedback message={approvalMessage?.message} tone={approvalMessage?.tone || 'error'} /></> : null}
           <PrivilegedRecordList filterKey="status" filterLabel={t('developer.status')} rows={data.aiApprovals.rows} emptyTitle={t('developer.aiNoApprovals')} emptyBody={t('developer.aiApprovalBody')} describe={(row) => ({ title: `${row.surface} · ${row.provider} · ${row.model}`, summary: `${row.prompt_version} · ${row.status}` })} fields={[{ key: 'reviewed_by', label: t('developer.actor') }, { key: 'review_reason', label: t('developer.reason') }, { key: 'reviewed_at', label: t('common.created'), format: dateLabel }]} />
           <PrivilegedRecordList filterKey="new_status" filterLabel={t('developer.status')} rows={data.aiApprovalEvents.rows} emptyTitle={t('developer.aiNoApprovals')} emptyBody={t('developer.aiApprovalBody')} describe={(row) => ({ title: `${row.surface} · ${row.provider} · ${row.model}`, summary: `${row.previous_status || '—'} → ${row.new_status} · ${dateLabel(row.created_at)}` })} fields={[{ key: 'reviewed_by', label: t('developer.actor') }, { key: 'review_reason', label: t('developer.reason') }, { key: 'prompt_version', label: t('developer.version') }]} />
         </Panel>
@@ -176,8 +181,8 @@ export default function DeveloperWorkspaceScreen() {
             <SelectField label={t('developer.aiCaseSeverity')} value={reportSeverity} onChange={setReportSeverity} options={['low', 'medium', 'high', 'critical'].map((value) => ({ value, label: value }))} />
             <Field accessibilityLabel={t('developer.aiCaseResourceType')} placeholder={t('developer.aiCaseResourceType')} value={reportResourceType} onChangeText={setReportResourceType} />
             <Field accessibilityLabel={t('developer.aiCaseResourceId')} placeholder={t('developer.aiCaseResourceId')} value={reportResourceId} onChangeText={setReportResourceId} />
-            <SelectField label={t('developer.aiCaseResolution')} value={caseResolutionCode} onChange={setCaseResolutionCode} options={['model', 'prompt', 'heuristic', 'content', 'privacy', 'duplicate', 'other'].map((value) => ({ value, label: value }))} />
           </View><Button secondary disabled={caseBusyId !== null} onPress={() => void reportCase()}>{t('developer.aiCaseReport')}</Button>
+          {canManageAi ? <SelectField label={t('developer.aiCaseResolution')} value={caseResolutionCode} onChange={setCaseResolutionCode} options={['model', 'prompt', 'heuristic', 'content', 'privacy', 'duplicate', 'other'].map((value) => ({ value, label: value }))} /> : null}
           {caseError ? <ActionFeedback message={caseError} tone="error" /> : null}
           {data.aiCases.rows.length ? data.aiCases.rows.map((item) => {
             const id = Number(item.id);
@@ -187,7 +192,7 @@ export default function DeveloperWorkspaceScreen() {
                 <Text style={styles.caseMeta}>{String(item.resource_type || '')} {String(item.resource_id || '')} · {String(item.severity || '')} · {status} · {Number(item.occurrence_count || 1)} ×</Text>
                 <Text style={styles.caseMeta}>{t('developer.aiCaseDue')}: {dateLabel(item.due_at)} · {t('developer.aiCaseOwner')}: {item.owner_user_id ? String(item.owner_user_id) : '—'}</Text>
               </View>
-              {status !== 'resolved' && status !== 'dismissed' ? <View style={styles.caseActions}>
+              {canManageAi && status !== 'resolved' && status !== 'dismissed' ? <View style={styles.caseActions}>
                 {status === 'open' ? <Button secondary disabled={caseBusyId !== null} onPress={() => void moveCase(id, 'triaged')}>{t('developer.aiCaseTriage')}</Button> : null}
                 <Button secondary disabled={caseBusyId !== null} onPress={() => void moveCase(id, 'resolved')}>{t('developer.aiCaseResolve')}</Button>
               </View> : null}
