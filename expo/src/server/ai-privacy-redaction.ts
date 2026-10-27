@@ -39,6 +39,15 @@ function redactKnownStudentNames(value: string, knownNames: readonly string[]): 
   return value;
 }
 
+function validTurkishIdentityNumber(value: string): boolean {
+  if (!/^[1-9]\d{10}$/.test(value)) return false;
+  const digits = [...value].map(Number);
+  const odd = digits[0] + digits[2] + digits[4] + digits[6] + digits[8];
+  const even = digits[1] + digits[3] + digits[5] + digits[7];
+  return digits[9] === ((odd * 7 - even) % 10 + 10) % 10
+    && digits[10] === digits.slice(0, 10).reduce((sum, digit) => sum + digit, 0) % 10;
+}
+
 /** Remove recognizable identifiers and selected-student name variants before provider calls. */
 export function redactDirectIdentifiers(value: string, knownStudentNames: readonly string[] = []): string {
   return redactKnownStudentNames(value, knownStudentNames)
@@ -49,5 +58,8 @@ export function redactDirectIdentifiers(value: string, knownStudentNames: readon
     .replace(/\b(?:address|dirección|domicilio|ikamet adresi|adres)\s*:\s*[^\n.;}]{5,120}/gi, '[address removed]')
     .replace(/\b(?:calle|avenida|avda\.?|carrera|street|st\.|avenue|ave\.|road|rd\.|sokak|cadde)\s+[\p{L}\d][\p{L}\d\s,º°#-]{2,60}\d+[\p{L}\d\s,º°#-]{0,25}/giu, '[address removed]')
     .replace(/(["']?(?:student_name|learner_name|student_full_name|student_email|student_phone|student_address)["']?\s*[:=]\s*)["']?[^,"'\n}]+["']?/gi, '$1"[student identifier removed]"')
-    .replace(/\b(?:student name|nombre del alumno|nombre de la alumna|nombre del estudiante|öğrenci adı)\s*:\s*[^\n.;}]{2,100}/gi, '[student name removed]');
+    .replace(/\b(?:student name|nombre del alumno|nombre de la alumna|nombre del estudiante|öğrenci adı)\s*:\s*[^\n.;}]{2,100}/gi, '[student name removed]')
+    .replace(/\b(?:tckn|t\.c\.\s*kimlik(?:\s*(?:no|numarası))?|dni|nie|nif|passport|pasaporte|pasaport|ssn|social security number)\s*[:#-]?\s*[A-Z0-9-]{6,25}\b/giu, '[identity number removed]')
+    .replace(/\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]){11,30}\b/gi, '[bank account removed]')
+    .replace(/(?<!\d)\d{11}(?!\d)/g, (candidate) => validTurkishIdentityNumber(candidate) ? '[identity number removed]' : candidate);
 }

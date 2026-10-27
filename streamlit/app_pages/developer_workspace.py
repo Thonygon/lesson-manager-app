@@ -60,6 +60,7 @@ from services.ml_experiment_service import (
     get_run_artifact_readiness,
     get_run_state_summary,
     get_run,
+    is_sensitive_ml_artifact,
     get_workspace_overview,
     launch_experiment,
     list_experiment_catalog,
@@ -713,7 +714,9 @@ def _render_protected_artifacts(artifact_rows: list[dict], *, key_prefix: str) -
             artifact_path = Path(str(artifact.get("storage_path") or ""))
             label = _artifact_button_label(artifact)
             artifact_key = f"{key_prefix}_{artifact.get('artifact_type')}_{artifact_path.name}_{artifact.get('checksum') or ''}"
-            if artifact_path.exists() and has_capability(CAPABILITY_VIEW_TECHNICAL_ARTIFACTS):
+            if is_sensitive_ml_artifact(artifact):
+                st.button(label, disabled=True, help=t("developer_workspace_sensitive_artifact_download_blocked"), use_container_width=True, key=f"sensitive_{artifact_key}")
+            elif artifact_path.exists() and has_capability(CAPABILITY_VIEW_TECHNICAL_ARTIFACTS):
                 st.download_button(
                     label,
                     data=artifact_path.read_bytes(),

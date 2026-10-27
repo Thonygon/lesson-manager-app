@@ -3731,6 +3731,7 @@ ES: Dict[str, str] = {
     "developer_workspace_experiment_label": "Experimento",
     "developer_workspace_protected_artifacts_title": "Artefactos protegidos",
     "developer_workspace_protected_artifacts_caption": "Artefactos validados almacenados para la ejecución seleccionada.",
+    "developer_workspace_sensitive_artifact_download_blocked": "Los datos del experimento por fila están limitados al entorno interno de análisis y no se pueden descargar desde esta página.",
     "developer_workspace_overview_environment": "Entorno",
     "developer_workspace_overview_environment_help": "Entorno actual para trabajos técnicos controlados.",
     "developer_workspace_overview_code_version": "Versión del código",

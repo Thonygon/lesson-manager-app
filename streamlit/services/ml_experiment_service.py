@@ -110,6 +110,21 @@ EXPERIMENT_TABLE = "ml_experiments"
 RUN_TABLE = "ml_experiment_runs"
 RUN_MODEL_TABLE = "ml_run_models"
 RUN_ARTIFACT_TABLE = "ml_run_artifacts"
+SENSITIVE_ML_ARTIFACT_TYPES = frozenset({
+    "frozen_dataset_csv", "label_audit_csv", "holdout_predictions_csv",
+    "cluster_assignments_csv", "anchor_resource_candidates_csv",
+    "label_reconciliation_csv", "exclusion_audit_csv", "human_review_sample_csv",
+})
+DOWNLOADABLE_ML_ARTIFACT_TYPES = frozenset({
+    "experiment_config_json", "representation_manifest_json",
+})
+
+
+def is_sensitive_ml_artifact(artifact: dict[str, Any]) -> bool:
+    """Only configuration manifests may leave the protected artifact viewer."""
+    return bool(artifact.get("contains_sensitive_data") or artifact.get("sensitive")
+                or artifact.get("artifact_type") in SENSITIVE_ML_ARTIFACT_TYPES
+                or artifact.get("artifact_type") not in DOWNLOADABLE_ML_ARTIFACT_TYPES)
 APPROVED_EXPERIMENT_ID = "assigned_resource_open_within_7d"
 STUDENT_RECOMMENDATION_EXPERIMENT_ID = "student_recommendation_open_within_7d"
 RESOURCE_AFFINITY_EXPERIMENT_ID = "resource_affinity_unsupervised_discovery"
@@ -2410,7 +2425,7 @@ def _local_run_artifact_rows(run_id: str) -> list[dict[str, Any]]:
                 "storage_path": str(path),
                 "content_type": content_type,
                 "checksum": _artifact_checksum(path),
-                "sensitive": False,
+                "sensitive": artifact_type in SENSITIVE_ML_ARTIFACT_TYPES,
                 "created_at": _clean_text(run_row.get("completed_at") or run_row.get("created_at")),
             }
         )

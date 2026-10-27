@@ -3704,6 +3704,7 @@ EN: Dict[str, str] = {
     "developer_workspace_experiment_label": "Experiment",
     "developer_workspace_protected_artifacts_title": "Protected Artifacts",
     "developer_workspace_protected_artifacts_caption": "Validated stored artifacts for the selected run.",
+    "developer_workspace_sensitive_artifact_download_blocked": "Row-level experiment data is restricted to the internal analysis environment and cannot be downloaded from this page.",
     "developer_workspace_overview_environment": "Environment",
     "developer_workspace_overview_environment_help": "Current runtime for controlled technical jobs.",
     "developer_workspace_overview_code_version": "Code version",
