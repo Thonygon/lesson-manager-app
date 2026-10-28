@@ -8,6 +8,14 @@ permissions:
   contents: read
 
 jobs:
+  supply-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject tracked private credentials
+        run: python3 scripts/check_repository_secrets.py
+
   streamlit:
     runs-on: ubuntu-latest
     timeout-minutes: 20
