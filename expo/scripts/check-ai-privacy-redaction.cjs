@@ -23,8 +23,8 @@ for (const variant of ['Ana García necesita ayuda', 'ana garcia necesita ayuda'
   assert.match(cleaned, /necesita ayuda/, variant);
 }
 assert.equal(redactDirectIdentifiers('Topic: Spanish grammar', ['Ana García']), 'Topic: Spanish grammar');
-for (const value of ['TCKN: 10000000146', 'DNI: 12345678Z', 'Passport: A12345678', 'TR33 0006 1005 1978 6457 8413 26']) {
-  assert.doesNotMatch(redactDirectIdentifiers(`Topic fractions. ${value}`), /10000000146|12345678Z|A12345678|TR33 0006/i);
+for (const value of ['TCKN: 10000000146', 'DNI: 12345678Z', 'Passport: A12345678', 'Passport: ABCDEF', 'Passport: abcdef', 'TR33 0006 1005 1978 6457 8413 26']) {
+  assert.doesNotMatch(redactDirectIdentifiers(`Topic fractions. ${value}`), /10000000146|12345678Z|A12345678|ABCDEF|TR33 0006/i);
 }
 assert.match(redactDirectIdentifiers('10000000146'), /\[identity number removed\]/);
 assert.equal(redactDirectIdentifiers('Exercise: 12345678901 + 2'), 'Exercise: 12345678901 + 2');

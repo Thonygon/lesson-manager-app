@@ -15,6 +15,11 @@ def _valid_turkish_identity_number(value: str) -> bool:
     return digits[9] == (odd * 7 - even) % 10 and digits[10] == sum(digits[:10]) % 10
 
 
+def _redact_labeled_identity(match: re.Match[str]) -> str:
+    delimiter, token = match.group(1, 2)
+    return "[identity number removed]" if delimiter in (":", "#") or any(char.isdigit() for char in token) else match.group(0)
+
+
 def _safe_pedagogical_text(value: Any, known_name_tokens: set[str]) -> str:
     if not isinstance(value, str) or any(char in value for char in "\r\n\t"):
         return ""
@@ -42,7 +47,7 @@ def redact_direct_identifiers(value: str) -> str:
     text = re.sub(r"\b(?:calle|avenida|avda\.?|carrera|street|st\.|avenue|ave\.|road|rd\.|sokak|cadde)\s+[^\n.;}]{3,85}\d+[^\n.;}]{0,25}", "[address removed]", text, flags=re.I)
     text = re.sub(r"([\"']?(?:student_name|learner_name|student_full_name|student_email|student_phone|student_address)[\"']?\s*[:=]\s*)[\"']?[^,\"'\n}]+[\"']?", r'\1"[student identifier removed]"', text, flags=re.I)
     text = re.sub(r"\b(?:student name|nombre del alumno|nombre de la alumna|nombre del estudiante|öğrenci adı)\s*:\s*[^\n.;}]{2,100}", "[student name removed]", text, flags=re.I)
-    text = re.sub(r"\b(?:tckn|t\.c\.\s*kimlik(?:\s*(?:no|numarası))?|dni|nie|nif|passport|pasaporte|pasaport|ssn|social security number)\s*[:#-]?\s*(?=[A-Z0-9-]{0,24}\d)[A-Z0-9-]{6,25}\b", "[identity number removed]", text, flags=re.I)
+    text = re.sub(r"\b(?:tckn|t\.c\.\s*kimlik(?:\s*(?:no|numarası))?|dni|nie|nif|passport|pasaporte|pasaport|ssn|social security number)\s*([:#-]?)\s*([A-Z0-9-]{6,25})\b", _redact_labeled_identity, text, flags=re.I)
     text = re.sub(r"\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]){11,30}\b", "[bank account removed]", text, flags=re.I)
     return re.sub(r"(?<!\d)\d{11}(?!\d)", lambda match: "[identity number removed]" if _valid_turkish_identity_number(match.group()) else match.group(), text)
 
