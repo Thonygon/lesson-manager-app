@@ -13,8 +13,8 @@ class AiPromptPrivacyTests(unittest.TestCase):
             self.assertNotIn(private, safe)
 
     def test_national_and_bank_identifiers_are_removed_without_erasing_math(self):
-        safe = redact_direct_identifiers('TCKN: 10000000146; DNI: 12345678Z; IBAN TR33 0006 1005 1978 6457 8413 26.')
-        for private in ('10000000146', '12345678Z', 'TR33 0006'):
+        safe = redact_direct_identifiers('TCKN: 10000000146; DNI: 12345678Z; Passport: ABCDEF; IBAN TR33 0006 1005 1978 6457 8413 26.')
+        for private in ('10000000146', '12345678Z', 'ABCDEF', 'TR33 0006'):
             self.assertNotIn(private, safe)
         self.assertIn('[identity number removed]', redact_direct_identifiers('10000000146'))
         self.assertEqual(redact_direct_identifiers('Exercise: 12345678901 + 2'), 'Exercise: 12345678901 + 2')
