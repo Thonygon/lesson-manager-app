@@ -28,4 +28,6 @@ for (const value of ['TCKN: 10000000146', 'DNI: 12345678Z', 'Passport: A12345678
 }
 assert.match(redactDirectIdentifiers('10000000146'), /\[identity number removed\]/);
 assert.equal(redactDirectIdentifiers('Exercise: 12345678901 + 2'), 'Exercise: 12345678901 + 2');
+assert.equal(redactDirectIdentifiers('Lesson topic: passport vocabulary and travel'), 'Lesson topic: passport vocabulary and travel');
+assert.equal(redactDirectIdentifiers('Explain DNI vocabulary in Spanish'), 'Explain DNI vocabulary in Spanish');
 process.stdout.write('AI direct-identifier redaction fixtures passed.\n');
