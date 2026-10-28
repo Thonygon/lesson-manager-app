@@ -3792,6 +3792,8 @@ def assign_learning_program(
     linked_student_ids = {str(row.get("student_id") or "").strip() for row in linked_students}
     if student_user_id not in linked_student_ids:
         return False, None, "assignment_link_required"
+    if learning_program_assignment_duplicate_count(program_id, student_user_id):
+        return False, None, "assignment_duplicate_warning"
 
     payload = {
         "program_id": int(program_id),
@@ -3814,6 +3816,8 @@ def assign_learning_program(
         clear_app_caches()
         return True, int(rows[0]["id"]), "assigned"
     except Exception as e:
+        if "23505" in str(e):
+            return False, None, "assignment_duplicate_warning"
         return False, None, str(e)
 
 
@@ -3830,7 +3834,6 @@ def learning_program_assignment_duplicate_count(program_id: int, student_user_id
             .eq("teacher_id", teacher_id)
             .eq("program_id", int(program_id))
             .eq("student_user_id", student_user_id)
-            .neq("status", "archived")
             .execute()
         )
         return len(rows)
@@ -4800,30 +4803,24 @@ def render_learning_program_assignment_panel(program: dict, prefix: str = "learn
         for row in selected_rows
         if learning_program_assignment_duplicate_count(program_id, _clean_text(row.get("student_id"))) > 0
     ]
-    duplicate_confirmed = True
     if duplicate_names:
         st.warning(t("assignment_duplicate_warning_students", students=", ".join(sorted(set(name for name in duplicate_names if name)))))
-        duplicate_confirmed = bool(
-            st.checkbox(
-                t("assignment_duplicate_confirm"),
-                key=f"{prefix}_duplicate_confirm",
-            )
-        )
 
     if st.button(t("assign"), key=f"{prefix}_assign_btn"):
         if not selected_rows:
             st.error(t("select_student"))
             return False
-        if duplicate_names and not duplicate_confirmed:
-            st.error(t("assignment_duplicate_confirm_required"))
-            return False
         created = 0
         failures: list[str] = []
+        skipped_names: list[str] = []
         created_names: list[str] = []
         created_assignment_ids: list[int] = []
         for selected_row in selected_rows:
             student_name = _clean_text(selected_row.get("student_name"))
             student_user_id = _clean_text(selected_row.get("student_id"))
+            if learning_program_assignment_duplicate_count(program_id, student_user_id):
+                skipped_names.append(student_name or student_user_id)
+                continue
             ok, assignment_id, msg = assign_learning_program(
                 program_id=program_id,
                 student_name=student_name,
@@ -4835,6 +4832,8 @@ def render_learning_program_assignment_panel(program: dict, prefix: str = "learn
                 created_names.append(student_name or str(assignment_id or ""))
                 if int(assignment_id or 0) > 0:
                     created_assignment_ids.append(int(assignment_id))
+            elif msg == "assignment_duplicate_warning":
+                skipped_names.append(student_name or student_user_id)
             else:
                 failures.append(f"{student_name or student_user_id}: {msg}")
         if created:
@@ -4850,7 +4849,9 @@ def render_learning_program_assignment_panel(program: dict, prefix: str = "learn
                 st.success(t("learning_program_assignments_created", count=created))
         if failures:
             st.error(t("learning_program_assigned_failed", error="; ".join(failures)))
-        return created > 0 and not failures
+        if skipped_names:
+            st.warning(t("assignment_duplicate_warning_students", students=", ".join(sorted(set(skipped_names)))))
+        return created > 0 and not failures and not skipped_names
     return False
 
 

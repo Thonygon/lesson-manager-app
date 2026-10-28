@@ -428,7 +428,7 @@ export async function assignResource(input: { resource: PublicResource; detail: 
     if (!programReady(input.detail.program_data as Record<string, unknown>)) throw new Error('Complete every program unit before assigning it.');
     const rosterId = Number(input.connection.roster_student_id || 0);
     const studentId = String(input.connection.student_id || '');
-    const existing = client.from('learning_program_assignments').select('id').eq('program_id', Number(input.resource.id)).eq('teacher_id', uid).neq('status', 'archived').limit(1);
+    const existing = client.from('learning_program_assignments').select('id').eq('program_id', Number(input.resource.id)).eq('teacher_id', uid).limit(1);
     const duplicate = await (rosterId ? existing.eq('roster_student_id', rosterId) : existing.eq('student_user_id', studentId));
     if (duplicate.error) throw duplicate.error;
     if (duplicate.data?.length) throw new Error('resources.alreadyAssigned');
@@ -447,7 +447,7 @@ export async function assignResource(input: { resource: PublicResource; detail: 
   const typeMap = { plan: 'lesson_plan_topic', worksheet: 'worksheet', exam: 'exam', video: 'video' } as const; const sourceMap = { plan: 'lesson_plan_builder', worksheet: 'worksheet_builder', exam: 'exam_builder', video: 'video_library' } as const; const kind = input.resource.kind as keyof typeof typeMap; const now = new Date().toISOString();
   const parsedSourceId = Number(input.resource.id);
   const numericSourceId = Number.isSafeInteger(parsedSourceId) && parsedSourceId > 0 ? parsedSourceId : null;
-  const existing = client.from('teacher_assignments').select('id').eq('teacher_id', uid).eq('student_id', input.connection.student_id).eq('assignment_type', typeMap[kind]).neq('status', 'archived').limit(1);
+  const existing = client.from('teacher_assignments').select('id').eq('teacher_id', uid).eq('student_id', input.connection.student_id).eq('assignment_type', typeMap[kind]).limit(1);
   const duplicate = await (numericSourceId ? existing.eq('source_record_id', numericSourceId) : existing.is('source_record_id', null).contains('content_snapshot', { id: input.resource.id }));
   if (duplicate.error) throw duplicate.error;
   if (duplicate.data?.length) throw new Error('resources.alreadyAssigned');

@@ -83,7 +83,7 @@ export async function loadAppNotifications(userId: string, role: string): Promis
     const reviews = ((reviewResult.data ?? []) as Row[]).map((row): AppNotification => ({
       key: `teacher:review:${value(row.id)}:${value(row.requested_at)}`,
       icon: '📋', titleKey: 'dashboard.reviewNotification', titleParams: { count: 1 },
-      href: row.assignment_id ? { pathname: '/assignments', params: { assignment: value(row.assignment_id), review: value(row.id) } } : { pathname: '/students', params: { section: 'progress', learningTab: 'reviews', student: value(row.student_id) } },
+      href: { pathname: '/assignments', params: { ...(row.assignment_id ? { assignment: value(row.assignment_id) } : {}), review: value(row.id) } },
     }));
     const practice = ((practiceResult.data ?? []) as Row[]).map((row): AppNotification => {
       const assignment = Array.isArray(row.program_assignment) ? row.program_assignment[0] : row.program_assignment;

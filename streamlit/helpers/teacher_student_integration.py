@@ -2650,7 +2650,6 @@ def _assignment_duplicate_count(
             .eq("teacher_id", teacher_id)
             .eq("link_id", link_id)
             .eq("assignment_type", str(assignment_type or "").strip())
-            .neq("status", "archived")
         )
         source_text = str(source_record_id or "").strip()
         if source_text and source_text not in {"0", "None"}:
