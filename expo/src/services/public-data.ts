@@ -94,8 +94,8 @@ function normalize(kind: PublicResourceKind, row: Record<string, unknown>): Publ
   };
 }
 
-async function publicExamRows(id?: string): Promise<Record<string, unknown>[]> {
-  const response = await fetch(hostingApiUrl(`/api/public-exams${id ? `?id=${encodeURIComponent(id)}` : ''}`));
+async function publicExamRows(id?: string, page = 1): Promise<Record<string, unknown>[]> {
+  const response = await fetch(hostingApiUrl(`/api/public-exams${id ? `?id=${encodeURIComponent(id)}` : `?page=${page}&limit=120`}`));
   if (!response.ok) throw new Error(`Unable to load public exams (${response.status}).`);
   const payload = await response.json() as { exam?: Record<string, unknown>; exams?: Record<string, unknown>[] };
   return id ? payload.exam ? [payload.exam] : [] : payload.exams ?? [];
@@ -110,11 +110,12 @@ export async function getExplorerPublicExamPage(page: number, limit = 60): Promi
 
 export async function getPublicResources(kinds: PublicResourceKind[] = Object.keys(DEFINITIONS) as PublicResourceKind[], perKindLimit = 60): Promise<PublicResource[]> {
   const client = requireSupabase();
-  const boundedLimit = Math.max(1, Math.min(120, Math.floor(perKindLimit) || 60));
+  const boundedLimit = Math.max(1, Math.min(360, Math.floor(perKindLimit) || 60));
   const results = await Promise.all(
     kinds.map(async (kind) => {
       if (kind === 'exam') {
-        return (await publicExamRows()).slice(0, boundedLimit).map((row) => normalize(kind, row));
+        const pages = await Promise.all(Array.from({ length: Math.ceil(boundedLimit / 120) }, (_, index) => publicExamRows(undefined, index + 1)));
+        return pages.flat().slice(0, boundedLimit).map((row) => normalize(kind, row));
       }
       const definition = DEFINITIONS[kind];
       const request = client

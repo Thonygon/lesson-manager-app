@@ -971,6 +971,14 @@ def create_teacher_assignment(
         if not scope_rows:
             return False, "assignment_subject_required"
         scope = scope_rows[0]
+        if source_record_id and _assignment_duplicate_count(
+            link=link,
+            assignment_type=assignment_type,
+            source_record_id=source_record_id,
+            title=title,
+            topic=topic,
+        ):
+            return False, "assignment_duplicate_warning"
         now = _now_iso()
         due_at = None
         if due_date:
@@ -2649,6 +2657,10 @@ def _assignment_duplicate_count(
 
     title_key = _clean_text(title).casefold()
     topic_key = _clean_text(topic).casefold()
+    if source_text and source_text not in {"0", "None"} and assignment_type != "lesson_plan_topic":
+        return len(rows)
+    if source_text and source_text not in {"0", "None"} and assignment_type == "lesson_plan_topic":
+        return sum(_clean_text(row.get("topic")).casefold() == topic_key for row in rows)
     if not title_key and not topic_key:
         return len(rows)
     count = 0
@@ -2666,12 +2678,7 @@ def _render_duplicate_assignment_confirmation(prefix: str, duplicate_count: int)
     if duplicate_count <= 0:
         return True
     st.warning(t("assignment_duplicate_warning"))
-    return bool(
-        st.checkbox(
-            t("assignment_duplicate_confirm"),
-            key=f"{prefix}_duplicate_confirm",
-        )
-    )
+    return True
 
 
 def render_assignment_panel_for_worksheet(
@@ -3093,8 +3100,7 @@ def _render_duplicate_student_confirmation(*, prefix: str, duplicate_names: list
     if not names:
         return True, []
     st.warning(t("assignment_duplicate_warning_students", students=", ".join(names)))
-    confirmed = bool(st.checkbox(t("assignment_duplicate_confirm"), key=f"{prefix}_duplicate_confirm"))
-    return confirmed, names
+    return True, names
 
 
 def render_resource_bulk_assign_panel(
@@ -3212,6 +3218,7 @@ def render_resource_bulk_assign_panel(
             return False
         created = 0
         failures = 0
+        duplicate_skips: list[str] = []
         for target in selected_targets:
             link = target["link"]
             subject_scope = target["subject"]
@@ -3244,6 +3251,8 @@ def render_resource_bulk_assign_panel(
                     )
                     created += 1 if ok else 0
                     failures += 0 if ok else 1
+                    if not ok and _key == "assignment_duplicate_warning":
+                        duplicate_skips.append(_clean_text(link.get("student_name")) or target["label"])
                 continue
             recommendation_context = recommendation_context_for_assignment(link=link, subject_scope=subject_scope, topic_text=topic)
             ok, _key = create_teacher_assignment(
@@ -3267,9 +3276,13 @@ def render_resource_bulk_assign_panel(
             )
             created += 1 if ok else 0
             failures += 0 if ok else 1
+            if not ok and _key == "assignment_duplicate_warning":
+                duplicate_skips.append(_clean_text(link.get("student_name")) or target["label"])
         if created:
             st.success(t("assignment_topics_created", count=created) if safe_kind == "plan" else t("assignment_created"))
-        if failures:
+        if duplicate_skips:
+            st.warning(t("assignment_duplicate_warning_students", students=", ".join(sorted(set(duplicate_skips)))))
+        if failures > len(duplicate_skips):
             st.error(t("assignment_create_failed"))
         return created > 0 and failures == 0
     return False

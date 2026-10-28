@@ -8,6 +8,7 @@ import { AppShell } from '@/components/app-shell';
 import { ResourceShowcaseCard } from '@/components/resource-showcase-card';
 import { ActionFeedback, Button, Disclosure, EmptyState, HelpIcon, LoadingState, Pagination, Panel, SelectField, TabRail } from '@/components/ui';
 import { programTopics } from '@/lib/learning-program-topics';
+import { canonicalSubjectKey } from '@/lib/subjects';
 import { useAuth } from '@/providers/auth-provider';
 import { useAppPreferences } from '@/providers/app-preferences';
 import type { ClassioRecord } from '@/services/classio-data';
@@ -23,7 +24,7 @@ import { colors } from '@/theme';
 
 type Section = 'plan' | 'programs' | 'topics';
 type SmartTask = { id: string; title: string; detail: string; minutes: number; category: string; xp: number; done: boolean };
-type SmartPlan = { subject: string; goal: string; minutes: number; generatedFor: string; tasks: SmartTask[]; points: number; streak: number; lastCompletionDate?: string; anchorSignature?: string };
+type SmartPlan = { subject: string; goal: string; minutes: number; generatedFor: string; tasks: SmartTask[]; points: number; streak: number; lastCompletionDate?: string; anchorSignature?: string; generationContext?: string };
 
 const DEFAULT_SUBJECTS = ['english', 'spanish', 'mathematics', 'science', 'music', 'study_skills', 'other'];
 const MINUTES = [15, 20, 30, 45, 60];
@@ -39,16 +40,34 @@ function programAnchorSignature(subject: string, workspace: StudentWorkspace | n
   return JSON.stringify([assignment.id, assignment.program_id, topics.map((row) => [row.id, done.has(text(row.id))])]);
 }
 
-function generatedTasks(plan: Pick<SmartPlan, 'subject' | 'goal' | 'minutes'>, workspace: StudentWorkspace | null, t: (key: string, params?: Record<string, string | number>) => string): SmartTask[] {
+function generatedTasks(plan: Pick<SmartPlan, 'subject' | 'goal' | 'minutes'>, workspace: StudentWorkspace | null, resources: PublicResource[], t: (key: string, params?: Record<string, string | number>) => string): SmartTask[] {
   const assignment = (workspace?.programs ?? []).find((row) => normalize((row.program as ClassioRecord | undefined)?.subject) === plan.subject) ?? workspace?.programs?.[0];
   const assignmentId = text(assignment?.id); const programId = text(assignment?.program_id);
   const progress = new Map((workspace?.progress ?? []).filter((row) => text(row.assignment_id) === assignmentId).map((row) => [text(row.topic_id), row]));
   const resolvedTopics = programTopics((assignment?.program || {}) as ClassioRecord, (workspace?.topics ?? []).filter((topic) => text(topic.program_id) === programId));
   const count = plan.minutes <= 15 ? 3 : plan.minutes <= 30 ? 4 : 5;
-  const pending = resolvedTopics.filter((topic) => !Boolean(progress.get(text(topic.id))?.teacher_done)).slice(0, count);
+  const pending = resolvedTopics.filter((topic) => !Boolean(progress.get(text(topic.id))?.teacher_done));
   const chosen = pending.length ? pending : resolvedTopics.slice(-count);
-  if (chosen.length) return chosen.map((topic, index) => ({ id: `${today()}_program_${text(topic.id)}`, title: t('student.smartPlan.programTask', { number: Number(topic.topic_number || index + 1), title: text(topic.title) }), detail: text(topic.student_summary || topic.lesson_focus || topic.subtopic || t('student.smartPlan.programTaskFallback')), minutes: Math.max(5, Math.round(plan.minutes / chosen.length)), category: 'program', xp: 15, done: false }));
-  return selectSmartPlanTaskTemplates(plan.subject, plan.goal, plan.minutes).map((item, index) => ({ id: `${today()}_${index + 1}`, title: t(`student.smartPlan.${item.titleKey}`), detail: t('student.smartPlan.taskDetail', { minutes: item.minutes }), minutes: item.minutes, category: item.category, xp: item.xp, done: false }));
+  const available = chosen.map((topic, index) => ({ id: `${today()}_program_${text(topic.id)}`, title: t('student.smartPlan.programTask', { number: Number(topic.topic_number || index + 1), title: text(topic.title) }), detail: text(topic.student_summary || topic.lesson_focus || topic.subtopic || t('student.smartPlan.programTaskFallback')), minutes: Math.max(5, Math.round(plan.minutes / Math.max(chosen.length, 1))), category: 'program', xp: 15, done: false }))
+    .filter((task) => smartPlanMissionResources(resources, plan.subject, task, plan.goal, workspace).length > 0);
+  if (available.length) return available.slice(0, count);
+  const templates = selectSmartPlanTaskTemplates(plan.subject, plan.goal, plan.minutes).map((item, index) => ({ id: `${today()}_${index + 1}`, title: t(`student.smartPlan.${item.titleKey}`), detail: t('student.smartPlan.taskDetail', { minutes: item.minutes }), minutes: item.minutes, category: item.category, xp: item.xp, done: false }))
+    .filter((task) => smartPlanMissionResources(resources, plan.subject, task, plan.goal, workspace).length > 0);
+  if (templates.length) return templates;
+  const seenTopics = new Set<string>();
+  const fallback: SmartTask[] = [];
+  for (const resource of resources) {
+    if (fallback.length >= count) break;
+    if (!['worksheet', 'exam'].includes(resource.kind) || canonicalSubjectKey(resource.subject) !== canonicalSubjectKey(plan.subject)) continue;
+    const topic = text(resource.topic || resource.title);
+    const topicKey = normalize(topic);
+    if (!topicKey || seenTopics.has(topicKey)) continue;
+    const task = { id: `${today()}_resource_${resource.kind}_${resource.id}`, title: topic, detail: '', minutes: Math.max(5, Math.round(plan.minutes / count)), category: 'practice', xp: 15, done: false };
+    if (!smartPlanMissionResources(resources, plan.subject, task, plan.goal, workspace).length) continue;
+    seenTopics.add(topicKey);
+    fallback.push(task);
+  }
+  return fallback;
 }
 
 export default function StudentStudyPlanScreen() {
@@ -70,8 +89,10 @@ export default function StudentStudyPlanScreen() {
         const stored = JSON.parse(saved.value) as SmartPlan;
         if (stored && Array.isArray(stored.tasks)) {
           const anchorSignature = loadedWorkspace ? programAnchorSignature(stored.subject, loadedWorkspace) : stored.anchorSignature;
-          const refresh = Boolean(stored.generatedFor && loadedWorkspace && (stored.generatedFor !== today() || (stored.anchorSignature ?? '') !== anchorSignature));
-          const current = refresh && loadedWorkspace ? { ...stored, generatedFor: today(), tasks: generatedTasks(stored, loadedWorkspace, t), anchorSignature } : stored;
+          const availableResources = publicResources.status === 'fulfilled' ? publicResources.value : [];
+          const missingMissions = publicResources.status === 'fulfilled' && stored.tasks.some((task) => !smartPlanMissionResources(availableResources, stored.subject, task, stored.goal, loadedWorkspace).length);
+          const refresh = Boolean(stored.generatedFor && loadedWorkspace && publicResources.status === 'fulfilled' && (stored.generatedFor !== today() || (stored.anchorSignature ?? '') !== anchorSignature || missingMissions || stored.tasks.length === 0));
+          const current = refresh && loadedWorkspace ? { ...stored, generatedFor: today(), tasks: generatedTasks(stored, loadedWorkspace, availableResources, t), anchorSignature } : stored;
           if (loadedWorkspace && publicResources.status === 'fulfilled') {
             const passed = passedMissionResourceIds(loadedWorkspace);
             const tasks = current.tasks.map((task) => ({ ...task, done: smartPlanMissionComplete(smartPlanMissionResources(publicResources.value, current.subject, task, current.goal, loadedWorkspace), passed) }));
@@ -117,7 +138,26 @@ export default function StudentStudyPlanScreen() {
       });
     });
   }, [recommendations]);
-  const generatePlan = () => { const tasks = generatedTasks(plan, workspace, t).map((task) => ({ ...task, done: smartPlanMissionComplete(smartPlanMissionResources(resources, plan.subject, task, plan.goal, workspace), passedMissions) })); setPlan((current) => ({ ...current, generatedFor: today(), tasks, anchorSignature: programAnchorSignature(current.subject, workspace), ...syncSmartPlanRewards(current, current.tasks, tasks) })); setOpenMissionId(''); setMessageTarget('plan'); setMessageTone('success'); setMessage(t('student.smartPlan.generated')); };
+  const generatePlan = async () => {
+    setBusy('regenerate');
+    setMessageTarget('plan');
+    try {
+      const [latestWorkspace, latestResources] = await Promise.all([getStudentWorkspace('practice', true), getStudentPublicPracticeResources(true)]);
+      setWorkspace(latestWorkspace);
+      setResources(latestResources);
+      const latestPassed = passedMissionResourceIds(latestWorkspace);
+      const tasks = generatedTasks(plan, latestWorkspace, latestResources, t).map((task) => ({ ...task, done: smartPlanMissionComplete(smartPlanMissionResources(latestResources, plan.subject, task, plan.goal, latestWorkspace), latestPassed) }));
+      if (!tasks.length) { setMessageTone('error'); setMessage(t('student.smartPlan.noAvailableMissions')); return; }
+      const context = `${plan.subject}:${plan.goal}:${plan.minutes}`;
+      const unchanged = plan.generatedFor === today() && plan.generationContext === context && plan.tasks.length === tasks.length && plan.tasks.every((task, index) => task.id === tasks[index].id && task.title === tasks[index].title && task.done === tasks[index].done);
+      if (unchanged) { setMessageTone('error'); setMessage(t('student.smartPlan.noNewMissions')); return; }
+      setPlan((current) => ({ ...current, generatedFor: today(), generationContext: context, tasks, anchorSignature: programAnchorSignature(current.subject, latestWorkspace), ...syncSmartPlanRewards(current, current.tasks, tasks) }));
+      setOpenMissionId('');
+      setMessageTone('success');
+      setMessage(t('student.smartPlan.generated'));
+    } catch (reason) { setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : t('student.loadFailed')); }
+    finally { setBusy(''); }
+  };
   const requestPractice = async (assignmentId: string, topicId: string, current: boolean) => { const key = `${assignmentId}:${topicId}`; setMessageTarget(key); setBusy(key); setMessage(''); try { await setStudentNeedsMorePractice(assignmentId, topicId, !current); setWorkspace(await getStudentWorkspace('practice', true)); } catch (reason) { setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : t('student.practiceRequestFailed')); } finally { setBusy(''); } };
 
   const renderPrograms = () => !shownPrograms.length ? <EmptyState title={t('student.noPrograms')} body={t('student.noProgramsBody')} /> : <>
@@ -160,8 +200,8 @@ export default function StudentStudyPlanScreen() {
     <TabRail accessibilityLabel={t('student.smartPlan.title')} value={section} onChange={setSection} items={[{ value: 'plan', label: `✨ ${t('student.smartPlan.title')}` }, { value: 'programs', label: `📚 ${t('student.smartPlan.assignedPrograms')}` }, { value: 'topics', label: `📒 ${t('student.smartPlan.assignedTopics')}` }]} />
 
     {loading ? <LoadingState /> : error ? <EmptyState title={t('student.loadFailed')} body={error} /> : section === 'programs' ? renderPrograms() : section === 'topics' ? <>{!shownTopics.length ? <EmptyState title={t('student.smartPlan.noTopics')} body={t('student.smartPlan.noTopicsBody')} /> : <View style={styles.topicCards}>{shownTopics.map((row) => <Pressable key={text(row.id)} accessibilityRole="button" onPress={() => router.push({ pathname: '/student-lesson-topic' as never, params: { assignmentId: text(row.id), returnTo: 'student-study-plan' } })} style={({ pressed }) => [styles.topicCard, styles.topicCardSurface, pressed && styles.topicCardPressed]}><Text style={styles.kicker}>📒 {t('student.smartPlan.lessonTopic')}</Text><Text style={styles.topicCardTitle}>{text(row.title || t('student.topic'))}</Text><Text style={styles.body}>{[row.subject_label || row.subject_key, row.topic, row.created_at ? new Date(String(row.created_at)).toLocaleDateString() : ''].filter(Boolean).join(' · ')}</Text>{row.teacher_note ? <Text style={styles.topicSummary}>{text(row.teacher_note)}</Text> : null}</Pressable>)}</View>}<Pagination page={Math.min(topicPage, topicPages)} totalPages={topicPages} totalItems={assignedTopics.length} onPageChange={setTopicPage} /></> : <>
-      <Panel style={styles.setup}><View style={styles.sectionHeading}><View><Text style={styles.sectionTitle}>{t('student.smartPlan.setup')}</Text><Text style={styles.body}>{t('student.smartPlan.setupBody')}</Text></View><Text style={styles.planDate}>{plan.generatedFor || t('student.smartPlan.notGenerated')}</Text></View><View style={styles.selects}><SelectField label={t('student.smartPlan.subject')} value={plan.subject} options={availableSubjects.map((value) => ({ value, label: t(`student.smartPlan.subject.${value}`) === `student.smartPlan.subject.${value}` ? value.replaceAll('_', ' ') : t(`student.smartPlan.subject.${value}`) }))} onChange={(subject) => setPlan((current) => ({ ...current, subject, goal: smartPlanGoalOptions(subject).includes(current.goal) ? current.goal : smartPlanGoalOptions(subject)[0] }))} /><SelectField label={t('student.smartPlan.focus')} value={plan.goal} options={smartPlanGoalOptions(plan.subject).map((value) => ({ value, label: t(`student.smartPlan.goal.${value}`) }))} onChange={(goal) => setPlan((current) => ({ ...current, goal }))} /><SelectField label={t('student.smartPlan.time')} value={String(plan.minutes)} options={MINUTES.map((value) => ({ value: String(value), label: t('student.smartPlan.minutes', { minutes: value }) }))} onChange={(minutes) => setPlan((current) => ({ ...current, minutes: Number(minutes) }))} /></View><Button onPress={generatePlan}>✨ {plan.tasks.length ? t('student.smartPlan.regenerate') : t('student.smartPlan.generate')}</Button>{messageTarget === 'plan' ? <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} /> : null}</Panel>
-      {!plan.tasks.length ? <EmptyState title={t('student.smartPlan.empty')} body={t('student.smartPlan.emptyBody')} /> : <>
+      <Panel style={styles.setup}><View style={styles.sectionHeading}><View><Text style={styles.sectionTitle}>{t('student.smartPlan.setup')}</Text><Text style={styles.body}>{t('student.smartPlan.setupBody')}</Text></View><Text style={styles.planDate}>{plan.generatedFor || t('student.smartPlan.notGenerated')}</Text></View><View style={styles.selects}><SelectField label={t('student.smartPlan.subject')} value={plan.subject} options={availableSubjects.map((value) => ({ value, label: t(`student.smartPlan.subject.${value}`) === `student.smartPlan.subject.${value}` ? value.replaceAll('_', ' ') : t(`student.smartPlan.subject.${value}`) }))} onChange={(subject) => setPlan((current) => ({ ...current, subject, goal: smartPlanGoalOptions(subject).includes(current.goal) ? current.goal : smartPlanGoalOptions(subject)[0] }))} /><SelectField label={t('student.smartPlan.focus')} value={plan.goal} options={smartPlanGoalOptions(plan.subject).map((value) => ({ value, label: t(`student.smartPlan.goal.${value}`) }))} onChange={(goal) => setPlan((current) => ({ ...current, goal }))} /><SelectField label={t('student.smartPlan.time')} value={String(plan.minutes)} options={MINUTES.map((value) => ({ value: String(value), label: t('student.smartPlan.minutes', { minutes: value }) }))} onChange={(minutes) => setPlan((current) => ({ ...current, minutes: Number(minutes) }))} /></View><Button disabled={busy === 'regenerate'} onPress={() => void generatePlan()}>✨ {plan.tasks.length ? t('student.smartPlan.regenerate') : t('student.smartPlan.generate')}</Button>{messageTarget === 'plan' ? <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} /> : null}</Panel>
+      {!plan.tasks.length ? <EmptyState title={t('student.smartPlan.empty')} body={plan.generatedFor ? t('student.smartPlan.noAvailableMissions') : t('student.smartPlan.emptyBody')} /> : <>
         <View style={styles.metrics}><Panel style={styles.metric}><Text style={styles.value}>{Math.max(1, Math.floor(plan.points / 100) + 1)}</Text><Text style={styles.label}>{t('student.smartPlan.level')}</Text></Panel><Panel style={styles.metric}><Text style={styles.value}>{plan.points}</Text><Text style={styles.label}>{t('student.smartPlan.points')}</Text></Panel><Panel style={styles.metric}><Text style={styles.value}>🔥 {plan.streak}</Text><Text style={styles.label}>{t('student.smartPlan.streak')}</Text></Panel><Panel style={styles.metric}><Text style={styles.value}>{planPct}%</Text><Text style={styles.label}>{t('student.smartPlan.todayProgress')}</Text></Panel></View>
         <Panel style={styles.today}>
           <Text style={styles.sectionTitle}>{t('student.smartPlan.today')}</Text>
