@@ -102,6 +102,7 @@
     {"name": "deduplicate_teacher_resource_assignments.sql", "sha256": "e499c6a52bdbef2e5edde3dd0962008b2ad26dc08766827384acb4e68fa04d5d"},
     {"name": "deduplicate_uuid_resource_assignments.sql", "sha256": "98f4caaed5ec071a671517f9d0697aa1aa1ba8a0477c826f5e243b733d1de836"},
     {"name": "prevent_repeated_resource_assignments.sql", "sha256": "4c402b24c2324f665795c034a5551069c1dae2d6ed2d13c950cfd1aa19205407"},
-    {"name": "fix_repeated_resource_assignment_guards.sql", "sha256": "9de8c7523aa43679734a3785b4b5b57509775bb400416e947720dc62f633280c"}
+    {"name": "fix_repeated_resource_assignment_guards.sql", "sha256": "9de8c7523aa43679734a3785b4b5b57509775bb400416e947720dc62f633280c"},
+    {"name": "include_practice_snapshot_in_teacher_review_detail.sql", "sha256": "c4ec5e6d038953fe69014b9d8489321b1c31f0ac7a9bba0b818f47e3fc0d37ed"}
   ]
 }
