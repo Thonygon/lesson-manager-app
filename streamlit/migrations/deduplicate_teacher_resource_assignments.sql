@@ -20,6 +20,8 @@ with ranked as (
         partition by a.teacher_id, a.student_id, a.assignment_type, a.source_record_id,
                      case when a.assignment_type = 'lesson_plan_topic' then lower(btrim(a.topic)) else '' end
         order by
+            case when exists (select 1 from public.teacher_review_requests r where r.assignment_id = a.id and r.status = 'requested') then 0 else 1 end,
+            case when exists (select 1 from public.teacher_assignment_attempts attempt where attempt.assignment_id = a.id and attempt.status in ('in_progress','submitted')) then 0 else 1 end,
             case when a.status in ('graded','completed') then 0
                  when a.status in ('started','submitted') then 1 else 2 end,
             case when jsonb_typeof(a.content_snapshot) = 'object'
