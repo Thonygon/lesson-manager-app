@@ -971,6 +971,8 @@ def create_teacher_assignment(
         if not scope_rows:
             return False, "assignment_subject_required"
         scope = scope_rows[0]
+        source_text = str(source_record_id or "").strip()
+        numeric_source_id = int(source_text) if source_text.isdecimal() else None
         if source_record_id and _assignment_duplicate_count(
             link=link,
             assignment_type=assignment_type,
@@ -990,13 +992,13 @@ def create_teacher_assignment(
             "student_id": str(link.get("student_id") or "").strip(),
             "assignment_type": assignment_type,
             "source_type": source_type,
-            "source_record_id": source_record_id,
+            "source_record_id": numeric_source_id,
             "title": _clean_display_text(title),
             "subject_key": str(scope.get("subject_key") or subject_key or "").strip(),
             "subject_label": _clean_display_text(scope.get("subject_label") or subject_label_text or subject_label(subject_key)),
             "topic": _clean_display_text(topic),
             "teacher_note": _clean_text(teacher_note),
-            "content_snapshot": content_snapshot or {},
+            "content_snapshot": {**(content_snapshot or {}), **({"id": source_text} if source_text and numeric_source_id is None else {})},
             "learning_program_assignment_id": int(learning_program_assignment_id) if int(learning_program_assignment_id or 0) > 0 else None,
             "learning_program_topic_id": int(learning_program_topic_id) if int(learning_program_topic_id or 0) > 0 else None,
             "recommendation_bucket": _clean_text(recommendation_bucket),
@@ -1066,7 +1068,9 @@ def create_teacher_assignment(
             record_assignment_exposure_from_assignment_row(created_row)
         _clear_teacher_student_caches()
         return True, "assignment_created"
-    except Exception:
+    except Exception as exc:
+        if "23505" in str(exc):
+            return False, "assignment_duplicate_warning"
         return False, "assignment_create_failed"
 
 
@@ -2650,7 +2654,7 @@ def _assignment_duplicate_count(
         )
         source_text = str(source_record_id or "").strip()
         if source_text and source_text not in {"0", "None"}:
-            query = query.eq("source_record_id", source_record_id)
+            query = query.eq("source_record_id", int(source_text)) if source_text.isdecimal() else query.is_("source_record_id", "null").contains("content_snapshot", {"id": source_text})
         rows = _rows(query.execute())
     except Exception:
         return 0

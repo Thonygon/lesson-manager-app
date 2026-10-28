@@ -228,7 +228,7 @@ export async function getStudentAssignmentContent(assignmentId: string): Promise
 
 async function resolveStudentAssignmentContent(data: { assignment_type?: unknown; source_record_id?: unknown; content_snapshot?: unknown }, client: ReturnType<typeof requireSupabase>): Promise<Record<string, unknown>> {
   const snapshot = data.content_snapshot && typeof data.content_snapshot === 'object' ? { ...data.content_snapshot as Record<string, unknown> } : {};
-  const sourceId = String(data.source_record_id || '');
+  const sourceId = String(data.source_record_id || snapshot.id || '');
   if (!sourceId) return snapshot;
   const kind = String(data.assignment_type || '');
   const source = kind === 'worksheet' ? await client.from('worksheets').select('worksheet_json').eq('id', sourceId).maybeSingle()
