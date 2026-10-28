@@ -19,12 +19,12 @@ export function studentVideoAccess(
 
 let cachedStudentResources: { userId: string; expiresAt: number; promise: Promise<PublicResource[]> } | null = null;
 
-export async function getStudentPublicPracticeResources(): Promise<PublicResource[]> {
+export async function getStudentPublicPracticeResources(fresh = false): Promise<PublicResource[]> {
   const client = requireSupabase();
   const { data: auth, error: authError } = await client.auth.getUser();
   if (authError || !auth.user) throw authError ?? new Error('Your session has expired.');
   const uid = auth.user.id;
-  if (cachedStudentResources?.userId === uid && cachedStudentResources.expiresAt > Date.now()) return cachedStudentResources.promise;
+  if (!fresh && cachedStudentResources?.userId === uid && cachedStudentResources.expiresAt > Date.now()) return cachedStudentResources.promise;
   const request = loadStudentPublicPracticeResources(uid);
   cachedStudentResources = { userId: uid, expiresAt: Date.now() + 15000, promise: request };
   request.catch(() => { if (cachedStudentResources?.promise === request) cachedStudentResources = null; });
@@ -44,5 +44,5 @@ async function loadStudentPublicPracticeResources(uid: string): Promise<PublicRe
     (plans.data ?? []) as PlanRow[], subscription.data as SubscriptionRow | null,
     String(profile.data?.current_plan || 'free'),
   );
-  return getPublicResources(videosAllowed ? ['worksheet', 'exam', 'video'] : ['worksheet', 'exam'], 120);
+  return getPublicResources(videosAllowed ? ['worksheet', 'exam', 'video'] : ['worksheet', 'exam'], 300);
 }

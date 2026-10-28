@@ -77,18 +77,18 @@ export async function loadAppNotifications(userId: string, role: string): Promis
   if (role === 'teacher' || role === 'school_admin') {
     const [reviewResult, practiceResult] = await Promise.all([
       client.from('teacher_review_requests').select('id,student_id,assignment_id,status,requested_at').eq('teacher_id', userId).eq('status', 'requested').order('requested_at', { ascending: false }).limit(100),
-      client.from('learning_program_progress').select('id,updated_at,program_assignment:learning_program_assignments!inner(student_user_id,teacher_id)').eq('program_assignment.teacher_id', userId).eq('teacher_done', true).eq('student_done', true).order('updated_at', { ascending: false }).limit(100),
+      client.from('learning_program_progress').select('id,assignment_id,topic_id,updated_at,program_assignment:learning_program_assignments!inner(student_user_id,teacher_id)').eq('program_assignment.teacher_id', userId).eq('teacher_done', true).eq('student_done', true).order('updated_at', { ascending: false }).limit(100),
     ]);
     if (reviewResult.error || practiceResult.error) throw reviewResult.error ?? practiceResult.error;
     const reviews = ((reviewResult.data ?? []) as Row[]).map((row): AppNotification => ({
       key: `teacher:review:${value(row.id)}:${value(row.requested_at)}`,
       icon: '📋', titleKey: 'dashboard.reviewNotification', titleParams: { count: 1 },
-      href: { pathname: '/students', params: { section: 'progress', learningTab: 'reviews', student: value(row.student_id) } },
+      href: row.assignment_id ? { pathname: '/assignments', params: { assignment: value(row.assignment_id), review: value(row.id) } } : { pathname: '/students', params: { section: 'progress', learningTab: 'reviews', student: value(row.student_id) } },
     }));
     const practice = ((practiceResult.data ?? []) as Row[]).map((row): AppNotification => {
       const assignment = Array.isArray(row.program_assignment) ? row.program_assignment[0] : row.program_assignment;
       const studentId = value((assignment as Row | undefined)?.student_user_id);
-      return { key: `teacher:practice:${value(row.id)}:${value(row.updated_at)}`, icon: '🧩', titleKey: 'dashboard.practiceNotification', titleParams: { count: 1 }, href: { pathname: '/students', params: { section: 'progress', learningTab: 'programs', student: studentId } } };
+      return { key: `teacher:practice:${value(row.id)}:${value(row.updated_at)}`, icon: '🧩', titleKey: 'dashboard.practiceNotification', titleParams: { count: 1 }, href: { pathname: '/students', params: { section: 'progress', learningTab: 'programs', student: studentId, programAssignment: value(row.assignment_id), programTopic: value(row.topic_id) } } };
     });
     return [...reviews, ...practice];
   }

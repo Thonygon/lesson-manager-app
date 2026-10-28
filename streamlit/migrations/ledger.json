@@ -98,6 +98,8 @@
     {"name": "ai_supervision_incidents.sql", "sha256": "a24da5c5a59242dafc9da1d04feaf0ce3b72fec2fd9645b76231d485f882f4b9"},
     {"name": "ai_runtime_approval_check.sql", "sha256": "67ef0a3ef66e3ebc91b0c04b75fca614b6fc0b722ac5531b26fe0ea0a3ae0fbb"},
     {"name": "ai_model_card_reviews.sql", "sha256": "80f0d84f37f918fefbfc1d15e34c4ee3f8baff624e4ca42ee3af39d2c3574f8d"},
-    {"name": "privacy_retention_control.sql", "sha256": "c09bfe79adf34600b2e287e3df8af85f7a0e7e6fcd8a2269885e698b05ebcc67"}
+    {"name": "privacy_retention_control.sql", "sha256": "c09bfe79adf34600b2e287e3df8af85f7a0e7e6fcd8a2269885e698b05ebcc67"},
+    {"name": "deduplicate_teacher_resource_assignments.sql", "sha256": "e499c6a52bdbef2e5edde3dd0962008b2ad26dc08766827384acb4e68fa04d5d"},
+    {"name": "deduplicate_uuid_resource_assignments.sql", "sha256": "98f4caaed5ec071a671517f9d0697aa1aa1ba8a0477c826f5e243b733d1de836"}
   ]
 }

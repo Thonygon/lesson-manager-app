@@ -1,5 +1,7 @@
 import { hasCustomBranding } from '@/services/branding';
 import { requireSupabase } from '@/lib/supabase';
+import { materialFromAssignment } from '@/services/student-practice';
+import { buildAssignmentSnapshot } from '@/services/assignment-snapshot';
 import { programReady } from '@/shared/program-completion';
 import { worksheetHasSource, worksheetReferencesSource } from '@/lib/worksheet-source';
 import { canonicalSubjectKey, canonicalSubjectLabel } from '@/lib/subjects';
@@ -419,15 +421,38 @@ export async function updateVideoResource(id: string, input: { youtubeUrl: strin
   const saved = await client.from('videos').update(payload).eq('id', id).eq('user_id', userData.user.id).select('id').maybeSingle(); if (saved.error || !saved.data) throw saved.error ?? new Error('resources.videoSaveFailed');
 }
 
-function snapshotValue(value: unknown, depth = 0): unknown {
-  if (depth > 5) return undefined; if (typeof value === 'string') return value.startsWith('data:') || value.length > 20000 ? undefined : value; if (Array.isArray(value)) return value.slice(0, 200).map((item) => snapshotValue(item, depth + 1)).filter((item) => item !== undefined); if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value as Record<string, unknown>).flatMap(([key, child]) => { const normalized = key.toLowerCase(); if (normalized.includes('base64') || normalized.includes('image_data') || normalized.includes('thumbnail')) return []; const safe = snapshotValue(child, depth + 1); return safe === undefined ? [] : [[key, safe]]; })); return value;
-}
-
 export async function assignResource(input: { resource: PublicResource; detail: Record<string, unknown>; connection: TeacherConnection; dueDate?: string; teacherNote?: string }) {
   const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser(); if (userError || !userData.user) throw userError ?? new Error('Your session has expired.'); const uid = userData.user.id;
   if (String(input.connection.status) !== 'active' || String(input.connection.teacher_id) !== uid) throw new Error('Choose an active student connection.');
-  if (input.resource.kind === 'program') { if (!programReady(input.detail.program_data as Record<string, unknown>)) throw new Error('Complete every program unit before assigning it.'); const rosterId = Number(input.connection.roster_student_id || 0); if (rosterId) { const roster = await client.from('students').select('id,student,linked_student_user_id').eq('id', rosterId).eq('user_id', uid).maybeSingle(); if (roster.error || !roster.data) throw roster.error ?? new Error('This student is unavailable.'); const { error } = await client.from('learning_program_assignments').insert({ program_id: Number(input.resource.id), teacher_id: uid, roster_student_id: rosterId, student_user_id: roster.data.linked_student_user_id || null, student_name: roster.data.student, assigned_by_user_id: uid, status: 'assigned', start_on: new Date().toISOString().slice(0, 10), target_completion_on: input.dueDate || null, teacher_note: input.teacherNote?.trim() || '' }); if (error) throw error; return; } const { error } = await client.from('learning_program_assignments').insert({ program_id: Number(input.resource.id), teacher_id: uid, student_user_id: String(input.connection.student_id), student_name: input.connection.student_name, assigned_by_user_id: uid, status: 'assigned', start_on: new Date().toISOString().slice(0, 10), target_completion_on: input.dueDate || null, teacher_note: input.teacherNote?.trim() || '' }); if (error) throw error; return; }
+  if (input.resource.kind === 'program') {
+    if (!programReady(input.detail.program_data as Record<string, unknown>)) throw new Error('Complete every program unit before assigning it.');
+    const rosterId = Number(input.connection.roster_student_id || 0);
+    const studentId = String(input.connection.student_id || '');
+    const existing = client.from('learning_program_assignments').select('id').eq('program_id', Number(input.resource.id)).eq('teacher_id', uid).neq('status', 'archived').limit(1);
+    const duplicate = await (rosterId ? existing.eq('roster_student_id', rosterId) : existing.eq('student_user_id', studentId));
+    if (duplicate.error) throw duplicate.error;
+    if (duplicate.data?.length) throw new Error('resources.alreadyAssigned');
+    if (rosterId) {
+      const roster = await client.from('students').select('id,student,linked_student_user_id').eq('id', rosterId).eq('user_id', uid).maybeSingle();
+      if (roster.error || !roster.data) throw roster.error ?? new Error('This student is unavailable.');
+      const { error } = await client.from('learning_program_assignments').insert({ program_id: Number(input.resource.id), teacher_id: uid, roster_student_id: rosterId, student_user_id: roster.data.linked_student_user_id || null, student_name: roster.data.student, assigned_by_user_id: uid, status: 'assigned', start_on: new Date().toISOString().slice(0, 10), target_completion_on: input.dueDate || null, teacher_note: input.teacherNote?.trim() || '' });
+      if (error) throw error;
+      return;
+    }
+    const { error } = await client.from('learning_program_assignments').insert({ program_id: Number(input.resource.id), teacher_id: uid, student_user_id: studentId, student_name: input.connection.student_name, assigned_by_user_id: uid, status: 'assigned', start_on: new Date().toISOString().slice(0, 10), target_completion_on: input.dueDate || null, teacher_note: input.teacherNote?.trim() || '' });
+    if (error) throw error;
+    return;
+  }
   const normalizedSubject = canonicalSubjectKey(input.resource.subject); const activeScopes = input.connection.subjects.filter((row) => String(row.status) === 'active'); const scope = activeScopes.find((row) => canonicalSubjectKey(row.subject_key || row.subject_label) === normalizedSubject); if (!scope) throw new Error(`This student is not connected for ${input.resource.subject || 'this subject'}.`);
   const typeMap = { plan: 'lesson_plan_topic', worksheet: 'worksheet', exam: 'exam', video: 'video' } as const; const sourceMap = { plan: 'lesson_plan_builder', worksheet: 'worksheet_builder', exam: 'exam_builder', video: 'video_library' } as const; const kind = input.resource.kind as keyof typeof typeMap; const now = new Date().toISOString();
-  const { error } = await client.from('teacher_assignments').insert({ link_id: input.connection.id, subject_scope_id: scope.id, teacher_id: uid, student_id: input.connection.student_id, assignment_type: typeMap[kind], source_type: sourceMap[kind], source_record_id: Number(input.resource.id), title: input.resource.title, subject_key: canonicalSubjectKey(scope.subject_key || normalizedSubject), subject_label: canonicalSubjectLabel(scope.subject_label || input.resource.subject), topic: input.resource.topic || '', teacher_note: input.teacherNote?.trim() || '', content_snapshot: snapshotValue(input.detail) || {}, status: 'assigned', due_at: input.dueDate ? new Date(`${input.dueDate}T00:00:00Z`).toISOString() : null, assigned_at: now, created_at: now, updated_at: now }); if (error) throw error;
+  const parsedSourceId = Number(input.resource.id);
+  const numericSourceId = Number.isSafeInteger(parsedSourceId) && parsedSourceId > 0 ? parsedSourceId : null;
+  const existing = client.from('teacher_assignments').select('id').eq('teacher_id', uid).eq('student_id', input.connection.student_id).eq('assignment_type', typeMap[kind]).neq('status', 'archived').limit(1);
+  const duplicate = await (numericSourceId ? existing.eq('source_record_id', numericSourceId) : existing.is('source_record_id', null).contains('content_snapshot', { id: input.resource.id }));
+  if (duplicate.error) throw duplicate.error;
+  if (duplicate.data?.length) throw new Error('resources.alreadyAssigned');
+  const snapshot = buildAssignmentSnapshot(input.detail) as Record<string, unknown> || {};
+  if (!numericSourceId) snapshot.id = input.resource.id;
+  if ((kind === 'worksheet' || kind === 'exam') && !materialFromAssignment({ assignment_type: typeMap[kind], content_snapshot: snapshot })?.questions.length) throw new Error('resources.assignmentContentUnavailable');
+  const { error } = await client.from('teacher_assignments').insert({ link_id: input.connection.id, subject_scope_id: scope.id, teacher_id: uid, student_id: input.connection.student_id, assignment_type: typeMap[kind], source_type: sourceMap[kind], source_record_id: numericSourceId, title: input.resource.title, subject_key: canonicalSubjectKey(scope.subject_key || normalizedSubject), subject_label: canonicalSubjectLabel(scope.subject_label || input.resource.subject), topic: input.resource.topic || '', teacher_note: input.teacherNote?.trim() || '', content_snapshot: snapshot, status: 'assigned', due_at: input.dueDate ? new Date(`${input.dueDate}T00:00:00Z`).toISOString() : null, assigned_at: now, created_at: now, updated_at: now }); if (error) throw error;
 }

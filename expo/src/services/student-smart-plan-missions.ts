@@ -1,6 +1,6 @@
 import type { PublicResource } from '@/services/public-data';
 import type { StudentWorkspace } from '@/services/student-data';
-import { selectSmartPlanResources } from '@/services/student-smart-plan-recommendations';
+import { canonicalSubjectKey } from '@/lib/subjects';
 import { scoreStudentRecommendationCandidates } from '@/services/student-recommendation-ranking';
 import { buildStudentRecommendationEligibility } from '@/services/student-recommendation-safety';
 import { semanticTextAffinity } from '@/services/student-recommendation-semantic';
@@ -25,7 +25,8 @@ export function smartPlanMissionResources(resources: PublicResource[], subject: 
   const rank = (kind: 'worksheet' | 'exam') => {
     // A mission must match its own topic. The general learner ranker only
     // orders candidates after this gate; it cannot introduce a different topic.
-    const candidates = selectSmartPlanResources(resources.filter((item) => item.kind === kind && eligible(item) && missionTopicFit(task, item) >= 0.6), subject, [task], 8, goal);
+    const candidates = resources.filter((item) => item.kind === kind && canonicalSubjectKey(item.subject) === canonicalSubjectKey(subject) && eligible(item) && missionTopicFit(task, item) >= 0.55)
+      .sort((left, right) => missionTopicFit(task, right) - missionTopicFit(task, left)).slice(0, 8);
     if (!workspace || !candidates.length) return candidates.slice(0, 3);
     const scored = scoreStudentRecommendationCandidates(candidates, workspace);
     return (scored.length ? scored.map((row) => row.resource) : candidates).slice(0, 3);

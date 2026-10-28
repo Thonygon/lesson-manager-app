@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
   editIconButton: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   editIconButtonActive: { opacity: 0.65 },
   editIconGlyph: { color: colors.primary, fontSize: 16, fontWeight: '700' },
-  helpIcon: { width: 17, height: 17, borderRadius: 3, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
+  helpIcon: { width: 17, height: 17, borderRadius: 3, backgroundColor: colors.navDark, alignItems: 'center', justifyContent: 'center' },
   helpIconGlyph: { color: colors.inverse, fontSize: 12, lineHeight: 16, fontWeight: '800' },
   helpOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.48)', alignItems: 'center', justifyContent: 'center', padding: 20 },
   helpDialog: { width: '100%', maxWidth: 520, maxHeight: '80%', borderRadius: 20, backgroundColor: colors.surface, padding: 22 },

@@ -15,6 +15,7 @@ const subjects = load('src/lib/subjects.ts');
 const recommendations = load('src/services/student-smart-plan-recommendations.ts', { '@/lib/subjects': subjects });
 const semantic = load('src/services/student-recommendation-semantic.ts');
 const missions = load('src/services/student-smart-plan-missions.ts', {
+  '@/lib/subjects': subjects,
   '@/services/student-smart-plan-recommendations': recommendations,
   '@/services/student-recommendation-ranking': { scoreStudentRecommendationCandidates: (rows) => rows.map((resource) => ({ resource })) },
   '@/services/student-recommendation-safety': { buildStudentRecommendationEligibility: () => () => true },
@@ -28,6 +29,9 @@ const resources = [
 ];
 const selected = missions.smartPlanMissionResources(resources, 'spanish', { title: 'Ordering at a Restaurant' }, 'general_practice');
 assert.deepEqual(selected.map((row) => row.id), ['11', '12']);
+assert.deepEqual(missions.smartPlanMissionResources([
+  { id: '21', kind: 'worksheet', subject: 'English', title: 'Shopping for Food', topic: 'Shopping for Food', description: '' },
+], 'english', { title: 'Topic 4: Shopping for Food', detail: 'Learn to ask for food items when you go shopping.' }, 'general_practice').map((row) => row.id), ['21']);
 assert.ok(missions.missionTopicFit({ title: 'Tema 1: Ordering at a Restaurant' }, resources[0]) >= 0.6);
 assert.ok(missions.missionTopicFit({ title: 'Tema 1: Ordering at a Restaurant' }, resources[2]) < 0.6);
 const workspace = {

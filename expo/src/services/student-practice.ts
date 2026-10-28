@@ -124,7 +124,7 @@ export function materialFromAssignment(row: ClassioRecord): PracticeMaterial | n
   const kind = text(row.assignment_type); if (kind !== 'worksheet' && kind !== 'exam') return null;
   const snapshot = record(row.content_snapshot); const payload = kind === 'worksheet' ? record(snapshot.worksheet || snapshot.worksheet_json) : record(snapshot.exam_data || snapshot.exam_json); const key = record(snapshot.answer_key);
   const questions = kind === 'worksheet' ? worksheetQuestions(payload) : examQuestions(payload, key);
-  return { title: text(row.title || payload.title), sourceType: kind, sourceId: text(row.source_record_id || row.id), assignmentId: text(row.id), teacherId: text(row.teacher_id), learningProgramAssignmentId: Number(row.learning_program_assignment_id) || undefined, subject: text(row.subject_key || row.subject_label), topic: text(row.topic), stage: text(record(snapshot.meta).learner_stage), level: text(record(snapshot.meta).level_or_band), raw: payload, questions };
+  return { title: text(row.title || payload.title), sourceType: kind, sourceId: text(row.source_record_id || snapshot.id || row.id), assignmentId: text(row.id), teacherId: text(row.teacher_id), learningProgramAssignmentId: Number(row.learning_program_assignment_id) || undefined, subject: text(row.subject_key || row.subject_label), topic: text(row.topic), stage: text(record(snapshot.meta).learner_stage), level: text(record(snapshot.meta).level_or_band), raw: payload, questions };
 }
 export function materialFromPublic(resource: PublicResource): PracticeMaterial | null {
   if (resource.kind !== 'worksheet' && resource.kind !== 'exam') return null; const raw = resource.raw;
