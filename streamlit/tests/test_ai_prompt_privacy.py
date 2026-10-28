@@ -18,6 +18,14 @@ class AiPromptPrivacyTests(unittest.TestCase):
             self.assertNotIn(private, safe)
         self.assertIn('[identity number removed]', redact_direct_identifiers('10000000146'))
         self.assertEqual(redact_direct_identifiers('Exercise: 12345678901 + 2'), 'Exercise: 12345678901 + 2')
+        self.assertEqual(
+            redact_direct_identifiers('Lesson topic: passport vocabulary and travel'),
+            'Lesson topic: passport vocabulary and travel',
+        )
+        self.assertEqual(
+            redact_direct_identifiers('Explain DNI vocabulary in Spanish'),
+            'Explain DNI vocabulary in Spanish',
+        )
 
     def test_student_identity_and_free_text_are_removed(self):
         profile = {
