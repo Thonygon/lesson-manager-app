@@ -40,7 +40,7 @@ export function HelpIcon({ title, children }: PropsWithChildren<{ title: string 
   const { t } = useAppPreferences();
   const [open, setOpen] = useState(false);
   return <>
-    <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityHint={t('transparency.openExplanation')} onPress={(event) => { event.stopPropagation(); setOpen(true); }} hitSlop={8} style={styles.helpIcon}><Text style={styles.helpIconGlyph}>?</Text></Pressable>
+    <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityHint={t('transparency.openExplanation')} onPress={(event) => { event.stopPropagation(); setOpen(true); }} hitSlop={14} style={styles.helpIcon}><Text style={styles.helpIconGlyph}>?</Text></Pressable>
     <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
       <View style={styles.helpOverlay}><Pressable style={StyleSheet.absoluteFill} accessibilityLabel={t('common.close')} onPress={() => setOpen(false)} />
         <View accessibilityViewIsModal accessibilityLabel={title} style={styles.helpDialog}>
@@ -148,8 +148,8 @@ const styles = StyleSheet.create({
   editIconButton: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   editIconButtonActive: { opacity: 0.65 },
   editIconGlyph: { color: colors.primary, fontSize: 16, fontWeight: '700' },
-  helpIcon: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
-  helpIconGlyph: { color: colors.primary, fontSize: 18, fontWeight: '800' },
+  helpIcon: { width: 17, height: 17, borderRadius: 3, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
+  helpIconGlyph: { color: colors.inverse, fontSize: 12, lineHeight: 16, fontWeight: '800' },
   helpOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.48)', alignItems: 'center', justifyContent: 'center', padding: 20 },
   helpDialog: { width: '100%', maxWidth: 520, maxHeight: '80%', borderRadius: 20, backgroundColor: colors.surface, padding: 22 },
   helpHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 12 },

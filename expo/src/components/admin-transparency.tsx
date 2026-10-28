@@ -79,7 +79,7 @@ export function AdminDecisionTrail({ snapshot }: { snapshot: AdminAiSnapshot | n
   const recommendations = (snapshot?.recommendationDecisions || []).slice(0, 20);
   const generations = (snapshot?.generationDecisions || []).slice(0, 10);
   const format = (item: unknown) => value(item) || t('transparency.notRecorded');
-  return <Disclosure title={t('transparency.decisionTrail')} summary={t('transparency.decisionTrailHelp')}><View style={styles.heading}><Text style={styles.title}>{t('transparency.decisionTrail')}</Text><HelpIcon title={t('transparency.decisionTrail')}>{t('transparency.decisionTrailHelp')}</HelpIcon></View>
+  return <Disclosure title={t('transparency.decisionTrail')} summary={t('transparency.decisionTrailHelp')}>
     <View style={styles.list}>{recommendations.map((row) => <Disclosure key={value(row.id)} title={`${format(row.resource)} · ${format(row.surface)}`} summary={`${format(row.model_component_id)} · ${format(row.shown_at)}`}>
       <Text style={styles.body}>{`${t('transparency.version')}: ${format(row.model_version)} · ${t('transparency.position')}: ${format(row.position)} · ${t('transparency.score')}: ${format(row.final_score)}`}</Text>
       <Text style={styles.body}>{`${t('transparency.candidates')}: ${Array.isArray(row.displayed_candidates) && row.displayed_candidates.length ? row.displayed_candidates.join(', ') : format(null)}`}</Text>
@@ -97,4 +97,4 @@ export function AdminDecisionTrail({ snapshot }: { snapshot: AdminAiSnapshot | n
   </Disclosure>;
 }
 
-const styles = StyleSheet.create({ title: { color: colors.ink, fontSize: 17, fontWeight: '900' }, subtitle: { color: colors.ink, fontSize: 13, fontWeight: '800' }, heading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, body: { color: colors.muted, fontSize: 12, lineHeight: 19, marginTop: 7 }, list: { gap: 8, marginTop: 13 }, reviewForm: { gap: 10 }, row: { flexDirection: 'row', alignItems: 'center', gap: 12, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 9 }, copy: { flex: 1 }, rowTitle: { color: colors.ink, fontSize: 12, fontWeight: '800' }, meta: { color: colors.muted, fontSize: 10, marginTop: 4 } });
+const styles = StyleSheet.create({ subtitle: { color: colors.ink, fontSize: 13, fontWeight: '800' }, body: { color: colors.muted, fontSize: 12, lineHeight: 19, marginTop: 7 }, list: { gap: 8, marginTop: 13 }, reviewForm: { gap: 10 }, row: { flexDirection: 'row', alignItems: 'center', gap: 12, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 9 }, copy: { flex: 1 }, rowTitle: { color: colors.ink, fontSize: 12, fontWeight: '800' }, meta: { color: colors.muted, fontSize: 10, marginTop: 4 } });
