@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import re
+from urllib.parse import urlsplit
 from typing import Annotated, Literal
 
 import httpx
@@ -27,10 +28,21 @@ from helpers.student_recommendation_ml import _base_student_weights, summarize_s
 from helpers.program_resource_context import build_program_topic_generation_context, get_program_topic_recommendation_profile
 
 
+def classio_allowed_origins(configured: str | None = None) -> list[str]:
+    """Keep both public app origins even when Render adds preview origins."""
+    origins = {"https://classio.expo.app", "https://app.masterclassio.com"}
+    for value in (configured if configured is not None else os.getenv("CLASSIO_EXPO_ORIGINS", "")).split(","):
+        origin = value.strip().rstrip("/")
+        parts = urlsplit(origin)
+        if parts.scheme == "https" and parts.netloc and not parts.path and not parts.query and not parts.fragment and "*" not in origin:
+            origins.add(origin)
+    return sorted(origins)
+
+
 app = FastAPI(title="Classio Python Models", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in os.getenv("CLASSIO_EXPO_ORIGINS", "https://classio.expo.app,https://app.masterclassio.com").split(",") if origin.strip()],
+    allow_origins=classio_allowed_origins(),
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type"],
 )
