@@ -16,6 +16,9 @@ jobs:
       - name: Reject tracked private credentials
         run: python3 scripts/check_repository_secrets.py
 
+      - name: Verify AI data-flow inventory
+        run: python3 scripts/check_ai_data_flow_inventory.py
+
   streamlit:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -48,6 +51,9 @@ jobs:
         env:
           PYTHONWARNINGS: default
         run: python -m unittest discover -s tests
+
+      - name: Benchmark synthetic PII redaction
+        run: python scripts/benchmark_pii_redaction.py
 
       - name: Install Python API dependencies
         run: python -m pip install --requirement ../python_api/requirements.txt
@@ -86,6 +92,9 @@ jobs:
 
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Reject new high or critical production advisories
+        run: node scripts/check-production-advisories.cjs
 
       - name: Type-check Expo application
         run: pnpm run typecheck

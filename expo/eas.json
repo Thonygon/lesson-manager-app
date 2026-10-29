@@ -5,10 +5,10 @@
   "build": {
     "preview": {
       "distribution": "internal",
-      "env": { "EXPO_PUBLIC_HOSTING_URL": "https://app.masterclassio.com" }
+      "env": { "EXPO_PUBLIC_HOSTING_URL": "https://classio.expo.app" }
     },
     "production": {
-      "env": { "EXPO_PUBLIC_HOSTING_URL": "https://app.masterclassio.com" }
+      "env": { "EXPO_PUBLIC_HOSTING_URL": "https://classio.expo.app" }
     }
   }
 }
