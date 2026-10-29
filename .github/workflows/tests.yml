@@ -24,6 +24,9 @@ jobs:
       - name: Verify public domain probe logic
         run: python3 -m unittest discover -s scripts -p 'test_public_domains.py'
 
+      - name: Verify Expo web security headers
+        run: python3 scripts/check_expo_security_headers.py
+
   streamlit:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -103,6 +106,9 @@ jobs:
 
       - name: Type-check Expo application
         run: pnpm run typecheck
+
+      - name: Verify Admin workspace role matrix
+        run: node scripts/check-admin-workspace-roles.cjs
 
       - name: Lint Expo application
         run: pnpm run lint

@@ -3768,11 +3768,26 @@ def load_learning_program(program_id: int) -> dict:
 register_cache(load_learning_program, "learning_programs", "resources")
 
 
+def load_learning_program_assignment_targets() -> list[dict]:
+    teacher_id = get_current_user_id()
+    if not teacher_id:
+        return []
+    linked_students = _tsi().load_active_linked_students_for_teacher()
+    roster_rows = _rows(get_sb().table("students").select("id,student,linked_student_user_id").eq("user_id", teacher_id).order("student").limit(1000).execute())
+    local_students = [
+        {"student_name": _clean_text(row.get("student")), "student_id": "", "roster_student_id": int(row["id"]), "student_email": t("learning_program_local_student")}
+        for row in roster_rows if row.get("id") and _clean_text(row.get("student"))
+        and not row.get("linked_student_user_id")
+    ]
+    return [row for row in [*linked_students, *local_students] if _clean_text(row.get("student_name"))]
+
+
 def assign_learning_program(
     *,
     program_id: int,
     student_name: str,
     student_user_id: str = "",
+    roster_student_id: int = 0,
     assigned_by_user_id: str = "",
     start_on: str = "",
     target_completion_on: str = "",
@@ -3785,20 +3800,26 @@ def assign_learning_program(
     if not student_name:
         return False, None, "missing_student_name"
     student_user_id = _clean_text(student_user_id)
-    if not student_user_id:
-        return False, None, "assignment_link_required"
-
-    linked_students = _tsi().load_active_linked_students_for_teacher()
-    linked_student_ids = {str(row.get("student_id") or "").strip() for row in linked_students}
-    if student_user_id not in linked_student_ids:
-        return False, None, "assignment_link_required"
-    if learning_program_assignment_duplicate_count(program_id, student_user_id):
+    roster_student_id = int(roster_student_id or 0)
+    if roster_student_id:
+        roster_rows = _rows(get_sb().table("students").select("id,student,linked_student_user_id").eq("id", roster_student_id).eq("user_id", teacher_id).limit(1).execute())
+        if not roster_rows:
+            return False, None, "missing_student_name"
+        student_name = _clean_display_text(roster_rows[0].get("student"))
+        student_user_id = _clean_text(roster_rows[0].get("linked_student_user_id"))
+    else:
+        linked_students = _tsi().load_active_linked_students_for_teacher()
+        linked_student_ids = {str(row.get("student_id") or "").strip() for row in linked_students}
+        if not student_user_id or student_user_id not in linked_student_ids:
+            return False, None, "assignment_link_required"
+    if learning_program_assignment_duplicate_count(program_id, student_user_id, roster_student_id):
         return False, None, "assignment_duplicate_warning"
 
     payload = {
         "program_id": int(program_id),
         "teacher_id": teacher_id,
         "student_user_id": student_user_id or None,
+        "roster_student_id": roster_student_id or None,
         "student_name": student_name,
         "assigned_by_user_id": _clean_text(assigned_by_user_id) or teacher_id,
         "status": "assigned",
@@ -3821,21 +3842,20 @@ def assign_learning_program(
         return False, None, str(e)
 
 
-def learning_program_assignment_duplicate_count(program_id: int, student_user_id: str) -> int:
+def learning_program_assignment_duplicate_count(program_id: int, student_user_id: str, roster_student_id: int = 0) -> int:
     teacher_id = get_current_user_id()
     student_user_id = _clean_text(student_user_id)
-    if not teacher_id or int(program_id or 0) <= 0 or not student_user_id:
+    if not teacher_id or int(program_id or 0) <= 0 or (not student_user_id and not roster_student_id):
         return 0
     try:
-        rows = _rows(
+        query = (
             get_sb()
             .table("learning_program_assignments")
             .select("id,status")
             .eq("teacher_id", teacher_id)
             .eq("program_id", int(program_id))
-            .eq("student_user_id", student_user_id)
-            .execute()
         )
+        rows = _rows((query.eq("roster_student_id", int(roster_student_id)) if roster_student_id else query.eq("student_user_id", student_user_id)).execute())
         return len(rows)
     except Exception:
         return 0
@@ -4771,18 +4791,13 @@ def render_learning_program_assignment_panel(program: dict, prefix: str = "learn
 
     st.markdown(f"### {t('assign_learning_program_title')}")
 
-    linked_students = _tsi().load_active_linked_students_for_teacher()
-    if not linked_students:
-        st.info(t("assignment_requires_relationship_message"))
-        return False
-
-    student_options = [row for row in linked_students if _clean_text(row.get("student_name"))]
+    student_options = load_learning_program_assignment_targets()
     if not student_options:
-        st.info(t("assignment_requires_relationship_message"))
+        st.info(t("no_students_available_for_assignment"))
         return False
 
     option_lookup = {
-        f"{_clean_text(row.get('student_name'))} | {_clean_text(row.get('student_email') or row.get('email') or row.get('student_id'))}": row
+        f"{_clean_text(row.get('student_name'))} | {_clean_text(row.get('student_email') or row.get('email') or row.get('student_id'))} | {row.get('roster_student_id') or row.get('student_id')}": row
         for row in student_options
     }
     selected_labels = st.multiselect(
@@ -4801,7 +4816,7 @@ def render_learning_program_assignment_panel(program: dict, prefix: str = "learn
     duplicate_names = [
         _clean_text(row.get("student_name"))
         for row in selected_rows
-        if learning_program_assignment_duplicate_count(program_id, _clean_text(row.get("student_id"))) > 0
+        if learning_program_assignment_duplicate_count(program_id, _clean_text(row.get("student_id")), int(row.get("roster_student_id") or 0)) > 0
     ]
     if duplicate_names:
         st.warning(t("assignment_duplicate_warning_students", students=", ".join(sorted(set(name for name in duplicate_names if name)))))
@@ -4818,13 +4833,15 @@ def render_learning_program_assignment_panel(program: dict, prefix: str = "learn
         for selected_row in selected_rows:
             student_name = _clean_text(selected_row.get("student_name"))
             student_user_id = _clean_text(selected_row.get("student_id"))
-            if learning_program_assignment_duplicate_count(program_id, student_user_id):
+            roster_student_id = int(selected_row.get("roster_student_id") or 0)
+            if learning_program_assignment_duplicate_count(program_id, student_user_id, roster_student_id):
                 skipped_names.append(student_name or student_user_id)
                 continue
             ok, assignment_id, msg = assign_learning_program(
                 program_id=program_id,
                 student_name=student_name,
                 student_user_id=student_user_id,
+                roster_student_id=roster_student_id,
                 note=note,
             )
             if ok:
@@ -6149,13 +6166,12 @@ def render_quick_learning_program_builder_expander(*, embedded: bool = False) ->
 
             if _program_is_complete(result):
                 st.markdown(f"### {t('assign_to_student')}")
-                linked_students = _tsi().load_active_linked_students_for_teacher()
-                assignable_students = [row for row in linked_students if _clean_text(row.get("student_name"))]
+                assignable_students = load_learning_program_assignment_targets()
                 if not assignable_students:
-                    st.info(t("assignment_requires_relationship_message"))
+                    st.info(t("no_students_available_for_assignment"))
                 else:
                     option_lookup = {
-                        f"{_clean_text(row.get('student_name'))} | {_clean_text(row.get('student_email') or row.get('email') or row.get('student_id'))}": row
+                        f"{_clean_text(row.get('student_name'))} | {_clean_text(row.get('student_email') or row.get('email') or row.get('student_id'))} | {row.get('roster_student_id') or row.get('student_id')}": row
                         for row in assignable_students
                     }
                     assign_col1, assign_col2 = st.columns([1.4, 1.0])
@@ -6176,7 +6192,7 @@ def render_quick_learning_program_builder_expander(*, embedded: bool = False) ->
                     duplicate_names = [
                         _clean_text(row.get("student_name"))
                         for row in selected_rows
-                        if learning_program_assignment_duplicate_count(int(st.session_state.get(f"{ns}_saved_program_id") or 0), _clean_text(row.get("student_id"))) > 0
+                        if learning_program_assignment_duplicate_count(int(st.session_state.get(f"{ns}_saved_program_id") or 0), _clean_text(row.get("student_id")), int(row.get("roster_student_id") or 0)) > 0
                     ]
                     duplicate_confirmed = True
                     if duplicate_names:
@@ -6224,6 +6240,7 @@ def render_quick_learning_program_builder_expander(*, embedded: bool = False) ->
                                 program_id=int(program_id),
                                 student_name=student_name,
                                 student_user_id=student_user_id,
+                                roster_student_id=int(selected_row.get("roster_student_id") or 0),
                                 note=assign_note,
                             )
                             if ok:
