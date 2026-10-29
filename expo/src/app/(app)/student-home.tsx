@@ -81,7 +81,7 @@ export default function StudentHomeScreen() {
     const assignmentId = String(row.assignment_id || '');
     // The saved snapshot identifies assigned work. Public resource IDs can also be numeric.
     // Preserve orphaned drafts in the database without presenting them as active assignments.
-    return !assignmentId || activeAssignmentIds.has(assignmentId);
+    return !assignmentId || assignmentId === '0' || activeAssignmentIds.has(assignmentId);
   }).slice(0, 3);
   const firstName = String(profile?.display_name || profile?.username || t('student.learner')).split(' ')[0];
   const openRecommendation = (item: PublicResource) => {
