@@ -105,7 +105,7 @@ const entries: Record<string, [string, string, string]> = {
   'analyticsPage.strategyCalm': ['No urgent action is indicated by the available records.', 'Los registros disponibles no indican ninguna acción urgente.', 'Mevcut kayıtlara göre acil bir eylem gerekmiyor.'],
   'analyticsPage.optimizer.current': ['Current year-end projection', 'Previsión actual al cierre del año', 'Mevcut yıl sonu tahmini'],
   'analyticsPage.optimizer.suggested': ['Projection with suggested actions', 'Previsión con acciones sugeridas', 'Önerilen eylemlerle tahmin'],
-  'analyticsPage.optimizer.remaining': ['Remaining gap to goal', 'Distancia restante a la meta', 'Hedefe kalan fark'],
+  'analyticsPage.optimizer.remaining': ['Projected gap after actions', 'Brecha prevista tras las acciones', 'Eylemler sonrası öngörülen hedef farkı'],
   'analyticsPage.optimizer.likelihood': ['Estimated goal likelihood', 'Probabilidad estimada de alcanzar la meta', 'Hedefe ulaşma olasılığı'],
   'analyticsPage.optimizer.impact': ['Potential impact by action', 'Impacto potencial por acción', 'Eyleme göre olası etki'],
   'analyticsPage.optimizer.actions': ['Recommended actions', 'Acciones recomendadas', 'Önerilen eylemler'],

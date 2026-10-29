@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "scope": "AI provider boundary; operational Supabase and Render traffic require separate legal inventory",
+  "approved_hosts": ["api.openai.com", "generativelanguage.googleapis.com", "openrouter.ai"],
+  "flows": [
+    {"id": "expo_text_generation", "source": "expo/src/app/api/generate+api.ts", "boundary": "expo/src/server/ai-provider-chain.ts", "purpose": "create pedagogical resource", "data_categories": ["teacher teaching brief", "selected learner pedagogical signals", "optional free-text notes"], "personal_fields_excluded": ["learner name", "phone", "address"], "destinations": ["api.openai.com", "generativelanguage.googleapis.com", "openrouter.ai"], "live_check": "pending"},
+    {"id": "expo_resource_refinement", "source": "expo/src/app/api/resource-refine+api.ts", "boundary": "expo/src/server/ai-provider-chain.ts", "purpose": "revise existing resource", "data_categories": ["resource content", "teacher instruction"], "personal_fields_excluded": [], "destinations": ["api.openai.com", "generativelanguage.googleapis.com", "openrouter.ai"], "live_check": "pending"},
+    {"id": "expo_cover", "source": "expo/src/app/api/lesson-plan-cover+api.ts", "boundary": "expo/src/app/api/lesson-plan-cover+api.ts", "purpose": "generate lesson illustration", "data_categories": ["resource title", "subject", "topic", "stage", "level"], "personal_fields_excluded": ["learner name", "phone", "address"], "destinations": ["generativelanguage.googleapis.com", "openrouter.ai"], "live_check": "pending"},
+    {"id": "streamlit_text_generation", "source": "streamlit/helpers/lesson_planner.py", "boundary": "streamlit/helpers/lesson_planner.py", "purpose": "create pedagogical resource", "data_categories": ["teacher teaching brief", "selected learner pedagogical signals", "optional free-text notes"], "personal_fields_excluded": ["learner name", "phone", "address"], "destinations": ["api.openai.com", "generativelanguage.googleapis.com", "openrouter.ai"], "live_check": "pending"},
+    {"id": "streamlit_visual_support", "source": "streamlit/helpers/visual_support.py", "boundary": "streamlit/helpers/visual_support.py", "purpose": "visual resource generation", "data_categories": ["resource topic", "visual instruction"], "personal_fields_excluded": ["learner name", "phone", "address"], "destinations": ["api.openai.com", "generativelanguage.googleapis.com", "openrouter.ai"], "live_check": "pending"}
+  ]
+}
