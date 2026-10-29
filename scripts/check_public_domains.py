@@ -7,7 +7,7 @@ import sys
 import time
 from urllib.error import HTTPError
 from urllib.parse import urlparse
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 
 CHECKS = (
@@ -15,6 +15,8 @@ CHECKS = (
     ("https://masterclassio.com/classio-health-missing-page", 404),
     ("https://app.masterclassio.com/sign-in", 200),
 )
+
+USER_AGENT = "Classio-Health/1.0 (+https://masterclassio.com/)"
 
 
 def check_url(url: str, expected_status: int, *, resolve=socket.getaddrinfo, open_url=urlopen) -> None:
@@ -24,7 +26,7 @@ def check_url(url: str, expected_status: int, *, resolve=socket.getaddrinfo, ope
     if not resolve(host, 443, type=socket.SOCK_STREAM):
         raise RuntimeError(f"DNS returned no address for {host}")
     try:
-        response = open_url(url, timeout=15)
+        response = open_url(Request(url, headers={"User-Agent": USER_AGENT}), timeout=15)
     except HTTPError as error:
         response = error
     with response:
