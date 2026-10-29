@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = ROOT / "docs/AI_DATA_FLOW_INVENTORY.json"
 AI_ROUTE_GLOBS = ("expo/src/app/api/*+api.ts", "expo/src/server/ai-provider-chain.ts", "streamlit/helpers/*.py")
 OUTBOUND_MARKERS = ("requestAiProvider(", "fetchBoundedAiJson(")
+SDK_CALL_PATTERN = re.compile(r"\b(?:chat\s*\.\s*completions\s*\.\s*create|models\s*\.\s*generate_content|images\s*\.\s*generate|responses\s*\.\s*create)\s*\(")
 HOST_PATTERN = re.compile(r"https://([A-Za-z0-9.-]+)")
 NON_PROVIDER_REFERERS = {"app.masterclassio.com", "classio.app"}
 
@@ -37,7 +38,7 @@ def check() -> list[str]:
             source = path.read_text(errors="replace")
             relative = str(path.relative_to(ROOT))
             hosts = HOST_PATTERN.findall(source)
-            if any(marker in source for marker in OUTBOUND_MARKERS) or any(host in approved for host in hosts):
+            if any(marker in source for marker in OUTBOUND_MARKERS) or SDK_CALL_PATTERN.search(source) or any(host in approved for host in hosts):
                 if relative not in covered:
                     errors.append(f"Uninventoried AI boundary: {relative}")
                 for host in hosts:
