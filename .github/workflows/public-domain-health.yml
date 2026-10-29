@@ -1,6 +1,11 @@
 name: Public domain health
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/public-domain-health.yml'
+      - 'scripts/check_public_domains.py'
+      - 'scripts/test_public_domains.py'
   schedule:
     - cron: '17 */3 * * *'
   workflow_dispatch:
