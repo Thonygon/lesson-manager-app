@@ -762,3 +762,7 @@ Object.assign(tr, { 'resources.alreadyAssigned': 'Bu öğrenciye zaten atandı. 
 Object.assign(en, { 'resources.notSentCount': 'Not sent to {count} recipient(s)' });
 Object.assign(es, { 'resources.notSentCount': 'No enviado a {count} destinatario(s)' });
 Object.assign(tr, { 'resources.notSentCount': '{count} alıcıya gönderilmedi' });
+
+Object.assign(en, { "resources.chooseProgramStudents": "Choose students, including those without an account", "resources.noProgramStudents": "No students match. Add this student to your roster first.", "students.assignProgram": "Assign program" });
+Object.assign(es, { "resources.chooseProgramStudents": "Elegir alumnos, también sin cuenta", "resources.noProgramStudents": "No hay alumnos que coincidan. Agrégalo primero a tu lista.", "students.assignProgram": "Asignar programa" });
+Object.assign(tr, { "resources.chooseProgramStudents": "Hesabı olmayanlar dahil öğrenci seç", "resources.noProgramStudents": "Eşleşen öğrenci yok. Önce öğrenci listene ekle.", "students.assignProgram": "Program ata" });

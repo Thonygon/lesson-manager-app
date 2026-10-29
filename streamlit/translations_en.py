@@ -1216,6 +1216,7 @@ EN: Dict[str, str] = {
     "learning_program_assigned_success": "Learning program assigned to {student}. Assignment ID: {assignment_id}",
     "learning_program_assignments_created": "{count} learning program assignments created.",
     "learning_program_assigned_failed": "Could not assign the learning program: {error}",
+    "learning_program_local_student": "Teacher roster · no Classio account",
     "assignment_link_required": "Select an active linked student before assigning.",
     "assignment_requires_relationship_message": "Link the student to your Classio account first. Only active teacher-student relationships can receive assignments.",
     "assignment_subject_required": "Select an active subject before assigning.",

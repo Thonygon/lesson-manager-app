@@ -1216,6 +1216,7 @@ TR: Dict[str, str] = {
     "learning_program_assigned_success": "Öğrenme programı {student} adlı öğrenciye atandı. Atama kimliği: {assignment_id}",
     "learning_program_assignments_created": "{count} öğrenme programı ataması oluşturuldu.",
     "learning_program_assigned_failed": "Öğrenme programı atanamadı: {error}",
+    "learning_program_local_student": "Öğretmen listesi · Classio hesabı yok",
     "assignment_link_required": "Atama yapmadan önce aktif bağlı bir öğrenci seçin.",
     "assignment_requires_relationship_message": "Önce öğrenciyi Classio hesabınıza bağlayın. Yalnızca aktif öğretmen-öğrenci ilişkileri atama alabilir.",
     "assignment_subject_required": "Atama yapmadan önce aktif bir ders seçin.",

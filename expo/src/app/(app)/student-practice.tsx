@@ -265,6 +265,9 @@ export default function StudentPracticeScreen() {
     setBusy(true); setMessage('');
     try {
       const session = await getStudentPracticeSession(text(row.id));
+      const snapshot = session.exercise_data && typeof session.exercise_data === 'object' ? session.exercise_data as Record<string, unknown> : {};
+      const assignmentId = text(snapshot.assignment_id);
+      if (assignmentId && assignmentId !== '0') await getStudentAssignmentForPractice(assignmentId);
       const review = await loadPracticeReview(session);
       const data = session.exercise_data && typeof session.exercise_data === 'object' ? session.exercise_data as Record<string, unknown> : {};
       const embedded = data.draft_answers && typeof data.draft_answers === 'object' ? data.draft_answers as Record<string, unknown> : {};

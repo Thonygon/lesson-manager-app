@@ -104,10 +104,10 @@ class StudentPageScopingTests(unittest.TestCase):
         ]
 
         with (
-            patch("helpers.learning_programs._tsi") as tsi,
+            patch("helpers.learning_programs.load_learning_program_assignment_targets", return_value=linked_students),
             patch("helpers.learning_programs.learning_program_assignment_duplicate_count", return_value=0),
             patch("helpers.learning_programs.assign_learning_program") as assign_program,
-            patch("helpers.learning_programs.st.multiselect", return_value=["Ana | student-1", "Luis | student-2"]),
+            patch("helpers.learning_programs.st.multiselect", return_value=["Ana | student-1 | student-1", "Luis | student-2 | student-2"]),
             patch("helpers.learning_programs.st.text_area", return_value="Focus on Unit 1"),
             patch("helpers.learning_programs.st.button", return_value=True),
             patch("helpers.learning_programs.st.success", side_effect=success_messages.append),
@@ -117,8 +117,6 @@ class StudentPageScopingTests(unittest.TestCase):
             patch("helpers.learning_programs.st.info"),
             patch("helpers.learning_programs.st.markdown"),
         ):
-            tsi.return_value.load_active_linked_students_for_teacher.return_value = linked_students
-
             def _fake_assign(*, program_id, student_name, student_user_id, note, **_kwargs):
                 created_assignments.append((student_name, student_user_id))
                 return True, len(created_assignments), "assigned"

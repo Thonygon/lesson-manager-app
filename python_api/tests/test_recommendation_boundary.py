@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from python_api.app import actor_token, app
+from python_api.app import actor_token, app, classio_allowed_origins
 
 
 class RecommendationBoundaryTests(unittest.TestCase):
@@ -39,6 +39,11 @@ class RecommendationBoundaryTests(unittest.TestCase):
             "Access-Control-Request-Headers": "authorization",
         })
         self.assertNotEqual(response.status_code, 200)
+
+    def test_render_extra_origins_do_not_replace_classio_domains(self):
+        self.assertEqual(classio_allowed_origins("https://preview.example.org, https://bad.invalid/path, *"), [
+            "https://app.masterclassio.com", "https://classio.expo.app", "https://preview.example.org",
+        ])
 
     def test_model_unavailable_fails_closed(self):
         app.dependency_overrides[actor_token] = lambda: ("synthetic-owner", "synthetic-token")

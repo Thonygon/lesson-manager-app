@@ -251,7 +251,7 @@ export async function getStudentAssignmentForPractice(assignmentId: string): Pro
   const client = requireSupabase(); const uid = await studentId();
   const { data, error } = await client.from('teacher_assignments')
     .select('id,teacher_id,student_id,assignment_type,source_record_id,title,topic,subject_key,subject_label,teacher_note,due_at,assigned_at,created_at,status,learning_program_assignment_id,content_snapshot')
-    .eq('id', assignmentId).eq('student_id', uid).maybeSingle();
+    .eq('id', assignmentId).eq('student_id', uid).neq('status', 'archived').maybeSingle();
   if (error) throw error;
   if (!data) throw new Error('This assignment is unavailable.');
   const content = await resolveStudentAssignmentContent(data, client);
