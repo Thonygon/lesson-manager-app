@@ -78,10 +78,10 @@ export default function StudentHomeScreen() {
   const activeAssignmentIds = new Set((workspace?.assignments ?? []).map((row) => String(row.id)));
   const drafts = (workspace?.sessions ?? []).filter((row) => {
     if (String(row.status) !== 'in_progress' || !['worksheet', 'exam'].includes(String(row.source_type))) return false;
-    const sourceId = String(row.source_id || '');
-    // Assigned practice stores the numeric assignment ID; public resources use UUIDs.
-    // Keep orphaned drafts in the database, but never offer an archived/deleted task as active work.
-    return !/^\d+$/.test(sourceId) || activeAssignmentIds.has(sourceId);
+    const assignmentId = String(row.assignment_id || '');
+    // The saved snapshot identifies assigned work. Public resource IDs can also be numeric.
+    // Preserve orphaned drafts in the database without presenting them as active assignments.
+    return !assignmentId || activeAssignmentIds.has(assignmentId);
   }).slice(0, 3);
   const firstName = String(profile?.display_name || profile?.username || t('student.learner')).split(' ')[0];
   const openRecommendation = (item: PublicResource) => {
