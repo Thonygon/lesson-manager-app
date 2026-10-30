@@ -1,0 +1,33 @@
+{
+  "version": "2026-10-30.1",
+  "label_source": "independent_human",
+  "candidate_sources": ["shown", "held_out"],
+  "decision_threshold": 0.5,
+  "maximum_error_regression_vs_baseline": 0.05,
+  "families": {
+    "teacher_resources": {
+      "required_axes": ["kind", "subject", "stage", "level"],
+      "minimum_evaluations": 60,
+      "minimum_positive": 10,
+      "minimum_negative": 10,
+      "minimum_held_out": 15,
+      "minimum_labelers": 2,
+      "minimum_segment": 15,
+      "maximum_false_positive_rate": 0.3,
+      "maximum_false_negative_rate": 0.3,
+      "maximum_segment_error_gap": 0.2
+    },
+    "student_resources": {
+      "required_axes": ["kind", "subject", "stage", "level"],
+      "minimum_evaluations": 60,
+      "minimum_positive": 10,
+      "minimum_negative": 10,
+      "minimum_held_out": 15,
+      "minimum_labelers": 2,
+      "minimum_segment": 15,
+      "maximum_false_positive_rate": 0.3,
+      "maximum_false_negative_rate": 0.3,
+      "maximum_segment_error_gap": 0.2
+    }
+  }
+}

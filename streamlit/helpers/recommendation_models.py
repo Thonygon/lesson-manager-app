@@ -20,6 +20,7 @@ from helpers.exposure_telemetry import (
     record_exposure_event,
 )
 from helpers.resource_affinity_runtime import clear_resource_affinity_runtime_cache, resource_affinity_score
+from helpers.recommendation_governance import heuristic_fallback_enabled
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -698,9 +699,8 @@ def _teacher_event_target(row: dict) -> float:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def build_teacher_recommendation_model(teacher_id: str | None = None) -> dict[str, Any]:
+def build_teacher_recommendation_model(teacher_id: str | None = None, fallback_mode: bool = False) -> dict[str, Any]:
     safe_teacher_id = str(teacher_id or get_current_user_id() or "").strip()
-    rows = _load_teacher_recommendation_events(safe_teacher_id)
     base_weights = {
         "bias": -0.2,
         "subject_match": 0.85,
@@ -733,6 +733,9 @@ def build_teacher_recommendation_model(teacher_id: str | None = None) -> dict[st
         "prior_bucket_success": 0.3,
         "prior_focus_success": 0.22,
     }
+    if fallback_mode:
+        return {"weights": base_weights, "priors": {"kind": {}, "bucket": {}, "focus": {}}, "mode": "heuristic"}
+    rows = _load_teacher_recommendation_events(safe_teacher_id)
     if not rows:
         return {
             "weights": base_weights,
@@ -804,9 +807,10 @@ def score_teacher_resource_candidate(
     *,
     teacher_id: str | None = None,
 ) -> tuple[float, dict[str, float]]:
-    model = build_teacher_recommendation_model(teacher_id)
+    fallback_mode = heuristic_fallback_enabled("teacher_resources")
+    model = build_teacher_recommendation_model(teacher_id, fallback_mode=fallback_mode)
     recommendation_topic_id = int(recommendation_item.get("learning_program_topic_id") or 0)
-    topic_features = topic_resource_alignment_features(
+    topic_features = {"explicit_topic_match": 0.0, "explicit_topic_support": 0.0, "direct_topic_link": 0.0, "topic_kind_prior": 0.0, "topic_match_ambiguity": 0.0} if fallback_mode else topic_resource_alignment_features(
         kind,
         row.get("id"),
         [recommendation_topic_id] if recommendation_topic_id > 0 else [],
@@ -823,7 +827,7 @@ def score_teacher_resource_candidate(
     objective_match = 1.0 if _norm_text(recommendation_item.get("objective")) and _norm_text(recommendation_item.get("objective")).casefold() in _norm_text(row.get("title")).casefold() else 0.0
     topic_overlap = _overlap_score(title_tokens, query_tokens)
     semantic_affinity = resource_semantic_affinity(row, kind, recommendation_item)
-    unsupervised_affinity, unsupervised_affinity_meta = resource_affinity_score(row, kind, recommendation_item)
+    unsupervised_affinity, unsupervised_affinity_meta = (0.0, {}) if fallback_mode else resource_affinity_score(row, kind, recommendation_item)
     bucket = _norm_key(recommendation_item.get("recommendation_bucket"))
     focus = _norm_key(recommendation_item.get("focus_kind"))
     kind_key = _norm_key(kind)
