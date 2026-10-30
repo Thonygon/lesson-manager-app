@@ -45,6 +45,7 @@ _bootstrap_supabase_env()
 
 from core.database import get_sb  # noqa: E402
 from helpers.ml_reporting import build_report_charts, resolve_report_language, write_classio_ml_report  # noqa: E402
+from helpers.recommendation_governance import write_governance_artifact  # noqa: E402
 from helpers.student_recommendation_ml import (  # noqa: E402
     build_report_profile_snapshot,
     build_student_recommendation_samples,
@@ -312,7 +313,7 @@ def _report_meta() -> dict[str, object]:
     }
 
 
-def generate_report(output_dir: str | Path, student_id: str = "", scope: str = "single_student", lang: str = "") -> dict[str, object]:
+def generate_report(output_dir: str | Path, student_id: str = "", scope: str = "single_student", lang: str = "", evaluation_json: str = "", review_json: str = "") -> dict[str, object]:
     resolved_output_dir = Path(output_dir).resolve()
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
     requested_scope = str(scope or "single_student").strip().lower() or "single_student"
@@ -328,6 +329,8 @@ def generate_report(output_dir: str | Path, student_id: str = "", scope: str = "
     )
     try:
         data = _load_project_data(student_id, scope=scope)
+        governance_path, governance = write_governance_artifact(resolved_output_dir, "student_resources", evaluation_json=evaluation_json or None, review_json=review_json or None)
+        data["diagnostics"]["governance"] = governance
         report_lang = resolve_report_language(preferred=lang)
         scope_key = str(data.get("scope") or "single_student")
         charts_dir = resolved_output_dir / f"assets_{scope_key}"
@@ -353,6 +356,9 @@ def generate_report(output_dir: str | Path, student_id: str = "", scope: str = "
                     f"f1={metrics.get('f1', 0.0):.4f}",
                     f"roc_auc={metrics.get('roc_auc', 0.0):.4f}",
                     f"blend_weight={diagnostics.get('blend_weight', 0.0):.4f}",
+                    f"governance_policy={governance['policy_version']}",
+                    f"governance_action={governance['action']}",
+                    f"independent_judgments={governance['global']['count']}",
                 ]
             ),
             encoding="utf-8",
@@ -376,6 +382,8 @@ def generate_report(output_dir: str | Path, student_id: str = "", scope: str = "
             "student_id": str(data["student_id"]),
             "lang": report_lang,
             "diagnostics": diagnostics,
+            "governance_path": str(governance_path),
+            "governance": governance,
         }
     except Exception as exc:
         log_ai_usage_event(
@@ -397,8 +405,10 @@ def main() -> None:
     parser.add_argument("--student-id", default="", help="Specific student id to analyze.")
     parser.add_argument("--output-dir", default=str(ROOT / "reports" / "student_recommendation_project"), help="Directory for docx and charts.")
     parser.add_argument("--scope", default="single_student", choices=["single_student", "multi_student"], help="Report scope.")
+    parser.add_argument("--evaluation-json", default="", help="Independent human judgments including shown and held-out candidates.")
+    parser.add_argument("--review-json", default="", help="Human approval or retirement record tied to the evidence digest.")
     args = parser.parse_args()
-    result = generate_report(args.output_dir, student_id=args.student_id, scope=args.scope)
+    result = generate_report(args.output_dir, student_id=args.student_id, scope=args.scope, evaluation_json=args.evaluation_json, review_json=args.review_json)
     print(result["docx_path"])
 
 

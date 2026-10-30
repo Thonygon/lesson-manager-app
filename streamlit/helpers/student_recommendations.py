@@ -17,6 +17,7 @@ from helpers.lesson_planner import normalize_subject, subject_label
 from helpers.practice_engine import get_completed_source_ids, load_practice_progress
 from helpers.recommendation_models import resource_semantic_affinity, score_student_resource_candidate, topic_resource_alignment_features
 from helpers.student_recommendation_ml import student_recommendation_blend_weight
+from helpers.recommendation_governance import heuristic_fallback_enabled
 from helpers.learning_programs import load_enriched_program_assignments_for_current_student
 
 
@@ -1280,8 +1281,8 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
         "topic_in_program": program_topic_overlap,
     }
     safe_student_id = str(get_current_user_id() or "").strip()
-    ml_score = score_student_resource_candidate(ml_features, student_profile, student_id=safe_student_id)
-    ml_blend_weight = student_recommendation_blend_weight(safe_student_id, student_profile) if safe_student_id else 0.42
+    ml_blend_weight = student_recommendation_blend_weight(safe_student_id, student_profile) if safe_student_id or heuristic_fallback_enabled("student_resources") else 0.42
+    ml_score = score_student_resource_candidate(ml_features, student_profile, student_id=safe_student_id) if ml_blend_weight > 0 else 0.0
     score += ml_blend_weight * ml_score
 
     reasons: list[str] = []
@@ -1313,7 +1314,7 @@ def _resource_feature_score(row: dict, resource_type: str, student_profile: dict
         reasons.append(t("student_material_reason_level_fit", level=level))
     elif stretch_boost > 0 and level:
         reasons.append(t("student_material_reason_level_stretch", level=level))
-    if ml_score >= 0.72:
+    if ml_blend_weight > 0 and ml_score >= 0.72:
         reasons.append(t("student_material_reason_ml_fit"))
     elif semantic_affinity >= 0.68 and topic:
         reasons.append(t("student_material_reason_revisit_topic", topic=topic))
