@@ -70,6 +70,18 @@ export async function archiveTeacherConnection(connection: TeacherConnection) { 
 
 export async function archiveTeacherAssignment(id: string | number) { const client = requireSupabase(); const uid = await currentUserId(); const { error } = await client.from('teacher_assignments').update({ status: 'archived', updated_at: new Date().toISOString() }).eq('id', id).eq('teacher_id', uid); if (error) throw error; }
 
+export async function restoreTeacherAssignment(id: string | number) {
+  const client = requireSupabase(); const uid = await currentUserId();
+  const { data: row, error: readError } = await client.from('teacher_assignments').select('id,status,opened_at,submitted_at,graded_at,completed_at').eq('id', id).eq('teacher_id', uid).maybeSingle();
+  if (readError || !row || row.status !== 'archived') throw readError ?? new Error('students.assignmentRestoreUnavailable');
+  // An archive keeps attempts, scores, and timestamps. Rebuild the workflow
+  // status from that evidence, including rows archived before this control existed.
+  const status = row.completed_at ? 'completed' : row.graded_at ? 'graded' : row.submitted_at ? 'submitted' : row.opened_at ? 'started' : 'assigned';
+  const { data, error } = await client.from('teacher_assignments').update({ status, updated_at: new Date().toISOString() }).eq('id', id).eq('teacher_id', uid).eq('status', 'archived').select('id').maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('students.assignmentRestoreUnavailable');
+}
+
 export async function setTeacherProgramTopicProgress(assignmentId: string | number, topicId: string | number, done: boolean) {
   const client = requireSupabase(); const uid = await currentUserId(); const { data: assignment, error: assignmentError } = await client.from('learning_program_assignments').select('id').eq('id', assignmentId).eq('teacher_id', uid).maybeSingle(); if (assignmentError || !assignment) throw assignmentError ?? new Error('This learning-program assignment is unavailable.');
   const now = new Date().toISOString(); const { data: current, error: currentError } = await client.from('learning_program_progress').select('id,teacher_done,student_done,note').eq('assignment_id', assignmentId).eq('topic_id', topicId).maybeSingle(); if (currentError) throw currentError;
@@ -94,7 +106,7 @@ export async function requestTeacherRevision(assignment: ClassioRecord, attempt:
 export async function getStudentLearningWorkspace(studentName: string, studentUserId?: string, rosterStudentId?: string): Promise<StudentLearningWorkspace> {
   const client = requireSupabase(); const uid = await currentUserId(); const safeName = studentName.trim();
   const [assignmentResult, reviewResult, programByIdResult, programByNameResult, programByRosterResult] = await Promise.all([
-    studentUserId ? client.from('teacher_assignments').select('id,student_id,title,topic,subject_key,subject_label,assignment_type,source_type,source_record_id,status,score_pct,total_questions,correct_count,due_at,assigned_at,opened_at,submitted_at,graded_at,completed_at,created_at,updated_at,learning_program_assignment_id,learning_program_topic_id').eq('teacher_id', uid).eq('student_id', studentUserId).neq('status', 'archived').order('created_at', { ascending: false }).limit(2000) : Promise.resolve({ data: [], error: null }),
+    studentUserId ? client.from('teacher_assignments').select('id,student_id,title,topic,subject_key,subject_label,assignment_type,source_type,source_record_id,status,score_pct,total_questions,correct_count,due_at,assigned_at,opened_at,submitted_at,graded_at,completed_at,created_at,updated_at,learning_program_assignment_id,learning_program_topic_id').eq('teacher_id', uid).eq('student_id', studentUserId).order('created_at', { ascending: false }).limit(2000) : Promise.resolve({ data: [], error: null }),
     studentUserId ? client.from('teacher_review_requests').select('id,student_id,assignment_id,practice_session_id,title,subject_key,subject_label,status,request_note,teacher_feedback,override_score_pct,requested_at,reviewed_at').eq('teacher_id', uid).eq('student_id', studentUserId).order('requested_at', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
     studentUserId ? client.from('learning_program_assignments').select('id,program_id,student_user_id,student_name,status,start_on,target_completion_on,teacher_note,assigned_at,updated_at').eq('teacher_id', uid).eq('student_user_id', studentUserId).order('updated_at', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
     safeName ? client.from('learning_program_assignments').select('id,program_id,student_user_id,student_name,status,start_on,target_completion_on,teacher_note,assigned_at,updated_at').eq('teacher_id', uid).eq('student_name', safeName).is('roster_student_id', null).order('updated_at', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),

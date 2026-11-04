@@ -24,7 +24,7 @@ import { buildTeacherObjectiveRecommendations, loadTeacherObjectiveModel, type T
 import { loadTeacherRecommendationModel, loadTeacherRecommendationResourcePool, loadTeacherRelevanceFeedback, rankTeacherResources, recordTeacherObjectiveExposures, recordTeacherRecommendationAction, recordTeacherRecommendationExposures, saveTeacherRelevanceFeedback, teacherFeedbackKey, type RecommendationModel } from '@/services/teacher-recommendations';
 import { learnedRecommendationApproved } from '@/services/recommendation-governance';
 import { getPythonAffinityModel, scorePythonResourceAffinityBatch } from '@/services/python-models';
-import { addressTeacherPracticeRequest, archiveTeacherAssignment, archiveTeacherConnection, getStudentLearningWorkspace, getTeacherConnections, respondToTeacherConnection, setTeacherProgramTopicProgress, type StudentLearningWorkspace, type TeacherConnection } from '@/services/teacher-students';
+import { addressTeacherPracticeRequest, archiveTeacherAssignment, archiveTeacherConnection, getStudentLearningWorkspace, getTeacherConnections, respondToTeacherConnection, restoreTeacherAssignment, setTeacherProgramTopicProgress, type StudentLearningWorkspace, type TeacherConnection } from '@/services/teacher-students';
 import { colors } from '@/theme';
 
 const LANGUAGE_OPTIONS = [{ value: '', key: 'language.notSet' }, { value: 'english', key: 'language.en' }, { value: 'spanish', key: 'language.es' }, { value: 'turkish', key: 'language.tr' }, { value: 'arabic', key: 'language.ar' }, { value: 'french', key: 'language.fr' }, { value: 'german', key: 'language.de' }, { value: 'italian', key: 'language.it' }, { value: 'portuguese', key: 'language.pt' }, { value: 'russian', key: 'language.ru' }, { value: 'other', key: 'language.other' }];
@@ -260,7 +260,7 @@ function LearningView({ workspace, studentName, linkedStudentId, rosterStudentId
   const assignmentStatuses = [...new Set(workspace.assignments.filter(inLearningSubject).map((row) => String(row.status || 'assigned')))];
   const assignmentTypes = [...new Set(workspace.assignments.filter(inLearningSubject).map((row) => String(row.assignment_type || 'worksheet')))];
   const pendingReviewIds = new Set(workspace.reviews.filter((row) => String(row.status) === 'requested').map((row) => String(row.assignment_id)));
-  const filteredAssignments = workspace.assignments.filter((row) => String(row.status) !== 'archived' && inLearningSubject(row) && (assignmentSubject === '__all__' || rowSubject(row) === assignmentSubject) && (assignmentStatus === '__all__' || String(row.status || 'assigned') === assignmentStatus) && (assignmentType === '__all__' || String(row.assignment_type) === assignmentType) && (!reviewOnly || pendingReviewIds.has(String(row.id))));
+  const filteredAssignments = workspace.assignments.filter((row) => (assignmentStatus === 'archived' ? String(row.status) === 'archived' : String(row.status) !== 'archived') && inLearningSubject(row) && (assignmentSubject === '__all__' || rowSubject(row) === assignmentSubject) && (assignmentStatus === '__all__' || assignmentStatus === 'archived' || String(row.status || 'assigned') === assignmentStatus) && (assignmentType === '__all__' || String(row.assignment_type) === assignmentType) && (!reviewOnly || pendingReviewIds.has(String(row.id))));
   const assignmentPages = Math.max(1, Math.ceil(filteredAssignments.length / 18));
   const currentAssignmentPage = Math.min(assignmentPage, assignmentPages);
   const pagedAssignments = filteredAssignments.slice((currentAssignmentPage - 1) * 18, currentAssignmentPage * 18);
@@ -270,6 +270,12 @@ function LearningView({ workspace, studentName, linkedStudentId, rosterStudentId
     setAssignmentBusy('selected'); setActionMessage('');
     try { await Promise.all(selectedAssignments.map((id) => archiveTeacherAssignment(id))); setSelectedAssignments([]); setArchiveConfirm(''); setActionMessage(t('students.assignmentArchived')); await onRefresh(); }
     catch (reason) { setActionMessage(reason instanceof Error ? reason.message : t('students.assignmentArchiveFailed')); }
+    finally { setAssignmentBusy(''); }
+  };
+  const restoreArchivedAssignment = async (id: string) => {
+    setAssignmentBusy(id); setActionMessage('');
+    try { await restoreTeacherAssignment(id); setActionMessage(t('students.assignmentRestored')); await onRefresh(); }
+    catch (reason) { setActionMessage(reason && typeof reason === 'object' && 'code' in reason && reason.code === '23505' ? t('students.assignmentRestoreDuplicate') : reason instanceof Error && reason.message === 'students.assignmentRestoreUnavailable' ? t(reason.message) : reason instanceof Error ? reason.message : t('students.assignmentRestoreUnavailable')); }
     finally { setAssignmentBusy(''); }
   };
   const toggleProgramTopic = async (assignmentId: string, topicId: string, done: boolean) => { const key = `${assignmentId}:${topicId}`; setProgramBusy(key); setActionMessage(''); try { await setTeacherProgramTopicProgress(assignmentId, topicId, done); setActionMessage(t(done ? 'students.topicMarkedDone' : 'students.topicReopened')); await onRefresh(); } catch (reason) { setActionMessage(reason instanceof Error ? reason.message : t('students.topicUpdateFailed')); } finally { setProgramBusy(''); } };
@@ -287,7 +293,7 @@ function LearningView({ workspace, studentName, linkedStudentId, rosterStudentId
       {actionMessage ? <Text style={styles.actionMessage}>{actionMessage}</Text> : null}
       <View style={styles.assignmentFilters}>
         <SelectField label={t('students.filterSubject')} value={assignmentSubject} options={[{ value: '__all__', label: t('students.allSubjects') }, ...assignmentSubjects.map((subject) => ({ value: subject, label: subject }))]} onChange={(value) => { setAssignmentSubject(value); setAssignmentPage(1); }} />
-        <SelectField label={t('students.filterStatus')} value={assignmentStatus} options={[{ value: '__all__', label: t('students.allStatuses') }, ...assignmentStatuses.map((status) => ({ value: status, label: t(assignmentStatusKey(status)) }))]} onChange={(value) => { setAssignmentStatus(value); setAssignmentPage(1); }} />
+        <SelectField label={t('students.filterStatus')} value={assignmentStatus} options={[{ value: '__all__', label: t('students.allStatuses') }, ...[...new Set([...assignmentStatuses, 'archived'])].map((status) => ({ value: status, label: t(assignmentStatusKey(status)) }))]} onChange={(value) => { setAssignmentStatus(value); setSelectedAssignments([]); setAssignmentPage(1); }} />
         <SelectField label={t('assignmentLabels.filterType')} value={assignmentType} options={[{ value: '__all__', label: t('assignmentLabels.allTypes') }, ...assignmentTypes.map((type) => ({ value: type, label: t(assignmentTypeKey(type)) }))]} onChange={(value) => { setAssignmentType(value); setAssignmentPage(1); }} />
         {pendingReviewIds.size ? <Pressable accessibilityRole="button" onPress={() => { setReviewOnly((current) => !current); setAssignmentPage(1); }} style={[styles.reviewFilter, reviewOnly && styles.reviewFilterActive]}><Text style={styles.reviewFilterText}>{t('assignmentLabels.reviewRequested')} ({pendingReviewIds.size})</Text></Pressable> : null}
         {selectedAssignments.length ? <Button secondary disabled={assignmentBusy === 'selected'} onPress={() => void archiveSelectedAssignments()}>{archiveConfirm === 'selected' ? t('assignmentLabels.confirmArchive') : t('assignmentLabels.archiveSelected', { count: selectedAssignments.length })}</Button> : null}
@@ -314,7 +320,7 @@ function LearningView({ workspace, studentName, linkedStudentId, rosterStudentId
             {latestReview?.request_note ? <Text numberOfLines={2} style={styles.historyNote}>{String(latestReview.request_note)}</Text> : null}
             <Text style={[styles.assignmentOpen, { color: accent }]}>{t('students.openAssignment')} →</Text>
           </Pressable>
-          <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selected }} accessibilityLabel={t('assignmentLabels.selectAssignment')} onPress={() => { setArchiveConfirm(''); setSelectedAssignments((current) => selected ? current.filter((id) => id !== rowId) : [...current, rowId]); }} style={[styles.assignmentCheckbox, selected && styles.assignmentCheckboxSelected]}><Text style={styles.assignmentCheckboxText}>{selected ? '✓' : ''}</Text></Pressable>
+          {status === 'archived' ? <Button secondary disabled={Boolean(assignmentBusy)} onPress={() => void restoreArchivedAssignment(rowId)}>{t('students.restoreAssignment')}</Button> : <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selected }} accessibilityLabel={t('assignmentLabels.selectAssignment')} onPress={() => { setArchiveConfirm(''); setSelectedAssignments((current) => selected ? current.filter((id) => id !== rowId) : [...current, rowId]); }} style={[styles.assignmentCheckbox, selected && styles.assignmentCheckboxSelected]}><Text style={styles.assignmentCheckboxText}>{selected ? '✓' : ''}</Text></Pressable>}
         </View>;
       })}</View>
       {!filteredAssignments.length ? <Text style={styles.emptyText}>{t('students.noFilteredAssignments')}</Text> : null}

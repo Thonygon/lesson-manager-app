@@ -31,4 +31,18 @@ const exam = practice.materialFromAssignment({
 assert.equal(exam.questions[0].answer, 'V', 'edited exam key must override stale section and question answers');
 assert.equal(practice.gradePractice(exam, { 0: 'Verdadero' }).score, 100);
 
+const assignedExam = practice.materialFromAssignment({
+  id: 33, assignment_type: 'exam', source_record_id: 9,
+  content_snapshot: { exam_data: { sections: [
+    { type: 'true_false', questions: [{ text: 'El verbo expresa una costumbre.' }], answers: ['V'] },
+    { type: 'multiple_choice', questions: [{ question: '¿Qué forma expresa un hábito?', options: ['iba', 'fui', 'iré'] }], answers: ['iba'] },
+    { type: 'fill_in_blank', questions: [{ sentence: 'Antes yo ___ al colegio.' }], answers: ['iba'] },
+  ] } },
+});
+assert.deepEqual(assignedExam.questions.map((item) => item.prompt), [
+  'El verbo expresa una costumbre.', '¿Qué forma expresa un hábito?', 'Antes yo ___ al colegio.',
+]);
+assert.equal(practice.hasUsablePracticeQuestions(assignedExam), true);
+assert.equal(practice.hasUsablePracticeQuestions(practice.materialFromAssignment({ assignment_type: 'exam', content_snapshot: { exam_data: { sections: [{ type: 'multiple_choice', questions: [{ options: ['A', 'B'] }] }] } } })), false);
+
 console.log('Edited resource answer precedence and rescoring: OK');

@@ -1228,6 +1228,36 @@ def archive_teacher_assignment_for_teacher(assignment_id: int) -> tuple[bool, st
         return False, "assignment_archive_failed"
 
 
+def restore_teacher_assignment_for_teacher(assignment_id: int) -> tuple[bool, str]:
+    teacher_id = str(get_current_user_id() or "").strip()
+    if not teacher_id or not assignment_id:
+        return False, "assignment_restore_failed"
+    try:
+        rows = _rows(
+            get_sb().table("teacher_assignments")
+            .select("id,status,opened_at,submitted_at,graded_at,completed_at")
+            .eq("id", int(assignment_id)).eq("teacher_id", teacher_id).limit(1).execute()
+        )
+        if not rows or rows[0].get("status") != "archived":
+            return False, "assignment_restore_failed"
+        row = rows[0]
+        status = "completed" if row.get("completed_at") else "graded" if row.get("graded_at") else "submitted" if row.get("submitted_at") else "started" if row.get("opened_at") else "assigned"
+        updated = _rows(
+            get_sb().table("teacher_assignments")
+            .update({"status": status, "updated_at": _now_iso()})
+            .eq("id", int(assignment_id)).eq("teacher_id", teacher_id)
+            .eq("status", "archived").execute()
+        )
+        if not updated:
+            return False, "assignment_restore_failed"
+        _clear_teacher_student_caches()
+        return True, "assignment_restored"
+    except Exception as exc:
+        if "23505" in str(exc):
+            return False, "assignment_restore_duplicate"
+        return False, "assignment_restore_failed"
+
+
 def update_assignment_source_archive_state(
     *,
     assignment_type: str,
@@ -1845,7 +1875,6 @@ def _load_teacher_assignment_progress_cached(teacher_id: str, student_id: str = 
             .table("teacher_assignments")
             .select(_ASSIGNMENT_LIST_COLUMNS)
             .eq("teacher_id", teacher_id)
-            .neq("status", "archived")
             .order("created_at", desc=True)
         )
         if student_id:
@@ -2654,7 +2683,7 @@ def _assignment_duplicate_count(
         source_text = str(source_record_id or "").strip()
         if source_text and source_text not in {"0", "None"}:
             query = query.eq("source_record_id", int(source_text)) if source_text.isdecimal() else query.is_("source_record_id", "null").contains("content_snapshot", {"id": source_text})
-        rows = _rows(query.execute())
+        rows = [row for row in _rows(query.execute()) if row.get("status") != "archived"]
     except Exception:
         return 0
 
