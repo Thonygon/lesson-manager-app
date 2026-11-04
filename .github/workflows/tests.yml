@@ -9,10 +9,10 @@ permissions:
 
 jobs:
   supply-chain:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Reject tracked private credentials
         run: python3 scripts/check_repository_secrets.py
 
@@ -28,7 +28,7 @@ jobs:
         run: python3 scripts/check_expo_security_headers.py
 
   streamlit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     defaults:
@@ -37,10 +37,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -75,7 +75,7 @@ jobs:
         run: python -m unittest discover -s ../scripts -p 'test_tfm_*.py'
 
   expo:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     defaults:
@@ -84,7 +84,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4

@@ -37,6 +37,7 @@ from helpers.dashboard import rebuild_dashboard
 from helpers.empty_states import render_empty_state
 from helpers.teacher_student_integration import (
     archive_teacher_assignment_for_teacher,
+    restore_teacher_assignment_for_teacher,
     archive_teacher_student_link,
     ensure_teacher_review_request_for_attempt,
     get_teacher_request_resolution,
@@ -3573,6 +3574,7 @@ def render_students():
                 progress_rows = load_teacher_assignment_progress(
                     student_id=str(selected_link.get("student_id") or ""),
                     subject_key=None if selected_subject == "__all__" else selected_subject,
+                    include_archived=True,
                 )
                 review_rows = load_teacher_review_requests(
                     student_id=str(selected_link.get("student_id") or ""),
@@ -3592,6 +3594,7 @@ def render_students():
                 scored_progress_rows = [
                     row for row in progress_rows
                     if str(row.get("assignment_type") or "").strip() != "lesson_plan_topic"
+                    and str(row.get("status") or "").strip() != "archived"
                 ]
 
                 with assignments_tab:
@@ -3602,6 +3605,8 @@ def render_students():
                             if str(row.get("status") or "").strip()
                         )
                     )
+                    if "archived" not in assignment_status_options:
+                        assignment_status_options.append("archived")
                     assignment_status = st.selectbox(
                         t("status"),
                         options=assignment_status_options,
@@ -3610,7 +3615,9 @@ def render_students():
                     )
                     filtered_progress_rows = [
                         row for row in progress_rows
-                        if assignment_status == "__all__" or str(row.get("status") or "").strip() == assignment_status
+                        if (assignment_status == "archived" and str(row.get("status") or "").strip() == "archived")
+                        or (assignment_status != "archived" and str(row.get("status") or "").strip() != "archived"
+                            and (assignment_status == "__all__" or str(row.get("status") or "").strip() == assignment_status))
                     ]
                     if not filtered_progress_rows:
                         st.info(t("no_assignments"))
@@ -3706,16 +3713,17 @@ def render_students():
                                             st.success(t(msg))
                                             st.rerun()
                                         st.error(t(msg))
+                                archived = str(row.get("status") or "").strip() == "archived"
                                 if st.button(
-                                    t("delete_assignment"),
-                                    key=f"archive_assignment_{row.get('id')}",
+                                    t("restore_assignment") if archived else t("delete_assignment"),
+                                    key=f"restore_assignment_{row.get('id')}" if archived else f"archive_assignment_{row.get('id')}",
                                     use_container_width=True,
                                 ):
-                                    ok, msg = archive_teacher_assignment_for_teacher(int(row.get("id") or 0))
+                                    ok, msg = (restore_teacher_assignment_for_teacher if archived else archive_teacher_assignment_for_teacher)(int(row.get("id") or 0))
                                     if ok:
                                         st.success(t(msg))
                                         st.rerun()
-                                    st.error(t(msg) if msg in {"assignment_archived", "assignment_archive_failed"} else msg)
+                                    st.error(t(msg) if msg in {"assignment_archived", "assignment_archive_failed", "assignment_restore_failed", "assignment_restore_duplicate"} else msg)
                         _render_teacher_pagination(filtered_progress_rows, "teacher_assignment_progress_page")
 
                 with recommendations_tab:

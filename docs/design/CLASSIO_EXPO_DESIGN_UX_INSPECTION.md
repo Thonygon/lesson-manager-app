@@ -43,7 +43,7 @@ Updated: 2026-09-30. Source of behavioral parity: `streamlit/app_pages` and `str
 - [x] Moved Home assignment and review notifications into the header inbox, preserving the Assignments destination.
 - [x] Home cards are compact, left aligned, and accessible as buttons; recommendations now have a useful empty state and workspace errors have a retry action.
 - [ ] Validate student Home recommendation ranking and urgent work with an authenticated learner in the browser.
-- [ ] Audit Practice, Study Plan, Assignments, Find Teacher, Profile, and Account for mobile layout and Streamlit workflow parity.
+- [ ] Audit Practice, Study Plan, and Assignments for mobile layout and Streamlit workflow parity. Find Teacher, Profile, and Account workflows were reinspected and closed in code on 04-11-2026 in the active parity checklist; their mobile layout and live beta acceptance still need verification with real devices/accounts.
 
 ## Admin
 

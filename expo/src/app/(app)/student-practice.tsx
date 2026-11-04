@@ -16,7 +16,7 @@ import { useAppPreferences } from '@/providers/app-preferences';
 import { extractResourceImageUrl, getPublicResourceDetail, getPublicResourcePreviewImages, type PublicResource } from '@/services/public-data';
 import { getReviewableTeachers, getStudentAssignmentContent, getStudentAssignmentDraftSessionId, getStudentAssignmentForPractice, getStudentPracticeSession, getStudentWorkspace, type ReviewableTeacher, type StudentWorkspace } from '@/services/student-data';
 import { getStudentPublicPracticeResources } from '@/services/student-resource-access';
-import { gradePractice, loadPracticeReview, materialFromAssignment, materialFromPublic, practiceAnswerProgress, practiceRank, recordVideoWatch, repairVisiblePracticeHistory, requestTeacherReview, savePractice, savePracticeDraft, type PracticeMaterial, type PracticeResult } from '@/services/student-practice';
+import { gradePractice, hasUsablePracticeQuestions, loadPracticeReview, materialFromAssignment, materialFromPublic, practiceAnswerProgress, practiceRank, recordVideoWatch, repairVisiblePracticeHistory, requestTeacherReview, savePractice, savePracticeDraft, type PracticeMaterial, type PracticeResult } from '@/services/student-practice';
 import { groupPracticeRows } from '@/services/student-practice-groups';
 import { createStudentDraftSaveQueue } from '@/services/student-draft-save-queue';
 import { colors } from '@/theme';
@@ -153,7 +153,7 @@ export default function StudentPracticeScreen() {
         return true;
       }
       const material = assignment ? materialFromAssignment(assignment) : materialFromPublic(source);
-      if (!material?.questions.length) { setMessage(t('student.practiceUnavailable')); return false; }
+      if (!hasUsablePracticeQuestions(material)) { setMessage(t('student.practiceUnavailable')); return false; }
       draftSave.reset(`${material.sourceType}:${material.assignmentId || material.sourceId}`);
       setActive(material); setAnswers({}); setResult(null); setDraftSessionId(undefined);
       return true;
@@ -194,7 +194,7 @@ export default function StudentPracticeScreen() {
         if (!activeRequest) return;
         if (draftId) { await resumeDraft({ id: draftId }); return; }
         const material = materialFromAssignment(assignment);
-        if (!material?.questions.length) throw new Error(t('student.practiceUnavailable'));
+        if (!hasUsablePracticeQuestions(material)) throw new Error(t('student.practiceUnavailable'));
         draftSave.reset(`${material.sourceType}:${material.assignmentId || material.sourceId}`);
         setActive(material); setAnswers({}); setResult(null); setDraftSessionId(undefined);
       } catch (reason) { if (activeRequest) setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : t('student.practiceUnavailable')); }
@@ -267,13 +267,19 @@ export default function StudentPracticeScreen() {
       const session = await getStudentPracticeSession(text(row.id));
       const snapshot = session.exercise_data && typeof session.exercise_data === 'object' ? session.exercise_data as Record<string, unknown> : {};
       const assignmentId = text(snapshot.assignment_id);
-      if (assignmentId && assignmentId !== '0') await getStudentAssignmentForPractice(assignmentId);
+      const assignment = assignmentId && assignmentId !== '0' ? await getStudentAssignmentForPractice(assignmentId) : null;
       const review = await loadPracticeReview(session);
+      const fresh = assignment ? materialFromAssignment(assignment) : null;
+      const sameStructure = fresh?.questions.length === review.material.questions.length && fresh?.questions.every((question, index) => question.exerciseType === review.material.questions[index].exerciseType && question.exerciseIndex === review.material.questions[index].exerciseIndex && question.questionIndex === review.material.questions[index].questionIndex);
+      // Drafts made before the prompt fix may contain empty question text. Use
+      // the assignment's current content only when answer positions still match.
+      const material = sameStructure && hasUsablePracticeQuestions(fresh) ? fresh : review.material;
+      if (!hasUsablePracticeQuestions(material)) throw new Error(t('student.practiceUnavailable'));
       const data = session.exercise_data && typeof session.exercise_data === 'object' ? session.exercise_data as Record<string, unknown> : {};
       const embedded = data.draft_answers && typeof data.draft_answers === 'object' ? data.draft_answers as Record<string, unknown> : {};
       const restored = { ...Object.fromEntries(Object.entries(embedded).map(([key, value]) => [key, text(value)])), ...Object.fromEntries(Object.entries(review.answers).filter(([, value]) => Boolean(value))) };
-      draftSave.reset(`${review.material.sourceType}:${review.material.assignmentId || review.material.sourceId}`, text(session.id), restored);
-      setActive(review.material); setAnswers(restored); setResult(null); setDraftSessionId(text(session.id)); setMessageTone('success'); setMessage(t('student.practiceResumed'));
+      draftSave.reset(`${material.sourceType}:${material.assignmentId || material.sourceId}`, text(session.id), restored);
+      setActive(material); setAnswers(restored); setResult(null); setDraftSessionId(text(session.id)); setMessageTone('success'); setMessage(t('student.practiceResumed'));
     } catch (reason) { setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : t('student.practiceUnavailable')); } finally { setBusy(false); }
   }
   useEffect(() => {

@@ -76,11 +76,11 @@ function answerItems(value: unknown, count: number) {
 }
 function promptFor(kind: string, value: unknown) {
   const row = record(value);
-  if (kind === 'multiple_choice') return text(row.stem || row.text || value);
-  if (kind === 'matching') return text(row.left || row.text || value);
-  if (kind === 'vocabulary') return [row.word, row.task || row.text].map(text).filter(Boolean).join(': ');
-  if (kind === 'sentence_transformation') return [row.original, row.prompt].map(text).filter(Boolean).join(' · ');
-  return text(row.text || row.question || row.prompt || row.task || value);
+  const prompt = text(row.stem || row.text || row.question || row.sentence || row.statement || row.prompt || row.task || row.original || row.question_text || value);
+  if (kind === 'matching') return text(row.left) || prompt;
+  if (kind === 'vocabulary') return [row.word, row.task || prompt].map(text).filter(Boolean).join(': ') || prompt;
+  if (kind === 'sentence_transformation') return [row.original, row.prompt].map(text).filter(Boolean).join(' · ') || prompt;
+  return prompt;
 }
 function optionsFor(kind: string, value: unknown) {
   const row = record(value);
@@ -131,6 +131,10 @@ export function materialFromPublic(resource: PublicResource): PracticeMaterial |
   const payload = resource.kind === 'worksheet' ? record(raw.worksheet_json || raw.worksheet || raw) : record(raw.exam_data || raw.exam_json || raw); const key = record(raw.answer_key);
   const questions = resource.kind === 'worksheet' ? worksheetQuestions(payload) : examQuestions(payload, key);
   return { title: resource.title, sourceType: resource.kind, sourceId: resource.id, subject: resource.subject, topic: resource.topic, stage: resource.stage, level: resource.level, raw: payload, questions };
+}
+export function hasUsablePracticeQuestions(material: PracticeMaterial | null): material is PracticeMaterial {
+  return Boolean(material?.questions.length && material.questions.every((question) =>
+    Boolean(question.prompt.trim()) && (question.exerciseType !== 'multiple_choice' || question.options.length >= 2)));
 }
 export function materialFromSession(row: ClassioRecord): PracticeMaterial | null { const data = record(row.exercise_data); const sourceType = text(row.source_type || data.source_type); if (sourceType !== 'worksheet' && sourceType !== 'exam') return null; const questions: PracticeQuestion[] = []; list(data.exercises).forEach((section, index) => addSection(questions, record(section), index)); if (!questions.length) return null; return { title: text(row.title || data.title), sourceType, sourceId: text(data.source_id || row.source_id || row.id), assignmentId: text(data.assignment_id) || undefined, learningProgramAssignmentId: Number(data.learning_program_assignment_id) || undefined, subject: text(row.subject), topic: text(row.topic), stage: text(row.learner_stage), level: text(row.level), raw: data, questions }; }
 export async function loadPracticeReview(row: ClassioRecord) {

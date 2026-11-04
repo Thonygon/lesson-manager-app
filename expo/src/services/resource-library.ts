@@ -1,6 +1,6 @@
 import { hasCustomBranding } from '@/services/branding';
 import { requireSupabase } from '@/lib/supabase';
-import { materialFromAssignment } from '@/services/student-practice';
+import { hasUsablePracticeQuestions, materialFromAssignment } from '@/services/student-practice';
 import { buildAssignmentSnapshot } from '@/services/assignment-snapshot';
 import { programReady } from '@/shared/program-completion';
 import { worksheetHasSource, worksheetReferencesSource } from '@/lib/worksheet-source';
@@ -447,12 +447,12 @@ export async function assignResource(input: { resource: PublicResource; detail: 
   const typeMap = { plan: 'lesson_plan_topic', worksheet: 'worksheet', exam: 'exam', video: 'video' } as const; const sourceMap = { plan: 'lesson_plan_builder', worksheet: 'worksheet_builder', exam: 'exam_builder', video: 'video_library' } as const; const kind = input.resource.kind as keyof typeof typeMap; const now = new Date().toISOString();
   const parsedSourceId = Number(input.resource.id);
   const numericSourceId = Number.isSafeInteger(parsedSourceId) && parsedSourceId > 0 ? parsedSourceId : null;
-  const existing = client.from('teacher_assignments').select('id').eq('teacher_id', uid).eq('student_id', input.connection.student_id).eq('assignment_type', typeMap[kind]).limit(1);
+  const existing = client.from('teacher_assignments').select('id').eq('teacher_id', uid).eq('student_id', input.connection.student_id).eq('assignment_type', typeMap[kind]).neq('status', 'archived').limit(1);
   const duplicate = await (numericSourceId ? existing.eq('source_record_id', numericSourceId) : existing.is('source_record_id', null).contains('content_snapshot', { id: input.resource.id }));
   if (duplicate.error) throw duplicate.error;
   if (duplicate.data?.length) throw new Error('resources.alreadyAssigned');
   const snapshot = buildAssignmentSnapshot(input.detail) as Record<string, unknown> || {};
   if (!numericSourceId) snapshot.id = input.resource.id;
-  if ((kind === 'worksheet' || kind === 'exam') && !materialFromAssignment({ assignment_type: typeMap[kind], content_snapshot: snapshot })?.questions.length) throw new Error('resources.assignmentContentUnavailable');
+  if ((kind === 'worksheet' || kind === 'exam') && !hasUsablePracticeQuestions(materialFromAssignment({ assignment_type: typeMap[kind], content_snapshot: snapshot }))) throw new Error('resources.assignmentContentUnavailable');
   const { error } = await client.from('teacher_assignments').insert({ link_id: input.connection.id, subject_scope_id: scope.id, teacher_id: uid, student_id: input.connection.student_id, assignment_type: typeMap[kind], source_type: sourceMap[kind], source_record_id: numericSourceId, title: input.resource.title, subject_key: canonicalSubjectKey(scope.subject_key || normalizedSubject), subject_label: canonicalSubjectLabel(scope.subject_label || input.resource.subject), topic: input.resource.topic || '', teacher_note: input.teacherNote?.trim() || '', content_snapshot: snapshot, status: 'assigned', due_at: input.dueDate ? new Date(`${input.dueDate}T00:00:00Z`).toISOString() : null, assigned_at: now, created_at: now, updated_at: now }); if (error) throw error;
 }
