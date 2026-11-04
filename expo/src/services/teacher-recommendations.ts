@@ -4,6 +4,7 @@ import { getResourceLibrary } from '@/services/resource-library';
 import { buildStudentTopicAlignment } from '@/services/student-recommendation-topic-alignment';
 import { semanticTextAffinity } from '@/services/student-recommendation-semantic';
 import type { TeacherObjectiveRecommendation } from '@/services/teacher-objective-recommendations';
+import { learnedRecommendationApproved } from '@/services/recommendation-governance';
 
 type EventRow = { resource_kind?: string; resource_record_id?: string | number; learning_program_topic_id?: number; event_weight?: number; created_at?: string; recommendation_bucket?: string; recommendation_focus_kind?: string; event_type?: string };
 export type RecommendationNeed = { id: string; subject: string; topic: string; priority: 'high' | 'medium' | 'next'; topicId?: number; title?: string; objective?: string; stage?: string; level?: string; lessonFocus?: string };
@@ -59,6 +60,7 @@ function fit(samples: { features: Record<string, number>; target: number }[]) {
 export async function loadTeacherRecommendationModel(): Promise<RecommendationModel> {
   const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
+  if (!learnedRecommendationApproved('teacher_resources')) return { teacherId: userData.user.id, weights: { ...BASE_WEIGHTS }, priors: { kind: {}, bucket: {}, focus: {} }, alignment: buildStudentTopicAlignment() };
   const cutoff = new Date(Date.now() - 180 * 86400000).toISOString();
   const { data, error } = await client.from('learning_program_recommendation_events').select('resource_kind,resource_record_id,learning_program_topic_id,event_weight,created_at,recommendation_bucket,recommendation_focus_kind,event_type').eq('teacher_id', userData.user.id).gte('created_at', cutoff).order('created_at', { ascending: false }).limit(1500);
   const rows = (error ? [] : data ?? []) as EventRow[];
@@ -139,7 +141,7 @@ export function rankTeacherResources(resources: PublicResource[], need: Recommen
       ),
       // Python returns zero when its validated fitted representation is unavailable.
       // A lexical overlap is not the trained unsupervised model.
-      unsupervised_affinity: affinityScores?.get(`${need.id}:${resource.kind}:${resource.id}`) || 0,
+      unsupervised_affinity: learnedRecommendationApproved('teacher_resources') ? affinityScores?.get(`${need.id}:${resource.kind}:${resource.id}`) || 0 : 0,
       source_own: String(resource.raw.user_id || '') === model.teacherId ? 1 : 0,
       [`kind_${kind}`]: 1, [`bucket_${context.bucket}`]: 1, [`focus_${context.focus}`]: 1, prior_kind_success: model.priors.kind[kind] || 0, prior_bucket_success: model.priors.bucket[context.bucket] || 0, prior_focus_success: model.priors.focus[context.focus] || 0,
       topic_reference_present: topicId > 0 ? 1 : 0, exact_topic_match: topicFeatures?.explicitTopicMatch || 0, exact_topic_support: topicFeatures?.explicitTopicSupport || 0, direct_topic_link: topicFeatures?.directTopicLink || 0, topic_kind_prior: topicFeatures?.topicKindPrior || 0, topic_match_ambiguity: topicFeatures?.topicMatchAmbiguity || 0,

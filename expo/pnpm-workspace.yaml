@@ -1,6 +1,12 @@
 packages:
   - .
 
+overrides:
+  decode-uri-component: 0.5.1
+
+patchedDependencies:
+  query-string@7.1.3: patches/query-string@7.1.3.patch
+
 allowBuilds:
   core-js: false
   dtrace-provider: true

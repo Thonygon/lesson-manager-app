@@ -100,9 +100,25 @@ class RecommendationGovernanceTests(unittest.TestCase):
             self.assertNotIn("reviewer-0", body)
 
     def test_each_recommendation_family_has_an_independent_fallback_switch(self):
-        with patch.dict("os.environ", {"CLASSIO_TEACHER_RECOMMENDATION_MODE": "heuristic", "CLASSIO_STUDENT_RECOMMENDATION_MODE": ""}):
+        with patch.dict("os.environ", {"CLASSIO_TEACHER_RECOMMENDATION_MODE": "heuristic", "CLASSIO_STUDENT_RECOMMENDATION_MODE": "learned"}):
             self.assertTrue(heuristic_fallback_enabled("teacher_resources"))
-            self.assertFalse(heuristic_fallback_enabled("student_resources"))
+            self.assertTrue(heuristic_fallback_enabled("student_resources"))
+        rows = _judgments()
+        baseline = evaluate_recommendation_evidence(rows, "teacher_resources")
+        review = {
+            "family": "teacher_resources", "policy_version": baseline["policy_version"], "model_version": baseline["model_version"],
+            "evidence_sha256": baseline["evidence_sha256"], "reviewer": "independent-approver",
+            "rationale": "Approve this synthetic fixture", "reviewed_at": datetime.now(timezone.utc).isoformat(), "decision": "promote",
+        }
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "approval.json"
+            path.write_text(json.dumps(evaluate_recommendation_evidence(rows, "teacher_resources", review)), encoding="utf-8")
+            settings = {"CLASSIO_TEACHER_RECOMMENDATION_MODE": "learned", "CLASSIO_TEACHER_RECOMMENDATION_MODEL_VERSION": "synthetic-v1", "CLASSIO_TEACHER_RECOMMENDATION_GOVERNANCE_PATH": str(path)}
+            with patch.dict("os.environ", settings):
+                self.assertFalse(heuristic_fallback_enabled("teacher_resources"))
+                self.assertTrue(heuristic_fallback_enabled("student_resources"))
+                with patch.dict("os.environ", {"CLASSIO_TEACHER_RECOMMENDATION_MODEL_VERSION": "synthetic-v2"}):
+                    self.assertTrue(heuristic_fallback_enabled("teacher_resources"))
 
 
 if __name__ == "__main__":

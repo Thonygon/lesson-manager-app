@@ -20,14 +20,33 @@ POLICY_PATH = Path(__file__).resolve().parents[2] / "docs/RECOMMENDATION_GOVERNA
 
 
 def heuristic_fallback_enabled(family: str) -> bool:
-    """An operator can retire learned ranking without changing stored evidence."""
+    """Fail closed until an approved artifact matches the active model version."""
     names = {
-        "teacher_resources": "CLASSIO_TEACHER_RECOMMENDATION_MODE",
-        "student_resources": "CLASSIO_STUDENT_RECOMMENDATION_MODE",
+        "teacher_resources": "CLASSIO_TEACHER_RECOMMENDATION",
+        "student_resources": "CLASSIO_STUDENT_RECOMMENDATION",
     }
     if family not in names:
         raise ValueError("Unknown recommendation family")
-    return os.getenv(names[family], "").strip().lower() == "heuristic"
+    prefix = names[family]
+    if os.getenv(f"{prefix}_MODE", "").strip().lower() != "learned":
+        return True
+    expected_version = os.getenv(f"{prefix}_MODEL_VERSION", "").strip()
+    approval_path = os.getenv(f"{prefix}_GOVERNANCE_PATH", "").strip()
+    if not expected_version or not approval_path:
+        return True
+    try:
+        approval = json.loads(Path(approval_path).read_text(encoding="utf-8"))
+        return not (
+            approval.get("family") == family
+            and approval.get("policy_version") == _policy()["version"]
+            and approval.get("model_version") == expected_version
+            and re.fullmatch(r"[a-f0-9]{64}", str(approval.get("evidence_sha256") or ""))
+            and approval.get("eligible_for_human_approval") is True
+            and approval.get("review_record_valid") is True
+            and approval.get("action") == "promote"
+        )
+    except (OSError, ValueError, TypeError):
+        return True
 
 
 def _policy() -> dict:

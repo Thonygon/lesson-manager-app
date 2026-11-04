@@ -22,6 +22,7 @@ import type { PublicResource } from '@/services/public-data';
 import { assignResource, getResourceDetail } from '@/services/resource-library';
 import { buildTeacherObjectiveRecommendations, loadTeacherObjectiveModel, type TeacherObjectiveRecommendation } from '@/services/teacher-objective-recommendations';
 import { loadTeacherRecommendationModel, loadTeacherRecommendationResourcePool, loadTeacherRelevanceFeedback, rankTeacherResources, recordTeacherObjectiveExposures, recordTeacherRecommendationAction, recordTeacherRecommendationExposures, saveTeacherRelevanceFeedback, teacherFeedbackKey, type RecommendationModel } from '@/services/teacher-recommendations';
+import { learnedRecommendationApproved } from '@/services/recommendation-governance';
 import { getPythonAffinityModel, scorePythonResourceAffinityBatch } from '@/services/python-models';
 import { addressTeacherPracticeRequest, archiveTeacherAssignment, archiveTeacherConnection, getStudentLearningWorkspace, getTeacherConnections, respondToTeacherConnection, setTeacherProgramTopicProgress, type StudentLearningWorkspace, type TeacherConnection } from '@/services/teacher-students';
 import { colors } from '@/theme';
@@ -147,6 +148,7 @@ function LearningView({ workspace, studentName, linkedStudentId, rosterStudentId
   useEffect(() => {
     if (learningTab !== 'recommendations' || !recommendationModel || !feedbackLoaded) return;
     let active = true;
+    if (!learnedRecommendationApproved('teacher_resources')) { setAffinityScores(new Map()); setAffinityMode('local'); return () => { active = false; }; }
     setAffinityMode('checking');
     void (async () => {
       try {

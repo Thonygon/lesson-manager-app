@@ -3,6 +3,7 @@ import type { StudentWorkspace } from '@/services/student-data';
 import type { ClassioRecord } from '@/services/classio-data';
 import { buildStudentProgramSignals, studentTopicTokens } from '@/services/student-recommendation-programs';
 import { buildStudentTopicAlignment } from '@/services/student-recommendation-topic-alignment';
+import { learnedRecommendationApproved } from '@/services/recommendation-governance';
 
 type Features = Record<string, number>;
 type Sample = { features: Features; target: number; diagnosticTarget?: number; timestamp?: string };
@@ -117,6 +118,7 @@ export function studentRecommendationBlendWeight(samples: Sample[]): number {
 
 /** Live recommendations use active-program signals; historical comparison fixtures use history-derived signals. */
 export function buildStudentRecommendationModel(workspace: StudentWorkspace, now?: number, mode: 'live' | 'history' = 'live'): StudentModel {
+  if (!learnedRecommendationApproved('student_resources')) return { weights: { ...BASE_STUDENT_ML_WEIGHTS }, sampleCount: 0, blendWeight: 0 };
   if (now === undefined) {
     const cached = modelCache.get(workspace)?.[mode];
     if (cached) return cached;

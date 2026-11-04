@@ -186,7 +186,7 @@ export function scoreStudentRecommendationCandidates<T extends PublicResource>(r
     if (!programs.subjects.size && totalAttempts < 3 && levelFit < 0.95) score -= 0.04;
     if (topicSuccess >= 0.82 && topicNeed < 0.28) score -= 0.08;
     else if (topicSuccess <= 0.68 && topic) score += 0.08;
-    const mlScore = scoreStudentRecommendationModel(learnedModel.weights, {
+    const mlScore = learnedModel.blendWeight > 0 ? scoreStudentRecommendationModel(learnedModel.weights, {
       [`kind_${kind}`]: 1, subject_in_program: Number(inProgram), level_fit: levelFit,
       stage_fit: stageFit, next_topic_overlap: next, review_topic_overlap: review,
       pending_topic_overlap: pending, program_subject_fit: Number(inProgram),
@@ -199,7 +199,7 @@ export function scoreStudentRecommendationCandidates<T extends PublicResource>(r
       topic_kind_prior: alignment.topicKindPrior, topic_match_ambiguity: alignment.topicMatchAmbiguity,
       semantic_affinity: semanticAffinity, topic_success_penalty: Number(topicSuccess >= 0.82 && topicNeed < 0.28),
       topic_in_program: programTopicOverlap,
-    });
+    }) : 0;
     score += learnedModel.blendWeight * mlScore;
     const reasons = studentRecommendationReasons({
       kind, topic: text(resource.topic), subject: text(resource.subject),

@@ -4,6 +4,12 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  decode-uri-component: 0.5.1
+
+patchedDependencies:
+  query-string@7.1.3: 9b93de1885f9afa44669c7b59fcc35f07eeb3111a73c3bacbb4c352dec7cf67c
+
 importers:
 
   .:
@@ -2210,9 +2216,9 @@ packages:
       supports-color:
         optional: true
 
-  decode-uri-component@0.2.2:
-    resolution: {integrity: sha512-FqUYQ+8o158GyGTrMFJms9qh3CqTKvAqgqsTnkLI8sKu0028orqBhxNMFkFen0zGyg6epACD32pjVk58ngIErQ==}
-    engines: {node: '>=0.10'}
+  decode-uri-component@0.5.1:
+    resolution: {integrity: sha512-vWHQkXgg2cE3BB4rR0c+PYw9BCQzLoNIRMI7AunIkZst74tw/vpPp7VLoYtsR/cy1f55g3XDWUslfeCZjiZJyA==}
+    engines: {node: '>=14.16'}
 
   deep-is@0.1.4:
     resolution: {integrity: sha512-oIPzksmTg4/MriiaYGO+okXDT7ztn/w3Eptv/+gSIdMdKsJo0u4CfYNFJPy+4SKMuCqGw2wxnA+URMg3t8a/bQ==}
@@ -7912,7 +7918,7 @@ snapshots:
     optionalDependencies:
       supports-color: 8.1.1
 
-  decode-uri-component@0.2.2: {}
+  decode-uri-component@0.5.1: {}
 
   deep-is@0.1.4: {}
 
@@ -8583,7 +8589,7 @@ snapshots:
       fast-deep-equal: 3.1.3
       invariant: 2.2.4
       nanoid: 3.3.19
-      query-string: 7.1.3
+      query-string: 7.1.3(patch_hash=9b93de1885f9afa44669c7b59fcc35f07eeb3111a73c3bacbb4c352dec7cf67c)
       react: 19.2.3
       react-fast-compare: 3.2.2
       react-is: 19.3.0
@@ -10329,9 +10335,9 @@ snapshots:
 
   qrcode-terminal@0.12.0: {}
 
-  query-string@7.1.3:
+  query-string@7.1.3(patch_hash=9b93de1885f9afa44669c7b59fcc35f07eeb3111a73c3bacbb4c352dec7cf67c):
     dependencies:
-      decode-uri-component: 0.2.2
+      decode-uri-component: 0.5.1
       filter-obj: 1.1.0
       split-on-first: 1.1.0
       strict-uri-encode: 2.0.0

@@ -3,6 +3,7 @@ import { programTopics } from '@/lib/learning-program-topics';
 import { requireSupabase } from '@/lib/supabase';
 import type { ClassioRecord } from '@/services/classio-data';
 import type { StudentLearningWorkspace } from '@/services/teacher-students';
+import { learnedRecommendationApproved } from '@/services/recommendation-governance';
 
 export type TeacherObjectiveRecommendation = {
   id: string; subject: string; topic: string; title: string; objective: string;
@@ -193,6 +194,7 @@ export async function loadTeacherObjectiveModel(): Promise<Record<string, number
   const client = requireSupabase();
   const { data: auth, error: authError } = await client.auth.getUser(); const teacherId = auth.user?.id;
   if (authError || !teacherId) throw authError ?? new Error('Your session has expired.');
+  if (!learnedRecommendationApproved('teacher_resources')) return { ...BASE };
   const cached = objectiveModelCache.get(teacherId);
   if (cached && cached.expires > Date.now()) return cached.promise;
   const promise = (async () => {
