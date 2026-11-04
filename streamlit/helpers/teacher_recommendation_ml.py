@@ -27,6 +27,7 @@ from helpers.recommendation_models import (
     topic_resource_alignment_features,
 )
 from helpers.student_recommendation_ml import _clamp, _compute_metrics
+from helpers.recommendation_governance import heuristic_fallback_enabled
 
 
 def _target_to_label(target: float) -> int:
@@ -481,6 +482,8 @@ def summarize_teacher_objective_samples(samples: list[dict[str, Any]]) -> dict[s
 
 
 def build_teacher_recommendation_objective_model(teacher_id: str | None = None) -> dict[str, Any]:
+    if heuristic_fallback_enabled("teacher_resources"):
+        return {"weights": _base_teacher_objective_weights(), "diagnostics": {"mode": "heuristic"}}
     safe_teacher_id = str(teacher_id or get_current_user_id() or "").strip()
     samples = build_teacher_objective_samples(safe_teacher_id)
     diagnostics = summarize_teacher_objective_samples(samples)
@@ -743,7 +746,7 @@ def summarize_teacher_recommendation_samples(samples: list[dict[str, Any]]) -> d
     roc_auc = float(metrics.get("roc_auc", 0.0))
     f1 = float(metrics.get("f1", 0.0))
     if roc_auc > 0.90 and f1 > 0.80:
-        maturity_level = "Production Ready"
+        maturity_level = "Operational Candidate"
     elif roc_auc >= 0.75 and f1 >= 0.30:
         maturity_level = "Operational Candidate"
     elif roc_auc >= 0.60 and f1 >= 0.10:

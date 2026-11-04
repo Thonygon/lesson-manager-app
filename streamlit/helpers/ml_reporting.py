@@ -506,6 +506,14 @@ def assess_maturity_level(metrics: dict[str, float]) -> str:
     return "experimental"
 
 
+def assess_report_maturity(diagnostics: dict) -> str:
+    """Proxy-label metrics cannot by themselves establish production readiness."""
+    governance = diagnostics.get("governance")
+    if not governance or governance.get("action") != "promote":
+        return "experimental"
+    return assess_maturity_level(diagnostics.get("metrics") or {})
+
+
 def maturity_label(level: str, lang: str) -> str:
     key_map = {
         "experimental": "maturity_experimental",
@@ -624,13 +632,20 @@ def build_limitations(diagnostics: dict, lang: str, extra_limitations: list[str]
         lines.append(_text(lang, "generic_limit_degenerate"))
     else:
         lines.append(_text(lang, "generic_limit_next"))
+    governance = diagnostics.get("governance") or {}
+    if not governance or governance.get("action") != "promote":
+        lines.append({
+            "es": "Las aperturas y otras acciones son señales indirectas. Falta evidencia independiente por segmentos y aprobación humana; este informe no autoriza promover el modelo.",
+            "tr": "Açılışlar ve diğer eylemler dolaylı sinyallerdir. Segment bazında bağımsız kanıt ve insan onayı olmadan bu rapor model yükseltmesini onaylamaz.",
+            "en": "Opens and other actions are proxy signals. Independent segment evidence and human approval are required before this report can support promotion.",
+        }.get(lang, "Independent segment evidence and human approval are required before promotion."))
     lines.extend(extra_limitations)
     return lines
 
 
 def build_final_conclusion(diagnostics: dict, lang: str) -> str:
     metrics = diagnostics.get("metrics") or {}
-    level = assess_maturity_level(metrics)
+    level = assess_report_maturity(diagnostics)
     maturity = maturity_label(level, lang)
     degenerate = float(metrics.get("precision") or 0.0) == 0.0 and float(metrics.get("recall") or 0.0) == 0.0 and float(metrics.get("f1") or 0.0) == 0.0 and int(diagnostics.get("test_count") or 0) > 0
     if degenerate:
@@ -646,7 +661,7 @@ def write_classio_ml_report(docx_path: Path, data: dict, charts: dict[str, Path]
     positive_rate = float(diagnostics.get("positive_rate") or 0.0)
     scope = str(data.get("scope") or "single")
     generated_at = datetime.now().astimezone().strftime("%B %d, %Y")
-    level = assess_maturity_level(metrics)
+    level = assess_report_maturity(diagnostics)
     maturity = maturity_label(level, lang)
 
     model_name = _localized(meta.get("model_name"), lang)

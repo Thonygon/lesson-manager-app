@@ -28,6 +28,7 @@ from helpers.recommendation_models import (
     normalize_subject,
     topic_resource_alignment_features,
 )
+from helpers.recommendation_governance import heuristic_fallback_enabled
 
 
 def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
@@ -399,6 +400,8 @@ def evaluate_student_recommendation_pipeline(
 
 
 def student_recommendation_blend_weight(student_id: str, profile_snapshot: dict[str, Any]) -> float:
+    if heuristic_fallback_enabled("student_resources"):
+        return 0.0
     diagnostics = evaluate_student_recommendation_pipeline(student_id, profile_snapshot)
     return float(diagnostics.get("blend_weight") or 0.42)
 
