@@ -68,11 +68,16 @@ def check_url(url: str, expected_status: int, *, resolve=socket.getaddrinfo, ope
 def main() -> int:
     failures = []
     for host in DNS_HOSTS:
-        try:
-            observations = check_public_dns(host)
-            print(f"OK public DNS {host}: {' | '.join(observations)}")
-        except Exception as error:
-            failures.append(f"public DNS {host}: {type(error).__name__}: {error}")
+        for attempt in range(3):
+            try:
+                observations = check_public_dns(host)
+                print(f"OK public DNS {host}: {' | '.join(observations)}")
+                break
+            except Exception as error:
+                if attempt == 2:
+                    failures.append(f"public DNS {host}: {type(error).__name__}: {error}")
+                else:
+                    time.sleep(3)
     for url, status in CHECKS:
         for attempt in range(3):
             try:

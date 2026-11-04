@@ -1,5 +1,6 @@
 import unittest
 from io import BytesIO
+from unittest.mock import patch
 from urllib.request import Request
 
 import check_public_domains as health
@@ -56,6 +57,20 @@ class PublicDomainHealthTest(unittest.TestCase):
     def test_public_dns_rejects_nxdomain(self):
         with self.assertRaisesRegex(RuntimeError, "DNS status 3"):
             health.check_public_dns("masterclassio.com", open_url=lambda request, timeout: FakeDnsResponse(b'{"Status":3}'))
+
+    def test_health_retries_transient_dns_failure(self):
+        calls = []
+
+        def sometimes_unavailable(host):
+            calls.append(host)
+            if len(calls) == 1:
+                raise TimeoutError("resolver temporarily unavailable")
+            return ["resolved"]
+
+        with patch.object(health, "DNS_HOSTS", ("masterclassio.com",)), patch.object(health, "CHECKS", ()), patch.object(health, "check_public_dns", side_effect=sometimes_unavailable), patch.object(health.time, "sleep") as sleep:
+            self.assertEqual(health.main(), 0)
+        self.assertEqual(len(calls), 2)
+        sleep.assert_called_once_with(3)
 
 
 if __name__ == "__main__":
