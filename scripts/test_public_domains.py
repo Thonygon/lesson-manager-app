@@ -1,4 +1,5 @@
 import unittest
+from io import BytesIO
 from urllib.request import Request
 
 import check_public_domains as health
@@ -19,6 +20,10 @@ class FakeResponse:
         return False
 
 
+class FakeDnsResponse(BytesIO):
+    pass
+
+
 class PublicDomainHealthTest(unittest.TestCase):
     @staticmethod
     def open_request(request, timeout):
@@ -36,6 +41,21 @@ class PublicDomainHealthTest(unittest.TestCase):
     def test_redirect_away_from_custom_domain_fails(self):
         with self.assertRaisesRegex(RuntimeError, "unexpected redirect"):
             health.check_url("https://app.masterclassio.com/sign-in", 200, resolve=lambda *args, **kwargs: [(1,)], open_url=lambda request, timeout: FakeResponse(200, "https://classio.expo.app/sign-in"))
+
+    def test_public_dns_accepts_resolved_answers(self):
+        requests = []
+
+        def open_dns(request, timeout):
+            requests.append(request.full_url)
+            return FakeDnsResponse(b'{"Status":0,"Answer":[{"type":5,"data":"origin.expo.app."}]}')
+
+        answers = health.check_public_dns("app.masterclassio.com", open_url=open_dns)
+        self.assertEqual(len(answers), 2)
+        self.assertEqual(len(requests), 2)
+
+    def test_public_dns_rejects_nxdomain(self):
+        with self.assertRaisesRegex(RuntimeError, "DNS status 3"):
+            health.check_public_dns("masterclassio.com", open_url=lambda request, timeout: FakeDnsResponse(b'{"Status":3}'))
 
 
 if __name__ == "__main__":

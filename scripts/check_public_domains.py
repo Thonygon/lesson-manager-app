@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import socket
 import sys
 import time
@@ -17,6 +18,32 @@ CHECKS = (
 )
 
 USER_AGENT = "Classio-Health/1.0 (+https://masterclassio.com/)"
+PUBLIC_DNS = (
+    "https://cloudflare-dns.com/dns-query",
+    "https://dns.google/resolve",
+)
+DNS_HOSTS = ("masterclassio.com", "app.masterclassio.com")
+
+
+def check_public_dns(host: str, *, open_url=urlopen) -> list[str]:
+    """Compare independent public resolvers; report a filtered/local DNS answer separately."""
+    observations = []
+    for endpoint in PUBLIC_DNS:
+        request = Request(
+            f"{endpoint}?name={host}&type=A",
+            headers={"User-Agent": USER_AGENT, "Accept": "application/dns-json"},
+        )
+        with open_url(request, timeout=15) as response:
+            payload = json.load(response)
+        status = payload.get("Status")
+        answers = payload.get("Answer") or []
+        addresses = [str(row.get("data")) for row in answers if row.get("type") == 1 and row.get("data")]
+        # A CNAME-only response can be valid when the resolver does not flatten it.
+        aliases = [str(row.get("data")) for row in answers if row.get("type") == 5 and row.get("data")]
+        if status != 0 or not (addresses or aliases):
+            raise RuntimeError(f"{host}: {endpoint} returned DNS status {status} without an A/CNAME answer")
+        observations.append(f"{endpoint}: {', '.join(addresses or aliases)}")
+    return observations
 
 
 def check_url(url: str, expected_status: int, *, resolve=socket.getaddrinfo, open_url=urlopen) -> None:
@@ -40,6 +67,12 @@ def check_url(url: str, expected_status: int, *, resolve=socket.getaddrinfo, ope
 
 def main() -> int:
     failures = []
+    for host in DNS_HOSTS:
+        try:
+            observations = check_public_dns(host)
+            print(f"OK public DNS {host}: {' | '.join(observations)}")
+        except Exception as error:
+            failures.append(f"public DNS {host}: {type(error).__name__}: {error}")
     for url, status in CHECKS:
         for attempt in range(3):
             try:
