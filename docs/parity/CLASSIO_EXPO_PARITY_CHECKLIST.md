@@ -378,7 +378,7 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 - [x] Teacher/student mode switching for dual-role accounts
 - [x] First-run role choice is routed and saved for teacher/student accounts, with role guards and EN/ES/TR copy. The native chooser now calls the hosted API with an absolute URL; beta account creation on web and device remains to be accepted.
 - [x] First-run onboarding checklist and guided welcome
-- [ ] Editable profile, avatar, language, theme, timezone, currency, and preferences
+- [x] Editable profile, avatar, language, theme, timezone, currency, and preferences. Rechecked on 2026-11-04: Profile saves the owner-scoped fields through `saveProfileWorkspace`, avatar upload is separate, language/theme persist through `app-preferences`, and role-specific notification choices persist through the notifications provider. Code is closed; live beta editing, reload, and cross-device expectations remain to be documented.
   - [x] Persistent interface-language and appearance preferences
   - [x] Streamlit-matched Profile route with avatar upload, locked username/email, personal details, role, timezone, country, default currency/duration, teaching subjects/stages/languages, education, community visibility/contact, and guarded account deletion
   - [x] Responsive Profile placement beside Account/Billing in signed-in teacher and student navigation, with the saved avatar reflected in the application shell
