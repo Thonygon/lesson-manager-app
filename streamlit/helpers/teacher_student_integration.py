@@ -1866,7 +1866,7 @@ def record_assignment_attempt_from_practice(
 
 
 @st.cache_data(ttl=30, show_spinner=False)
-def _load_teacher_assignment_progress_cached(teacher_id: str, student_id: str = "", subject_key: str = "") -> list[dict]:
+def _load_teacher_assignment_progress_cached(teacher_id: str, student_id: str = "", subject_key: str = "", include_archived: bool = False) -> list[dict]:
     if not teacher_id:
         return []
     try:
@@ -1881,6 +1881,8 @@ def _load_teacher_assignment_progress_cached(teacher_id: str, student_id: str = 
             query = query.eq("student_id", str(student_id).strip())
         if subject_key:
             query = query.eq("subject_key", str(subject_key).strip())
+        if not include_archived:
+            query = query.neq("status", "archived")
         assignments = _rows(query.execute())
     except Exception:
         return []
@@ -1927,7 +1929,7 @@ def _load_teacher_assignment_progress_cached(teacher_id: str, student_id: str = 
 register_cache(_load_teacher_assignment_progress_cached, "assignments", "practice")
 
 
-def load_teacher_assignment_progress(student_id: str | None = None, subject_key: str | None = None) -> list[dict]:
+def load_teacher_assignment_progress(student_id: str | None = None, subject_key: str | None = None, *, include_archived: bool = False) -> list[dict]:
     teacher_id = str(get_current_user_id() or "").strip()
     if not teacher_id:
         return []
@@ -1935,6 +1937,7 @@ def load_teacher_assignment_progress(student_id: str | None = None, subject_key:
         teacher_id,
         str(student_id or "").strip(),
         str(subject_key or "").strip(),
+        include_archived,
     )
 
 

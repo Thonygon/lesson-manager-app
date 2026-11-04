@@ -95,6 +95,14 @@ class TeacherStudentIntegrationQueryTests(unittest.TestCase):
         self.assertEqual(tsi._STUDENT_RECORD_COLUMNS, query.ops[0][1])
         self.assertIn(("eq", "user_id", "teacher-1"), query.ops)
 
+    def test_teacher_assignment_progress_includes_archive_only_when_requested(self):
+        fake_sb = _FakeSupabase()
+        with patch.object(tsi, "get_sb", return_value=fake_sb):
+            tsi._load_teacher_assignment_progress_cached("teacher-archive-test")
+            tsi._load_teacher_assignment_progress_cached("teacher-archive-test", include_archived=True)
+        self.assertIn(("neq", "status", "archived"), fake_sb.table_log[0].ops)
+        self.assertNotIn(("neq", "status", "archived"), fake_sb.table_log[1].ops)
+
     def test_assignment_attempt_rejects_missing_assignment_provenance(self):
         fake_sb = _FakeSupabase(
             table_data={

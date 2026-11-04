@@ -3574,6 +3574,7 @@ def render_students():
                 progress_rows = load_teacher_assignment_progress(
                     student_id=str(selected_link.get("student_id") or ""),
                     subject_key=None if selected_subject == "__all__" else selected_subject,
+                    include_archived=True,
                 )
                 review_rows = load_teacher_review_requests(
                     student_id=str(selected_link.get("student_id") or ""),
