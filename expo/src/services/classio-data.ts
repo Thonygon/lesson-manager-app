@@ -105,17 +105,18 @@ export async function getAssignmentWorkspace(): Promise<AssignmentWorkspace> {
   const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
   const teacherId = userData.user.id;
-  const [assignmentResult, attemptResult, reviewResult, studentResult] = await Promise.all([
-    client.from('teacher_assignments').select(LISTS.assignments.select).eq('teacher_id', teacherId).order('created_at', { ascending: false }).limit(1000),
+  const [activeAssignmentResult, archivedAssignmentResult, attemptResult, reviewResult, studentResult] = await Promise.all([
+    client.from('teacher_assignments').select(LISTS.assignments.select).eq('teacher_id', teacherId).neq('status', 'archived').order('created_at', { ascending: false }).limit(1000),
+    client.from('teacher_assignments').select(LISTS.assignments.select).eq('teacher_id', teacherId).eq('status', 'archived').order('created_at', { ascending: false }).limit(1000),
     client.from('teacher_assignment_attempts').select('id,assignment_id,student_id,practice_session_id,attempt_number,status,score_pct,total_questions,correct_count,teacher_feedback,started_at,submitted_at,graded_at,completed_at,created_at').eq('teacher_id', teacherId).order('created_at', { ascending: false }).limit(2000),
     client.from('teacher_review_requests').select('id,student_id,assignment_id,practice_session_id,subject_key,subject_label,source_type,source_id,title,status,request_note,teacher_feedback,override_score_pct,requested_at,reviewed_at,created_at').eq('teacher_id', teacherId).order('requested_at', { ascending: false }).limit(1000),
     client.from('students').select('student,linked_student_user_id').eq('user_id', teacherId).not('linked_student_user_id', 'is', null).limit(1000),
   ]);
-  const error = assignmentResult.error ?? attemptResult.error ?? reviewResult.error ?? studentResult.error;
+  const error = activeAssignmentResult.error ?? archivedAssignmentResult.error ?? attemptResult.error ?? reviewResult.error ?? studentResult.error;
   if (error) throw error;
   const studentNames = Object.fromEntries((studentResult.data ?? []).flatMap((row) => row.linked_student_user_id ? [[String(row.linked_student_user_id), String(row.student || 'Student')]] : []));
   return {
-    assignments: (assignmentResult.data ?? []) as unknown as ClassioRecord[],
+    assignments: [...(activeAssignmentResult.data ?? []), ...(archivedAssignmentResult.data ?? [])] as unknown as ClassioRecord[],
     attempts: (attemptResult.data ?? []) as unknown as ClassioRecord[],
     reviewRequests: (reviewResult.data ?? []) as unknown as ClassioRecord[],
     studentNames,
