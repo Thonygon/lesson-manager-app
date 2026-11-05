@@ -89,6 +89,8 @@ html,body,#root{background:var(--classio-canvas);min-height:100%;}
 #root>div>div>div>div>div>div,
 #root>div>div>div>div>div>div>div,
 #root>div>div>div>div>div>div>div>div{background-color:transparent!important;}
+/* The transparent navigation scaffold must not erase the storage notice card. */
+#root #classio-storage-notice-card{background-color:var(--classio-surface)!important;}
 ${introOverlayCss}
 #classio-live-background{
   position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;
