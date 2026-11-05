@@ -333,7 +333,8 @@ function examSections(detail: Record<string, unknown>, variant: ResourceVariant,
       const sectionType = String(section.type || '');
       const wordSearch = sectionType === 'word_search_vocab' || sectionType === 'word_search';
       if (String(section.instructions || '').trim()) lines.push(String(section.instructions).trim());
-      const sourceStart = lines.length;
+      const instructionLineCount = lines.length;
+      const sourceStart = instructionLineCount;
       const source = String(section.source_text || '').trim() ? structuredTextContent(section.source_text, section.text_title, section.text_blocks, section.text_kind) : null;
       if (source) lines.push(...source.lines);
       const table = record(section.table_data);
@@ -372,7 +373,7 @@ function examSections(detail: Record<string, unknown>, variant: ResourceVariant,
       const visual = readyVisual(section.visual_support);
       const rawGrid = wordSearch ? list(section.wordsearch_grid || section.grid) : [];
       const grid = wordSearch ? (rawGrid.length ? rawGrid : makeWordSearchGrid(words)).map((row) => list(row).map(String)).filter((row) => row.length) : [];
-      if (lines.length || tableRows?.length || dataRows.length || visual || grid.length) output.push({ heading: String(section.title || labelize(String(section.type || `Section ${sectionIndex + 1}`))), lines: tableRows?.length ? lines.filter((line) => !/^\d+\.\s/.test(line)) : lines, sourceStart: source ? sourceStart : undefined, sourceStyles: source?.styles, visualAfterLines: visual && !wordSearch && sourceStart ? sourceStart : undefined, table: tableRows || (columns.length || dataRows.length ? [...(columns.length ? [columns] : []), ...dataRows] : undefined), grid: grid.length ? grid : undefined, visuals: visual && !wordSearch ? [visual] : undefined, watermark: visual && wordSearch ? visual : undefined });
+      if (lines.length || tableRows?.length || dataRows.length || visual || grid.length) output.push({ heading: String(section.title || labelize(String(section.type || `Section ${sectionIndex + 1}`))), lines: tableRows?.length ? lines.filter((line) => !/^\d+\.\s/.test(line)) : lines, sourceStart: source ? sourceStart : undefined, sourceStyles: source?.styles, visualAfterLines: visual && !wordSearch && instructionLineCount ? instructionLineCount : undefined, table: tableRows || (columns.length || dataRows.length ? [...(columns.length ? [columns] : []), ...dataRows] : undefined), grid: grid.length ? grid : undefined, visuals: visual && !wordSearch ? [visual] : undefined, watermark: visual && wordSearch ? visual : undefined });
     }
   }
 
@@ -910,8 +911,12 @@ export function downloadResourceDocx(title: string, detail: Record<string, unkno
   return recordedDocumentExport('docx', documentKind, variant, () => saveDocx(displayTitle, subtitle, resourceSections(detail, variant, documentLocale), `${title}${suffix}`, documentLocale, resourceKind === 'worksheet' || resourceKind === 'exam', false, resourceKind, resourceMetaLine(detail, resourceKind, documentLocale)));
 }
 
+export function localDocumentDate(date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 function studentProgressSubtitle(locale: DocumentLocale): string {
-  return `${COPY[locale].studentEvidence} · ${new Date().toISOString().slice(0, 10)}`;
+  return `${COPY[locale].studentEvidence} · ${localDocumentDate()}`;
 }
 
 export function downloadStudentReportPdf(studentName: string, workspace: StudentLearningWorkspace, locale: DocumentLocale = 'en') {
@@ -941,9 +946,9 @@ function studentHistorySections(lessons: Record<string, unknown>[], payments: Re
 }
 
 export function downloadStudentHistoryPdf(studentName: string, lessons: Record<string, unknown>[], payments: Record<string, unknown>[], locale: DocumentLocale = 'en', balance: HistoryBalance = null) {
-  return recordedDocumentExport('pdf', 'student_history', 'full', () => savePdf(`${{ en: 'Student report', es: 'Informe del estudiante', tr: 'Öğrenci raporu' }[locale]} · ${studentName}`, new Date().toISOString().slice(0, 10), studentHistorySections(lessons, payments, locale, balance), `${studentName}-student-report`, locale));
+  return recordedDocumentExport('pdf', 'student_history', 'full', () => savePdf(`${{ en: 'Student report', es: 'Informe del estudiante', tr: 'Öğrenci raporu' }[locale]} · ${studentName}`, localDocumentDate(), studentHistorySections(lessons, payments, locale, balance), `${studentName}-student-report`, locale));
 }
 
 export function downloadStudentHistoryDocx(studentName: string, lessons: Record<string, unknown>[], payments: Record<string, unknown>[], locale: DocumentLocale = 'en', balance: HistoryBalance = null) {
-  return recordedDocumentExport('docx', 'student_history', 'full', () => saveDocx(`${{ en: 'Student report', es: 'Informe del estudiante', tr: 'Öğrenci raporu' }[locale]} · ${studentName}`, new Date().toISOString().slice(0, 10), studentHistorySections(lessons, payments, locale, balance), `${studentName}-student-report`, locale));
+  return recordedDocumentExport('docx', 'student_history', 'full', () => saveDocx(`${{ en: 'Student report', es: 'Informe del estudiante', tr: 'Öğrenci raporu' }[locale]} · ${studentName}`, localDocumentDate(), studentHistorySections(lessons, payments, locale, balance), `${studentName}-student-report`, locale));
 }
