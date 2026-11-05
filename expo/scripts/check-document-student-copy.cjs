@@ -63,6 +63,15 @@ const responseSpace = loaded.exports.resourceSections({ exam_data: { duration_mi
 assert.equal(responseSpace[0].lines.filter((line) => line === '_'.repeat(50)).length, 2);
 assert.equal(responseSpace[1].lines.filter((line) => line === '_'.repeat(50)).length, 5);
 assert.ok(responseSpace[2].lines.includes('1. The result is ______________.'));
+const transformation = { exam_data: { sections: [{ type: 'sentence_transformation', title: 'Transformación de Oraciones', questions: [
+  { original: 'Usted es de México.', prompt: 'Haz una pregunta cerrada.' },
+  { original: 'Ellos tienen treinta años.', prompt: 'Haz una pregunta abierta.' },
+] }] } };
+for (const variant of ['student', 'teacher']) {
+  const lines = loaded.exports.resourceSections(transformation, variant, 'es')[0].lines;
+  assert.ok(lines.includes('1. Usted es de México. — Haz una pregunta cerrada.'));
+  assert.ok(lines.includes('2. Ellos tienen treinta años. — Haz una pregunta abierta.'));
+}
 
 const worksheet = { worksheet_json: { title: 'Practice', sections: [{ questions: [{ prompt: 'Write a greeting.', is_correct: true, feedback: 'Teacher hint' }] }], answer_key: 'Hello' } };
 const worksheetStudent = JSON.stringify(loaded.exports.resourceSections(worksheet, 'student'));

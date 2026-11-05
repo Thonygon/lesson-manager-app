@@ -335,7 +335,11 @@ function examSections(detail: Record<string, unknown>, variant: ResourceVariant,
       if (words.length) lines.push(words.join('  ·  '));
       for (const [questionIndex, question] of (wordSearch ? [] : list(section.questions)).entries()) {
         const row = record(question);
-        const prompt = typeof question === 'string' ? question : String(row.stem || row.text || row.question || row.sentence || row.prompt || row.original || '');
+        const original = String(row.original || '').trim();
+        const task = String(row.stem || row.text || row.question || row.sentence || row.prompt || '').trim();
+        const prompt = typeof question === 'string' ? question : sectionType === 'sentence_transformation'
+          ? [original, task !== original ? task : ''].filter(Boolean).join(' — ')
+          : String(row.stem || row.text || row.question || row.sentence || row.prompt || row.original || '');
         if (prompt.trim()) lines.push(`${questionIndex + 1}. ${sectionType === 'fill_in_blank' ? withoutQuestionNumber(prompt).replaceAll('___', '______________') : withoutQuestionNumber(prompt)}`);
         for (const [optionIndex, option] of list(row.options).entries()) {
           lines.push(`   ${String.fromCharCode(65 + optionIndex)}) ${String(option)}`);
