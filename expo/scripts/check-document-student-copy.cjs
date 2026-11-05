@@ -118,6 +118,10 @@ const illustratedWorksheet = loaded.exports.resourceSections({ worksheet_json: {
 assert.deepEqual(illustratedWorksheet.flatMap((section) => section.visuals || []), [art]);
 const illustratedExam = loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'diagram_questions', title: 'Diagram', visual_support: { status: 'ready', image_data_url: art }, questions: ['Name the part.'] }] } }, 'student');
 assert.deepEqual(illustratedExam[0].visuals, [art]);
+const instructedExam = loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'reading_comprehension', title: 'Reading', instructions: 'Read the anecdote first.', source_text: 'A journey to Seville.', visual_support: { status: 'ready', image_data_url: art }, questions: ['Where did Marco travel?'] }] } }, 'student');
+assert.equal(instructedExam[0].visualAfterLines, 1);
+assert.equal(instructedExam[0].lines[0], 'Read the anecdote first.');
+assert.equal(instructedExam[0].lines[1], 'A journey to Seville.');
 assert.equal(loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'diagram_questions', visual_support: { status: 'ready', image_data_url: art }, questions: ['Name the part.'] }] } }, 'answers').flatMap((section) => section.visuals || []).length, 0);
 assert.equal(loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'word_search', visual_support: { status: 'ready', image_data_url: art }, questions: ['Find CAT'] }] } }, 'student')[0].visuals, undefined);
 

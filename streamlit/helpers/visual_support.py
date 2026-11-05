@@ -1345,7 +1345,9 @@ def build_pdf_visual_flowables(support: dict | None, *, max_width_cm: float, par
     if max_height_cm > 0 and target_height > max_height_cm * cm:
         target_height = max_height_cm * cm
         target_width = target_height / max(ratio, 0.01)
-    flowables = [RLImage(BytesIO(image_bytes), width=target_width, height=target_height), Spacer(1, 6)]
+    visual = RLImage(BytesIO(image_bytes), width=target_width, height=target_height)
+    visual.hAlign = "CENTER"
+    flowables = [visual, Spacer(1, 6)]
     return flowables
 
 
@@ -1358,6 +1360,7 @@ def add_docx_visual_support(doc, support: dict | None, *, width_cm: float, font_
     if not image_bytes:
         return
     para = doc.add_paragraph()
+    para.alignment = 1
     run = para.add_run()
     # Cap height if requested to keep content on one page
     if max_height_cm > 0:
