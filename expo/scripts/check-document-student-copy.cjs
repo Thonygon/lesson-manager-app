@@ -122,6 +122,19 @@ const instructedExam = loaded.exports.resourceSections({ exam_data: { sections: 
 assert.equal(instructedExam[0].visualAfterLines, 1);
 assert.equal(instructedExam[0].lines[0], 'Read the anecdote first.');
 assert.equal(instructedExam[0].lines[1], 'A journey to Seville.');
+const imageOnlyExam = loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'diagram_questions', title: 'Label the diagram', instructions: 'Study the image first.', visual_support: { status: 'ready', image_data_url: art }, questions: ['Name the labeled part.'] }] } }, 'student');
+assert.equal(imageOnlyExam[0].visualAfterLines, 1);
+assert.equal(imageOnlyExam[0].lines[0], 'Study the image first.');
+const previousTz = process.env.TZ;
+try {
+  process.env.TZ = 'Europe/Istanbul';
+  assert.equal(loaded.exports.localDocumentDate(new Date('2026-11-04T22:30:00Z')), '2026-11-05');
+  process.env.TZ = 'America/New_York';
+  assert.equal(loaded.exports.localDocumentDate(new Date('2026-11-05T01:00:00Z')), '2026-11-04');
+} finally {
+  if (previousTz === undefined) delete process.env.TZ;
+  else process.env.TZ = previousTz;
+}
 assert.equal(loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'diagram_questions', visual_support: { status: 'ready', image_data_url: art }, questions: ['Name the part.'] }] } }, 'answers').flatMap((section) => section.visuals || []).length, 0);
 assert.equal(loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'word_search', visual_support: { status: 'ready', image_data_url: art }, questions: ['Find CAT'] }] } }, 'student')[0].visuals, undefined);
 

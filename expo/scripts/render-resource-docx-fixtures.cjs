@@ -48,6 +48,7 @@ const samples = [
 const visual = { status: 'ready', image_data_url: `data:image/png;base64,${fs.readFileSync(path.join(__dirname, '../public/logo_classio_light.png')).toString('base64')}` };
 samples.push(['worksheet-visual', 'Visual worksheet', { worksheet_type: 'reading_comprehension', instructions: 'Study the picture.', visual_supports: [visual], questions: ['What do you see?'] }, 'student']);
 samples.push(['exam-visual', 'Visual exam', { sections: [{ type: 'diagram_questions', title: 'Diagram', instructions: 'Study the image before answering.', source_text: 'The classroom diagram.', visual_support: visual, questions: ['Identify the image.'] }] }, 'student']);
+samples.push(['exam-visual-no-source', 'Visual exam without source', { sections: [{ type: 'diagram_questions', title: 'Diagram', instructions: 'Study the image before answering.', visual_support: visual, questions: ['Identify the image.'] }] }, 'student']);
 samples.push(['word-search-watermark', 'Visual word search', { worksheet_type: 'word_search_vocab', instructions: 'Find CLASS.', vocabulary_bank: ['CLASS'], visual_supports: [visual] }, 'student']);
 samples.push(['exam-word-search', 'Exam word search', { sections: [{ type: 'word_search', title: 'Find the words', instructions: 'Circle the words.', vocabulary_bank: ['CLASS', 'LEARN'], visual_support: visual }] }, 'student']);
 samples.push(['email-reading', 'Reading an email', { worksheet_json: { worksheet_type: 'reading_comprehension', reading_passage: 'From: Ana\nTo: Ben\nSubject: Our trip\n\nHello Ben,\n\nWe will travel next week. Please bring your notebook.\n\nBest wishes,\nAna', text_kind: 'email', questions: ['When?'] } }, 'student']);
@@ -70,5 +71,8 @@ global.document.createElement = (tag) => tag === 'canvas' ? { width: 0, height: 
   captured = null;
   await loaded.exports.downloadStudentHistoryDocx('Sample Student', [{ lesson_date: '2026-11-04', number_of_lesson: 1, modality: 'Online', subject: 'English', note: 'Future plans' }], [], 'en');
   fs.writeFileSync(path.join(outputDir, 'student-history.docx'), Buffer.from(await captured.arrayBuffer()));
+  captured = null;
+  await loaded.exports.downloadStudentReportDocx('Sample Student', { assignments: [], attempts: [], programs: [], reviews: [], progress: [] }, 'en');
+  fs.writeFileSync(path.join(outputDir, 'student-progress.docx'), Buffer.from(await captured.arrayBuffer()));
   process.stdout.write(`${outputDir}\n`);
 })().catch((error) => { console.error(error); process.exitCode = 1; });

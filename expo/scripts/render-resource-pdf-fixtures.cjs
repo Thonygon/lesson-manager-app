@@ -50,6 +50,7 @@ const examples = [
 const visual = { status: 'ready', image_data_url: `data:image/png;base64,${fs.readFileSync(path.join(__dirname, '../public/logo_classio_light.png')).toString('base64')}` };
 examples.push(['worksheet-visual', 'Visual worksheet', { worksheet_type: 'reading_comprehension', instructions: 'Study the picture.', visual_supports: [visual], questions: ['What do you see?'] }, 'student']);
 examples.push(['exam-visual', 'Visual exam', { sections: [{ type: 'diagram_questions', title: 'Diagram', instructions: 'Study the image before answering.', source_text: 'The classroom diagram.', visual_support: visual, questions: ['Identify the image.'] }] }, 'student']);
+examples.push(['exam-visual-no-source', 'Visual exam without source', { sections: [{ type: 'diagram_questions', title: 'Diagram', instructions: 'Study the image before answering.', visual_support: visual, questions: ['Identify the image.'] }] }, 'student']);
 examples.push(['word-search-watermark', 'Visual word search', { worksheet_type: 'word_search_vocab', instructions: 'Find CLASS.', vocabulary_bank: ['CLASS'], visual_supports: [visual] }, 'student']);
 examples.push(['exam-word-search', 'Exam word search', { sections: [{ type: 'word_search', title: 'Find the words', instructions: 'Circle the words.', vocabulary_bank: ['CLASS', 'LEARN'], visual_support: visual }] }, 'student']);
 examples.push(['long-topic-exam', 'El pretérito imperfecto', { exam_data: { sections: [{ type: 'short_answer', title: 'Parte 1', questions: ['Explica el uso del tiempo verbal.'] }] }, subject: 'Spanish', topic: 'Cuando era niño/a: El Pretérito Imperfecto regular e irregular para describir rutinas y hábitos del pasado', learner_stage: 'adult_stage', level_or_band: 'A2' }, 'student']);
@@ -64,6 +65,9 @@ examples.push(['email-reading', 'Reading an email', { worksheet_json: { workshee
   global.__classioPdfBytes = null;
   await loaded.exports.downloadStudentHistoryPdf('Sample Student', [{ lesson_date: '2026-11-04', number_of_lesson: 1, modality: 'Online', subject: 'English', note: 'Future plans' }], [], 'en');
   fs.writeFileSync(path.join(outputDir, 'student-history.pdf'), Buffer.from(global.__classioPdfBytes));
+  global.__classioPdfBytes = null;
+  await loaded.exports.downloadStudentReportPdf('Sample Student', { assignments: [], attempts: [], programs: [], reviews: [], progress: [] }, 'en');
+  fs.writeFileSync(path.join(outputDir, 'student-progress.pdf'), Buffer.from(global.__classioPdfBytes));
   global.__classioPdfBytes = null;
   await loaded.exports.downloadStudentHistoryPdf('Sample Student', Array.from({ length: 60 }, (_, index) => ({ lesson_date: `2026-10-${String(index % 28 + 1).padStart(2, '0')}`, number_of_lesson: 1, modality: 'Online', subject: 'English', note: `Lesson ${index + 1}: Future plans and speaking practice` })), [], 'en');
   fs.writeFileSync(path.join(outputDir, 'student-history-long.pdf'), Buffer.from(global.__classioPdfBytes));
