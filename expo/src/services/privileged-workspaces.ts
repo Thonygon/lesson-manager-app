@@ -33,6 +33,7 @@ export type DeveloperWorkspaceData = {
   aiApprovalEvents: WorkspaceResult;
   fallbackEvents: WorkspaceResult;
   recommendationEvents: WorkspaceResult;
+  helpTickets: WorkspaceResult;
   warnings: string[];
 };
 
@@ -137,16 +138,18 @@ const developerSpecs: Record<DeveloperSection, { table: string; order: string; l
   aiApprovalEvents: { table: 'classio_ai_runtime_approval_events', order: 'created_at', limit: 100 },
   fallbackEvents: { table: 'classio_ai_fallback_events', order: 'created_at', limit: 200 },
   recommendationEvents: { table: 'learning_program_recommendation_events', order: 'created_at', limit: 500 },
+  helpTickets: { table: 'classio_help_tickets', order: 'created_at', limit: 300 },
 };
 const developerCache = new Map<string, { value: WorkspaceResult; expires: number }>();
 const developerPending = new Map<string, Promise<WorkspaceResult>>();
 export function invalidateDeveloperWorkspace() { developerCache.clear(); }
 function developerSections(tab: string): DeveloperSection[] {
-  if (tab === 'overview') return ['experiments', 'runs', 'jobs'];
+  if (tab === 'overview') return ['experiments', 'runs', 'jobs', 'helpTickets'];
   if (tab === 'lab') return ['experiments', 'runs', 'jobs', 'aiApprovals', 'aiApprovalEvents'];
   if (tab === 'evidence') return ['experiments', 'runs', 'models', 'artifacts'];
   if (tab === 'telemetry') return ['diagnostics', 'aiCases', 'fallbackEvents', 'recommendationEvents'];
   if (tab === 'jobs') return ['jobs'];
+  if (tab === 'support') return ['helpTickets'];
   return ['audit'];
 }
 
@@ -156,7 +159,9 @@ export async function loadDeveloperWorkspace(tab: string): Promise<DeveloperWork
   if (!auth.user) throw new Error('Developer access requires an authenticated account.');
   const { data: roles, error: rolesError } = await client.from('user_staff_roles').select('role_key').eq('user_id', auth.user.id).eq('is_active', true);
   if (rolesError) throw rolesError;
-  const allowed = (roles ?? []).some((row) => row.role_key === 'developer' || row.role_key === 'data_scientist');
+  const { data: profile, error: profileError } = await client.from('profiles').select('role').eq('user_id', auth.user.id).maybeSingle();
+  if (profileError) throw profileError;
+  const allowed = profile?.role === 'admin' || (roles ?? []).some((row) => row.role_key === 'developer' || row.role_key === 'data_scientist');
   if (!allowed) throw new Error('Developer or data scientist access is required for this workspace.');
 
   const selected = developerSections(tab);
@@ -183,6 +188,7 @@ export async function loadDeveloperWorkspace(tab: string): Promise<DeveloperWork
     models: bySection.models ?? empty, artifacts: bySection.artifacts ?? empty,
     jobs: bySection.jobs ?? empty, audit: bySection.audit ?? empty,
     diagnostics: bySection.diagnostics ?? empty, aiCases: bySection.aiCases ?? empty, aiApprovals: bySection.aiApprovals ?? empty, aiApprovalEvents: bySection.aiApprovalEvents ?? empty, fallbackEvents: bySection.fallbackEvents ?? empty, recommendationEvents: bySection.recommendationEvents ?? empty,
+    helpTickets: bySection.helpTickets ?? empty,
     warnings: warnings(result.map(([, value]) => value)),
   };
 }
