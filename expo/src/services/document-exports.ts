@@ -11,7 +11,7 @@ import { findWordSearchPlacements, makeWordSearchGrid, makeWordSearchPuzzle, typ
 
 type PlanBlock = { label: string; lines: string[]; list: boolean };
 type SourceLineStyle = 'title' | 'header' | 'body' | 'turn';
-type ReportSection = { heading: string; lines: string[]; sourceStart?: number; sourceStyles?: SourceLineStyle[]; columnWeights?: number[]; subheadings?: string[]; planBlocks?: PlanBlock[]; planOverview?: boolean; pageBreak?: boolean; pdfPageBreak?: boolean; vocabularyTable?: boolean; bulleted?: boolean; grid?: string[][]; table?: string[][]; visuals?: string[]; watermark?: string; answerCells?: [number, number][] };
+type ReportSection = { heading: string; lines: string[]; sourceStart?: number; sourceStyles?: SourceLineStyle[]; visualAfterLines?: number; columnWeights?: number[]; subheadings?: string[]; planBlocks?: PlanBlock[]; planOverview?: boolean; pageBreak?: boolean; pdfPageBreak?: boolean; vocabularyTable?: boolean; bulleted?: boolean; grid?: string[][]; table?: string[][]; visuals?: string[]; watermark?: string; answerCells?: [number, number][] };
 type DocumentLocale = 'en' | 'es' | 'tr';
 const COPY = {
   en: { teachingResource: 'Teaching resource', studentCopy: 'Student copy', teacherCopy: 'Teacher copy', answerKey: 'Answer key', studentEvidence: 'Student learning evidence', overview: 'Overview', progress: 'Progress by subject', programs: 'Learning programs', recent: 'Recent work', noData: 'No data yet.', assignments: 'Assignments', attempts: 'Attempts', reviews: 'Reviews waiting', complete: 'complete', average: 'average', notScored: 'not scored', program: 'Learning program', assignment: 'Assignment', general: 'General', generated: 'Prepared with masterclassio.com' },
@@ -372,7 +372,7 @@ function examSections(detail: Record<string, unknown>, variant: ResourceVariant,
       const visual = readyVisual(section.visual_support);
       const rawGrid = wordSearch ? list(section.wordsearch_grid || section.grid) : [];
       const grid = wordSearch ? (rawGrid.length ? rawGrid : makeWordSearchGrid(words)).map((row) => list(row).map(String)).filter((row) => row.length) : [];
-      if (lines.length || tableRows?.length || dataRows.length || visual || grid.length) output.push({ heading: String(section.title || labelize(String(section.type || `Section ${sectionIndex + 1}`))), lines: tableRows?.length ? lines.filter((line) => !/^\d+\.\s/.test(line)) : lines, sourceStart: source ? sourceStart : undefined, sourceStyles: source?.styles, table: tableRows || (columns.length || dataRows.length ? [...(columns.length ? [columns] : []), ...dataRows] : undefined), grid: grid.length ? grid : undefined, visuals: visual && !wordSearch ? [visual] : undefined, watermark: visual && wordSearch ? visual : undefined });
+      if (lines.length || tableRows?.length || dataRows.length || visual || grid.length) output.push({ heading: String(section.title || labelize(String(section.type || `Section ${sectionIndex + 1}`))), lines: tableRows?.length ? lines.filter((line) => !/^\d+\.\s/.test(line)) : lines, sourceStart: source ? sourceStart : undefined, sourceStyles: source?.styles, visualAfterLines: visual && !wordSearch && sourceStart ? sourceStart : undefined, table: tableRows || (columns.length || dataRows.length ? [...(columns.length ? [columns] : []), ...dataRows] : undefined), grid: grid.length ? grid : undefined, visuals: visual && !wordSearch ? [visual] : undefined, watermark: visual && wordSearch ? visual : undefined });
     }
   }
 
@@ -690,6 +690,26 @@ async function savePdf(title: string, subtitle: string, sections: ReportSection[
       y += headingHeight;
       if (profileDocument === 'cv') { pdf.setDrawColor(191, 219, 254); pdf.setLineWidth(0.5); pdf.line(margin, y - 8, width - margin, y - 8); }
     }
+    const renderLines = (start: number, end: number) => {
+      pdf.setFont('DocumentFont', 'normal'); pdf.setFontSize(bodySize);
+      for (let lineIndex = start; lineIndex < end; lineIndex += 1) {
+        const line = section.lines[lineIndex];
+        if (/^_{10,}$/.test(line.trim()) && resourceKind) { ensureSpace(22); pdf.setDrawColor(100, 116, 139); pdf.setLineWidth(0.6); pdf.line(margin, y + 3, width - margin - 30, y + 3); y += 22; continue; }
+        const subheading = resourceKind === 'plan' && section.subheadings?.includes(line);
+        const sourceStyle = section.sourceStart === undefined ? undefined : section.sourceStyles?.[lineIndex - section.sourceStart];
+        const wrapped = pdf.splitTextToSize(line, width - margin * 2 - 20);
+        const useBullet = bulletLines || section.bulleted;
+        ensureSpace(wrapped.length * (bodySize + 3) + 12);
+        if (sourceStyle === 'header') { pdf.setFillColor(241, 245, 249); pdf.rect(margin, y - bodySize, width - margin * 2, wrapped.length * (bodySize + 3) + 4, 'F'); }
+        if (useBullet && !sourceStyle) { pdf.setFillColor(37, 99, 235); pdf.circle(margin + 4, y - 3, 1.8, 'F'); }
+        pdf.setFont('DocumentFont', subheading || sourceStyle === 'title' || sourceStyle === 'header' || sourceStyle === 'turn' ? 'bold' : 'normal');
+        pdf.setTextColor(51, 65, 85);
+        const centered = sourceStyle === 'title' || profileDocument === 'cv' && !section.heading;
+        pdf.text(wrapped, centered ? width / 2 : margin + (useBullet && !sourceStyle ? 14 : 0), y, { align: centered ? 'center' : sourceStyle === 'body' && wrapped.length > 1 ? 'justify' : 'left', maxWidth: width - margin * 2 - 20 });
+        y += wrapped.length * (bodySize + 3) + (sourceStyle === 'title' ? 9 : sourceStyle === 'body' ? 7 : line.startsWith('____') ? 15 : subheading ? 2 : resourceKind ? 4 : 9);
+      }
+    };
+    if (!section.grid && section.visualAfterLines) renderLines(0, section.visualAfterLines);
     for (const visual of section.visuals || []) {
       try {
         const dimensions = pdf.getImageProperties(visual);
@@ -697,7 +717,7 @@ async function savePdf(title: string, subtitle: string, sections: ReportSection[
         const drawHeight = drawWidth * dimensions.height / dimensions.width;
         const scale = Math.min(1, (height - margin * 2 - 40) / drawHeight);
         ensureSpace(drawHeight * scale + 12);
-        pdf.addImage(visual, dimensions.fileType, margin, y, drawWidth * scale, drawHeight * scale);
+        pdf.addImage(visual, dimensions.fileType, (width - drawWidth * scale) / 2, y, drawWidth * scale, drawHeight * scale);
         y += drawHeight * scale + 12;
       } catch { /* Invalid stored artwork should not prevent the document download. */ }
     }
@@ -711,7 +731,7 @@ async function savePdf(title: string, subtitle: string, sections: ReportSection[
           const drawHeight = drawWidth * dimensions.height / dimensions.width;
           const scale = Math.min(1, (height - margin * 2 - 40) / drawHeight);
           ensureSpace(drawHeight * scale + 12);
-          pdf.addImage(section.watermark, dimensions.fileType, margin, y, drawWidth * scale, drawHeight * scale);
+          pdf.addImage(section.watermark, dimensions.fileType, (width - drawWidth * scale) / 2, y, drawWidth * scale, drawHeight * scale);
           y += drawHeight * scale + 12;
         } catch { /* Keep the puzzle if its stored illustration is invalid. */ }
       }
@@ -742,22 +762,7 @@ async function savePdf(title: string, subtitle: string, sections: ReportSection[
       y += 10;
       continue;
     }
-    pdf.setFont('DocumentFont', 'normal'); pdf.setFontSize(bodySize);
-    for (const [lineIndex, line] of section.lines.entries()) {
-      if (/^_{10,}$/.test(line.trim()) && resourceKind) { ensureSpace(22); pdf.setDrawColor(100, 116, 139); pdf.setLineWidth(0.6); pdf.line(margin, y + 3, width - margin - 30, y + 3); y += 22; continue; }
-      const subheading = resourceKind === 'plan' && section.subheadings?.includes(line);
-      const sourceStyle = section.sourceStart === undefined ? undefined : section.sourceStyles?.[lineIndex - section.sourceStart];
-      const wrapped = pdf.splitTextToSize(line, width - margin * 2 - 20);
-      const useBullet = bulletLines || section.bulleted;
-      ensureSpace(wrapped.length * (bodySize + 3) + 12);
-      if (sourceStyle === 'header') { pdf.setFillColor(241, 245, 249); pdf.rect(margin, y - bodySize, width - margin * 2, wrapped.length * (bodySize + 3) + 4, 'F'); }
-      if (useBullet && !sourceStyle) { pdf.setFillColor(37, 99, 235); pdf.circle(margin + 4, y - 3, 1.8, 'F'); }
-      pdf.setFont('DocumentFont', subheading || sourceStyle === 'title' || sourceStyle === 'header' || sourceStyle === 'turn' ? 'bold' : 'normal');
-      pdf.setTextColor(51, 65, 85);
-      const centered = sourceStyle === 'title' || profileDocument === 'cv' && !section.heading;
-      pdf.text(wrapped, centered ? width / 2 : margin + (useBullet && !sourceStyle ? 14 : 0), y, { align: centered ? 'center' : sourceStyle === 'body' && wrapped.length > 1 ? 'justify' : 'left', maxWidth: width - margin * 2 - 20 });
-      y += wrapped.length * (bodySize + 3) + (sourceStyle === 'title' ? 9 : sourceStyle === 'body' ? 7 : line.startsWith('____') ? 15 : subheading ? 2 : resourceKind ? 4 : 9);
-    }
+    renderLines(section.visualAfterLines || 0, section.lines.length);
     if (section.table?.length) {
       const columns = section.table[0].length;
       const available = width - margin * 2;
@@ -823,6 +828,17 @@ async function saveDocx(title: string, subtitle: string, sections: ReportSection
       })) })),
     });
   };
+  const wordLines = (section: ReportSection, start: number, end: number) => section.lines.slice(start, end).map((line, offset) => {
+    const lineIndex = start + offset;
+    const sourceStyle = section.sourceStart === undefined ? undefined : section.sourceStyles?.[lineIndex - section.sourceStart];
+    return new Paragraph({
+      alignment: sourceStyle === 'title' ? AlignmentType.CENTER : sourceStyle === 'body' ? AlignmentType.JUSTIFIED : AlignmentType.LEFT,
+      ...(sourceStyle === 'header' ? { shading: { fill: 'F1F5F9', type: ShadingType.CLEAR } } : {}),
+      children: [new TextRun({ text: line, size: baseSize, font: branding.font, color: '334155', bold: Boolean(sourceStyle && sourceStyle !== 'body') || resourceKind === 'plan' && section.subheadings?.includes(line) })],
+      bullet: !sourceStyle && (bulletLines || section.bulleted) ? { level: 0 } : undefined,
+      spacing: { after: sourceStyle === 'title' ? 130 : sourceStyle === 'body' ? 100 : line.startsWith('____') ? 180 : resourceKind ? 60 : 90, line: resourceKind ? 276 : 300 },
+    });
+  });
   const children = [
     ...(branding.headerEnabled && headerImage ? [new Paragraph({ alignment: AlignmentType.CENTER, children: [new ImageRun({ data: headerImage.bytes, type: headerImage.type === 'PNG' ? 'png' : 'jpg', transformation: fittedImageSize(headerImage.bytes, 85, 85) })], spacing: { after: 80 } })] : !resourceKind && logo ? [new Paragraph({ children: [new ImageRun({ data: logo, type: 'png', transformation: { width: 78, height: 31.2 } })], spacing: { after: 80 } })] : []),
     ...(branding.headerEnabled && branding.brandName ? [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: branding.brandName, font: branding.font, size: baseSize + 2, bold: true, color: '1D4ED8' })], spacing: { after: 60 } })] : []),
@@ -843,6 +859,7 @@ async function saveDocx(title: string, subtitle: string, sections: ReportSection
       ])),
     ] : [
       ...(section.heading ? [new Paragraph({ text: section.heading, heading: HeadingLevel.HEADING_1, spacing: { before: section.pdfPageBreak ? 300 : resourceKind ? 160 : 280, after: 100 }, ...(section.pdfPageBreak ? { border: { top: { color: '1D4ED8', size: 8, style: BorderStyle.SINGLE } } } : resourceKind ? {} : { shading: { fill: 'EFF6FF', type: ShadingType.CLEAR }, border: { bottom: { color: 'BFDBFE', size: 5, style: BorderStyle.SINGLE } } }) })] : []),
+      ...(!section.grid && section.visualAfterLines ? wordLines(section, 0, section.visualAfterLines) : []),
       ...(section.visuals || []).flatMap((visual) => {
         try {
           const bytes = visualBytes(visual);
@@ -851,7 +868,7 @@ async function saveDocx(title: string, subtitle: string, sections: ReportSection
           const drawWidth = 430;
           const drawHeight = drawWidth * dimensions.height / dimensions.width;
           const scale = Math.min(1, 680 / drawHeight);
-          return [new Paragraph({ children: [new ImageRun({ data: bytes, type: visual.startsWith('data:image/png') ? 'png' : 'jpg', transformation: { width: drawWidth * scale, height: drawHeight * scale } })], spacing: { after: 90 } })];
+          return [new Paragraph({ alignment: AlignmentType.CENTER, children: [new ImageRun({ data: bytes, type: visual.startsWith('data:image/png') ? 'png' : 'jpg', transformation: { width: drawWidth * scale, height: drawHeight * scale } })], spacing: { after: 90 } })];
         } catch { return []; }
       }),
       ...(section.grid?.length ? [
@@ -859,16 +876,7 @@ async function saveDocx(title: string, subtitle: string, sections: ReportSection
         ...(watermarks[sectionIndex] ? [new Paragraph({ spacing: { before: 0, after: 0, line: 1 }, children: [new ImageRun({ data: visualBytes(watermarks[sectionIndex]!), type: 'png', transformation: { width: 430, height: section.grid.length * 27 }, floating: { horizontalPosition: { relative: 'column', align: 'center' }, verticalPosition: { relative: 'paragraph', offset: 108000 }, behindDocument: true, allowOverlap: true } })] })] : []),
         new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: section.grid.map((row, rowIndex) => new TableRow({ children: row.map((letter, columnIndex) => { const solved = section.answerCells?.some(([r, c]) => r === rowIndex && c === columnIndex); return new TableCell({ ...(solved ? { shading: { fill: 'DBEAFE', type: ShadingType.CLEAR }, borders: { top: { color: '3B82F6', style: BorderStyle.SINGLE }, bottom: { color: '3B82F6', style: BorderStyle.SINGLE }, left: { color: '3B82F6', style: BorderStyle.SINGLE }, right: { color: '3B82F6', style: BorderStyle.SINGLE } } } : {}), children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: letter, font: branding.font, size: baseSize, bold: true, color: solved ? '2563EB' : '0F172A' })] })] }); }) })) })
       ] : [
-        ...section.lines.map((line, lineIndex) => {
-          const sourceStyle = section.sourceStart === undefined ? undefined : section.sourceStyles?.[lineIndex - section.sourceStart];
-          return new Paragraph({
-            alignment: sourceStyle === 'title' ? AlignmentType.CENTER : sourceStyle === 'body' ? AlignmentType.JUSTIFIED : AlignmentType.LEFT,
-            ...(sourceStyle === 'header' ? { shading: { fill: 'F1F5F9', type: ShadingType.CLEAR } } : {}),
-            children: [new TextRun({ text: line, size: baseSize, font: branding.font, color: '334155', bold: Boolean(sourceStyle && sourceStyle !== 'body') || resourceKind === 'plan' && section.subheadings?.includes(line) })],
-            bullet: !sourceStyle && (bulletLines || section.bulleted) ? { level: 0 } : undefined,
-            spacing: { after: sourceStyle === 'title' ? 130 : sourceStyle === 'body' ? 100 : line.startsWith('____') ? 180 : resourceKind ? 60 : 90, line: resourceKind ? 276 : 300 },
-          });
-        }),
+        ...wordLines(section, section.visualAfterLines || 0, section.lines.length),
         ...(section.table?.length ? [makeWordTable(section)] : []),
       ]),
     ]),
