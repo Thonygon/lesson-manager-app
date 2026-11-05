@@ -1,0 +1,166 @@
+{
+  "version": "2026-11-04.1",
+  "effective_date": "2026-11-04",
+  "controller": {
+    "name": "Anthony Gonzalez",
+    "trade_name": "Master Classio",
+    "tax_label": "Vergi Kimlik No:",
+    "tax_number": "3960717988",
+    "address": "YAKUPLU MAH. HÜRRİYET BLV. SKYPORT SKYPORT RESİDENCE NO: 1 İÇ KAPI NO: 113 BEYLİKDÜZÜ / İSTANBUL, Türkiye",
+    "email": "info@masterclassio.com",
+    "phone_e164": "+905393784357",
+    "phone_display": "+90 539 378 43 57"
+  },
+  "locales": {
+    "en": {
+      "skip": "Skip to privacy notice",
+      "languages": "Notice language",
+      "eyebrow": "Privacy notice",
+      "audience_nav": "Choose a notice",
+      "controller_title": "Controller and contact",
+      "contact_help": "Use this email to ask about privacy, your rights, a student's record or a security concern. We may ask for proportionate identity or guardian verification before releasing data.",
+      "footer": "The notice is available before sign-in.",
+      "audiences": {
+        "website": {
+          "nav": "Website visitors",
+          "title": "Website visitor privacy notice",
+          "description": "How Master Classio handles data when you visit its public website.",
+          "lead": "This notice covers masterclassio.com and its public resource search. The app and student notices describe the other contexts.",
+          "data_title": "Information collected",
+          "data": ["Our hosting and security providers process technical request data, such as IP address, browser and device details, requested URL, time and security signals. The website stores your selected language and appearance in your browser. A public-library search sends the search terms to our data service; do not enter personal data in that search."],
+          "purpose_title": "Purposes and legal grounds",
+          "purposes": ["We serve pages, maintain security, prevent abuse and answer your contact requests. Under the GDPR, essential delivery and security rely on our legitimate interests (Article 6(1)(f)); a request you send us is handled to respond to it and, where applicable, to take steps you requested. Under Turkey's KVKK, the corresponding grounds are legal obligation or legitimate interests where their statutory conditions are met (Article 5(2)(ç) and (f)). We do not use this public site for behavioural advertising."],
+          "purpose_items": ["Cloudflare may set the essential __cf_bm bot-management cookie. Language and theme preferences use local storage. Cookie and storage details can change with our providers; contact us for the current technical inventory."]
+        },
+        "app": {
+          "nav": "App users",
+          "title": "Classio app privacy notice",
+          "description": "How Master Classio handles account, teaching and app data.",
+          "lead": "This notice covers the Classio web/mobile app, Explorer and the legacy Streamlit app. Student-specific information appears in the student notice.",
+          "data_title": "Information collected",
+          "data": ["We receive account credentials and authentication identifiers through Supabase or Google sign-in; profile fields you provide (such as name, role, contact details, teaching preferences and optional photo); and records created in the app, including lessons, schedules, administrative teacher payment records, resources, assignments, programs and support or feedback messages. We also record bounded security, usage and diagnostic events. Google Calendar data is used only if you connect that feature."],
+          "purpose_title": "Purposes and legal grounds",
+          "purposes": ["We operate your account and the teaching workspace, keep records you create, provide chosen features and protect the service. Account and core features are necessary to provide the service you request (GDPR Article 6(1)(b); KVKK Article 5(2)(c)). Security and abuse prevention rely on legitimate interests or applicable legal duties (GDPR Article 6(1)(f)/(c); KVKK Article 5(2)(f)/(ç), where their conditions are met). Publication in the community library happens only when you choose to share a resource. Do not include a student's identifying details in public content."],
+          "purpose_items": ["When you request AI generation or revision, a prompt and relevant educational context may be sent to OpenAI, Google Gemini or OpenRouter. Classio removes recognizable direct identifiers before sending, but automated redaction may miss names or addresses in free text. Review what you enter; do not include information unnecessary for the task.", "Classio records generation feedback and recommendation actions to evaluate quality. Recommendations support human decisions; teachers can hide or restore suggestions and correct results. Automatically calculated practice scores can be reviewed by a teacher."]
+        },
+        "students": {
+          "nav": "Students and families",
+          "title": "Student and family privacy notice",
+          "description": "How Classio handles learner accounts and teacher-managed student records.",
+          "lead": "This notice is for students, parents or guardians, including learners whom a teacher records in Classio without a student account.",
+          "data_title": "Student information",
+          "data": ["A teacher may add your name, contact details, subject, level, program progress, lessons, assignments and administrative payment notes to a private teaching record. If you have a Classio account, we also process your account and profile, attempts, answers, scores, comments, requests for review and resource activity. A teacher-managed record can exist without an account; linking an account can transfer applicable program progress to it."],
+          "purpose_title": "How this information is used",
+          "purposes": ["The teacher decides what to enter in their private teaching record and must provide information about their own teaching and administrative purposes. Master Classio provides the workspace and determines how its account, security and app functions operate. For an account holder, core account functions are provided under the service relationship (GDPR Article 6(1)(b); KVKK Article 5(2)(c)); security uses the grounds described in the app notice. For teacher-entered records, the teacher must identify and explain the lawful ground that applies to their activity. Contact the teacher or Classio to identify the correct route for a request."],
+          "purpose_items": ["Classio uses learning level, covered topics, program progress and practice results to suggest study resources. A teacher can review recommendations and correct scores. These suggestions do not by themselves decide access to education or make a legal decision about you.", "When a teacher chooses AI generation for a learner, selected educational signals may be included. We remove recognizable names and direct identifiers before the provider call, but free text can defeat automatic cleaning. Ask the teacher not to enter unnecessary personal details.", "If you are under age, a parent or guardian may help you understand this notice and make a rights request. You can also ask your teacher for help."]
+        }
+      },
+      "common": [
+        {"title": "Recipients and international processing", "paragraphs": ["Depending on the feature, data is handled by Supabase (accounts and database), Expo (app hosting), Cloudflare/Sites (public website and security), Render (Python services), Google (sign-in or optional Calendar), and the AI providers named above when generation is requested. Some providers may process data outside Türkiye or the European Economic Area. The applicable transfer arrangements and provider regions require case-by-case verification; ask us for the current details. We do not sell student information or use it for behavioural advertising."]},
+        {"title": "How long information remains", "paragraphs": ["We keep account and teaching records while needed to provide the service and while the teacher maintains the record. A valid deletion or correction request is assessed against the purpose and any duty to retain information. Teacher administrative payment records, security evidence and records needed for legal claims may remain after an account closes. Technical events and AI quality records are subject to purpose-specific retention controls; there is no single period for every record. We can explain the current criterion for a particular record on request."]},
+        {"title": "Your choices and rights", "paragraphs": ["Write to info@masterclassio.com to request access, correction, deletion, restriction or objection where available, a copy of applicable data, or information about transfers. You can change parts of your profile in the app. If a teacher controls a private student record, we may direct or coordinate the request with that teacher. We verify identity and, for children, representation before disclosing records. GDPR requests are normally answered within one month, subject to lawful extensions; KVKK requests are handled as soon as possible and no later than 30 days. You may complain to the competent data protection authority."], "items": ["A privacy notice is information, not a request for blanket consent. Where a feature requires explicit consent, it must be requested separately and be withdrawable."]},
+        {"title": "Security and changes", "paragraphs": ["Classio uses authentication, role-based access and database row-level permissions. No online service can promise absolute security. Report suspected unauthorized access to the contact above. We version this notice and update it before materially changing a processing purpose; the effective date and version are shown at the top of each page."]}
+      ]
+    },
+    "es": {
+      "skip": "Ir al aviso de privacidad",
+      "languages": "Idioma del aviso",
+      "eyebrow": "Aviso de privacidad",
+      "audience_nav": "Elegir aviso",
+      "controller_title": "Responsable y contacto",
+      "contact_help": "Usa este correo para consultar sobre privacidad, ejercer derechos, preguntar por un registro de alumno o reportar un problema de seguridad. Podemos pedir una verificación proporcionada de identidad o representación antes de entregar datos.",
+      "footer": "El aviso está disponible antes de iniciar sesión.",
+      "audiences": {
+        "website": {
+          "nav": "Visitantes del sitio",
+          "title": "Aviso de privacidad del sitio web",
+          "description": "Cómo trata Master Classio los datos de quienes visitan su sitio público.",
+          "lead": "Este aviso cubre masterclassio.com y la búsqueda pública de recursos. Los avisos de la app y de alumnos describen los otros contextos.",
+          "data_title": "Datos tratados",
+          "data": ["Los proveedores de alojamiento y seguridad tratan datos técnicos de la solicitud, como dirección IP, navegador y dispositivo, URL solicitada, hora y señales de seguridad. El sitio guarda el idioma y la apariencia elegidos en tu navegador. Una búsqueda en la biblioteca pública envía los términos al servicio de datos; no introduzcas datos personales en esa búsqueda."],
+          "purpose_title": "Finalidades y fundamentos",
+          "purposes": ["Servimos las páginas, mantenemos la seguridad, evitamos abusos y respondemos a los mensajes que nos envías. Bajo el RGPD, la entrega esencial y la seguridad se basan en intereses legítimos (art. 6.1.f); atendemos una solicitud para responder a ella y, cuando proceda, dar los pasos que hayas pedido. Bajo la KVKK turca, los fundamentos correspondientes son obligación legal o interés legítimo cuando se cumplen sus requisitos (art. 5.2.ç y f). No usamos este sitio público para publicidad conductual."],
+          "purpose_items": ["Cloudflare puede instalar la cookie esencial __cf_bm contra bots. El idioma y el tema se guardan en almacenamiento local. Los detalles de cookies y almacenamiento pueden variar con los proveedores; puedes pedirnos el inventario técnico vigente."]
+        },
+        "app": {
+          "nav": "Usuarios de la app",
+          "title": "Aviso de privacidad de la app Classio",
+          "description": "Cómo trata Master Classio los datos de cuentas, docencia y uso de la app.",
+          "lead": "Este aviso cubre la app web/móvil, Explorer y la app heredada de Streamlit. El aviso de alumnos añade información específica.",
+          "data_title": "Datos tratados",
+          "data": ["Recibimos identificadores y credenciales de autenticación mediante Supabase o el acceso con Google; datos de perfil que proporcionas (como nombre, rol, contacto, preferencias docentes y foto opcional); y registros creados en la app, incluidas clases, horarios, pagos administrativos del docente, recursos, tareas, programas y mensajes de soporte o feedback. También registramos eventos acotados de seguridad, uso y diagnóstico. Los datos de Google Calendar se usan solo si conectas esa función."],
+          "purpose_title": "Finalidades y fundamentos",
+          "purposes": ["Operamos tu cuenta y espacio docente, guardamos los registros que creas, ofrecemos las funciones elegidas y protegemos el servicio. La cuenta y las funciones esenciales son necesarias para prestar el servicio solicitado (RGPD art. 6.1.b; KVKK art. 5.2.c). La seguridad y prevención de abusos se basan en intereses legítimos u obligaciones legales aplicables (RGPD art. 6.1.f/c; KVKK art. 5.2.f/ç, cuando se cumplen sus requisitos). Un recurso se publica en la biblioteca comunitaria solo cuando eliges compartirlo. No incluyas datos identificativos de alumnos en contenido público."],
+          "purpose_items": ["Si solicitas generación o retoque con IA, el prompt y el contexto educativo pertinente pueden enviarse a OpenAI, Google Gemini u OpenRouter. Classio elimina identificadores directos reconocibles antes del envío, pero la limpieza automática puede no detectar nombres o direcciones en texto libre. Revisa lo que escribes y evita datos innecesarios.", "Classio registra feedback de generación y acciones sobre recomendaciones para evaluar la calidad. Las recomendaciones apoyan decisiones humanas: el docente puede ocultar o restaurar sugerencias y corregir resultados. Un docente puede revisar las notas calculadas automáticamente en prácticas."]
+        },
+        "students": {
+          "nav": "Alumnos y familias",
+          "title": "Aviso de privacidad para alumnos y familias",
+          "description": "Cómo trata Classio las cuentas de alumnos y los registros gestionados por docentes.",
+          "lead": "Este aviso se dirige a alumnos, madres, padres y tutores, incluidos quienes figuran en la libreta de un docente sin cuenta Classio.",
+          "data_title": "Información del alumno",
+          "data": ["Un docente puede añadir nombre, contacto, asignatura, nivel, progreso del programa, clases, tareas y notas administrativas de pago a su registro docente privado. Si tienes cuenta Classio, tratamos además tu cuenta y perfil, intentos, respuestas, notas, comentarios, solicitudes de revisión y actividad con recursos. Puede existir un registro del docente sin cuenta de alumno; al vincular una cuenta puede transferirse el progreso de programa aplicable."],
+          "purpose_title": "Cómo se usa la información",
+          "purposes": ["El docente decide qué registra en su libreta privada y debe informar de sus propias finalidades educativas y administrativas. Master Classio proporciona el espacio de trabajo y determina cómo funcionan sus cuentas, seguridad y herramientas. Para quien tiene cuenta, las funciones esenciales se prestan en el marco del servicio (RGPD art. 6.1.b; KVKK art. 5.2.c); la seguridad usa los fundamentos del aviso de la app. Para los registros introducidos por el docente, este debe identificar y explicar el fundamento que corresponda a su actividad. Contacta con el docente o con Classio para dirigir correctamente una solicitud."],
+          "purpose_items": ["Classio usa nivel, temas cubiertos, avance del programa y resultados de práctica para sugerir recursos. El docente puede revisar recomendaciones y corregir notas. Estas sugerencias no deciden por sí solas el acceso a la educación ni producen una decisión jurídica sobre ti.", "Cuando un docente pide una generación con IA para un alumno, puede incluirse una selección de señales educativas. Eliminamos nombres e identificadores directos reconocibles antes de llamar al proveedor, pero el texto libre puede superar esa limpieza automática. Pide al docente que no introduzca detalles personales innecesarios.", "Si eres menor, tu madre, padre o tutor puede ayudarte a entender este aviso y ejercer tus derechos. También puedes pedir ayuda a tu docente."]
+        }
+      },
+      "common": [
+        {"title": "Destinatarios y tratamiento internacional", "paragraphs": ["Según la función, intervienen Supabase (cuentas y base de datos), Expo (alojamiento de la app), Cloudflare/Sites (sitio público y seguridad), Render (servicios Python), Google (acceso o Calendar opcional) y los proveedores de IA indicados cuando se solicita generación. Algunos proveedores pueden tratar datos fuera de Turquía o del Espacio Económico Europeo. Las garantías de transferencia y regiones aplicables necesitan verificación por caso; puedes pedirnos los datos vigentes. No vendemos datos de alumnos ni los usamos para publicidad conductual."]},
+        {"title": "Conservación", "paragraphs": ["Conservamos cuenta y registros docentes mientras sean necesarios para prestar el servicio y el docente mantenga el registro. Evaluamos una solicitud válida de supresión o rectificación según la finalidad y cualquier deber de conservación. Los pagos administrativos del docente, la evidencia de seguridad y los registros necesarios para reclamaciones pueden permanecer tras el cierre de una cuenta. Los eventos técnicos y de calidad de IA tienen controles de retención por finalidad; no existe un plazo único para todos los datos. Podemos explicar el criterio vigente para un registro concreto si lo solicitas."]},
+        {"title": "Opciones y derechos", "paragraphs": ["Escribe a info@masterclassio.com para solicitar acceso, rectificación, supresión, limitación u oposición cuando procedan, copia de los datos aplicables o información sobre transferencias. Puedes modificar parte de tu perfil en la app. Si el docente controla un registro privado de alumno, podemos dirigir o coordinar la solicitud con él. Verificamos identidad y, en menores, representación antes de entregar registros. Las solicitudes bajo RGPD se responden normalmente en un mes, salvo prórrogas legales; las de KVKK, lo antes posible y como máximo en 30 días. Puedes reclamar ante la autoridad de protección de datos competente."], "items": ["Un aviso informa: no es una solicitud de consentimiento general. Cuando una función requiera consentimiento explícito, debe solicitarse por separado y poder retirarse."]},
+        {"title": "Seguridad y cambios", "paragraphs": ["Classio usa autenticación, accesos por rol y permisos de base de datos por fila. Ningún servicio en línea puede prometer seguridad absoluta. Comunica posibles accesos no autorizados al contacto anterior. Versionamos este aviso y lo actualizamos antes de cambiar materialmente una finalidad; la fecha de vigencia y versión aparecen arriba."]}
+      ]
+    },
+    "tr": {
+      "skip": "Aydınlatma metnine geç",
+      "languages": "Metin dili",
+      "eyebrow": "Kişisel verilerin işlenmesine ilişkin aydınlatma metni",
+      "audience_nav": "Metin seçin",
+      "controller_title": "Veri sorumlusu ve iletişim",
+      "contact_help": "Gizlilik, haklarınız, öğrenci kaydı veya güvenlik bildirimi için bu e-posta adresini kullanın. Veri paylaşmadan önce ölçülü kimlik veya veli/vasi doğrulaması isteyebiliriz.",
+      "footer": "Bu metne oturum açmadan erişilebilir.",
+      "audiences": {
+        "website": {
+          "nav": "Web sitesi ziyaretçileri",
+          "title": "Web sitesi ziyaretçileri için aydınlatma metni",
+          "description": "Master Classio'nun herkese açık web sitesinde kişisel verilerin işlenmesi.",
+          "lead": "Bu metin masterclassio.com sitesini ve herkese açık kaynak aramasını kapsar. Uygulama ve öğrenci metinleri diğer durumları açıklar.",
+          "data_title": "İşlenen bilgiler",
+          "data": ["Barındırma ve güvenlik sağlayıcıları IP adresi, tarayıcı/cihaz bilgisi, istenen adres, zaman ve güvenlik sinyalleri gibi teknik istek verilerini işler. Site, seçtiğiniz dil ve görünümü tarayıcınızda saklar. Açık kaynak kütüphanesinde arama yaparsanız arama terimleri veri hizmetine gönderilir; aramaya kişisel veri yazmayın."],
+          "purpose_title": "Amaçlar ve hukuki sebepler",
+          "purposes": ["Sayfaları sunmak, güvenliği sağlamak, kötüye kullanımı önlemek ve iletilerinize cevap vermek için verileri işleriz. GDPR kapsamında zorunlu sunum ve güvenlik meşru menfaatimize dayanır (m. 6(1)(f)); bize ilettiğiniz talebi cevaplamak ve gerekirse istediğiniz adımları atmak için işleriz. KVKK kapsamında, şartları mevcut olduğunda hukuki yükümlülük veya meşru menfaat işleme şartları uygulanır (m. 5(2)(ç) ve (f)). Bu açık sitede davranışsal reklam yapmıyoruz."],
+          "purpose_items": ["Cloudflare, bot yönetimi için zorunlu __cf_bm çerezini yerleştirebilir. Dil ve tema tercihleri yerel depolamada tutulur. Sağlayıcılara bağlı olarak çerez/depolama ayrıntıları değişebilir; güncel teknik envanteri bizden isteyebilirsiniz."]
+        },
+        "app": {
+          "nav": "Uygulama kullanıcıları",
+          "title": "Classio uygulaması için aydınlatma metni",
+          "description": "Master Classio'nun hesap, öğretim ve uygulama verilerini işlemesi.",
+          "lead": "Bu metin Classio web/mobil uygulamasını, Explorer'ı ve eski Streamlit uygulamasını kapsar. Öğrencilere özgü bilgiler öğrenci metnindedir.",
+          "data_title": "İşlenen bilgiler",
+          "data": ["Supabase veya Google ile giriş üzerinden kimlik doğrulama bilgileri ve tanımlayıcıları; sağladığınız ad, rol, iletişim, öğretim tercihleri ve isteğe bağlı fotoğraf gibi profil alanlarını; ayrıca ders, takvim, öğretmenin idari ödeme kayıtları, kaynak, ödev, program ve destek/geri bildirim kayıtlarını işleriz. Sınırlı güvenlik, kullanım ve hata teşhis olayları da kaydedilir. Google Calendar verileri yalnızca bu özelliği bağlarsanız kullanılır."],
+          "purpose_title": "Amaçlar ve hukuki sebepler",
+          "purposes": ["Hesabınızı ve öğretim çalışma alanını işletmek, oluşturduğunuz kayıtları saklamak, seçtiğiniz özellikleri sunmak ve hizmeti korumak için veri işleriz. Hesap ve temel özellikler talep ettiğiniz hizmet için gereklidir (GDPR m. 6(1)(b); KVKK m. 5(2)(c)). Güvenlik ve kötüye kullanımın önlenmesi, koşulları varsa meşru menfaat veya hukuki yükümlülüğe dayanır (GDPR m. 6(1)(f)/(c); KVKK m. 5(2)(f)/(ç)). Bir kaynak yalnızca paylaşmayı seçerseniz topluluk kütüphanesinde yayımlanır. Açık içerikte öğrencinin kimliğini belirleyen bilgi bulundurmayın."],
+          "purpose_items": ["Yapay zekâ ile üretim veya düzenleme istediğinizde istem ve ilgili eğitsel bağlam OpenAI, Google Gemini veya OpenRouter'a gönderilebilir. Classio tanınabilir doğrudan tanımlayıcıları göndermeden önce çıkarır; ancak otomatik temizleme serbest metindeki ad veya adresleri kaçırabilir. Yazdıklarınızı kontrol edin ve gereksiz veri eklemeyin.", "Classio, kaliteyi değerlendirmek için üretim geri bildirimini ve önerilerle ilgili işlemleri kaydeder. Öneriler insan kararını destekler: öğretmen öneriyi gizleyebilir/geri alabilir ve sonuçları düzeltebilir. Otomatik hesaplanan alıştırma puanları öğretmen tarafından incelenebilir."]
+        },
+        "students": {
+          "nav": "Öğrenciler ve aileler",
+          "title": "Öğrenciler ve aileler için aydınlatma metni",
+          "description": "Classio'nun öğrenci hesaplarını ve öğretmen tarafından yönetilen kayıtları işlemesi.",
+          "lead": "Bu metin, Classio hesabı olmayan ancak öğretmenin kayıtlarında yer alan öğrenciler dahil öğrencilere ve veli/vasilere yöneliktir.",
+          "data_title": "Öğrenci bilgileri",
+          "data": ["Öğretmen özel öğretim kaydına adınızı, iletişim bilginizi, dersinizi, seviyenizi, program ilerlemenizi, ders ve ödevlerinizi ve idari ödeme notlarını ekleyebilir. Classio hesabınız varsa hesap/profil, denemeler, cevaplar, puanlar, yorumlar, inceleme talepleri ve kaynak etkinliği de işlenir. Hesabınız olmadan öğretmen kaydı bulunabilir; hesap bağlantısı kurulduğunda ilgili program ilerlemesi hesaba aktarılabilir."],
+          "purpose_title": "Bilgiler nasıl kullanılır",
+          "purposes": ["Öğretmen özel kaydına ne yazacağını belirler ve kendi eğitim/idari amaçları hakkında sizi bilgilendirmelidir. Master Classio çalışma alanını sunar; hesap, güvenlik ve uygulama işlevlerinin nasıl çalışacağını belirler. Hesap sahiplerine temel işlevler hizmet ilişkisi kapsamında sağlanır (GDPR m. 6(1)(b); KVKK m. 5(2)(c)); güvenlik için uygulama metnindeki işleme şartları geçerlidir. Öğretmenin girdiği kayıtlar bakımından öğretmen kendi faaliyetinin hukuki sebebini belirlemeli ve açıklamalıdır. Talebinizi doğru kişiye yönlendirmek için öğretmen veya Classio ile iletişime geçin."],
+          "purpose_items": ["Classio seviye, işlenen konular, program ilerlemesi ve alıştırma sonuçlarını çalışma kaynakları önermek için kullanır. Öğretmen önerileri gözden geçirebilir ve puanları düzeltebilir. Bu öneriler tek başına eğitime erişiminizi belirlemez veya hakkınızda hukuki sonuç doğuran karar vermez.", "Öğretmen bir öğrenci için yapay zekâ üretimi isterse seçilmiş eğitsel sinyaller kullanılabilir. Sağlayıcı çağrısından önce tanınabilir adları ve doğrudan tanımlayıcıları çıkarırız; serbest metin otomatik temizlemeyi aşabilir. Öğretmeninizden gereksiz kişisel ayrıntı yazmamasını isteyin.", "Çocuksanız veli/vasiniz bu metni anlamanıza ve hak talebinde bulunmanıza yardımcı olabilir. Öğretmeninizden de yardım isteyebilirsiniz."]
+        }
+      },
+      "common": [
+        {"title": "Alıcılar ve yurt dışında işleme", "paragraphs": ["Özelliğe göre Supabase (hesap/veritabanı), Expo (uygulama barındırma), Cloudflare/Sites (açık site ve güvenlik), Render (Python hizmetleri), Google (giriş veya isteğe bağlı Calendar) ve üretim istenirse yukarıdaki yapay zekâ sağlayıcıları verileri işleyebilir. Bazı sağlayıcılar verileri Türkiye veya Avrupa Ekonomik Alanı dışında işleyebilir. İlgili aktarım güvenceleri ve sağlayıcı bölgeleri işlem bazında doğrulanmalıdır; güncel bilgileri bizden isteyebilirsiniz. Öğrenci bilgilerini satmıyor veya davranışsal reklam için kullanmıyoruz."]},
+        {"title": "Saklama süresi", "paragraphs": ["Hesap ve öğretmen kayıtlarını hizmet için gerekli olduğu ve öğretmen kaydı tuttuğu sürece saklarız. Geçerli silme/düzeltme talebini amaç ve saklama yükümlülüklerine göre değerlendiririz. Öğretmenin idari ödeme kayıtları, güvenlik kanıtları ve hukuki talepler için gerekli kayıtlar hesap kapandıktan sonra da kalabilir. Teknik ve yapay zekâ kalite olayları amaca özgü saklama kontrollerine tabidir; tüm kayıtlar için tek süre yoktur. Belirli bir kayıt için güncel ölçütü sorabilirsiniz."]},
+        {"title": "Tercihleriniz ve haklarınız", "paragraphs": ["Erişim, düzeltme, şartları varsa silme, kısıtlama/itiraz, ilgili verinin kopyası veya aktarım bilgisi için info@masterclassio.com adresine yazın. Profilinizin bazı alanlarını uygulamada değiştirebilirsiniz. Özel öğrenci kaydını öğretmen yönetiyorsa talebinizi ona yönlendirebilir veya onunla koordine edebiliriz. Kayıtları paylaşmadan önce kimliği ve çocuklar için temsil yetkisini doğrularız. GDPR taleplerine olağan olarak bir ay içinde, yasal uzatma saklı kalmak üzere; KVKK taleplerine mümkün olan en kısa sürede ve en geç 30 günde yanıt verilir. Yetkili veri koruma makamına şikâyette bulunabilirsiniz."], "items": ["Aydınlatma metni bilgi verir; genel bir açık rıza talebi değildir. Açık rıza gerektiren bir özellik varsa ayrı istenir ve geri çekilebilir."]},
+        {"title": "Güvenlik ve değişiklikler", "paragraphs": ["Classio kimlik doğrulama, rol temelli erişim ve satır düzeyinde veritabanı izinleri kullanır. Hiçbir çevrim içi hizmet mutlak güvenlik vaat edemez. Şüpheli yetkisiz erişimi yukarıdaki adrese bildirin. Bu metni sürümlendirir ve işleme amacı önemli ölçüde değişmeden önce güncelleriz; yürürlük tarihi ve sürüm üstte gösterilir."]}
+      ]
+    }
+  }
+}

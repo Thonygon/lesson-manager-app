@@ -1151,6 +1151,20 @@ def require_login():
     if st.session_state.pop("_show_signup_invite_dialog", False):
         _render_signup_invite_dialog()
 
+    _privacy_language = st.session_state.get("ui_lang", "en")
+    if _privacy_language not in {"en", "es", "tr"}:
+        _privacy_language = "en"
+    st.link_button(
+        t("privacy_notice_link"),
+        f"https://masterclassio.com/privacy/{_privacy_language}/app/",
+        use_container_width=False,
+    )
+    st.link_button(
+        t("storage_notice_link"),
+        f"https://masterclassio.com/cookies/{_privacy_language}/",
+        use_container_width=False,
+    )
+
     if not st.session_state.get("_prelogin_book_rain_seen", False):
         trigger_book_rain(nonce="prelogin-landing")
         st.session_state["_prelogin_book_rain_seen"] = True

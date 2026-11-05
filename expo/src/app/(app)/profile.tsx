@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { createElement, useCallback, useEffect, useMemo, useState } from 'react';
 import { router } from 'expo-router';
-import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppShell } from '@/components/app-shell';
 import { ActionFeedback, Button, Disclosure, EmptyState, Field, LoadingState, Panel, SelectField } from '@/components/ui';
@@ -13,6 +13,7 @@ import { useNotifications } from '@/providers/notifications-provider';
 import type { ClassioRecord } from '@/services/classio-data';
 import { activateProfileWorkspaceMode, deleteCurrentUserData, getProfileWorkspace, profileModeSaveFields, saveProfileWorkspace, uploadProfileAvatar } from '@/services/profile';
 import { colors } from '@/theme';
+import { privacyNoticeUrl, storageNoticeUrl } from '@/lib/privacy-notices';
 
 const SUBJECTS = ['english', 'spanish', 'mathematics', 'science', 'music', 'study_skills', 'other'];
 const STAGES = ['early_primary', 'upper_primary', 'lower_secondary', 'upper_secondary', 'adult_stage'];
@@ -72,6 +73,8 @@ export default function ProfileScreen() {
       <Panel style={styles.panel}><Text style={styles.sectionTitle}>{t('profile.community')}</Text><Text style={styles.help}>{t('profile.communityHelp')}</Text><Choice active={showCommunity} label={t('profile.showCommunity')} onPress={() => { setShowCommunity((value) => !value); if (showCommunity) setShowContact(false); }} />{showCommunity ? <View style={styles.contactToggle}><Choice active={showContact} label={t('profile.showContact')} onPress={() => setShowContact((value) => !value)} /></View> : null}</Panel>
       <Button disabled={saving} onPress={() => void save()}>{saving ? t('common.saving') : t('profile.save')}</Button>{messageContext === 'save' ? <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} /> : null}
       <Button secondary onPress={() => void signOut()}>{t('account.signOut')}</Button>
+      <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(privacyNoticeUrl(language, role === 'student' ? 'students' : 'app'))}><Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800', paddingVertical: 9 }}>{t('legal.privacyNotice')}</Text></Pressable>
+      <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(storageNoticeUrl(language))}><Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800', paddingVertical: 9 }}>{t('legal.storageDetails')}</Text></Pressable>
       <Disclosure title={t('profile.security')} summary={t('profile.securityHelp')}>
         <Text style={styles.help}>{t(Array.isArray(user?.app_metadata?.providers) && user.app_metadata.providers.includes('google') ? 'profile.googlePasswordHelp' : 'profile.passwordHelp')}</Text>
         <Text style={styles.label}>{t('auth.newPassword')}</Text>
