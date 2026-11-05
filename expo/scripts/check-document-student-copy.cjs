@@ -98,6 +98,10 @@ const trueFalse = loaded.exports.resourceSections({ worksheet_json: { worksheet_
 assert.deepEqual(trueFalse.find((section) => section.heading === 'Questions').table[0], ['1. Water can become ice.', '[ ] T  [ ] F']);
 const dialogue = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'reading_comprehension', reading_passage: 'Ana: Hello.\nBen: Welcome.', text_kind: 'dialogue', text_blocks: [{ type: 'turn', speaker: 'Ana', text: 'Hello.' }, { type: 'turn', speaker: 'Ben', text: 'Welcome.' }], questions: ['Who speaks first?'], answer_key: 'Ana' } }, 'student');
 assert.deepEqual(dialogue.find((section) => section.heading === 'Reading passage').lines, ['Ana: Hello.', 'Ben: Welcome.']);
+const email = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'reading_comprehension', reading_passage: 'From: Ana\nTo: Ben\nSubject: Our trip\n\nHello Ben,\n\nWe will travel next week.', text_kind: 'email', questions: ['When?'] } }, 'student');
+assert.deepEqual(email.find((section) => section.heading === 'Reading passage').sourceStyles, ['header', 'header', 'header', 'body', 'body']);
+const titledPassage = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'reading_comprehension', text_title: 'A short story', reading_passage: 'Maya visited the city.\nShe learned something new.', questions: ['What did Maya learn?'] } }, 'student');
+assert.deepEqual(titledPassage.find((section) => section.heading === 'Reading passage').sourceStyles, ['title', 'body', 'body']);
 const wordSearch = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'word_search_vocab', vocabulary_bank: ['CLASS', 'LEARN'], instructions: 'Find the words.' } }, 'student');
 assert.ok(wordSearch.some((section) => section.heading === 'Word search' && section.lines.length >= 10));
 assert.equal(wordSearch.find((section) => section.heading === 'Word search').grid.length, 10);

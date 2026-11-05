@@ -632,9 +632,6 @@ def build_pdf_footer_handler(branding: dict, bold_font: str = "Helvetica"):
 
     footer_enabled = bool(branding.get("footer_enabled"))
     footer_url = str(branding.get("footer_image_url") or "").strip()
-    brand_name = str(branding.get("brand_name") or "").strip()
-    header_enabled = bool(branding.get("header_enabled"))
-    has_custom_logo = header_enabled and bool(str(branding.get("header_logo_url") or "").strip())
 
     footer_image_bytes = None
     if footer_enabled and footer_url:
@@ -651,21 +648,28 @@ def build_pdf_footer_handler(branding: dict, bold_font: str = "Helvetica"):
         from reportlab.lib.utils import ImageReader
 
         canvas.saveState()
+        page_width, page_height = doc.pagesize
+        canvas.setFillColor(colors.HexColor("#1D4ED8"))
+        canvas.rect(0, page_height - 0.24 * cm, page_width, 0.24 * cm, stroke=0, fill=1)
+
+        right_edge = page_width - doc.rightMargin
+        footer_y = 0.4 * cm
+        logo_h = 0.7 * cm
+        logo_w = 1.8 * cm
+        canvas.setStrokeColor(colors.HexColor("#1D4ED8"))
+        canvas.setLineWidth(1.2)
+        canvas.line(doc.leftMargin, footer_y + logo_h + 0.15 * cm, right_edge, footer_y + logo_h + 0.15 * cm)
 
         if footer_image_bytes:
             try:
                 img_buf = BytesIO(footer_image_bytes)
                 img_reader = ImageReader(img_buf)
-                x = doc.leftMargin
-                y = 0.3 * cm
-                max_w = doc.pagesize[0] - doc.leftMargin - doc.rightMargin
-                max_h = FOOTER_MAX_HEIGHT_CM * cm
                 canvas.drawImage(
                     img_reader,
-                    x,
-                    y,
-                    width=max_w,
-                    height=max_h,
+                    right_edge - logo_w - 2.2 * cm,
+                    footer_y,
+                    width=2 * cm,
+                    height=logo_h,
                     preserveAspectRatio=True,
                     anchor="sw",
                     mask="auto",
@@ -673,23 +677,9 @@ def build_pdf_footer_handler(branding: dict, bold_font: str = "Helvetica"):
             except Exception:
                 pass
 
-        # Draw the default Classio logo + "Visit classio.streamlit.app" on
-        # the RIGHT side of the footer when no custom branding is active.
-        if not has_custom_logo and not footer_image_bytes and os.path.isfile(_DEFAULT_LOGO_PATH):
+        if os.path.isfile(_DEFAULT_LOGO_PATH):
             try:
                 img_reader = ImageReader(_DEFAULT_LOGO_PATH)
-                logo_h = 1.2 * cm
-                logo_w = 1.2 * cm
-                right_edge = doc.pagesize[0] - doc.rightMargin
-                footer_y = 0.4 * cm
-
-                # Solid separator line above the footer
-                line_y = footer_y + logo_h + 0.15 * cm
-                canvas.setStrokeColor(colors.HexColor("#1D4ED8"))
-                canvas.setLineWidth(1.2)
-                canvas.line(doc.leftMargin, line_y, right_edge, line_y)
-
-                # Logo at the far right
                 canvas.drawImage(
                     img_reader,
                     right_edge - logo_w,
@@ -700,36 +690,15 @@ def build_pdf_footer_handler(branding: dict, bold_font: str = "Helvetica"):
                     mask="auto",
                 )
 
-                # "Visit classio.streamlit.app" just left of the logo
-                canvas.setFont(bold_font, 9)
-                canvas.setFillColor(colors.HexColor("#64748B"))
-                text_y = footer_y + logo_h / 2 - 4  # vertically centre with logo
-                canvas.drawRightString(
-                    right_edge - logo_w - 0.25 * cm,
-                    text_y,
-                    "Visit classio.streamlit.app",
-                )
             except Exception:
                 pass
 
-        # Page number on the LEFT for default Classio footer,
-        # on the RIGHT for custom branding
-        _show_default_classio = (not has_custom_logo and not footer_image_bytes
-                                 and os.path.isfile(_DEFAULT_LOGO_PATH))
         page_num = str(canvas.getPageNumber())
-        canvas.setFont(bold_font, 9)
+        canvas.setFont(bold_font, 8)
         canvas.setFillColor(colors.HexColor("#64748B"))
-        if _show_default_classio:
-            text_y = 0.4 * cm + 1.2 * cm / 2 - 4  # match logo vertical centre
-            canvas.drawString(doc.leftMargin, text_y, page_num)
-        else:
-            footer_label = brand_name if (footer_enabled and brand_name) else ""
-            footer_text = f"{footer_label} | {page_num}" if footer_label else page_num
-            canvas.drawRightString(
-                doc.pagesize[0] - doc.rightMargin,
-                0.9 * cm,
-                footer_text,
-            )
+        text_y = footer_y + logo_h / 2 - 3
+        canvas.drawString(doc.leftMargin, text_y, page_num)
+        canvas.drawCentredString(page_width / 2, text_y, "Prepared with masterclassio.com")
 
         canvas.restoreState()
 
