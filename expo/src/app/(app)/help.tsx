@@ -40,7 +40,11 @@ export default function HelpScreen() {
   const [submittedNumber, setSubmittedNumber] = useState<number | null>(null);
   const focusedTicket = tickets.find((ticket) => ticket.id === params.ticket);
 
-  useEffect(() => { void myHelpTickets().then(setTickets).catch(() => {}); }, []);
+  useEffect(() => {
+    let active = true;
+    void myHelpTickets(params.ticket).then((rows) => { if (active) setTickets(rows); }).catch(() => {});
+    return () => { active = false; };
+  }, [params.ticket]);
   const chooseFile = async (file: HelpScreenshot) => {
     try { await checkedHelpScreenshot(file); setImage(file); setMessage(''); }
     catch { setImage(null); setTone('error'); setMessage(t('help.invalidImage')); }
@@ -62,7 +66,7 @@ export default function HelpScreen() {
       setSubmittedNumber(result.number); setTitle(''); setDescription(''); setImage(null);
       setTone(result.screenshotUploaded ? 'success' : 'error');
       setMessage(t(result.screenshotUploaded ? 'help.sent' : 'help.sentWithoutImage'));
-      setTickets(await myHelpTickets());
+      setTickets(await myHelpTickets(params.ticket));
     } catch (reason) {
       const key = reason instanceof Error && reason.message.startsWith('help.') ? reason.message : 'help.submitFailed';
       setTone('error'); setMessage(t(key));
