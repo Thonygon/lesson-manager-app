@@ -59,13 +59,40 @@ export async function submitHelpTicket(input: { kind: HelpKind; title: string; d
   return { number: Number(data.ticket_number), screenshotUploaded };
 }
 
-export async function myHelpTickets(): Promise<HelpTicket[]> {
+export async function myHelpTickets(focusId?: string): Promise<HelpTicket[]> {
   const client = requireSupabase();
   const { data: auth } = await client.auth.getUser();
   if (!auth.user) return [];
   const { data, error } = await client.from('classio_help_tickets').select('id,ticket_number,reporter_id,kind,title,description,page_path,screenshot_mime,status,response,created_at,updated_at').eq('reporter_id', auth.user.id).order('created_at', { ascending: false }).limit(30);
   if (error) throw error;
-  return (data || []) as HelpTicket[];
+  const tickets = (data || []) as HelpTicket[];
+  if (focusId && !tickets.some((ticket) => ticket.id === focusId)) {
+    const focused = await myHelpTicket(focusId);
+    if (focused) tickets.unshift(focused);
+  }
+  return tickets;
+}
+
+export async function myHelpTicket(id: string): Promise<HelpTicket | null> {
+  const client = requireSupabase();
+  const { data: auth } = await client.auth.getUser();
+  if (!auth.user) return null;
+  const { data, error } = await client.from('classio_help_tickets').select('id,ticket_number,reporter_id,kind,title,description,page_path,screenshot_mime,status,response,created_at,updated_at').eq('id', id).eq('reporter_id', auth.user.id).maybeSingle();
+  if (error) throw error;
+  return data as HelpTicket | null;
+}
+
+export async function purgeOwnHelpScreenshots(userId: string): Promise<void> {
+  const client = requireSupabase();
+  const bucket = client.storage.from(HELP_SCREENSHOT_BUCKET);
+  for (;;) {
+    const { data, error } = await bucket.list(userId, { limit: 100 });
+    if (error) throw error;
+    const paths = (data || []).filter((item) => item.name && item.id).map((item) => `${userId}/${item.name}`);
+    if (!paths.length) return;
+    const removed = await bucket.remove(paths);
+    if (removed.error) throw removed.error;
+  }
 }
 
 export async function updateHelpTicket(id: string, status: HelpStatus, response: string): Promise<void> {
