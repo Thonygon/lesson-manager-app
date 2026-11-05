@@ -14,7 +14,7 @@ import { useAppPreferences } from '@/providers/app-preferences';
 import { useHomeIntro } from '@/providers/home-intro-provider';
 import { beginDirectGoogleSignIn, takeDirectGoogleResponse } from '@/lib/google-direct-sign-in';
 import { colors } from '@/theme';
-import { privacyNoticeUrl, storageNoticeUrl } from '@/lib/privacy-notices';
+import { legalAgreementUrl, privacyNoticeUrl, storageNoticeUrl } from '@/lib/privacy-notices';
 
 export default function SignInScreen() {
   const { width } = useWindowDimensions();
@@ -117,7 +117,7 @@ export default function SignInScreen() {
             {mode !== 'forgot' ? <><GoogleSignIn disabled={submitting} label={t('auth.googleButton')} onPress={() => void openGoogle()} />{messageContext === 'google' ? <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} /> : null}<Text style={styles.googleBody}>{t('auth.googleHint')}</Text></> : null}
           </>}
           <Text style={styles.security}>{t('auth.security')}</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12 }}><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(privacyNoticeUrl(language, 'app'))}><Text style={styles.privacyLink}>{t('legal.privacyNotice')}</Text></Pressable><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(storageNoticeUrl(language))}><Text style={styles.privacyLink}>{t('legal.storageDetails')}</Text></Pressable></View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12 }}><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(legalAgreementUrl(language, 'terms'))}><Text style={styles.privacyLink}>{t('legal.terms')}</Text></Pressable><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(privacyNoticeUrl(language, 'app'))}><Text style={styles.privacyLink}>{t('legal.privacyNotice')}</Text></Pressable><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(storageNoticeUrl(language))}><Text style={styles.privacyLink}>{t('legal.storageDetails')}</Text></Pressable></View>
         </Panel>
       </KeyboardAvoidingView>
     </SafeAreaView>

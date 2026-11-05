@@ -30,7 +30,7 @@ import { publicConfig } from '@/lib/supabase';
 import { useAppPreferences } from '@/providers/app-preferences';
 import { getPublicResourceDetail, getPublicResourcePreviewImages, getExplorerPublicResources, getExplorerPublicExamPage, type PublicResource, type PublicResourceKind } from '@/services/public-data';
 import { colors } from '@/theme';
-import { privacyNoticeUrl, storageNoticeUrl } from '@/lib/privacy-notices';
+import { legalAgreementUrl, privacyNoticeUrl, storageNoticeUrl } from '@/lib/privacy-notices';
 import { canonicalSubjectKey, canonicalSubjectLabel } from '@/lib/subjects';
 import { canonicalLearnerStageKey, learnerStageLabel } from '@/lib/learner-stages';
 import { savePendingIncomeGoal } from '@/lib/income-goal-handoff';
@@ -353,7 +353,7 @@ export default function HomeScreen() {
 
 
           <View style={styles.finalCta}><Text style={styles.finalEyebrow}>{copy.finalEyebrow}</Text><Text style={[styles.finalTitle, compact && styles.finalTitleCompact]}>{copy.finalTitle}</Text><Text style={styles.finalBody}>{copy.finalBody}</Text><Pressable onPress={() => router.push('/sign-in')} style={styles.lightButton}><Text style={styles.lightButtonText}>{copy.finalAction}</Text></Pressable></View>
-          <View style={styles.footer}><Text style={styles.footerBrand}>CLASSIO</Text><Text style={styles.footerText}>{copy.footer}</Text><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(privacyNoticeUrl(language, 'website'))}><Text style={styles.footerLegal}>{t('legal.privacyNotice')}</Text></Pressable><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(storageNoticeUrl(language))}><Text style={styles.footerLegal}>{t('legal.storageDetails')}</Text></Pressable></View>
+          <View style={styles.footer}><Text style={styles.footerBrand}>CLASSIO</Text><Text style={styles.footerText}>{copy.footer}</Text><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(legalAgreementUrl(language, 'terms'))}><Text style={styles.footerLegal}>{t('legal.terms')}</Text></Pressable><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(privacyNoticeUrl(language, 'website'))}><Text style={styles.footerLegal}>{t('legal.privacyNotice')}</Text></Pressable><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(storageNoticeUrl(language))}><Text style={styles.footerLegal}>{t('legal.storageDetails')}</Text></Pressable></View>
         </SafeAreaView>
       </ScrollView>
       <IntroConstellation ready={!resourcesLoading} tagline={copy.introTagline} theme={resolvedTheme} />

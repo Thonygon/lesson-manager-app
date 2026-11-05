@@ -29,6 +29,11 @@ class StorageNoticeTest(unittest.TestCase):
                 self.assertIn("info@masterclassio.com", page)
                 self.assertIn(f"/privacy/{language}/website/", page)
                 self.assertEqual(page.count("<tr>"), len(data["entries"]) + 1)
+            default_page = (output / "index.html").read_text(encoding="utf-8")
+            self.assertIn('<html lang="en">', default_page)
+            self.assertIn(data["locales"]["en"]["details"], default_page)
+            self.assertIn('/cookies/tr/', default_page)
+            self.assertIn('/cookies/es/', default_page)
 
 
 if __name__ == "__main__":

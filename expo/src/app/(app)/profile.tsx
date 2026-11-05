@@ -13,7 +13,7 @@ import { useNotifications } from '@/providers/notifications-provider';
 import type { ClassioRecord } from '@/services/classio-data';
 import { activateProfileWorkspaceMode, deleteCurrentUserData, getProfileWorkspace, profileModeSaveFields, saveProfileWorkspace, uploadProfileAvatar } from '@/services/profile';
 import { colors } from '@/theme';
-import { privacyNoticeUrl, storageNoticeUrl } from '@/lib/privacy-notices';
+import { legalAgreementUrl, privacyNoticeUrl, storageNoticeUrl } from '@/lib/privacy-notices';
 
 const SUBJECTS = ['english', 'spanish', 'mathematics', 'science', 'music', 'study_skills', 'other'];
 const STAGES = ['early_primary', 'upper_primary', 'lower_secondary', 'upper_secondary', 'adult_stage'];
@@ -76,6 +76,8 @@ export default function ProfileScreen() {
       <Button secondary onPress={() => void signOut()}>{t('account.signOut')}</Button>
       <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(privacyNoticeUrl(language, role === 'student' ? 'students' : 'app'))}><Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800', paddingVertical: 9 }}>{t('legal.privacyNotice')}</Text></Pressable>
       <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(storageNoticeUrl(language))}><Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800', paddingVertical: 9 }}>{t('legal.storageDetails')}</Text></Pressable>
+      <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(legalAgreementUrl(language, 'terms'))}><Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800', paddingVertical: 9 }}>{t('legal.terms')}</Text></Pressable>
+      {role === 'teacher' ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(legalAgreementUrl(language, 'teacher-data'))}><Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800', paddingVertical: 9 }}>{t('legal.teacherData')}</Text></Pressable> : null}
       <Disclosure title={t('profile.security')} summary={t('profile.securityHelp')}>
         <Text style={styles.help}>{t(Array.isArray(user?.app_metadata?.providers) && user.app_metadata.providers.includes('google') ? 'profile.googlePasswordHelp' : 'profile.passwordHelp')}</Text>
         <Text style={styles.label}>{t('auth.newPassword')}</Text>
