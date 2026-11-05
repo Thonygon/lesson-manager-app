@@ -5,6 +5,7 @@ import { Appearance, Platform } from 'react-native';
 import { classioThemeCss } from '@/theme';
 import { analyticsPageTranslations } from '@/lib/analytics-page-copy';
 import { brandingTranslations } from '@/lib/branding-copy';
+import { helpTranslations } from '@/lib/help-copy';
 
 export type AppLanguage = 'en' | 'es' | 'tr';
 export type ThemePreference = 'auto' | 'light' | 'dark';
@@ -583,6 +584,9 @@ Object.assign(tr, analyticsPageTranslations.tr);
 Object.assign(en, brandingTranslations.en);
 Object.assign(es, brandingTranslations.es);
 Object.assign(tr, brandingTranslations.tr);
+Object.assign(en, helpTranslations.en);
+Object.assign(es, helpTranslations.es);
+Object.assign(tr, helpTranslations.tr);
 Object.assign(en, { 'developer.pythonConnection': 'Python model service', 'developer.pythonCheck': 'Check authenticated connection', 'developer.pythonModelReady': 'Authenticated. Approved model {run} is ready.', 'developer.pythonAuthOnly': 'Authentication works, but the approved model is not ready. Check the selected run and its artifacts in Render.', 'developer.pythonAuthFailed': 'Could not authenticate with the Python service. Check the Render configuration and your session.' });
 Object.assign(es, { 'developer.pythonConnection': 'Servicio de modelos Python', 'developer.pythonCheck': 'Verificar conexión autenticada', 'developer.pythonModelReady': 'Autenticación correcta. El modelo aprobado {run} está listo.', 'developer.pythonAuthOnly': 'La autenticación funciona, pero el modelo aprobado no está listo. Revisa la ejecución seleccionada y sus artefactos en Render.', 'developer.pythonAuthFailed': 'No se pudo autenticar con el servicio Python. Revisa la configuración de Render y tu sesión.' });
 Object.assign(tr, { 'developer.pythonConnection': 'Python model hizmeti', 'developer.pythonCheck': 'Kimlik doğrulamalı bağlantıyı kontrol et', 'developer.pythonModelReady': 'Kimlik doğrulandı. Onaylı {run} modeli hazır.', 'developer.pythonAuthOnly': 'Kimlik doğrulama çalışıyor ancak onaylı model hazır değil. Render üzerindeki seçili çalıştırmayı ve dosyalarını kontrol edin.', 'developer.pythonAuthFailed': 'Python hizmetinde kimlik doğrulanamadı. Render ayarlarını ve oturumunuzu kontrol edin.' });

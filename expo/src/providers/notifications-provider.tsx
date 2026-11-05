@@ -31,9 +31,10 @@ export function NotificationsProvider({ children }: PropsWithChildren) {
   const pathname = usePathname();
   const access = usePrivilegedAccess();
   const role = pathname === '/admin' && access.isAdmin ? 'admin'
-    : pathname === '/developer-workspace' && access.canUseDeveloperWorkspace ? 'developer'
+    : pathname === '/developer-workspace' && access.canUseDeveloperWorkspace ? (access.isAdmin || access.staffRoles.includes('developer') ? 'developer' : 'data_scientist')
     : profile?.last_active_mode ?? profile?.primary_role ?? profile?.role ?? 'student';
   const userId = user?.id || '';
+  const canHandleHelp = access.isAdmin || access.staffRoles.includes('developer');
   const storageKey = `classio:notifications:read:v1:${userId}:${role}`;
   const preferencesKey = `classio:notifications:preferences:v1:${userId}:${role}`;
   const [items, setItems] = useState<AppNotification[]>([]);
@@ -56,7 +57,7 @@ export function NotificationsProvider({ children }: PropsWithChildren) {
     const request = (async () => {
       setLoading(true);
       try {
-        const next = await loadAppNotifications(userId, role);
+        const next = await loadAppNotifications(userId, role, canHandleHelp);
         if (current !== generation.current) return;
         setItems(next);
         setError('');
@@ -69,7 +70,7 @@ export function NotificationsProvider({ children }: PropsWithChildren) {
     })();
     inFlight.current = request;
     try { await request; } finally { if (inFlight.current === request) inFlight.current = null; }
-  }, [role, userId]);
+  }, [canHandleHelp, role, userId]);
   useEffect(() => {
     generation.current += 1;
     lastRefresh.current = 0;

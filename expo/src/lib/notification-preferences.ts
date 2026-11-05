@@ -1,6 +1,6 @@
-export type NotificationCategory = 'assignments' | 'reviews' | 'payments';
+export type NotificationCategory = 'assignments' | 'reviews' | 'payments' | 'support';
 export type NotificationPreferences = Record<NotificationCategory, boolean>;
-export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = { assignments: true, reviews: true, payments: true };
+export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = { assignments: true, reviews: true, payments: true, support: true };
 
 export function parseNotificationPreferences(raw: string | null): NotificationPreferences {
   if (!raw) return { ...DEFAULT_NOTIFICATION_PREFERENCES };
@@ -11,11 +11,13 @@ export function parseNotificationPreferences(raw: string | null): NotificationPr
       assignments: typeof value.assignments === 'boolean' ? value.assignments : true,
       reviews: typeof value.reviews === 'boolean' ? value.reviews : true,
       payments: typeof value.payments === 'boolean' ? value.payments : true,
+      support: typeof value.support === 'boolean' ? value.support : true,
     };
   } catch { return { ...DEFAULT_NOTIFICATION_PREFERENCES }; }
 }
 
 export function notificationCategory(key: string): NotificationCategory {
+  if (key.startsWith('help:')) return 'support';
   if (key.startsWith('teacher:payment:')) return 'payments';
   if (key.startsWith('teacher:') || key.startsWith('student:review:') || key.startsWith('student:comment:')) return 'reviews';
   return 'assignments';

@@ -5,6 +5,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { AppShell, type AppNotification } from '@/components/app-shell';
 import { AdminBars, AdminTrend } from '@/components/admin-charts';
+import { DeveloperHelpTickets } from '@/components/developer-help-tickets';
 import { ActionFeedback, Button, EmptyState, Field, LoadingState, Panel, SelectField, TabRail } from '@/components/ui';
 import { PrivilegedRecordList } from '@/components/privileged-record-list';
 import { dateLabel, groupCount, KpiGrid, SectionHeading, WarningBox } from '@/components/workspace-ui';
@@ -14,19 +15,19 @@ import { type DeveloperWorkspaceData, invalidateDeveloperWorkspace, loadDevelope
 import { checkPythonModelAuthentication, getPythonAffinityModel, pythonModelApiUrl } from '@/services/python-models';
 import { colors } from '@/theme';
 
-type DeveloperTab = 'overview' | 'lab' | 'evidence' | 'telemetry' | 'jobs' | 'audit';
+type DeveloperTab = 'overview' | 'lab' | 'evidence' | 'telemetry' | 'jobs' | 'audit' | 'support';
 const AI_APPROVAL_VERSIONS: Record<string, string> = { expo_text: 'expo-generate-v1', expo_image: 'expo-cover-v1', streamlit_text: 'streamlit-generation-v1', streamlit_image: 'streamlit-image-v1' };
 
 export default function DeveloperWorkspaceScreen() {
   const { t } = useAppPreferences();
   const { isAdmin, staffRoles } = usePrivilegedAccess();
   const canManageAi = isAdmin || staffRoles.includes('developer');
-  const params = useLocalSearchParams<{ tab?: string }>();
+  const params = useLocalSearchParams<{ tab?: string; ticket?: string }>();
   const [data, setData] = useState<DeveloperWorkspaceData | null>(null);
   const [loadedTab, setLoadedTab] = useState<DeveloperTab | null>(null);
   const loadSequence = useRef(0);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<DeveloperTab>(() => (['overview', 'lab', 'evidence', 'telemetry', 'jobs', 'audit'].includes(String(params.tab)) ? params.tab as DeveloperTab : 'overview'));
+  const [tab, setTab] = useState<DeveloperTab>(() => (['overview', 'lab', 'evidence', 'telemetry', 'jobs', 'audit', 'support'].includes(String(params.tab)) ? params.tab as DeveloperTab : 'overview'));
   const [experimentId, setExperimentId] = useState('');
   const [pythonCheckBusy, setPythonCheckBusy] = useState(false);
   const [pythonCheckResult, setPythonCheckResult] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
@@ -85,7 +86,7 @@ export default function DeveloperWorkspaceScreen() {
     finally { setApprovalBusy(false); }
   };
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (params.tab && ['overview', 'lab', 'evidence', 'telemetry', 'jobs', 'audit'].includes(params.tab)) setTab(params.tab as DeveloperTab); }, [params.tab]);
+  useEffect(() => { if (params.tab && ['overview', 'lab', 'evidence', 'telemetry', 'jobs', 'audit', 'support'].includes(params.tab)) setTab(params.tab as DeveloperTab); }, [params.tab]);
 
   const experiments = data?.experiments.rows ?? [];
   const runs = data?.runs.rows ?? [];
@@ -99,6 +100,7 @@ export default function DeveloperWorkspaceScreen() {
   const developerNotifications: AppNotification[] = [];
   if (unresolvedCount) developerNotifications.push({ key: 'diagnostics', icon: '🩺', title: `${t('developer.unresolved')} · ${unresolvedCount}`, href: '/developer-workspace?tab=telemetry' });
   if (failedJobs) developerNotifications.push({ key: 'jobs', icon: '⚠️', title: `${t('developer.failure')} · ${failedJobs}`, href: '/developer-workspace?tab=jobs' });
+  const pendingHelpTickets = canManageAi ? (data?.helpTickets.rows ?? []).filter((row) => !['resolved', 'closed'].includes(String(row.status))) : [];
 
   if (!data && !error) return <AppShell title={t('developer.title')} eyebrow={t('developer.eyebrow')}><LoadingState /></AppShell>;
   if (error) return <AppShell title={t('developer.title')} eyebrow={t('developer.eyebrow')}><EmptyState title={t('developer.accessDenied')} body={error} /></AppShell>;
@@ -107,6 +109,7 @@ export default function DeveloperWorkspaceScreen() {
   const tabs = [
     ['overview', t('developer.tab.overview')], ['lab', t('developer.tab.lab')], ['evidence', t('developer.tab.evidence')],
     ['telemetry', t('developer.tab.telemetry')], ['jobs', t('developer.tab.jobs')], ['audit', t('developer.tab.audit')],
+    ...(canManageAi ? [['support', t('developer.tab.support')] as const] : []),
   ].map(([value, label]) => ({ value: value as DeveloperTab, label }));
   if (loadedTab !== tab) return <AppShell title={t('developer.title')} eyebrow={t('developer.eyebrow')} notifications={developerNotifications}><View style={styles.stack}><View style={styles.header}><View style={styles.headerCopy}><Text style={styles.headerTitle}>{t('developer.workspaceTitle')}</Text><Text style={styles.headerBody}>{t('developer.workspaceBody')}</Text></View></View><TabRail items={tabs} value={tab} onChange={setTab} accessibilityLabel={t('developer.title')} /><LoadingState /></View></AppShell>;
   const validatedRuns = runs.filter((row) => String(row.run_status).startsWith('VALIDATED'));
@@ -118,6 +121,7 @@ export default function DeveloperWorkspaceScreen() {
     <View style={styles.stack}>
       <View style={styles.header}><View style={styles.headerCopy}><Text style={styles.headerTitle}>{t('developer.workspaceTitle')}</Text><Text style={styles.headerBody}>{t('developer.workspaceBody')}</Text></View><Button secondary onPress={() => { invalidateDeveloperWorkspace(); void load(); }}>{t('common.refresh')}</Button></View>
       <TabRail items={tabs} value={tab} onChange={setTab} accessibilityLabel={t('developer.title')} />
+      {tab === 'support' && canManageAi ? <DeveloperHelpTickets key={params.ticket || 'support'} tickets={data.helpTickets.rows as unknown as import('@/services/help-center').HelpTicket[]} initialId={params.ticket} onRefresh={async () => { invalidateDeveloperWorkspace(); await load(); }} /> : null}
       {tab === 'overview' ? <>
         <Panel><SectionHeading title={t('developer.workflowTitle')} body={t('developer.workflowBody')} /><View style={styles.workflow}>{([
           [t('developer.workflow.define'), experiments.length, t('developer.tab.lab')],
@@ -129,6 +133,7 @@ export default function DeveloperWorkspaceScreen() {
           { label: t('developer.latestRun'), value: String(runs[0]?.run_id || '—') },
           { label: t('developer.latestValidated'), value: String(validatedRuns[0]?.run_id || '—') },
           { label: t('developer.failedJobs'), value: failedJobs },
+          ...(canManageAi ? [{ label: t('help.developer.alert'), value: pendingHelpTickets.length }] : []),
           { label: t('developer.codeVersion'), value: String(runs[0]?.code_version || '—') },
         ]} />
         <Panel><SectionHeading title={t('developer.runTrend')} /><AdminTrend rows={runMonths(runs)} emptyTitle={t('developer.noRuns')} emptyBody={t('developer.noRunsBody')} /></Panel>

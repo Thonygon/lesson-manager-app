@@ -115,6 +115,9 @@ jobs:
       - name: Verify Admin workspace role matrix
         run: node scripts/check-admin-workspace-roles.cjs
 
+      - name: Validate help screenshot boundaries
+        run: node scripts/check-help-center.cjs
+
       - name: Lint Expo application
         run: pnpm run lint
 

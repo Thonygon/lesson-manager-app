@@ -67,7 +67,7 @@ export function AppShell({ title, eyebrow, notifications, scrollToTopToken, chil
   const identityInitial = String(identityName).slice(0, 1).toUpperCase();
   const visibleNav = navigationRole === 'admin' || navigationRole === 'developer' ? [] : NAV.filter((item) => (item.roles as readonly string[]).includes(navigationRole));
   const privilegedNav = PRIVILEGED_NAV.filter((item) => item.kind === navigationRole && (item.kind === 'admin' ? access.isAdmin : access.canUseDeveloperWorkspace));
-  const allNav = [...visibleNav, ...privilegedNav];
+  const allNav = [...visibleNav, ...privilegedNav, { href: '/help', icon: '?', labelKey: 'nav.help' }];
   const showSidebar = compact ? mobileNavigationOpen : !desktopCollapsed;
   const toggleNavigation = () => {
     if (compact) setMobileNavigationOpen((open) => !open);
@@ -95,7 +95,7 @@ export function AppShell({ title, eyebrow, notifications, scrollToTopToken, chil
             {allNav.map((item) => {
               const active = pathname === item.href || (item.href === '/students' && pathname.startsWith('/student-delete'));
               return (
-                <Link key={item.href} href={item.href as Href} onPress={() => { if (compact) setMobileNavigationOpen(false); }} style={[styles.navItem, active && styles.navItemActive]}>
+                <Link key={item.href} href={item.href === '/help' ? { pathname: '/help', params: { from: pathname } } : item.href as Href} onPress={() => { if (compact) setMobileNavigationOpen(false); }} style={[styles.navItem, active && styles.navItemActive]}>
                   <View style={styles.navInner}><Text style={[styles.navIcon, active && styles.navTextActive]}>{item.icon}</Text><Text style={[styles.navText, active && styles.navTextActive]}>{t(item.labelKey)}</Text></View>
                 </Link>
               );

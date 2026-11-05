@@ -19,8 +19,28 @@ const recent = (item: unknown, days: number) => {
   return Number.isFinite(time) && time >= Date.now() - days * 86400000;
 };
 
-export async function loadAppNotifications(userId: string, role: string): Promise<AppNotification[]> {
+async function helpReportUpdates(userId: string): Promise<AppNotification[]> {
+  const result = await requireSupabase().from('classio_help_tickets').select('id,ticket_number,title,status,updated_at,response').eq('reporter_id', userId).not('response', 'is', null).order('updated_at', { ascending: false }).limit(20);
+  if (result.error) return [];
+  return ((result.data || []) as Row[]).filter((row) => recent(row.updated_at, 14)).map((row) => ({
+    key: `help:reply:${value(row.id)}:${value(row.updated_at)}`, icon: '💬', titleKey: 'help.reportUpdated',
+    detail: `#${value(row.ticket_number)} · ${value(row.title)}`, href: { pathname: '/help', params: { ticket: value(row.id) } },
+  }));
+}
+
+async function incomingHelpReports(): Promise<AppNotification[]> {
+  const result = await requireSupabase().from('classio_help_tickets').select('id,ticket_number,title,status,created_at').in('status', ['open', 'triaged', 'in_progress']).order('created_at', { ascending: false }).limit(50);
+  if (result.error) return [];
+  return ((result.data || []) as Row[]).map((row) => ({
+    key: `help:incoming:${value(row.id)}`, icon: '🛟', titleKey: 'help.developer.alert',
+    detail: `#${value(row.ticket_number)} · ${value(row.title)}`,
+    href: { pathname: '/developer-workspace', params: { tab: 'support', ticket: value(row.id) } },
+  }));
+}
+
+export async function loadAppNotifications(userId: string, role: string, canHandleHelp = false): Promise<AppNotification[]> {
   const client = requireSupabase();
+  const incomingHelp = canHandleHelp ? await incomingHelpReports() : [];
   if (role === 'student') {
     const [assignmentResult, reviewResult, attemptResult] = await Promise.all([
       client.from('teacher_assignments').select('id,title,assignment_type,status,score_pct,due_at,assigned_at,created_at,graded_at,updated_at').eq('student_id', userId).neq('status', 'archived').order('created_at', { ascending: false }).limit(200),
@@ -72,7 +92,7 @@ export async function loadAppNotifications(userId: string, role: string): Promis
         : { pathname: '/student-practice', params: { assignmentId, kind, reviewId: value(row.id), notice: 'review', returnTo: 'student-assignments' } };
       items.push({ key: `student:review:${value(row.id)}:${value(row.reviewed_at)}`, icon: '💬', titleKey: 'student.notificationReview', titleParams: { count: 1 }, detail: value(assignment?.title || row.title), href: reviewHref });
     }
-    return items;
+    return [...items, ...await helpReportUpdates(userId), ...incomingHelp];
   }
   if (role === 'teacher' || role === 'school_admin') {
     const [reviewResult, practiceResult] = await Promise.all([
@@ -90,7 +110,7 @@ export async function loadAppNotifications(userId: string, role: string): Promis
       const studentId = value((assignment as Row | undefined)?.student_user_id);
       return { key: `teacher:practice:${value(row.id)}:${value(row.updated_at)}`, icon: '🧩', titleKey: 'dashboard.practiceNotification', titleParams: { count: 1 }, href: { pathname: '/students', params: { section: 'progress', learningTab: 'programs', student: studentId, programAssignment: value(row.assignment_id), programTopic: value(row.topic_id) } } };
     });
-    return [...reviews, ...practice];
+    return [...reviews, ...practice, ...await helpReportUpdates(userId), ...incomingHelp];
   }
-  return [];
+  return [...await helpReportUpdates(userId), ...incomingHelp];
 }
