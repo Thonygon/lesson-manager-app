@@ -12,3 +12,9 @@ export function privacyNoticeUrl(language: AppLanguage, audience: PrivacyAudienc
 export function storageNoticeUrl(language: AppLanguage): string {
   return `https://masterclassio.com/cookies/${language}/`;
 }
+
+export type LegalAgreement = 'terms' | 'teacher-data';
+
+export function legalAgreementUrl(language: AppLanguage, agreement: LegalAgreement): string {
+  return `https://masterclassio.com/${agreement}/${language}/`;
+}

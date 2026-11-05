@@ -54,10 +54,14 @@ def build(output: Path) -> None:
         destination = output / language / "index.html"
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(render(data, language), encoding="utf-8")
+    # The unqualified link must show usable content immediately, while the
+    # language switch in render() remains available to visitors.
     (output / "index.html").write_text(
-        '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cookies · Master Classio</title>'
-        '<link rel="canonical" href="https://masterclassio.com/cookies/"><link rel="stylesheet" href="/privacy/privacy.css">'
-        '<main class="wrap"><h1>Cookies and device storage</h1><nav class="audiences"><a href="/cookies/tr/">Türkçe</a><a href="/cookies/en/">English</a><a href="/cookies/es/">Español</a></nav></main></html>',
+        render(data, "en").replace(
+            'href="https://masterclassio.com/cookies/en/"',
+            'href="https://masterclassio.com/cookies/"',
+            1,
+        ),
         encoding="utf-8",
     )
 
