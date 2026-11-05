@@ -910,12 +910,16 @@ export function downloadResourceDocx(title: string, detail: Record<string, unkno
   return recordedDocumentExport('docx', documentKind, variant, () => saveDocx(displayTitle, subtitle, resourceSections(detail, variant, documentLocale), `${title}${suffix}`, documentLocale, resourceKind === 'worksheet' || resourceKind === 'exam', false, resourceKind, resourceMetaLine(detail, resourceKind, documentLocale)));
 }
 
+function studentProgressSubtitle(locale: DocumentLocale): string {
+  return `${COPY[locale].studentEvidence} · ${new Date().toISOString().slice(0, 10)}`;
+}
+
 export function downloadStudentReportPdf(studentName: string, workspace: StudentLearningWorkspace, locale: DocumentLocale = 'en') {
-  return recordedDocumentExport('pdf', 'student_report', 'full', () => savePdf(`${studentName} · ${COPY[locale].progress}`, COPY[locale].studentEvidence, studentSections(workspace, locale), `${studentName}-progress-report`, locale));
+  return recordedDocumentExport('pdf', 'student_report', 'full', () => savePdf(`${studentName} · ${COPY[locale].progress}`, studentProgressSubtitle(locale), studentSections(workspace, locale), `${studentName}-progress-report`, locale));
 }
 
 export function downloadStudentReportDocx(studentName: string, workspace: StudentLearningWorkspace, locale: DocumentLocale = 'en') {
-  return recordedDocumentExport('docx', 'student_report', 'full', () => saveDocx(`${studentName} · ${COPY[locale].progress}`, COPY[locale].studentEvidence, studentSections(workspace, locale), `${studentName}-progress-report`, locale));
+  return recordedDocumentExport('docx', 'student_report', 'full', () => saveDocx(`${studentName} · ${COPY[locale].progress}`, studentProgressSubtitle(locale), studentSections(workspace, locale), `${studentName}-progress-report`, locale));
 }
 
 type HistoryBalance = { subject: string; modality: string; purchased: number; delivered: number; remaining: number; startDate?: string; expiryDate?: string } | null;

@@ -70,5 +70,8 @@ global.document.createElement = (tag) => tag === 'canvas' ? { width: 0, height: 
   captured = null;
   await loaded.exports.downloadStudentHistoryDocx('Sample Student', [{ lesson_date: '2026-11-04', number_of_lesson: 1, modality: 'Online', subject: 'English', note: 'Future plans' }], [], 'en');
   fs.writeFileSync(path.join(outputDir, 'student-history.docx'), Buffer.from(await captured.arrayBuffer()));
+  captured = null;
+  await loaded.exports.downloadStudentReportDocx('Sample Student', { assignments: [], attempts: [], programs: [], reviews: [], progress: [] }, 'en');
+  fs.writeFileSync(path.join(outputDir, 'student-progress.docx'), Buffer.from(await captured.arrayBuffer()));
   process.stdout.write(`${outputDir}\n`);
 })().catch((error) => { console.error(error); process.exitCode = 1; });

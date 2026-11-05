@@ -65,6 +65,9 @@ examples.push(['email-reading', 'Reading an email', { worksheet_json: { workshee
   await loaded.exports.downloadStudentHistoryPdf('Sample Student', [{ lesson_date: '2026-11-04', number_of_lesson: 1, modality: 'Online', subject: 'English', note: 'Future plans' }], [], 'en');
   fs.writeFileSync(path.join(outputDir, 'student-history.pdf'), Buffer.from(global.__classioPdfBytes));
   global.__classioPdfBytes = null;
+  await loaded.exports.downloadStudentReportPdf('Sample Student', { assignments: [], attempts: [], programs: [], reviews: [], progress: [] }, 'en');
+  fs.writeFileSync(path.join(outputDir, 'student-progress.pdf'), Buffer.from(global.__classioPdfBytes));
+  global.__classioPdfBytes = null;
   await loaded.exports.downloadStudentHistoryPdf('Sample Student', Array.from({ length: 60 }, (_, index) => ({ lesson_date: `2026-10-${String(index % 28 + 1).padStart(2, '0')}`, number_of_lesson: 1, modality: 'Online', subject: 'English', note: `Lesson ${index + 1}: Future plans and speaking practice` })), [], 'en');
   fs.writeFileSync(path.join(outputDir, 'student-history-long.pdf'), Buffer.from(global.__classioPdfBytes));
   process.stdout.write(`${outputDir}\n`);
