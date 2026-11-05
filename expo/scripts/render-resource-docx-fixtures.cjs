@@ -31,7 +31,7 @@ const outputDir = process.argv[2] || '/tmp/classio-document-fixtures';
 fs.mkdirSync(outputDir, { recursive: true });
 global.document = { createElement: () => ({ click() {}, remove() {} }), body: { appendChild() {} } };
 global.window = { setTimeout() {} };
-global.fetch = async () => ({ ok: false });
+global.fetch = async (url) => { const name = String(url).split('/').pop(); if (name === 'logo_classio_light.png') { const bytes = fs.readFileSync(path.join(__dirname, '../public', name)); return { ok: true, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) }; } return { ok: false }; };
 let captured;
 global.URL.createObjectURL = (blob) => { captured = blob; return 'blob:fixture'; };
 global.URL.revokeObjectURL = () => {};
@@ -50,6 +50,8 @@ samples.push(['worksheet-visual', 'Visual worksheet', { worksheet_type: 'reading
 samples.push(['exam-visual', 'Visual exam', { sections: [{ type: 'diagram_questions', title: 'Diagram', visual_support: visual, questions: ['Identify the image.'] }] }, 'student']);
 samples.push(['word-search-watermark', 'Visual word search', { worksheet_type: 'word_search_vocab', instructions: 'Find CLASS.', vocabulary_bank: ['CLASS'], visual_supports: [visual] }, 'student']);
 samples.push(['exam-word-search', 'Exam word search', { sections: [{ type: 'word_search', title: 'Find the words', instructions: 'Circle the words.', vocabulary_bank: ['CLASS', 'LEARN'], visual_support: visual }] }, 'student']);
+samples.push(['email-reading', 'Reading an email', { worksheet_json: { worksheet_type: 'reading_comprehension', reading_passage: 'From: Ana\nTo: Ben\nSubject: Our trip\n\nHello Ben,\n\nWe will travel next week. Please bring your notebook.\n\nBest wishes,\nAna', text_kind: 'email', questions: ['When?'] } }, 'student']);
+samples.push(['long-topic-exam', 'El pretérito imperfecto', { exam_data: { sections: [{ type: 'short_answer', title: 'Parte 1', questions: ['Explica el uso del tiempo verbal.'] }] }, subject: 'Spanish', topic: 'Cuando era niño/a: El Pretérito Imperfecto regular e irregular para describir rutinas y hábitos del pasado', learner_stage: 'adult_stage', level_or_band: 'A2' }, 'student']);
 global.Image = class {
   naturalWidth = 800;
   naturalHeight = 400;
@@ -65,5 +67,8 @@ global.document.createElement = (tag) => tag === 'canvas' ? { width: 0, height: 
     if (!captured) throw new Error(`${name} did not produce a document`);
     fs.writeFileSync(path.join(outputDir, `${name}.docx`), Buffer.from(await captured.arrayBuffer()));
   }
+  captured = null;
+  await loaded.exports.downloadStudentHistoryDocx('Sample Student', [{ lesson_date: '2026-11-04', number_of_lesson: 1, modality: 'Online', subject: 'English', note: 'Future plans' }], [], 'en');
+  fs.writeFileSync(path.join(outputDir, 'student-history.docx'), Buffer.from(await captured.arrayBuffer()));
   process.stdout.write(`${outputDir}\n`);
 })().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -2202,8 +2202,9 @@ def build_worksheet_pdf_bytes(
         asset = build_text_asset(value, title=title, text_kind=text_kind, blocks=blocks)
         flowables = []
         if asset.get("title"):
-            flowables.append(Paragraph(_pdf_safe_text(asset.get("title")), heading_style))
+            flowables.append(Paragraph(_pdf_safe_text(asset.get("title")), ParagraphStyle("WorksheetSourceTitle", parent=heading_style, alignment=1)))
             flowables.append(Spacer(1, 3))
+        justified = ParagraphStyle("WorksheetSourceBody", parent=body_style, alignment=4)
         for block in asset.get("blocks") or []:
             block_type = str(block.get("type") or "paragraph")
             if block_type in {"from", "to", "subject"}:
@@ -2217,7 +2218,7 @@ def build_worksheet_pdf_bytes(
             else:
                 paragraphs = [part.strip() for part in str(block.get("text") or "").split("\n") if part.strip()]
                 for paragraph in paragraphs:
-                    flowables.append(Paragraph(_pdf_safe_text(paragraph), body_style))
+                    flowables.append(Paragraph(_pdf_safe_text(paragraph), justified))
             flowables.append(Spacer(1, 3 if block_type in {"from", "to", "subject"} else 5))
         return flowables
 

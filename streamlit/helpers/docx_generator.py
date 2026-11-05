@@ -83,7 +83,8 @@ def _add_structured_text(
 ):
     asset = build_text_asset(text, title=title, text_kind=text_kind, blocks=blocks)
     if asset.get("title"):
-        _add_body(doc, asset.get("title"), font_name, size, bold=True, leading_ratio=leading_ratio)
+        title_paragraph = _add_body(doc, asset.get("title"), font_name, size, bold=True, leading_ratio=leading_ratio)
+        title_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     for block in asset.get("blocks") or []:
         block_type = str(block.get("type") or "paragraph")
         if block_type in {"from", "to", "subject"}:
@@ -95,7 +96,9 @@ def _add_structured_text(
             _add_body(doc, f"{speaker}: {text_value}" if speaker else text_value, font_name, size, leading_ratio=leading_ratio)
         else:
             for paragraph in [part.strip() for part in str(block.get("text") or "").split("\n") if part.strip()]:
-                _add_body(doc, paragraph, font_name, size, leading_ratio=leading_ratio)
+                body_paragraph = _add_body(doc, paragraph, font_name, size, leading_ratio=leading_ratio)
+                if len(paragraph.split()) > 8:
+                    body_paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
 
 def _add_separator(doc: Document):
@@ -197,6 +200,20 @@ def _add_logo_to_doc(doc: Document, branding: dict):
     header_enabled = branding.get("header_enabled", False)
     logo_url = str(branding.get("header_logo_url") or "").strip()
 
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    section = doc.sections[-1]
+    section.header_distance = Cm(0)
+    header_paragraph = section.header.paragraphs[0]
+    p_pr = header_paragraph._p.get_or_add_pPr()
+    borders = OxmlElement("w:pBdr")
+    top = OxmlElement("w:top")
+    top.set(qn("w:val"), "single")
+    top.set(qn("w:sz"), "32")
+    top.set(qn("w:color"), "1D4ED8")
+    borders.append(top)
+    p_pr.append(borders)
+
     img_bytes = None
     if header_enabled and logo_url:
         img_bytes = _fetch_image_bytes(logo_url)
@@ -214,43 +231,25 @@ def _add_footer_with_image(doc: Document, branding: dict, font_name: str):
     """Add footer with optional image and brand text.
     When no custom branding, renders the small Classio logo and page number.
     """
-    brand_name = str(branding.get("brand_name") or "").strip()
     footer_enabled = branding.get("footer_enabled", False)
     footer_url = str(branding.get("footer_image_url") or "").strip()
-    header_enabled = branding.get("header_enabled", False)
-    has_custom_logo = header_enabled and bool(str(branding.get("header_logo_url") or "").strip())
 
     section = doc.sections[-1]
     footer = section.footer
     footer.is_linked_to_previous = False
 
-    # Footer image
+    fp = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+    fp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    visit_run = fp.add_run("Prepared with masterclassio.com  ")
+    _apply_font(visit_run, font_name, 9, color=_TEXT_MUTED)
+
     if footer_enabled and footer_url:
         img_bytes = _fetch_image_bytes(footer_url)
         if img_bytes:
-            fp = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
-            fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
             run = fp.add_run()
-            run.add_picture(BytesIO(img_bytes), height=Cm(1.5))
-            # Add text footer on a new line
-            fp2 = footer.add_paragraph()
-            fp2.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            run2 = fp2.add_run(brand_name if (footer_enabled and brand_name) else "Classio")
-            _apply_font(run2, font_name, 9, color=_TEXT_MUTED)
-            return
+            run.add_picture(BytesIO(img_bytes), height=Cm(0.7))
 
-    # Default footer: "Visit classio.streamlit.app" + Classio logo, right-aligned
-    from docx.oxml import OxmlElement
-
-    fp = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
-    fp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-
-    # "Visit classio.streamlit.app" text
-    visit_run = fp.add_run("Visit classio.streamlit.app  ")
-    _apply_font(visit_run, font_name, 9, color=_TEXT_MUTED)
-
-    # Classio logo
-    if not has_custom_logo and os.path.isfile(_DEFAULT_LOGO_PATH):
+    if os.path.isfile(_DEFAULT_LOGO_PATH):
         logo_run = fp.add_run()
         logo_run.add_picture(_DEFAULT_LOGO_PATH, height=Cm(0.7))
 

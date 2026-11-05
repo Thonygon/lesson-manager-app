@@ -10,12 +10,13 @@ import sourceDocumentLabels from './source-document-labels.json';
 import { findWordSearchPlacements, makeWordSearchGrid, makeWordSearchPuzzle, type WordSearchPlacement } from './word-search-grid';
 
 type PlanBlock = { label: string; lines: string[]; list: boolean };
-type ReportSection = { heading: string; lines: string[]; subheadings?: string[]; planBlocks?: PlanBlock[]; planOverview?: boolean; pageBreak?: boolean; pdfPageBreak?: boolean; vocabularyTable?: boolean; bulleted?: boolean; grid?: string[][]; table?: string[][]; visuals?: string[]; watermark?: string; answerCells?: [number, number][] };
+type SourceLineStyle = 'title' | 'header' | 'body' | 'turn';
+type ReportSection = { heading: string; lines: string[]; sourceStart?: number; sourceStyles?: SourceLineStyle[]; columnWeights?: number[]; subheadings?: string[]; planBlocks?: PlanBlock[]; planOverview?: boolean; pageBreak?: boolean; pdfPageBreak?: boolean; vocabularyTable?: boolean; bulleted?: boolean; grid?: string[][]; table?: string[][]; visuals?: string[]; watermark?: string; answerCells?: [number, number][] };
 type DocumentLocale = 'en' | 'es' | 'tr';
 const COPY = {
-  en: { teachingResource: 'Teaching resource', studentCopy: 'Student copy', teacherCopy: 'Teacher copy', answerKey: 'Answer key', studentEvidence: 'Student learning evidence', overview: 'Overview', progress: 'Progress by subject', programs: 'Learning programs', recent: 'Recent work', noData: 'No data yet.', assignments: 'Assignments', attempts: 'Attempts', reviews: 'Reviews waiting', complete: 'complete', average: 'average', notScored: 'not scored', program: 'Learning program', assignment: 'Assignment', general: 'General', generated: 'Prepared with Classio' },
-  es: { teachingResource: 'Recurso docente', studentCopy: 'Copia del estudiante', teacherCopy: 'Copia del docente', answerKey: 'Clave de respuestas', studentEvidence: 'Evidencia de aprendizaje', overview: 'Resumen', progress: 'Progreso por asignatura', programs: 'Programas de aprendizaje', recent: 'Trabajo reciente', noData: 'Aún no hay datos.', assignments: 'Tareas', attempts: 'Intentos', reviews: 'Revisiones pendientes', complete: 'completado', average: 'promedio', notScored: 'sin calificar', program: 'Programa de aprendizaje', assignment: 'Tarea', general: 'General', generated: 'Preparado con Classio' },
-  tr: { teachingResource: 'Öğretim kaynağı', studentCopy: 'Öğrenci kopyası', teacherCopy: 'Öğretmen kopyası', answerKey: 'Cevap anahtarı', studentEvidence: 'Öğrenci öğrenme kanıtı', overview: 'Genel bakış', progress: 'Derse göre ilerleme', programs: 'Öğrenme programları', recent: 'Son çalışmalar', noData: 'Henüz veri yok.', assignments: 'Ödevler', attempts: 'Denemeler', reviews: 'Bekleyen incelemeler', complete: 'tamamlandı', average: 'ortalama', notScored: 'puanlanmadı', program: 'Öğrenme programı', assignment: 'Ödev', general: 'Genel', generated: 'Classio ile hazırlandı' },
+  en: { teachingResource: 'Teaching resource', studentCopy: 'Student copy', teacherCopy: 'Teacher copy', answerKey: 'Answer key', studentEvidence: 'Student learning evidence', overview: 'Overview', progress: 'Progress by subject', programs: 'Learning programs', recent: 'Recent work', noData: 'No data yet.', assignments: 'Assignments', attempts: 'Attempts', reviews: 'Reviews waiting', complete: 'complete', average: 'average', notScored: 'not scored', program: 'Learning program', assignment: 'Assignment', general: 'General', generated: 'Prepared with masterclassio.com' },
+  es: { teachingResource: 'Recurso docente', studentCopy: 'Copia del estudiante', teacherCopy: 'Copia del docente', answerKey: 'Clave de respuestas', studentEvidence: 'Evidencia de aprendizaje', overview: 'Resumen', progress: 'Progreso por asignatura', programs: 'Programas de aprendizaje', recent: 'Trabajo reciente', noData: 'Aún no hay datos.', assignments: 'Tareas', attempts: 'Intentos', reviews: 'Revisiones pendientes', complete: 'completado', average: 'promedio', notScored: 'sin calificar', program: 'Programa de aprendizaje', assignment: 'Tarea', general: 'General', generated: 'Prepared with masterclassio.com' },
+  tr: { teachingResource: 'Öğretim kaynağı', studentCopy: 'Öğrenci kopyası', teacherCopy: 'Öğretmen kopyası', answerKey: 'Cevap anahtarı', studentEvidence: 'Öğrenci öğrenme kanıtı', overview: 'Genel bakış', progress: 'Derse göre ilerleme', programs: 'Öğrenme programları', recent: 'Son çalışmalar', noData: 'Henüz veri yok.', assignments: 'Ödevler', attempts: 'Denemeler', reviews: 'Bekleyen incelemeler', complete: 'tamamlandı', average: 'ortalama', notScored: 'puanlanmadı', program: 'Öğrenme programı', assignment: 'Ödev', general: 'Genel', generated: 'Prepared with masterclassio.com' },
 } as const;
 
 type DocumentBranding = { brandName: string; department: string; headerEnabled: boolean; footerEnabled: boolean; headerStyle: 'standard' | 'school'; headerLogoUrl: string; footerImageUrl: string; font: string; fontSize: 'compact' | 'standard' | 'large' | 'exam_style' };
@@ -250,22 +251,32 @@ async function fadedWatermark(url: string): Promise<string | null> {
   } catch { return null; }
 }
 
-function structuredTextLines(value: unknown, title: unknown, blocks: unknown): string[] {
+function structuredTextContent(value: unknown, title: unknown, blocks: unknown, textKind: unknown): { lines: string[]; styles: SourceLineStyle[] } {
   const lines: string[] = [];
-  if (String(title || '').trim()) lines.push(String(title).trim());
+  const styles: SourceLineStyle[] = [];
+  const add = (line: string, style: SourceLineStyle) => { if (line.trim()) { lines.push(line.trim()); styles.push(style); } };
+  if (String(title || '').trim()) add(String(title), 'title');
   const structured = list(blocks).map(record).filter((block) => String(block.text || '').trim());
   if (structured.length) {
     for (const block of structured) {
       const content = String(block.text).replace(/\r\n?/g, '\n').trim();
       const kind = String(block.type || '').toLowerCase();
-      if (kind === 'turn' && block.speaker) lines.push(`${String(block.speaker).trim()}: ${content}`);
-      else if (['from', 'to', 'subject'].includes(kind)) lines.push(`${kind[0].toUpperCase()}${kind.slice(1)}: ${content}`);
-      else lines.push(...content.split(/\n\s*\n|\n/).map((part) => part.trim()).filter(Boolean));
+      if (kind === 'turn' && block.speaker) add(`${String(block.speaker).trim()}: ${content}`, 'turn');
+      else if (['from', 'to', 'subject'].includes(kind)) add(`${kind[0].toUpperCase()}${kind.slice(1)}: ${content}`, 'header');
+      else for (const part of content.split(/\n\s*\n|\n/)) add(part, 'body');
     }
-    return lines;
+    return { lines, styles };
   }
-  lines.push(...String(value || '').replace(/\r\n?/g, '\n').split(/\n\s*\n|\n/).map((part) => part.trim()).filter(Boolean));
-  return lines;
+  const raw = String(value || '').replace(/\r\n?/g, '\n');
+  const parts = raw.split(/\n\s*\n|\n/).map((part) => part.trim()).filter(Boolean);
+  const kind = String(textKind || '').toLowerCase();
+  if (!lines.length && parts.length > 1 && !/[.!?;:]$/.test(parts[0]) && parts[0].length <= 90 && !/^(?:from|to|subject|de|para|asunto)\s*:/i.test(parts[0]) && kind !== 'email' && kind !== 'dialogue') add(parts.shift()!, 'title');
+  for (const part of parts) {
+    if (/^(?:from|to|subject|de|para|asunto)\s*:/i.test(part)) add(part, 'header');
+    else if (kind === 'dialogue' && /^[^:]{1,35}:\s+/.test(part)) add(part, 'turn');
+    else add(part, 'body');
+  }
+  return { lines, styles };
 }
 
 function planSections(detail: Record<string, unknown>, locale: DocumentLocale): ReportSection[] | null {
@@ -322,7 +333,9 @@ function examSections(detail: Record<string, unknown>, variant: ResourceVariant,
       const sectionType = String(section.type || '');
       const wordSearch = sectionType === 'word_search_vocab' || sectionType === 'word_search';
       if (String(section.instructions || '').trim()) lines.push(String(section.instructions).trim());
-      if (String(section.source_text || '').trim()) lines.push(...structuredTextLines(section.source_text, section.text_title, section.text_blocks));
+      const sourceStart = lines.length;
+      const source = String(section.source_text || '').trim() ? structuredTextContent(section.source_text, section.text_title, section.text_blocks, section.text_kind) : null;
+      if (source) lines.push(...source.lines);
       const table = record(section.table_data);
       if (String(table.title || '').trim()) lines.push(String(table.title).trim());
       if (String(table.caption || '').trim()) lines.push(String(table.caption).trim());
@@ -359,7 +372,7 @@ function examSections(detail: Record<string, unknown>, variant: ResourceVariant,
       const visual = readyVisual(section.visual_support);
       const rawGrid = wordSearch ? list(section.wordsearch_grid || section.grid) : [];
       const grid = wordSearch ? (rawGrid.length ? rawGrid : makeWordSearchGrid(words)).map((row) => list(row).map(String)).filter((row) => row.length) : [];
-      if (lines.length || tableRows?.length || dataRows.length || visual || grid.length) output.push({ heading: String(section.title || labelize(String(section.type || `Section ${sectionIndex + 1}`))), lines: tableRows?.length ? lines.filter((line) => !/^\d+\.\s/.test(line)) : lines, table: tableRows || (columns.length || dataRows.length ? [...(columns.length ? [columns] : []), ...dataRows] : undefined), grid: grid.length ? grid : undefined, visuals: visual && !wordSearch ? [visual] : undefined, watermark: visual && wordSearch ? visual : undefined });
+      if (lines.length || tableRows?.length || dataRows.length || visual || grid.length) output.push({ heading: String(section.title || labelize(String(section.type || `Section ${sectionIndex + 1}`))), lines: tableRows?.length ? lines.filter((line) => !/^\d+\.\s/.test(line)) : lines, sourceStart: source ? sourceStart : undefined, sourceStyles: source?.styles, table: tableRows || (columns.length || dataRows.length ? [...(columns.length ? [columns] : []), ...dataRows] : undefined), grid: grid.length ? grid : undefined, visuals: visual && !wordSearch ? [visual] : undefined, watermark: visual && wordSearch ? visual : undefined });
     }
   }
 
@@ -413,7 +426,7 @@ function worksheetSections(detail: Record<string, unknown>, variant: ResourceVar
       output.push({ heading: copy.vocabulary, lines: [], table: rows.map((row) => [...row, ...Array(columns - row.length).fill('')]), vocabularyTable: true });
     }
     const passage = String(worksheet.reading_passage || worksheet.source_text || '').trim();
-    if (passage) output.push({ heading: worksheet.worksheet_type === 'reading_comprehension' ? copy.passage : copy.source, lines: structuredTextLines(passage, worksheet.text_title, worksheet.text_blocks) });
+    if (passage) { const source = structuredTextContent(passage, worksheet.text_title, worksheet.text_blocks, worksheet.text_kind); output.push({ heading: worksheet.worksheet_type === 'reading_comprehension' ? copy.passage : copy.source, lines: source.lines, sourceStart: 0, sourceStyles: source.styles }); }
     const sections = list(worksheet.sections).map(record).filter((section) => Object.keys(section).length);
     if (sections.length) {
       for (const [sectionIndex, section] of sections.entries()) {
@@ -590,7 +603,7 @@ async function savePdf(title: string, subtitle: string, sections: ReportSection[
   const bodySize = profileDocument === 'cv' ? 10 : profileDocument === 'letter' ? 10.5 : (branding.fontSize === 'compact' ? 10 : branding.fontSize === 'large' ? 13 : branding.fontSize === 'exam_style' ? 11 : 12) - (resourceKind === 'plan' ? 0.5 : 0);
   let y = 43;
   const ensureSpace = (needed: number) => { if (y + needed > height - margin) { pdf.addPage(); y = margin; } };
-  if (!resourceKind) { pdf.setFillColor(29, 78, 216); pdf.rect(0, 0, width, 10, 'F'); }
+  pdf.setFillColor(29, 78, 216); pdf.rect(0, 0, width, 10, 'F');
   if ((!resourceKind || resourceKind === 'plan') && !branding.headerEnabled && logo) { pdf.addImage(logo, 'PNG', margin, y, 76, 30.4); y += 46; }
   if (branding.headerEnabled) {
     if (branding.headerStyle === 'school') { pdf.setFillColor(239, 246, 255); pdf.roundedRect(margin, y - 15, width - margin * 2, 54, 8, 8, 'F'); }
@@ -602,35 +615,28 @@ async function savePdf(title: string, subtitle: string, sections: ReportSection[
   pdf.setTextColor(resourceKind || profileDocument ? 29 : 15, resourceKind || profileDocument ? 78 : 23, resourceKind || profileDocument ? 216 : 42); pdf.setFont('DocumentFont', 'bold'); const titleSize = profileDocument === 'cv' ? 20 : profileDocument === 'letter' ? 14 : resourceKind === 'plan' ? (branding.fontSize === 'large' ? 17 : 13) : resourceKind ? (branding.fontSize === 'large' ? 18 : 14) : 23; pdf.setFontSize(titleSize); const portraitSize = profileImage ? fittedImageSize(profileImage.bytes, 78, 78) : null; const titleWidth = width - margin * 2 - (portraitSize ? 94 : 0); const titleLines = pdf.splitTextToSize(title, titleWidth); const titleY = y; pdf.text(titleLines, resourceKind === 'plan' || resourceKind === 'worksheet' || profileDocument ? margin + titleWidth / 2 : margin, y, { align: resourceKind === 'plan' || resourceKind === 'worksheet' || profileDocument ? 'center' : 'left' }); y += titleLines.length * (titleSize + 4) + 8; if (profileImage && portraitSize) { pdf.addImage(profileImage.bytes, profileImage.type, width - margin - portraitSize.width, titleY - 12, portraitSize.width, portraitSize.height); y = Math.max(y, titleY - 12 + portraitSize.height + 8); }
   if (metaLine && !(worksheet && branding.headerEnabled && branding.headerStyle === 'school')) {
     pdf.setFontSize(resourceKind === 'plan' ? bodySize - 1.5 : 9); pdf.setTextColor(51, 65, 85);
-    let metaX = margin;
-    for (const [index, part] of metaLine.split(/\s+\|\s+/).entries()) {
-      const separator = index ? '  |  ' : '';
+    for (const part of metaLine.split(/\s+\|\s+/)) {
       const colon = part.indexOf(':');
       const label = colon >= 0 ? `${part.slice(0, colon + 1)} ` : '';
       const value = colon >= 0 ? part.slice(colon + 1).trim() : part;
-      pdf.setFont('DocumentFont', 'normal');
-      const separatorWidth = pdf.getTextWidth(separator);
       pdf.setFont('DocumentFont', 'bold');
       const labelWidth = pdf.getTextWidth(label);
+      const valueX = margin + Math.min(labelWidth, (width - margin * 2) * 0.35);
       pdf.setFont('DocumentFont', 'normal');
-      const valueWidth = pdf.getTextWidth(value);
-      if (metaX > margin && metaX + separatorWidth + labelWidth + valueWidth > width - margin) { metaX = margin; y += 14; }
-      if (separator && metaX > margin) { pdf.text(separator, metaX, y); metaX += separatorWidth; }
-      pdf.setFont('DocumentFont', 'bold'); pdf.text(label, metaX, y); metaX += labelWidth;
-      pdf.setFont('DocumentFont', 'normal');
-      const wrapped = pdf.splitTextToSize(value, width - margin - metaX);
-      pdf.text(wrapped, metaX, y);
-      if (wrapped.length > 1) { y += (wrapped.length - 1) * 14; metaX = margin + pdf.getTextWidth(wrapped[wrapped.length - 1]); }
-      else metaX += valueWidth;
+      const wrapped = pdf.splitTextToSize(value, width - margin - valueX);
+      ensureSpace(Math.max(1, wrapped.length) * 13 + 4);
+      pdf.setFont('DocumentFont', 'bold'); pdf.text(label, margin, y);
+      pdf.setFont('DocumentFont', 'normal'); pdf.text(wrapped, valueX, y);
+      y += Math.max(1, wrapped.length) * 13 + 3;
     }
-    y += 19;
+    y += 6;
   }
   if (worksheet && branding.headerEnabled && branding.headerStyle === 'school') {
     pdf.setFont('DocumentFont', 'bold'); pdf.setFontSize(8); pdf.setTextColor(51, 65, 85);
     schoolFields(locale).forEach((field, index) => pdf.text(field, margin + index * ((width - margin * 2) / 3), y + 8));
     y += 28; pdf.setDrawColor(203, 213, 225); pdf.line(margin, y, width - margin, y); y += 16;
   }
-  if (!resourceKind && !profileDocument) { pdf.setFillColor(248, 250, 252); pdf.setDrawColor(203, 213, 225); pdf.roundedRect(margin, y, width - margin * 2, 34, 6, 6, 'FD'); pdf.setTextColor(71, 85, 105); pdf.setFont('DocumentFont', 'normal'); pdf.setFontSize(9); pdf.text(subtitle, margin + 12, y + 14); pdf.text(new Date().toLocaleDateString(), width - margin - 12, y + 14, { align: 'right' }); y += 56; }
+  if (!resourceKind && !profileDocument && subtitle) { pdf.setFillColor(248, 250, 252); pdf.setDrawColor(203, 213, 225); pdf.roundedRect(margin, y, width - margin * 2, 34, 6, 6, 'FD'); pdf.setTextColor(71, 85, 105); pdf.setFont('DocumentFont', 'normal'); pdf.setFontSize(9); pdf.text(subtitle, margin + 12, y + 21); y += 56; }
   let cvRuleDrawn = false;
   for (const section of sections) {
     if (profileDocument === 'cv' && section.heading && !cvRuleDrawn) { pdf.setDrawColor(59, 130, 246); pdf.setLineWidth(1.5); pdf.line(margin, y, width - margin, y); y += 15; cvRuleDrawn = true; }
@@ -672,7 +678,18 @@ async function savePdf(title: string, subtitle: string, sections: ReportSection[
       }
       continue;
     }
-    if (section.heading) { ensureSpace(54); if (!resourceKind && !profileDocument) { pdf.setFillColor(239, 246, 255); pdf.roundedRect(margin, y - 14, width - margin * 2, 28, 5, 5, 'F'); } pdf.setTextColor(resourceKind === 'plan' ? 15 : 30, resourceKind === 'plan' ? 23 : 64, resourceKind === 'plan' ? 42 : 175); pdf.setFont('DocumentFont', 'bold'); pdf.setFontSize(profileDocument === 'cv' ? 11 : resourceKind ? (branding.fontSize === 'large' ? 16 : 14) : 12); pdf.text(profileDocument === 'cv' ? section.heading.toUpperCase() : section.heading, margin + (resourceKind || profileDocument ? 0 : 10), y + 4); y += profileDocument === 'cv' ? 19 : resourceKind ? 25 : 28; if (profileDocument === 'cv') { pdf.setDrawColor(191, 219, 254); pdf.setLineWidth(0.5); pdf.line(margin, y - 8, width - margin, y - 8); } }
+    if (section.heading) {
+      const headingSize = profileDocument === 'cv' ? 11 : resourceKind ? (branding.fontSize === 'large' ? 16 : 14) : 12;
+      pdf.setFont('DocumentFont', 'bold'); pdf.setFontSize(headingSize);
+      const headingLines = pdf.splitTextToSize(profileDocument === 'cv' ? section.heading.toUpperCase() : section.heading, width - margin * 2 - (!resourceKind && !profileDocument ? 20 : 0));
+      const headingHeight = headingLines.length * (headingSize + 4) + 9;
+      ensureSpace(headingHeight + 15);
+      if (!resourceKind && !profileDocument) { pdf.setFillColor(239, 246, 255); pdf.roundedRect(margin, y - headingSize, width - margin * 2, headingHeight, 5, 5, 'F'); }
+      pdf.setTextColor(resourceKind === 'plan' ? 15 : 30, resourceKind === 'plan' ? 23 : 64, resourceKind === 'plan' ? 42 : 175);
+      pdf.text(headingLines, margin + (resourceKind || profileDocument ? 0 : 10), y + 4);
+      y += headingHeight;
+      if (profileDocument === 'cv') { pdf.setDrawColor(191, 219, 254); pdf.setLineWidth(0.5); pdf.line(margin, y - 8, width - margin, y - 8); }
+    }
     for (const visual of section.visuals || []) {
       try {
         const dimensions = pdf.getImageProperties(visual);
@@ -726,45 +743,86 @@ async function savePdf(title: string, subtitle: string, sections: ReportSection[
       continue;
     }
     pdf.setFont('DocumentFont', 'normal'); pdf.setFontSize(bodySize);
-    for (const line of section.lines) {
+    for (const [lineIndex, line] of section.lines.entries()) {
       if (/^_{10,}$/.test(line.trim()) && resourceKind) { ensureSpace(22); pdf.setDrawColor(100, 116, 139); pdf.setLineWidth(0.6); pdf.line(margin, y + 3, width - margin - 30, y + 3); y += 22; continue; }
       const subheading = resourceKind === 'plan' && section.subheadings?.includes(line);
+      const sourceStyle = section.sourceStart === undefined ? undefined : section.sourceStyles?.[lineIndex - section.sourceStart];
       const wrapped = pdf.splitTextToSize(line, width - margin * 2 - 20);
       const useBullet = bulletLines || section.bulleted;
-      ensureSpace(wrapped.length * (bodySize + 3) + 12); if (useBullet) { pdf.setFillColor(37, 99, 235); pdf.circle(margin + 4, y - 3, 1.8, 'F'); } pdf.setFont('DocumentFont', subheading ? 'bold' : 'normal'); pdf.setTextColor(51, 65, 85); pdf.text(wrapped, profileDocument === 'cv' && !section.heading ? width / 2 : margin + (useBullet ? 14 : 0), y, { align: profileDocument === 'cv' && !section.heading ? 'center' : 'left' }); y += wrapped.length * (bodySize + 3) + (line.startsWith('____') ? 15 : subheading ? 2 : resourceKind ? 4 : 9);
+      ensureSpace(wrapped.length * (bodySize + 3) + 12);
+      if (sourceStyle === 'header') { pdf.setFillColor(241, 245, 249); pdf.rect(margin, y - bodySize, width - margin * 2, wrapped.length * (bodySize + 3) + 4, 'F'); }
+      if (useBullet && !sourceStyle) { pdf.setFillColor(37, 99, 235); pdf.circle(margin + 4, y - 3, 1.8, 'F'); }
+      pdf.setFont('DocumentFont', subheading || sourceStyle === 'title' || sourceStyle === 'header' || sourceStyle === 'turn' ? 'bold' : 'normal');
+      pdf.setTextColor(51, 65, 85);
+      const centered = sourceStyle === 'title' || profileDocument === 'cv' && !section.heading;
+      pdf.text(wrapped, centered ? width / 2 : margin + (useBullet && !sourceStyle ? 14 : 0), y, { align: centered ? 'center' : sourceStyle === 'body' && wrapped.length > 1 ? 'justify' : 'left', maxWidth: width - margin * 2 - 20 });
+      y += wrapped.length * (bodySize + 3) + (sourceStyle === 'title' ? 9 : sourceStyle === 'body' ? 7 : line.startsWith('____') ? 15 : subheading ? 2 : resourceKind ? 4 : 9);
     }
     if (section.table?.length) {
       const columns = section.table[0].length;
       const available = width - margin * 2;
-      const widths = section.vocabularyTable ? Array(columns).fill(available / columns) : !resourceKind && columns === 3 ? [available * 0.20, available * 0.60, available * 0.20] : columns === 3 ? [available * 0.43, available * 0.14, available * 0.43] : columns === 2 ? [available * 0.78, available * 0.22] : Array(columns).fill(available / columns);
+      const widths = section.columnWeights?.length === columns ? section.columnWeights.map((weight) => available * weight) : section.vocabularyTable ? Array(columns).fill(available / columns) : !resourceKind && columns === 3 ? [available * 0.20, available * 0.60, available * 0.20] : columns === 3 ? [available * 0.43, available * 0.14, available * 0.43] : columns === 2 ? [available * 0.78, available * 0.22] : Array(columns).fill(available / columns);
       const tableSize = resourceKind ? bodySize : 9;
       pdf.setFont('DocumentFont', 'normal'); pdf.setFontSize(tableSize);
-      for (const [rowIndex, row] of section.table.entries()) {
+      const drawTableRow = (row: string[], rowIndex: number) => {
+        pdf.setFontSize(tableSize);
         const wrapped = row.map((cell, index) => pdf.splitTextToSize(cell, widths[index] - 8));
         const rowHeight = Math.max(...wrapped.map((cell) => cell.length)) * (tableSize + 3) + 8;
-        ensureSpace(rowHeight);
         if (!resourceKind || section.vocabularyTable) { pdf.setFillColor(section.vocabularyTable ? (rowIndex % 2 ? 248 : 255) : rowIndex === 0 ? 29 : rowIndex % 2 ? 255 : 241, section.vocabularyTable ? (rowIndex % 2 ? 250 : 255) : rowIndex === 0 ? 78 : rowIndex % 2 ? 255 : 245, section.vocabularyTable ? (rowIndex % 2 ? 252 : 255) : rowIndex === 0 ? 216 : rowIndex % 2 ? 255 : 249); pdf.rect(margin, y - bodySize, available, rowHeight, 'F'); pdf.setTextColor(!resourceKind && rowIndex === 0 ? 255 : 30, !resourceKind && rowIndex === 0 ? 255 : 41, !resourceKind && rowIndex === 0 ? 255 : 59); pdf.setFont('DocumentFont', !resourceKind && rowIndex === 0 ? 'bold' : 'normal'); }
         let x = margin;
         wrapped.forEach((cell, index) => { pdf.text(cell, x + 3, y + 1); if (!resourceKind) { pdf.setDrawColor(203, 213, 225); pdf.setLineWidth(0.4); pdf.rect(x, y - tableSize, widths[index], rowHeight); } x += widths[index]; });
         y += rowHeight;
+      };
+      for (const [rowIndex, row] of section.table.entries()) {
+        pdf.setFontSize(tableSize);
+        const rowHeight = Math.max(...row.map((cell, index) => pdf.splitTextToSize(cell, widths[index] - 8).length)) * (tableSize + 3) + 8;
+        if (y + rowHeight > height - margin) {
+          pdf.addPage(); y = margin;
+          if (rowIndex > 0 && !resourceKind && !section.vocabularyTable) drawTableRow(section.table[0], 0);
+        }
+        drawTableRow(row, rowIndex);
       }
     }
     y += 10;
   }
   const pages = pdf.getNumberOfPages();
-  for (let page = 1; page <= pages; page += 1) { pdf.setPage(page); pdf.setDrawColor(29, 78, 216); pdf.setLineWidth(1.2); pdf.line(margin, height - 49, width - margin, height - 49); pdf.setFont('DocumentFont', 'normal'); pdf.setFontSize(8); pdf.setTextColor(100, 116, 139); pdf.text(`${page} / ${pages}`, margin, height - 25); pdf.text(branding.footerEnabled && branding.brandName ? branding.brandName : COPY[locale].generated, width / 2, height - 25, { align: 'center' }); if (footerImage) { const dimensions = pdf.getImageProperties(footerImage.bytes); const drawWidth = Math.min(110, 30 * dimensions.width / dimensions.height); pdf.addImage(footerImage.bytes, footerImage.type, width - margin - drawWidth, height - 43, drawWidth, 30); } else if (logo && !headerImage) pdf.addImage(logo, 'PNG', width - margin - 50, height - 36, 50, 20); }
+  for (let page = 1; page <= pages; page += 1) {
+    pdf.setPage(page);
+    if (page > 1) { pdf.setFillColor(29, 78, 216); pdf.rect(0, 0, width, 10, 'F'); }
+    pdf.setDrawColor(29, 78, 216); pdf.setLineWidth(1.2); pdf.line(margin, height - 49, width - margin, height - 49);
+    pdf.setFont('DocumentFont', 'normal'); pdf.setFontSize(8); pdf.setTextColor(100, 116, 139);
+    pdf.text(`${page} / ${pages}`, margin, height - 25);
+    pdf.text(COPY[locale].generated, width / 2, height - 25, { align: 'center' });
+    if (footerImage) { const dimensions = pdf.getImageProperties(footerImage.bytes); const drawWidth = Math.min(80, 24 * dimensions.width / dimensions.height); pdf.addImage(footerImage.bytes, footerImage.type, width - margin - (logo ? 60 : 0) - drawWidth, height - 40, drawWidth, 24); }
+    if (logo) pdf.addImage(logo, 'PNG', width - margin - 50, height - 36, 50, 20);
+  }
   pdf.save(`${slug(filename)}.pdf`);
 }
 
 async function saveDocx(title: string, subtitle: string, sections: ReportSection[], filename: string, locale: DocumentLocale, worksheet = false, bulletLines = true, resourceKind: 'plan' | 'worksheet' | 'exam' | null = null, metaLine = '') {
   if (!browserReady()) throw new Error('Word downloads are available in the web app.');
-  const { AlignmentType, BorderStyle, Document, Footer, HeadingLevel, ImageRun, Packer, PageNumber, Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType } = await import('docx');
+  const { AlignmentType, BorderStyle, Document, Footer, Header, HeadingLevel, ImageRun, Packer, PageNumber, Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType } = await import('docx');
   const branding = await loadBranding();
   const headerImage = branding.headerEnabled ? await loadBrandingImage(branding.headerLogoUrl) : null;
   const footerImage = branding.footerEnabled ? await loadBrandingImage(branding.footerImageUrl) : null;
   const logo = await loadClassioLogo();
   const watermarks = await Promise.all(sections.map((section) => section.grid?.length && section.watermark ? fadedWatermark(section.watermark) : Promise.resolve(null)));
   const baseSize = branding.fontSize === 'compact' ? 20 : branding.fontSize === 'large' ? 26 : 24;
+  const makeWordTable = (section: ReportSection) => {
+    const rows = section.table || [];
+    const count = rows[0]?.length || 1;
+    const weights = section.columnWeights?.length === count ? section.columnWeights : section.vocabularyTable ? Array(count).fill(1 / count) : !resourceKind && count === 3 ? [0.20, 0.60, 0.20] : count === 3 ? [0.43, 0.14, 0.43] : count === 2 ? [0.78, 0.22] : Array(count).fill(1 / count);
+    const widths = weights.map((weight) => Math.round(9240 * weight));
+    return new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: widths,
+      borders: Object.fromEntries(['top', 'bottom', 'left', 'right', 'insideHorizontal', 'insideVertical'].map((side) => [side, { style: resourceKind ? BorderStyle.NONE : BorderStyle.SINGLE, color: 'CBD5E1' }])),
+      rows: rows.map((row, rowIndex) => new TableRow({ tableHeader: !resourceKind && rowIndex === 0, children: row.map((cell, index) => new TableCell({
+        ...(!resourceKind || section.vocabularyTable ? { shading: { fill: !resourceKind && rowIndex === 0 ? '1D4ED8' : rowIndex % 2 ? 'FFFFFF' : 'F1F5F9', type: ShadingType.CLEAR } } : {}),
+        width: { size: widths[index], type: WidthType.DXA },
+        children: [new Paragraph({ children: [new TextRun({ text: cell, font: branding.font, size: resourceKind ? baseSize : 18, bold: (!resourceKind && rowIndex === 0) || section.vocabularyTable, color: !resourceKind && rowIndex === 0 ? 'FFFFFF' : '334155' })] })],
+      })) })),
+    });
+  };
   const children = [
     ...(branding.headerEnabled && headerImage ? [new Paragraph({ alignment: AlignmentType.CENTER, children: [new ImageRun({ data: headerImage.bytes, type: headerImage.type === 'PNG' ? 'png' : 'jpg', transformation: fittedImageSize(headerImage.bytes, 85, 85) })], spacing: { after: 80 } })] : !resourceKind && logo ? [new Paragraph({ children: [new ImageRun({ data: logo, type: 'png', transformation: { width: 78, height: 31.2 } })], spacing: { after: 80 } })] : []),
     ...(branding.headerEnabled && branding.brandName ? [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: branding.brandName, font: branding.font, size: baseSize + 2, bold: true, color: '1D4ED8' })], spacing: { after: 60 } })] : []),
@@ -776,7 +834,7 @@ async function saveDocx(title: string, subtitle: string, sections: ReportSection
       new TextRun({ text: colon >= 0 ? part.slice(colon + 1).trim() : part, size: baseSize - 2, font: branding.font, color: '334155' }),
     ]; }), spacing: { after: 90 } })] : []),
     ...(worksheet && branding.headerEnabled && branding.headerStyle === 'school' ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [new TableRow({ children: schoolFields(locale).map((field) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: field, font: branding.font, size: baseSize, bold: true })] })] })) })] })] : []),
-    ...(!resourceKind ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [new TableRow({ children: [new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, margins: { top: 100, bottom: 100, left: 140, right: 140 }, children: [new Paragraph({ children: [new TextRun({ text: subtitle, color: '475569', bold: true }), new TextRun({ text: `  ·  ${new Date().toLocaleDateString()}`, color: '64748B' })] })] })] })] })] : []),
+    ...(!resourceKind && subtitle ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [new TableRow({ children: [new TableCell({ shading: { fill: 'F8FAFC', type: ShadingType.CLEAR }, margins: { top: 100, bottom: 100, left: 140, right: 140 }, children: [new Paragraph({ children: [new TextRun({ text: subtitle, color: '475569', bold: true })] })] })] })] })] : []),
     ...sections.flatMap((section, sectionIndex) => section.planBlocks ? [
       new Paragraph({ text: section.heading, heading: HeadingLevel.HEADING_1, pageBreakBefore: section.pageBreak, spacing: { before: 160, after: 100 } }),
       ...(section.planOverview ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, borders: { top: { color: '3B82F6', size: 10, style: BorderStyle.SINGLE }, bottom: { color: '3B82F6', size: 10, style: BorderStyle.SINGLE }, left: { color: '3B82F6', size: 10, style: BorderStyle.SINGLE }, right: { color: '3B82F6', size: 10, style: BorderStyle.SINGLE }, insideVertical: { color: 'CBD5E1', size: 5, style: BorderStyle.SINGLE } }, rows: [new TableRow({ children: section.planBlocks.slice(0, 2).map((block) => new TableCell({ width: { size: 50, type: WidthType.PERCENTAGE }, margins: { top: 150, bottom: 150, left: 150, right: 150 }, children: [new Paragraph({ children: [new TextRun({ text: block.label, bold: true, color: '0F172A', font: branding.font, size: baseSize })], spacing: { after: 70 } }), ...block.lines.map((line) => new Paragraph({ children: [new TextRun({ text: line, font: branding.font, size: baseSize })], bullet: block.list ? { level: 0 } : undefined }))] })) })] })] : section.planBlocks.flatMap((block) => [
@@ -801,13 +859,23 @@ async function saveDocx(title: string, subtitle: string, sections: ReportSection
         ...(watermarks[sectionIndex] ? [new Paragraph({ spacing: { before: 0, after: 0, line: 1 }, children: [new ImageRun({ data: visualBytes(watermarks[sectionIndex]!), type: 'png', transformation: { width: 430, height: section.grid.length * 27 }, floating: { horizontalPosition: { relative: 'column', align: 'center' }, verticalPosition: { relative: 'paragraph', offset: 108000 }, behindDocument: true, allowOverlap: true } })] })] : []),
         new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: section.grid.map((row, rowIndex) => new TableRow({ children: row.map((letter, columnIndex) => { const solved = section.answerCells?.some(([r, c]) => r === rowIndex && c === columnIndex); return new TableCell({ ...(solved ? { shading: { fill: 'DBEAFE', type: ShadingType.CLEAR }, borders: { top: { color: '3B82F6', style: BorderStyle.SINGLE }, bottom: { color: '3B82F6', style: BorderStyle.SINGLE }, left: { color: '3B82F6', style: BorderStyle.SINGLE }, right: { color: '3B82F6', style: BorderStyle.SINGLE } } } : {}), children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: letter, font: branding.font, size: baseSize, bold: true, color: solved ? '2563EB' : '0F172A' })] })] }); }) })) })
       ] : [
-        ...section.lines.map((line) => new Paragraph({ children: [new TextRun({ text: line, size: baseSize, font: branding.font, color: '334155', bold: resourceKind === 'plan' && section.subheadings?.includes(line) })], bullet: bulletLines || section.bulleted ? { level: 0 } : undefined, spacing: { after: line.startsWith('____') ? 180 : resourceKind ? 60 : 90, line: resourceKind ? 276 : 300 } })),
-        ...(section.table?.length ? [new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: section.vocabularyTable ? Array(section.table[0].length).fill(Math.floor(9240 / section.table[0].length)) : !resourceKind && section.table[0].length === 3 ? [1800, 5500, 1800] : section.table[0].length === 3 ? [3973, 1294, 3973] : section.table[0].length === 2 ? [7200, 2040] : Array(section.table[0].length).fill(Math.floor(9240 / section.table[0].length)), borders: { top: { style: resourceKind ? BorderStyle.NONE : BorderStyle.SINGLE, color: 'CBD5E1' }, bottom: { style: resourceKind ? BorderStyle.NONE : BorderStyle.SINGLE, color: 'CBD5E1' }, left: { style: resourceKind ? BorderStyle.NONE : BorderStyle.SINGLE, color: 'CBD5E1' }, right: { style: resourceKind ? BorderStyle.NONE : BorderStyle.SINGLE, color: 'CBD5E1' }, insideHorizontal: { style: resourceKind ? BorderStyle.NONE : BorderStyle.SINGLE, color: 'CBD5E1' }, insideVertical: { style: resourceKind ? BorderStyle.NONE : BorderStyle.SINGLE, color: 'CBD5E1' } }, rows: section.table.map((row, rowIndex) => new TableRow({ children: row.map((cell, index) => new TableCell({ ...(!resourceKind || section.vocabularyTable ? { shading: { fill: !resourceKind && rowIndex === 0 ? '1D4ED8' : rowIndex % 2 ? 'FFFFFF' : 'F1F5F9', type: ShadingType.CLEAR } } : {}), width: { size: section.vocabularyTable ? Math.floor(9240 / section.table![0].length) : !resourceKind && section.table?.[0].length === 3 ? [1800, 5500, 1800][index] : section.table?.[0].length === 3 ? [3973, 1294, 3973][index] : section.table?.[0].length === 2 ? [7200, 2040][index] : Math.floor(9240 / section.table![0].length), type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: cell, font: branding.font, size: resourceKind ? baseSize : 18, bold: (!resourceKind && rowIndex === 0) || section.vocabularyTable, color: !resourceKind && rowIndex === 0 ? 'FFFFFF' : '334155' })] })] })) })) })] : []),
+        ...section.lines.map((line, lineIndex) => {
+          const sourceStyle = section.sourceStart === undefined ? undefined : section.sourceStyles?.[lineIndex - section.sourceStart];
+          return new Paragraph({
+            alignment: sourceStyle === 'title' ? AlignmentType.CENTER : sourceStyle === 'body' ? AlignmentType.JUSTIFIED : AlignmentType.LEFT,
+            ...(sourceStyle === 'header' ? { shading: { fill: 'F1F5F9', type: ShadingType.CLEAR } } : {}),
+            children: [new TextRun({ text: line, size: baseSize, font: branding.font, color: '334155', bold: Boolean(sourceStyle && sourceStyle !== 'body') || resourceKind === 'plan' && section.subheadings?.includes(line) })],
+            bullet: !sourceStyle && (bulletLines || section.bulleted) ? { level: 0 } : undefined,
+            spacing: { after: sourceStyle === 'title' ? 130 : sourceStyle === 'body' ? 100 : line.startsWith('____') ? 180 : resourceKind ? 60 : 90, line: resourceKind ? 276 : 300 },
+          });
+        }),
+        ...(section.table?.length ? [makeWordTable(section)] : []),
       ]),
     ]),
   ];
-  const footer = new Footer({ children: [new Paragraph({ alignment: AlignmentType.LEFT, border: { top: { color: '1D4ED8', size: 10, style: BorderStyle.SINGLE } }, children: [new TextRun({ children: [PageNumber.CURRENT], color: '64748B', size: 16, font: branding.font }), new TextRun({ text: `   ·   ${branding.footerEnabled && branding.brandName ? branding.brandName : COPY[locale].generated}   `, color: '64748B', size: 16, font: branding.font }), ...(footerImage ? [new ImageRun({ data: footerImage.bytes, transformation: fittedImageSize(footerImage.bytes, 95, 30), type: footerImage.type === 'PNG' ? 'png' : 'jpg' })] : logo && !headerImage ? [new ImageRun({ data: logo, transformation: { width: 50, height: 20 }, type: 'png' })] : [])] })] });
-  const blob = await Packer.toBlob(new Document({ styles: { default: { document: { run: { font: branding.font, size: baseSize, color: '0F172A' }, paragraph: { spacing: { line: resourceKind ? 276 : 300 } } }, title: { run: { font: branding.font, size: resourceKind ? (branding.fontSize === 'large' ? 36 : 28) : 42, bold: true, color: resourceKind ? '1D4ED8' : '0F172A' } }, heading1: { run: { font: branding.font, size: resourceKind ? (branding.fontSize === 'large' ? 32 : 28) : 26, bold: true, color: '0F172A' } } } }, sections: [{ footers: { default: footer }, properties: { page: { margin: { top: 850, right: resourceKind === 'plan' ? 1134 : 1020, bottom: 850, left: resourceKind === 'plan' ? 1134 : 1020 } } }, children }] }));
+  const header = new Header({ children: [new Paragraph({ border: { top: { color: '1D4ED8', size: 32, style: BorderStyle.SINGLE } }, spacing: { after: 0 }, children: [new TextRun({ text: ' ', size: 2 })] })] });
+  const footer = new Footer({ children: [new Paragraph({ alignment: AlignmentType.LEFT, border: { top: { color: '1D4ED8', size: 10, style: BorderStyle.SINGLE } }, children: [new TextRun({ children: [PageNumber.CURRENT], color: '64748B', size: 16, font: branding.font }), new TextRun({ text: `   ·   ${COPY[locale].generated}   `, color: '64748B', size: 16, font: branding.font }), ...(footerImage ? [new ImageRun({ data: footerImage.bytes, transformation: fittedImageSize(footerImage.bytes, 65, 24), type: footerImage.type === 'PNG' ? 'png' : 'jpg' })] : []), ...(logo ? [new ImageRun({ data: logo, transformation: { width: 50, height: 20 }, type: 'png' })] : [])] })] });
+  const blob = await Packer.toBlob(new Document({ styles: { default: { document: { run: { font: branding.font, size: baseSize, color: '0F172A' }, paragraph: { spacing: { line: resourceKind ? 276 : 300 } } }, title: { run: { font: branding.font, size: resourceKind ? (branding.fontSize === 'large' ? 36 : 28) : 42, bold: true, color: resourceKind ? '1D4ED8' : '0F172A' } }, heading1: { run: { font: branding.font, size: resourceKind ? (branding.fontSize === 'large' ? 32 : 28) : 26, bold: true, color: '0F172A' } } } }, sections: [{ headers: { default: header }, footers: { default: footer }, properties: { page: { margin: { top: 850, header: 0, right: resourceKind === 'plan' ? 1134 : 1020, bottom: 850, left: resourceKind === 'plan' ? 1134 : 1020 } } }, children }] }));
   saveBlob(blob, `${slug(filename)}.docx`);
 }
 
@@ -831,7 +899,7 @@ export function downloadResourceDocx(title: string, detail: Record<string, unkno
   const documentLocale: DocumentLocale = resourceKind === 'worksheet' && ['en', 'es', 'tr'].includes(String(worksheetLanguage)) ? String(worksheetLanguage) as DocumentLocale : locale;
   const displayTitle = resourceKind === 'exam' && variant !== 'student' && variant !== 'full' ? `${title} - ${COPY[documentLocale].answerKey}` : title;
   const documentKind: DocumentKind = resourceKind === 'plan' ? 'lesson_plan' : resourceKind || 'other';
-  return recordedDocumentExport('docx', documentKind, variant, () => saveDocx(displayTitle, subtitle, resourceSections(detail, variant, documentLocale), `${title}${suffix}`, documentLocale, resourceKind === 'worksheet' || resourceKind === 'exam', false, resourceKind, resourceKind === 'plan' ? resourceMetaLine(detail, resourceKind, documentLocale) : ''));
+  return recordedDocumentExport('docx', documentKind, variant, () => saveDocx(displayTitle, subtitle, resourceSections(detail, variant, documentLocale), `${title}${suffix}`, documentLocale, resourceKind === 'worksheet' || resourceKind === 'exam', false, resourceKind, resourceMetaLine(detail, resourceKind, documentLocale)));
 }
 
 export function downloadStudentReportPdf(studentName: string, workspace: StudentLearningWorkspace, locale: DocumentLocale = 'en') {
@@ -850,8 +918,8 @@ function studentHistorySections(lessons: Record<string, unknown>[], payments: Re
     tr: { lessons: 'Dersler', payments: 'Ödemeler ve paketler', balance: 'Güncel paket bakiyesi', date: 'Tarih', details: 'Ayrıntılar', amount: 'Tutar', units: 'Birim', paid: 'Ödenen', taken: 'Verilen', left: 'Kalan', start: 'Başlangıç', expiry: 'Bitiş', subject: 'Ders', modality: 'Ders biçimi', note: 'Not' },
   }[locale];
   const sections: ReportSection[] = [
-    { heading: labels.lessons, lines: lessons.length ? [] : [COPY[locale].noData], table: lessons.length ? [[labels.date, labels.units, labels.modality, labels.subject, labels.note], ...lessons.map((row) => [String(row.lesson_date || '').slice(0, 10), String(row.number_of_lesson || 0), String(row.modality || ''), String(row.subject_custom || row.subject || COPY[locale].general), String(row.note || '')])] : undefined },
-    { heading: labels.payments, lines: payments.length ? [] : [COPY[locale].noData], table: payments.length ? [[labels.date, labels.paid, labels.amount, labels.modality, labels.subject, labels.start, labels.expiry], ...payments.map((row) => [String(row.payment_date || '').slice(0, 10), String(row.number_of_lesson || 0), `${String(row.currency || '')} ${Number(row.paid_amount || 0).toLocaleString()}`, String(row.modality || ''), String(row.subject_custom || row.subject || COPY[locale].general), String(row.package_start_date || '').slice(0, 10), String(row.package_expiry_date || '').slice(0, 10)])] : undefined },
+    { heading: labels.lessons, lines: lessons.length ? [] : [COPY[locale].noData], columnWeights: [0.16, 0.09, 0.14, 0.20, 0.41], table: lessons.length ? [[labels.date, labels.units, labels.modality, labels.subject, labels.note], ...lessons.map((row) => [String(row.lesson_date || '').slice(0, 10), String(row.number_of_lesson || 0), String(row.modality || ''), String(row.subject_custom || row.subject || COPY[locale].general), String(row.note || '')])] : undefined },
+    { heading: labels.payments, lines: payments.length ? [] : [COPY[locale].noData], columnWeights: [0.14, 0.08, 0.13, 0.12, 0.18, 0.17, 0.18], table: payments.length ? [[labels.date, labels.paid, labels.amount, labels.modality, labels.subject, labels.start, labels.expiry], ...payments.map((row) => [String(row.payment_date || '').slice(0, 10), String(row.number_of_lesson || 0), `${String(row.currency || '')} ${Number(row.paid_amount || 0).toLocaleString()}`, String(row.modality || ''), String(row.subject_custom || row.subject || COPY[locale].general), String(row.package_start_date || '').slice(0, 10), String(row.package_expiry_date || '').slice(0, 10)])] : undefined },
   ];
   const totals = new Map<string, number>();
   for (const payment of payments) { const currency = String(payment.currency || 'TRY'); totals.set(currency, (totals.get(currency) || 0) + Number(payment.paid_amount || 0)); }

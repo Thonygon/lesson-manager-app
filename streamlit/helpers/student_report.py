@@ -173,7 +173,9 @@ def build_student_report_pdf(
     summary = f"{t('total_lessons')}: {total_lessons}   |   {t('total_paid')}: {total_paid:,.2f}"
     story.append(Paragraph(summary, sty_sub))
 
-    doc.build(story)
+    from helpers.branding import build_pdf_footer_handler
+    footer = build_pdf_footer_handler({}, bold_font="Helvetica")
+    doc.build(story, onFirstPage=footer, onLaterPages=footer)
     buf.seek(0)
     return buf.getvalue()
 

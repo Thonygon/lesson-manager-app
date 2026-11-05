@@ -867,7 +867,7 @@ def build_exam_pdf_bytes(
 ) -> bytes:
     """Build the student exam PDF (no answers)."""
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import cm
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer,
@@ -903,6 +903,10 @@ def build_exam_pdf_bytes(
     def _structured_text_flowables(value, *, title: str = "", text_kind: str = "", blocks=None):
         asset = build_text_asset(value, title=title, text_kind=text_kind, blocks=blocks)
         flowables = []
+        if asset.get("title"):
+            flowables.append(Paragraph(_pdf_safe_text(asset["title"]), ParagraphStyle("ExamSourceTitle", parent=_S["body"], alignment=1, fontName=bold_font)))
+            flowables.append(Spacer(1, 5))
+        justified = ParagraphStyle("ExamSourceBody", parent=_S["body"], alignment=4)
         for block in asset.get("blocks") or []:
             block_type = str(block.get("type") or "paragraph")
             if block_type in {"from", "to", "subject"}:
@@ -914,7 +918,7 @@ def build_exam_pdf_bytes(
                 flowables.append(Paragraph(f"<b>{speaker}:</b> {text_value}" if speaker else text_value, _S["body"]))
             else:
                 for paragraph in [part.strip() for part in str(block.get("text") or "").split("\n") if part.strip()]:
-                    flowables.append(Paragraph(_pdf_safe_text(paragraph), _S["body"]))
+                    flowables.append(Paragraph(_pdf_safe_text(paragraph), justified))
             flowables.append(Spacer(1, 4))
         return flowables
 
