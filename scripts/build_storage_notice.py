@@ -9,11 +9,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "legal/storage-notice.v1.json"
-PURPOSE_INDEX = (0, 3, 1, 2, 3, 4, 5)
+PURPOSE_INDEX = (0, 3, 1, 2, 3, 4, 5, 6, 6, 7)
 LOCATIONS = {
-    "en": ("HTTP cookie on masterclassio.com", "Browser local storage on masterclassio.com", "Browser local storage or native app storage", "Browser session storage on app.masterclassio.com", "Browser local storage or native app storage", "Browser local storage or native app storage", "Browser local storage or native app storage"),
-    "es": ("Cookie HTTP en masterclassio.com", "Almacenamiento local del navegador en masterclassio.com", "Almacenamiento local del navegador o de la app nativa", "Almacenamiento de sesión del navegador en app.masterclassio.com", "Almacenamiento local del navegador o de la app nativa", "Almacenamiento local del navegador o de la app nativa", "Almacenamiento local del navegador o de la app nativa"),
-    "tr": ("masterclassio.com üzerinde HTTP çerezi", "masterclassio.com tarayıcı yerel depolaması", "Tarayıcı yerel depolaması veya yerel uygulama depolaması", "app.masterclassio.com tarayıcı oturum depolaması", "Tarayıcı yerel depolaması veya yerel uygulama depolaması", "Tarayıcı yerel depolaması veya yerel uygulama depolaması", "Tarayıcı yerel depolaması veya yerel uygulama depolaması"),
+    "en": ("HTTP cookie on masterclassio.com", "Browser local storage on masterclassio.com", "Browser local storage or native app storage", "Browser session storage on app.masterclassio.com", "Browser local storage or native app storage", "Browser local storage or native app storage", "Browser local storage or native app storage", "Browser local storage on masterclassio.com", "Browser local storage or native app storage", "Browser session storage on app.masterclassio.com"),
+    "es": ("Cookie HTTP en masterclassio.com", "Almacenamiento local del navegador en masterclassio.com", "Almacenamiento local del navegador o de la app nativa", "Almacenamiento de sesión del navegador en app.masterclassio.com", "Almacenamiento local del navegador o de la app nativa", "Almacenamiento local del navegador o de la app nativa", "Almacenamiento local del navegador o de la app nativa", "Almacenamiento local del navegador en masterclassio.com", "Almacenamiento local del navegador o de la app nativa", "Almacenamiento de sesión del navegador en app.masterclassio.com"),
+    "tr": ("masterclassio.com üzerinde HTTP çerezi", "masterclassio.com tarayıcı yerel depolaması", "Tarayıcı yerel depolaması veya yerel uygulama depolaması", "app.masterclassio.com tarayıcı oturum depolaması", "Tarayıcı yerel depolaması veya yerel uygulama depolaması", "Tarayıcı yerel depolaması veya yerel uygulama depolaması", "Tarayıcı yerel depolaması veya yerel uygulama depolaması", "masterclassio.com tarayıcı yerel depolaması", "Tarayıcı yerel depolaması veya yerel uygulama depolaması", "app.masterclassio.com tarayıcı oturum depolaması"),
 }
 HEADERS = {"en": ("Provider", "Location"), "es": ("Proveedor", "Ubicación"), "tr": ("Sağlayıcı", "Konum")}
 
@@ -49,7 +49,7 @@ def build(output: Path) -> None:
     data = json.loads(SOURCE.read_text(encoding="utf-8"))
     assert len(data["entries"]) == len(PURPOSE_INDEX)
     for language in ("tr", "en", "es"):
-        assert len(data["locales"][language]["purposes"]) == 6
+        assert len(data["locales"][language]["purposes"]) == 8
         assert len(LOCATIONS[language]) == len(data["entries"])
         destination = output / language / "index.html"
         destination.parent.mkdir(parents=True, exist_ok=True)

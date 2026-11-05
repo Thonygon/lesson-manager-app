@@ -1,6 +1,6 @@
 // Informational notice. Dismissal is not consent and never gates essential storage.
 (() => {
-  const version = '2026-11-05.1';
+  const version = '2026-11-05.2';
   const key = 'masterClassioStorageNoticeSeen';
   const banner = document.getElementById('storage-notice');
   const message = document.getElementById('storage-notice-message');

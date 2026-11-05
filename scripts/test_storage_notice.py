@@ -14,7 +14,10 @@ class StorageNoticeTest(unittest.TestCase):
         banner = (repo / "legal/storage-banner.js").read_text(encoding="utf-8")
         self.assertIn(f"STORAGE_NOTICE_VERSION = '{data['version']}'", app)
         self.assertIn(f"const version = '{data['version']}'", banner)
-        self.assertIn("__cf_bm", [entry["name"] for entry in data["entries"]])
+        names = " ".join(entry["name"] for entry in data["entries"])
+        for key in ("__cf_bm", "classio.interfaceLanguage", "classio.storageNoticeSeen", "classio-explorer-practice", "masterClassioStorageNoticeSeen"):
+            self.assertIn(key, names)
+        self.assertNotIn("classio.language,", names)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             build(output)

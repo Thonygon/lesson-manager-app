@@ -1,18 +1,170 @@
 {
-  "version": "2026-11-05.1",
+  "version": "2026-11-05.2",
   "effective_date": "2026-11-05",
   "entries": [
-    {"name": "__cf_bm", "surface": "Website", "provider": "Cloudflare", "purpose": "Bot protection and service availability", "location": "HTTP cookie on masterclassio.com", "duration": "30 minutes after inactivity", "required": true},
-    {"name": "masterClassioLanguage, masterClassioThemePreference", "surface": "Website", "provider": "Master Classio", "purpose": "Remember selected language and appearance", "location": "Browser local storage on masterclassio.com", "duration": "Until browser data is cleared", "required": false},
-    {"name": "Supabase Auth session", "surface": "App web and native", "provider": "Supabase / Master Classio", "purpose": "Keep the signed-in session", "location": "Browser local storage on app.masterclassio.com or device app storage", "duration": "Until sign-out or device/browser data is cleared; tokens rotate while signed in", "required": true},
-    {"name": "Google sign-in state and nonce", "surface": "App web", "provider": "Master Classio / Google sign-in", "purpose": "Complete and validate the requested sign-in", "location": "Browser session storage on app.masterclassio.com", "duration": "Removed when the callback is handled or the browser session ends", "required": true},
-    {"name": "classio.language, classio.themePreference", "surface": "App web and native", "provider": "Master Classio", "purpose": "Remember selected language and appearance", "location": "Browser local storage or device app storage", "duration": "Until app/browser data is cleared", "required": false},
-    {"name": "Explorer handoff and draft keys", "surface": "App web and native", "provider": "Master Classio", "purpose": "Carry an unfinished public resource, generation draft or income goal into the app", "location": "Browser local storage or device app storage", "duration": "Removed after use; otherwise until app/browser data is cleared", "required": false},
-    {"name": "Notification read state and preferences, study plan, next move", "surface": "App web and native", "provider": "Master Classio", "purpose": "Keep user-selected workflow state on this device", "location": "Browser local storage or device app storage", "duration": "Until changed or app/browser data is cleared", "required": false}
+    {
+      "name": "__cf_bm",
+      "surface": "Website",
+      "provider": "Cloudflare",
+      "purpose": "Bot protection and service availability",
+      "location": "HTTP cookie on masterclassio.com",
+      "duration": "30 minutes after inactivity",
+      "required": true
+    },
+    {
+      "name": "masterClassioLanguage, masterClassioThemePreference",
+      "surface": "Website",
+      "provider": "Master Classio",
+      "purpose": "Remember selected language and appearance",
+      "location": "Browser local storage on masterclassio.com",
+      "duration": "Until browser data is cleared",
+      "required": false
+    },
+    {
+      "name": "Supabase Auth session",
+      "surface": "App web and native",
+      "provider": "Supabase / Master Classio",
+      "purpose": "Keep the signed-in session",
+      "location": "Browser local storage on app.masterclassio.com or device app storage",
+      "duration": "Until sign-out or device/browser data is cleared; tokens rotate while signed in",
+      "required": true
+    },
+    {
+      "name": "Google sign-in state and nonce",
+      "surface": "App web",
+      "provider": "Master Classio / Google sign-in",
+      "purpose": "Complete and validate the requested sign-in",
+      "location": "Browser session storage on app.masterclassio.com",
+      "duration": "Removed when the callback is handled or the browser session ends",
+      "required": true
+    },
+    {
+      "name": "classio.interfaceLanguage, classio.themePreference",
+      "surface": "App web and native",
+      "provider": "Master Classio",
+      "purpose": "Remember selected language and appearance",
+      "location": "Browser local storage or device app storage",
+      "duration": "Until app/browser data is cleared",
+      "required": false
+    },
+    {
+      "name": "Explorer handoff and draft keys",
+      "surface": "App web and native",
+      "provider": "Master Classio",
+      "purpose": "Carry an unfinished public resource, generation draft or income goal into the app",
+      "location": "Browser local storage or device app storage",
+      "duration": "Removed after use; otherwise until app/browser data is cleared",
+      "required": false
+    },
+    {
+      "name": "Notification read state and preferences, study plan, next move",
+      "surface": "App web and native",
+      "provider": "Master Classio",
+      "purpose": "Keep user-selected workflow state on this device",
+      "location": "Browser local storage or device app storage",
+      "duration": "Until changed or app/browser data is cleared",
+      "required": false
+    },
+    {
+      "name": "masterClassioStorageNoticeSeen",
+      "surface": "Website",
+      "provider": "Master Classio",
+      "purpose": "Remember dismissal of this notice version; not consent",
+      "location": "Browser local storage on masterclassio.com",
+      "duration": "Until browser data is cleared or notice version changes",
+      "required": false
+    },
+    {
+      "name": "classio.storageNoticeSeen",
+      "surface": "App web and native",
+      "provider": "Master Classio",
+      "purpose": "Remember dismissal of this notice version; not consent",
+      "location": "Browser local storage or native app storage",
+      "duration": "Until app/browser data is cleared or notice version changes",
+      "required": false
+    },
+    {
+      "name": "classio-explorer-practice",
+      "surface": "App web Explorer",
+      "provider": "Master Classio",
+      "purpose": "Keep local XP and streak for public practice preview",
+      "location": "Browser session storage on app.masterclassio.com",
+      "duration": "Until browser session ends",
+      "required": false
+    }
   ],
   "locales": {
-    "en": {"title": "Cookies and device storage", "summary": "Master Classio uses security and sign-in storage, plus settings and work-in-progress storage on your device. We do not load advertising or behavioral analytics cookies in the audited website and app code.", "details": "Security and sign-in storage is needed for the requested service. Language, appearance and local work state are functional preferences; you can change language and appearance in the controls and clear local data in your browser or device settings. Closing the short notice records only that you have seen this version; it is not consent.", "limits": "Cloudflare and authentication providers may change their technical cookies. This inventory covers the code and public response checked on 5 November 2026; a clean-browser and native-device check remains part of beta verification. If optional analytics or advertising is added, we will ask for a separate choice before loading it.", "category": "Purpose / duration", "storage": "Technology and location", "privacy": "Privacy notices", "back": "Back to Master Classio", "contact": "Questions about storage?", "notice": "We use essential security and sign-in storage, plus local preferences to remember your settings and work.", "read": "Storage details", "dismiss": "Got it", "purposes": ["Bot protection · 30 minutes of inactivity", "Keep signed-in session · until sign-out or data cleared", "Finish sign-in · until callback or browser session ends", "Remember language and appearance · until data cleared", "Carry unfinished work · until used or data cleared", "Keep workflow state · until changed or data cleared"]},
-    "es": {"title": "Cookies y almacenamiento del dispositivo", "summary": "Master Classio utiliza almacenamiento de seguridad e inicio de sesión, además de preferencias y trabajo en curso en tu dispositivo. El código auditado del sitio y la app no carga cookies publicitarias ni de analítica de comportamiento.", "details": "El almacenamiento de seguridad e inicio de sesión es necesario para el servicio solicitado. El idioma, la apariencia y el estado de trabajo local son preferencias funcionales; puedes cambiar idioma y apariencia en los controles y borrar los datos locales en el navegador o dispositivo. Cerrar el aviso breve solo registra que viste esta versión; no constituye consentimiento.", "limits": "Cloudflare y los proveedores de autenticación pueden cambiar sus cookies técnicas. Este inventario cubre el código y la respuesta pública revisados el 5 de noviembre de 2026; queda pendiente la comprobación beta con navegador limpio y dispositivo nativo. Si se añaden analítica o publicidad opcionales, pediremos una elección separada antes de cargarlas.", "category": "Finalidad / duración", "storage": "Tecnología y ubicación", "privacy": "Avisos de privacidad", "back": "Volver a Master Classio", "contact": "¿Preguntas sobre el almacenamiento?", "notice": "Usamos almacenamiento esencial de seguridad y sesión, y preferencias locales para recordar tus ajustes y trabajo.", "read": "Detalles de almacenamiento", "dismiss": "Entendido", "purposes": ["Protección antibots · 30 minutos de inactividad", "Mantener la sesión · hasta salir o borrar datos", "Completar el acceso · hasta el retorno o el fin de sesión del navegador", "Recordar idioma y apariencia · hasta borrar datos", "Retomar trabajo inacabado · hasta usarlo o borrar datos", "Conservar estado de trabajo · hasta cambiarlo o borrar datos"]},
-    "tr": {"title": "Çerezler ve cihaz depolaması", "summary": "Master Classio güvenlik ve oturum açma depolamasının yanı sıra cihazınızda tercihleri ve devam eden çalışmaları saklar. İncelenen site ve uygulama kodu reklam veya davranış analitiği çerezleri yüklemez.", "details": "Güvenlik ve oturum açma depolaması talep ettiğiniz hizmet için gereklidir. Dil, görünüm ve yerel çalışma durumu işlevsel tercihlerdir; dil ve görünümü kontrollerden değiştirebilir, yerel verileri tarayıcı veya cihaz ayarlarından silebilirsiniz. Kısa bildirimi kapatmak yalnızca bu sürümü gördüğünüzü kaydeder; açık rıza değildir.", "limits": "Cloudflare ve kimlik doğrulama sağlayıcıları teknik çerezlerini değiştirebilir. Bu envanter 5 Kasım 2026'da incelenen kodu ve genel yanıtı kapsar; temiz tarayıcı ve yerel cihazla beta kontrolü beklenmektedir. İsteğe bağlı analitik veya reklam eklenirse yüklenmeden önce ayrı bir tercih isteyeceğiz.", "category": "Amaç / süre", "storage": "Teknoloji ve konum", "privacy": "Aydınlatma metinleri", "back": "Master Classio'ya dön", "contact": "Depolama hakkında sorularınız mı var?", "notice": "Güvenlik ve oturum için gerekli depolama ile ayarlarınızı ve çalışmalarınızı hatırlayan yerel tercihleri kullanıyoruz.", "read": "Depolama ayrıntıları", "dismiss": "Anladım", "purposes": ["Bot koruması · 30 dakika hareketsizlik", "Oturumu koruma · çıkışa veya veriler silinene kadar", "Girişi tamamlama · dönüşe veya tarayıcı oturumu sonuna kadar", "Dil ve görünümü hatırlama · veriler silinene kadar", "Tamamlanmamış işe devam · kullanıma veya silinmeye kadar", "İş akışı durumunu koruma · değişene veya silinene kadar"]}
+    "en": {
+      "title": "Cookies and device storage",
+      "summary": "Master Classio uses security and sign-in storage, plus settings and work-in-progress storage on your device. We do not load advertising or behavioral analytics cookies in the audited website and app code.",
+      "details": "Security and sign-in storage is needed for the requested service. Language, appearance and local work state are functional preferences; you can change language and appearance in the controls and clear local data in your browser or device settings. Closing the short notice records only that you have seen this version; it is not consent.",
+      "limits": "Cloudflare and authentication providers may change their technical cookies. This inventory covers the code and public response checked on 5 November 2026; a clean-browser and native-device check remains part of beta verification. If optional analytics or advertising is added, we will ask for a separate choice before loading it.",
+      "category": "Purpose / duration",
+      "storage": "Technology and location",
+      "privacy": "Privacy notices",
+      "back": "Back to Master Classio",
+      "contact": "Questions about storage?",
+      "notice": "We use essential security and sign-in storage, plus local preferences to remember your settings and work.",
+      "read": "Storage details",
+      "dismiss": "Got it",
+      "purposes": [
+        "Bot protection · 30 minutes of inactivity",
+        "Keep signed-in session · until sign-out or data cleared",
+        "Finish sign-in · until callback or browser session ends",
+        "Remember language and appearance · until data cleared",
+        "Carry unfinished work · until used or data cleared",
+        "Keep workflow state · until changed or data cleared",
+        "Remember this notice version · until data cleared or version changes",
+        "Keep Explorer preview XP and streak · until browser session ends"
+      ]
+    },
+    "es": {
+      "title": "Cookies y almacenamiento del dispositivo",
+      "summary": "Master Classio utiliza almacenamiento de seguridad e inicio de sesión, además de preferencias y trabajo en curso en tu dispositivo. El código auditado del sitio y la app no carga cookies publicitarias ni de analítica de comportamiento.",
+      "details": "El almacenamiento de seguridad e inicio de sesión es necesario para el servicio solicitado. El idioma, la apariencia y el estado de trabajo local son preferencias funcionales; puedes cambiar idioma y apariencia en los controles y borrar los datos locales en el navegador o dispositivo. Cerrar el aviso breve solo registra que viste esta versión; no constituye consentimiento.",
+      "limits": "Cloudflare y los proveedores de autenticación pueden cambiar sus cookies técnicas. Este inventario cubre el código y la respuesta pública revisados el 5 de noviembre de 2026; queda pendiente la comprobación beta con navegador limpio y dispositivo nativo. Si se añaden analítica o publicidad opcionales, pediremos una elección separada antes de cargarlas.",
+      "category": "Finalidad / duración",
+      "storage": "Tecnología y ubicación",
+      "privacy": "Avisos de privacidad",
+      "back": "Volver a Master Classio",
+      "contact": "¿Preguntas sobre el almacenamiento?",
+      "notice": "Usamos almacenamiento esencial de seguridad y sesión, y preferencias locales para recordar tus ajustes y trabajo.",
+      "read": "Detalles de almacenamiento",
+      "dismiss": "Entendido",
+      "purposes": [
+        "Protección antibots · 30 minutos de inactividad",
+        "Mantener la sesión · hasta salir o borrar datos",
+        "Completar el acceso · hasta el retorno o el fin de sesión del navegador",
+        "Recordar idioma y apariencia · hasta borrar datos",
+        "Retomar trabajo inacabado · hasta usarlo o borrar datos",
+        "Conservar estado de trabajo · hasta cambiarlo o borrar datos",
+        "Recordar esta versión del aviso · hasta borrar datos o cambiar la versión",
+        "Conservar XP y racha de la vista previa de Explorer · hasta terminar la sesión del navegador"
+      ]
+    },
+    "tr": {
+      "title": "Çerezler ve cihaz depolaması",
+      "summary": "Master Classio güvenlik ve oturum açma depolamasının yanı sıra cihazınızda tercihleri ve devam eden çalışmaları saklar. İncelenen site ve uygulama kodu reklam veya davranış analitiği çerezleri yüklemez.",
+      "details": "Güvenlik ve oturum açma depolaması talep ettiğiniz hizmet için gereklidir. Dil, görünüm ve yerel çalışma durumu işlevsel tercihlerdir; dil ve görünümü kontrollerden değiştirebilir, yerel verileri tarayıcı veya cihaz ayarlarından silebilirsiniz. Kısa bildirimi kapatmak yalnızca bu sürümü gördüğünüzü kaydeder; açık rıza değildir.",
+      "limits": "Cloudflare ve kimlik doğrulama sağlayıcıları teknik çerezlerini değiştirebilir. Bu envanter 5 Kasım 2026'da incelenen kodu ve genel yanıtı kapsar; temiz tarayıcı ve yerel cihazla beta kontrolü beklenmektedir. İsteğe bağlı analitik veya reklam eklenirse yüklenmeden önce ayrı bir tercih isteyeceğiz.",
+      "category": "Amaç / süre",
+      "storage": "Teknoloji ve konum",
+      "privacy": "Aydınlatma metinleri",
+      "back": "Master Classio'ya dön",
+      "contact": "Depolama hakkında sorularınız mı var?",
+      "notice": "Güvenlik ve oturum için gerekli depolama ile ayarlarınızı ve çalışmalarınızı hatırlayan yerel tercihleri kullanıyoruz.",
+      "read": "Depolama ayrıntıları",
+      "dismiss": "Anladım",
+      "purposes": [
+        "Bot koruması · 30 dakika hareketsizlik",
+        "Oturumu koruma · çıkışa veya veriler silinene kadar",
+        "Girişi tamamlama · dönüşe veya tarayıcı oturumu sonuna kadar",
+        "Dil ve görünümü hatırlama · veriler silinene kadar",
+        "Tamamlanmamış işe devam · kullanıma veya silinmeye kadar",
+        "İş akışı durumunu koruma · değişene veya silinene kadar",
+        "Bu bildirim sürümünü hatırlama · veriler silinene veya sürüm değişene kadar",
+        "Explorer önizleme XP ve serisini koruma · tarayıcı oturumu bitene kadar"
+      ]
+    }
   }
 }
