@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from '@/providers/auth-provider';
 import { AppPreferencesProvider, useAppPreferences } from '@/providers/app-preferences';
 import { PrivilegedAccessProvider } from '@/providers/privileged-access-provider';
 import { LiveBackground } from '@/components/live-background';
+import { StorageNotice } from '@/components/storage-notice';
 import { IntroConstellation } from '@/components/intro-constellation';
 import { publicCopy } from '@/lib/public-copy';
 import { HomeIntroProvider, useHomeIntro } from '@/providers/home-intro-provider';
@@ -27,6 +28,7 @@ function AppFrame() {
     <Head><style>{introOverlayCss}</style></Head>
     <LiveBackground />
     <Stack screenOptions={{ headerShown: false, title: 'Classio', contentStyle: { backgroundColor: 'transparent' } }} />
+    <StorageNotice />
     {showHomeIntro ? <IntroConstellation sessionKey="classio-home-intro-seen-v2" ready={!loading && !!user && homeIntro.readyRoute === pathname} tagline={publicCopy(language).introTagline} theme={resolvedTheme} /> : null}
     <StatusBar style={resolvedTheme === 'dark' ? 'light' : 'dark'} />
   </>;

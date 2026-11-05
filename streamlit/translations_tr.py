@@ -2,6 +2,8 @@
 from typing import Dict
 
 TR: Dict[str, str] = {
+    "privacy_notice_link": "Aydınlatma metni",
+    "storage_notice_link": "Çerezler ve cihaz depolaması",
     "explore_achievability_label": "Ulaşılabilirlik",
     "explore_advice_label": "Tavsiye:",
     # --- Goal Explorer Achievability/Advice ---

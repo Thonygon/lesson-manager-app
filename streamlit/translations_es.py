@@ -2,6 +2,8 @@
 from typing import Dict
 
 ES: Dict[str, str] = {
+    "privacy_notice_link": "Aviso de privacidad",
+    "storage_notice_link": "Cookies y almacenamiento del dispositivo",
     "explore_achievability_label": "Alcanzabilidad",
     "explore_advice_label": "Consejo:",
     # --- Goal Explorer Achievability/Advice ---

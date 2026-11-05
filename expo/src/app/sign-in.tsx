@@ -2,7 +2,7 @@ import { BackLink } from '@/components/back-link';
 import { Redirect, router, type Href } from 'expo-router';
 import Head from 'expo-router/head';
 import { useEffect, useState } from 'react';
-import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ActionFeedback, Button, Field, Panel } from '@/components/ui';
@@ -14,6 +14,7 @@ import { useAppPreferences } from '@/providers/app-preferences';
 import { useHomeIntro } from '@/providers/home-intro-provider';
 import { beginDirectGoogleSignIn, takeDirectGoogleResponse } from '@/lib/google-direct-sign-in';
 import { colors } from '@/theme';
+import { privacyNoticeUrl, storageNoticeUrl } from '@/lib/privacy-notices';
 
 export default function SignInScreen() {
   const { width } = useWindowDimensions();
@@ -28,7 +29,7 @@ export default function SignInScreen() {
     return () => window.removeEventListener('resize', update);
   }, []);
   const compact = (Platform.OS === 'web' ? webWidth ?? width : width) < 850;
-  const { t } = useAppPreferences();
+  const { language, t } = useAppPreferences();
   const { configured, loading, user, profile, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signUp, sendPasswordReset } = useAuth();
   const { start: startHomeIntro, cancel: cancelHomeIntro } = useHomeIntro();
   const [mode, setMode] = useState<'sign-in' | 'sign-up' | 'forgot'>('sign-in');
@@ -116,6 +117,7 @@ export default function SignInScreen() {
             {mode !== 'forgot' ? <><GoogleSignIn disabled={submitting} label={t('auth.googleButton')} onPress={() => void openGoogle()} />{messageContext === 'google' ? <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} /> : null}<Text style={styles.googleBody}>{t('auth.googleHint')}</Text></> : null}
           </>}
           <Text style={styles.security}>{t('auth.security')}</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12 }}><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(privacyNoticeUrl(language, 'app'))}><Text style={styles.privacyLink}>{t('legal.privacyNotice')}</Text></Pressable><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(storageNoticeUrl(language))}><Text style={styles.privacyLink}>{t('legal.storageDetails')}</Text></Pressable></View>
         </Panel>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -128,4 +130,5 @@ const styles = StyleSheet.create({
   card: { flexGrow: 0, flexShrink: 0, maxWidth: 480, width: '100%', gap: 13, padding: 30, borderRadius: 24, shadowColor: colors.ink, shadowOpacity: 0.08, shadowRadius: 24, shadowOffset: { width: 0, height: 12 } }, cardCompact: { alignSelf: 'center' }, modeTabs: { flexDirection: 'row', backgroundColor: colors.surfaceSoft, borderRadius: 12, padding: 4, marginBottom: 8 }, modeTab: { flex: 1, borderRadius: 9, paddingVertical: 10, alignItems: 'center' }, modeActive: { backgroundColor: colors.surface }, modeText: { color: colors.muted, fontSize: 12, fontWeight: '800' }, modeTextActive: { color: colors.ink }, title: { color: colors.ink, fontSize: 28, fontWeight: '900', textAlign: 'center' }, intro: { color: colors.muted, fontSize: 14, lineHeight: 21, textAlign: 'center', marginBottom: 4 }, fieldGroup: { gap: 6 }, label: { color: colors.ink, fontSize: 11, fontWeight: '800' }, messageBox: { backgroundColor: colors.warningSoft, borderRadius: 10, padding: 11 }, message: { color: colors.warning, fontSize: 12, lineHeight: 18 }, configNotice: { backgroundColor: colors.warningSoft, borderRadius: 12, padding: 15 }, noticeTitle: { color: colors.warning, fontWeight: '800', marginBottom: 5 }, noticeBody: { color: colors.warning, lineHeight: 20 },
   or: { flexDirection: 'row', alignItems: 'center', gap: 9, marginVertical: 2 }, orLine: { height: 1, backgroundColor: colors.line, flex: 1 }, orText: { color: colors.subtle, fontSize: 8, fontWeight: '900', letterSpacing: 0.6 }, googleNotice: { flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: colors.canvas, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.line }, googleIcon: { width: 28, height: 28, borderRadius: 14, textAlign: 'center', lineHeight: 28, color: '#4285F4', backgroundColor: colors.surface, fontWeight: '900' }, googleTitle: { color: colors.ink, fontSize: 11, fontWeight: '800' }, googleBody: { color: colors.muted, fontSize: 10, lineHeight: 15, marginTop: 2 }, security: { color: colors.subtle, fontSize: 10, lineHeight: 15, textAlign: 'center', marginTop: 2 },
   forgotLink: { color: colors.primary, fontSize: 12, fontWeight: '800', textAlign: 'right', paddingVertical: 8 },
+  privacyLink: { color: colors.primary, fontSize: 11, fontWeight: '800', textAlign: 'center', paddingVertical: 8 },
 });

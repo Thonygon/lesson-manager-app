@@ -6,6 +6,7 @@ import Head from 'expo-router/head';
 import {
   ActivityIndicator,
   Image,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -29,6 +30,7 @@ import { publicConfig } from '@/lib/supabase';
 import { useAppPreferences } from '@/providers/app-preferences';
 import { getPublicResourceDetail, getPublicResourcePreviewImages, getExplorerPublicResources, getExplorerPublicExamPage, type PublicResource, type PublicResourceKind } from '@/services/public-data';
 import { colors } from '@/theme';
+import { privacyNoticeUrl, storageNoticeUrl } from '@/lib/privacy-notices';
 import { canonicalSubjectKey, canonicalSubjectLabel } from '@/lib/subjects';
 import { canonicalLearnerStageKey, learnerStageLabel } from '@/lib/learner-stages';
 import { savePendingIncomeGoal } from '@/lib/income-goal-handoff';
@@ -351,7 +353,7 @@ export default function HomeScreen() {
 
 
           <View style={styles.finalCta}><Text style={styles.finalEyebrow}>{copy.finalEyebrow}</Text><Text style={[styles.finalTitle, compact && styles.finalTitleCompact]}>{copy.finalTitle}</Text><Text style={styles.finalBody}>{copy.finalBody}</Text><Pressable onPress={() => router.push('/sign-in')} style={styles.lightButton}><Text style={styles.lightButtonText}>{copy.finalAction}</Text></Pressable></View>
-          <View style={styles.footer}><Text style={styles.footerBrand}>CLASSIO</Text><Text style={styles.footerText}>{copy.footer}</Text></View>
+          <View style={styles.footer}><Text style={styles.footerBrand}>CLASSIO</Text><Text style={styles.footerText}>{copy.footer}</Text><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(privacyNoticeUrl(language, 'website'))}><Text style={styles.footerLegal}>{t('legal.privacyNotice')}</Text></Pressable><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(storageNoticeUrl(language))}><Text style={styles.footerLegal}>{t('legal.storageDetails')}</Text></Pressable></View>
         </SafeAreaView>
       </ScrollView>
       <IntroConstellation ready={!resourcesLoading} tagline={copy.introTagline} theme={resolvedTheme} />
@@ -384,4 +386,5 @@ const styles = StyleSheet.create({
   goalSection: { borderTopWidth: 1, borderTopColor: colors.line }, goalLayout: { flexDirection: 'row', gap: 22 }, goalLayoutCompact: { flexDirection: 'column', alignItems: 'stretch' }, goalPanelCompact: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0 }, goalForm: { flex: 1.2, backgroundColor: colors.surface, borderRadius: 22, padding: 24, borderWidth: 1, borderColor: colors.line }, goalFilters: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }, goalFilterCell: { flexGrow: 1, flexBasis: 190, minWidth: 180, gap: 5 }, goalFilterLabel: { color: colors.ink, fontSize: 10, fontWeight: '800' }, fieldLabel: { color: colors.inkSecondary, fontSize: 12, fontWeight: '800', marginTop: 14, marginBottom: 8 }, wrapChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, inputRow: { flexDirection: 'row', gap: 12 }, inputCell: { flex: 1 }, rateHint: { color: colors.muted, fontSize: 11, marginVertical: 10 }, recommendation: { color: colors.primary, backgroundColor: colors.primarySoft, fontSize: 13, lineHeight: 20, fontWeight: '800', borderRadius: 12, padding: 12, marginTop: 14 }, goalResult: { flex: 0.8, minHeight: 390, backgroundColor: colors.navDark, borderRadius: 22, padding: 26, justifyContent: 'center' }, goalResultIdle: { alignItems: 'center' }, resultIcon: { fontSize: 38 }, resultTitle: { color: colors.inverse, fontSize: 20, fontWeight: '900', marginTop: 15 }, resultBody: { color: colors.subtle, fontSize: 13, lineHeight: 20, marginTop: 5, textAlign: 'center' }, resultTop: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between', alignItems: 'center' }, resultKicker: { color: '#93C5FD', fontSize: 10, fontWeight: '900', letterSpacing: 1 }, feasibility: { color: colors.inverse, fontSize: 12, fontWeight: '900' }, goalAmount: { color: colors.inverse, fontSize: 44, fontWeight: '900', letterSpacing: -1, marginTop: 24 }, metrics: { flexDirection: 'row', gap: 8, marginVertical: 26 }, metricsPhone: { flexWrap: 'wrap' }, metric: { flexGrow: 1, flexBasis: 88, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 13, padding: 12 }, metricValue: { color: colors.inverse, fontSize: 22, fontWeight: '900' }, metricLabel: { color: colors.subtle, fontSize: 9, marginTop: 3 }, advice: { color: colors.inverseMuted, fontSize: 13, lineHeight: 20, marginBottom: 22 }, secondaryButton: { borderWidth: 1, borderColor: colors.lineStrong, borderRadius: 12, padding: 13, alignItems: 'center' }, secondaryButtonText: { color: colors.inverse, fontSize: 13, fontWeight: '800' },
   finalCta: { backgroundColor: colors.navDark, borderRadius: 28, padding: 54, alignItems: 'center', marginVertical: 40 }, finalEyebrow: { color: colors.inverseMuted, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 }, finalTitle: { color: colors.inverse, fontSize: 38, lineHeight: 45, fontWeight: '900', textAlign: 'center', maxWidth: 760, marginTop: 12 }, finalTitleCompact: { fontSize: 28, lineHeight: 35 }, finalBody: { color: colors.inverseMuted, fontSize: 15, lineHeight: 23, textAlign: 'center', maxWidth: 620, marginTop: 13 }, lightButton: { backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 22, paddingVertical: 14, marginTop: 24 }, lightButtonText: { color: '#1D4ED8', fontWeight: '900' },
   footer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10, paddingTop: 20, borderTopWidth: 1, borderTopColor: colors.line }, footerBrand: { color: colors.ink, fontSize: 13, fontWeight: '900', letterSpacing: 1.4 }, footerText: { color: colors.subtle, fontSize: 12 }, stack: { flexDirection: 'column', alignItems: 'stretch' },
+  footerLegal: { color: colors.primary, fontSize: 12, fontWeight: '800' },
 });
