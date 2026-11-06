@@ -6,6 +6,7 @@ import json
 import socket
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -23,6 +24,7 @@ PUBLIC_DNS = (
     "https://dns.google/resolve",
 )
 DNS_HOSTS = ("masterclassio.com", "app.masterclassio.com")
+SECURITY_TXT_HOSTS = DNS_HOSTS
 
 
 def check_public_dns(host: str, *, open_url=urlopen) -> list[str]:
@@ -65,6 +67,28 @@ def check_url(url: str, expected_status: int, *, resolve=socket.getaddrinfo, ope
             raise RuntimeError(f"{host}: unexpected redirect to {final_host}")
 
 
+def check_security_txt(host: str, *, open_url=urlopen, now: datetime | None = None) -> None:
+    """Catch a missing, HTML-fallback, misdirected or soon-expiring security contact."""
+    url = f"https://{host}/.well-known/security.txt"
+    with open_url(Request(url, headers={"User-Agent": USER_AGENT}), timeout=15) as response:
+        if response.status != 200 or urlparse(response.geturl()).hostname != host:
+            raise RuntimeError(f"{host}: security.txt did not return HTTP 200 on its own host")
+        if not response.headers.get("Content-Type", "").lower().startswith("text/plain"):
+            raise RuntimeError(f"{host}: security.txt must be served as text/plain")
+        raw = response.read(16385)
+    if len(raw) > 16384:
+        raise RuntimeError(f"{host}: security.txt exceeds 16 KiB")
+    try:
+        fields = dict(line.split(":", 1) for line in raw.decode("utf-8").splitlines() if line and not line.startswith("#") and ":" in line)
+        expires = datetime.fromisoformat(fields["Expires"].strip().replace("Z", "+00:00"))
+    except (UnicodeDecodeError, ValueError, KeyError) as error:
+        raise RuntimeError(f"{host}: security.txt has no valid Expires field") from error
+    if expires.tzinfo is None or expires <= (now or datetime.now(timezone.utc)) + timedelta(days=30):
+        raise RuntimeError(f"{host}: security.txt expires within 30 days")
+    if fields.get("Canonical", "").strip() != url or not fields.get("Contact", "").strip():
+        raise RuntimeError(f"{host}: security.txt lacks its canonical URL or contact")
+
+
 def main() -> int:
     failures = []
     for host in DNS_HOSTS:
@@ -87,6 +111,17 @@ def main() -> int:
             except Exception as error:
                 if attempt == 2:
                     failures.append(f"{url}: {type(error).__name__}: {error}")
+                else:
+                    time.sleep(3)
+    for host in SECURITY_TXT_HOSTS:
+        for attempt in range(3):
+            try:
+                check_security_txt(host)
+                print(f"OK security.txt {host}: contact published and expiry over 30 days away")
+                break
+            except Exception as error:
+                if attempt == 2:
+                    failures.append(f"security.txt {host}: {type(error).__name__}: {error}")
                 else:
                     time.sleep(3)
     if failures:

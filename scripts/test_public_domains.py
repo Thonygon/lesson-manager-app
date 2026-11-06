@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timezone
 from io import BytesIO
 from unittest.mock import patch
 from urllib.request import Request
@@ -23,6 +24,17 @@ class FakeResponse:
 
 class FakeDnsResponse(BytesIO):
     pass
+
+
+class FakeSecurityResponse(BytesIO):
+    def __init__(self, body, url, content_type="text/plain"):
+        super().__init__(body.encode())
+        self.status = 200
+        self.url = url
+        self.headers = {"Content-Type": content_type}
+
+    def geturl(self):
+        return self.url
 
 
 class PublicDomainHealthTest(unittest.TestCase):
@@ -67,10 +79,23 @@ class PublicDomainHealthTest(unittest.TestCase):
                 raise TimeoutError("resolver temporarily unavailable")
             return ["resolved"]
 
-        with patch.object(health, "DNS_HOSTS", ("masterclassio.com",)), patch.object(health, "CHECKS", ()), patch.object(health, "check_public_dns", side_effect=sometimes_unavailable), patch.object(health.time, "sleep") as sleep:
+        with patch.object(health, "DNS_HOSTS", ("masterclassio.com",)), patch.object(health, "CHECKS", ()), patch.object(health, "SECURITY_TXT_HOSTS", ()), patch.object(health, "check_public_dns", side_effect=sometimes_unavailable), patch.object(health.time, "sleep") as sleep:
             self.assertEqual(health.main(), 0)
         self.assertEqual(len(calls), 2)
         sleep.assert_called_once_with(3)
+
+    def test_security_contact_and_expiry(self):
+        url = "https://masterclassio.com/.well-known/security.txt"
+        body = f"Contact: mailto:security@example.org\nExpires: 2027-11-06T00:00:00Z\nCanonical: {url}\n"
+        health.check_security_txt("masterclassio.com", open_url=lambda *_args, **_kwargs: FakeSecurityResponse(body, url), now=datetime(2026, 11, 6, tzinfo=timezone.utc))
+
+    def test_security_txt_rejects_html_and_expiry(self):
+        url = "https://masterclassio.com/.well-known/security.txt"
+        body = f"Contact: mailto:security@example.org\nExpires: 2026-11-20T00:00:00Z\nCanonical: {url}\n"
+        with self.assertRaisesRegex(RuntimeError, "text/plain"):
+            health.check_security_txt("masterclassio.com", open_url=lambda *_args, **_kwargs: FakeSecurityResponse(body, url, "text/html"))
+        with self.assertRaisesRegex(RuntimeError, "within 30 days"):
+            health.check_security_txt("masterclassio.com", open_url=lambda *_args, **_kwargs: FakeSecurityResponse(body, url), now=datetime(2026, 11, 6, tzinfo=timezone.utc))
 
 
 if __name__ == "__main__":

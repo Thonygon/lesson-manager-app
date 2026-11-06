@@ -116,6 +116,9 @@ jobs:
       - name: Verify Admin workspace role matrix
         run: node scripts/check-admin-workspace-roles.cjs
 
+      - name: Verify first-login legal acceptance gate
+        run: node scripts/check-choose-role-legal-gate.cjs
+
       - name: Validate help screenshot boundaries
         run: node scripts/check-help-center.cjs
 

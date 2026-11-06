@@ -12,8 +12,17 @@ export function requiredLegalDocuments(mode: 'teacher' | 'student', language: 'e
   });
 }
 
+/** Verify the exact documents reviewed for this first-login choice. */
+export function hasRequiredLegalAcceptance(accepted: readonly LegalAcceptance[], mode: 'teacher' | 'student', language: 'en' | 'es' | 'tr') {
+  return requiredLegalDocuments(mode, language).every((document) => accepted.some((entry) => entry.slug === document.slug
+    && entry.language === language && entry.version === LEGAL_PUBLICATION.version && entry.sha256 === document.sha256));
+}
+
 export function legalModeForProfile(profile: ClassioProfile | null): 'teacher' | 'student' {
-  return profile?.can_teach || profile?.role === 'teacher' || profile?.role === 'school_admin' ? 'teacher' : 'student';
+  if (profile?.role === 'school_admin') return 'teacher';
+  if (profile?.last_active_mode === 'student') return 'student';
+  if (profile?.last_active_mode === 'teacher') return 'teacher';
+  return profile?.can_teach || profile?.role === 'teacher' ? 'teacher' : 'student';
 }
 
 export function hasCurrentLegalAcceptance(profile: ClassioProfile | null, accepted: readonly LegalAcceptance[]) {
