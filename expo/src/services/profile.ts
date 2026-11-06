@@ -57,8 +57,8 @@ export async function chooseInitialWorkspaceRole(mode: 'teacher' | 'student', la
   if (sessionError || !session.session) throw sessionError ?? new Error('Your session has expired.');
   await acceptCurrentLegalDocuments(mode, language);
   const response = await fetch(hostingApiUrl('/api/choose-role'), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.session.access_token}` }, body: JSON.stringify({ mode, language }) });
-  const result = await response.json().catch(() => ({})) as { error?: string };
-  if (!response.ok) throw new Error(result.error || 'Your choice could not be saved.');
+  const result = await response.json().catch(() => ({})) as { error?: string; code?: string };
+  if (!response.ok) throw new Error(result.code === 'LEGAL_ACCEPTANCE_REQUIRED' ? 'legal.acceptRequired' : result.error || 'Your choice could not be saved.');
 }
 
 export async function uploadProfileAvatar(file: Blob & { name?: string; type?: string }) {

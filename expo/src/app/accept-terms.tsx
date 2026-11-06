@@ -50,8 +50,9 @@ export default function AcceptTermsScreen() {
   };
   return <ScrollView contentContainerStyle={styles.page}><SafeAreaView style={styles.safe}>
     <Head><title>{t('legal.acceptTitle')} | Classio</title></Head>
-    <View style={styles.top}><Text style={styles.brand}>Master Classio</Text><PreferenceSwitcher /></View>
+    <View style={styles.top}><Text style={styles.brand}>Master Classio</Text><PreferenceSwitcher onLanguageChange={() => { setTermsChecked(false); setTeacherChecked(false); setError(''); }} /></View>
     <Panel style={styles.panel}><Text accessibilityRole="header" style={styles.title}>{t('legal.acceptTitle')}</Text>
+      <Text style={styles.modeLabel}>{t(mode === 'teacher' ? 'legal.educatorHeading' : 'legal.studentHeading')}</Text>
       <Text style={styles.body}>{t('legal.acceptIntro')}</Text>
       <Text style={styles.version}>{t('legal.version')}: {LEGAL_PUBLICATION.version}</Text>
       <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(legalAgreementUrl(language, 'terms'))}><Text style={styles.link}>{t('legal.terms')} ↗</Text></Pressable>
@@ -69,7 +70,7 @@ export default function AcceptTermsScreen() {
 const styles = StyleSheet.create({
   page: { flexGrow: 1, minHeight: '100%', paddingHorizontal: 20 }, safe: { maxWidth: 720, width: '100%', alignSelf: 'center', paddingBottom: 40 },
   top: { minHeight: 90, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, brand: { color: colors.primary, fontSize: 22, fontWeight: '900' },
-  panel: { gap: 15, padding: 28 }, title: { color: colors.ink, fontSize: 27, fontWeight: '900' }, body: { color: colors.muted, fontSize: 14, lineHeight: 22 },
+  panel: { gap: 15, padding: 28 }, title: { color: colors.ink, fontSize: 27, fontWeight: '900' }, modeLabel: { color: colors.primary, fontSize: 14, fontWeight: '800' }, body: { color: colors.muted, fontSize: 14, lineHeight: 22 },
   version: { color: colors.subtle, fontSize: 12 }, link: { color: colors.primary, fontSize: 14, fontWeight: '800', paddingVertical: 4 },
   checkRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', paddingVertical: 8 }, check: { color: colors.primary, fontSize: 24, lineHeight: 25 }, checkLabel: { flex: 1, color: colors.ink, fontSize: 14, lineHeight: 22 },
 });

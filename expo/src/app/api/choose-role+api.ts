@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { hasRequiredLegalAcceptance, type LegalAcceptance } from '@/lib/legal-acceptance';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'private, no-store', Vary: 'Authorization' } });
 
@@ -9,6 +10,7 @@ export async function POST(request: Request) {
   const mode = input?.mode, language = input?.language;
   if (mode !== 'teacher' && mode !== 'student') return json({ error: 'Choose teacher or student.' }, 400);
   if (!['en', 'es', 'tr'].includes(language || '')) return json({ error: 'Choose a supported language.' }, 400);
+  const selectedLanguage = language as 'en' | 'es' | 'tr';
   const url = process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL || '';
   const publicKey = process.env.SUPABASE_ANON_KEY || process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
   const serverKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -21,6 +23,12 @@ export async function POST(request: Request) {
     const { data: profile, error: profileError } = await server.from('profiles').select('role,login_count,onboarding_completed').eq('user_id', identity.user.id).maybeSingle();
     if (profileError) throw profileError;
     if (profile?.role === 'admin' || profile?.role === 'school_admin' || Number(profile?.login_count ?? 0) > 0 || profile?.onboarding_completed === true) return json({ error: 'This account has already selected a workspace.' }, 409);
+    const { data: acceptances, error: acceptanceError } = await server.from('classio_legal_acceptances')
+      .select('slug,language,version,sha256,accepted_at').eq('user_id', identity.user.id);
+    if (acceptanceError) throw acceptanceError;
+    if (!hasRequiredLegalAcceptance((acceptances ?? []) as LegalAcceptance[], mode, selectedLanguage)) {
+      return json({ code: 'LEGAL_ACCEPTANCE_REQUIRED' }, 409);
+    }
     const { error: saveError } = await server.from('profiles').upsert({
       user_id: identity.user.id,
       email: identity.user.email || null,

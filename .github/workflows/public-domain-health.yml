@@ -24,3 +24,30 @@ jobs:
           python-version: '3.11'
       - name: Check DNS, TLS, site and app routes
         run: python3 scripts/check_public_domains.py
+
+  notify:
+    needs: public-domains
+    if: always() && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ALERT_TITLE: Public domain health alert
+    steps:
+      - name: Open one actionable issue on failure
+        if: needs.public-domains.result == 'failure'
+        run: |
+          issue="$(gh issue list --state open --search 'Public domain health alert in:title' --limit 100 --json number,title --jq '.[] | select(.title == "Public domain health alert") | .number' | head -n 1)"
+          if [ -z "$issue" ]; then
+            gh issue create --title "$ALERT_TITLE" --body "The scheduled DNS/TLS/HTTP and security contact check failed. Inspect run: https://github.com/$GH_REPO/actions/runs/$GITHUB_RUN_ID . Record the cause and remediation here; no user data is included."
+          fi
+      - name: Close the alert after recovery
+        if: needs.public-domains.result == 'success'
+        run: |
+          issue="$(gh issue list --state open --search 'Public domain health alert in:title' --limit 100 --json number,title --jq '.[] | select(.title == "Public domain health alert") | .number' | head -n 1)"
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "Public checks recovered in run: https://github.com/$GH_REPO/actions/runs/$GITHUB_RUN_ID ."
+            gh issue close "$issue"
+          fi

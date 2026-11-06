@@ -14,7 +14,7 @@ const THEMES: { key: ThemePreference; icon: string }[] = [
   { key: 'dark', icon: '☾' },
 ];
 
-export function PreferenceSwitcher({ compact = false, sidebar = false }: { compact?: boolean; sidebar?: boolean }) {
+export function PreferenceSwitcher({ compact = false, sidebar = false, onLanguageChange }: { compact?: boolean; sidebar?: boolean; onLanguageChange?: (language: AppLanguage) => void }) {
   const { language, setLanguage, theme, setTheme, t } = useAppPreferences();
 
   return (
@@ -28,7 +28,7 @@ export function PreferenceSwitcher({ compact = false, sidebar = false }: { compa
               accessibilityRole="button"
               accessibilityState={{ selected: language === item.key }}
               key={item.key}
-              onPress={() => setLanguage(item.key)}
+              onPress={() => { if (item.key !== language) onLanguageChange?.(item.key); setLanguage(item.key); }}
               style={[styles.option, language === item.key && styles.optionActive]}
             >
               <Text style={[styles.optionText, language === item.key && styles.optionTextActive]}>{item.short}</Text>
