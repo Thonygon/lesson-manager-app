@@ -1,7 +1,7 @@
 import { Redirect, router } from 'expo-router';
 import Head from 'expo-router/head';
 import { useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ActionFeedback, LoadingState, Panel } from '@/components/ui';
@@ -11,15 +11,20 @@ import { useAuth } from '@/providers/auth-provider';
 import { useAppPreferences } from '@/providers/app-preferences';
 import { chooseInitialWorkspaceRole } from '@/services/profile';
 import { colors } from '@/theme';
+import { legalAgreementUrl } from '@/lib/privacy-notices';
+import { LEGAL_PUBLICATION } from '@/lib/legal-publication.generated';
 
 export default function ChooseRoleScreen() {
   const { configured, loading, user, profile, error: authError, refreshProfile } = useAuth();
   const { t, language } = useAppPreferences();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [termsChecked, setTermsChecked] = useState(false);
+  const [teacherChecked, setTeacherChecked] = useState(false);
 
   const choose = async (mode: 'teacher' | 'student') => {
     if (busy) return;
+    if (!termsChecked || (mode === 'teacher' && !teacherChecked)) { setError(t('legal.acceptRequired')); return; }
     setBusy(true); setError('');
     try {
       await chooseInitialWorkspaceRole(mode, language);
@@ -42,6 +47,7 @@ export default function ChooseRoleScreen() {
       <Head><title>{t('auth.chooseRoleTitle')} | Classio</title></Head>
       <View style={styles.topbar}><Image source={require('../../assets/images/classio-logo.png')} resizeMode="contain" style={styles.logo} /><PreferenceSwitcher /></View>
       <View style={styles.intro}><Text style={styles.eyebrow}>{t('auth.chooseRoleTitle')}</Text><Text style={styles.title}>{t('auth.chooseRoleHeading')}</Text><Text style={styles.subtitle}>{t('auth.chooseRoleSubtitle')}</Text></View>
+      <Panel style={styles.legalPanel}><Text style={styles.legalVersion}>{t('legal.version')}: {LEGAL_PUBLICATION.version}</Text><View style={styles.legalLinks}><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(legalAgreementUrl(language, 'terms'))}><Text style={styles.legalLink}>{t('legal.terms')} ↗</Text></Pressable><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(legalAgreementUrl(language, 'teacher-data'))}><Text style={styles.legalLink}>{t('legal.teacherData')} ↗</Text></Pressable></View><Pressable accessibilityRole="checkbox" accessibilityState={{ checked: termsChecked }} onPress={() => setTermsChecked((value) => !value)} style={styles.legalCheck}><Text style={styles.legalCheckIcon}>{termsChecked ? '☑' : '□'}</Text><Text style={styles.legalCheckText}>{t('legal.acceptTerms')}</Text></Pressable><Pressable accessibilityRole="checkbox" accessibilityState={{ checked: teacherChecked }} onPress={() => setTeacherChecked((value) => !value)} style={styles.legalCheck}><Text style={styles.legalCheckIcon}>{teacherChecked ? '☑' : '□'}</Text><Text style={styles.legalCheckText}>{t('legal.acceptTeacherData')}</Text></Pressable></Panel>
       <View style={styles.cards}>
         <Pressable accessibilityRole="button" accessibilityLabel={t('auth.teacherRole')} disabled={busy} onPress={() => void choose('teacher')} style={({ pressed }) => [styles.card, styles.teacherCard, (pressed || busy) && styles.pressed]}>
           <Text style={styles.icon}>👩‍🏫</Text><Text style={styles.cardTitle}>{t('auth.teacherRole')}</Text><Text style={styles.cardBody}>{t('auth.teacherRoleBody')}</Text><Text style={styles.teacherAction}>{t('auth.chooseRoleContinue')} →</Text>
@@ -79,5 +85,6 @@ const styles = StyleSheet.create({
   hint: { color: colors.muted, fontSize: 12, textAlign: 'center', marginTop: 28 },
   busy: { color: colors.primary, textAlign: 'center', marginTop: 16 },
   feedback: { marginTop: 20 },
+  legalPanel: { marginTop: 26, padding: 18, gap: 6 }, legalVersion: { color: colors.subtle, fontSize: 12 }, legalLinks: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 }, legalLink: { color: colors.primary, fontWeight: '800', paddingVertical: 6 }, legalCheck: { flexDirection: 'row', gap: 10, paddingVertical: 6, alignItems: 'flex-start' }, legalCheckIcon: { color: colors.primary, fontSize: 22, lineHeight: 24 }, legalCheckText: { flex: 1, color: colors.ink, fontSize: 13, lineHeight: 20 },
   errorWrap: { margin: 24 },
 });

@@ -1,4 +1,4 @@
-import { Link, router, type Href, usePathname } from 'expo-router';
+import { Link, router, type Href, useLocalSearchParams, usePathname } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
@@ -10,6 +10,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { useAppPreferences } from '@/providers/app-preferences';
 import { usePrivilegedAccess } from '@/providers/privileged-access-provider';
 import { useNotifications } from '@/providers/notifications-provider';
+import { helpWorkspacePath } from '@/lib/route-access';
 
 const NAV = [
   { href: '/dashboard', icon: '⌂', labelKey: 'nav.home', roles: ['teacher', 'school_admin', 'admin'] },
@@ -48,6 +49,7 @@ export function AppShell({ title, eyebrow, notifications, scrollToTopToken, chil
   const { width } = useWindowDimensions();
   const { t } = useAppPreferences();
   const pathname = usePathname();
+  const params = useLocalSearchParams<{ from?: string }>();
   const { profile, user } = useAuth();
   const access = usePrivilegedAccess();
   const inbox = useNotifications();
@@ -60,8 +62,9 @@ export function AppShell({ title, eyebrow, notifications, scrollToTopToken, chil
   }, [scrollToTopToken]);
   const compact = width < 960; const phone = width < 560;
   const role = profile?.last_active_mode ?? profile?.primary_role ?? profile?.role ?? 'student';
-  const navigationRole = pathname.startsWith('/admin') && access.isAdmin ? 'admin'
-    : pathname === '/developer-workspace' && access.canUseDeveloperWorkspace ? 'developer'
+  const workspacePath = helpWorkspacePath(pathname, params.from, access);
+  const navigationRole = workspacePath.startsWith('/admin') && access.isAdmin ? 'admin'
+    : workspacePath === '/developer-workspace' && access.canUseDeveloperWorkspace ? 'developer'
     : role;
   const identityName = profile?.display_name || profile?.username || user?.email || t('nav.profile');
   const identityInitial = String(identityName).slice(0, 1).toUpperCase();
@@ -95,7 +98,7 @@ export function AppShell({ title, eyebrow, notifications, scrollToTopToken, chil
             {allNav.map((item) => {
               const active = pathname === item.href || (item.href === '/students' && pathname.startsWith('/student-delete'));
               return (
-                <Link key={item.href} href={item.href === '/help' ? { pathname: '/help', params: { from: pathname } } : item.href as Href} onPress={() => { if (compact) setMobileNavigationOpen(false); }} style={[styles.navItem, active && styles.navItemActive]}>
+                <Link key={item.href} href={item.href === '/help' ? { pathname: '/help', params: { from: workspacePath } } : item.href as Href} onPress={() => { if (compact) setMobileNavigationOpen(false); }} style={[styles.navItem, active && styles.navItemActive]}>
                   <View style={styles.navInner}><Text style={[styles.navIcon, active && styles.navTextActive]}>{item.icon}</Text><Text style={[styles.navText, active && styles.navTextActive]}>{t(item.labelKey)}</Text></View>
                 </Link>
               );
@@ -128,7 +131,7 @@ export function AppShell({ title, eyebrow, notifications, scrollToTopToken, chil
               {inbox.items.length ? inbox.items.map((item) => {
                 const isUnread = inbox.unread.some((unread) => unread.key === item.key);
                 const itemTitle = item.titleText || t(item.titleKey, item.titleParams);
-                return <View key={item.key} style={[styles.inboxItem, isUnread && styles.inboxItemUnread]}><Pressable accessibilityRole="button" accessibilityLabel={itemTitle} onPress={() => { void inbox.markRead(item.key); setInboxOpen(false); router.push(item.href); }} style={styles.inboxItemLink}><Text style={styles.inboxIcon}>{item.icon}</Text><View style={styles.inboxCopy}><Text style={styles.inboxItemTitle}>{itemTitle}</Text>{item.detail ? <Text style={styles.inboxBody}>{item.detail}</Text> : null}</View>{isUnread ? <View style={styles.unreadDot} /> : null}</Pressable><Pressable accessibilityRole="button" accessibilityLabel={t(isUnread ? 'notifications.markRead' : 'notifications.markUnread')} onPress={() => void (isUnread ? inbox.markRead(item.key) : inbox.markUnread(item.key))} style={styles.inboxReadAction}><Text style={styles.inboxReadActionText}>{t(isUnread ? 'notifications.markRead' : 'notifications.markUnread')}</Text></Pressable><Text style={styles.inboxArrow}>→</Text></View>;
+                return <View key={item.key} style={[styles.inboxItem, isUnread && styles.inboxItemUnread]}><Pressable accessibilityRole="button" accessibilityLabel={itemTitle} onPress={() => { void inbox.markRead(item.key); setInboxOpen(false); router.push(typeof item.href !== 'string' && item.href.pathname === '/help' ? { ...item.href, params: { ...item.href.params, from: workspacePath } } as Href : item.href); }} style={styles.inboxItemLink}><Text style={styles.inboxIcon}>{item.icon}</Text><View style={styles.inboxCopy}><Text style={styles.inboxItemTitle}>{itemTitle}</Text>{item.detail ? <Text style={styles.inboxBody}>{item.detail}</Text> : null}</View>{isUnread ? <View style={styles.unreadDot} /> : null}</Pressable><Pressable accessibilityRole="button" accessibilityLabel={t(isUnread ? 'notifications.markRead' : 'notifications.markUnread')} onPress={() => void (isUnread ? inbox.markRead(item.key) : inbox.markUnread(item.key))} style={styles.inboxReadAction}><Text style={styles.inboxReadActionText}>{t(isUnread ? 'notifications.markRead' : 'notifications.markUnread')}</Text></Pressable><Text style={styles.inboxArrow}>→</Text></View>;
               }) : !inbox.loading ? <Text style={styles.inboxEmpty}>{t('dashboard.noNotifications')}</Text> : null}
             </ScrollView>
           </View>

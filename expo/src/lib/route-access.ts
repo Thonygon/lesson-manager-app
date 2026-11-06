@@ -10,6 +10,15 @@ function matches(pathname: string, routes: string[]) {
   return routes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
 }
 
+/** A shared Help page keeps the workspace that opened it, after checking staff access. */
+export function helpWorkspacePath(pathname: string, from: unknown, access: { isAdmin: boolean; canUseDeveloperWorkspace: boolean }) {
+  if (pathname !== '/help' || typeof from !== 'string') return pathname;
+  const source = from.split(/[?#]/, 1)[0];
+  if (access.isAdmin && matches(source, ADMIN_ROUTES)) return source;
+  if (access.canUseDeveloperWorkspace && source === '/developer-workspace') return source;
+  return pathname;
+}
+
 export function activeFace(profile: ClassioProfile | null) {
   const role = profile?.last_active_mode ?? profile?.primary_role ?? profile?.role;
   return role === 'student' ? 'student' : 'teacher';

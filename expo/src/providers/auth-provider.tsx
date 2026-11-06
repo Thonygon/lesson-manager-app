@@ -5,6 +5,7 @@ import { createContext, type PropsWithChildren, useCallback, useContext, useEffe
 import { authSessionTransition } from '@/lib/auth-session-transition';
 import { supabase } from '@/lib/supabase';
 import type { AuthState, ClassioProfile } from '@/types/auth';
+import type { LegalAcceptance } from '@/lib/legal-acceptance';
 
 type AuthContextValue = AuthState & {
   recoverySession: boolean;
@@ -31,29 +32,30 @@ const initialState: AuthState = {
   session: null,
   user: null,
   profile: null,
+  legalAcceptances: [],
   error: null,
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-async function loadProfile(session: Session | null): Promise<ClassioProfile | null> {
+async function loadProfile(session: Session | null): Promise<{ profile: ClassioProfile | null; legalAcceptances: LegalAcceptance[] }> {
   if (!supabase || !session?.user.id) {
-    return null;
+    return { profile: null, legalAcceptances: [] };
   }
 
-  const { data, error } = await supabase
+  const [profileResult, acceptanceResult] = await Promise.all([supabase
     .from('profiles')
     .select(
       'user_id,email,display_name,username,avatar_url,role,primary_role,can_teach,can_study,last_active_mode,onboarding_completed,login_count',
     )
     .eq('user_id', session.user.id)
-    .maybeSingle();
+    .maybeSingle(), supabase.from('classio_legal_acceptances')
+    .select('slug,version,language,sha256,accepted_at').eq('user_id', session.user.id)]);
 
-  if (error) {
-    throw error;
-  }
+  if (profileResult.error) throw profileResult.error;
+  if (acceptanceResult.error) throw acceptanceResult.error;
 
-  return data as ClassioProfile | null;
+  return { profile: profileResult.data as ClassioProfile | null, legalAcceptances: (acceptanceResult.data || []) as LegalAcceptance[] };
 }
 
 export function AuthProvider({ children }: PropsWithChildren) {
@@ -76,9 +78,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
     const request = ++profileRequest.current;
     try {
-      const profile = await loadProfile(session);
+      const { profile, legalAcceptances } = await loadProfile(session);
       if (request !== profileRequest.current) return;
-      commitState({ ...stateRef.current, loading: false, profile });
+      commitState({ ...stateRef.current, loading: false, profile, legalAcceptances });
     } catch (error) {
       if (request !== profileRequest.current) return;
       commitState({ ...stateRef.current,

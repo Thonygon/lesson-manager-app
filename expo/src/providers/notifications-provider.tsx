@@ -1,6 +1,6 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { usePathname } from 'expo-router';
+import { useGlobalSearchParams, usePathname } from 'expo-router';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
 import { AppState } from 'react-native';
 
@@ -8,6 +8,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { usePrivilegedAccess } from '@/providers/privileged-access-provider';
 import { loadAppNotifications, type AppNotification } from '@/services/app-notifications';
 import { DEFAULT_NOTIFICATION_PREFERENCES, notificationCategory, parseNotificationPreferences, type NotificationCategory, type NotificationPreferences } from '@/lib/notification-preferences';
+import { helpWorkspacePath } from '@/lib/route-access';
 
 const REFRESH_MS = 120000;
 type NotificationState = {
@@ -29,9 +30,11 @@ const Context = createContext<NotificationState>(empty);
 export function NotificationsProvider({ children }: PropsWithChildren) {
   const { user, profile } = useAuth();
   const pathname = usePathname();
+  const params = useGlobalSearchParams<{ from?: string }>();
   const access = usePrivilegedAccess();
-  const role = pathname === '/admin' && access.isAdmin ? 'admin'
-    : pathname === '/developer-workspace' && access.canUseDeveloperWorkspace ? (access.isAdmin || access.staffRoles.includes('developer') ? 'developer' : 'data_scientist')
+  const workspacePath = helpWorkspacePath(pathname, params.from, access);
+  const role = workspacePath.startsWith('/admin') && access.isAdmin ? 'admin'
+    : workspacePath === '/developer-workspace' && access.canUseDeveloperWorkspace ? (access.isAdmin || access.staffRoles.includes('developer') ? 'developer' : 'data_scientist')
     : profile?.last_active_mode ?? profile?.primary_role ?? profile?.role ?? 'student';
   const userId = user?.id || '';
   const canHandleHelp = access.isAdmin || access.staffRoles.includes('developer');

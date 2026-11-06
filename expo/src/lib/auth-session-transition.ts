@@ -5,7 +5,7 @@ import type { AuthState } from '@/types/auth';
 export function authSessionTransition(current: AuthState, session: Session | null, refreshProfile = false) {
   if (!session) {
     return {
-      state: { ...current, configured: true, loading: false, session: null, user: null, profile: null, error: null },
+      state: { ...current, configured: true, loading: false, session: null, user: null, profile: null, legalAcceptances: [], error: null },
       loadProfile: false,
     };
   }
@@ -19,6 +19,7 @@ export function authSessionTransition(current: AuthState, session: Session | nul
       session,
       user: session.user,
       profile: sameUser ? current.profile : null,
+      legalAcceptances: sameUser ? (current.legalAcceptances ?? []) : [],
       error: null,
     },
     loadProfile: refreshProfile || !sameUser || !current.profile,
