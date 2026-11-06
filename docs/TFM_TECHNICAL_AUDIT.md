@@ -1,5 +1,9 @@
 # Auditoría académica de Classio para el TFM
 
+## Reconciliación de evidencia — 06-11-2026
+
+Los controles de evaluación por segmentos, revisión de sesgos, umbral de promoción y fallback heurístico están **cerrados en código**; el gate permanece en `hold` sin juicios humanos independientes. El titular documentó que el override docente y el ocultar/restaurar recomendaciones funcionan, pero eso no es una medición de pertinencia ni de equidad. **Pendiente en vivo:** juicios de docentes sobre candidatos mostrados y no mostrados, revisión de falsos positivos/negativos por segmento, relevancia con una cuenta real y ensayo de retirada. **Pendiente de investigación/negocio:** aprobar umbrales y toda afirmación de mejora, tiempo ahorrado, retorno o causalidad OE1–OE3. La predicción de apertura continúa suspendida y no es requisito de la beta gratuita. La CI posterior de la PR #143 terminó con jobs de supply-chain, Streamlit y Expo correctos; el fallo descrito en el apartado «CI» inferior corresponde a una ejecución histórica anterior, no al estado actual.
+
 ## Alcance de la propuesta externa de pipeline PII — 27-10-2026
 
 La propuesta académica sobre detección, clasificación y enmascaramiento PII aporta una metodología útil para Classio: comparar reglas y NER multilingüe con **precisión, recall, matriz de confusión, latencia y coste**, más revisión humana de falsos negativos y positivos. Sus datasets públicos y estimaciones (75 % de ahorro, umbral del 85 %, ROI/VAN/TIR) pertenecen a ese proyecto, no demuestran eficacia ni retorno en Classio. Un corpus académico para Classio debe ser sintético o tener autorización y finalidad explícitas, representar español/turco/inglés y distinguir nombres/identificadores de estudiantes de texto pedagógico legítimo. La propuesta no reemplaza la auditoría de tratamientos, contratos, transferencias, derechos y retención RGPD/KVKK que mantiene la [auditoría tecnológica](CLASSIO_TECHNOLOGY_AUDIT.md#protección-de-datos-rgpd-y-kvkk--integración-de-la-propuesta-de-pipeline-pii-27-10-2026). **Estado:** benchmark sintético v1 implementado (17 casos ES/TR/EN, matriz por entidad e idioma, sin falsos positivos ni negativos en ese conjunto acotado); ninguna métrica con datos reales ni experiencia en vivo documentada. La evaluación NER y revisión humana siguen abiertas. La predicción de apertura sigue suspendida.
@@ -72,7 +76,7 @@ Corte: `248ad2838`. La sección de CI inferior describe una ejecución **histór
 
 **Implementado con evidencia de código y pruebas acotadas:** gestión central en Streamlit, flujos seleccionados de Expo, ranking local y fronteras de autenticación. **Implementado y pendiente de aceptación:** integración Expo–Python, disponibilidad real del bundle, paridad de flujos y exportación web tras el arreglo de CI. **Experimental:** predicción de apertura a siete días y agrupamiento de afinidad. **Planificado/incompleto:** experimento OE1, juicios independientes de relevancia y NDCG@5 empírico, ablación A/B/C controlada, TCO y diseño arquitectónico formal de la segunda entrega.
 
-## CI
+## CI — incidencia histórica, superada por PR #143
 
 La ejecución pública 39434508082 (SHA `ef1713ec`) informa `streamlit: success` y `expo: failure` en «Install locked dependencies»; los pasos typecheck, lint y export quedaron omitidos. La API pública de GitHub devuelve 403 al pedir el log, pero una instalación limpia local con los mismos pnpm 11.19.0 y lock reprodujo `ERR_PNPM_IGNORED_BUILDS: core-js@3.50.0`. Tras fijar `core-js: false`, la instalación limpia terminó correctamente. Esto no demuestra todavía que GitHub Actions haya pasado con el cambio.
 
