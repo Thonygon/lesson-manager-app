@@ -16,7 +16,7 @@ import { acceptCurrentLegalDocuments } from '@/services/legal-acceptance';
 import { colors } from '@/theme';
 
 export default function AcceptTermsScreen() {
-  const { configured, loading, user, profile, legalAcceptances, refreshProfile } = useAuth();
+  const { configured, loading, user, profile, legalAcceptances, refreshProfile, signOut } = useAuth();
   const { t, language } = useAppPreferences();
   const [termsChecked, setTermsChecked] = useState(false);
   const [teacherChecked, setTeacherChecked] = useState(false);
@@ -38,6 +38,16 @@ export default function AcceptTermsScreen() {
       setError(reason instanceof Error ? reason.message : t('legal.acceptFailed'));
     } finally { setBusy(false); }
   };
+  const leave = async () => {
+    if (busy) return;
+    setBusy(true); setError('');
+    try {
+      await signOut();
+      router.replace('/sign-in');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t('account.signOutFailed'));
+    } finally { setBusy(false); }
+  };
   return <ScrollView contentContainerStyle={styles.page}><SafeAreaView style={styles.safe}>
     <Head><title>{t('legal.acceptTitle')} | Classio</title></Head>
     <View style={styles.top}><Text style={styles.brand}>Master Classio</Text><PreferenceSwitcher /></View>
@@ -50,6 +60,7 @@ export default function AcceptTermsScreen() {
       <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: termsChecked }} onPress={() => setTermsChecked((value) => !value)} style={styles.checkRow}><Text style={styles.check}>{termsChecked ? '☑' : '□'}</Text><Text style={styles.checkLabel}>{t('legal.acceptTerms')}</Text></Pressable>
       {mode === 'teacher' ? <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: teacherChecked }} onPress={() => setTeacherChecked((value) => !value)} style={styles.checkRow}><Text style={styles.check}>{teacherChecked ? '☑' : '□'}</Text><Text style={styles.checkLabel}>{t('legal.acceptTeacherData')}</Text></Pressable> : null}
       <Button disabled={busy || !termsChecked || (mode === 'teacher' && !teacherChecked)} onPress={() => void accept()}>{busy ? t('auth.wait') : t('legal.acceptContinue')}</Button>
+      <Button secondary disabled={busy} onPress={() => void leave()}>{t('account.signOut')}</Button>
       <ActionFeedback message={error} tone="error" onDismiss={(shown) => setError((current) => current === shown ? '' : current)} />
     </Panel>
   </SafeAreaView></ScrollView>;

@@ -176,7 +176,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, []);
 
   const signOut = useCallback(async () => {
-    if (supabase) await supabase.auth.signOut();
+    if (!supabase) return;
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
   }, []);
 
   const value = useMemo<AuthContextValue>(

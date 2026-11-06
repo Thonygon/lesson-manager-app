@@ -107,6 +107,7 @@
     {"name": "allow_reassignment_after_archive.sql", "sha256": "92a75dc2c028f19d4a7e2d016c95b66e729cf3290d0cd1ea21bccc90ef2fef83"},
     {"name": "classio_help_center.sql", "sha256": "c67efd016c08a005939e89757988667b9fcc4e24c440e04c796e148996736477"},
     {"name": "purge_help_on_account_deletion.sql", "sha256": "9c9de990eae4408cfac1f8cb12c77a2d674a36dca6269d137e62eb58f9948bad"},
-    {"name": "versioned_legal_acceptance.sql", "sha256": "617906630b2d31fd38372ba5ac810e1e0e33404d1400aa68fc79df6608de41d1"}
+    {"name": "versioned_legal_acceptance.sql", "sha256": "617906630b2d31fd38372ba5ac810e1e0e33404d1400aa68fc79df6608de41d1"},
+    {"name": "retain_multilingual_legal_acceptances.sql", "sha256": "8e4f371c63c2b03550223798957bda34f4f41a02ee378d50274b209c9e9385bc"}
   ]
 }
