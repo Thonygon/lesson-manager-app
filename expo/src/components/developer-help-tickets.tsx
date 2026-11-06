@@ -36,13 +36,18 @@ export function DeveloperHelpTickets({ tickets, initialId, onRefresh }: { ticket
     catch { setTone('error'); setMessage(t('help.developer.imageUnavailable')); }
   };
   const pending = tickets.filter((ticket) => !['resolved', 'closed'].includes(ticket.status)).length;
+  const ordered = [...tickets].sort((a, b) => {
+    const priority = (ticket: HelpTicket) => !['resolved', 'closed'].includes(ticket.status) && ['privacy_rights', 'security_incident'].includes(ticket.kind) ? 1 : 0;
+    return priority(b) - priority(a) || Date.parse(b.created_at) - Date.parse(a.created_at);
+  });
   return <Panel style={styles.panel}>
     <Text style={styles.heading}>{t('help.developer.title')} · {pending}</Text>
     <Text style={styles.body}>{t('help.developer.body')}</Text>
-    {tickets.length ? <SelectField label={t('help.developer.select')} value={selectedId} onChange={chooseTicket} options={[{ value: '', label: t('help.developer.choose') }, ...tickets.map((ticket) => ({ value: ticket.id, label: `#${ticket.ticket_number} · ${ticket.title}`, detail: t(`help.status.${ticket.status}`) }))]} /> : <Text style={styles.body}>{t('help.developer.empty')}</Text>}
+    {tickets.length ? <SelectField label={t('help.developer.select')} value={selectedId} onChange={chooseTicket} options={[{ value: '', label: t('help.developer.choose') }, ...ordered.map((ticket) => ({ value: ticket.id, label: `#${ticket.ticket_number} · ${t(`help.kind.${ticket.kind}`)} · ${ticket.title}`, detail: t(`help.status.${ticket.status}`) }))]} /> : <Text style={styles.body}>{t('help.developer.empty')}</Text>}
     {selected ? <View style={styles.detail}>
       <Text style={styles.heading}>#{selected.ticket_number} · {selected.title}</Text>
       <Text style={styles.meta}>{t(`help.kind.${selected.kind}`)} · {new Date(selected.created_at).toLocaleString()} · {selected.page_path}</Text>
+      {selected.privacy_scope ? <Text style={styles.meta}>{t('help.privacyScope')}: {t(`help.scope.${selected.privacy_scope}`)}</Text> : null}
       <Text style={styles.body}>{selected.description}</Text>
       {selected.screenshot_mime ? <Button secondary onPress={() => void showScreenshot()}>{t('help.developer.openImage')}</Button> : null}
       <SelectField label={t('help.developer.status')} value={status} onChange={(value) => setStatus(value as HelpStatus)} options={STATUSES.map((value) => ({ value, label: t(`help.status.${value}`) }))} />

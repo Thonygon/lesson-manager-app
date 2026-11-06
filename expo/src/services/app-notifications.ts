@@ -29,9 +29,15 @@ async function helpReportUpdates(userId: string): Promise<AppNotification[]> {
 }
 
 async function incomingHelpReports(): Promise<AppNotification[]> {
-  const result = await requireSupabase().from('classio_help_tickets').select('id,ticket_number,title,status,created_at').in('status', ['open', 'triaged', 'in_progress']).order('created_at', { ascending: false }).limit(50);
-  if (result.error) return [];
-  return ((result.data || []) as Row[]).map((row) => ({
+  const table = requireSupabase().from('classio_help_tickets');
+  const [result, sensitive] = await Promise.all([
+    table.select('id,ticket_number,title,kind,status,created_at').in('status', ['open', 'triaged', 'in_progress']).order('created_at', { ascending: false }).limit(50),
+    requireSupabase().from('classio_help_tickets').select('id,ticket_number,title,kind,status,created_at').in('status', ['open', 'triaged', 'in_progress']).in('kind', ['privacy_rights', 'security_incident']).order('created_at', { ascending: false }).limit(50),
+  ]);
+  if (result.error || sensitive.error) return [];
+  const rows = [...((sensitive.data || []) as Row[]), ...((result.data || []) as Row[])];
+  const unique = [...new Map(rows.map((row) => [value(row.id), row])).values()];
+  return unique.map((row) => ({
     key: `help:incoming:${value(row.id)}`, icon: '🛟', titleKey: 'help.developer.alert',
     detail: `#${value(row.ticket_number)} · ${value(row.title)}`,
     href: { pathname: '/developer-workspace', params: { tab: 'support', ticket: value(row.id) } },

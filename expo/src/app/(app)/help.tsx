@@ -5,11 +5,12 @@ import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-nati
 import { AppShell } from '@/components/app-shell';
 import { ActionFeedback, Button, Disclosure, Field, Panel, SelectField } from '@/components/ui';
 import { useAppPreferences } from '@/providers/app-preferences';
-import { checkedHelpScreenshot, myHelpTickets, submitHelpTicket, type HelpKind, type HelpScreenshot, type HelpTicket } from '@/services/help-center';
+import { checkedHelpScreenshot, myHelpTickets, submitHelpTicket, type HelpKind, type HelpScreenshot, type HelpTicket, type PrivacyScope } from '@/services/help-center';
 import { colors } from '@/theme';
 
 const GUIDES = ['start', 'connections', 'lessons', 'payments', 'resources', 'generation', 'reviews', 'rights'] as const;
-const KINDS: HelpKind[] = ['bug', 'idea', 'accessibility', 'other'];
+const KINDS: HelpKind[] = ['bug', 'privacy_rights', 'security_incident', 'idea', 'accessibility', 'other'];
+const PRIVACY_SCOPES: PrivacyScope[] = ['access', 'rectification', 'erasure', 'restriction', 'portability', 'objection', 'other'];
 
 function decodeBase64(value: string): Uint8Array {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -29,6 +30,7 @@ export default function HelpScreen() {
   const { t } = useAppPreferences();
   const params = useLocalSearchParams<{ from?: string; ticket?: string }>();
   const [kind, setKind] = useState<HelpKind>('bug');
+  const [privacyScope, setPrivacyScope] = useState<PrivacyScope | ''>('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [pagePath, setPagePath] = useState(typeof params.from === 'string' && params.from.startsWith('/') ? params.from : '/help');
@@ -62,8 +64,8 @@ export default function HelpScreen() {
     if (title.trim().length < 5 || description.trim().length < 15) { setTone('error'); setMessage(t('help.invalidDescription')); return; }
     setBusy(true); setMessage(''); setSubmittedNumber(null);
     try {
-      const result = await submitHelpTicket({ kind, title, description, pagePath, screenshot: image });
-      setSubmittedNumber(result.number); setTitle(''); setDescription(''); setImage(null);
+      const result = await submitHelpTicket({ kind, privacyScope: privacyScope || null, title, description, pagePath, screenshot: image });
+      setSubmittedNumber(result.number); setTitle(''); setDescription(''); setImage(null); setPrivacyScope('');
       setTone(result.screenshotUploaded ? 'success' : 'error');
       setMessage(t(result.screenshotUploaded ? 'help.sent' : 'help.sentWithoutImage'));
       setTickets(await myHelpTickets(params.ticket));
@@ -80,7 +82,9 @@ export default function HelpScreen() {
       </Panel>
       <Panel style={styles.panel}><Text style={styles.heading}>{t('help.contact')}</Text><Text style={styles.body}>{t('help.contactBody')}</Text><Pressable accessibilityRole="link" onPress={() => void Linking.openURL('mailto:info@masterclassio.com')}><Text style={styles.link}>info@masterclassio.com</Text></Pressable></Panel>
       <Panel style={styles.panel}><Text style={styles.heading}>{t('help.reportTitle')}</Text><Text style={styles.body}>{t('help.reportIntro')}</Text>
-        <SelectField label={t('help.kind')} value={kind} onChange={(value) => setKind(value as HelpKind)} options={KINDS.map((value) => ({ value, label: t(`help.kind.${value}`) }))} />
+        <SelectField label={t('help.kind')} value={kind} onChange={(value) => { setKind(value as HelpKind); setPrivacyScope(''); }} options={KINDS.map((value) => ({ value, label: t(`help.kind.${value}`) }))} />
+        {kind === 'privacy_rights' ? <><SelectField label={t('help.privacyScope')} value={privacyScope} placeholder={t('help.privacyScopeRequired')} onChange={(value) => setPrivacyScope(value as PrivacyScope)} options={PRIVACY_SCOPES.map((value) => ({ value, label: t(`help.scope.${value}`) }))} /><Text style={styles.body}>{t('help.privacyCaution')}</Text></> : null}
+        {kind === 'security_incident' ? <Text style={styles.body}>{t('help.securityCaution')}</Text> : null}
         <View><Text style={styles.label}>{t('help.subject')}</Text><Field accessibilityLabel={t('help.subject')} value={title} maxLength={120} onChangeText={setTitle} placeholder={t('help.subjectPlaceholder')} /></View>
         <View><Text style={styles.label}>{t('help.description')}</Text><Field accessibilityLabel={t('help.description')} value={description} maxLength={4000} multiline numberOfLines={6} onChangeText={setDescription} placeholder={t('help.descriptionPlaceholder')} style={styles.description} /></View>
         <View><Text style={styles.label}>{t('help.page')}</Text><Field accessibilityLabel={t('help.page')} value={pagePath} maxLength={300} onChangeText={setPagePath} placeholder="/resources" /></View>
