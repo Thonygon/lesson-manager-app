@@ -3,7 +3,9 @@
 Required environment: SUPABASE_URL, SUPABASE_ANON_KEY,
 CLASSIO_PRIVACY_OWNER_JWT, CLASSIO_PRIVACY_OTHER_JWT,
 CLASSIO_PRIVACY_PRIVATE_WORKSHEET_ID, CLASSIO_PRIVACY_EXPOSURE_ID,
-CLASSIO_PRIVACY_STORAGE_BUCKET, CLASSIO_PRIVACY_STORAGE_PATH.
+CLASSIO_PRIVACY_STORAGE_BUCKET, CLASSIO_PRIVACY_STORAGE_PATH,
+CLASSIO_PRIVACY_HELP_TICKET_ID, CLASSIO_PRIVACY_HELP_SCREENSHOT_PATH,
+CLASSIO_PRIVACY_OWNER_USER_ID.
 
 Use fixtures owned by the owner token. No token, row or object content is printed.
 """
@@ -21,7 +23,8 @@ REQUIRED = (
     "SUPABASE_URL", "SUPABASE_ANON_KEY", "CLASSIO_PRIVACY_OWNER_JWT",
     "CLASSIO_PRIVACY_OTHER_JWT", "CLASSIO_PRIVACY_PRIVATE_WORKSHEET_ID",
     "CLASSIO_PRIVACY_EXPOSURE_ID", "CLASSIO_PRIVACY_STORAGE_BUCKET",
-    "CLASSIO_PRIVACY_STORAGE_PATH",
+    "CLASSIO_PRIVACY_STORAGE_PATH", "CLASSIO_PRIVACY_HELP_TICKET_ID",
+    "CLASSIO_PRIVACY_HELP_SCREENSHOT_PATH", "CLASSIO_PRIVACY_OWNER_USER_ID",
 )
 
 
@@ -35,7 +38,8 @@ def _read(url: str, token: str, key: str) -> tuple[int, bytes]:
 
 
 def _rows(base: str, key: str, token: str, table: str, filters: dict[str, str]) -> tuple[int, int]:
-    query = urlencode({"select": "id" if table == "worksheets" else "exposure_id", "limit": "2", **filters})
+    column = {"resource_exposures": "exposure_id", "classio_legal_acceptances": "user_id"}.get(table, "id")
+    query = urlencode({"select": column, "limit": "2", **filters})
     status, payload = _read(f"{base}/rest/v1/{table}?{query}", token, key)
     if status != 200:
         return status, -1
@@ -59,11 +63,13 @@ def run() -> None:
     for label, table, filters in (
         ("private worksheet", "worksheets", {"id": f"eq.{private_id}", "is_public": "eq.false"}),
         ("recommendation exposure", "resource_exposures", {"exposure_id": f"eq.{exposure_id}"}),
+        ("help ticket", "classio_help_tickets", {"id": f"eq.{env['CLASSIO_PRIVACY_HELP_TICKET_ID']}"}),
+        ("legal acceptance", "classio_legal_acceptances", {"user_id": f"eq.{env['CLASSIO_PRIVACY_OWNER_USER_ID']}", "slug": "eq.terms"}),
     ):
         owner_status, owner_count = _rows(base, key, owner, table, filters)
         other_status, other_count = _rows(base, key, other, table, filters)
         anonymous_status, anonymous_count = _rows(base, key, key, table, filters)
-        checks.append((f"{label}: owner can read", owner_status == 200 and owner_count == 1))
+        checks.append((f"{label}: owner can read", owner_status == 200 and owner_count >= 1))
         checks.append((f"{label}: other cannot read", (other_status == 200 and other_count == 0) or other_status in (401, 403)))
         checks.append((f"{label}: anonymous cannot read", (anonymous_status == 200 and anonymous_count == 0) or anonymous_status in (401, 403)))
 
@@ -90,6 +96,17 @@ def run() -> None:
         ("private Storage: owner can read", owner_status == 200),
         ("private Storage: other cannot read", other_status in (401, 403, 404)),
         ("private Storage: anonymous cannot read", anonymous_status in (401, 403, 404)),
+    ))
+
+    help_path = quote(env["CLASSIO_PRIVACY_HELP_SCREENSHOT_PATH"].lstrip("/"), safe="/")
+    help_url = f"{base}/storage/v1/object/authenticated/classio-help-screenshots/{help_path}"
+    help_owner, _ = _read(help_url, owner, key)
+    help_other, _ = _read(help_url, other, key)
+    help_anonymous, _ = _read(help_url, key, key)
+    checks.extend((
+        ("help screenshot: owner can read", help_owner == 200),
+        ("help screenshot: other cannot read", help_other in (401, 403, 404)),
+        ("help screenshot: anonymous cannot read", help_anonymous in (401, 403, 404)),
     ))
 
     for label, passed in checks:

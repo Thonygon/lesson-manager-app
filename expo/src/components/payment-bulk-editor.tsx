@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { updatePayment, type ClassioRecord } from '@/services/classio-data';
 import { colors } from '@/theme';
-import { ActionFeedback, Button, Field, Panel, SelectField } from './ui';
+import { ActionFeedback, Button, Field, Pagination, Panel, SelectField } from './ui';
 
 const SUBJECTS = ['English', 'Spanish', 'Mathematics', 'Science', 'Music', 'Study Skills', 'Other'];
 type Draft = { paymentDate: string; units: string; amount: string; modality: 'Online' | 'Offline'; subject: string; customSubject: string; startDate: string; expiryDate: string; adjustment: string; normalized: boolean; note: string };
@@ -68,7 +68,7 @@ export function PaymentBulkEditor({ student, records, onSaved }: { student: stri
           </View>
         </Panel>; })}
       </View></ScrollView>
-      <View style={styles.actions}><Button secondary disabled={busy || currentPage <= 1} onPress={() => setPage(currentPage - 1)}>Previous</Button><Text style={styles.help}>{currentPage} / {totalPages}</Text><Button secondary disabled={busy || currentPage >= totalPages} onPress={() => setPage(currentPage + 1)}>Next</Button><Button disabled={busy || changedRows.length === 0} onPress={() => void apply()}>{busy ? 'Applying…' : `Apply ${changedRows.length} changed ${changedRows.length === 1 ? 'payment' : 'payments'}`}</Button></View>
+      <View style={styles.actions}><Pagination page={currentPage} totalPages={totalPages} totalItems={rows.length} onPageChange={setPage} disabled={busy} /><Button disabled={busy || changedRows.length === 0} onPress={() => void apply()}>{busy ? 'Applying…' : `Apply ${changedRows.length} changed ${changedRows.length === 1 ? 'payment' : 'payments'}`}</Button></View>
     </>}
     <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} />
   </View>;

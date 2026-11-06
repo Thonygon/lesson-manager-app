@@ -2,7 +2,9 @@ import { requireSupabase } from '@/lib/supabase';
 
 export const HELP_SCREENSHOT_BUCKET = 'classio-help-screenshots';
 export const HELP_SCREENSHOT_LIMIT = 5 * 1024 * 1024;
-export type HelpKind = 'bug' | 'idea' | 'accessibility' | 'other';
+export type HelpKind = 'bug' | 'idea' | 'accessibility' | 'other' | 'privacy_rights' | 'security_incident';
+export type PrivacyScope = 'access' | 'rectification' | 'erasure' | 'restriction' | 'portability' | 'objection' | 'other';
+const PRIVACY_SCOPES: PrivacyScope[] = ['access', 'rectification', 'erasure', 'restriction', 'portability', 'objection', 'other'];
 export type HelpStatus = 'open' | 'triaged' | 'in_progress' | 'resolved' | 'closed';
 export type HelpScreenshot = File | { name: string; type: string; size: number; data: Uint8Array };
 export type HelpTicket = {
@@ -10,6 +12,7 @@ export type HelpTicket = {
   ticket_number: number;
   reporter_id: string;
   kind: HelpKind;
+  privacy_scope: PrivacyScope | null;
   title: string;
   description: string;
   page_path: string;
@@ -38,16 +41,17 @@ function screenshotPath(ticket: Pick<HelpTicket, 'id' | 'reporter_id' | 'screens
   return extension ? `${ticket.reporter_id}/${ticket.id}.${extension}` : null;
 }
 
-export async function submitHelpTicket(input: { kind: HelpKind; title: string; description: string; pagePath: string; screenshot?: HelpScreenshot | null }) {
+export async function submitHelpTicket(input: { kind: HelpKind; privacyScope?: PrivacyScope | null; title: string; description: string; pagePath: string; screenshot?: HelpScreenshot | null }) {
   const client = requireSupabase();
   const { data: auth, error: authError } = await client.auth.getUser();
   if (authError || !auth.user) throw new Error('help.signInRequired');
   const title = input.title.trim();
   const description = input.description.trim();
   if (title.length < 5 || title.length > 120 || description.length < 15 || description.length > 4000) throw new Error('help.invalidDescription');
+  if (input.kind === 'privacy_rights' && !PRIVACY_SCOPES.includes(input.privacyScope as PrivacyScope)) throw new Error('help.privacyScopeRequired');
   const screenshot = input.screenshot ? await checkedHelpScreenshot(input.screenshot) : null;
   const pagePath = input.pagePath.trim().startsWith('/') ? input.pagePath.trim().slice(0, 300) : '/help';
-  const { data, error } = await client.from('classio_help_tickets').insert({ reporter_id: auth.user.id, kind: input.kind, title, description, page_path: pagePath, screenshot_mime: screenshot?.mime ?? null }).select('id,ticket_number,reporter_id,screenshot_mime').single();
+  const { data, error } = await client.from('classio_help_tickets').insert({ reporter_id: auth.user.id, kind: input.kind, privacy_scope: input.kind === 'privacy_rights' ? input.privacyScope : null, title, description, page_path: pagePath, screenshot_mime: screenshot?.mime ?? null }).select('id,ticket_number,reporter_id,screenshot_mime').single();
   if (error?.code === 'P0001') throw new Error('help.rateLimited');
   if (error || !data) throw error || new Error('help.submitFailed');
   let screenshotUploaded = !screenshot;
@@ -63,7 +67,7 @@ export async function myHelpTickets(focusId?: string): Promise<HelpTicket[]> {
   const client = requireSupabase();
   const { data: auth } = await client.auth.getUser();
   if (!auth.user) return [];
-  const { data, error } = await client.from('classio_help_tickets').select('id,ticket_number,reporter_id,kind,title,description,page_path,screenshot_mime,status,response,created_at,updated_at').eq('reporter_id', auth.user.id).order('created_at', { ascending: false }).limit(30);
+  const { data, error } = await client.from('classio_help_tickets').select('id,ticket_number,reporter_id,kind,privacy_scope,title,description,page_path,screenshot_mime,status,response,created_at,updated_at').eq('reporter_id', auth.user.id).order('created_at', { ascending: false }).limit(30);
   if (error) throw error;
   const tickets = (data || []) as HelpTicket[];
   if (focusId && !tickets.some((ticket) => ticket.id === focusId)) {
@@ -77,7 +81,14 @@ export async function myHelpTicket(id: string): Promise<HelpTicket | null> {
   const client = requireSupabase();
   const { data: auth } = await client.auth.getUser();
   if (!auth.user) return null;
-  const { data, error } = await client.from('classio_help_tickets').select('id,ticket_number,reporter_id,kind,title,description,page_path,screenshot_mime,status,response,created_at,updated_at').eq('id', id).eq('reporter_id', auth.user.id).maybeSingle();
+  const { data, error } = await client.from('classio_help_tickets').select('id,ticket_number,reporter_id,kind,privacy_scope,title,description,page_path,screenshot_mime,status,response,created_at,updated_at').eq('id', id).eq('reporter_id', auth.user.id).maybeSingle();
+  if (error) throw error;
+  return data as HelpTicket | null;
+}
+
+export async function staffHelpTicket(id: string): Promise<HelpTicket | null> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
+  const { data, error } = await requireSupabase().from('classio_help_tickets').select('id,ticket_number,reporter_id,kind,privacy_scope,title,description,page_path,screenshot_mime,status,response,created_at,updated_at').eq('id', id).maybeSingle();
   if (error) throw error;
   return data as HelpTicket | null;
 }

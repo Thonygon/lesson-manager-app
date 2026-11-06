@@ -92,10 +92,14 @@ function TransientActionFeedback({ message, tone, onDismiss }: { message: string
   return <Animated.View accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.actionFeedback, { opacity }]}><Text style={[styles.actionFeedbackText, tone === 'success' ? styles.actionFeedbackSuccessText : styles.actionFeedbackErrorText]}>{message}</Text></Animated.View>;
 }
 
-export function Pagination({ page, totalPages, totalItems, onPageChange }: { page: number; totalPages: number; totalItems?: number; onPageChange: (page: number) => void }) {
+export function Pagination({ page, totalPages, totalItems, onPageChange, disabled = false }: { page: number; totalPages: number; totalItems?: number; onPageChange: (page: number) => void; disabled?: boolean }) {
   const { t } = useAppPreferences();
   if (totalPages <= 1) return null;
-  return <View style={styles.pagination}><Button secondary disabled={page <= 1} onPress={() => onPageChange(page - 1)}>{t('common.previous')}</Button><Text accessibilityRole="text" style={styles.pageText}>{t('common.pageOf', { page, pages: totalPages })}{typeof totalItems === 'number' ? ` · ${t('common.items', { count: totalItems })}` : ''}</Text><Button secondary disabled={page >= totalPages} onPress={() => onPageChange(page + 1)}>{t('common.next')}</Button></View>;
+  return <View style={styles.pagination}>
+    <Pressable accessibilityRole="button" accessibilityLabel={t('common.previous')} accessibilityState={{ disabled: disabled || page <= 1 }} disabled={disabled || page <= 1} hitSlop={6} onPress={() => onPageChange(page - 1)} style={[styles.paginationArrow, (disabled || page <= 1) && styles.paginationArrowDisabled]}><Text style={styles.paginationGlyph}>←</Text></Pressable>
+    <Text accessibilityRole="text" style={styles.pageText}>{t('common.pageOf', { page, pages: totalPages })}{typeof totalItems === 'number' ? ` · ${t('common.items', { count: totalItems })}` : ''}</Text>
+    <Pressable accessibilityRole="button" accessibilityLabel={t('common.next')} accessibilityState={{ disabled: disabled || page >= totalPages }} disabled={disabled || page >= totalPages} hitSlop={6} onPress={() => onPageChange(page + 1)} style={[styles.paginationArrow, (disabled || page >= totalPages) && styles.paginationArrowDisabled]}><Text style={styles.paginationGlyph}>→</Text></Pressable>
+  </View>;
 }
 
 export type TabRailItem<T extends string> = { value: T; label: string };
@@ -172,6 +176,8 @@ const styles = StyleSheet.create({
   actionFeedbackSuccessText: { color: colors.success },
   actionFeedbackErrorText: { color: colors.danger },
   pagination: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 18 },
+  paginationArrow: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
+  paginationArrowDisabled: { opacity: 0.38 }, paginationGlyph: { color: colors.primary, fontSize: 22, lineHeight: 26, fontWeight: '700' },
   pageText: { color: colors.muted, fontSize: 12, fontWeight: '700', minWidth: 120, textAlign: 'center' },
   tabRail: { flexDirection: 'row', alignItems: 'stretch', minWidth: '100%', borderBottomWidth: 1, borderBottomColor: colors.line, paddingHorizontal: 2 },
   tab: { minHeight: 46, justifyContent: 'center', borderBottomWidth: 3, borderBottomColor: 'transparent', paddingHorizontal: 16, paddingTop: 5, marginBottom: -1 },

@@ -120,7 +120,9 @@ jobs:
         run: node scripts/check-choose-role-legal-gate.cjs
 
       - name: Validate help screenshot boundaries
-        run: node scripts/check-help-center.cjs
+        run: |
+          node scripts/check-help-center.cjs
+          node scripts/check-help-priority.cjs
 
       - name: Lint Expo application
         run: pnpm run lint

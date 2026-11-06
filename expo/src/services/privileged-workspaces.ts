@@ -63,6 +63,19 @@ function warnings(results: WorkspaceResult[], more: string[] = []) {
   return [...results.map((result) => result.warning).filter((item): item is string => Boolean(item)), ...more.filter(Boolean)];
 }
 
+async function readSensitiveHelpRows(): Promise<WorkspaceResult> {
+  try {
+    const { data, error } = await requireSupabase().from('classio_help_tickets').select('*')
+      .in('kind', ['privacy_rights', 'security_incident'])
+      .in('status', ['open', 'triaged', 'in_progress'])
+      .order('created_at', { ascending: false }).limit(300);
+    if (error) throw error;
+    return { rows: (data ?? []) as unknown as DataRow[] };
+  } catch (reason) {
+    return { rows: [], warning: `classio_help_tickets sensitive queue: ${message(reason)}` };
+  }
+}
+
 type AdminSection = 'accounts' | 'staff' | 'payments' | 'explorer' | 'audit' | 'platform' | 'resourcesA' | 'resourcesB';
 type AdminSectionResult = Partial<AdminWorkspaceData>;
 const adminSectionCache = new Map<AdminSection, { value: AdminSectionResult; expires: number; userId: string }>();
@@ -163,6 +176,7 @@ export async function loadDeveloperWorkspace(tab: string): Promise<DeveloperWork
   if (profileError) throw profileError;
   const allowed = profile?.role === 'admin' || (roles ?? []).some((row) => row.role_key === 'developer' || row.role_key === 'data_scientist');
   if (!allowed) throw new Error('Developer or data scientist access is required for this workspace.');
+  const canHandleHelp = profile?.role === 'admin' || (roles ?? []).some((row) => row.role_key === 'developer');
 
   const selected = developerSections(tab);
   const result = await Promise.all(selected.map(async (section) => {
@@ -183,13 +197,16 @@ export async function loadDeveloperWorkspace(tab: string): Promise<DeveloperWork
   }));
   const bySection = Object.fromEntries(result) as Partial<Record<DeveloperSection, WorkspaceResult>>;
   const empty = { rows: [] };
+  const sensitiveHelp = selected.includes('helpTickets') && canHandleHelp ? await readSensitiveHelpRows() : empty;
+  const recentHelp = bySection.helpTickets ?? empty;
+  const helpTickets = { ...recentHelp, rows: [...new Map([...sensitiveHelp.rows, ...recentHelp.rows].map((row) => [String(row.id), row])).values()] };
   return {
     experiments: bySection.experiments ?? empty, runs: bySection.runs ?? empty,
     models: bySection.models ?? empty, artifacts: bySection.artifacts ?? empty,
     jobs: bySection.jobs ?? empty, audit: bySection.audit ?? empty,
     diagnostics: bySection.diagnostics ?? empty, aiCases: bySection.aiCases ?? empty, aiApprovals: bySection.aiApprovals ?? empty, aiApprovalEvents: bySection.aiApprovalEvents ?? empty, fallbackEvents: bySection.fallbackEvents ?? empty, recommendationEvents: bySection.recommendationEvents ?? empty,
-    helpTickets: bySection.helpTickets ?? empty,
-    warnings: warnings(result.map(([, value]) => value)),
+    helpTickets,
+    warnings: warnings([...result.map(([, value]) => value), sensitiveHelp]),
   };
 }
 

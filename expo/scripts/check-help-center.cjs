@@ -18,6 +18,17 @@ async function check() {
   await assert.rejects(serviceExports.checkedHelpScreenshot({ name: 'fake.png', type: 'image/png', size: jpeg.length, data: jpeg }), /help.invalidImage/);
   await assert.rejects(serviceExports.checkedHelpScreenshot({ name: 'large.png', type: 'image/png', size: 5 * 1024 * 1024 + 1, data: png }), /help.invalidImage/);
   await assert.rejects(serviceExports.checkedHelpScreenshot({ name: 'mismatch.png', type: 'image/png', size: png.length + 1, data: png }), /help.invalidImage/);
+  const inserted = [];
+  fakeClient = {
+    auth: { getUser: async () => ({ data: { user: { id: 'owner' } }, error: null }) },
+    from: () => ({ insert(row) { inserted.push(row); return this; }, select() { return this; }, single: async () => ({ data: { id: 'ticket', ticket_number: 1, reporter_id: 'owner', screenshot_mime: null }, error: null }) }),
+  };
+  const input = { title: 'My records', description: 'Please provide my data.', pagePath: '/help' };
+  await assert.rejects(serviceExports.submitHelpTicket({ ...input, kind: 'privacy_rights' }), /help.privacyScopeRequired/);
+  await serviceExports.submitHelpTicket({ ...input, kind: 'privacy_rights', privacyScope: 'access' });
+  assert.equal(inserted[0].privacy_scope, 'access');
+  await serviceExports.submitHelpTicket({ ...input, kind: 'security_incident', privacyScope: 'erasure' });
+  assert.equal(inserted[1].privacy_scope, null);
   const newest = Array.from({ length: 30 }, (_, index) => ({ id: `new-${index}` }));
   const older = { id: 'older-notified' };
   const removed = [];
@@ -40,6 +51,8 @@ async function check() {
   const reports = await serviceExports.myHelpTickets('older-notified');
   assert.equal(reports.length, 31);
   assert.equal(reports[0].id, 'older-notified');
+  assert.equal(await serviceExports.staffHelpTicket('not-a-ticket'), null);
+  assert.equal((await serviceExports.staffHelpTicket('123e4567-e89b-12d3-a456-426614174000')).id, 'older-notified');
   await serviceExports.purgeOwnHelpScreenshots('owner');
   assert.deepEqual(removed, ['owner/older-notified.png']);
   process.stdout.write('Help screenshot validation passed.\n');
