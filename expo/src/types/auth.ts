@@ -23,5 +23,6 @@ export type AuthState = {
   session: Session | null;
   user: User | null;
   profile: ClassioProfile | null;
+  legalAcceptances: import('@/lib/legal-acceptance').LegalAcceptance[];
   error: string | null;
 };

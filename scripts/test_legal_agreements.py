@@ -1,5 +1,6 @@
 import json
 import html
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -27,6 +28,16 @@ class LegalAgreementsTest(unittest.TestCase):
             app_copy = (SOURCE.parents[1] / "expo/src/lib/legal-publication.generated.ts").read_text(encoding="utf-8")
             self.assertEqual((root / "expo.ts").read_text(encoding="utf-8"), app_copy)
             self.assertIn(source["documents"]["terms"]["en"]["lead"], (root / "terms" / "index.html").read_text(encoding="utf-8"))
+
+    def test_acceptance_registry_matches_published_text(self):
+        source = json.loads(SOURCE.read_text(encoding="utf-8"))
+        sql = (SOURCE.parents[1] / "streamlit/migrations/versioned_legal_acceptance.sql").read_text(encoding="utf-8")
+        registered = set(re.findall(r"\('([^']+)','([^']+)','([^']+)','([0-9a-f]{64})','[0-9-]+'\)", sql))
+        expected = {
+            (slug, language, source["version"], document_hash(source["documents"][slug][language]))
+            for slug in SLUGS for language in LANGUAGES
+        }
+        self.assertEqual(registered, expected)
 
 
 if __name__ == "__main__":
