@@ -86,6 +86,13 @@ export async function myHelpTicket(id: string): Promise<HelpTicket | null> {
   return data as HelpTicket | null;
 }
 
+export async function staffHelpTicket(id: string): Promise<HelpTicket | null> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
+  const { data, error } = await requireSupabase().from('classio_help_tickets').select('id,ticket_number,reporter_id,kind,privacy_scope,title,description,page_path,screenshot_mime,status,response,created_at,updated_at').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return data as HelpTicket | null;
+}
+
 export async function purgeOwnHelpScreenshots(userId: string): Promise<void> {
   const client = requireSupabase();
   const bucket = client.storage.from(HELP_SCREENSHOT_BUCKET);

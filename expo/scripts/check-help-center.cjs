@@ -51,6 +51,8 @@ async function check() {
   const reports = await serviceExports.myHelpTickets('older-notified');
   assert.equal(reports.length, 31);
   assert.equal(reports[0].id, 'older-notified');
+  assert.equal(await serviceExports.staffHelpTicket('not-a-ticket'), null);
+  assert.equal((await serviceExports.staffHelpTicket('123e4567-e89b-12d3-a456-426614174000')).id, 'older-notified');
   await serviceExports.purgeOwnHelpScreenshots('owner');
   assert.deepEqual(removed, ['owner/older-notified.png']);
   process.stdout.write('Help screenshot validation passed.\n');
