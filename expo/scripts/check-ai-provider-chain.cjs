@@ -13,13 +13,18 @@ const transpile = (name, requireFn = require) => {
 const privacy = transpile('ai-privacy-redaction.ts');
 const bounded = transpile('bounded-ai-request.ts');
 const economics = transpile('ai-economic-events.ts');
-const { configuredAiProviders, requestAiProvider } = transpile('ai-provider-chain.ts', (name) => name === './ai-privacy-redaction' ? privacy : name === './bounded-ai-request' ? bounded : name === './ai-economic-events' ? economics : require(name));
+const { configuredAiProviders, generationProviderOrder, retrySameGenerationProvider, requestAiProvider } = transpile('ai-provider-chain.ts', (name) => name === './ai-privacy-redaction' ? privacy : name === './bounded-ai-request' ? bounded : name === './ai-economic-events' ? economics : require(name));
 
 const providers = configuredAiProviders({ OPENROUTER_API_KEY: 'or-key', GEMINI_API_KEY: 'gem-key', OPENAI_API_KEY: 'oa-key' });
 assert.deepEqual(providers.map((item) => item.provider), ['openrouter', 'gemini', 'openai']);
 assert.deepEqual(providers.map((item) => item.model), ['google/gemma-4-31b-it:free', 'gemini-2.5-flash', 'gpt-4o-mini']);
 assert.deepEqual(configuredAiProviders({ GEMINI_API_KEY: 'gem-key' }).map((item) => item.provider), ['gemini']);
 assert.equal(configuredAiProviders({ OPENROUTER_API_KEY: 'or-key', OPENROUTER_MODEL: 'openrouter/free' })[0].model, 'google/gemma-4-31b-it:free');
+assert.deepEqual(generationProviderOrder(providers, 'exam').map((item) => item.provider), ['gemini', 'openrouter', 'openai']);
+assert.deepEqual(generationProviderOrder(providers, 'worksheet').map((item) => item.provider), ['openrouter', 'gemini', 'openai']);
+assert.equal(retrySameGenerationProvider('exam', 2, 'section 1 needs 5-7 questions'), true);
+assert.equal(retrySameGenerationProvider('exam', 2, ''), false);
+assert.equal(retrySameGenerationProvider('worksheet', 2, 'incomplete'), false);
 const calls = [];
 const fakeFetch = async (url, options) => {
   calls.push({ url, options });

@@ -35,6 +35,10 @@ const exam = { sections: [{ type: 'table_interpretation', questions: ['1', '2', 
 assert.match(examQualityIssues(exam, 'medium').join(' '), /2 columns and 2 rows/);
 exam.sections[0].table_data = { columns: ['Year', 'Count'], rows: [['2025', '4'], ['2026', '5']] };
 assert.deepEqual(examQualityIssues(exam, 'medium'), []);
+assert.match(examQualityIssues(exam, 'medium', ['multiple_choice']).join(' '), /must use multiple_choice/);
+assert.match(examQualityIssues(exam, 'medium', ['table_interpretation']).join(' '), /one nonempty answer per question/);
+exam.sections[0].answers = ['A', 'B', 'C', 'D', 'E'];
+assert.deepEqual(examQualityIssues(exam, 'medium', ['table_interpretation']), []);
 
 const program = { units: [{ title: 'Unit 1', topics: [{ title: 'Topic 1', student_summary: 'We will practice.' }] }] };
 assert.match(programQualityIssues(program, 2, 2).join(' '), /2 units/);

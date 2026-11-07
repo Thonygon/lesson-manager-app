@@ -56,15 +56,21 @@ export function worksheetQualityIssues(document: Document): string[] {
   return issues;
 }
 
-export function examQualityIssues(document: Document, length: string): string[] {
+export function examQualityIssues(document: Document, length: string, selectedTypes: string[] = []): string[] {
   const issues: string[] = [];
   const { questionsMin, questionsMax } = examLengthRule(length);
   const range = [questionsMin, questionsMax];
+  if (selectedTypes.length && entries(document.sections).length !== selectedTypes.length) issues.push(`exam needs ${selectedTypes.length} sections`);
   entries(document.sections).forEach((section, index) => {
     const label = `section ${index + 1}`;
     const questions = list(section.questions);
     const kind = text(section.type);
+    if (selectedTypes[index] && kind !== selectedTypes[index]) issues.push(`${label} must use ${selectedTypes[index]}`);
     if (questions.length < range[0] || questions.length > range[1]) issues.push(`${label} needs ${range[0]}-${range[1]} questions`);
+    if (selectedTypes.length) {
+      const answers = list(section.answers);
+      if (answers.length < questions.length || answers.slice(0, questions.length).some((answer) => !usable(typeof answer === 'object' && answer !== null ? (answer as Document).answer : answer))) issues.push(`${label} needs one nonempty answer per question`);
+    }
     if (kind === 'reading_comprehension' && !usable(section.source_text)) issues.push(`${label} reading_comprehension needs source_text`);
     if (kind === 'table_interpretation') {
       const table = section.table_data && typeof section.table_data === 'object' ? section.table_data as Document : {};

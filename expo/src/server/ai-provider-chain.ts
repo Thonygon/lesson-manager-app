@@ -18,6 +18,17 @@ export function configuredAiProviders(env: ProviderEnvironment): AiProviderConfi
   ] as AiProviderConfig[]).filter((item) => Boolean(item.key));
 }
 
+/** Exam JSON is large and strictly validated. Use the approved structured-output provider first. */
+export function generationProviderOrder(providers: AiProviderConfig[], kind: string): AiProviderConfig[] {
+  if (kind !== 'exam') return providers;
+  return [...providers].sort((a, b) => Number(b.provider === 'gemini') - Number(a.provider === 'gemini'));
+}
+
+/** A malformed exam deserves one targeted repair before another provider is tried. */
+export function retrySameGenerationProvider(kind: string, providerCount: number, repair: string): boolean {
+  return providerCount === 1 || (kind === 'exam' && Boolean(repair));
+}
+
 export async function requestAiProvider(
   provider: AiProviderConfig, systemPrompt: string, userPrompt: string, fetcher: typeof fetch = fetch, knownStudentNames: readonly string[] = [],
 ): Promise<{ content: string; model: string; usage: ProviderUsage; providerRequestId: string; httpStatus: number }> {
