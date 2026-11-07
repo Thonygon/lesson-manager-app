@@ -12,7 +12,7 @@ import { programSkeletonPrompts, programUnitPrompts, programSkeletonIssues, prog
 import { programFallback, fallbackProgramUnit } from '../../server/program-fallback';
 import { programLanguageIssues } from '../../server/program-language-quality';
 import { mergePreviousProgramRows, previousProgramFromStorage, previousProgramComplete, summarizePreviousProgram } from '../../server/program-continuation';
-import { configuredAiProviders, requestAiProvider } from '../../server/ai-provider-chain';
+import { configuredAiProviders, generationProviderOrder, requestAiProvider, retrySameGenerationProvider } from '../../server/ai-provider-chain';
 import { approvedAiProviders, EXPO_TEXT_PROMPT_VERSION } from '../../server/ai-runtime-approval';
 import { recordAiFallback } from '../../server/ai-fallback-telemetry';
 import { reserveGuestGeneration } from '../../server/guest-generation-quota';
@@ -295,8 +295,8 @@ export async function POST(request: Request) {
     if (!configuredProviders.length) { const fallback = fallbackProgram() ?? fallbackPlan(); await noteFallback(fallback ? 'template' : 'unavailable', 'provider_not_configured'); return fallback ?? json({ error: 'Classio AI is not connected.' }, 503); }
     let providers;
     try {
-      providers = await approvedAiProviders(configuredProviders, 'expo_text', EXPO_TEXT_PROMPT_VERSION,
-        supabaseUrl, process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '');
+      providers = generationProviderOrder(await approvedAiProviders(configuredProviders, 'expo_text', EXPO_TEXT_PROMPT_VERSION,
+        supabaseUrl, process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || ''), kind);
     } catch {
       return json({ error: 'AI release approval could not be verified.', code: 'approval_unavailable' }, 503);
     }
@@ -346,7 +346,8 @@ export async function POST(request: Request) {
     phase = 'provider_generation';
     for (const provider of providers) {
       let repair = '';
-      for (let attempt = 0; attempt < (providers.length === 1 ? 2 : 1); attempt += 1) {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (attempt > 0 && !retrySameGenerationProvider(kind, providers.length, repair)) break;
         if (providerCalls >= 2) break;
         phase = 'usage_reservation';
         const attemptNo = providerCalls + 1;
@@ -398,8 +399,9 @@ export async function POST(request: Request) {
         if (kind === 'plan' && text(body.objective, 500)) document.objective = text(body.objective, 500);
         if (kind === 'worksheet') document = normalizeWorksheetAnswerKey(document);
         if (kind === 'exam') document = repairExamAnswerKey(document);
-        const qualityIssues = kind === 'program' && body.programPhase === 'skeleton' ? [...programSkeletonIssues(document, programStructure.units, programStructure.lessonsPerUnit), ...programLanguageIssues(document, planLanguage, language)] : kind === 'program' && body.programPhase === 'unit' ? [...programUnitIssues(document, programUnits[programUnitIndex]), ...programLanguageIssues(document, planLanguage, language, true)] : kind === 'plan' ? lessonPlanQualityIssues(document, { subject, stage, level, purpose, programContext: programBlock }) : kind === 'worksheet' ? worksheetQualityIssues(document) : kind === 'exam' ? examQualityIssues(document, length) : programQualityIssues(document, programStructure.units, programStructure.lessonsPerUnit);
+        const qualityIssues = kind === 'program' && body.programPhase === 'skeleton' ? [...programSkeletonIssues(document, programStructure.units, programStructure.lessonsPerUnit), ...programLanguageIssues(document, planLanguage, language)] : kind === 'program' && body.programPhase === 'unit' ? [...programUnitIssues(document, programUnits[programUnitIndex]), ...programLanguageIssues(document, planLanguage, language, true)] : kind === 'plan' ? lessonPlanQualityIssues(document, { subject, stage, level, purpose, programContext: programBlock }) : kind === 'worksheet' ? worksheetQualityIssues(document) : kind === 'exam' ? examQualityIssues(document, length, selectedExamTypes) : programQualityIssues(document, programStructure.units, programStructure.lessonsPerUnit);
         if ((kind === 'program' || validGeneratedDocument(kind, document, body)) && qualityIssues.length === 0) { attemptResults.push({ attemptId: economicAttemptId, result: { status: 'success', modelReported: model, providerRequestId, httpStatus: providerHttpStatus, ...providerUsage } }); providerName = provider.provider; providerModel = model; break; }
+        if (kind === 'exam') console.warn('AI exam output rejected', { provider: provider.provider, qualityIssueCount: qualityIssues.length, validStructure: validGeneratedDocument(kind, document, body), sectionCount: rows(document.sections).length, requestedSections: selectedExamTypes.length, questionCounts: rows(document.sections).map((section) => Array.isArray(section.questions) ? section.questions.length : 0), answerCounts: rows(document.sections).map((section) => Array.isArray(section.answers) ? section.answers.length : 0) });
         attemptResults.push({ attemptId: economicAttemptId, result: { status: 'failed', modelReported: model, providerRequestId, httpStatus: providerHttpStatus, ...providerUsage, errorKind: 'invalid_output' } });
         document = null; repair = qualityIssues.length ? qualityIssues.join('; ') : 'incomplete'; failure = 'The AI provider returned an incomplete document. Try again.'; failureCode = 'generation_failed';
       }
