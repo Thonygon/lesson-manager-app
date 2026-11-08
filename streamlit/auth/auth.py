@@ -1573,25 +1573,11 @@ def render_profile_dialog(user_id: str) -> None:
             st.divider()
             with st.expander(f"⚠️ {t('delete_account')}"):
                 st.warning(t("delete_account_warning"))
-                st.caption(t("supabase_retention_note"))
-                _del_confirm = st.checkbox(
-                    t("delete_account_confirm"),
-                    key="profile_delete_confirm",
-                )
-                if st.button(
+                st.link_button(
                     t("delete_account_btn"),
-                    key="btn_delete_account",
+                    "https://app.masterclassio.com/help?from=%2Fprofile&kind=privacy_rights&scope=erasure",
                     use_container_width=True,
-                    type="primary",
-                    disabled=not _del_confirm,
-                ):
-                    try:
-                        from core.database import delete_user_data
-                        delete_user_data(user_id)
-                        st.success(t("delete_account_success"))
-                        sign_out_user()
-                    except Exception as _e:
-                        st.error(f"{t('delete_failed')}: {_e}")
+                )
 
         _profile_dialog()
 

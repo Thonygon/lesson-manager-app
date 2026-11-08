@@ -97,11 +97,11 @@ ES: Dict[str, str] = {
     # DELETE / RESTORE ACCOUNT
     # -------------------------
     "delete_account": "Eliminar cuenta",
-    "delete_account_warning": "Esto eliminará permanentemente todos tus datos, incluyendo estudiantes, clases, pagos, horarios y configuración. Esta acción no se puede deshacer.",
+    "delete_account_warning": "Solicita una revisión privada de la eliminación de tu cuenta en el Centro de ayuda. Tus registros siguen disponibles mientras se verifica y tramita la solicitud.",
     "delete_account_confirm": "Entiendo y quiero eliminar mi cuenta",
     "delete_account_password": "Ingresa tu contraseña para confirmar",
     "delete_account_success": "Tu cuenta ha sido eliminada. Puedes restaurarla dentro de 90 días iniciando sesión con el mismo correo.",
-    "delete_account_btn": "Eliminar mi cuenta permanentemente",
+    "delete_account_btn": "Solicitar eliminación de cuenta",
     "wrong_password": "Contraseña incorrecta",
     "restore_account_title": "Cuenta encontrada",
     "restore_account_msg": "Esta cuenta fue eliminada el {date}. Te quedan {days} días para restaurarla. ¿Deseas restaurar tu perfil y volver a usar Classio?",
