@@ -1,7 +1,6 @@
 import { requireSupabase } from '@/lib/supabase';
 import { hostingApiUrl } from '@/lib/hosting-api-url';
 import type { ClassioRecord } from '@/services/classio-data';
-import { purgeOwnHelpScreenshots } from '@/services/help-center';
 import { acceptCurrentLegalDocuments } from '@/services/legal-acceptance';
 
 export const PROFILE_COLUMNS = 'user_id,email,display_name,username,avatar_url,date_of_birth,sex,phone_number,role,primary_role,can_teach,can_study,last_active_mode,preferred_ui_language,timezone,country,preferred_currency,default_lesson_duration,primary_subjects,custom_subjects,teaching_stages,teaching_languages,education_level,show_community_profile,show_community_contact,onboarding_completed';
@@ -72,13 +71,4 @@ export async function uploadProfileAvatar(file: Blob & { name?: string; type?: s
   const { error } = await client.storage.from('avatars').upload(path, file, { contentType: file.type || 'image/jpeg', upsert: true });
   if (error) throw error;
   return client.storage.from('avatars').getPublicUrl(path).data.publicUrl;
-}
-
-export async function deleteCurrentUserData() {
-  const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser();
-  if (userError || !userData.user) throw userError ?? new Error('Your session has expired.');
-  await purgeOwnHelpScreenshots(userData.user.id);
-  const { data, error } = await client.rpc('classio_delete_account_data', { p_user_id: userData.user.id });
-  if (error) throw error;
-  if (data !== true) throw new Error('Account deletion could not be confirmed.');
 }

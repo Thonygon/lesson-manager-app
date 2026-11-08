@@ -1,4 +1,5 @@
 import { configuredAiProviders, requestAiProvider } from '../../server/ai-provider-chain';
+import { approvedAiProviders, EXPO_REFINE_PROMPT_VERSION } from '../../server/ai-runtime-approval';
 import { worksheetHasSource, worksheetReferencesSource } from '../../lib/worksheet-source';
 import { beginAiOperation, beginProviderAttempt, finishAiOperation, finishProviderAttempt, type AiEconomicContext } from '../../server/ai-economic-events';
 
@@ -27,10 +28,14 @@ export async function POST(request: Request) {
     const original = body.kind === 'exam' ? { exam_data: row.exam_data, answer_key: row.answer_key } : row[definition.column];
     if (!original || typeof original !== 'object' || Array.isArray(original)) return json({ error: 'This resource has no editable content.' }, 400);
     const serialized = JSON.stringify(original); if (serialized.length > 75000) return json({ error: 'This resource is too large for AI refinement. Use manual editing.' }, 413);
-    const providers = configuredAiProviders({ OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY, GEMINI_API_KEY: process.env.GEMINI_API_KEY, OPENAI_API_KEY: process.env.OPENAI_API_KEY, AI_MODEL: process.env.AI_MODEL, OPENROUTER_MODEL: process.env.OPENROUTER_MODEL });
-    if (!providers.length) return json({ error: 'Classio AI is not configured on the server.' }, 503);
+    const configuredProviders = configuredAiProviders({ OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY, GEMINI_API_KEY: process.env.GEMINI_API_KEY, OPENAI_API_KEY: process.env.OPENAI_API_KEY, AI_MODEL: process.env.AI_MODEL, OPENROUTER_MODEL: process.env.OPENROUTER_MODEL, GEMINI_MODEL: process.env.GEMINI_MODEL });
+    if (!configuredProviders.length) return json({ error: 'Classio AI is not configured on the server.' }, 503);
     const economicContext: AiEconomicContext = { base, serverKey: process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '', actorUserId: user.id, source: 'expo' };
     if (!economicContext.serverKey) return json({ error: 'AI usage recording is not configured.' }, 503);
+    let providers;
+    try { providers = await approvedAiProviders(configuredProviders, 'expo_refine', EXPO_REFINE_PROMPT_VERSION, base, economicContext.serverKey); }
+    catch { return json({ error: 'AI release approval could not be verified.', code: 'approval_unavailable' }, 503); }
+    if (!providers.length) return json({ error: 'AI refinement is awaiting release approval.', code: 'approval_required' }, 503);
     const operationId = await beginAiOperation(economicContext, `refine_${body.kind}`, 'text');
     try {
     const worksheet = body.kind === 'worksheet' ? original as Record<string, unknown> : null;

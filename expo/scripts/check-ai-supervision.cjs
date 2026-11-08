@@ -11,6 +11,8 @@ const load = (name) => {
   return module.exports;
 };
 const { approvedAiProviders } = load('ai-runtime-approval.ts');
+const refineRoute = fs.readFileSync(path.join(__dirname, '../src/app/api/resource-refine+api.ts'), 'utf8');
+assert.match(refineRoute, /approvedAiProviders\(configuredProviders, 'expo_refine', EXPO_REFINE_PROMPT_VERSION/);
 const { recordAiFallback } = load('ai-fallback-telemetry.ts');
 const candidates = [
   { provider: 'gemini', model: 'approved-model', key: 'secret' },
@@ -27,6 +29,11 @@ const candidates = [
   assert.deepEqual(await approvedAiProviders(candidates, 'expo_text', 'v1', 'https://example.supabase.co', 'service-key', async () => Response.json([])), []);
   await assert.rejects(approvedAiProviders(candidates, 'expo_text', 'v1', 'https://example.supabase.co', 'service-key', async () => new Response(null, { status: 503 })), /unavailable/);
   await assert.rejects(approvedAiProviders(candidates, 'expo_text', 'v1', 'https://example.supabase.co', '', fetcher), /unavailable/);
+  assert.deepEqual(await approvedAiProviders(candidates, 'expo_refine', 'expo-refine-v1', 'https://example.supabase.co', 'service-key', async (url) => {
+    assert.equal(new URL(url).searchParams.get('surface'), 'eq.expo_refine');
+    assert.equal(new URL(url).searchParams.get('prompt_version'), 'eq.expo-refine-v1');
+    return Response.json([{ provider: 'gemini', model: 'approved-model' }]);
+  }), candidates.slice(0, 1));
   const recorded = await recordAiFallback('https://example.supabase.co', 'service-key', 'generate_plan', 'template', 'provider_failed', async (_url, options) => {
     const body = JSON.parse(options.body);
     assert.deepEqual(body, { source: 'expo', feature_name: 'generate_plan', requested_mode: 'ai', effective_mode: 'template', reason: 'provider_failed' });

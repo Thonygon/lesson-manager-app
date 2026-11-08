@@ -2,10 +2,11 @@ import type { AiProviderConfig } from './ai-provider-chain';
 
 export const EXPO_TEXT_PROMPT_VERSION = 'expo-generate-v1';
 export const EXPO_IMAGE_PROMPT_VERSION = 'expo-cover-v1';
+export const EXPO_REFINE_PROMPT_VERSION = 'expo-refine-v1';
 
 /** Fail closed when the approval registry is unavailable or a model was retired. */
 export async function approvedAiProviders(
-  providers: AiProviderConfig[], surface: 'expo_text' | 'expo_image', promptVersion: string,
+  providers: AiProviderConfig[], surface: 'expo_text' | 'expo_image' | 'expo_refine', promptVersion: string,
   base: string, serverKey: string, fetcher: typeof fetch = fetch,
 ): Promise<AiProviderConfig[]> {
   if (!providers.length) return [];

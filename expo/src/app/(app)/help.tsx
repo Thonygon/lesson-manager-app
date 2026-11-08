@@ -28,11 +28,12 @@ function decodeBase64(value: string): Uint8Array {
 
 export default function HelpScreen() {
   const { t } = useAppPreferences();
-  const params = useLocalSearchParams<{ from?: string; ticket?: string }>();
-  const [kind, setKind] = useState<HelpKind>('bug');
-  const [privacyScope, setPrivacyScope] = useState<PrivacyScope | ''>('');
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  const params = useLocalSearchParams<{ from?: string; ticket?: string; kind?: string; scope?: string }>();
+  const deletionRequest = params.kind === 'privacy_rights' && params.scope === 'erasure';
+  const [kind, setKind] = useState<HelpKind>(deletionRequest ? 'privacy_rights' : 'bug');
+  const [privacyScope, setPrivacyScope] = useState<PrivacyScope | ''>(deletionRequest ? 'erasure' : '');
+  const [title, setTitle] = useState(deletionRequest ? t('profile.deleteRequestTitle') : '');
+  const [description, setDescription] = useState(deletionRequest ? t('profile.deleteRequestDescription') : '');
   const [pagePath, setPagePath] = useState(typeof params.from === 'string' && params.from.startsWith('/') ? params.from : '/help');
   const [image, setImage] = useState<HelpScreenshot | null>(null);
   const [tickets, setTickets] = useState<HelpTicket[]>([]);

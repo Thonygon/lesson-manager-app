@@ -1131,26 +1131,6 @@ def recalculate_package_dates(student: Optional[str] = None) -> dict:
     return result
 
 
-# ── Account deletion ────────────────────────────────────────────────────
-def delete_user_data(user_id: str) -> bool:
-    """Remove private screenshots, then delete account data in one database transaction."""
-    if not user_id:
-        return False
-    sb = get_sb()
-    screenshots = sb.storage.from_("classio-help-screenshots")
-    for _ in range(1000):
-        entries = screenshots.list(str(user_id)) or []
-        paths = [f"{user_id}/{entry['name']}" for entry in entries if entry.get("name") and entry.get("id")]
-        if not paths:
-            break
-        screenshots.remove(paths)
-    else:
-        raise RuntimeError("Could not clear support screenshots before account deletion")
-    result = sb.rpc("classio_delete_account_data", {"p_user_id": str(user_id)}).execute()
-    if getattr(result, "data", None) is not True:
-        raise RuntimeError("Account deletion could not be confirmed")
-    clear_app_caches()
-    return True
 
 
 def restore_deleted_account(user_id: str) -> bool:

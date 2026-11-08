@@ -9,8 +9,8 @@ export function SourceTextReference({ text }: { text: string }) {
   const { t } = useAppPreferences();
   const [open, setOpen] = useState(false);
   return <>
-    <Pressable accessibilityRole="button" accessibilityLabel={t('student.openPassage')} onPress={() => setOpen(true)} style={styles.trigger}>
-      <Text style={styles.triggerText}>▤ {t('student.openPassage')}</Text>
+    <Pressable accessibilityRole="button" accessibilityLabel={t('student.openPassage')} hitSlop={8} onPress={() => setOpen(true)} style={styles.trigger}>
+      <Text style={styles.triggerText}>▤</Text>
     </Pressable>
     <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
       <View style={styles.overlay}>
@@ -30,8 +30,8 @@ export function SourceTextReference({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
-  trigger: { alignSelf: 'flex-start', borderColor: colors.line, borderWidth: 1, borderRadius: 9, backgroundColor: colors.surface, paddingVertical: 8, paddingHorizontal: 11, marginVertical: 8 },
-  triggerText: { color: colors.primary, fontSize: 13, fontWeight: '700' },
+  trigger: { position: 'absolute', top: 11, right: 13, zIndex: 1, width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderColor: colors.line, borderWidth: 1, borderRadius: 7, backgroundColor: colors.surface },
+  triggerText: { color: colors.primary, fontSize: 16, fontWeight: '700', lineHeight: 20 },
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.54)', alignItems: 'center', justifyContent: 'center', padding: 16 },
   dialog: { width: '100%', maxWidth: 720, maxHeight: '85%', backgroundColor: colors.surface, borderRadius: 18, padding: 20 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 12 },

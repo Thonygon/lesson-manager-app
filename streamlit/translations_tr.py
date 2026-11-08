@@ -97,11 +97,11 @@ TR: Dict[str, str] = {
     # DELETE / RESTORE ACCOUNT
     # -------------------------
     "delete_account": "Hesabı sil",
-    "delete_account_warning": "Bu işlem öğrenciler, dersler, ödemeler, programlar ve ayarlar dahil tüm verilerinizi kalıcı olarak silecektir. Bu işlem geri alınamaz.",
+    "delete_account_warning": "Hesap silme talebinizin özel olarak incelenmesi için Classio Yardım Merkezini kullanın. Talep doğrulanıp işlenirken kayıtlarınız erişilebilir kalır.",
     "delete_account_confirm": "Anlıyorum ve hesabımı silmek istiyorum",
     "delete_account_password": "Onaylamak için şifrenizi girin",
     "delete_account_success": "Hesabınız silindi. Aynı e-posta ile giriş yaparak 90 gün içinde geri yükleyebilirsiniz.",
-    "delete_account_btn": "Hesabımı kalıcı olarak sil",
+    "delete_account_btn": "Hesap silme talebi oluştur",
     "wrong_password": "Yanlış şifre",
     "restore_account_title": "Hesap bulundu",
     "restore_account_msg": "Bu hesap {date} tarihinde silindi. Geri yüklemek için {days} gününüz kaldı. Profilinizi geri yükleyip Classio'yu tekrar kullanmak ister misiniz?",
