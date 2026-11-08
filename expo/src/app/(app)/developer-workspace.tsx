@@ -16,7 +16,7 @@ import { checkPythonModelAuthentication, getPythonAffinityModel, pythonModelApiU
 import { colors } from '@/theme';
 
 type DeveloperTab = 'overview' | 'lab' | 'evidence' | 'telemetry' | 'jobs' | 'audit' | 'support';
-const AI_APPROVAL_VERSIONS: Record<string, string> = { expo_text: 'expo-generate-v1', expo_image: 'expo-cover-v1', streamlit_text: 'streamlit-generation-v1', streamlit_image: 'streamlit-image-v1' };
+const AI_APPROVAL_VERSIONS: Record<string, string> = { expo_text: 'expo-generate-v1', expo_image: 'expo-cover-v1', expo_refine: 'expo-refine-v1', streamlit_text: 'streamlit-generation-v1', streamlit_image: 'streamlit-image-v1' };
 
 export default function DeveloperWorkspaceScreen() {
   const { t } = useAppPreferences();
@@ -145,7 +145,7 @@ export default function DeveloperWorkspaceScreen() {
         <SectionHeading title={t('developer.labTitle')} body={t('developer.labBody')} />
         <Panel><SectionHeading title={t('developer.aiApprovalTitle')} body={t('developer.aiApprovalBody')} />
           {canManageAi ? <><View style={styles.approvalFields}>
-            <SelectField label={t('developer.aiApprovalSurface')} value={approvalSurface} onChange={setApprovalSurface} options={['expo_text', 'expo_image', 'streamlit_text', 'streamlit_image'].map((value) => ({ value, label: value.replaceAll('_', ' ') }))} />
+            <SelectField label={t('developer.aiApprovalSurface')} value={approvalSurface} onChange={setApprovalSurface} options={['expo_text', 'expo_image', 'expo_refine', 'streamlit_text', 'streamlit_image'].map((value) => ({ value, label: value.replaceAll('_', ' ') }))} />
             <SelectField label={t('developer.aiApprovalProvider')} value={approvalProvider} onChange={setApprovalProvider} options={['gemini', 'openrouter', 'openai'].map((value) => ({ value, label: value }))} />
             <Field accessibilityLabel={t('developer.aiApprovalModel')} placeholder={t('developer.aiApprovalModel')} value={approvalModel} onChangeText={setApprovalModel} />
             <Field accessibilityLabel={t('developer.aiApprovalReason')} placeholder={t('developer.aiApprovalReason')} value={approvalReason} onChangeText={setApprovalReason} />

@@ -588,6 +588,27 @@ Object.assign(tr, brandingTranslations.tr);
 Object.assign(en, helpTranslations.en);
 Object.assign(es, helpTranslations.es);
 Object.assign(tr, helpTranslations.tr);
+Object.assign(en, {
+  'profile.deleteTitle': 'Request account deletion',
+  'profile.deleteWarning': 'Open a private request. Your account and records remain available while we verify and handle it.',
+  'profile.deleteAction': 'Request deletion',
+  'profile.deleteRequestTitle': 'Account deletion request',
+  'profile.deleteRequestDescription': 'I request review and deletion of my Classio account data. Please tell me what can be deleted and what must be retained.',
+});
+Object.assign(es, {
+  'profile.deleteTitle': 'Solicitar eliminación de cuenta',
+  'profile.deleteWarning': 'Abre una solicitud privada. Tu cuenta y tus registros siguen disponibles mientras la verificamos y tramitamos.',
+  'profile.deleteAction': 'Solicitar eliminación',
+  'profile.deleteRequestTitle': 'Solicitud de eliminación de cuenta',
+  'profile.deleteRequestDescription': 'Solicito la revisión y eliminación de los datos de mi cuenta de Classio. Indíquenme qué se puede eliminar y qué se debe conservar.',
+});
+Object.assign(tr, {
+  'profile.deleteTitle': 'Hesap silme talebi',
+  'profile.deleteWarning': 'Özel bir talep açın. Talebiniz doğrulanıp işlenirken hesabınız ve kayıtlarınız erişilebilir kalır.',
+  'profile.deleteAction': 'Silme talebi oluştur',
+  'profile.deleteRequestTitle': 'Hesap silme talebi',
+  'profile.deleteRequestDescription': 'Classio hesap verilerimin incelenmesini ve silinmesini talep ediyorum. Hangi verilerin silinebileceğini ve hangilerinin saklanması gerektiğini bildiriniz.',
+});
 Object.assign(en, { 'developer.pythonConnection': 'Python model service', 'developer.pythonCheck': 'Check authenticated connection', 'developer.pythonModelReady': 'Authenticated. Approved model {run} is ready.', 'developer.pythonAuthOnly': 'Authentication works, but the approved model is not ready. Check the selected run and its artifacts in Render.', 'developer.pythonAuthFailed': 'Could not authenticate with the Python service. Check the Render configuration and your session.' });
 Object.assign(es, { 'developer.pythonConnection': 'Servicio de modelos Python', 'developer.pythonCheck': 'Verificar conexión autenticada', 'developer.pythonModelReady': 'Autenticación correcta. El modelo aprobado {run} está listo.', 'developer.pythonAuthOnly': 'La autenticación funciona, pero el modelo aprobado no está listo. Revisa la ejecución seleccionada y sus artefactos en Render.', 'developer.pythonAuthFailed': 'No se pudo autenticar con el servicio Python. Revisa la configuración de Render y tu sesión.' });
 Object.assign(tr, { 'developer.pythonConnection': 'Python model hizmeti', 'developer.pythonCheck': 'Kimlik doğrulamalı bağlantıyı kontrol et', 'developer.pythonModelReady': 'Kimlik doğrulandı. Onaylı {run} modeli hazır.', 'developer.pythonAuthOnly': 'Kimlik doğrulama çalışıyor ancak onaylı model hazır değil. Render üzerindeki seçili çalıştırmayı ve dosyalarını kontrol edin.', 'developer.pythonAuthFailed': 'Python hizmetinde kimlik doğrulanamadı. Render ayarlarını ve oturumunuzu kontrol edin.' });
