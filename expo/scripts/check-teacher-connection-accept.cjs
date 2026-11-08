@@ -7,11 +7,16 @@ const schema = fs.readFileSync(path.join(__dirname, '../../streamlit/migrations/
 const allowed = new Set([...schema.match(/check \(student_source in \(([^)]+)\)\)/i)[1].matchAll(/'([^']+)'/g)].map((match) => match[1]));
 const source = fs.readFileSync(path.join(__dirname, '../src/services/teacher-students.ts'), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+const matchSource = fs.readFileSync(path.join(__dirname, '../src/lib/roster-match.ts'), 'utf8');
+const matchCompiled = ts.transpileModule(matchSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+const matchModule = { exports: {} };
+new Function('module', 'exports', matchCompiled)(matchModule, matchModule.exports);
 let client;
 const loaded = { exports: {} };
 new Function('module', 'exports', 'require', compiled)(loaded, loaded.exports, (name) => {
   if (name === '@/lib/supabase') return { requireSupabase: () => client };
   if (name === '@/lib/subjects') return { canonicalSubjectKey: (value) => value, canonicalSubjectLabel: (value) => value };
+  if (name === '@/lib/roster-match') return matchModule.exports;
   return require(name);
 });
 
@@ -24,6 +29,7 @@ function fakeClient(roster = [], rejectInsert = false) {
       return { data: { id: state.link.id }, error: null };
     }
     if (table === 'students') {
+      if (action === 'select' && !filters.id && !filters.linked_student_user_id) return { data: state.roster.filter((item) => Object.entries(filters).every(([key, value]) => String(item[key]) === String(value))).map((item) => ({ ...item })), error: null };
       const row = state.roster.find((item) => Object.entries(filters).every(([key, value]) => String(item[key]) === String(value)));
       if (action === 'update' && row) {
         if (!allowed.has(payload.student_source)) return { data: null, error: new Error('students_student_source_check') };
@@ -45,6 +51,7 @@ function fakeClient(roster = [], rejectInsert = false) {
         select: () => query,
         update: (value) => { action = 'update'; payload = value; return query; },
         eq: (key, value) => { filters[key] = value; return query; },
+        limit: () => query,
         maybeSingle: async () => result(table, action, payload, filters),
         then: (resolve, reject) => Promise.resolve(result(table, action, payload, filters)).then(resolve, reject),
       };
@@ -68,9 +75,14 @@ const connection = { id: 19, student_id: 'student-1', student_name: 'Student', s
   assert.equal(state.scopes[0].status, 'active');
   assert.equal(state.roster[0].student_source, 'classio_link');
 
-  state = fakeClient([{ id: 7, user_id: 'teacher-1', student_source: 'manual', linked_student_user_id: null }]);
+  state = fakeClient([{ id: 7, user_id: 'teacher-1', student: 'Student', email: 'student@example.test', student_source: 'manual', linked_student_user_id: null }]);
   await loaded.exports.respondToTeacherConnection(connection, true, ['English'], '7');
   assert.equal(state.roster[0].student_source, 'classio_linked_existing');
+  assert.equal(state.roster[0].linked_student_user_id, 'student-1');
+
+  state = fakeClient([{ id: 8, user_id: 'teacher-1', student: 'Student', email: 'student@example.test', student_source: 'manual', linked_student_user_id: null }]);
+  await loaded.exports.respondToTeacherConnection(connection, true, ['English']);
+  assert.equal(state.roster.length, 1, 'an email match must reuse the existing roster row');
   assert.equal(state.roster[0].linked_student_user_id, 'student-1');
 
   state = fakeClient([], true);
