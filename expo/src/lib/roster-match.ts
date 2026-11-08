@@ -16,5 +16,5 @@ export function rosterCandidates(rows: RosterRow[], student: { id: string; name:
       : phone.length >= 7 && phoneDigits(row.phone) === phone ? 'phone'
       : name && normalized(row.student) === name ? 'name' : null;
     return match ? [{ id: String(row.id), student: String(row.student || 'Student'), email: String(row.email || ''), phone: String(row.phone || ''), match }] : [];
-  }).sort((a, b) => ['linked', 'email', 'phone', 'name'].indexOf(a.match) - ['linked', 'email', 'phone', 'name'].indexOf(b.match));
+  }).sort((a, b) => ['email', 'phone', 'name', 'linked'].indexOf(a.match) - ['email', 'phone', 'name', 'linked'].indexOf(b.match));
 }

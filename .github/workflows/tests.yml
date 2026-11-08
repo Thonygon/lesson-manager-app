@@ -133,6 +133,7 @@ jobs:
           node scripts/check-bounded-ai-request.cjs
           node scripts/check-resource-quality.cjs
           node scripts/check-teacher-connection-accept.cjs
+          node scripts/check-teacher-connection-identities.cjs
 
       - name: Export EAS Hosting artifact
         run: pnpm run export:web
