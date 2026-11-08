@@ -89,7 +89,8 @@ function ConnectionCard({ connection, busy, confirming, onRespond, onEnd }: { co
   const { t } = useAppPreferences();
   const requested = requestedScopes(connection);
   const [subjects, setSubjects] = useState(() => requested.map((item) => item.key));
-  const suggestedCandidate = connection.roster_candidates.length === 1 ? connection.roster_candidates[0] : null;
+  const emailMatches = connection.roster_candidates.filter((item) => item.match === 'email');
+  const suggestedCandidate = emailMatches.length === 1 ? emailMatches[0] : connection.roster_candidates.length === 1 ? connection.roster_candidates[0] : null;
   const [rosterChoice, setRosterChoice] = useState(suggestedCandidate?.id || (connection.roster_candidates.length ? '' : '__new__'));
   const effectiveRosterChoice = connection.roster_candidates.length ? (connection.roster_candidates.some((item) => item.id === rosterChoice) ? rosterChoice : suggestedCandidate?.id || '') : '__new__';
   const displayedSubjects = connection.subjects.length ? connection.subjects.map((row) => String(row.subject_label || row.subject_key)) : requested.map((item) => item.label);

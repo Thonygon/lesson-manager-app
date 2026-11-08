@@ -17,6 +17,7 @@ new Function('module', 'exports', 'require', compiled)(loaded, loaded.exports, (
   if (name === '@/lib/supabase') return { requireSupabase: () => client };
   if (name === '@/lib/subjects') return { canonicalSubjectKey: (value) => value, canonicalSubjectLabel: (value) => value };
   if (name === '@/lib/roster-match') return matchModule.exports;
+  if (name === '@/lib/hosting-api-url') return { hostingApiUrl: (value) => value };
   return require(name);
 });
 
@@ -44,7 +45,16 @@ function fakeClient(roster = [], rejectInsert = false) {
     throw new Error(`Unexpected query: ${table} ${action}`);
   };
   client = {
-    auth: { getUser: async () => ({ data: { user: { id: 'teacher-1' } }, error: null }) },
+    auth: { getUser: async () => ({ data: { user: { id: 'teacher-1' } }, error: null }), getSession: async () => ({ data: { session: { access_token: 'valid-token' } }, error: null }) },
+    rpc: async (name, args) => {
+      assert.equal(name, 'classio_transfer_teacher_student_roster_link');
+      const old = state.roster.find((item) => item.linked_student_user_id === 'student-1' && String(item.id) !== String(args.p_target_roster_id));
+      const target = state.roster.find((item) => String(item.id) === String(args.p_target_roster_id));
+      if (old) old.linked_student_user_id = null;
+      target.linked_student_user_id = 'student-1';
+      target.student_source = 'classio_linked_existing';
+      return { data: old?.id || null, error: null };
+    },
     from(table) {
       let action = 'select'; let payload; const filters = {};
       const query = {
@@ -67,18 +77,34 @@ function fakeClient(roster = [], rejectInsert = false) {
   return state;
 }
 
-const connection = { id: 19, student_id: 'student-1', student_name: 'Student', student_email: 'student@example.test', requested_subjects: ['English'] };
+const connection = { id: 19, student_id: 'student-1', student_name: 'Student', student_email: '', requested_subjects: ['English'] };
+globalThis.fetch = async (_url, init) => {
+  assert.equal(String(JSON.parse(init.body).linkIds[0]), '19');
+  assert.equal(init.headers.Authorization, 'Bearer valid-token');
+  return { ok: true, json: async () => ({ identities: { 19: { name: 'Real Student', email: 'student@example.test', phone: '' } } }) };
+};
 (async () => {
   let state = fakeClient();
   await loaded.exports.respondToTeacherConnection(connection, true);
   assert.equal(state.link.status, 'active');
   assert.equal(state.scopes[0].status, 'active');
   assert.equal(state.roster[0].student_source, 'classio_link');
+  assert.equal(state.roster[0].student, 'Real Student');
+  assert.equal(state.roster[0].email, 'student@example.test');
 
   state = fakeClient([{ id: 7, user_id: 'teacher-1', student: 'Student', email: 'student@example.test', student_source: 'manual', linked_student_user_id: null }]);
   await loaded.exports.respondToTeacherConnection(connection, true, ['English'], '7');
   assert.equal(state.roster[0].student_source, 'classio_linked_existing');
   assert.equal(state.roster[0].linked_student_user_id, 'student-1');
+
+  state = fakeClient([
+    { id: 109, user_id: 'teacher-1', student: 'Student', email: '', student_source: 'classio_link', linked_student_user_id: 'student-1' },
+    { id: 100, user_id: 'teacher-1', student: 'Real Student', email: 'student@example.test', student_source: 'manual', linked_student_user_id: null },
+  ]);
+  await loaded.exports.respondToTeacherConnection(connection, true, ['English'], '100');
+  assert.equal(state.roster.length, 2, 'the placeholder remains preserved for safe review');
+  assert.equal(state.roster[0].linked_student_user_id, null);
+  assert.equal(state.roster[1].linked_student_user_id, 'student-1');
 
   state = fakeClient([{ id: 8, user_id: 'teacher-1', student: 'Student', email: 'student@example.test', student_source: 'manual', linked_student_user_id: null }]);
   await loaded.exports.respondToTeacherConnection(connection, true, ['English']);

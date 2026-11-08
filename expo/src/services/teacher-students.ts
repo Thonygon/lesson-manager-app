@@ -2,6 +2,7 @@ import { requireSupabase } from '@/lib/supabase';
 import { canonicalSubjectKey, canonicalSubjectLabel } from '@/lib/subjects';
 import type { ClassioRecord } from '@/services/classio-data';
 import { rosterCandidates, type RosterCandidate } from '@/lib/roster-match';
+import { hostingApiUrl } from '@/lib/hosting-api-url';
 
 export type TeacherConnection = ClassioRecord & { student_name: string; student_email: string; student_phone: string; subjects: ClassioRecord[]; roster_candidates: RosterCandidate[] };
 export type StudentLearningWorkspace = { assignments: ClassioRecord[]; attempts: ClassioRecord[]; reviews: ClassioRecord[]; programs: ClassioRecord[]; progress: ClassioRecord[]; topics: ClassioRecord[]; recommendationEvents: ClassioRecord[]; proactiveCompletedResources?: { kind: string; id: string }[] };
@@ -20,6 +21,15 @@ async function completedProactiveResources(studentUserId: string): Promise<{ kin
 }
 
 async function currentUserId() { const { data, error } = await requireSupabase().auth.getUser(); if (error || !data.user) throw error ?? new Error('Your session has expired.'); return data.user.id; }
+async function teacherConnectionIdentities(linkIds: (string | number)[]): Promise<Record<string, { name: string; email: string; phone: string }>> {
+  if (!linkIds.length) return {};
+  const { data, error } = await requireSupabase().auth.getSession();
+  if (error || !data.session?.access_token) throw error ?? new Error('Your session has expired.');
+  const response = await fetch(hostingApiUrl('/api/teacher-connection-identities'), { method: 'POST', headers: { Authorization: `Bearer ${data.session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ linkIds }) });
+  const payload = await response.json().catch(() => ({})) as { identities?: Record<string, { name: string; email: string; phone: string }>; error?: string };
+  if (!response.ok || !payload.identities) throw new Error(payload.error || 'Student connection details could not be loaded.');
+  return payload.identities;
+}
 function cleanScopes(value: unknown): { subject_key: string; subject_label: string }[] { if (!Array.isArray(value)) return []; const unique = new Map<string, { subject_key: string; subject_label: string }>(); value.forEach((item) => { const raw = typeof item === 'string' ? item : item && typeof item === 'object' ? String((item as Record<string, unknown>).subject_key || (item as Record<string, unknown>).subject_label || '') : ''; if (!raw.trim()) return; const key = canonicalSubjectKey(raw); unique.set(key, { subject_key: key, subject_label: canonicalSubjectLabel(raw) }); }); return [...unique.values()]; }
 
 export async function getTeacherConnections(): Promise<TeacherConnection[]> {
@@ -28,10 +38,8 @@ export async function getTeacherConnections(): Promise<TeacherConnection[]> {
     client.from('teacher_student_subjects').select('id,link_id,student_id,subject_key,subject_label,status,activated_at,deactivated_at').eq('teacher_id', uid).limit(2000),
     client.from('students').select('id,student,email,phone,linked_student_user_id').eq('user_id', uid).limit(1000),
   ]); if (links.error || subjects.error || roster.error) throw links.error ?? subjects.error ?? roster.error;
-  const ids = (links.data ?? []).map((row) => String(row.student_id)); let profiles: { user_id: string; display_name?: string; username?: string; email?: string; phone_number?: string }[] = [];
-  if (ids.length) { const result = await client.from('profiles').select('user_id,display_name,username,email,phone_number').in('user_id', ids); if (!result.error) profiles = result.data ?? []; }
-  const profileMap = new Map(profiles.map((row) => [String(row.user_id), row])); const rosterMap = new Map((roster.data ?? []).filter((row) => row.linked_student_user_id).map((row) => [String(row.linked_student_user_id), row]));
-  return (links.data ?? []).map((row) => { const profile = profileMap.get(String(row.student_id)); const localStudent = rosterMap.get(String(row.student_id)); const studentName = String(profile?.display_name || profile?.username || localStudent?.student || profile?.email?.split('@')[0] || 'Student'); const studentEmail = String(profile?.email || localStudent?.email || ''); const studentPhone = String(profile?.phone_number || localStudent?.phone || ''); const candidates = rosterCandidates(roster.data ?? [], { id: String(row.student_id), name: studentName, email: studentEmail, phone: studentPhone }); const canonicalSubjects = new Map<string, ClassioRecord>(); (subjects.data ?? []).filter((scope) => String(scope.link_id) === String(row.id)).forEach((scope) => { const key = canonicalSubjectKey(scope.subject_key || scope.subject_label); canonicalSubjects.set(key, { ...(scope as unknown as ClassioRecord), subject_key: key, subject_label: canonicalSubjectLabel(scope.subject_label || scope.subject_key) }); }); return { ...(row as unknown as ClassioRecord), requested_subjects: cleanScopes(row.requested_subjects), student_name: studentName, student_email: studentEmail, student_phone: studentPhone, subjects: [...canonicalSubjects.values()], roster_candidates: candidates } as TeacherConnection; });
+  const identities = await teacherConnectionIdentities((links.data ?? []).map((row) => row.id));
+  return (links.data ?? []).map((row) => { const identity = identities[String(row.id)]; if (!identity) throw new Error('Student connection details could not be loaded.'); const studentName = identity.name; const studentEmail = identity.email; const studentPhone = identity.phone; const candidates = rosterCandidates(roster.data ?? [], { id: String(row.student_id), name: studentName, email: studentEmail, phone: studentPhone }); const canonicalSubjects = new Map<string, ClassioRecord>(); (subjects.data ?? []).filter((scope) => String(scope.link_id) === String(row.id)).forEach((scope) => { const key = canonicalSubjectKey(scope.subject_key || scope.subject_label); canonicalSubjects.set(key, { ...(scope as unknown as ClassioRecord), subject_key: key, subject_label: canonicalSubjectLabel(scope.subject_label || scope.subject_key) }); }); return { ...(row as unknown as ClassioRecord), requested_subjects: cleanScopes(row.requested_subjects), student_name: studentName, student_email: studentEmail, student_phone: studentPhone, subjects: [...canonicalSubjects.values()], roster_candidates: candidates } as TeacherConnection; });
 }
 
 export async function getProgramAssignmentTargets(): Promise<TeacherConnection[]> {
@@ -55,18 +63,31 @@ export async function getProgramAssignmentTargets(): Promise<TeacherConnection[]
 export async function respondToTeacherConnection(connection: TeacherConnection, accept: boolean, selectedSubjectKeys?: string[], rosterId?: string) {
   const client = requireSupabase(); const uid = await currentUserId(); const now = new Date().toISOString();
   if (!accept) { const { error } = await client.from('teacher_student_links').update({ status: 'rejected', responded_at: now, responded_by: uid, updated_at: now }).eq('id', connection.id).eq('teacher_id', uid); if (error) throw error; return; }
+  const identity = (await teacherConnectionIdentities([String(connection.id)]))[String(connection.id)];
+  if (!identity) throw new Error('Student connection details could not be loaded.');
   const requestedScopes = cleanScopes(connection.requested_subjects); const allowed = new Set(selectedSubjectKeys?.length ? selectedSubjectKeys : requestedScopes.map((scope) => scope.subject_key)); const scopes = requestedScopes.filter((scope) => allowed.has(scope.subject_key)); if (!scopes.length) throw new Error('Select at least one subject before accepting this request.');
   // Resolve against fresh roster data. A stale client must not create a second student.
   const { data: currentRoster, error: matchError } = await client.from('students').select('id,student,email,phone,linked_student_user_id').eq('user_id', uid).limit(1000);
   if (matchError) throw matchError;
-  const matches = rosterCandidates(currentRoster ?? [], { id: String(connection.student_id), name: connection.student_name, email: connection.student_email, phone: connection.student_phone });
+  const matches = rosterCandidates(currentRoster ?? [], { id: String(connection.student_id), name: identity.name, email: identity.email, phone: identity.phone });
   if (rosterId && !matches.some((candidate) => candidate.id === rosterId)) throw new Error('students.rosterMatchRequired');
   if (!rosterId && matches.length > 1) throw new Error('students.rosterMatchRequired');
   const resolvedRosterId = rosterId || matches[0]?.id;
+  const displaced = resolvedRosterId && (currentRoster ?? []).find((row) => String(row.linked_student_user_id || '') === String(connection.student_id) && String(row.id) !== resolvedRosterId);
   const { data: activated, error: linkError } = await client.from('teacher_student_links').update({ status: 'active', responded_at: now, responded_by: uid, archived_at: null, updated_at: now }).eq('id', connection.id).eq('teacher_id', uid).eq('status', 'pending').select('id').maybeSingle();
   if (linkError || !activated) throw linkError ?? new Error('The connection request is no longer pending. Refresh the list.');
   try {
     const subjectRows = scopes.map((scope) => ({ link_id: connection.id, teacher_id: uid, student_id: connection.student_id, subject_key: scope.subject_key, subject_label: scope.subject_label, status: 'active', activated_at: now, deactivated_at: null, updated_at: now })); const { error: scopeError } = await client.from('teacher_student_subjects').upsert(subjectRows, { onConflict: 'link_id,subject_key' }); if (scopeError) throw scopeError;
+    if (displaced && resolvedRosterId) {
+      let transferError: Error | null = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const result = await client.rpc('classio_transfer_teacher_student_roster_link', { p_link_id: Number(connection.id), p_target_roster_id: Number(resolvedRosterId) });
+        if (!result.error) { transferError = null; break; }
+        transferError = result.error;
+      }
+      if (transferError) throw transferError;
+      return;
+    }
     const query = client.from('students').select('id,student_source,linked_student_user_id').eq('user_id', uid);
     const { data: existing, error: rosterError } = resolvedRosterId ? await query.eq('id', resolvedRosterId).maybeSingle() : await query.eq('linked_student_user_id', connection.student_id).maybeSingle();
     if (rosterError) throw rosterError;
@@ -77,7 +98,7 @@ export async function respondToTeacherConnection(connection: TeacherConnection, 
       const { data, error } = await client.from('students').update({ linked_student_user_id: connection.student_id, teacher_student_link_id: connection.id, linked_at: now, student_source: source }).eq('id', existing.id).eq('user_id', uid).select('id').maybeSingle();
       if (error || !data) throw error ?? new Error('The student record could not be linked.');
     } else {
-      const { error } = await client.from('students').insert({ user_id: uid, student: connection.student_name, email: connection.student_email, linked_student_user_id: connection.student_id, teacher_student_link_id: connection.id, linked_at: now, student_source: 'classio_link' });
+      const { error } = await client.from('students').insert({ user_id: uid, student: identity.name, email: identity.email, linked_student_user_id: connection.student_id, teacher_student_link_id: connection.id, linked_at: now, student_source: 'classio_link' });
       if (error) throw error;
     }
   } catch (error) {
