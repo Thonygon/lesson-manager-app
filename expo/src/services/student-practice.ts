@@ -110,7 +110,7 @@ function worksheetQuestions(ws: Record<string, unknown>) {
   }
   if (kind === 'word_search_vocab') {
     const vocabulary = wordSearchWords(ws.vocabulary_bank); const first = record(list(ws.questions)[0]); const rawGrid = firstNonEmptyList(ws.grid, ws.word_search_grid, first.grid); const storedGrid = rawGrid.map((row) => list(row).map((letter) => text(letter).toUpperCase())); const storedPlacements = firstNonEmptyList(ws.placements, first.placements).map((value) => { const item = record(value); return { word: text(item.word).replace(/\s+/g, '').toUpperCase(), coords: list(item.coords).map((coord) => list(coord).map(Number).slice(0, 2) as [number, number]) }; }).filter((item) => item.word && item.coords.length); const generated = storedGrid.length && vocabulary.length && storedPlacements.length ? { grid: storedGrid, words: vocabulary, placements: storedPlacements } : generateWordSearch(vocabulary, vocabulary.join('|'));
-    result.push({ prompt: text(ws.instructions || ws.title), options: [], answer: JSON.stringify(generated.words), exerciseIndex: 0, questionIndex: 0, exerciseType: kind, sectionTitle: text(ws.title), instructions: text(ws.instructions), sourceText: '', visualSupportUrl: extractResourceImageUrl(list(ws.visual_supports)[0]), vocabularyBank: generated.words, ...generated }); return result;
+    result.push({ prompt: text(ws.instructions || ws.title), options: [], answer: JSON.stringify(generated.words), exerciseIndex: 0, questionIndex: 0, exerciseType: kind, sectionTitle: text(ws.title), instructions: text(ws.instructions), sourceText: text(ws.source_text || ws.reading_passage), visualSupportUrl: extractResourceImageUrl(list(ws.visual_supports)[0]), vocabularyBank: generated.words, ...generated }); return result;
   }
   const questions = firstNonEmptyList(ws.questions, ws.true_false_statements, ws.items);
   addSection(result, { ...ws, type: kind, title: ws.title, questions, source_text: ws.source_text || ws.reading_passage, visual_support: list(ws.visual_supports)[0] }, 0, ws.answer_key);
@@ -118,7 +118,7 @@ function worksheetQuestions(ws: Record<string, unknown>) {
 }
 function examQuestions(exam: Record<string, unknown>, answerKey: Record<string, unknown>) {
   const result: PracticeQuestion[] = []; const keys = list(answerKey.sections);
-  list(exam.sections).forEach((value, index) => addSection(result, record(value), index, record(keys[index]).answers)); return result;
+  list(exam.sections).forEach((value, index) => { const section = record(value); addSection(result, { ...section, source_text: section.source_text || section.reading_passage || exam.source_text || exam.reading_passage }, index, record(keys[index]).answers); }); return result;
 }
 export function materialFromAssignment(row: ClassioRecord): PracticeMaterial | null {
   const kind = text(row.assignment_type); if (kind !== 'worksheet' && kind !== 'exam') return null;
