@@ -1,9 +1,9 @@
 import { requireSupabase } from '@/lib/supabase';
 import { canonicalSubjectKey, canonicalSubjectLabel } from '@/lib/subjects';
 import type { ClassioRecord } from '@/services/classio-data';
+import { rosterCandidates, type RosterCandidate } from '@/lib/roster-match';
 
-export type RosterCandidate = { id: string; student: string; email: string; match: 'email' | 'name' };
-export type TeacherConnection = ClassioRecord & { student_name: string; student_email: string; subjects: ClassioRecord[]; roster_candidates: RosterCandidate[] };
+export type TeacherConnection = ClassioRecord & { student_name: string; student_email: string; student_phone: string; subjects: ClassioRecord[]; roster_candidates: RosterCandidate[] };
 export type StudentLearningWorkspace = { assignments: ClassioRecord[]; attempts: ClassioRecord[]; reviews: ClassioRecord[]; programs: ClassioRecord[]; progress: ClassioRecord[]; topics: ClassioRecord[]; recommendationEvents: ClassioRecord[]; proactiveCompletedResources?: { kind: string; id: string }[] };
 
 async function completedProactiveResources(studentUserId: string): Promise<{ kind: string; id: string }[]> {
@@ -21,18 +21,17 @@ async function completedProactiveResources(studentUserId: string): Promise<{ kin
 
 async function currentUserId() { const { data, error } = await requireSupabase().auth.getUser(); if (error || !data.user) throw error ?? new Error('Your session has expired.'); return data.user.id; }
 function cleanScopes(value: unknown): { subject_key: string; subject_label: string }[] { if (!Array.isArray(value)) return []; const unique = new Map<string, { subject_key: string; subject_label: string }>(); value.forEach((item) => { const raw = typeof item === 'string' ? item : item && typeof item === 'object' ? String((item as Record<string, unknown>).subject_key || (item as Record<string, unknown>).subject_label || '') : ''; if (!raw.trim()) return; const key = canonicalSubjectKey(raw); unique.set(key, { subject_key: key, subject_label: canonicalSubjectLabel(raw) }); }); return [...unique.values()]; }
-function normalized(value: unknown) { return String(value || '').trim().toLocaleLowerCase(); }
 
 export async function getTeacherConnections(): Promise<TeacherConnection[]> {
   const client = requireSupabase(); const uid = await currentUserId(); const [links, subjects, roster] = await Promise.all([
     client.from('teacher_student_links').select('id,teacher_id,student_id,requested_by,requested_subjects,request_note,status,responded_at,archived_at,created_at,updated_at').eq('teacher_id', uid).order('created_at', { ascending: false }).limit(1000),
     client.from('teacher_student_subjects').select('id,link_id,student_id,subject_key,subject_label,status,activated_at,deactivated_at').eq('teacher_id', uid).limit(2000),
-    client.from('students').select('id,student,email,linked_student_user_id').eq('user_id', uid).limit(1000),
+    client.from('students').select('id,student,email,phone,linked_student_user_id').eq('user_id', uid).limit(1000),
   ]); if (links.error || subjects.error || roster.error) throw links.error ?? subjects.error ?? roster.error;
-  const ids = (links.data ?? []).map((row) => String(row.student_id)); let profiles: { user_id: string; display_name?: string; username?: string; email?: string }[] = [];
-  if (ids.length) { const result = await client.from('profiles').select('user_id,display_name,username,email').in('user_id', ids); if (!result.error) profiles = result.data ?? []; }
+  const ids = (links.data ?? []).map((row) => String(row.student_id)); let profiles: { user_id: string; display_name?: string; username?: string; email?: string; phone_number?: string }[] = [];
+  if (ids.length) { const result = await client.from('profiles').select('user_id,display_name,username,email,phone_number').in('user_id', ids); if (!result.error) profiles = result.data ?? []; }
   const profileMap = new Map(profiles.map((row) => [String(row.user_id), row])); const rosterMap = new Map((roster.data ?? []).filter((row) => row.linked_student_user_id).map((row) => [String(row.linked_student_user_id), row]));
-  return (links.data ?? []).map((row) => { const profile = profileMap.get(String(row.student_id)); const localStudent = rosterMap.get(String(row.student_id)); const studentName = String(profile?.display_name || profile?.username || localStudent?.student || profile?.email?.split('@')[0] || 'Student'); const studentEmail = String(profile?.email || localStudent?.email || ''); const candidates = (roster.data ?? []).flatMap((candidate) => { if (candidate.linked_student_user_id && String(candidate.linked_student_user_id) !== String(row.student_id)) return []; const emailMatch = Boolean(normalized(studentEmail) && normalized(candidate.email) === normalized(studentEmail)); const nameMatch = normalized(candidate.student) === normalized(studentName); return emailMatch || nameMatch ? [{ id: String(candidate.id), student: String(candidate.student || 'Student'), email: String(candidate.email || ''), match: emailMatch ? 'email' as const : 'name' as const }] : []; }); const canonicalSubjects = new Map<string, ClassioRecord>(); (subjects.data ?? []).filter((scope) => String(scope.link_id) === String(row.id)).forEach((scope) => { const key = canonicalSubjectKey(scope.subject_key || scope.subject_label); canonicalSubjects.set(key, { ...(scope as unknown as ClassioRecord), subject_key: key, subject_label: canonicalSubjectLabel(scope.subject_label || scope.subject_key) }); }); return { ...(row as unknown as ClassioRecord), requested_subjects: cleanScopes(row.requested_subjects), student_name: studentName, student_email: studentEmail, subjects: [...canonicalSubjects.values()], roster_candidates: candidates } as TeacherConnection; });
+  return (links.data ?? []).map((row) => { const profile = profileMap.get(String(row.student_id)); const localStudent = rosterMap.get(String(row.student_id)); const studentName = String(profile?.display_name || profile?.username || localStudent?.student || profile?.email?.split('@')[0] || 'Student'); const studentEmail = String(profile?.email || localStudent?.email || ''); const studentPhone = String(profile?.phone_number || localStudent?.phone || ''); const candidates = rosterCandidates(roster.data ?? [], { id: String(row.student_id), name: studentName, email: studentEmail, phone: studentPhone }); const canonicalSubjects = new Map<string, ClassioRecord>(); (subjects.data ?? []).filter((scope) => String(scope.link_id) === String(row.id)).forEach((scope) => { const key = canonicalSubjectKey(scope.subject_key || scope.subject_label); canonicalSubjects.set(key, { ...(scope as unknown as ClassioRecord), subject_key: key, subject_label: canonicalSubjectLabel(scope.subject_label || scope.subject_key) }); }); return { ...(row as unknown as ClassioRecord), requested_subjects: cleanScopes(row.requested_subjects), student_name: studentName, student_email: studentEmail, student_phone: studentPhone, subjects: [...canonicalSubjects.values()], roster_candidates: candidates } as TeacherConnection; });
 }
 
 export async function getProgramAssignmentTargets(): Promise<TeacherConnection[]> {
@@ -40,14 +39,14 @@ export async function getProgramAssignmentTargets(): Promise<TeacherConnection[]
   const uid = await currentUserId();
   const [connections, roster] = await Promise.all([
     getTeacherConnections(),
-    client.from('students').select('id,student,email,linked_student_user_id').eq('user_id', uid).order('student').limit(1000),
+    client.from('students').select('id,student,email,phone,linked_student_user_id').eq('user_id', uid).order('student').limit(1000),
   ]);
   if (roster.error) throw roster.error;
   return [
     ...connections.filter((row) => String(row.status) === 'active'),
     ...(roster.data ?? []).filter((row) => !row.linked_student_user_id).map((row) => ({
       id: `roster:${row.id}`, teacher_id: uid, student_id: row.linked_student_user_id || '',
-      roster_student_id: row.id, student_name: String(row.student || ''), student_email: String(row.email || ''),
+      roster_student_id: row.id, student_name: String(row.student || ''), student_email: String(row.email || ''), student_phone: String(row.phone || ''),
       status: 'active', subjects: [], roster_candidates: [],
     } as TeacherConnection)),
   ];
@@ -57,14 +56,21 @@ export async function respondToTeacherConnection(connection: TeacherConnection, 
   const client = requireSupabase(); const uid = await currentUserId(); const now = new Date().toISOString();
   if (!accept) { const { error } = await client.from('teacher_student_links').update({ status: 'rejected', responded_at: now, responded_by: uid, updated_at: now }).eq('id', connection.id).eq('teacher_id', uid); if (error) throw error; return; }
   const requestedScopes = cleanScopes(connection.requested_subjects); const allowed = new Set(selectedSubjectKeys?.length ? selectedSubjectKeys : requestedScopes.map((scope) => scope.subject_key)); const scopes = requestedScopes.filter((scope) => allowed.has(scope.subject_key)); if (!scopes.length) throw new Error('Select at least one subject before accepting this request.');
+  // Resolve against fresh roster data. A stale client must not create a second student.
+  const { data: currentRoster, error: matchError } = await client.from('students').select('id,student,email,phone,linked_student_user_id').eq('user_id', uid).limit(1000);
+  if (matchError) throw matchError;
+  const matches = rosterCandidates(currentRoster ?? [], { id: String(connection.student_id), name: connection.student_name, email: connection.student_email, phone: connection.student_phone });
+  if (rosterId && !matches.some((candidate) => candidate.id === rosterId)) throw new Error('students.rosterMatchRequired');
+  if (!rosterId && matches.length > 1) throw new Error('students.rosterMatchRequired');
+  const resolvedRosterId = rosterId || matches[0]?.id;
   const { data: activated, error: linkError } = await client.from('teacher_student_links').update({ status: 'active', responded_at: now, responded_by: uid, archived_at: null, updated_at: now }).eq('id', connection.id).eq('teacher_id', uid).eq('status', 'pending').select('id').maybeSingle();
   if (linkError || !activated) throw linkError ?? new Error('The connection request is no longer pending. Refresh the list.');
   try {
     const subjectRows = scopes.map((scope) => ({ link_id: connection.id, teacher_id: uid, student_id: connection.student_id, subject_key: scope.subject_key, subject_label: scope.subject_label, status: 'active', activated_at: now, deactivated_at: null, updated_at: now })); const { error: scopeError } = await client.from('teacher_student_subjects').upsert(subjectRows, { onConflict: 'link_id,subject_key' }); if (scopeError) throw scopeError;
     const query = client.from('students').select('id,student_source,linked_student_user_id').eq('user_id', uid);
-    const { data: existing, error: rosterError } = rosterId ? await query.eq('id', rosterId).maybeSingle() : await query.eq('linked_student_user_id', connection.student_id).maybeSingle();
+    const { data: existing, error: rosterError } = resolvedRosterId ? await query.eq('id', resolvedRosterId).maybeSingle() : await query.eq('linked_student_user_id', connection.student_id).maybeSingle();
     if (rosterError) throw rosterError;
-    if (rosterId && !existing) throw new Error('The selected student record is no longer available. Refresh the list.');
+    if (resolvedRosterId && !existing) throw new Error('The selected student record is no longer available. Refresh the list.');
     if (existing?.linked_student_user_id && existing.linked_student_user_id !== connection.student_id) throw new Error('The selected student record belongs to another account.');
     if (existing) {
       const source = existing.student_source === 'classio_link' ? 'classio_link' : 'classio_linked_existing';
