@@ -110,6 +110,7 @@
     {"name": "versioned_legal_acceptance.sql", "sha256": "617906630b2d31fd38372ba5ac810e1e0e33404d1400aa68fc79df6608de41d1"},
     {"name": "retain_multilingual_legal_acceptances.sql", "sha256": "8e4f371c63c2b03550223798957bda34f4f41a02ee378d50274b209c9e9385bc"},
     {"name": "classio_help_privacy_security_intake.sql", "sha256": "d604ba0118fd676975e06d719752618a70860b9d9ff4e8cd4ced60deede51d35"},
-    {"name": "transfer_teacher_student_roster_link.sql", "sha256": "760889a8642c5fe0fc96da90cac6abda1c1fe7e3e617d31359320e90a8fbfd2c"}
+    {"name": "transfer_teacher_student_roster_link.sql", "sha256": "760889a8642c5fe0fc96da90cac6abda1c1fe7e3e617d31359320e90a8fbfd2c"},
+    {"name": "fix_roster_program_link_text_uuid.sql", "sha256": "2c07974e44e757d34ee7deb85b09d7859f714af9fd7fe271e62c02c8d75b7b96"}
   ]
 }
