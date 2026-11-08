@@ -57,13 +57,29 @@ export async function respondToTeacherConnection(connection: TeacherConnection, 
   const client = requireSupabase(); const uid = await currentUserId(); const now = new Date().toISOString();
   if (!accept) { const { error } = await client.from('teacher_student_links').update({ status: 'rejected', responded_at: now, responded_by: uid, updated_at: now }).eq('id', connection.id).eq('teacher_id', uid); if (error) throw error; return; }
   const requestedScopes = cleanScopes(connection.requested_subjects); const allowed = new Set(selectedSubjectKeys?.length ? selectedSubjectKeys : requestedScopes.map((scope) => scope.subject_key)); const scopes = requestedScopes.filter((scope) => allowed.has(scope.subject_key)); if (!scopes.length) throw new Error('Select at least one subject before accepting this request.');
-  const { error: linkError } = await client.from('teacher_student_links').update({ status: 'active', responded_at: now, responded_by: uid, archived_at: null, updated_at: now }).eq('id', connection.id).eq('teacher_id', uid); if (linkError) throw linkError;
+  const { data: activated, error: linkError } = await client.from('teacher_student_links').update({ status: 'active', responded_at: now, responded_by: uid, archived_at: null, updated_at: now }).eq('id', connection.id).eq('teacher_id', uid).eq('status', 'pending').select('id').maybeSingle();
+  if (linkError || !activated) throw linkError ?? new Error('The connection request is no longer pending. Refresh the list.');
   try {
     const subjectRows = scopes.map((scope) => ({ link_id: connection.id, teacher_id: uid, student_id: connection.student_id, subject_key: scope.subject_key, subject_label: scope.subject_label, status: 'active', activated_at: now, deactivated_at: null, updated_at: now })); const { error: scopeError } = await client.from('teacher_student_subjects').upsert(subjectRows, { onConflict: 'link_id,subject_key' }); if (scopeError) throw scopeError;
-    const existing = rosterId ? { data: [{ id: rosterId }], error: null } : await client.from('students').select('id').eq('user_id', uid).eq('linked_student_user_id', connection.student_id).limit(1); if (existing.error) throw existing.error;
-    if (existing.data?.[0]) { const { error } = await client.from('students').update({ linked_student_user_id: connection.student_id, teacher_student_link_id: connection.id, linked_at: now, student_source: 'teacher_student_link' }).eq('id', existing.data[0].id).eq('user_id', uid); if (error) throw error; }
-    else { const { error } = await client.from('students').insert({ user_id: uid, student: connection.student_name, email: connection.student_email, linked_student_user_id: connection.student_id, teacher_student_link_id: connection.id, linked_at: now, student_source: 'teacher_student_link' }); if (error) throw error; }
-  } catch (error) { await client.from('teacher_student_links').update({ status: 'pending', responded_at: null, responded_by: null, updated_at: now }).eq('id', connection.id).eq('teacher_id', uid); throw error; }
+    const query = client.from('students').select('id,student_source,linked_student_user_id').eq('user_id', uid);
+    const { data: existing, error: rosterError } = rosterId ? await query.eq('id', rosterId).maybeSingle() : await query.eq('linked_student_user_id', connection.student_id).maybeSingle();
+    if (rosterError) throw rosterError;
+    if (rosterId && !existing) throw new Error('The selected student record is no longer available. Refresh the list.');
+    if (existing?.linked_student_user_id && existing.linked_student_user_id !== connection.student_id) throw new Error('The selected student record belongs to another account.');
+    if (existing) {
+      const source = existing.student_source === 'classio_link' ? 'classio_link' : 'classio_linked_existing';
+      const { data, error } = await client.from('students').update({ linked_student_user_id: connection.student_id, teacher_student_link_id: connection.id, linked_at: now, student_source: source }).eq('id', existing.id).eq('user_id', uid).select('id').maybeSingle();
+      if (error || !data) throw error ?? new Error('The student record could not be linked.');
+    } else {
+      const { error } = await client.from('students').insert({ user_id: uid, student: connection.student_name, email: connection.student_email, linked_student_user_id: connection.student_id, teacher_student_link_id: connection.id, linked_at: now, student_source: 'classio_link' });
+      if (error) throw error;
+    }
+  } catch (error) {
+    const { error: scopeRollbackError } = await client.from('teacher_student_subjects').update({ status: 'archived', deactivated_at: now, updated_at: now }).eq('link_id', connection.id).eq('teacher_id', uid);
+    const { error: linkRollbackError } = await client.from('teacher_student_links').update({ status: 'pending', responded_at: null, responded_by: null, updated_at: now }).eq('id', connection.id).eq('teacher_id', uid).eq('status', 'active');
+    if (scopeRollbackError || linkRollbackError) console.error('Teacher connection rollback failed', { scopes: Boolean(scopeRollbackError), link: Boolean(linkRollbackError) });
+    throw error;
+  }
 }
 
 export async function archiveTeacherConnection(connection: TeacherConnection) { const client = requireSupabase(); const uid = await currentUserId(); const now = new Date().toISOString(); const { error } = await client.from('teacher_student_links').update({ status: 'archived', archived_at: now, updated_at: now }).eq('id', connection.id).eq('teacher_id', uid); if (error) throw error; const { error: subjectError } = await client.from('teacher_student_subjects').update({ status: 'archived', deactivated_at: now, updated_at: now }).eq('link_id', connection.id).eq('teacher_id', uid); if (subjectError) throw subjectError; }
