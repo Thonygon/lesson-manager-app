@@ -119,6 +119,11 @@ jobs:
       - name: Verify first-login legal acceptance gate
         run: node scripts/check-choose-role-legal-gate.cjs
 
+      - name: Verify document options and teacher record translations
+        run: |
+          node scripts/check-document-student-copy.cjs
+          node scripts/check-teacher-record-copy.cjs
+
       - name: Validate help screenshot boundaries
         run: |
           node scripts/check-help-center.cjs

@@ -6,6 +6,7 @@ import { classioThemeCss } from '@/theme';
 import { analyticsPageTranslations } from '@/lib/analytics-page-copy';
 import { brandingTranslations } from '@/lib/branding-copy';
 import { helpTranslations } from '@/lib/help-copy';
+import { teacherRecordTranslations } from '@/lib/teacher-record-copy';
 
 export type AppLanguage = 'en' | 'es' | 'tr';
 export type ThemePreference = 'auto' | 'light' | 'dark';
@@ -786,3 +787,6 @@ Object.assign(tr, { 'auth.selectRole': 'Bu çalışma alanını seç', 'legal.st
 Object.assign(en, { 'account.signOutFailed': 'Could not sign out. Try again.' });
 Object.assign(es, { 'account.signOutFailed': 'No se pudo cerrar sesión. Inténtalo de nuevo.' });
 Object.assign(tr, { 'account.signOutFailed': 'Çıkış yapılamadı. Yeniden deneyin.' });
+Object.assign(en, teacherRecordTranslations.en);
+Object.assign(es, teacherRecordTranslations.es);
+Object.assign(tr, teacherRecordTranslations.tr);
