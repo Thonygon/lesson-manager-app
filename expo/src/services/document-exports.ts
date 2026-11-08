@@ -319,7 +319,7 @@ function numberedOption(value: unknown, index: number): string {
   const letter = String.fromCharCode(65 + index);
   // Generated options can already include their letter. Remove only the letter
   // corresponding to this position; other leading text may be meaningful.
-  const label = new RegExp(`^(?:${letter}[.)]\\s*)+`, 'i');
+  const label = new RegExp(`^(?:(?:${letter}[.)]|\\(${letter}\\))\\s*)+`, 'i');
   return `   ${letter}) ${String(value ?? '').trim().replace(label, '').trim()}`;
 }
 

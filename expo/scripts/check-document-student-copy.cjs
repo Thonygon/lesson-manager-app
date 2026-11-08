@@ -43,7 +43,7 @@ for (const answer of ['Frozen water', 'It holds its shape.', 'Accept snow.', 'On
 assert.ok(student.includes('Name a solid.'));
 assert.ok(student.includes('A gas'));
 assert.ok(!student.includes('Is Correct'));
-const labelledExam = loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'multiple_choice', questions: [{ prompt: 'Choose one.', options: ['a) alegre', 'b) tranquilo', 'C. enfadado'] }] }] } }, 'student');
+const labelledExam = loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'multiple_choice', questions: [{ prompt: 'Choose one.', options: ['a) alegre', '(B) tranquilo', 'C. enfadado'] }] }] } }, 'student');
 assert.deepEqual(labelledExam[0].lines.filter((line) => /^\s+[A-C]\)/.test(line)), ['   A) alegre', '   B) tranquilo', '   C) enfadado']);
 assert.ok(keyOnly.includes('Frozen water'));
 assert.ok(!keyOnly.includes('Name a solid.'));
