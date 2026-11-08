@@ -315,6 +315,14 @@ function withoutQuestionNumber(value: string): string {
   return value.trim().replace(/^(?:\d{1,3}[.)]\s+)+/, '').trim();
 }
 
+function numberedOption(value: unknown, index: number): string {
+  const letter = String.fromCharCode(65 + index);
+  // Generated options can already include their letter. Remove only the letter
+  // corresponding to this position; other leading text may be meaningful.
+  const label = new RegExp(`^(?:${letter}[.)]\\s*)+`, 'i');
+  return `   ${letter}) ${String(value ?? '').trim().replace(label, '').trim()}`;
+}
+
 function examSections(detail: Record<string, unknown>, variant: ResourceVariant, locale: DocumentLocale): ReportSection[] | null {
   const exam = Object.keys(record(detail.exam_data)).length ? record(detail.exam_data) : detail;
   const sections = list(exam.sections).map(record).filter((section) => Object.keys(section).length);
@@ -356,7 +364,7 @@ function examSections(detail: Record<string, unknown>, variant: ResourceVariant,
           : String(row.stem || row.text || row.question || row.sentence || row.prompt || row.original || '');
         if (prompt.trim()) lines.push(`${questionIndex + 1}. ${sectionType === 'fill_in_blank' ? withoutQuestionNumber(prompt).replaceAll('___', '______________') : withoutQuestionNumber(prompt)}`);
         for (const [optionIndex, option] of list(row.options).entries()) {
-          lines.push(`   ${String.fromCharCode(65 + optionIndex)}) ${String(option)}`);
+          lines.push(numberedOption(option, optionIndex));
         }
         const responseTypes = ['short_answer', 'reading_comprehension', 'writing_prompt', 'problem_solving', 'equation_solving', 'word_problems', 'data_analysis', 'classification', 'process_explanation', 'hypothesis_and_conclusion', 'diagram_questions', 'theory_questions', 'symbol_identification', 'rhythm_counting', 'terminology', 'composer_period_matching', 'show_your_work', 'vocabulary', 'sentence_transformation', 'error_correction', 'table_interpretation'];
         if (prompt.trim() && responseTypes.includes(sectionType)) lines.push(...Array(sectionType === 'writing_prompt' || sectionType === 'show_your_work' ? 5 : 2).fill('_'.repeat(50)));
@@ -437,7 +445,7 @@ function worksheetSections(detail: Record<string, unknown>, variant: ResourceVar
           const row = record(question);
           const prompt = typeof question === 'string' ? question : String(row.prompt || row.stem || row.question || row.text || row.sentence || '');
           if (prompt.trim()) { lines.push(`${questionIndex + 1}. ${withoutQuestionNumber(prompt)}`); if (['short_answer', 'reading_comprehension'].includes(String(worksheet.worksheet_type || section.type))) lines.push('____________________________________________', '____________________________________________'); else if (String(worksheet.worksheet_type || section.type) === 'error_correction') lines.push(`${{ en: 'Correction', es: 'Corrección', tr: 'Düzeltme' }[locale]}: _____________________`); }
-          for (const [optionIndex, option] of list(row.options).entries()) lines.push(`   ${String.fromCharCode(65 + optionIndex)}) ${String(option)}`);
+          for (const [optionIndex, option] of list(row.options).entries()) lines.push(numberedOption(option, optionIndex));
         }
         if (lines.length) output.push({ heading: String(section.title || `${copy.questions} ${sectionIndex + 1}`), lines });
       }
@@ -462,7 +470,7 @@ function worksheetSections(detail: Record<string, unknown>, variant: ResourceVar
         const prompt = typeof item === 'string' ? item : String(row.stem || row.question || row.prompt || row.text || row.sentence || '');
         const trueFalse = locale === 'es' ? '   [ ] Verdadero   [ ] Falso' : locale === 'tr' ? '   [ ] Doğru   [ ] Yanlış' : '   [ ] True   [ ] False';
         if (prompt.trim()) { lines.push(`${index + 1}. ${withoutQuestionNumber(prompt)}${worksheet.worksheet_type === 'true_false' ? trueFalse : ''}`); if (['short_answer', 'reading_comprehension'].includes(String(worksheet.worksheet_type))) lines.push('____________________________________________', '____________________________________________'); if (worksheet.worksheet_type === 'error_correction') lines.push(`${{ en: 'Correction', es: 'Corrección', tr: 'Düzeltme' }[locale]}: _____________________`); }
-        for (const [optionIndex, option] of list(row.options).entries()) lines.push(`   ${String.fromCharCode(65 + optionIndex)}) ${String(option)}`);
+        for (const [optionIndex, option] of list(row.options).entries()) lines.push(numberedOption(option, optionIndex));
       }
       const table = worksheet.worksheet_type === 'true_false' ? items.map((item, index) => {
         const row = record(item);

@@ -43,6 +43,8 @@ for (const answer of ['Frozen water', 'It holds its shape.', 'Accept snow.', 'On
 assert.ok(student.includes('Name a solid.'));
 assert.ok(student.includes('A gas'));
 assert.ok(!student.includes('Is Correct'));
+const labelledExam = loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'multiple_choice', questions: [{ prompt: 'Choose one.', options: ['a) alegre', 'b) tranquilo', 'C. enfadado'] }] }] } }, 'student');
+assert.deepEqual(labelledExam[0].lines.filter((line) => /^\s+[A-C]\)/.test(line)), ['   A) alegre', '   B) tranquilo', '   C) enfadado']);
 assert.ok(keyOnly.includes('Frozen water'));
 assert.ok(!keyOnly.includes('Name a solid.'));
 assert.ok(teacher.includes('Matter'));
@@ -81,6 +83,8 @@ assert.ok(!worksheetStudent.includes('Teacher hint'));
 assert.ok(!worksheetStudent.includes('Is Correct'));
 assert.ok(!worksheetStudent.includes('Hello'));
 assert.ok(worksheetTeacher.includes('Hello'));
+const labelledWorksheet = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'multiple_choice', multiple_choice_items: [{ prompt: 'Choose one.', options: ['A) red', 'b. blue'] }] } }, 'student');
+assert.deepEqual(labelledWorksheet[0].lines.filter((line) => /^\s+[A-B]\)/.test(line)), ['   A) red', '   B) blue']);
 const matching = { worksheet_json: { worksheet_type: 'matching', instructions: 'Connect each pair.', matching_pairs: [{ left: 'Hola', right: 'Hello' }, { left: 'Adiós', right: 'Goodbye' }], answer_key: '1. Hola → Hello\n2. Adiós → Goodbye' } };
 const matchingStudent = loaded.exports.resourceSections(matching, 'student');
 const matchingTeacher = loaded.exports.resourceSections(matching, 'teacher');
