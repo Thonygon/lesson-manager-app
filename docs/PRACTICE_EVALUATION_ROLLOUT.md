@@ -21,9 +21,9 @@
 
 ## Despliegue y verificación
 
-1. Aplicar `streamlit/migrations/practice_pending_review.sql` y registrar su checksum en `app_schema_migrations`; verificar las columnas y funciones antes de publicar Expo.
+1. Aplicar `streamlit/migrations/practice_pending_review.sql` y después `streamlit/migrations/practice_pending_review_weighted_fix.sql`, registrando ambos checksums en `app_schema_migrations`; verificar las columnas y funciones antes de publicar Expo. La segunda migración conserva la ponderación por palabra de las sopas de letras durante la revisión y registra `completed_at` cuando se publica la nota.
 2. Publicar Expo y comprobar typecheck, lint, export web y el fixture de respuestas equivalentes/negadas. No se activa ningún proveedor adicional de IA.
 3. Beta en vivo: respuesta exacta; variante aceptada; «He is Alex» frente a «His name is Alex»; respuesta con negación; pregunta cerrada incorrecta; tarea con mezcla de preguntas; revisión docente completa; práctica independiente sin profesor; solicitud voluntaria de revisión; historial y misión; recalificación de clave antigua. Comprobar que ni notas parciales ni respuestas pendientes alimentan la precisión de recomendaciones.
 4. Revertir la publicación de Expo si falla el flujo. La migración es aditiva para datos existentes; el rollback de las funciones debe prepararse con sus definiciones previas y requiere revisión de los intentos creados con estados nuevos. No borrar las columnas con datos de revisión.
 
-**Estado al 09-11-2026:** implementación de código y pruebas locales dirigidas completas; migración ensayada de forma reversible y aplicada en Supabase producción con checksum verificado. Publicación de Expo y pruebas beta en vivo pendientes. No interpretar este estado como activación en la interfaz.
+**Estado al 09-11-2026:** implementación de código y pruebas locales dirigidas completas; ambas migraciones se ensayaron de forma reversible y se aplicaron en Supabase producción con checksums registrados. El ensayo de la función ponderada devolvió 2/3 para dos palabras halladas de tres. Publicación de Expo y pruebas beta en vivo pendientes. No interpretar este estado como activación en la interfaz.
