@@ -30,6 +30,8 @@ function Editor({ row, plans, staffRoles, reload }: { row: Row; plans: Row[]; st
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [tone, setTone] = useState<'success' | 'error'>('error');
+  const [usageRevision, setUsageRevision] = useState(0);
+  const reloadAccount = async () => { await reload(); setUsageRevision((current) => current + 1); };
   const hasStaffRole = staffRoles.some((staff) => text(staff.user_id) === text(row.user_id) && staff.is_active === true);
   const modes = [...(canTeach ? ['teacher'] : []), ...(canStudy ? ['student'] : []), ...(role === 'admin' ? ['admin'] : []), ...(role === 'admin' || hasStaffRole ? ['developer_workspace'] : [])];
   const selectedMode = modes.includes(activeMode) ? activeMode : modes[0] || '';
@@ -38,7 +40,7 @@ function Editor({ row, plans, staffRoles, reload }: { row: Row; plans: Row[]; st
     setBusy(true); setMessage('');
     try {
       await performAdminAction({ action: 'user_update', userId: row.user_id, name, email, role, canTeach, canStudy, activeMode: selectedMode, accountStatus, planId, subscriptionStatus, notes, reason }, language);
-      await reload();
+      await reloadAccount();
       setTone('success'); setMessage(t('admin.userUpdated')); setConfirmed(false);
     } catch (error) { setTone('error'); setMessage(error instanceof Error ? error.message : t('admin.actionFailed')); }
     finally { setBusy(false); }
@@ -63,7 +65,7 @@ function Editor({ row, plans, staffRoles, reload }: { row: Row; plans: Row[]; st
     <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: confirmed }} onPress={() => setConfirmed(!confirmed)} style={styles.confirm}><Text style={styles.mark}>{confirmed ? '☑' : '☐'}</Text><Text style={styles.confirmText}>{t('admin.confirmUserEdit')}</Text></Pressable>
     <Button disabled={busy || !confirmed || !reason.trim() || !selectedMode || !email.trim()} onPress={() => void save()}>{busy ? t('common.saving') : t('admin.saveAccess')}</Button>
     <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={tone} />
-  </Panel><AdminConsumptionPanel userId={text(row.user_id)} plans={plans} /><AdminAccountResetPanel userId={text(row.user_id)} initialNotes={text(row.admin_notes)} reload={reload} /></View>;
+  </Panel><AdminConsumptionPanel userId={text(row.user_id)} plans={plans} refreshRevision={usageRevision} /><AdminAccountResetPanel userId={text(row.user_id)} initialNotes={text(row.admin_notes)} reload={reloadAccount} /></View>;
 }
 
 export function AdminUserEditor({ profiles, plans, staffRoles, reload }: { profiles: Row[]; plans: Row[]; staffRoles: Row[]; reload: () => Promise<void> }) {
