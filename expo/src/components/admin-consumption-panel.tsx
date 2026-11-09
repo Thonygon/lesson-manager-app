@@ -7,17 +7,17 @@ import { getAdminConsumption, type ConsumptionDetail, type ConsumptionPeriod } f
 import { useAppPreferences } from '@/providers/app-preferences';
 import { colors } from '@/theme';
 
-export function AdminConsumptionPanel({ userId, plans }: { userId: string; plans: Record<string, unknown>[] }) {
+export function AdminConsumptionPanel({ userId, plans, refreshRevision = 0 }: { userId: string; plans: Record<string, unknown>[]; refreshRevision?: number }) {
   const { t } = useAppPreferences();
   const [detail, setDetail] = useState<ConsumptionDetail | null>(null);
   const [error, setError] = useState('');
   const [period, setPeriod] = useState<ConsumptionPeriod['label']>('month');
   useEffect(() => {
     let active = true;
-    void getAdminConsumption(userId).then((result) => { if (active) setDetail(result); })
+    void getAdminConsumption(userId).then((result) => { if (active) { setDetail(result); setError(''); } })
       .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : t('admin.usageUnavailable')); });
     return () => { active = false; };
-  }, [userId, t]);
+  }, [userId, refreshRevision, t]);
   if (error) return <Panel><Text style={styles.error}>{error}</Text></Panel>;
   if (!detail) return <Panel><LoadingState /></Panel>;
   const current = detail.summary.periods.find((item) => item.label === period);
