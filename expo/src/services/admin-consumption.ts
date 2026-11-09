@@ -22,7 +22,7 @@ export async function getAdminConsumption(userId: string): Promise<ConsumptionDe
   return await request(`/api/admin-consumption?userId=${encodeURIComponent(userId)}`) as ConsumptionDetail;
 }
 
-export type CountryVisits = { code: string; sessions: number };
+export type CountryVisits = { code: string; sessions: number; recentSessions?: number };
 export async function getAdminGeography(): Promise<{ asOf: string; countries: CountryVisits[] }> {
   return await request('/api/admin-consumption?view=geography') as { asOf: string; countries: CountryVisits[] };
 }
