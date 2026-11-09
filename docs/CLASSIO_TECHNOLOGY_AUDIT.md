@@ -1,5 +1,9 @@
 # Auditoría tecnológica de Classio
 
+## Corrección de respuestas abiertas — 09-11-2026
+
+**Código y SQL cerrados; publicación y beta pendientes.** El motor Expo mantiene la clave de respuestas para coincidencias exactas y variantes explícitas; una respuesta libre distinta queda `pending_review` en tareas asignadas o `unassessed` en práctica independiente. El docente debe decidir cada respuesta pendiente antes de publicar una nota. La entrega y la solicitud de revisión se guardan en una transacción; progreso, recomendaciones e historial distinguen lo evaluado de lo no evaluado. Las nuevas generaciones reciben la instrucción de tratar la clave como modelo y proponer variantes correctas. Véase [plan y matriz de aceptación](PRACTICE_EVALUATION_ROLLOUT.md). `practice_pending_review.sql` se ensayó con `ROLLBACK`, se aplicó en Supabase producción, se registró su checksum y se comprobaron cuatro columnas y cinco RPC. **Pendiente en vivo del titular:** respuestas equivalentes, negadas, mezcla de tipos, revisión docente, alumno sin docente, historial, misiones y recalificación de clave. Las puntuaciones históricas no se reescriben.
+
 ## Admin de soporte y consumo — revisión de código 09-11-2026
 
 **Despliegue del cierre acotado, 09-11-2026:** PR #161 fusionada (`68b352434`), CI Expo/Streamlit/supply-chain verde (`42572358150`), Expo Hosting `classio--gl7h927bry.expo.app` en producción. Sitio `/privacy/en/app/` y app `/admin` respondieron 200; APIs Admin y visita sin token, 401. Migración y checksum verificados; agregados de mes/año/histórico probados con ID sintético sin datos. **Pendiente en vivo:** comportamiento, cifras, búsqueda global y permisos con cuentas beta. La integración Streamlit–`public.plans` debe comprobarse después de la caché; no hay checkout SaaS activo.

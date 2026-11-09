@@ -6,9 +6,9 @@ import { aggregatePracticeProgress, practiceSessionScorePct } from '@/services/s
 import { canonicalChoice, canonicalTrueFalse, choiceIndex, normalizePracticeAnswer } from '@/services/student-practice-answer-normalization';
 
 export type WordSearchPlacement = { word: string; coords: [number, number][] };
-export type PracticeQuestion = { prompt: string; options: string[]; answer: string; exerciseIndex: number; questionIndex: number; exerciseType: string; sectionTitle: string; instructions: string; sourceText: string; visualSupportUrl?: string; vocabularyBank?: string[]; grid?: string[][]; words?: string[]; placements?: WordSearchPlacement[] };
+export type PracticeQuestion = { prompt: string; options: string[]; answer: string; acceptedAnswers?: string[]; exerciseIndex: number; questionIndex: number; exerciseType: string; sectionTitle: string; instructions: string; sourceText: string; visualSupportUrl?: string; vocabularyBank?: string[]; grid?: string[][]; words?: string[]; placements?: WordSearchPlacement[] };
 export type PracticeMaterial = { title: string; sourceType: 'worksheet' | 'exam'; sourceId: string; assignmentId?: string; teacherId?: string; learningProgramAssignmentId?: number; subject: string; topic: string; stage: string; level: string; raw: Record<string, unknown>; questions: PracticeQuestion[] };
-export type PracticeResult = { sessionId: string; total: number; correct: number; score: number; xp: number; bestStreak: number };
+export type PracticeResult = { sessionId: string; total: number; correct: number; score: number; xp: number; bestStreak: number; evaluatedCount: number; pendingCount: number; evaluationStatus: 'final' | 'pending_teacher' | 'unassessed'; answerEvaluations?: Record<string, { status: string; correct: boolean }> };
 export type VideoPracticeInput = { id: string; watchEventId: string; assignmentId?: string; teacherId?: string; title: string; subject: string; topic: string; stage: string; level: string; url: string };
 
 function record(value: unknown): Record<string, unknown> {
@@ -98,7 +98,7 @@ function addSection(target: PracticeQuestion[], section: Record<string, unknown>
     const first = record(questions[0]); const answerWords = wordSearchWords(answers[0] || first.words || section.vocabulary_bank); const rawGrid = firstNonEmptyList(first.grid, section.grid, section.word_search_grid); const storedGrid = rawGrid.map((row) => list(row).map((letter) => text(letter).toUpperCase())); const storedPlacements = firstNonEmptyList(first.placements, section.placements).map((value) => { const item = record(value); return { word: text(item.word).replace(/\s+/g, '').toUpperCase(), coords: list(item.coords).map((coord) => list(coord).map(Number).slice(0, 2) as [number, number]) }; }).filter((item) => item.word && item.coords.length); const generated = storedGrid.length && answerWords.length && storedPlacements.length ? { grid: storedGrid, words: answerWords, placements: storedPlacements } : generateWordSearch(answerWords, `${sectionIndex}:${answerWords.join('|')}`); target.push({ prompt: text(section.instructions || section.title), options: [], answer: JSON.stringify(generated.words), exerciseIndex: sectionIndex, questionIndex: 0, exerciseType: kind, sectionTitle: text(section.title), instructions: text(section.instructions), sourceText: text(section.source_text), visualSupportUrl: extractResourceImageUrl(section.visual_support), vocabularyBank: generated.words, ...generated }); return;
   }
   const rightChoices = questions.map((question) => text(record(question).right)).filter(Boolean); const matchingOptions = kind === 'matching' ? stableShuffle(rightChoices, `${sectionIndex}:${questions.map((question) => promptFor(kind, question)).join('|')}`) : [];
-  questions.forEach((question, questionIndex) => { const inlineAnswer = record(question).answer ?? record(question).correct_answer ?? record(question).correct ?? record(question).value; const itemOptions = optionsFor(kind, question); let answer = displayAnswer(answers[questionIndex] || inlineAnswer); if (kind === 'matching') { const reference = matchingReference(answer, rightChoices.length); answer = reference >= 0 ? rightChoices[reference] : displayAnswer(record(question).right) || answer; } else if (['multiple_choice', 'vocabulary'].includes(kind) && itemOptions.length) { const reference = matchingReference(answer, itemOptions.length); if (reference >= 0) answer = itemOptions[reference]; } target.push({ prompt: promptFor(kind, question), options: matchingOptions.length ? matchingOptions : itemOptions, answer, exerciseIndex: sectionIndex, questionIndex, exerciseType: kind, sectionTitle: text(section.title), instructions: text(section.instructions), sourceText: text(section.source_text || section.reading_passage), visualSupportUrl: extractResourceImageUrl(section.visual_support), vocabularyBank: list(section.vocabulary_bank).map(text).filter(Boolean) }); });
+  questions.forEach((question, questionIndex) => { const inlineAnswer = record(question).answer ?? record(question).correct_answer ?? record(question).correct ?? record(question).value; const itemOptions = optionsFor(kind, question); let answer = displayAnswer(answers[questionIndex] || inlineAnswer); if (kind === 'matching') { const reference = matchingReference(answer, rightChoices.length); answer = reference >= 0 ? rightChoices[reference] : displayAnswer(record(question).right) || answer; } else if (['multiple_choice', 'vocabulary'].includes(kind) && itemOptions.length) { const reference = matchingReference(answer, itemOptions.length); if (reference >= 0) answer = itemOptions[reference]; } target.push({ prompt: promptFor(kind, question), options: matchingOptions.length ? matchingOptions : itemOptions, answer, acceptedAnswers: list(record(question).accepted_answers).map(displayAnswer).filter(Boolean).slice(0, 8), exerciseIndex: sectionIndex, questionIndex, exerciseType: kind, sectionTitle: text(section.title), instructions: text(section.instructions), sourceText: text(section.source_text || section.reading_passage), visualSupportUrl: extractResourceImageUrl(section.visual_support), vocabularyBank: list(section.vocabulary_bank).map(text).filter(Boolean) }); });
 }
 function worksheetQuestions(ws: Record<string, unknown>) {
   const result: PracticeQuestion[] = []; const kind = text(ws.worksheet_type);
@@ -142,15 +142,19 @@ export async function loadPracticeReview(row: ClassioRecord) {
   // attempt readable even when automatic recalculation cannot be completed.
   const repairedCount = await repairVisiblePracticeHistory([String(row.id)]).catch(() => 0);
   if (repairedCount) {
-    const refreshed = await requireSupabase().from('practice_sessions').select('id,source_type,source_id,title,subject,topic,learner_stage,level,exercise_data,total_questions,correct_count,score_pct,xp_earned,best_streak,status').eq('id', row.id).maybeSingle();
+    const refreshed = await requireSupabase().from('practice_sessions').select('id,source_type,source_id,title,subject,topic,learner_stage,level,exercise_data,total_questions,correct_count,score_pct,xp_earned,best_streak,evaluated_count,pending_count,evaluation_status,status').eq('id', row.id).maybeSingle();
     if (!refreshed.error && refreshed.data) row = refreshed.data as ClassioRecord;
   }
   const material = materialFromSession(row); if (!material) throw new Error('This practice session can no longer be opened.');
   const client = requireSupabase(); const auth = await client.auth.getUser(); const uid = auth.data.user?.id; if (!uid) throw new Error('Your session has expired.');
-  const { data, error } = await client.from('practice_answers').select('exercise_idx,question_idx,student_answer').eq('session_id', Number(row.id)).eq('user_id', uid); if (error) throw error;
+  const { data, error } = await client.from('practice_answers').select('exercise_idx,question_idx,student_answer,is_correct,evaluation_status').eq('session_id', Number(row.id)).eq('user_id', uid); if (error) throw error;
   const answerMap = new Map((data ?? []).map((answer) => [`${answer.exercise_idx}:${answer.question_idx}`, text(answer.student_answer)]));
   const answers = Object.fromEntries(material.questions.map((question, index) => [String(index), answerMap.get(`${question.exerciseIndex}:${question.questionIndex}`) || '']));
-  const stored = { sessionId: text(row.id), total: Number(row.total_questions || 0), correct: Number(row.correct_count || 0), score: Number(row.score_pct || 0), xp: Number(row.xp_earned || 0), bestStreak: Number(row.best_streak || 0) } satisfies PracticeResult;
+  const answerEvaluations = Object.fromEntries(material.questions.map((question, index) => {
+    const saved = (data ?? []).find((answer) => answer.exercise_idx === question.exerciseIndex && answer.question_idx === question.questionIndex);
+    return [String(index), { status: text(saved?.evaluation_status || 'auto_incorrect'), correct: saved?.is_correct === true }];
+  }));
+  const stored = { sessionId: text(row.id), total: Number(row.total_questions || 0), correct: Number(row.correct_count || 0), score: Number(row.score_pct || 0), xp: Number(row.xp_earned || 0), bestStreak: Number(row.best_streak || 0), evaluatedCount: Number(row.evaluated_count || (row.evaluation_status === 'final' ? row.total_questions : 0) || 0), pendingCount: Number(row.pending_count || 0), evaluationStatus: (row.evaluation_status || 'final') as PracticeResult['evaluationStatus'], answerEvaluations } satisfies PracticeResult;
   // History repair above uses the atomic RPC for session, answers, progress and
   // assignment. A structural change keeps the original score for manual review.
   return { material, answers, result: stored };
@@ -173,9 +177,47 @@ export async function repairVisiblePracticeHistory(sessionIds: string[]): Promis
   return repaired;
 }
 export function gradePractice(material: PracticeMaterial, answers: Record<string, string>) {
-  let correct = 0; let streak = 0; let bestStreak = 0;
-  const rows = material.questions.map((question, index) => { const studentAnswer = text(answers[String(index)]); let student = normalized(studentAnswer); let expected = normalized(question.answer); let correctCount = 0; let totalCount = 1; if (question.exerciseType === 'true_false') { student = canonicalTrueFalse(studentAnswer); expected = canonicalTrueFalse(question.answer); } else if (question.exerciseType === 'multiple_choice') { student = canonicalChoice(studentAnswer, question.options); expected = canonicalChoice(question.answer, question.options); } let isCorrect = Boolean(student) && student === expected; if (question.exerciseType === 'error_correction') isCorrect = Boolean(strictCorrection(studentAnswer)) && strictCorrection(studentAnswer) === strictCorrection(question.answer); if (!['multiple_choice','true_false','matching','error_correction'].includes(question.exerciseType) && !isCorrect && student && expected) { if (student.includes(expected) || expected.includes(student)) isCorrect = true; else { const expectedWords = answerWords(question.answer); const studentWords = answerWords(studentAnswer); const overlap = [...expectedWords].filter((word) => studentWords.has(word)).length; isCorrect = expectedWords.size > 0 && overlap / expectedWords.size >= 0.55; } } if (question.exerciseType === 'word_search_vocab') { const placedWords = wordSearchWords(question.placements?.map((placement) => placement.word) ?? []); const expectedWords = new Set(placedWords.length ? placedWords : wordSearchWords(question.words?.length ? question.words : question.vocabularyBank?.length ? question.vocabularyBank : question.answer)); const foundSet = new Set(wordSearchWords(studentAnswer)); correctCount = [...expectedWords].filter((word) => foundSet.has(word)).length; totalCount = expectedWords.size; isCorrect = totalCount > 0 && correctCount === totalCount; } else if (isCorrect) correctCount = 1; const writingFeedback = question.exerciseType === 'writing_prompt' ? evaluateWritingPrompt(studentAnswer, question.answer) : null; if (writingFeedback) { isCorrect = writingFeedback.isCorrect; correctCount = isCorrect ? 1 : 0; } correct += correctCount; if (correctCount) { streak += correctCount; bestStreak = Math.max(bestStreak, streak); } else streak = 0; return { ...question, studentAnswer, isCorrect, correctCount, totalCount, writingFeedback }; });
-  const total = rows.reduce((sum, row) => sum + row.totalCount, 0); const score = practiceSessionScorePct(correct, total); const xp = correct * 5 + total + (correct === total && total > 0 ? 15 : 0) + (bestStreak > 2 ? (bestStreak - 2) * 2 : 0); return { rows, total, correct, score, bestStreak, xp };
+  let correct = 0; let streak = 0; let bestStreak = 0; let evaluatedCount = 0; let pendingCount = 0;
+  const rows = material.questions.map((question, index) => {
+    const studentAnswer = text(answers[String(index)]);
+    let student = normalized(studentAnswer);
+    let expected = normalized(question.answer);
+    let correctCount = 0;
+    let totalCount = 1;
+    const choice = question.options.length > 0 || ['true_false', 'word_search_vocab'].includes(question.exerciseType);
+    if (question.exerciseType === 'true_false') { student = canonicalTrueFalse(studentAnswer); expected = canonicalTrueFalse(question.answer); }
+    else if (question.exerciseType === 'multiple_choice') { student = canonicalChoice(studentAnswer, question.options); expected = canonicalChoice(question.answer, question.options); }
+    let isCorrect = Boolean(student) && (student === expected || (question.acceptedAnswers || []).some((variant) => student === normalized(variant)));
+    if (question.exerciseType === 'error_correction') isCorrect = Boolean(strictCorrection(studentAnswer)) && [question.answer, ...(question.acceptedAnswers || [])].some((variant) => strictCorrection(studentAnswer) === strictCorrection(variant));
+    // An answer key can prove a match. Word overlap cannot prove that an
+    // unfamiliar free response is wrong (or even that a negated answer is right).
+    if (question.exerciseType === 'word_search_vocab') {
+      const placedWords = wordSearchWords(question.placements?.map((placement) => placement.word) ?? []);
+      const expectedWords = new Set(placedWords.length ? placedWords : wordSearchWords(question.words?.length ? question.words : question.vocabularyBank?.length ? question.vocabularyBank : question.answer));
+      const foundSet = new Set(wordSearchWords(studentAnswer));
+      correctCount = [...expectedWords].filter((word) => foundSet.has(word)).length;
+      totalCount = expectedWords.size;
+      isCorrect = totalCount > 0 && correctCount === totalCount;
+    } else if (isCorrect) correctCount = 1;
+    const writingFeedback = question.exerciseType === 'writing_prompt' ? evaluateWritingPrompt(studentAnswer, question.answer) : null;
+    const evaluationStatus = choice || isCorrect
+      ? (isCorrect ? 'auto_correct' : 'auto_incorrect')
+      : material.assignmentId ? 'pending_review' : 'unassessed';
+    if (evaluationStatus === 'pending_review' || evaluationStatus === 'unassessed') {
+      pendingCount += 1;
+      correctCount = 0;
+    } else {
+      evaluatedCount += 1;
+      correct += correctCount;
+      if (correctCount) { streak += correctCount; bestStreak = Math.max(bestStreak, streak); } else streak = 0;
+    }
+    return { ...question, studentAnswer, isCorrect, correctCount, totalCount, evaluationStatus, writingFeedback };
+  });
+  const total = rows.reduce((sum, row) => sum + row.totalCount, 0);
+  // A partial result is visible as checked/pending counts, never as a final grade.
+  const score = pendingCount ? 0 : practiceSessionScorePct(correct, total);
+  const xp = correct * 5 + evaluatedCount + (pendingCount === 0 && correct === total && total > 0 ? 15 : 0) + (bestStreak > 2 ? (bestStreak - 2) * 2 : 0);
+  return { rows, total, correct, score, evaluatedCount, pendingCount, bestStreak, xp, evaluationStatus: pendingCount ? material.assignmentId ? 'pending_teacher' as const : 'unassessed' as const : 'final' as const };
 }
 
 export function practiceAnswerProgress(graded: ReturnType<typeof gradePractice>, answers: Record<string, string>) {
@@ -186,7 +228,7 @@ export function practiceAnswerProgress(graded: ReturnType<typeof gradePractice>,
 
 export const PRACTICE_RANKS = [{ threshold: 0, key: 'newcomer', emoji: '🌱' }, { threshold: 200, key: 'learner', emoji: '📖' }, { threshold: 1000, key: 'rising_star', emoji: '⭐' }, { threshold: 3000, key: 'achiever', emoji: '🏅' }, { threshold: 8000, key: 'expert', emoji: '🏆' }, { threshold: 16000, key: 'master', emoji: '👑' }, { threshold: 30000, key: 'legend', emoji: '🔥' }] as const;
 export function practiceRank(totalXp: number) { let index = 0; PRACTICE_RANKS.forEach((rank, rankIndex) => { if (totalXp >= rank.threshold) index = rankIndex; }); const rank = PRACTICE_RANKS[index]; const next = PRACTICE_RANKS[index + 1]; return { ...rank, next, into: totalXp - rank.threshold, span: next ? next.threshold - rank.threshold : 0, pct: next ? Math.min(100, Math.round((totalXp - rank.threshold) / (next.threshold - rank.threshold) * 100)) : 100 }; }
-export function exerciseDataForMaterial(material: PracticeMaterial, draftAnswers?: Record<string, string>) { return { title: material.title, source_type: material.sourceType, source_id: material.sourceId, assignment_id: material.assignmentId ? Number(material.assignmentId) : undefined, learning_program_assignment_id: material.learningProgramAssignmentId, draft_answers: draftAnswers, exercises: material.questions.reduce<Record<string, unknown>[]>((groups, question) => { const key = question.exerciseIndex; if (!groups[key]) groups[key] = { type: question.exerciseType, title: question.sectionTitle, instructions: question.instructions, source_text: question.sourceText, visual_support: question.visualSupportUrl ? { image_url: question.visualSupportUrl } : undefined, vocabulary_bank: question.vocabularyBank, questions: [], answers: [] }; (groups[key].questions as unknown[]).push(question.exerciseType === 'word_search_vocab' ? { text: question.prompt, grid: question.grid, words: question.words, placements: question.placements } : { text: question.prompt, options: question.options }); (groups[key].answers as unknown[]).push(question.exerciseType === 'word_search_vocab' ? question.words : question.answer); return groups; }, []) }; }
+export function exerciseDataForMaterial(material: PracticeMaterial, draftAnswers?: Record<string, string>) { return { title: material.title, source_type: material.sourceType, source_id: material.sourceId, assignment_id: material.assignmentId ? Number(material.assignmentId) : undefined, learning_program_assignment_id: material.learningProgramAssignmentId, draft_answers: draftAnswers, exercises: material.questions.reduce<Record<string, unknown>[]>((groups, question) => { const key = question.exerciseIndex; if (!groups[key]) groups[key] = { type: question.exerciseType, title: question.sectionTitle, instructions: question.instructions, source_text: question.sourceText, visual_support: question.visualSupportUrl ? { image_url: question.visualSupportUrl } : undefined, vocabulary_bank: question.vocabularyBank, questions: [], answers: [] }; (groups[key].questions as unknown[]).push(question.exerciseType === 'word_search_vocab' ? { text: question.prompt, grid: question.grid, words: question.words, placements: question.placements } : { text: question.prompt, options: question.options, accepted_answers: question.acceptedAnswers }); (groups[key].answers as unknown[]).push(question.exerciseType === 'word_search_vocab' ? question.words : question.answer); return groups; }, []) }; }
 export async function savePracticeDraft(material: PracticeMaterial, answers: Record<string, string>, sessionId?: string) {
   const client = requireSupabase(); const auth = await client.auth.getUser(); const uid = auth.data.user?.id;
   if (!uid) throw new Error('Your session has expired.');
@@ -208,7 +250,7 @@ export async function savePracticeDraft(material: PracticeMaterial, answers: Rec
   }
   // Streamlit keeps draft answers both in the session snapshot and as per-question rows.
   // A single bounded delete/insert pair replaces the previous answer batch.
-  const answerRows = gradePractice(material, answers).rows.map((row) => ({ session_id: Number(savedId), user_id: uid, exercise_idx: row.exerciseIndex, question_idx: row.questionIndex, exercise_type: row.exerciseType, student_answer: row.studentAnswer, correct_answer: row.answer, is_correct: row.isCorrect, answered_at: now }));
+  const answerRows = gradePractice(material, answers).rows.map((row) => ({ session_id: Number(savedId), user_id: uid, exercise_idx: row.exerciseIndex, question_idx: row.questionIndex, exercise_type: row.exerciseType, student_answer: row.studentAnswer, correct_answer: row.answer, is_correct: row.isCorrect, evaluation_status: row.evaluationStatus, answered_at: now }));
   if (answerRows.length) {
     const cleared = await client.from('practice_answers').delete().eq('session_id', Number(savedId)).eq('user_id', uid);
     if (cleared.error) console.warn('Practice draft answer replacement unavailable', cleared.error);
@@ -228,10 +270,12 @@ export async function savePractice(material: PracticeMaterial, answers: Record<s
     source_type: material.sourceType, source_id: String(material.assignmentId || material.sourceId),
     material_source_id: String(material.sourceId), exercise_data: exerciseDataForMaterial(material),
     total: graded.total, correct: graded.correct, score: graded.score, xp: graded.xp,
+    evaluated_count: graded.evaluatedCount, pending_count: graded.pendingCount,
+    evaluation_status: graded.evaluationStatus,
     best_streak: graded.bestStreak, graded,
     assignment_id: material.assignmentId || null, teacher_id: material.teacherId || null,
     learning_program_assignment_id: material.learningProgramAssignmentId || null,
-    answers: graded.rows.map((row) => ({ exercise_index: row.exerciseIndex, question_index: row.questionIndex, exercise_type: row.exerciseType, student_answer: row.studentAnswer, correct_answer: row.answer, is_correct: row.isCorrect })),
+    answers: graded.rows.map((row) => ({ exercise_index: row.exerciseIndex, question_index: row.questionIndex, exercise_type: row.exerciseType, student_answer: row.studentAnswer, correct_answer: row.answer, is_correct: row.isCorrect, evaluation_status: row.evaluationStatus })),
     progress: progressGroups.map((group) => ({ exercise_type: group.exerciseType, attempted: group.attempted, correct: group.correct, xp: group.xp })),
   };
   const { data, error } = await client.rpc('classio_complete_student_practice', { p_session_id: Number(sessionId), p_result: result });
@@ -239,13 +283,15 @@ export async function savePractice(material: PracticeMaterial, answers: Record<s
   // A retry may return an already completed draft. Show the committed result,
   // including any answer-key correction, rather than this request's local grade.
   const persisted = await client.from('practice_sessions')
-    .select('id,total_questions,correct_count,score_pct,xp_earned,best_streak,status')
+    .select('id,total_questions,correct_count,score_pct,xp_earned,best_streak,evaluated_count,pending_count,evaluation_status,status')
     .eq('id', Number(data)).eq('user_id', uid).single();
   if (persisted.error || persisted.data?.status !== 'completed') throw persisted.error ?? new Error('Practice result could not be loaded.');
   return {
     sessionId: String(persisted.data.id), total: Number(persisted.data.total_questions),
     correct: Number(persisted.data.correct_count), score: Number(persisted.data.score_pct),
     xp: Number(persisted.data.xp_earned), bestStreak: Number(persisted.data.best_streak),
+    evaluatedCount: Number(persisted.data.evaluated_count), pendingCount: Number(persisted.data.pending_count),
+    evaluationStatus: persisted.data.evaluation_status as PracticeResult['evaluationStatus'],
   };
 }
 export async function requestTeacherReview(material: PracticeMaterial, sessionId: string, note: string, selectedTeacherId?: string) {

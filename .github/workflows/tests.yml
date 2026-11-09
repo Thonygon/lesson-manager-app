@@ -125,6 +125,7 @@ jobs:
         run: |
           node scripts/check-document-student-copy.cjs
           node scripts/check-teacher-record-copy.cjs
+          node scripts/check-practice-pending-review.cjs
 
       - name: Validate help screenshot boundaries
         run: |

@@ -1,4 +1,4 @@
-type ProgressAnswer = { exerciseType: string; isCorrect: boolean };
+type ProgressAnswer = { exerciseType: string; isCorrect: boolean; evaluationStatus?: string };
 export type ExerciseProgress = { exerciseType: string; attempted: number; correct: number; xp: number };
 
 function roundHalfEven(value: number): number {
@@ -21,6 +21,7 @@ export function practiceSessionScorePct(correct: number, total: number): number 
 export function aggregatePracticeProgress(rows: ProgressAnswer[], xpEarned: number): ExerciseProgress[] {
   const groups = new Map<string, ExerciseProgress>();
   for (const row of rows) {
+    if (row.evaluationStatus === 'pending_review' || row.evaluationStatus === 'unassessed') continue;
     const group = groups.get(row.exerciseType) ?? { exerciseType: row.exerciseType, attempted: 0, correct: 0, xp: 0 };
     group.attempted += 1;
     group.correct += Number(row.isCorrect);

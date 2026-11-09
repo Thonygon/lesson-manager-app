@@ -330,7 +330,10 @@ export async function POST(request: Request) {
     const prompt = `${kind === 'program' || !notes ? promptBase : `${promptBase}\n\nAdditional teacher context (apply only when compatible with the selected tool and learner level):\n${notes}`}${objectiveInstruction}`;
     const programContext = { subject, subjectKey: selectedSubject === 'Other' ? 'other' : selectedSubject.toLowerCase().replaceAll(' ', '_'), topic, stage, level, units: programStructure.units, lessonsPerUnit: programStructure.lessonsPerUnit, planLanguage, studentLanguage: language, nativeLanguage: text(body.nativeLanguage, 80), programTrack: text(body.programTrack, 80), examTarget: text(body.examTarget, 100), notes, previousContext };
     const programPrompts = kind === 'program' ? body.programPhase === 'unit' ? programUnitPrompts(programContext, body.programSkeleton!, programUnitIndex) : programSkeletonPrompts(programContext) : null;
-    const providerUserPrompt = `${programPrompts?.user || prompt}${gradeBlock}`;
+    const assessmentGuidance = kind === 'worksheet' || kind === 'exam'
+      ? '\n\nAssessment guidance: For every free-response question, write a clear model answer in the answer key. A model answer is an example, not the only valid wording. Where the question is an object, include an optional accepted_answers array with a few genuinely equivalent short answers. Do not use keyword overlap as a grading instruction. Make open-ended prompts and their model answers specific enough for a teacher to review fairly.'
+      : '';
+    const providerUserPrompt = `${programPrompts?.user || prompt}${assessmentGuidance}${gradeBlock}`;
     let document: Record<string, unknown> | null = null;
     let providerName = '';
     let providerModel = '';
