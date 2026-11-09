@@ -7,6 +7,7 @@ export function normalizePracticeAnswer(value: unknown): string {
 
 const NEGATIONS = new Set(['no', 'not', 'never', 'nunca', 'jamas', 'sin', 'without', 'degil', 'yok']);
 const CONFLICTS = new Set(['pero', 'but', 'however', 'instead', 'aunque', 'except', 'fakat', 'ama']);
+const JUDGMENTS = new Set(['wrong', 'incorrect', 'false', 'falso', 'falsa', 'incorrecto', 'incorrecta', 'equivocado', 'equivocada', 'yanlis', 'hatali']);
 const NUMBER_WORDS = new Set(['cero', 'uno', 'una', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez', 'once', 'doce', 'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve']);
 
 /** A complete model phrase can appear inside a fuller student sentence.
@@ -24,7 +25,10 @@ export function matchesExpandedModelAnswer(student: unknown, model: unknown, pro
   if (fullModelStart >= 0) {
     const extra = [...answerWords.slice(0, fullModelStart), ...answerWords.slice(fullModelStart + modelWords.length)];
     const modelNumbers = new Set(modelWords.filter((word) => NUMBER_WORDS.has(word) || /^\d+$/.test(word)));
-    return !extra.some((word) => CONFLICTS.has(word) || ((NUMBER_WORDS.has(word) || /^\d+$/.test(word)) && !modelNumbers.has(word)));
+    const questionWords = new Set(normalizePracticeAnswer(prompt).split(' '));
+    // Only repeat words already present in the question. An arbitrary suffix
+    // such as "is wrong" can reverse the meaning of an otherwise exact model.
+    return extra.every((word) => questionWords.has(word)) && !extra.some((word) => CONFLICTS.has(word) || JUDGMENTS.has(word) || ((NUMBER_WORDS.has(word) || /^\d+$/.test(word)) && !modelNumbers.has(word)));
   }
   // A shorter sentence is safe only when the omitted model context is already
   // in the question. A fragment like "Elena se levanta" still cannot pass.

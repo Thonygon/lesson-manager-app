@@ -176,7 +176,7 @@ export async function repairVisiblePracticeHistory(sessionIds: string[]): Promis
   }
   return repaired;
 }
-export function gradePractice(material: PracticeMaterial, answers: Record<string, string>) {
+export function gradePractice(material: PracticeMaterial, answers: Record<string, string>, options: { allowExpandedModelMatch?: boolean } = {}) {
   let correct = 0; let streak = 0; let bestStreak = 0; let evaluatedCount = 0; let pendingCount = 0;
   const rows = material.questions.map((question, index) => {
     const studentAnswer = text(answers[String(index)]);
@@ -189,7 +189,7 @@ export function gradePractice(material: PracticeMaterial, answers: Record<string
     else if (question.exerciseType === 'multiple_choice') { student = canonicalChoice(studentAnswer, question.options); expected = canonicalChoice(question.answer, question.options); }
     let isCorrect = Boolean(student) && (student === expected || (question.acceptedAnswers || []).some((variant) => student === normalized(variant)));
     if (question.exerciseType === 'error_correction') isCorrect = Boolean(strictCorrection(studentAnswer)) && [question.answer, ...(question.acceptedAnswers || [])].some((variant) => strictCorrection(studentAnswer) === strictCorrection(variant));
-    if (!isCorrect && !choice && ['short_answer', 'reading_comprehension', 'fill_in_blank', 'vocabulary', 'sentence_transformation'].includes(question.exerciseType)) {
+    if (options.allowExpandedModelMatch !== false && !isCorrect && !choice && ['short_answer', 'reading_comprehension', 'fill_in_blank', 'vocabulary', 'sentence_transformation'].includes(question.exerciseType)) {
       isCorrect = [question.answer, ...(question.acceptedAnswers || [])].some((variant) => matchesExpandedModelAnswer(studentAnswer, variant, question.prompt));
     }
     // An answer key can prove a match. Word overlap cannot prove that an

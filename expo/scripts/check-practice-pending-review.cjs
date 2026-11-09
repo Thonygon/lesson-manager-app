@@ -52,6 +52,7 @@ assert.equal(practice.gradePractice(reading, { 0: 'Elena se levanta a las siete 
 assert.equal(practice.gradePractice(reading, { 0: 'Elena no se levanta a las siete de la mañana.' }).evaluationStatus, 'pending_teacher');
 assert.equal(practice.gradePractice(reading, { 0: 'Elena se levanta a las ocho, pero también a las siete de la mañana.' }).evaluationStatus, 'pending_teacher');
 assert.equal(practice.gradePractice(reading, { 0: 'Elena se levanta.' }).evaluationStatus, 'pending_teacher');
+assert.equal(practice.gradePractice(reading, { 0: 'A las siete de la mañana is wrong.' }).evaluationStatus, 'pending_teacher');
 const weeklyRoutine = { ...material('teacher'), questions: [
   { prompt: '¿A qué hora se levanta Elena de lunes a viernes?', options: [], answer: 'Elena se levanta a las siete de la mañana de lunes a viernes.', exerciseIndex: 0, questionIndex: 0, exerciseType: 'short_answer', sectionTitle: '', instructions: '', sourceText: '' },
   { prompt: '¿Qué hace Elena después de trabajar por la tarde?', options: [], answer: 'Después de trabajar por la tarde, Elena va al gimnasio o estudia español.', exerciseIndex: 0, questionIndex: 1, exerciseType: 'short_answer', sectionTitle: '', instructions: '', sourceText: '' },
@@ -59,6 +60,7 @@ const weeklyRoutine = { ...material('teacher'), questions: [
 const weeklyGrade = practice.gradePractice(weeklyRoutine, { 0: 'Elena se levanta a las siete de la mañana.', 1: 'Elena va al gimnasio o estudia español.' });
 assert.equal(weeklyGrade.evaluationStatus, 'final');
 assert.equal(weeklyGrade.correct, 2);
+assert.equal(practice.gradePractice(weeklyRoutine, { 0: 'Elena se levanta a las siete de la mañana.', 1: 'Elena va al gimnasio o estudia español.' }, { allowExpandedModelMatch: false }).evaluationStatus, 'pending_teacher');
 assert.equal(practice.gradePractice(weeklyRoutine, { 0: 'Elena no se levanta a las siete de la mañana.', 1: 'Elena va al gimnasio o estudia español.' }).evaluationStatus, 'pending_teacher');
 const wordSearch = { ...material('teacher'), questions: [
   { prompt: 'Find the words', options: [], answer: '["APPLE","PEAR","PLUM"]', words: ['APPLE', 'PEAR', 'PLUM'], placements: [{ word: 'APPLE' }, { word: 'PEAR' }, { word: 'PLUM' }], exerciseIndex: 0, questionIndex: 0, exerciseType: 'word_search_vocab', sectionTitle: '', instructions: '', sourceText: '' },
