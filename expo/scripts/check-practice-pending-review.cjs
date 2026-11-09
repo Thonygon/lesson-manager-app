@@ -47,4 +47,14 @@ const vocabulary = { ...material(undefined), questions: [{ prompt: 'Translate ca
 assert.equal(practice.gradePractice(vocabulary, { 0: 'home' }).rows[0].evaluationStatus, 'unassessed');
 const correction = { ...material('teacher'), questions: [{ prompt: 'Correct the sentence', options: [], answer: 'He is Alex', acceptedAnswers: ['Alex is here'], exerciseIndex: 0, questionIndex: 0, exerciseType: 'error_correction', sectionTitle: '', instructions: '', sourceText: '' }] };
 assert.equal(practice.gradePractice(correction, { 0: 'Alex is here.' }).evaluationStatus, 'final');
+const wordSearch = { ...material('teacher'), questions: [
+  { prompt: 'Find the words', options: [], answer: '["APPLE","PEAR","PLUM"]', words: ['APPLE', 'PEAR', 'PLUM'], placements: [{ word: 'APPLE' }, { word: 'PEAR' }, { word: 'PLUM' }], exerciseIndex: 0, questionIndex: 0, exerciseType: 'word_search_vocab', sectionTitle: '', instructions: '', sourceText: '' },
+  material('teacher').questions[1],
+] };
+const weighted = practice.gradePractice(wordSearch, { 0: '["APPLE","PEAR"]', 1: 'He is Alex' });
+assert.equal(weighted.total, 4);
+assert.equal(weighted.correct, 2);
+assert.equal(weighted.rows[0].totalCount, 3);
+assert.equal(weighted.rows[0].correctCount, 2);
+assert.equal(weighted.evaluationStatus, 'pending_teacher');
 console.log('Practice answer-key match and pending-review boundaries: OK');
