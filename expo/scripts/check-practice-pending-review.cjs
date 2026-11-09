@@ -47,6 +47,19 @@ const vocabulary = { ...material(undefined), questions: [{ prompt: 'Translate ca
 assert.equal(practice.gradePractice(vocabulary, { 0: 'home' }).rows[0].evaluationStatus, 'unassessed');
 const correction = { ...material('teacher'), questions: [{ prompt: 'Correct the sentence', options: [], answer: 'He is Alex', acceptedAnswers: ['Alex is here'], exerciseIndex: 0, questionIndex: 0, exerciseType: 'error_correction', sectionTitle: '', instructions: '', sourceText: '' }] };
 assert.equal(practice.gradePractice(correction, { 0: 'Alex is here.' }).evaluationStatus, 'final');
+const reading = { ...material('teacher'), questions: [{ prompt: '¿A qué hora se levanta Elena?', options: [], answer: 'A las siete de la mañana', exerciseIndex: 0, questionIndex: 0, exerciseType: 'short_answer', sectionTitle: '', instructions: '', sourceText: '' }] };
+assert.equal(practice.gradePractice(reading, { 0: 'Elena se levanta a las siete de la mañana.' }).evaluationStatus, 'final');
+assert.equal(practice.gradePractice(reading, { 0: 'Elena no se levanta a las siete de la mañana.' }).evaluationStatus, 'pending_teacher');
+assert.equal(practice.gradePractice(reading, { 0: 'Elena se levanta a las ocho, pero también a las siete de la mañana.' }).evaluationStatus, 'pending_teacher');
+assert.equal(practice.gradePractice(reading, { 0: 'Elena se levanta.' }).evaluationStatus, 'pending_teacher');
+const weeklyRoutine = { ...material('teacher'), questions: [
+  { prompt: '¿A qué hora se levanta Elena de lunes a viernes?', options: [], answer: 'Elena se levanta a las siete de la mañana de lunes a viernes.', exerciseIndex: 0, questionIndex: 0, exerciseType: 'short_answer', sectionTitle: '', instructions: '', sourceText: '' },
+  { prompt: '¿Qué hace Elena después de trabajar por la tarde?', options: [], answer: 'Después de trabajar por la tarde, Elena va al gimnasio o estudia español.', exerciseIndex: 0, questionIndex: 1, exerciseType: 'short_answer', sectionTitle: '', instructions: '', sourceText: '' },
+] };
+const weeklyGrade = practice.gradePractice(weeklyRoutine, { 0: 'Elena se levanta a las siete de la mañana.', 1: 'Elena va al gimnasio o estudia español.' });
+assert.equal(weeklyGrade.evaluationStatus, 'final');
+assert.equal(weeklyGrade.correct, 2);
+assert.equal(practice.gradePractice(weeklyRoutine, { 0: 'Elena no se levanta a las siete de la mañana.', 1: 'Elena va al gimnasio o estudia español.' }).evaluationStatus, 'pending_teacher');
 const wordSearch = { ...material('teacher'), questions: [
   { prompt: 'Find the words', options: [], answer: '["APPLE","PEAR","PLUM"]', words: ['APPLE', 'PEAR', 'PLUM'], placements: [{ word: 'APPLE' }, { word: 'PEAR' }, { word: 'PLUM' }], exerciseIndex: 0, questionIndex: 0, exerciseType: 'word_search_vocab', sectionTitle: '', instructions: '', sourceText: '' },
   material('teacher').questions[1],
