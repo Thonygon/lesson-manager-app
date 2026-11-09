@@ -7,7 +7,7 @@ const source = fs.readFileSync(path.join(__dirname, '../src/lib/route-access.ts'
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const loaded = { exports: {} };
 new Function('module', 'exports', compiled)(loaded, loaded.exports);
-const { requiresRoleSelection, activeFace } = loaded.exports;
+const { requiresRoleSelection, activeFace, authorizedDestination, helpWorkspacePath } = loaded.exports;
 
 assert.equal(requiresRoleSelection(null), true);
 assert.equal(requiresRoleSelection({ role: 'teacher', login_count: 0 }), true);
@@ -16,4 +16,7 @@ assert.equal(requiresRoleSelection({ role: 'student', login_count: 0, onboarding
 assert.equal(requiresRoleSelection({ role: 'admin', login_count: 0 }), false);
 assert.equal(activeFace({ role: 'student', primary_role: 'student', last_active_mode: null }), 'student');
 assert.equal(activeFace({ role: 'teacher', primary_role: 'teacher', last_active_mode: 'student' }), 'student');
+assert.equal(authorizedDestination('/admin-accounts', { role: 'teacher' }, { loading: false, isAdmin: false, canUseDeveloperWorkspace: false }), '/home');
+assert.equal(authorizedDestination('/admin-accounts', { role: 'admin' }, { loading: false, isAdmin: true, canUseDeveloperWorkspace: true }), null);
+assert.equal(helpWorkspacePath('/help', '/admin-accounts', { isAdmin: true, canUseDeveloperWorkspace: true }), '/admin-accounts');
 process.stdout.write('Role entry routing fixture passed.\n');

@@ -821,3 +821,27 @@ Object.assign(tr, { 'account.signOutFailed': 'Çıkış yapılamadı. Yeniden de
 Object.assign(en, teacherRecordTranslations.en);
 Object.assign(es, teacherRecordTranslations.es);
 Object.assign(tr, teacherRecordTranslations.tr);
+Object.assign(en, {
+  'admin.area.accounts': 'Accounts', 'admin.openAccounts': 'Open accounts', 'admin.openAccount': 'Open account', 'admin.backToAccounts': '← All accounts', 'admin.searchAccounts': 'Search name, email or account ID…',
+  'admin.createDefaults': 'New accounts start with active access. The selected plan determines the initial subscription status: Free for the free plan, active for other plans. Active does not confirm payment. Change these settings later from the account card.',
+  'admin.accountFieldsHelp': 'Role identifies the user. Teaching and student access select available workspaces. Plan sets entitlements and limits; subscription status records the commercial lifecycle. Account status is an administrative record; it does not revoke an existing sign-in session.',
+  'admin.platformAdmins': 'Platform administrators', 'admin.adminStaffRoleHelp': 'Administrator access comes from the account role. Developer and data scientist are separate staff assignments.',
+  'admin.planFeatures': 'Feature access included in this plan', 'admin.premiumHighlights': 'Features highlighted on the plan card (presentation only)',
+  'admin.featureEnabled': 'Included in plan', 'admin.featureDisabled': 'Not included', 'admin.limit.ai_generations': 'Smart Tool resources per month',
+});
+Object.assign(es, {
+  'admin.area.accounts': 'Cuentas', 'admin.openAccounts': 'Abrir cuentas', 'admin.openAccount': 'Abrir cuenta', 'admin.backToAccounts': '← Todas las cuentas', 'admin.searchAccounts': 'Buscar nombre, correo o ID de cuenta…',
+  'admin.createDefaults': 'Las cuentas nuevas comienzan con acceso activo. El plan determina el estado inicial de suscripción: Gratis para el plan gratuito y Activo para los demás. Activo no acredita un pago. Después puedes cambiar estos ajustes desde la cuenta.',
+  'admin.accountFieldsHelp': 'El rol identifica al usuario. Los accesos docente y estudiante determinan los espacios disponibles. El plan define funciones y límites; el estado de suscripción registra el ciclo comercial. El estado de cuenta es un registro administrativo y no revoca una sesión ya iniciada.',
+  'admin.platformAdmins': 'Administradores de la plataforma', 'admin.adminStaffRoleHelp': 'El acceso de administrador procede del rol de la cuenta. Desarrollador y científico de datos son asignaciones de personal independientes.',
+  'admin.planFeatures': 'Acceso a funciones de este plan', 'admin.premiumHighlights': 'Funciones destacadas en la tarjeta del plan (solo presentación)',
+  'admin.featureEnabled': 'Incluida en el plan', 'admin.featureDisabled': 'No incluida', 'admin.limit.ai_generations': 'Recursos Smart Tools al mes',
+});
+Object.assign(tr, {
+  'admin.area.accounts': 'Hesaplar', 'admin.openAccounts': 'Hesapları aç', 'admin.openAccount': 'Hesabı aç', 'admin.backToAccounts': '← Tüm hesaplar', 'admin.searchAccounts': 'Ad, e-posta veya hesap kimliği ara…',
+  'admin.createDefaults': 'Yeni hesaplar etkin erişimle başlar. Plan ilk abonelik durumunu belirler: ücretsiz plan için Ücretsiz, diğerleri için Etkin. Etkin, ödeme yapıldığını kanıtlamaz. Bu ayarları daha sonra hesap kartından değiştirebilirsiniz.',
+  'admin.accountFieldsHelp': 'Rol kullanıcıyı tanımlar. Öğretmen ve öğrenci erişimi kullanılabilir alanları belirler. Plan hakları ve sınırları belirler; abonelik durumu ticari süreci kaydeder. Hesap durumu yönetim kaydıdır ve mevcut oturumu sonlandırmaz.',
+  'admin.platformAdmins': 'Platform yöneticileri', 'admin.adminStaffRoleHelp': 'Yönetici erişimi hesap rolünden gelir. Geliştirici ve veri bilimci ayrı personel atamalarıdır.',
+  'admin.planFeatures': 'Bu plana dahil özellik erişimi', 'admin.premiumHighlights': 'Plan kartında vurgulanan özellikler (yalnızca sunum)',
+  'admin.featureEnabled': 'Plana dahil', 'admin.featureDisabled': 'Dahil değil', 'admin.limit.ai_generations': 'Ayda Smart Tools kaynağı',
+});
