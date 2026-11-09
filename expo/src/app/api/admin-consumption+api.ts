@@ -22,11 +22,17 @@ export async function GET(request: Request) {
     if (input.get('view') === 'geography') {
       const start = new Date(); start.setUTCDate(start.getUTCDate() - 29);
       const fromDay = start.toISOString().slice(0, 10);
-      const { data, error } = await server.from('classio_app_country_daily').select('visit_day,country_code,sessions').gte('visit_day', fromDay).order('visit_day', { ascending: false }).limit(6000);
-      if (error) throw error;
+      const recentSince = new Date(Date.now() - 15 * 60_000).toISOString();
+      const [daily, recent] = await Promise.all([
+        server.from('classio_app_country_daily').select('visit_day,country_code,sessions').gte('visit_day', fromDay).order('visit_day', { ascending: false }).limit(6000),
+        server.from('classio_app_visit_events').select('country_code').gte('visited_at', recentSince).order('visited_at', { ascending: false }).limit(1000),
+      ]);
+      if (daily.error || recent.error) throw daily.error || recent.error;
       const countries = new Map<string, number>();
-      for (const row of data || []) countries.set(row.country_code, (countries.get(row.country_code) || 0) + Number(row.sessions || 0));
-      return json({ period: 'last_30_days', asOf: new Date().toISOString(), countries: [...countries].map(([code, sessions]) => ({ code, sessions })).sort((a, b) => b.sessions - a.sessions) });
+      const recentCountries = new Map<string, number>();
+      for (const row of daily.data || []) countries.set(row.country_code, (countries.get(row.country_code) || 0) + Number(row.sessions || 0));
+      for (const row of recent.data || []) recentCountries.set(row.country_code, (recentCountries.get(row.country_code) || 0) + 1);
+      return json({ period: 'last_30_days', asOf: new Date().toISOString(), countries: [...countries].map(([code, sessions]) => ({ code, sessions, recentSessions: recentCountries.get(code) || 0 })).sort((a, b) => b.sessions - a.sessions) });
     }
     const userId = input.get('userId') || '';
     if (userId) {

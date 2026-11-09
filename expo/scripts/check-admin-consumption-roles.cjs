@@ -47,7 +47,7 @@ async function main() {
     const response = await GET(request('valid'));
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), 'private, no-store');
-    assert.deepEqual(reads, ['profiles', 'classio_app_country_daily']);
+    assert.deepEqual(reads, ['profiles', 'classio_app_country_daily', 'classio_app_visit_events']);
     process.stdout.write('Admin consumption role matrix passed.\n');
   } finally { for (const name of names) previous[name] === undefined ? delete process.env[name] : process.env[name] = previous[name]; }
 }
