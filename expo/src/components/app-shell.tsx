@@ -11,6 +11,7 @@ import { useAppPreferences } from '@/providers/app-preferences';
 import { usePrivilegedAccess } from '@/providers/privileged-access-provider';
 import { useNotifications } from '@/providers/notifications-provider';
 import { helpWorkspacePath } from '@/lib/route-access';
+import { recordAppVisit } from '@/services/app-visit';
 
 const NAV = [
   { href: '/dashboard', icon: '⌂', labelKey: 'nav.home', roles: ['teacher', 'school_admin', 'admin'] },
@@ -51,6 +52,7 @@ export function AppShell({ title, eyebrow, notifications, scrollToTopToken, chil
   const pathname = usePathname();
   const params = useLocalSearchParams<{ from?: string }>();
   const { profile, user } = useAuth();
+  useEffect(() => { if (user) void recordAppVisit().catch(() => {}); }, [user]);
   const access = usePrivilegedAccess();
   const inbox = useNotifications();
   const { publishPaymentAlerts } = inbox;

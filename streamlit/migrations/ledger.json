@@ -113,6 +113,7 @@
     {"name": "transfer_teacher_student_roster_link.sql", "sha256": "760889a8642c5fe0fc96da90cac6abda1c1fe7e3e617d31359320e90a8fbfd2c"},
     {"name": "fix_roster_program_link_text_uuid.sql", "sha256": "2c07974e44e757d34ee7deb85b09d7859f714af9fd7fe271e62c02c8d75b7b96"},
     {"name": "approve_expo_refinement_surface.sql", "sha256": "926a45d6ffd4c82c2eafffaa4ef4f99c81fc791e14946091f94d0f6350979ade"},
-    {"name": "disable_self_service_account_deletion.sql", "sha256": "c2e4748c66099bbe61c1d7f5f4871f0a4b002d68baa21434200abe1c08992c06"}
+    {"name": "disable_self_service_account_deletion.sql", "sha256": "c2e4748c66099bbe61c1d7f5f4871f0a4b002d68baa21434200abe1c08992c06"},
+    {"name": "smart_tool_success_quota.sql", "sha256": "e6b3500bbba2ef3664cc457b7b26a4d66b68c8a2045aeaf0701c97383e81b592"}
   ]
 }

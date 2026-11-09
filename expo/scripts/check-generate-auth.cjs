@@ -51,7 +51,7 @@ let providerDocument = validPlan;
 const validToken = `header.${Buffer.from(JSON.stringify({ sub: '12345678-1234-1234-1234-123456789012' })).toString('base64url')}.signature`;
 const request = (token = validToken, kind = 'plan') => new Request('https://classio.test/api/generate', {
   method: 'POST',
-  headers: token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' },
+  headers: token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json', Origin: 'https://outside.example' },
   body: JSON.stringify({ kind, subject: 'Spanish', topic: 'Greetings', stage: 'adult_stage', level: 'A2', worksheetType: kind === 'worksheet' ? 'short_answer' : undefined }),
 });
 
@@ -72,16 +72,18 @@ async function main() {
         assert.equal(options.headers.Authorization, `Bearer ${validToken}`);
         return Response.json([profile], { status: profileStatus });
       }
+      if (target.includes('/rest/v1/classio_ai_runtime_approvals')) return Response.json([{ provider: 'openrouter', model: 'google/gemma-4-31b-it:free' }]);
       if (['lesson_plans', 'worksheets', 'quick_exams'].some((table) => target.includes(`/rest/v1/${table}`))) {
         const query = new URL(target);
         assert.equal(query.searchParams.get('limit'), '500');
         assert.equal(options.headers.Authorization, `Bearer ${validToken}`);
         return Response.json(similarResources);
       }
-      if (target.includes('/rest/v1/rpc/classio_begin_ai_generation_attempt')) {
+      if (target.includes('/rest/v1/rpc/classio_begin_smart_tool_attempt')) {
         const payload = JSON.parse(options.body);
         assert.equal(payload.p_user_id, '12345678-1234-1234-1234-123456789012');
         assert.match(payload.p_feature_name, /^generate_(plan|worksheet|exam|program)$/);
+        assert.equal(typeof payload.p_quota_eligible, 'boolean');
         return failUsageWrites ? new Response(null, { status: 503 }) : Response.json(deniedUsage ? { allowed: false, status: 429, reason: 'limit_reached' } : { allowed: true, used: 1 });
       }
       if (target.includes('/rest/v1/rpc/classio_finish_ai_generation')) {
@@ -126,8 +128,8 @@ async function main() {
     profile = { role: 'student', primary_role: 'student', can_teach: true };
     requestsInInvocation = 0;
     assert.equal((await POST(request())).status, 200);
-    assert.ok(subrequestsBeforeProvider <= 3, `Unexpectedly expensive generation preflight: ${subrequestsBeforeProvider} subrequests`);
-    assert.ok(requestsInInvocation <= 5, `Unexpectedly expensive completed generation: ${requestsInInvocation} subrequests`);
+    assert.ok(subrequestsBeforeProvider <= 4, `Unexpectedly expensive generation preflight: ${subrequestsBeforeProvider} subrequests`);
+    assert.ok(requestsInInvocation <= 6, `Unexpectedly expensive completed generation: ${requestsInInvocation} subrequests`);
     assert.equal(finalizationCalls, 1);
     profile = { ...profile, account_status: 'suspended' };
     const suspended = await POST(request());

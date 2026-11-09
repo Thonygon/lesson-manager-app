@@ -356,7 +356,7 @@ export async function POST(request: Request) {
           const proposedOperationId = economicOperationId || crypto.randomUUID();
           const proposedAttemptId = crypto.randomUUID();
           let reservation;
-          try { reservation = await beginReservedGenerationAttempt(economicContext, profilePlan, `generate_${kind}`, proposedOperationId, proposedAttemptId, attemptNo, provider.provider, provider.model); }
+          try { reservation = await beginReservedGenerationAttempt(economicContext, profilePlan, `generate_${kind}`, proposedOperationId, proposedAttemptId, attemptNo, provider.provider, provider.model, kind !== 'program' || body.programPhase !== 'unit'); }
           catch (error) {
             console.error('AI usage reservation failed', error);
             await finalize('failed', 'reservation_failed', { prompt_version: 'expo-generate-v1', result: 'reservation_failed', provider_calls: providerCalls });

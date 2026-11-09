@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ActionFeedback, Button, Field, Panel, SelectField } from '@/components/ui';
 import { AdminAccountResetPanel } from '@/components/admin-account-reset-panel';
+import { AdminConsumptionPanel } from '@/components/admin-consumption-panel';
 import { dateLabel, KpiGrid } from '@/components/workspace-ui';
 import { useAppPreferences } from '@/providers/app-preferences';
 import { performAdminAction } from '@/services/admin-actions';
+import { getAdminConsumption, searchAdminAccounts } from '@/services/admin-consumption';
 import { colors } from '@/theme';
 
 type Row = Record<string, unknown>;
@@ -61,19 +63,36 @@ function Editor({ row, plans, staffRoles, reload }: { row: Row; plans: Row[]; st
     <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: confirmed }} onPress={() => setConfirmed(!confirmed)} style={styles.confirm}><Text style={styles.mark}>{confirmed ? '☑' : '☐'}</Text><Text style={styles.confirmText}>{t('admin.confirmUserEdit')}</Text></Pressable>
     <Button disabled={busy || !confirmed || !reason.trim() || !selectedMode || !email.trim()} onPress={() => void save()}>{busy ? t('common.saving') : t('admin.saveAccess')}</Button>
     <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={tone} />
-  </Panel><AdminAccountResetPanel userId={text(row.user_id)} initialNotes={text(row.admin_notes)} reload={reload} /></View>;
+  </Panel><AdminConsumptionPanel userId={text(row.user_id)} plans={plans} /><AdminAccountResetPanel userId={text(row.user_id)} initialNotes={text(row.admin_notes)} reload={reload} /></View>;
 }
 
 export function AdminUserEditor({ profiles, plans, staffRoles, reload }: { profiles: Row[]; plans: Row[]; staffRoles: Row[]; reload: () => Promise<void> }) {
   const { t } = useAppPreferences();
   const [userId, setUserId] = useState('');
   const [search, setSearch] = useState('');
-  const matching = profiles.filter((row) => !search.trim() || [row.display_name, row.email, row.user_id].some((value) => text(value).toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())));
-  const selected = profiles.find((row) => text(row.user_id) === userId);
+  const [remoteMatches, setRemoteMatches] = useState<Row[]>([]);
+  const [remoteAccount, setRemoteAccount] = useState<Row | null>(null);
+  const [remoteStaff, setRemoteStaff] = useState<Row[]>([]);
+  useEffect(() => {
+    const query = search.trim();
+    if (query.length < 2) return;
+    let active = true;
+    const timer = setTimeout(() => { void searchAdminAccounts(query).then((rows) => { if (active) setRemoteMatches(rows); }).catch(() => { if (active) setRemoteMatches([]); }); }, 300);
+    return () => { active = false; clearTimeout(timer); };
+  }, [search]);
+  useEffect(() => {
+    if (!userId || profiles.some((row) => text(row.user_id) === userId)) return;
+    let active = true;
+    void getAdminConsumption(userId).then((detail) => { if (active) { setRemoteAccount(detail.account); setRemoteStaff(detail.staffRoles); } }).catch(() => { if (active) setRemoteAccount(null); });
+    return () => { active = false; };
+  }, [profiles, userId]);
+  const local = profiles.filter((row) => !search.trim() || [row.display_name, row.email, row.user_id].some((value) => text(value).toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())));
+  const matching = [...local, ...remoteMatches.filter((row) => !local.some((item) => text(item.user_id) === text(row.user_id)))];
+  const selected = profiles.find((row) => text(row.user_id) === userId) || (remoteAccount && text(remoteAccount.user_id) === userId ? remoteAccount : null);
   return <View style={styles.stack}>
-    <View style={styles.grid}><View style={styles.field}><Text style={styles.label}>{t('admin.searchUsers')}</Text><Field accessibilityLabel={t('admin.searchUsers')} value={search} onChangeText={(value) => { setSearch(value); const needle = value.trim().toLocaleLowerCase(); if (needle) { const first = profiles.find((row) => [row.display_name, row.email, row.user_id].some((item) => text(item).toLocaleLowerCase().includes(needle))); setUserId(first ? text(first.user_id) : ''); } }} placeholder={t('admin.searchUsers')} /></View><View style={styles.field}><SelectField label={t('admin.selectUserToEdit')} value={userId} options={[{ value: '', label: t('admin.chooseAccount') }, ...matching.map((row) => ({ value: text(row.user_id), label: text(row.display_name || row.email || row.user_id) }))]} onChange={setUserId} /></View></View>
+    <View style={styles.grid}><View style={styles.field}><Text style={styles.label}>{t('admin.searchUsers')}</Text><Field accessibilityLabel={t('admin.searchUsers')} value={search} onChangeText={(value) => { setSearch(value); setUserId(''); setRemoteMatches([]); setRemoteAccount(null); setRemoteStaff([]); }} placeholder={t('admin.searchUsers')} /></View><View style={styles.field}><SelectField label={t('admin.selectUserToEdit')} value={userId} options={[{ value: '', label: t('admin.chooseAccount') }, ...matching.map((row) => ({ value: text(row.user_id), label: text(row.display_name || row.email || row.user_id) }))]} onChange={(value) => { setUserId(value); setRemoteAccount(null); setRemoteStaff([]); }} /></View></View>
     {!matching.length ? <Text style={styles.help}>{t('admin.noAccountsBody')}</Text> : null}
-    {selected ? <Editor key={userId} row={selected} plans={plans} staffRoles={staffRoles} reload={reload} /> : null}
+    {selected ? <Editor key={userId} row={selected} plans={plans} staffRoles={remoteAccount ? remoteStaff : staffRoles} reload={reload} /> : null}
   </View>;
 }
 
