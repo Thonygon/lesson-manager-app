@@ -115,6 +115,8 @@ jobs:
 
       - name: Verify Admin workspace role matrix
         run: node scripts/check-admin-workspace-roles.cjs
+      - name: Check Admin consumption roles
+        run: node scripts/check-admin-consumption-roles.cjs
 
       - name: Verify first-login legal acceptance gate
         run: node scripts/check-choose-role-legal-gate.cjs

@@ -86,12 +86,12 @@ export async function beginProviderAttempt(context: AiEconomicContext, operation
 }
 
 /** One Worker subrequest covers plan checks, atomic quota reservation and both start records. */
-export async function beginReservedGenerationAttempt(context: AiEconomicContext, profilePlan: string, featureName: string, operationId: string, attemptId: string, attemptNo: number, provider: 'openrouter' | 'gemini' | 'openai', model: string): Promise<{ allowed: boolean; status: number; reason: string }> {
+export async function beginReservedGenerationAttempt(context: AiEconomicContext, profilePlan: string, featureName: string, operationId: string, attemptId: string, attemptNo: number, provider: 'openrouter' | 'gemini' | 'openai', model: string, quotaEligible: boolean): Promise<{ allowed: boolean; status: number; reason: string }> {
   if (!context.base || !context.serverKey || !context.actorUserId) throw new Error('AI generation reservation is not configured.');
-  const response = await fetch(`${context.base.replace(/\/$/, '')}/rest/v1/rpc/classio_begin_ai_generation_attempt`, {
+  const response = await fetch(`${context.base.replace(/\/$/, '')}/rest/v1/rpc/classio_begin_smart_tool_attempt`, {
     method: 'POST',
     headers: { apikey: context.serverKey, Authorization: `Bearer ${context.serverKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ p_user_id: context.actorUserId, p_profile_plan: profilePlan, p_feature_name: featureName, p_provider: provider, p_model: model, p_operation_id: operationId, p_attempt_id: attemptId, p_attempt_no: attemptNo }),
+    body: JSON.stringify({ p_user_id: context.actorUserId, p_profile_plan: profilePlan, p_feature_name: featureName, p_provider: provider, p_model: model, p_operation_id: operationId, p_attempt_id: attemptId, p_attempt_no: attemptNo, p_quota_eligible: quotaEligible }),
     cache: 'no-store',
     signal: AbortSignal.timeout(10000),
   });
