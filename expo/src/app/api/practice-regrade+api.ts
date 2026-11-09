@@ -57,9 +57,15 @@ async function repairSession(server: SupabaseClient, session: Record<string, unk
   if (!material?.questions.length) return false;
   const savedByQuestion = new Map(saved.map((answer) => [`${answer.exercise_idx}:${answer.question_idx}`, answer]));
   const answers = Object.fromEntries(material.questions.map((question, index) => [String(index), String(savedByQuestion.get(`${question.exerciseIndex}:${question.questionIndex}`)?.student_answer || '')]));
-  // Existing final attempts retain the grading rules that applied when they
-  // were submitted. Resource-key corrections may still update exact matches.
-  const graded = gradePractice(material, answers, { allowExpandedModelMatch: false });
+  // Preserve final decisions on unchanged open answers while recalculating
+  // questions whose keys changed. This includes teacher-reviewed answers and
+  // answers accepted by a newer grading policy.
+  const previousQuestions = new Map((materialFromSession(session)?.questions || []).map((question) => [`${question.exerciseIndex}:${question.questionIndex}`, question]));
+  const priorVerdicts = Object.fromEntries(saved.filter((answer) => typeof answer.is_correct === 'boolean').map((answer) => [`${answer.exercise_idx}:${answer.question_idx}`, {
+    studentAnswer: String(answer.student_answer || ''), correctAnswer: String(answer.correct_answer || ''),
+    exerciseType: String(answer.exercise_type || ''), acceptedAnswers: previousQuestions.get(`${answer.exercise_idx}:${answer.question_idx}`)?.acceptedAnswers || [], isCorrect: answer.is_correct === true,
+  }]));
+  const graded = gradePractice(material, answers, { allowExpandedModelMatch: false, preserveFinalVerdicts: priorVerdicts });
   // Legacy completed attempts have no pending-state metadata. Do not replace
   // their historical final score with a partial score under the new policy.
   if (graded.pendingCount > 0) return false;

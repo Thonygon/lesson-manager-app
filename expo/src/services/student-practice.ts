@@ -176,7 +176,8 @@ export async function repairVisiblePracticeHistory(sessionIds: string[]): Promis
   }
   return repaired;
 }
-export function gradePractice(material: PracticeMaterial, answers: Record<string, string>, options: { allowExpandedModelMatch?: boolean } = {}) {
+type FinalAnswerVerdict = { studentAnswer: string; correctAnswer: string; exerciseType: string; acceptedAnswers: string[]; isCorrect: boolean };
+export function gradePractice(material: PracticeMaterial, answers: Record<string, string>, options: { allowExpandedModelMatch?: boolean; preserveFinalVerdicts?: Record<string, FinalAnswerVerdict> } = {}) {
   let correct = 0; let streak = 0; let bestStreak = 0; let evaluatedCount = 0; let pendingCount = 0;
   const rows = material.questions.map((question, index) => {
     const studentAnswer = text(answers[String(index)]);
@@ -192,6 +193,13 @@ export function gradePractice(material: PracticeMaterial, answers: Record<string
     if (options.allowExpandedModelMatch !== false && !isCorrect && !choice && ['short_answer', 'reading_comprehension', 'fill_in_blank', 'vocabulary', 'sentence_transformation'].includes(question.exerciseType)) {
       isCorrect = [question.answer, ...(question.acceptedAnswers || [])].some((variant) => matchesExpandedModelAnswer(studentAnswer, variant, question.prompt));
     }
+    const prior = options.preserveFinalVerdicts?.[`${question.exerciseIndex}:${question.questionIndex}`];
+    const preservedFinalVerdict = Boolean(!choice && prior && prior.studentAnswer === studentAnswer && prior.correctAnswer === question.answer && prior.exerciseType === question.exerciseType && JSON.stringify(prior.acceptedAnswers) === JSON.stringify(question.acceptedAnswers || []));
+    if (preservedFinalVerdict && prior) {
+      // A final answer already accepted (including teacher overrides) stays
+      // final while a different question's corrected key is regraded.
+      isCorrect = prior.isCorrect;
+    }
     // An answer key can prove a match. Word overlap cannot prove that an
     // unfamiliar free response is wrong (or even that a negated answer is right).
     if (question.exerciseType === 'word_search_vocab') {
@@ -203,7 +211,7 @@ export function gradePractice(material: PracticeMaterial, answers: Record<string
       isCorrect = totalCount > 0 && correctCount === totalCount;
     } else if (isCorrect) correctCount = 1;
     const writingFeedback = question.exerciseType === 'writing_prompt' ? evaluateWritingPrompt(studentAnswer, question.answer) : null;
-    const evaluationStatus = choice || isCorrect
+    const evaluationStatus = choice || isCorrect || preservedFinalVerdict
       ? (isCorrect ? 'auto_correct' : 'auto_incorrect')
       : material.assignmentId ? 'pending_review' : 'unassessed';
     if (evaluationStatus === 'pending_review' || evaluationStatus === 'unassessed') {

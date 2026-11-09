@@ -61,6 +61,23 @@ const weeklyGrade = practice.gradePractice(weeklyRoutine, { 0: 'Elena se levanta
 assert.equal(weeklyGrade.evaluationStatus, 'final');
 assert.equal(weeklyGrade.correct, 2);
 assert.equal(practice.gradePractice(weeklyRoutine, { 0: 'Elena se levanta a las siete de la mañana.', 1: 'Elena va al gimnasio o estudia español.' }, { allowExpandedModelMatch: false }).evaluationStatus, 'pending_teacher');
+const correctedMixed = { ...weeklyRoutine, questions: [...weeklyRoutine.questions, { prompt: 'True or false?', options: ['True', 'False'], answer: 'False', exerciseIndex: 1, questionIndex: 0, exerciseType: 'true_false', sectionTitle: '', instructions: '', sourceText: '' }] };
+const historical = practice.gradePractice(correctedMixed, { 0: 'Elena se levanta a las siete de la mañana.', 1: 'Elena va al gimnasio o estudia español.', 2: 'True' }, {
+  allowExpandedModelMatch: false,
+  preserveFinalVerdicts: {
+    '0:0': { studentAnswer: 'Elena se levanta a las siete de la mañana.', correctAnswer: weeklyRoutine.questions[0].answer, exerciseType: 'short_answer', acceptedAnswers: [], isCorrect: true },
+    '0:1': { studentAnswer: 'Elena va al gimnasio o estudia español.', correctAnswer: weeklyRoutine.questions[1].answer, exerciseType: 'short_answer', acceptedAnswers: [], isCorrect: true },
+  },
+});
+assert.equal(historical.evaluationStatus, 'final');
+assert.equal(historical.correct, 2);
+assert.equal(historical.rows[2].evaluationStatus, 'auto_incorrect');
+const unchangedWrong = practice.gradePractice(weeklyRoutine, { 0: 'Elena se levanta a las siete de la mañana.', 1: 'Elena va al gimnasio o estudia español.' }, {
+  allowExpandedModelMatch: false,
+  preserveFinalVerdicts: { '0:0': { studentAnswer: 'Elena se levanta a las siete de la mañana.', correctAnswer: weeklyRoutine.questions[0].answer, exerciseType: 'short_answer', acceptedAnswers: [], isCorrect: false }, '0:1': { studentAnswer: 'Elena va al gimnasio o estudia español.', correctAnswer: weeklyRoutine.questions[1].answer, exerciseType: 'short_answer', acceptedAnswers: [], isCorrect: true } },
+});
+assert.equal(unchangedWrong.evaluationStatus, 'final');
+assert.equal(unchangedWrong.correct, 1);
 assert.equal(practice.gradePractice(weeklyRoutine, { 0: 'Elena no se levanta a las siete de la mañana.', 1: 'Elena va al gimnasio o estudia español.' }).evaluationStatus, 'pending_teacher');
 const wordSearch = { ...material('teacher'), questions: [
   { prompt: 'Find the words', options: [], answer: '["APPLE","PEAR","PLUM"]', words: ['APPLE', 'PEAR', 'PLUM'], placements: [{ word: 'APPLE' }, { word: 'PEAR' }, { word: 'PLUM' }], exerciseIndex: 0, questionIndex: 0, exerciseType: 'word_search_vocab', sectionTitle: '', instructions: '', sourceText: '' },
