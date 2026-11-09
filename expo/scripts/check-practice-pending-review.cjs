@@ -62,19 +62,23 @@ assert.equal(weeklyGrade.evaluationStatus, 'final');
 assert.equal(weeklyGrade.correct, 2);
 assert.equal(practice.gradePractice(weeklyRoutine, { 0: 'Elena se levanta a las siete de la mañana.', 1: 'Elena va al gimnasio o estudia español.' }, { allowExpandedModelMatch: false }).evaluationStatus, 'pending_teacher');
 const correctedMixed = { ...weeklyRoutine, questions: [...weeklyRoutine.questions, { prompt: 'True or false?', options: ['True', 'False'], answer: 'False', exerciseIndex: 1, questionIndex: 0, exerciseType: 'true_false', sectionTitle: '', instructions: '', sourceText: '' }] };
+const priorVerdict = (question, studentAnswer, isCorrect) => ({ studentAnswer, correctAnswer: question.answer, exerciseType: question.exerciseType, acceptedAnswers: question.acceptedAnswers || [], prompt: question.prompt, sourceText: question.sourceText, instructions: question.instructions, isCorrect });
+const savedOpen = {
+  '0:0': priorVerdict(weeklyRoutine.questions[0], 'Elena se levanta a las siete de la mañana.', true),
+  '0:1': priorVerdict(weeklyRoutine.questions[1], 'Elena va al gimnasio o estudia español.', true),
+};
 const historical = practice.gradePractice(correctedMixed, { 0: 'Elena se levanta a las siete de la mañana.', 1: 'Elena va al gimnasio o estudia español.', 2: 'True' }, {
   allowExpandedModelMatch: false,
-  preserveFinalVerdicts: {
-    '0:0': { studentAnswer: 'Elena se levanta a las siete de la mañana.', correctAnswer: weeklyRoutine.questions[0].answer, exerciseType: 'short_answer', acceptedAnswers: [], isCorrect: true },
-    '0:1': { studentAnswer: 'Elena va al gimnasio o estudia español.', correctAnswer: weeklyRoutine.questions[1].answer, exerciseType: 'short_answer', acceptedAnswers: [], isCorrect: true },
-  },
+  preserveFinalVerdicts: savedOpen,
 });
 assert.equal(historical.evaluationStatus, 'final');
 assert.equal(historical.correct, 2);
 assert.equal(historical.rows[2].evaluationStatus, 'auto_incorrect');
+const changedPrompt = { ...weeklyRoutine, questions: [{ ...weeklyRoutine.questions[0], prompt: '¿Cuándo se levanta Elena?' }, weeklyRoutine.questions[1]] };
+assert.equal(practice.gradePractice(changedPrompt, { 0: 'Elena se levanta a las siete de la mañana.', 1: 'Elena va al gimnasio o estudia español.' }, { allowExpandedModelMatch: false, preserveFinalVerdicts: savedOpen }).evaluationStatus, 'pending_teacher');
 const unchangedWrong = practice.gradePractice(weeklyRoutine, { 0: 'Elena se levanta a las siete de la mañana.', 1: 'Elena va al gimnasio o estudia español.' }, {
   allowExpandedModelMatch: false,
-  preserveFinalVerdicts: { '0:0': { studentAnswer: 'Elena se levanta a las siete de la mañana.', correctAnswer: weeklyRoutine.questions[0].answer, exerciseType: 'short_answer', acceptedAnswers: [], isCorrect: false }, '0:1': { studentAnswer: 'Elena va al gimnasio o estudia español.', correctAnswer: weeklyRoutine.questions[1].answer, exerciseType: 'short_answer', acceptedAnswers: [], isCorrect: true } },
+  preserveFinalVerdicts: { ...savedOpen, '0:0': { ...savedOpen['0:0'], isCorrect: false } },
 });
 assert.equal(unchangedWrong.evaluationStatus, 'final');
 assert.equal(unchangedWrong.correct, 1);
