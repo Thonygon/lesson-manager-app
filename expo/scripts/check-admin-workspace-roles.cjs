@@ -16,6 +16,7 @@ const server = {
       eq() { return query; },
       order() { return query; },
       limit() { return query; },
+      range() { return query; },
       async maybeSingle() { return { data: { role }, error: null }; },
       then(resolve) { return Promise.resolve({ data: [], error: null }).then(resolve); },
     };
@@ -53,7 +54,8 @@ async function main() {
     const response = await GET(request('valid'));
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), 'private, no-store');
-    assert.deepEqual(reads, ['profiles', 'user_staff_roles']);
+    assert.deepEqual(reads, ['profiles', 'user_staff_roles', 'profiles']);
+    assert.deepEqual((await response.json()).platformAdmins.rows, []);
     process.stdout.write('Admin workspace role and expired-token matrix passed.\n');
   } finally {
     for (const name of names) previous[name] === undefined ? delete process.env[name] : process.env[name] = previous[name];
