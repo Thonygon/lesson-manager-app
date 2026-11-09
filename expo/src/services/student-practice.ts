@@ -3,7 +3,7 @@ import type { ClassioRecord } from '@/services/classio-data';
 import { extractResourceImageUrl, type PublicResource } from '@/services/public-data';
 import { invalidateStudentRecommendationFeedback } from '@/services/student-data';
 import { aggregatePracticeProgress, practiceSessionScorePct } from '@/services/student-practice-progress';
-import { canonicalChoice, canonicalTrueFalse, choiceIndex, normalizePracticeAnswer } from '@/services/student-practice-answer-normalization';
+import { canonicalChoice, canonicalTrueFalse, choiceIndex, matchesExpandedModelAnswer, normalizePracticeAnswer } from '@/services/student-practice-answer-normalization';
 
 export type WordSearchPlacement = { word: string; coords: [number, number][] };
 export type PracticeQuestion = { prompt: string; options: string[]; answer: string; acceptedAnswers?: string[]; exerciseIndex: number; questionIndex: number; exerciseType: string; sectionTitle: string; instructions: string; sourceText: string; visualSupportUrl?: string; vocabularyBank?: string[]; grid?: string[][]; words?: string[]; placements?: WordSearchPlacement[] };
@@ -189,6 +189,9 @@ export function gradePractice(material: PracticeMaterial, answers: Record<string
     else if (question.exerciseType === 'multiple_choice') { student = canonicalChoice(studentAnswer, question.options); expected = canonicalChoice(question.answer, question.options); }
     let isCorrect = Boolean(student) && (student === expected || (question.acceptedAnswers || []).some((variant) => student === normalized(variant)));
     if (question.exerciseType === 'error_correction') isCorrect = Boolean(strictCorrection(studentAnswer)) && [question.answer, ...(question.acceptedAnswers || [])].some((variant) => strictCorrection(studentAnswer) === strictCorrection(variant));
+    if (!isCorrect && !choice && ['short_answer', 'reading_comprehension', 'fill_in_blank', 'vocabulary', 'sentence_transformation'].includes(question.exerciseType)) {
+      isCorrect = [question.answer, ...(question.acceptedAnswers || [])].some((variant) => matchesExpandedModelAnswer(studentAnswer, variant, question.prompt));
+    }
     // An answer key can prove a match. Word overlap cannot prove that an
     // unfamiliar free response is wrong (or even that a negated answer is right).
     if (question.exerciseType === 'word_search_vocab') {

@@ -845,3 +845,30 @@ Object.assign(tr, {
   'admin.planFeatures': 'Bu plana dahil özellik erişimi', 'admin.premiumHighlights': 'Plan kartında vurgulanan özellikler (yalnızca sunum)',
   'admin.featureEnabled': 'Plana dahil', 'admin.featureDisabled': 'Dahil değil', 'admin.limit.ai_generations': 'Ayda Smart Tools kaynağı',
 });
+Object.assign(en, {
+  'student.pendingTeacherAnswer': 'This answer was sent to your teacher for review.',
+  'student.unassessedWithTeacher': 'This answer may need your teacher to review it.',
+  'student.unassessedAnswer': 'This answer may need a teacher to review it.',
+  'student.modelAnswer': 'Model answer: {answer}',
+  'student.modelMissing': 'No model answer was provided for this question.',
+  'student.unassessedSummary': '{correct} of {evaluated} answers were checked automatically. {pending} open responses remain unassessed and are not counted as wrong. You can ask a teacher to review them.',
+  'student.teacherReviewHelp': 'Ask a teacher connected to your account to review your answers.',
+});
+Object.assign(es, {
+  'student.pendingTeacherAnswer': 'Esta respuesta fue enviada a tu profesor para que la revise.',
+  'student.unassessedWithTeacher': 'Quizá esta respuesta necesita ser revisada por tu profesor.',
+  'student.unassessedAnswer': 'Quizá esta respuesta necesita ser revisada por un profesor.',
+  'student.modelAnswer': 'Respuesta modelo: {answer}',
+  'student.modelMissing': 'Esta pregunta no tiene una respuesta modelo disponible.',
+  'student.unassessedSummary': '{correct} de {evaluated} respuestas se corrigieron automáticamente. {pending} respuestas abiertas siguen sin evaluar y no cuentan como incorrectas. Puedes pedir una revisión docente.',
+  'student.teacherReviewHelp': 'Pide a un profesor vinculado a tu cuenta que revise tus respuestas.',
+});
+Object.assign(tr, {
+  'student.pendingTeacherAnswer': 'Bu yanıt incelenmesi için öğretmeninize gönderildi.',
+  'student.unassessedWithTeacher': 'Bu yanıtın öğretmeniniz tarafından incelenmesi gerekebilir.',
+  'student.unassessedAnswer': 'Bu yanıtın bir öğretmen tarafından incelenmesi gerekebilir.',
+  'student.modelAnswer': 'Örnek yanıt: {answer}',
+  'student.modelMissing': 'Bu soru için örnek yanıt sağlanmadı.',
+  'student.unassessedSummary': '{evaluated} yanıttan {correct} tanesi otomatik değerlendirildi. {pending} açık yanıt değerlendirilmedi ve yanlış sayılmadı. Bir öğretmenden inceleme isteyebilirsiniz.',
+  'student.teacherReviewHelp': 'Yanıtlarınızı incelemesi için hesabınıza bağlı bir öğretmene başvurun.',
+});
