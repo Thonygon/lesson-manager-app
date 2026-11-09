@@ -33,6 +33,7 @@ const NAV = [
 
 const PRIVILEGED_NAV = [
   { href: '/admin', icon: '⚙', labelKey: 'admin.area.administration', kind: 'admin' },
+  { href: '/admin-accounts', icon: '◉', labelKey: 'admin.area.accounts', kind: 'admin' },
   { href: '/admin-operations', icon: '◈', labelKey: 'admin.area.operations', kind: 'admin' },
   { href: '/admin-business', icon: '↗', labelKey: 'admin.area.business', kind: 'admin' },
   { href: '/developer-workspace', icon: '⌘', labelKey: 'nav.developer', kind: 'developer' },

@@ -80,7 +80,17 @@ export async function GET(request: Request) {
     }
     if (section === 'staff') {
       const staffRoles = await rows(server, 'user_staff_roles', 'id,user_id,role_key,is_active,assigned_by,assigned_at,revoked_by,revoked_at,assignment_reason', 'assigned_at', 250);
-      return json({ staffRoles, warnings: [staffRoles.warning].filter(Boolean) });
+      const platformAdmins: Row[] = [];
+      let adminWarning = '';
+      const batchSize = 500;
+      for (let offset = 0; offset < 5000; offset += batchSize) {
+        const { data, error } = await server.from('profiles').select('user_id,display_name,email,role').eq('role', 'admin').order('created_at', { ascending: true }).range(offset, offset + batchSize - 1);
+        if (error) { adminWarning = `profiles admin roster: ${error.message}`; break; }
+        platformAdmins.push(...(data || []));
+        if ((data || []).length < batchSize) break;
+        if (offset + batchSize === 5000) adminWarning = 'profiles admin roster: more than 5000 administrators; narrow the roster query.';
+      }
+      return json({ staffRoles, platformAdmins: { rows: platformAdmins }, warnings: [staffRoles.warning, adminWarning].filter(Boolean) });
     }
     if (section === 'explorer') {
       const explorerMoves = await rows(server, 'explorer_moves', 'id,resource_type,tool_key,title,subject,topic,preview_text,anonymous_session_id,learner_stage,level_or_band,language,status,published_table,published_record_id,created_at,updated_at', 'created_at', 500);
