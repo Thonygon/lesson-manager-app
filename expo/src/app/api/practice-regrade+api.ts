@@ -48,7 +48,7 @@ async function sourceMaterial(server: SupabaseClient, kind: 'worksheet' | 'exam'
 async function repairSession(server: SupabaseClient, session: Record<string, unknown>, current: PracticeMaterial | null, assignment?: Record<string, unknown>): Promise<boolean> {
   const sessionId = Number(session.id);
   const userId = String(session.user_id || '');
-  if (!Number.isSafeInteger(sessionId) || !userId || session.status !== 'completed') return false;
+  if (!Number.isSafeInteger(sessionId) || !userId || session.status !== 'completed' || (session.evaluation_status && session.evaluation_status !== 'final')) return false;
   const { data: answerData, error: answerError } = await server.from('practice_answers').select('id,exercise_idx,question_idx,exercise_type,student_answer,correct_answer,is_correct,answered_at').eq('session_id', sessionId).eq('user_id', userId);
   if (answerError) throw answerError;
   const saved = (answerData || []).map(row);
@@ -58,6 +58,9 @@ async function repairSession(server: SupabaseClient, session: Record<string, unk
   const savedByQuestion = new Map(saved.map((answer) => [`${answer.exercise_idx}:${answer.question_idx}`, answer]));
   const answers = Object.fromEntries(material.questions.map((question, index) => [String(index), String(savedByQuestion.get(`${question.exerciseIndex}:${question.questionIndex}`)?.student_answer || '')]));
   const graded = gradePractice(material, answers);
+  // Legacy completed attempts have no pending-state metadata. Do not replace
+  // their historical final score with a partial score under the new policy.
+  if (graded.pendingCount > 0) return false;
   const refreshedData = current ? exerciseDataForMaterial({ ...material, assignmentId: String(assignment?.id || material.assignmentId || '') }) : session.exercise_data;
   const changed = graded.score !== Number(session.score_pct || 0) || graded.correct !== Number(session.correct_count || 0) || graded.total !== Number(session.total_questions || 0) || graded.rows.some((question) => { const old = savedByQuestion.get(`${question.exerciseIndex}:${question.questionIndex}`); return !old || old.is_correct !== question.isCorrect || String(old.correct_answer || '') !== question.answer || String(old.exercise_type || '') !== question.exerciseType; }) || Boolean(current && JSON.stringify(row(session.exercise_data).exercises || []) !== JSON.stringify(row(refreshedData).exercises || []));
   if (!changed) {
@@ -125,7 +128,7 @@ export async function POST(request: Request) {
       if (linkError) throw linkError;
       assignments = new Map((linked || []).map((item) => [String(item.id), row(item)]));
       const sourceIds = [id, ...assignments.keys()];
-      const batch = await server.from('practice_sessions').select('id,user_id,source_type,source_id,subject,topic,level,exercise_data,status,score_pct,correct_count,total_questions,xp_earned,completed_at').eq('source_type', kind).in('source_id', sourceIds).eq('status', 'completed').gt('id', cursor).order('id', { ascending: true }).limit(RESOURCE_REPAIR_BATCH);
+      const batch = await server.from('practice_sessions').select('id,user_id,source_type,source_id,subject,topic,level,exercise_data,status,evaluation_status,score_pct,correct_count,total_questions,xp_earned,completed_at').eq('source_type', kind).in('source_id', sourceIds).eq('status', 'completed').gt('id', cursor).order('id', { ascending: true }).limit(RESOURCE_REPAIR_BATCH);
       if (batch.error) throw batch.error;
       const candidates = new Map((batch.data || []).map((item) => [Number(item.id), row(item)]));
       moreResourceSessions = (batch.data || []).length === RESOURCE_REPAIR_BATCH;
@@ -137,7 +140,7 @@ export async function POST(request: Request) {
         moreResourceSessions ||= (linkedAttempts.data || []).length === RESOURCE_REPAIR_BATCH;
         const missing = (linkedAttempts.data || []).map((item) => Number(item.practice_session_id)).filter((sessionId) => Number.isSafeInteger(sessionId) && sessionId > cursor && !candidates.has(sessionId));
         if (missing.length) {
-          const linkedSessions = await server.from('practice_sessions').select('id,user_id,source_type,source_id,subject,topic,level,exercise_data,status,score_pct,correct_count,total_questions,xp_earned,completed_at').in('id', missing).eq('status', 'completed').eq('source_type', kind);
+          const linkedSessions = await server.from('practice_sessions').select('id,user_id,source_type,source_id,subject,topic,level,exercise_data,status,evaluation_status,score_pct,correct_count,total_questions,xp_earned,completed_at').in('id', missing).eq('status', 'completed').eq('source_type', kind);
           if (linkedSessions.error) throw linkedSessions.error;
           for (const item of linkedSessions.data || []) candidates.set(Number(item.id), row(item));
         }
@@ -151,7 +154,7 @@ export async function POST(request: Request) {
       const review = await server.from('teacher_review_requests').select('id,student_id,practice_session_id,assignment_id').eq('id', reviewId).eq('teacher_id', uid).maybeSingle();
       if (review.error) throw review.error;
       if (!review.data) return json({ error: 'Review request not found.' }, 404);
-      const found = await server.from('practice_sessions').select('id,user_id,source_type,source_id,subject,topic,level,exercise_data,status,score_pct,correct_count,total_questions,xp_earned').eq('id', review.data.practice_session_id).eq('user_id', review.data.student_id).maybeSingle();
+      const found = await server.from('practice_sessions').select('id,user_id,source_type,source_id,subject,topic,level,exercise_data,status,evaluation_status,score_pct,correct_count,total_questions,xp_earned').eq('id', review.data.practice_session_id).eq('user_id', review.data.student_id).maybeSingle();
       if (found.error) throw found.error;
       if (found.data) sessions = [{ ...row(found.data), exercise_data: { ...row(found.data.exercise_data), assignment_id: row(found.data.exercise_data).assignment_id || review.data.assignment_id || undefined } }];
       const assignmentId = String(review.data.assignment_id || '');
@@ -163,7 +166,7 @@ export async function POST(request: Request) {
     } else {
       const ids = Array.isArray(body?.sessionIds) ? body.sessionIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 18) : [];
       if (!ids.length) return json({ examined: 0, repaired: 0 });
-      const { data, error } = await server.from('practice_sessions').select('id,user_id,source_type,source_id,subject,topic,level,exercise_data,status,score_pct,correct_count,total_questions,xp_earned').eq('user_id', uid).eq('status', 'completed').in('source_type', ['worksheet', 'exam']).in('id', ids);
+      const { data, error } = await server.from('practice_sessions').select('id,user_id,source_type,source_id,subject,topic,level,exercise_data,status,evaluation_status,score_pct,correct_count,total_questions,xp_earned').eq('user_id', uid).eq('status', 'completed').in('source_type', ['worksheet', 'exam']).in('id', ids);
       if (error) throw error;
       sessions = (data || []).map(row);
     }

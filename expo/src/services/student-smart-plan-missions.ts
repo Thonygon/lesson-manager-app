@@ -42,7 +42,12 @@ export function passedMissionResourceIds(workspace: StudentWorkspace | null, min
   for (const session of workspace?.sessions ?? []) {
     const kind = String(session.source_type || '');
     const id = String(session.source_id || '');
-    if (!['worksheet', 'exam'].includes(kind) || !id || String(session.status || '').toLocaleLowerCase() !== 'completed' || Number(session.score_pct || 0) < minimumScore) continue;
+    if (!['worksheet', 'exam'].includes(kind) || !id || String(session.status || '').toLocaleLowerCase() !== 'completed') continue;
+    const reviewedPass = String(session.evaluation_status || 'final') === 'final' && Number(session.score_pct || 0) >= minimumScore;
+    // An independent learner may finish a mission by practicing even when
+    // free responses cannot be scored. This is completion, not mastery evidence.
+    const independentPractice = String(session.evaluation_status) === 'unassessed' && !String(session.assignment_id || '');
+    if (!reviewedPass && !independentPractice) continue;
     passed.add(`${kind}:${id}`);
     const assignment = assignments.get(id);
     if (assignment && String(assignment.assignment_type || '') === kind && assignment.source_record_id) passed.add(`${kind}:${assignment.source_record_id}`);

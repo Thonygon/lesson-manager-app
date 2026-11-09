@@ -23,7 +23,7 @@ type MlHistorySignals = { subjects: Set<string>; subjectLevels: Record<string, s
 export function buildStudentMlHistorySignals(workspace: StudentWorkspace, clock = Date.now()): MlHistorySignals {
   const cutoff = clock - 180 * 86400000;
   const recent = (value: unknown) => { const stamp = Date.parse(text(value)); return Number.isFinite(stamp) && stamp >= cutoff; };
-  const sessions = (workspace.sessions ?? []).filter((row) => recent(row.created_at))
+  const sessions = (workspace.sessions ?? []).filter((row) => recent(row.created_at) && (row.evaluation_status || 'final') === 'final')
     .sort((a, b) => text(b.created_at).localeCompare(text(a.created_at))).slice(0, 800);
   const assignments = (workspace.mlHistoryAssignments ?? workspace.assignments ?? []).filter((row) => key(row.status) !== 'archived' && recent(row.updated_at))
     .sort((a, b) => text(b.updated_at).localeCompare(text(a.updated_at))).slice(0, 800);

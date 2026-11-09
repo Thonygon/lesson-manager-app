@@ -50,6 +50,7 @@
     {"name": "lesson_note_null_cleanup.sql", "sha256": "01925345f992bd6edb4955b3180a02f8172e8f5f36dd9022e42247e3ffc48d72"},
     {"name": "normalize_lesson_note_defaults.sql", "sha256": "aeb4b26d9d017168abfdfeb412bee388b5a5e66bebf81d9a81ff7b33a567d004"},
     {"name": "add_public_student_practice_resource_policies.sql", "sha256": "db9f19c9b8a80397f45444951ab2fc9761e6c52d8f5ced3c10e63fbd59158766"},
+    {"name": "practice_pending_review.sql", "sha256": "7eaf51702ccc214746ee0248c86bea195e8f72cf9144d831f0ef4bcbeb433763"},
     {"name": "practice_sessions_source_id_text.sql", "sha256": "a1a3a17b645995224a15a65ecab660a9d3a6fef882230a06ab1913f8ff292b7d"},
     {"name": "practice_tables.sql", "sha256": "071761427ff56a4bd2e86ea137ef975c2824222ec7bdabb7151901911624d90e"},
     {"name": "scope_practice_progress_by_assignment.sql", "sha256": "6b9554a6ce8f22b21ef17c9835535f139dffebf9b8083b1196d1a387f317a3e4"},
