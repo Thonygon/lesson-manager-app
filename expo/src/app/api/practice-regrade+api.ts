@@ -63,7 +63,9 @@ async function repairSession(server: SupabaseClient, session: Record<string, unk
   const previousQuestions = new Map((materialFromSession(session)?.questions || []).map((question) => [`${question.exerciseIndex}:${question.questionIndex}`, question]));
   const priorVerdicts = Object.fromEntries(saved.filter((answer) => typeof answer.is_correct === 'boolean').map((answer) => [`${answer.exercise_idx}:${answer.question_idx}`, {
     studentAnswer: String(answer.student_answer || ''), correctAnswer: String(answer.correct_answer || ''),
-    exerciseType: String(answer.exercise_type || ''), acceptedAnswers: previousQuestions.get(`${answer.exercise_idx}:${answer.question_idx}`)?.acceptedAnswers || [], isCorrect: answer.is_correct === true,
+    exerciseType: String(answer.exercise_type || ''), acceptedAnswers: previousQuestions.get(`${answer.exercise_idx}:${answer.question_idx}`)?.acceptedAnswers || [],
+    prompt: previousQuestions.get(`${answer.exercise_idx}:${answer.question_idx}`)?.prompt || '', sourceText: previousQuestions.get(`${answer.exercise_idx}:${answer.question_idx}`)?.sourceText || '', instructions: previousQuestions.get(`${answer.exercise_idx}:${answer.question_idx}`)?.instructions || '',
+    isCorrect: answer.is_correct === true,
   }]));
   const graded = gradePractice(material, answers, { allowExpandedModelMatch: false, preserveFinalVerdicts: priorVerdicts });
   // Legacy completed attempts have no pending-state metadata. Do not replace

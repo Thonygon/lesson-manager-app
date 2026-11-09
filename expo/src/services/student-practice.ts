@@ -176,7 +176,7 @@ export async function repairVisiblePracticeHistory(sessionIds: string[]): Promis
   }
   return repaired;
 }
-type FinalAnswerVerdict = { studentAnswer: string; correctAnswer: string; exerciseType: string; acceptedAnswers: string[]; isCorrect: boolean };
+type FinalAnswerVerdict = { studentAnswer: string; correctAnswer: string; exerciseType: string; acceptedAnswers: string[]; prompt: string; sourceText: string; instructions: string; isCorrect: boolean };
 export function gradePractice(material: PracticeMaterial, answers: Record<string, string>, options: { allowExpandedModelMatch?: boolean; preserveFinalVerdicts?: Record<string, FinalAnswerVerdict> } = {}) {
   let correct = 0; let streak = 0; let bestStreak = 0; let evaluatedCount = 0; let pendingCount = 0;
   const rows = material.questions.map((question, index) => {
@@ -194,7 +194,7 @@ export function gradePractice(material: PracticeMaterial, answers: Record<string
       isCorrect = [question.answer, ...(question.acceptedAnswers || [])].some((variant) => matchesExpandedModelAnswer(studentAnswer, variant, question.prompt));
     }
     const prior = options.preserveFinalVerdicts?.[`${question.exerciseIndex}:${question.questionIndex}`];
-    const preservedFinalVerdict = Boolean(!choice && prior && prior.studentAnswer === studentAnswer && prior.correctAnswer === question.answer && prior.exerciseType === question.exerciseType && JSON.stringify(prior.acceptedAnswers) === JSON.stringify(question.acceptedAnswers || []));
+    const preservedFinalVerdict = Boolean(!choice && prior && prior.studentAnswer === studentAnswer && prior.correctAnswer === question.answer && prior.exerciseType === question.exerciseType && prior.prompt === question.prompt && prior.sourceText === question.sourceText && prior.instructions === question.instructions && JSON.stringify(prior.acceptedAnswers) === JSON.stringify(question.acceptedAnswers || []));
     if (preservedFinalVerdict && prior) {
       // A final answer already accepted (including teacher overrides) stays
       // final while a different question's corrected key is regraded.
