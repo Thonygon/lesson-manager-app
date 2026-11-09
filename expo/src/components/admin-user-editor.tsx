@@ -58,7 +58,7 @@ function Editor({ row, plans, staffRoles, reload }: { row: Row; plans: Row[]; st
       <View style={styles.field}><SelectField label={t('admin.studyAccess')} value={canStudy ? 'yes' : 'no'} options={yesNo} onChange={(value) => setCanStudy(value === 'yes')} /></View>
       <View style={styles.field}><SelectField label={t('admin.defaultMode')} value={selectedMode} options={modes.map((value) => ({ value, label: t(`admin.value.${value}`) }))} onChange={setActiveMode} /></View>
       <View style={styles.field}><SelectField label={t('admin.accountStatus')} value={accountStatus} options={['active', 'suspended'].map((value) => ({ value, label: t(`admin.value.${value}`) }))} onChange={setAccountStatus} /></View>
-      <View style={styles.field}><SelectField label={t('admin.plan')} value={planId} options={plans.map((plan) => ({ value: text(plan.id), label: text(plan.name || plan.id) }))} onChange={(value) => { setPlanId(value); setSubscriptionStatus(value === 'free' ? 'free' : 'active'); }} /></View>
+      <View style={styles.field}><SelectField label={t('admin.plan')} value={planId} options={plans.map((plan) => ({ value: text(plan.id), label: text(plan.name || plan.id) }))} onChange={setPlanId} /></View>
       <View style={styles.field}><SelectField label={t('admin.subscriptionStatus')} value={subscriptionStatus} options={['free', 'active', 'trialing', 'past_due', 'canceled', 'expired'].map((value) => ({ value, label: t(`admin.value.${value}`) }))} onChange={setSubscriptionStatus} /></View>
     </View>
     <Text style={styles.help}>{t('admin.accountFieldsHelp')}</Text>

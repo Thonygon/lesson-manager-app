@@ -14,6 +14,7 @@ export type AdminWorkspaceData = {
   paymentEvents: WorkspaceResult;
   overrides: WorkspaceResult;
   staffRoles: WorkspaceResult;
+  platformAdmins: WorkspaceResult;
   explorerMoves: WorkspaceResult;
   contentCounts: Record<string, number | null>;
   platformCounts: Record<string, number | null>;
@@ -130,7 +131,7 @@ export async function loadAdminWorkspace(tab: string, force = false): Promise<Ad
     profiles: accounts.profiles ?? empty, subscriptions: accounts.subscriptions ?? empty, plans: accounts.plans ?? empty,
     paymentEvents: sectionData.payments?.paymentEvents ?? sectionData.audit?.paymentEvents ?? empty,
     overrides: sectionData.audit?.overrides ?? empty,
-    staffRoles: sectionData.staff?.staffRoles ?? empty,
+    staffRoles: sectionData.staff?.staffRoles ?? empty, platformAdmins: sectionData.staff?.platformAdmins ?? empty,
     explorerMoves: sectionData.explorer?.explorerMoves ?? empty,
     contentCounts: { ...sectionData.resourcesA?.contentCounts, ...sectionData.resourcesB?.contentCounts }, platformCounts,
     warnings: results.flatMap(([, result]) => result.warnings ?? []).filter((warning) => !(warning.startsWith('user_subscriptions:') && platformCounts.subscriptions != null) && !(warning.startsWith('profiles:') && platformCounts.profiles != null)),

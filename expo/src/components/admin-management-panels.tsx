@@ -100,7 +100,7 @@ export function AdminAccountPanel({ plans, reload }: { profiles: Row[]; plans: R
   </View>;
 }
 
-export function AdminStaffPanel({ profiles, assignments, reload }: { profiles: Row[]; assignments: Row[]; reload: () => Promise<void> }) {
+export function AdminStaffPanel({ profiles, admins, assignments, reload }: { profiles: Row[]; admins: Row[]; assignments: Row[]; reload: () => Promise<void> }) {
   const { t } = useAppPreferences(); const action = useAction(reload);
   const [userId, setUserId] = useState(''), [role, setRole] = useState('developer'), [reason, setReason] = useState('');
   const [search, setSearch] = useState(''), [confirmAssign, setConfirmAssign] = useState(false), [confirmRevoke, setConfirmRevoke] = useState(false);
@@ -111,7 +111,7 @@ export function AdminStaffPanel({ profiles, assignments, reload }: { profiles: R
   return <Panel style={styles.panel}>
     <Text style={styles.title}>{t('admin.staffManagement')}</Text><Text style={styles.help}>{t('admin.staffManagementHelp')}</Text>
     <Text style={styles.subheading}>{t('admin.platformAdmins')}</Text>
-    <Text style={styles.help}>{profiles.filter((row) => row.role === 'admin').map((row) => id(row.display_name || row.email || row.user_id)).join(' · ') || t('admin.noStaff')}</Text>
+    <Text style={styles.help}>{admins.map((row) => id(row.display_name || row.email || row.user_id)).join(' · ') || t('admin.noStaff')}</Text>
     <View style={styles.grid}><View style={styles.field}><Text style={styles.fieldLabel}>{t('admin.searchUsers')}</Text><Field accessibilityLabel={t('admin.searchUsers')} value={search} onChangeText={setSearch} /></View><View style={styles.field}><SelectField label={t('admin.account')} value={userId} options={[{ value: '', label: t('admin.chooseAccount') }, ...filteredProfiles.map((row) => ({ value: id(row.user_id), label: id(row.display_name || row.email || row.user_id) }))]} onChange={(value) => { setUserId(value); setConfirmAssign(false); setConfirmRevoke(false); action.clear(); }} /></View></View>
     {selected ? <><View style={styles.grid}><View style={styles.field}><Text style={styles.fieldLabel}>{t('admin.role')}</Text><Text style={styles.help}>{t(`admin.value.${id(selected.role)}`)}</Text></View><View style={styles.field}><Text style={styles.fieldLabel}>{t('admin.primaryRole')}</Text><Text style={styles.help}>{t(`admin.value.${id(selected.primary_role || selected.role)}`)}</Text></View><View style={styles.field}><Text style={styles.fieldLabel}>{t('admin.activeStaffRoles')}</Text><Text style={styles.help}>{[...(adminRole ? [t('admin.value.admin')] : []), ...active.map((row) => t(`admin.value.${id(row.role_key)}`))].join(', ') || t('admin.noStaffRole')}</Text></View></View>
       {adminRole ? <Text style={styles.help}>{t('admin.adminStaffRoleHelp')}</Text> : null}
