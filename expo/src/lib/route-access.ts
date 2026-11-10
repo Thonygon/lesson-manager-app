@@ -46,3 +46,10 @@ export function authorizedDestination(pathname: string, profile: ClassioProfile 
   if (matches(pathname, TEACHER_ROUTES) && face === 'student') return '/student-home' as const;
   return null;
 }
+
+/** Recover only an authorized privileged URL lost during cold web hydration. */
+export function privilegedDeepLinkToRestore(initialHref: string, currentPath: string, profile: ClassioProfile | null, access: { loading: boolean; isAdmin: boolean; canUseDeveloperWorkspace: boolean }): string | null {
+  const path = initialHref.split(/[?#]/, 1)[0];
+  if (!profile || access.loading || (!matches(path, ADMIN_ROUTES) && !matches(path, DEVELOPER_ROUTES))) return null;
+  return authorizedDestination(path, profile, access) === null && currentPath !== path ? initialHref : null;
+}
