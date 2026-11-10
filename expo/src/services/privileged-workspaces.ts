@@ -18,6 +18,7 @@ export type AdminWorkspaceData = {
   explorerMoves: WorkspaceResult;
   contentCounts: Record<string, number | null>;
   platformCounts: Record<string, number | null>;
+  globalMetrics: { commercial_plan_access: number; new_30_days: number; suspended: number; signup_months: [string, number][]; plan_mix: [string, number][]; status_mix: [string, number][] } | null;
   warnings: string[];
 };
 
@@ -134,6 +135,7 @@ export async function loadAdminWorkspace(tab: string, force = false): Promise<Ad
     staffRoles: sectionData.staff?.staffRoles ?? empty, platformAdmins: sectionData.staff?.platformAdmins ?? empty,
     explorerMoves: sectionData.explorer?.explorerMoves ?? empty,
     contentCounts: { ...sectionData.resourcesA?.contentCounts, ...sectionData.resourcesB?.contentCounts }, platformCounts,
+    globalMetrics: platform.globalMetrics ?? null,
     warnings: results.flatMap(([, result]) => result.warnings ?? []).filter((warning) => !(warning.startsWith('user_subscriptions:') && platformCounts.subscriptions != null) && !(warning.startsWith('profiles:') && platformCounts.profiles != null)),
   };
 }
