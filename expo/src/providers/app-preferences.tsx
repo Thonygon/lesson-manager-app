@@ -734,9 +734,30 @@ Object.assign(tr, { 'admin.recentPaymentEvents': 'Son ödeme olayları', 'admin.
 Object.assign(en, { 'admin.sampleNote': 'Trends and distributions use the 500 most recently loaded accounts; platform totals above include all accounts.' });
 Object.assign(es, { 'admin.sampleNote': 'Las tendencias y distribuciones usan las 500 cuentas más recientes cargadas; los totales superiores incluyen todas las cuentas.' });
 Object.assign(tr, { 'admin.sampleNote': 'Eğilim ve dağılımlar son yüklenen 500 hesabı kullanır; üstteki platform toplamları tüm hesapları kapsar.' });
-Object.assign(en, { 'admin.planAccessUsers': 'Commercial plan access', 'admin.planAccessNotRevenue': 'This count includes trials and manual grants from loaded accounts. It does not measure paying customers or Classio revenue.' });
-Object.assign(es, { 'admin.planAccessUsers': 'Accesos a plan comercial', 'admin.planAccessNotRevenue': 'Este conteo incluye pruebas y accesos manuales entre las cuentas cargadas. No mide clientes que pagaron ni ingresos de Classio.' });
-Object.assign(tr, { 'admin.planAccessUsers': 'Ticari plan erişimi', 'admin.planAccessNotRevenue': 'Bu sayı yüklenen hesaplardaki denemeleri ve manuel erişimleri içerir. Ödeme yapan müşterileri veya Classio gelirini ölçmez.' });
+Object.assign(en, { 'admin.globalMetricsUnavailable': 'Full-account metrics are temporarily unavailable. No estimate is shown.' });
+Object.assign(es, { 'admin.globalMetricsUnavailable': 'Las métricas de todas las cuentas no están disponibles ahora. No se muestra una estimación.' });
+Object.assign(tr, { 'admin.globalMetricsUnavailable': 'Tüm hesapların ölçümleri şu anda kullanılamıyor. Tahmini değer gösterilmiyor.' });
+Object.assign(en, {
+  'admin.info.role': 'The account role controls staff privileges. Teaching and student workspace access are separate controls. Grant Admin only to trusted platform operators.',
+  'admin.info.plan': 'The plan sets feature access and usage limits. Selecting a plan does not record a payment or change the subscription lifecycle status.',
+  'admin.info.subscriptionStatus': 'This records the commercial subscription lifecycle. Active or trialing is an access state, not proof that a payment was collected.',
+  'admin.info.accountStatus': 'Suspended is currently an administrative flag. It does not revoke an existing Supabase sign-in session; do not use it as an emergency security block.',
+});
+Object.assign(es, {
+  'admin.info.role': 'El rol de cuenta determina los privilegios del personal. Los accesos a los espacios docente y estudiante son controles separados. Concede Admin solo a operadores de confianza.',
+  'admin.info.plan': 'El plan define funciones y límites. Elegirlo no registra un pago ni cambia el estado del ciclo de suscripción.',
+  'admin.info.subscriptionStatus': 'Registra el ciclo comercial de la suscripción. Activo o en prueba indica un estado de acceso, no acredita un cobro.',
+  'admin.info.accountStatus': 'Suspendido es por ahora una marca administrativa. No revoca una sesión de Supabase ya iniciada; no lo uses como bloqueo de seguridad urgente.',
+});
+Object.assign(tr, {
+  'admin.info.role': 'Hesap rolü personel yetkilerini belirler. Öğretmen ve öğrenci alanı erişimi ayrı denetimlerdir. Yönetici rolünü yalnızca güvenilir platform görevlilerine verin.',
+  'admin.info.plan': 'Plan özellikleri ve kullanım sınırlarını belirler. Plan seçmek ödeme kaydetmez veya abonelik durumunu değiştirmez.',
+  'admin.info.subscriptionStatus': 'Ticari abonelik sürecini kaydeder. Aktif veya deneme durumu ödeme tahsil edildiğini kanıtlamaz.',
+  'admin.info.accountStatus': 'Askıya alındı şu an yalnızca idari bir işarettir. Mevcut Supabase oturumunu iptal etmez; acil güvenlik engeli olarak kullanmayın.',
+});
+Object.assign(en, { 'admin.planAccessUsers': 'Commercial plan access', 'admin.planAccessNotRevenue': 'This full-account count includes trials and manual grants. It does not measure paying customers or Classio revenue.' });
+Object.assign(es, { 'admin.planAccessUsers': 'Accesos a plan comercial', 'admin.planAccessNotRevenue': 'Este conteo de todas las cuentas incluye pruebas y accesos manuales. No mide clientes que pagaron ni ingresos de Classio.' });
+Object.assign(tr, { 'admin.planAccessUsers': 'Ticari plan erişimi', 'admin.planAccessNotRevenue': 'Tüm hesapları kapsayan bu sayı denemeleri ve manuel erişimleri içerir. Ödeme yapan müşterileri veya Classio gelirini ölçmez.' });
 Object.assign(en, { 'admin.success.account_create': 'Invitation sent and account created.', 'admin.success.account_status': 'Account status updated.', 'admin.success.reset_usage': 'Usage counters reset.', 'admin.success.staff_assign': 'Staff role assigned.', 'admin.success.staff_revoke': 'Staff role revoked.', 'admin.success.plan_save': 'Plan saved.' });
 Object.assign(es, { 'admin.success.account_create': 'Invitación enviada y cuenta creada.', 'admin.success.account_status': 'Estado de cuenta actualizado.', 'admin.success.reset_usage': 'Contadores de uso restablecidos.', 'admin.success.staff_assign': 'Rol del personal asignado.', 'admin.success.staff_revoke': 'Rol del personal revocado.', 'admin.success.plan_save': 'Plan guardado.' });
 Object.assign(tr, { 'admin.success.account_create': 'Davet gönderildi ve hesap oluşturuldu.', 'admin.success.account_status': 'Hesap durumu güncellendi.', 'admin.success.reset_usage': 'Kullanım sayaçları sıfırlandı.', 'admin.success.staff_assign': 'Personel rolü atandı.', 'admin.success.staff_revoke': 'Personel rolü kaldırıldı.', 'admin.success.plan_save': 'Plan kaydedildi.' });

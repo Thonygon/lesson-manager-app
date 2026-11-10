@@ -118,6 +118,7 @@
     {"name": "disable_self_service_account_deletion.sql", "sha256": "c2e4748c66099bbe61c1d7f5f4871f0a4b002d68baa21434200abe1c08992c06"},
     {"name": "smart_tool_success_quota.sql", "sha256": "e6b3500bbba2ef3664cc457b7b26a4d66b68c8a2045aeaf0701c97383e81b592"},
     {"name": "preserve_cross_surface_ai_usage.sql", "sha256": "b3c9cb7b12b80c2aa423ff9e2b5f88d50a59e6088032cc665cdad974ed802078"},
-    {"name": "reserve_streamlit_against_pending_expo.sql", "sha256": "1fab74e993a8541380fb7f850af4c3d7a7d9e6c661c4cdefdfa4c103d52fc8da"}
+    {"name": "reserve_streamlit_against_pending_expo.sql", "sha256": "1fab74e993a8541380fb7f850af4c3d7a7d9e6c661c4cdefdfa4c103d52fc8da"},
+    {"name": "admin_global_account_metrics.sql", "sha256": "40f1178570374d62d1f50f880ccbd955f04db6eb1c6e3f7bf1c686047624b007"}
   ]
 }

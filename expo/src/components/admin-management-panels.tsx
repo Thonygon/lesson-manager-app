@@ -83,12 +83,12 @@ export function AdminAccountPanel({ plans, reload }: { profiles: Row[]; plans: R
       <View style={styles.grid}>
         <View style={styles.field}><Text style={styles.fieldLabel}>{t('common.email')}</Text><Field accessibilityLabel={t('common.email')} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder={t('common.email')} /></View>
         <View style={styles.field}><Text style={styles.fieldLabel}>{t('admin.displayName')}</Text><Field accessibilityLabel={t('admin.displayName')} value={name} onChangeText={setName} placeholder={t('admin.displayName')} /></View>
-        <View style={styles.field}><SelectField label={t('admin.role')} value={role} options={['teacher', 'student', 'school_admin', 'admin'].map((value) => ({ value, label: t(`admin.value.${value}`) }))} onChange={changeRole} /></View>
+        <View style={styles.field}><SelectField label={t('admin.role')} info={t('admin.info.role')} value={role} options={['teacher', 'student', 'school_admin', 'admin'].map((value) => ({ value, label: t(`admin.value.${value}`) }))} onChange={changeRole} /></View>
         <View style={styles.field}><SelectField label={t('admin.teachingAccess')} value={canTeach ? 'yes' : 'no'} options={yesNo(t)} onChange={(value) => setCanTeach(value === 'yes')} /></View>
         <View style={styles.field}><SelectField label={t('admin.studyAccess')} value={canStudy ? 'yes' : 'no'} options={yesNo(t)} onChange={(value) => setCanStudy(value === 'yes')} /></View>
         <View style={styles.field}><SelectField label={t('admin.initialStaffRole')} value={staffRole} options={[{ value: '', label: t('admin.noStaffRole') }, ...['developer', 'data_scientist'].map((value) => ({ value, label: t(`admin.value.${value}`) }))]} onChange={setStaffRole} /></View>
         <View style={styles.field}><SelectField label={t('admin.defaultMode')} value={selectedMode} options={activeModes.map((value) => ({ value, label: t(`admin.value.${value}`) }))} onChange={setActiveMode} /></View>
-        <View style={styles.field}><SelectField label={t('admin.plan')} value={plan} options={plans.filter((row) => row.active !== false).map((row) => ({ value: id(row.id), label: id(row.name || row.id) }))} onChange={setPlan} /></View>
+        <View style={styles.field}><SelectField label={t('admin.plan')} info={t('admin.info.plan')} value={plan} options={plans.filter((row) => row.active !== false).map((row) => ({ value: id(row.id), label: id(row.name || row.id) }))} onChange={setPlan} /></View>
       </View>
       <Text style={styles.help}>{t('admin.createDefaults')}</Text>
       <Text style={styles.fieldLabel}>{t('admin.notes')}</Text><Field accessibilityLabel={t('admin.notes')} value={notes} onChangeText={setNotes} placeholder={t('admin.notes')} multiline numberOfLines={3} />

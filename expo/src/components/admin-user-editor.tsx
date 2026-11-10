@@ -53,13 +53,13 @@ function Editor({ row, plans, staffRoles, reload }: { row: Row; plans: Row[]; st
     <View style={styles.grid}>
       <View style={styles.field}><Text style={styles.label}>{t('admin.displayName')}</Text><Field accessibilityLabel={t('admin.displayName')} value={name} onChangeText={setName} /></View>
       <View style={styles.field}><Text style={styles.label}>{t('common.email')}</Text><Field accessibilityLabel={t('common.email')} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" /></View>
-      <View style={styles.field}><SelectField label={t('admin.role')} value={role} options={['teacher', 'student', 'school_admin', 'admin'].map((value) => ({ value, label: t(`admin.value.${value}`) }))} onChange={setRole} /></View>
+      <View style={styles.field}><SelectField label={t('admin.role')} info={t('admin.info.role')} value={role} options={['teacher', 'student', 'school_admin', 'admin'].map((value) => ({ value, label: t(`admin.value.${value}`) }))} onChange={setRole} /></View>
       <View style={styles.field}><SelectField label={t('admin.teachingAccess')} value={canTeach ? 'yes' : 'no'} options={yesNo} onChange={(value) => setCanTeach(value === 'yes')} /></View>
       <View style={styles.field}><SelectField label={t('admin.studyAccess')} value={canStudy ? 'yes' : 'no'} options={yesNo} onChange={(value) => setCanStudy(value === 'yes')} /></View>
       <View style={styles.field}><SelectField label={t('admin.defaultMode')} value={selectedMode} options={modes.map((value) => ({ value, label: t(`admin.value.${value}`) }))} onChange={setActiveMode} /></View>
-      <View style={styles.field}><SelectField label={t('admin.accountStatus')} value={accountStatus} options={['active', 'suspended'].map((value) => ({ value, label: t(`admin.value.${value}`) }))} onChange={setAccountStatus} /></View>
-      <View style={styles.field}><SelectField label={t('admin.plan')} value={planId} options={plans.map((plan) => ({ value: text(plan.id), label: text(plan.name || plan.id) }))} onChange={setPlanId} /></View>
-      <View style={styles.field}><SelectField label={t('admin.subscriptionStatus')} value={subscriptionStatus} options={['free', 'active', 'trialing', 'past_due', 'canceled', 'expired'].map((value) => ({ value, label: t(`admin.value.${value}`) }))} onChange={setSubscriptionStatus} /></View>
+      <View style={styles.field}><SelectField label={t('admin.accountStatus')} info={t('admin.info.accountStatus')} value={accountStatus} options={['active', 'suspended'].map((value) => ({ value, label: t(`admin.value.${value}`) }))} onChange={setAccountStatus} /></View>
+      <View style={styles.field}><SelectField label={t('admin.plan')} info={t('admin.info.plan')} value={planId} options={plans.map((plan) => ({ value: text(plan.id), label: text(plan.name || plan.id) }))} onChange={setPlanId} /></View>
+      <View style={styles.field}><SelectField label={t('admin.subscriptionStatus')} info={t('admin.info.subscriptionStatus')} value={subscriptionStatus} options={['free', 'active', 'trialing', 'past_due', 'canceled', 'expired'].map((value) => ({ value, label: t(`admin.value.${value}`) }))} onChange={setSubscriptionStatus} /></View>
     </View>
     <Text style={styles.help}>{t('admin.accountFieldsHelp')}</Text>
     <Text style={styles.label}>{t('admin.notes')}</Text><Field accessibilityLabel={t('admin.notes')} value={notes} onChangeText={setNotes} multiline numberOfLines={3} />
