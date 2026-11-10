@@ -26,7 +26,7 @@ async function main() {
   await changeAccountStatus(server, 'target', 'suspended', 'active', save);
   assert.deepEqual(events.splice(0), ['none', 'save']);
   await changeAccountStatus(server, 'target', 'active', 'active', save);
-  assert.deepEqual(events.splice(0), ['save']);
+  assert.deepEqual(events.splice(0), ['none', 'save']);
   await changeAccountStatus(server, 'target', 'suspended', 'suspended', save);
   assert.deepEqual(events.splice(0), ['876000h', 'save']);
   failBan = true;

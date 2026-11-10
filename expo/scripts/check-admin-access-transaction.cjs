@@ -14,6 +14,11 @@ function createClient() {
   clientNumber += 1;
   if (clientNumber % 2) return { auth: { getUser: async () => ({ data: { user: { id: 'admin-id' } }, error: null }) } };
   return {
+    auth: { admin: { updateUserById: async (userId, attrs) => {
+      assert.equal(userId, 'target-id');
+      assert.equal(attrs.ban_duration, 'none');
+      return { error: null };
+    } } },
     from(table) {
       if (!['profiles', 'plans'].includes(table)) throw new Error(`Unexpected write or table: ${table}`);
       queries.push(table);

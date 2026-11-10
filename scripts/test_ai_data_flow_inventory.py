@@ -51,8 +51,20 @@ def late_guard():
     response = client.responses.stream(model='m', input='unsafe')
     require_ai_runtime_approval('streamlit_text', 'openai', 'm', 'v')
     return response
+
+def conditional_guard(enabled):
+    if enabled:
+        require_ai_runtime_approval('streamlit_text', 'openai', 'm', 'v')
+    return client.responses.create(model='m', input='unsafe')
+
+def exception_guard():
+    try:
+        require_ai_runtime_approval('streamlit_text', 'openai', 'm', 'v')
+    except Exception:
+        pass
+    return client.responses.create(model='m', input='unsafe')
 """
-        self.assertEqual(inventory._python_unguarded_sdk_calls(source), [7, 10])
+        self.assertEqual(inventory._python_unguarded_sdk_calls(source), [7, 10, 17, 24])
 
 
 if __name__ == "__main__":
