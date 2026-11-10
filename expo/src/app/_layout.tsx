@@ -25,23 +25,38 @@ function AppFrame() {
   const { resolvedTheme, language } = useAppPreferences();
   const { user, profile, loading } = useAuth();
   const access = usePrivilegedAccess();
-  const recoveredInitialRoute = useRef(false);
+  const initialRouteRecovery = useRef<{ state: 'pending'; path: string; timer: ReturnType<typeof setTimeout> } | { state: 'done' | 'abandoned' } | null>(null);
   const homeIntro = useHomeIntro();
   const pathname = usePathname();
   const enteringHome = pathname === '/home' || pathname === '/dashboard' || pathname === '/student-home';
   const showHomeIntro = enteringHome || (pathname === '/sign-in' && homeIntro.requested);
   useEffect(() => {
-    if (Platform.OS !== 'web' || !initialWebHref || recoveredInitialRoute.current || loading || access.loading || !user || !profile) return;
-    // Wait for nested navigation and session restoration to settle. This runs
-    // once per page load, so later deliberate navigation remains untouched.
+    if (Platform.OS !== 'web' || !initialWebHref) return;
+    const recovery = initialRouteRecovery.current;
+    if (recovery?.state === 'pending' && pathname !== recovery.path) {
+      clearTimeout(recovery.timer);
+      initialRouteRecovery.current = { state: 'abandoned' };
+      return;
+    }
+    if (recovery || loading || access.loading || !user || !profile) return;
+    // Arm only once after access is known. Any subsequent navigation cancels
+    // the restore instead of starting a fresh 500 ms window on that page.
+    const pathAtSchedule = pathname;
     const timer = setTimeout(() => {
-      if (recoveredInitialRoute.current) return;
-      recoveredInitialRoute.current = true;
+      if (initialRouteRecovery.current?.state !== 'pending') return;
+      if (window.location.pathname !== pathAtSchedule) {
+        initialRouteRecovery.current = { state: 'abandoned' };
+        return;
+      }
+      initialRouteRecovery.current = { state: 'done' };
       const target = privilegedDeepLinkToRestore(initialWebHref, window.location.pathname, profile, access);
       if (target) router.replace(target as Href);
     }, 500);
-    return () => clearTimeout(timer);
+    initialRouteRecovery.current = { state: 'pending', path: pathAtSchedule, timer };
   }, [access, loading, pathname, profile, user]);
+  useEffect(() => () => {
+    if (initialRouteRecovery.current?.state === 'pending') clearTimeout(initialRouteRecovery.current.timer);
+  }, []);
   useLayoutEffect(() => {
     if (Platform.OS === 'web' && !showHomeIntro && pathname !== '/' && !loading) document.getElementById('classio-boot-overlay')?.remove();
   }, [loading, pathname, showHomeIntro]);
