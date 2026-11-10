@@ -741,24 +741,27 @@ Object.assign(en, {
   'admin.info.role': 'The account role controls staff privileges. Teaching and student workspace access are separate controls. Grant Admin only to trusted platform operators.',
   'admin.info.plan': 'The plan sets feature access and usage limits. Selecting a plan does not record a payment or change the subscription lifecycle status.',
   'admin.info.subscriptionStatus': 'This records the commercial subscription lifecycle. Active or trialing is an access state, not proof that a payment was collected.',
-  'admin.info.accountStatus': 'Suspended is currently an administrative flag. It does not revoke an existing Supabase sign-in session; do not use it as an emergency security block.',
+  'admin.info.accountStatus': 'Suspending blocks new sign-ins, revokes active sessions and denies access with an old token. Reactivating restores access without deleting account data. Record the reason before changing this status.',
 });
 Object.assign(es, {
   'admin.info.role': 'El rol de cuenta determina los privilegios del personal. Los accesos a los espacios docente y estudiante son controles separados. Concede Admin solo a operadores de confianza.',
   'admin.info.plan': 'El plan define funciones y límites. Elegirlo no registra un pago ni cambia el estado del ciclo de suscripción.',
   'admin.info.subscriptionStatus': 'Registra el ciclo comercial de la suscripción. Activo o en prueba indica un estado de acceso, no acredita un cobro.',
-  'admin.info.accountStatus': 'Suspendido es por ahora una marca administrativa. No revoca una sesión de Supabase ya iniciada; no lo uses como bloqueo de seguridad urgente.',
+  'admin.info.accountStatus': 'Suspender bloquea nuevos accesos, revoca las sesiones activas y deniega el acceso con un token antiguo. Reactivar restablece el acceso sin borrar datos. Registra el motivo del cambio.',
 });
 Object.assign(tr, {
   'admin.info.role': 'Hesap rolü personel yetkilerini belirler. Öğretmen ve öğrenci alanı erişimi ayrı denetimlerdir. Yönetici rolünü yalnızca güvenilir platform görevlilerine verin.',
   'admin.info.plan': 'Plan özellikleri ve kullanım sınırlarını belirler. Plan seçmek ödeme kaydetmez veya abonelik durumunu değiştirmez.',
   'admin.info.subscriptionStatus': 'Ticari abonelik sürecini kaydeder. Aktif veya deneme durumu ödeme tahsil edildiğini kanıtlamaz.',
-  'admin.info.accountStatus': 'Askıya alındı şu an yalnızca idari bir işarettir. Mevcut Supabase oturumunu iptal etmez; acil güvenlik engeli olarak kullanmayın.',
+  'admin.info.accountStatus': 'Askıya alma yeni girişleri engeller, etkin oturumları iptal eder ve eski belirteçlerle erişimi reddeder. Yeniden etkinleştirme verileri silmeden erişimi geri açar. Değişiklik nedenini kaydedin.',
 });
 Object.assign(en, { 'admin.planAccessUsers': 'Commercial plan access', 'admin.planAccessNotRevenue': 'This full-account count includes trials and manual grants. It does not measure paying customers or Classio revenue.' });
 Object.assign(es, { 'admin.planAccessUsers': 'Accesos a plan comercial', 'admin.planAccessNotRevenue': 'Este conteo de todas las cuentas incluye pruebas y accesos manuales. No mide clientes que pagaron ni ingresos de Classio.' });
 Object.assign(tr, { 'admin.planAccessUsers': 'Ticari plan erişimi', 'admin.planAccessNotRevenue': 'Tüm hesapları kapsayan bu sayı denemeleri ve manuel erişimleri içerir. Ödeme yapan müşterileri veya Classio gelirini ölçmez.' });
 Object.assign(en, { 'admin.success.account_create': 'Invitation sent and account created.', 'admin.success.account_status': 'Account status updated.', 'admin.success.reset_usage': 'Usage counters reset.', 'admin.success.staff_assign': 'Staff role assigned.', 'admin.success.staff_revoke': 'Staff role revoked.', 'admin.success.plan_save': 'Plan saved.' });
+Object.assign(en, { 'auth.accountSuspended': 'This account is temporarily unavailable. Contact Classio support if you need help.' });
+Object.assign(es, { 'auth.accountSuspended': 'Esta cuenta no está disponible temporalmente. Contacta con soporte de Classio si necesitas ayuda.' });
+Object.assign(tr, { 'auth.accountSuspended': 'Bu hesaba geçici olarak erişilemiyor. Yardıma ihtiyacınız varsa Classio destek ekibiyle iletişime geçin.' });
 Object.assign(es, { 'admin.success.account_create': 'Invitación enviada y cuenta creada.', 'admin.success.account_status': 'Estado de cuenta actualizado.', 'admin.success.reset_usage': 'Contadores de uso restablecidos.', 'admin.success.staff_assign': 'Rol del personal asignado.', 'admin.success.staff_revoke': 'Rol del personal revocado.', 'admin.success.plan_save': 'Plan guardado.' });
 Object.assign(tr, { 'admin.success.account_create': 'Davet gönderildi ve hesap oluşturuldu.', 'admin.success.account_status': 'Hesap durumu güncellendi.', 'admin.success.reset_usage': 'Kullanım sayaçları sıfırlandı.', 'admin.success.staff_assign': 'Personel rolü atandı.', 'admin.success.staff_revoke': 'Personel rolü kaldırıldı.', 'admin.success.plan_save': 'Plan kaydedildi.' });
 Object.assign(en, { 'admin.value.account_create': 'Account created', 'admin.value.role_access': 'Access updated', 'admin.value.plan_assignment': 'Plan assigned', 'admin.value.plan_update': 'Plan updated', 'admin.value.reset_usage': 'Usage reset', 'admin.value.suspend_user': 'Account suspended', 'admin.value.unsuspend_user': 'Account restored', 'admin.value.staff_role_assigned': 'Staff role assigned', 'admin.value.staff_role_revoked': 'Staff role revoked', 'admin.value.explorer_move_edit': 'Explorer resource edited', 'admin.value.explorer_move_publish': 'Explorer resource published', 'admin.value.explorer_move_assign': 'Explorer resource assigned', 'admin.value.explorer_move_archive': 'Explorer resource archived' });
