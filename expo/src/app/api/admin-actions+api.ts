@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { changeAccountStatus, syncNewAccountSuspension, type AccountStatus } from '@/server/admin-account-suspension';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'private, no-store', Vary: 'Authorization' } });
 const clean = (value: unknown, max = 500) => String(value ?? '').trim().slice(0, max);
@@ -71,6 +72,7 @@ export async function POST(request: Request) {
       if (profileError) throw profileError;
       const { error: subscriptionError } = await server.from('user_subscriptions').upsert({ user_id: userId, plan_id: planId, subscription_status: subscriptionStatus, manual_override: true }, { onConflict: 'user_id' });
       if (subscriptionError) throw subscriptionError;
+      await syncNewAccountSuspension(server, userId, accountStatus as AccountStatus);
       if (staffRole) {
         const { error: staffError } = await server.from('user_staff_roles').insert({ user_id: userId, role_key: staffRole, is_active: true, assigned_by: actorId, assigned_at: new Date().toISOString(), assignment_reason: reason, metadata: {} });
         if (staffError) throw staffError;
@@ -85,7 +87,7 @@ export async function POST(request: Request) {
       if (!((activeMode === 'teacher' && canTeach) || (activeMode === 'student' && canStudy) || (activeMode === 'admin' && role === 'admin') || activeMode === 'developer_workspace')) return json({ error: 'The default workspace must be enabled for this account.' }, 400);
       if (userId === actorId && (role !== 'admin' || accountStatus !== 'active')) return json({ error: 'An admin cannot remove or suspend their own admin access.' }, 400);
       const [{ data: target, error: targetError }, { data: plan, error: planError }, { data: duplicate, error: duplicateError }] = await Promise.all([
-        server.from('profiles').select('user_id,email').eq('user_id', userId).maybeSingle(),
+        server.from('profiles').select('user_id,email,account_status').eq('user_id', userId).maybeSingle(),
         server.from('plans').select('id').eq('id', planId).maybeSingle(),
         server.from('profiles').select('user_id').eq('email', email).neq('user_id', userId).limit(1),
       ]);
@@ -102,8 +104,12 @@ export async function POST(request: Request) {
         const { error: authError } = await server.auth.admin.updateUserById(userId, { email, email_confirm: true });
         if (authError) throw authError;
       }
-      const { error: profileError } = await server.from('profiles').update({ email, display_name: name, role, primary_role: canTeach ? 'teacher' : 'student', can_teach: canTeach, can_study: canStudy, last_active_mode: activeMode, account_status: accountStatus, current_plan: planId, subscription_status: subscriptionStatus, admin_notes: notes }).eq('user_id', userId);
-      if (profileError) {
+      try {
+        await changeAccountStatus(server, userId, target.account_status as AccountStatus, accountStatus as AccountStatus, async () => {
+          const { error: profileError } = await server.from('profiles').update({ email, display_name: name, role, primary_role: canTeach ? 'teacher' : 'student', can_teach: canTeach, can_study: canStudy, last_active_mode: activeMode, account_status: accountStatus, current_plan: planId, subscription_status: subscriptionStatus, admin_notes: notes }).eq('user_id', userId);
+          if (profileError) throw profileError;
+        });
+      } catch (profileError) {
         if (email !== previousEmail && previousEmail) await server.auth.admin.updateUserById(userId, { email: previousEmail, email_confirm: true });
         throw profileError;
       }
@@ -140,15 +146,17 @@ export async function POST(request: Request) {
     if (action === 'account_status' || action === 'reset_usage') {
       if (!userId || !reason) return json({ error: 'Choose a user and enter a reason.' }, 400);
       if (userId === actorId && action === 'account_status') return json({ error: 'You cannot suspend your own admin account.' }, 400);
-      const { data: target, error: targetError } = await server.from('profiles').select('user_id').eq('user_id', userId).maybeSingle();
+      const { data: target, error: targetError } = await server.from('profiles').select('user_id,account_status').eq('user_id', userId).maybeSingle();
       if (targetError) throw targetError;
       if (!target) return json({ error: 'The user no longer exists.' }, 404);
       if (action === 'account_status') {
         const status = clean(input.status, 20);
         if (!['active', 'suspended'].includes(status)) return json({ error: 'Choose an allowed account status.' }, 400);
-        const { data, error } = await server.rpc('classio_admin_account_control', { p_actor_id: actorId, p_target_id: userId, p_action: 'account_status', p_status: status, p_reason: reason });
-        if (error) throw error;
-        if (data !== true) throw new Error('Account status change could not be confirmed.');
+        await changeAccountStatus(server, userId, target.account_status as AccountStatus, status as AccountStatus, async () => {
+          const { data, error } = await server.rpc('classio_admin_account_control', { p_actor_id: actorId, p_target_id: userId, p_action: 'account_status', p_status: status, p_reason: reason });
+          if (error) throw error;
+          if (data !== true) throw new Error('Account status change could not be confirmed.');
+        });
         return json({ ok: true, audited: true });
       }
       const { data, error } = await server.rpc('classio_admin_account_control', { p_actor_id: actorId, p_target_id: userId, p_action: 'reset_usage', p_status: null, p_reason: reason });

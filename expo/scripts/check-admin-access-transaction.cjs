@@ -3,6 +3,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
 const source = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../src/app/api/admin-access+api.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
+const suspensionSource = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../src/server/admin-account-suspension.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
+const suspension = { exports: {} };
+new Function('module', 'exports', 'require', suspensionSource)(suspension, suspension.exports, require);
 let clientNumber = 0;
 let fail = false;
 let rpcCalls = 0;
@@ -15,7 +18,7 @@ function createClient() {
       if (!['profiles', 'plans'].includes(table)) throw new Error(`Unexpected write or table: ${table}`);
       queries.push(table);
       let selected = '';
-      return { select(columns) { selected = columns; return this; }, eq() { return this; }, async maybeSingle() { return { data: table === 'profiles' ? selected === 'role' ? { role: 'admin' } : { user_id: 'target-id' } : { id: 'free', active: true }, error: null }; } };
+      return { select(columns) { selected = columns; return this; }, eq() { return this; }, async maybeSingle() { return { data: table === 'profiles' ? selected === 'role' ? { role: 'admin' } : { user_id: 'target-id', account_status: 'active' } : { id: 'free', active: true }, error: null }; } };
     },
     async rpc(name, args) {
       rpcCalls += 1;
@@ -28,7 +31,7 @@ function createClient() {
   };
 }
 const moduleRef = { exports: {} };
-new Function('module', 'exports', 'require', source)(moduleRef, moduleRef.exports, () => ({ createClient }));
+new Function('module', 'exports', 'require', source)(moduleRef, moduleRef.exports, (name) => name === '@/server/admin-account-suspension' ? suspension.exports : { createClient });
 const request = () => new Request('https://classio.test/api/admin-access', { method: 'POST', headers: { Authorization: 'Bearer fixture-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: 'target-id', role: 'teacher', planId: 'free', subscriptionStatus: 'free', canTeach: true, canStudy: false, accountStatus: 'active', activeMode: 'teacher' }) });
 async function main() {
   const old = { url: process.env.EXPO_PUBLIC_SUPABASE_URL, publicKey: process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY, serverKey: process.env.SUPABASE_SERVICE_ROLE_KEY };

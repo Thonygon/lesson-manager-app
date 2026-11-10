@@ -5,6 +5,9 @@ const ts = require('typescript');
 
 const source = fs.readFileSync(path.join(__dirname, '../src/app/api/admin-actions+api.ts'), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
+const suspensionSource = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../src/server/admin-account-suspension.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
+const suspension = { exports: {} };
+new Function('module', 'exports', 'require', suspensionSource)(suspension, suspension.exports, require);
 let failIntent = false;
 let failRpc = false;
 let effects = [];
@@ -19,7 +22,7 @@ function query(table) {
     async limit() { return { data: [] }; },
     async maybeSingle() {
       if (table === 'profiles' && selected === 'role') return { data: { role: 'admin' } };
-      if (table === 'profiles' && id === 'target-1') return { data: { user_id: id } };
+      if (table === 'profiles' && id === 'target-1') return { data: { user_id: id, account_status: 'active' } };
       return { data: null };
     },
     async insert(payload) {
@@ -32,10 +35,10 @@ function createClient() {
   clients += 1;
   return clients % 2
     ? { auth: { getUser: async () => ({ data: { user: { id: 'admin-1' } }, error: null }) } }
-    : { from: query, async rpc(name, args) { assert.ok(['classio_admin_change_staff', 'classio_admin_account_control'].includes(name)); effects.push({ table: name, args }); return failRpc ? { data: null, error: new Error('fixture rollback') } : { data: name === 'classio_admin_change_staff' ? { assignment_id: 1 } : true, error: null }; } };
+    : { auth: { admin: { async updateUserById(userId, attrs) { effects.push({ table: 'auth_ban', userId, attrs }); return { error: null }; } } }, from: query, async rpc(name, args) { assert.ok(['classio_admin_change_staff', 'classio_admin_account_control'].includes(name)); effects.push({ table: name, args }); return failRpc ? { data: null, error: new Error('fixture rollback') } : { data: name === 'classio_admin_change_staff' ? { assignment_id: 1 } : true, error: null }; } };
 }
 const moduleRef = { exports: {} };
-new Function('module', 'exports', 'require', compiled)(moduleRef, moduleRef.exports, () => ({ createClient }));
+new Function('module', 'exports', 'require', compiled)(moduleRef, moduleRef.exports, (name) => name === '@/server/admin-account-suspension' ? suspension.exports : { createClient });
 const oldError = console.error;
 const oldEnv = { url: process.env.EXPO_PUBLIC_SUPABASE_URL, publicKey: process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY, serverKey: process.env.SUPABASE_SERVICE_ROLE_KEY };
 const request = (action = 'staff_assign') => new Request('https://classio.test/api/admin-actions', { method: 'POST', headers: { Authorization: 'Bearer fixture-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ action, userId: 'target-1', role: 'developer', status: 'suspended', reason: 'fixture' }) });
@@ -60,8 +63,9 @@ async function main() {
     failRpc = false;
     effects = [];
     assert.equal((await moduleRef.exports.POST(request('account_status'))).status, 200);
-    assert.deepEqual(effects.map((effect) => effect.table), ['admin_overrides', 'classio_admin_account_control']);
-    assert.equal(effects[1].args.p_status, 'suspended');
+    assert.deepEqual(effects.map((effect) => effect.table), ['admin_overrides', 'auth_ban', 'classio_admin_account_control']);
+    assert.equal(effects[1].attrs.ban_duration, '876000h');
+    assert.equal(effects[2].args.p_status, 'suspended');
     effects = [];
     assert.equal((await moduleRef.exports.POST(request('reset_usage'))).status, 200);
     assert.deepEqual(effects.map((effect) => effect.table), ['admin_overrides', 'classio_admin_account_control']);

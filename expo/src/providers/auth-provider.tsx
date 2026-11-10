@@ -63,6 +63,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [recoverySession, setRecoverySession] = useState(false);
   const stateRef = useRef<AuthState>(initialState);
   const profileRequest = useRef(0);
+  const suspendedNotice = useRef(false);
 
   const commitState = useCallback((next: AuthState) => {
     stateRef.current = next;
@@ -71,9 +72,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const applySession = useCallback(async (session: Session | null, refreshProfile = false) => {
     const transition = authSessionTransition(stateRef.current, session, refreshProfile);
+    if (session) suspendedNotice.current = false;
     commitState(transition.state);
     if (!transition.loadProfile) {
       if (!session) profileRequest.current += 1;
+      if (!session && suspendedNotice.current) commitState({ ...stateRef.current, error: 'account_suspended' });
       return;
     }
     const request = ++profileRequest.current;
@@ -83,6 +86,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
       commitState({ ...stateRef.current, loading: false, profile, legalAcceptances });
     } catch (error) {
       if (request !== profileRequest.current) return;
+      const denied = error && typeof error === 'object' && 'code' in error && error.code === '42501'
+        && 'message' in error && String(error.message).includes('Account access is suspended');
+      if (denied) {
+        suspendedNotice.current = true;
+        await supabase?.auth.signOut({ scope: 'local' });
+        commitState({ ...stateRef.current, loading: false, session: null, user: null, profile: null, legalAcceptances: [], error: 'account_suspended' });
+        return;
+      }
       commitState({ ...stateRef.current,
         loading: false,
         profile: null,

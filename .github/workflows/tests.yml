@@ -114,7 +114,11 @@ jobs:
         run: pnpm run typecheck
 
       - name: Verify Admin workspace role matrix
-        run: node scripts/check-admin-workspace-roles.cjs
+        run: |
+          node scripts/check-admin-workspace-roles.cjs
+          node scripts/check-admin-access-transaction.cjs
+          node scripts/check-admin-action-intent.cjs
+          node scripts/check-admin-account-suspension.cjs
       - name: Check Admin consumption roles
         run: |
           node scripts/check-admin-consumption-roles.cjs

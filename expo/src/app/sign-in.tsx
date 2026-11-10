@@ -30,7 +30,7 @@ export default function SignInScreen() {
   }, []);
   const compact = (Platform.OS === 'web' ? webWidth ?? width : width) < 850;
   const { language, t } = useAppPreferences();
-  const { configured, loading, user, profile, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signUp, sendPasswordReset } = useAuth();
+  const { configured, loading, user, profile, error: authError, signIn, signInWithMagicLink, signInWithGoogle, signInWithGoogleIdToken, signUp, sendPasswordReset } = useAuth();
   const { start: startHomeIntro, cancel: cancelHomeIntro } = useHomeIntro();
   const [mode, setMode] = useState<'sign-in' | 'sign-up' | 'forgot'>('sign-in');
   const [email, setEmail] = useState('');
@@ -106,6 +106,7 @@ export default function SignInScreen() {
         <Panel style={[styles.card, compact && styles.cardCompact]}>
           <View style={styles.modeTabs}><Pressable onPress={() => { setMode('sign-in'); setMessage(null); }} style={[styles.modeTab, mode === 'sign-in' && styles.modeActive]}><Text style={[styles.modeText, mode === 'sign-in' && styles.modeTextActive]}>{t('auth.signIn')}</Text></Pressable><Pressable onPress={() => { setMode('sign-up'); setMessage(null); }} style={[styles.modeTab, mode === 'sign-up' && styles.modeActive]}><Text style={[styles.modeText, mode === 'sign-up' && styles.modeTextActive]}>{t('auth.createAccount')}</Text></Pressable></View>
           <Text style={styles.title}>{mode === 'forgot' ? t('auth.forgotPassword') : mode === 'sign-in' ? t('auth.welcome') : t('auth.start')}</Text><Text style={styles.intro}>{mode === 'forgot' ? t('auth.resetIntro') : mode === 'sign-in' ? t('auth.signInIntro') : t('auth.signUpIntro')}</Text>
+          {authError === 'account_suspended' ? <Text style={styles.message}>{t('auth.accountSuspended')}</Text> : null}
           {!configured ? <View style={styles.configNotice}><Text style={styles.noticeTitle}>Deployment configuration required</Text><Text style={styles.noticeBody}>This environment needs the Supabase URL and public publishable key.</Text></View> : <>
             <View style={styles.fieldGroup}><Text style={styles.label}>{t('auth.email')}</Text><Field accessibilityLabel={t('auth.email')} autoCapitalize="none" autoComplete="email" keyboardType="email-address" placeholder="you@example.com" value={email} onChangeText={setEmail} /></View>
             {mode !== 'forgot' ? <View style={styles.fieldGroup}><Text style={styles.label}>{t('auth.password')}</Text><Field accessibilityLabel={t('auth.password')} autoCapitalize="none" autoComplete={mode === 'sign-in' ? 'current-password' : 'new-password'} placeholder={mode === 'sign-in' ? t('auth.passwordPlaceholder') : t('auth.newPasswordPlaceholder')} secureTextEntry value={password} onChangeText={setPassword} /></View> : null}

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { changeAccountStatus, type AccountStatus } from '@/server/admin-account-suspension';
 
 const respond = (body: unknown, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'private, no-store', Vary: 'Authorization' } });
 const roles = new Set(['teacher', 'student', 'school_admin', 'admin']);
@@ -39,19 +40,21 @@ export async function POST(request: Request) {
       if (!staff?.length) return respond({ error: 'Developer workspace requires an active staff role.' }, 400);
     }
     const [{ data: target, error: targetError }, { data: plan, error: planError }] = await Promise.all([
-      server.from('profiles').select('user_id').eq('user_id', targetId).maybeSingle(),
+      server.from('profiles').select('user_id,account_status').eq('user_id', targetId).maybeSingle(),
       server.from('plans').select('id,active').eq('id', planId).maybeSingle(),
     ]);
     if (targetError || planError) throw targetError || planError;
     if (!target || !plan || plan.active === false) return respond({ error: 'The account or plan is unavailable.' }, 404);
-    const { data, error } = await server.rpc('classio_admin_set_access', {
-      p_actor_id: identity.user.id, p_target_id: targetId, p_role: role,
-      p_plan_id: planId, p_subscription_status: status, p_can_teach: canTeach,
-      p_can_study: canStudy, p_account_status: accountStatus,
-      p_active_mode: activeMode, p_notes: notes,
+    await changeAccountStatus(server, targetId, target.account_status as AccountStatus, accountStatus as AccountStatus, async () => {
+      const { data, error } = await server.rpc('classio_admin_set_access', {
+        p_actor_id: identity.user.id, p_target_id: targetId, p_role: role,
+        p_plan_id: planId, p_subscription_status: status, p_can_teach: canTeach,
+        p_can_study: canStudy, p_account_status: accountStatus,
+        p_active_mode: activeMode, p_notes: notes,
+      });
+      if (error) throw error;
+      if (data !== true) throw new Error('Access transaction could not be confirmed.');
     });
-    if (error) throw error;
-    if (data !== true) throw new Error('Access transaction could not be confirmed.');
     return respond({ ok: true, audited: true });
   } catch (error) {
     console.error('Admin access assignment failed', error);
