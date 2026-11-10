@@ -20,9 +20,9 @@ export async function changeAccountStatus(
   save: () => Promise<void>,
 ): Promise<void> {
   if (previous === next) {
-    // A prior partial account-creation failure may leave the profile suspended
-    // while the Auth ban was not written. Reapplying suspension is idempotent.
-    if (next === 'suspended') await setAuthBan(server, userId, next);
+    // Reconcile Auth in either direction after a partial failure or concurrent
+    // status change. Reapplying the desired ban state is idempotent.
+    await setAuthBan(server, userId, next);
     await save();
     return;
   }

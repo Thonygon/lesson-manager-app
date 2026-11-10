@@ -21,7 +21,7 @@ APPROVAL_CALLS = {
 
 
 def _python_unguarded_sdk_calls(source: str) -> list[int]:
-    """Find SDK calls whose containing function has no earlier approval check."""
+    """Require a direct, unconditional approval statement before each SDK call."""
     try:
         tree = ast.parse(source)
     except SyntaxError:
@@ -48,8 +48,11 @@ def _python_unguarded_sdk_calls(source: str) -> list[int]:
 
             for statement in node.body:
                 collect(statement)
-            guards = [call.lineno for call in calls
-                      if isinstance(call.func, ast.Name) and call.func.id == "require_ai_runtime_approval"]
+            guards = [statement.lineno for statement in node.body
+                      if isinstance(statement, ast.Expr)
+                      and isinstance(statement.value, ast.Call)
+                      and isinstance(statement.value.func, ast.Name)
+                      and statement.value.func.id == "require_ai_runtime_approval"]
             for call in calls:
                 name = ast.unparse(call.func)
                 if SDK_CALL_PATTERN.search(name + "(") and not any(line < call.lineno for line in guards):
