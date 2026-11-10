@@ -22,7 +22,7 @@ function CountryDot({ name, sessions, recent, recentLabel, x, y }: { name: strin
     animation.start();
     return () => { animation.stop(); pulse.setValue(0); };
   }, [pulse, recent, reduceMotion]);
-  return <View accessible style={[styles.marker, { left: `${x}%`, top: `${y}%` }]} accessibilityLabel={`${name}: ${sessions}${recent ? ` · ${recentLabel}` : ''}`}>
+  return <View accessible accessibilityRole="image" style={[styles.marker, { left: `${x}%`, top: `${y}%` }]} accessibilityLabel={`${name}: ${sessions}${recent ? ` · ${recentLabel}` : ''}`}>
     {recent && !reduceMotion ? <Animated.View style={[styles.pulse, { opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.8, 0] }), transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 3] }) }] }]} /> : null}
     {recent ? <View style={styles.recentRing} /> : null}
     <View style={[styles.dot, recent && styles.recentDot]} />
