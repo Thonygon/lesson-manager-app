@@ -1,12 +1,13 @@
-import { Stack, usePathname } from 'expo-router';
-import { useLayoutEffect } from 'react';
+import { router, Stack, usePathname, type Href } from 'expo-router';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import Head from 'expo-router/head';
 import { StatusBar } from 'expo-status-bar';
 
 import { AuthProvider, useAuth } from '@/providers/auth-provider';
+import { privilegedDeepLinkToRestore } from '@/lib/route-access';
 import { AppPreferencesProvider, useAppPreferences } from '@/providers/app-preferences';
-import { PrivilegedAccessProvider } from '@/providers/privileged-access-provider';
+import { PrivilegedAccessProvider, usePrivilegedAccess } from '@/providers/privileged-access-provider';
 import { LiveBackground } from '@/components/live-background';
 import { StorageNotice } from '@/components/storage-notice';
 import { IntroConstellation } from '@/components/intro-constellation';
@@ -14,13 +15,33 @@ import { publicCopy } from '@/lib/public-copy';
 import { HomeIntroProvider, useHomeIntro } from '@/providers/home-intro-provider';
 import { introOverlayCss } from '@/theme';
 
+// Capture a privileged deep link before Expo Router initializes its web stack.
+// On a cold load the nested stack can briefly select another route while the
+// persisted session is restored. Never use this hint to grant access.
+const initialWebHref = typeof window !== 'undefined' && /^\/(?:admin(?:-[a-z-]+)?|developer-workspace)(?:\/|$)/.test(window.location.pathname)
+  ? `${window.location.pathname}${window.location.search}${window.location.hash}` : '';
+
 function AppFrame() {
   const { resolvedTheme, language } = useAppPreferences();
-  const { user, loading } = useAuth();
+  const { user, profile, loading } = useAuth();
+  const access = usePrivilegedAccess();
+  const recoveredInitialRoute = useRef(false);
   const homeIntro = useHomeIntro();
   const pathname = usePathname();
   const enteringHome = pathname === '/home' || pathname === '/dashboard' || pathname === '/student-home';
   const showHomeIntro = enteringHome || (pathname === '/sign-in' && homeIntro.requested);
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !initialWebHref || recoveredInitialRoute.current || loading || access.loading || !user || !profile) return;
+    // Wait for nested navigation and session restoration to settle. This runs
+    // once per page load, so later deliberate navigation remains untouched.
+    const timer = setTimeout(() => {
+      if (recoveredInitialRoute.current) return;
+      recoveredInitialRoute.current = true;
+      const target = privilegedDeepLinkToRestore(initialWebHref, window.location.pathname, profile, access);
+      if (target) router.replace(target as Href);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [access, loading, pathname, profile, user]);
   useLayoutEffect(() => {
     if (Platform.OS === 'web' && !showHomeIntro && pathname !== '/' && !loading) document.getElementById('classio-boot-overlay')?.remove();
   }, [loading, pathname, showHomeIntro]);

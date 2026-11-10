@@ -7,7 +7,7 @@ const source = fs.readFileSync(path.join(__dirname, '../src/lib/route-access.ts'
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const loaded = { exports: {} };
 new Function('module', 'exports', compiled)(loaded, loaded.exports);
-const { requiresRoleSelection, activeFace, authorizedDestination, helpWorkspacePath } = loaded.exports;
+const { requiresRoleSelection, activeFace, authorizedDestination, helpWorkspacePath, privilegedDeepLinkToRestore } = loaded.exports;
 
 assert.equal(requiresRoleSelection(null), true);
 assert.equal(requiresRoleSelection({ role: 'teacher', login_count: 0 }), true);
@@ -19,4 +19,9 @@ assert.equal(activeFace({ role: 'teacher', primary_role: 'teacher', last_active_
 assert.equal(authorizedDestination('/admin-accounts', { role: 'teacher' }, { loading: false, isAdmin: false, canUseDeveloperWorkspace: false }), '/home');
 assert.equal(authorizedDestination('/admin-accounts', { role: 'admin' }, { loading: false, isAdmin: true, canUseDeveloperWorkspace: true }), null);
 assert.equal(helpWorkspacePath('/help', '/admin-accounts', { isAdmin: true, canUseDeveloperWorkspace: true }), '/admin-accounts');
+assert.equal(privilegedDeepLinkToRestore('/admin?tab=overview', '/help', { role: 'admin' }, { loading: false, isAdmin: true, canUseDeveloperWorkspace: true }), '/admin?tab=overview');
+assert.equal(privilegedDeepLinkToRestore('/admin', '/admin', { role: 'admin' }, { loading: false, isAdmin: true, canUseDeveloperWorkspace: true }), null);
+assert.equal(privilegedDeepLinkToRestore('/admin', '/help', { role: 'teacher' }, { loading: false, isAdmin: false, canUseDeveloperWorkspace: false }), null);
+assert.equal(privilegedDeepLinkToRestore('/developer-workspace', '/help', { role: 'teacher' }, { loading: false, isAdmin: false, canUseDeveloperWorkspace: true }), '/developer-workspace');
+assert.equal(privilegedDeepLinkToRestore('/help', '/admin', { role: 'admin' }, { loading: false, isAdmin: true, canUseDeveloperWorkspace: true }), null);
 process.stdout.write('Role entry routing fixture passed.\n');
