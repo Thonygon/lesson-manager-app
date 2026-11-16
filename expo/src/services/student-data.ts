@@ -307,9 +307,17 @@ export async function setStudentNeedsMorePractice(assignmentId: string | number,
 
 export async function getCommunityProfiles() {
   const uid = await studentId();
-  const { data, error } = await requireSupabase().from('profiles').select('user_id,display_name,username,avatar_url,country,primary_subjects,custom_subjects,teaching_stages,teaching_languages,education_level,active_student_count,show_community_profile,show_community_contact,phone_number,email,role,primary_role,can_teach,can_study,last_active_mode').eq('show_community_profile', true).neq('user_id', uid).limit(1000);
+  const { data, error } = await requireSupabase().from('profiles').select('user_id,display_name,username,avatar_url,country,primary_subjects,custom_subjects,teaching_stages,teaching_languages,education_level,active_student_count,show_community_profile,role,primary_role,can_teach,can_study,last_active_mode').eq('show_community_profile', true).neq('user_id', uid).limit(1000);
   if (error) throw error;
   return (data ?? []) as ClassioRecord[];
+}
+
+export async function getCommunityProfileById(teacherId: string): Promise<ClassioRecord | null> {
+  const { data, error } = await requireSupabase().from('profiles')
+    .select('user_id,display_name,username,avatar_url,country,primary_subjects,custom_subjects,teaching_stages,teaching_languages,education_level,active_student_count,show_community_profile,role,primary_role,can_teach')
+    .eq('user_id', teacherId).eq('show_community_profile', true).maybeSingle();
+  if (error) throw error;
+  return data as ClassioRecord | null;
 }
 
 export async function getStudentTeacherConnections(): Promise<ClassioRecord[]> {

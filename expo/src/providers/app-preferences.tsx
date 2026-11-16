@@ -7,6 +7,7 @@ import { analyticsPageTranslations } from '@/lib/analytics-page-copy';
 import { brandingTranslations } from '@/lib/branding-copy';
 import { helpTranslations } from '@/lib/help-copy';
 import { teacherRecordTranslations } from '@/lib/teacher-record-copy';
+import { educationTranslations } from '@/lib/education-copy';
 
 export type AppLanguage = 'en' | 'es' | 'tr';
 export type ThemePreference = 'auto' | 'light' | 'dark';
@@ -851,6 +852,9 @@ Object.assign(tr, { 'account.signOutFailed': 'Çıkış yapılamadı. Yeniden de
 Object.assign(en, teacherRecordTranslations.en);
 Object.assign(es, teacherRecordTranslations.es);
 Object.assign(tr, teacherRecordTranslations.tr);
+Object.assign(en, educationTranslations.en);
+Object.assign(es, educationTranslations.es);
+Object.assign(tr, educationTranslations.tr);
 Object.assign(en, {
   'admin.area.accounts': 'Accounts', 'admin.openAccounts': 'Open accounts', 'admin.openAccount': 'Open account', 'admin.backToAccounts': '← All accounts', 'admin.searchAccounts': 'Search name, email or account ID…',
   'admin.createDefaults': 'New accounts start with active access. The selected plan determines the initial subscription status: Free for the free plan, active for other plans. Active does not confirm payment. Change these settings later from the account card.',

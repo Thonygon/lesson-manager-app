@@ -1,4 +1,5 @@
 import { Redirect, router } from 'expo-router';
+import { educationIntentDestination } from '@/lib/education-intent';
 import Head from 'expo-router/head';
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -25,7 +26,7 @@ export default function AcceptTermsScreen() {
   if (loading) return <LoadingState />;
   if (!configured || !user) return <Redirect href="/sign-in" />;
   if (requiresRoleSelection(profile)) return <Redirect href="/choose-role" />;
-  if (hasCurrentLegalAcceptance(profile, legalAcceptances)) return <Redirect href="/home" />;
+  if (hasCurrentLegalAcceptance(profile, legalAcceptances)) return <Redirect href={(educationIntentDestination() || '/home') as never} />;
   const mode = legalModeForProfile(profile);
   const accept = async () => {
     if (!termsChecked || (mode === 'teacher' && !teacherChecked) || busy) return;
@@ -33,7 +34,7 @@ export default function AcceptTermsScreen() {
     try {
       await acceptCurrentLegalDocuments(mode, language);
       await refreshProfile();
-      router.replace('/home');
+      router.replace((educationIntentDestination() || '/home') as never);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t('legal.acceptFailed'));
     } finally { setBusy(false); }

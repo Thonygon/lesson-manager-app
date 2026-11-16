@@ -13,6 +13,7 @@ import { chooseInitialWorkspaceRole } from '@/services/profile';
 import { colors } from '@/theme';
 import { legalAgreementUrl, privacyNoticeUrl } from '@/lib/privacy-notices';
 import { LEGAL_PUBLICATION } from '@/lib/legal-publication.generated';
+import { clearEducationIntent, educationIntentDestination } from '@/lib/education-intent';
 
 export default function ChooseRoleScreen() {
   const { configured, loading, user, profile, error: authError, refreshProfile, signOut } = useAuth();
@@ -21,7 +22,10 @@ export default function ChooseRoleScreen() {
   const [error, setError] = useState('');
   const [termsChecked, setTermsChecked] = useState(false);
   const [teacherChecked, setTeacherChecked] = useState(false);
-  const [selectedMode, setSelectedMode] = useState<'teacher' | 'student' | null>(null);
+  // A directory sign-up already chose the learner journey. Keep legal consent
+  // explicit, but do not ask the visitor to choose a role a second time.
+  const educationSignup = Boolean(educationIntentDestination());
+  const [selectedMode, setSelectedMode] = useState<'teacher' | 'student' | null>(educationSignup ? 'student' : null);
   const scrollRef = useRef<ScrollView>(null);
 
   const selectMode = (mode: 'teacher' | 'student') => {
@@ -39,7 +43,9 @@ export default function ChooseRoleScreen() {
     try {
       await chooseInitialWorkspaceRole(mode, language);
       await refreshProfile();
-      router.replace(mode === 'student' ? '/student-home' : '/dashboard');
+      const destination = mode === 'student' ? educationIntentDestination() : null;
+      if (mode === 'teacher') clearEducationIntent();
+      router.replace((destination || (mode === 'student' ? '/student-home' : '/dashboard')) as never);
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : '';
       setError(message === 'legal.acceptRequired' ? t(message) : message || t('auth.chooseRoleFailed'));
@@ -66,15 +72,15 @@ export default function ChooseRoleScreen() {
       <Head><title>{t('auth.chooseRoleTitle')} | Classio</title></Head>
       <View style={styles.topbar}><Image source={require('../../assets/images/classio-logo.png')} resizeMode="contain" style={styles.logo} /><PreferenceSwitcher onLanguageChange={() => { setTermsChecked(false); setTeacherChecked(false); setError(''); }} /></View>
       <View style={styles.intro}><Text style={styles.eyebrow}>{t('auth.chooseRoleTitle')}</Text><Text style={styles.title}>{t('auth.chooseRoleHeading')}</Text><Text style={styles.subtitle}>{t('auth.chooseRoleSubtitle')}</Text></View>
-      <View style={styles.cards}>
+      {!educationSignup ? <View style={styles.cards}>
         <Pressable accessibilityRole="button" accessibilityLabel={t('auth.teacherRole')} accessibilityState={{ selected: selectedMode === 'teacher' }} disabled={busy} onPress={() => selectMode('teacher')} style={({ pressed }) => [styles.card, styles.teacherCard, selectedMode === 'teacher' && styles.selectedCard, (pressed || busy) && styles.pressed]}>
           <Text style={styles.icon}>👩‍🏫</Text><Text style={styles.cardTitle}>{t('auth.teacherRole')}</Text><Text style={styles.cardBody}>{t('auth.teacherRoleBody')}</Text><Text style={styles.teacherAction}>{t('auth.selectRole')} →</Text>
         </Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel={t('auth.studentRole')} accessibilityState={{ selected: selectedMode === 'student' }} disabled={busy} onPress={() => selectMode('student')} style={({ pressed }) => [styles.card, styles.studentCard, selectedMode === 'student' && styles.selectedCard, (pressed || busy) && styles.pressed]}>
           <Text style={styles.icon}>🎓</Text><Text style={styles.cardTitle}>{t('auth.studentRole')}</Text><Text style={styles.cardBody}>{t('auth.studentRoleBody')}</Text><Text style={styles.studentAction}>{t('auth.selectRole')} →</Text>
         </Pressable>
-      </View>
-      {selectedMode ? <View onLayout={() => scrollRef.current?.scrollToEnd({ animated: true })}><Panel style={styles.legalPanel}>
+      </View> : null}
+      {selectedMode ? <View onLayout={() => { if (!educationSignup) scrollRef.current?.scrollToEnd({ animated: true }); }}><Panel style={styles.legalPanel}>
         <Text accessibilityRole="header" style={styles.legalHeading}>{t(selectedMode === 'teacher' ? 'legal.educatorHeading' : 'legal.studentHeading')}</Text>
         <Text style={styles.legalIntro}>{t(selectedMode === 'teacher' ? 'legal.educatorIntro' : 'legal.studentIntro')}</Text>
         <Text style={styles.legalVersion}>{t('legal.version')}: {LEGAL_PUBLICATION.version}</Text>

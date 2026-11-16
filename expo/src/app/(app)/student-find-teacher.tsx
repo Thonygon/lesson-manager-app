@@ -1,5 +1,6 @@
 /* eslint-disable react-hooks/exhaustive-deps, react-hooks/set-state-in-effect */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import { Linking, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { AppShell } from '@/components/app-shell';
@@ -8,7 +9,8 @@ import { ActionFeedback, Button, Disclosure, EmptyState, Field, LoadingState, Pa
 import { useAuth } from '@/providers/auth-provider';
 import { useAppPreferences } from '@/providers/app-preferences';
 import type { ClassioRecord } from '@/services/classio-data';
-import { getCommunityProfiles, getStudentTeacherConnections, requestTeacherConnection, updateStudentConnection } from '@/services/student-data';
+import { getCommunityProfileById, getCommunityProfiles, getStudentTeacherConnections, requestTeacherConnection, updateStudentConnection } from '@/services/student-data';
+import { getCommunityTeacherContacts } from '@/services/teacher-public-profile';
 import { enableTeacherMode } from '@/services/profile';
 import { colors } from '@/theme';
 import { canonicalSubjectLabel } from '@/lib/subjects';
@@ -26,11 +28,33 @@ function TeacherAvatar({ url, name }: { url: string; name: string }) {
 }
 
 export default function StudentFindTeacherScreen() {
+  const params = useLocalSearchParams<{ teacher?: string; subject?: string }>();
+  const openedTeacher = useRef('');
   const { width } = useWindowDimensions();
   const compactCards = width < 650;
   const { t } = useAppPreferences(); const { profile, refreshProfile } = useAuth(); const [profiles, setProfiles] = useState<ClassioRecord[]>([]); const [links, setLinks] = useState<ClassioRecord[]>([]); const [query, setQuery] = useState(''); const [subject, setSubject] = useState('__all__'); const [selectedLanguage, setSelectedLanguage] = useState('__all__'); const [page, setPage] = useState(1); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [selected, setSelected] = useState<ClassioRecord | null>(null); const [requestSubjects, setRequestSubjects] = useState<string[]>([]); const [note, setNote] = useState(''); const [busy, setBusy] = useState(false); const [message, setMessage] = useState(''); const [messageTone, setMessageTone] = useState<'success' | 'error'>('error'); const [messageContext, setMessageContext] = useState<'request' | 'connection' | 'teacher'>('request'); const [confirmingLinkId, setConfirmingLinkId] = useState(''); const [confirmedEnd, setConfirmedEnd] = useState(false); const [enablingTeacher, setEnablingTeacher] = useState(false);
-  const load = async () => { setLoading(true); try { const [rows, connections] = await Promise.all([getCommunityProfiles(), getStudentTeacherConnections()]); setProfiles(rows.filter((row) => Boolean(row.can_teach) || String(row.role || row.primary_role) === 'teacher')); setLinks(connections); setError(''); } catch (reason) { setError(reason instanceof Error ? reason.message : t('student.loadFailed')); } finally { setLoading(false); } };
+  const [contacts, setContacts] = useState<Record<string, { email: string; phone: string }>>({});
+  const load = async () => { setLoading(true); try { const [rows, connections] = await Promise.all([getCommunityProfiles(), getStudentTeacherConnections()]); const teachers = rows.filter((row) => Boolean(row.can_teach) || String(row.role || row.primary_role) === 'teacher'); setProfiles(teachers); setLinks(connections); setContacts(await getCommunityTeacherContacts(teachers.map((row) => String(row.user_id))).catch(() => ({}))); setError(''); } catch (reason) { setError(reason instanceof Error ? reason.message : t('student.loadFailed')); } finally { setLoading(false); } };
   useEffect(() => { void load(); }, [t]);
+  useEffect(() => {
+    if (loading || !params.teacher || openedTeacher.current === params.teacher) return;
+    openedTeacher.current = params.teacher;
+    if (links.some((link) => String(link.teacher_id) === params.teacher && ['pending', 'active'].includes(String(link.status)))) {
+      setMessageContext('request'); setMessageTone('success'); setMessage(t('education.alreadyConnected')); return;
+    }
+    void (async () => {
+      try {
+        const teacher = profiles.find((row) => String(row.user_id) === params.teacher) || await getCommunityProfileById(params.teacher!);
+        if (!teacher) throw new Error(t('education.teacherUnavailable'));
+        setProfiles((current) => current.some((row) => String(row.user_id) === params.teacher) ? current : [teacher, ...current]);
+        const directContact = await getCommunityTeacherContacts([String(teacher.user_id)]).catch(() => ({}));
+        setContacts((current) => ({ ...current, ...directContact }));
+        setQuery(''); setSubject('__all__'); setSelectedLanguage('__all__'); setPage(1);
+        setSelected(teacher);
+        setRequestSubjects(params.subject && values(teacher).includes(params.subject) ? [params.subject] : []);
+      } catch (reason) { setMessageContext('request'); setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : t('education.teacherUnavailable')); }
+    })();
+  }, [loading, params.teacher, params.subject, links, profiles, t]);
   const profileMap = useMemo(() => new Map(profiles.map((row) => [String(row.user_id), row])), [profiles]); const activeLinks = links.filter((row) => ['pending', 'active'].includes(String(row.status)));
   const languageFiltered = useMemo(() => profiles.filter((row) => selectedLanguage === '__all__' || languages(row).includes(selectedLanguage)), [profiles, selectedLanguage]);
   const subjects = useMemo(() => [...new Set(languageFiltered.flatMap(values))].sort(), [languageFiltered]);
@@ -56,7 +80,8 @@ export default function StudentFindTeacherScreen() {
               <View style={styles.profileDetails}>
                 <Text style={styles.name}>{teacherName}</Text>
                 <Text style={styles.meta}>{[values(row).map((value) => canonicalSubjectLabel(value, t)).join(', '), languages(row).map((value) => t(`language.${value}`)).join(', '), row.country, educationLabel(row.education_level, t), `${String(row.active_student_count || 0)} ${t('community.active')}`].filter(Boolean).join(' · ')}</Text>
-                {Boolean(row.show_community_contact) && String(row.email || '').trim() ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(`mailto:${encodeURIComponent(String(row.email).trim())}`)}><Text style={styles.contact}>✉️ {String(row.email).trim()}</Text></Pressable> : null}
+                {contacts[String(row.user_id)]?.email ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(`mailto:${contacts[String(row.user_id)].email}`)}><Text style={styles.contact}>✉️ {contacts[String(row.user_id)].email}</Text></Pressable> : null}
+                {contacts[String(row.user_id)]?.phone ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(`tel:${contacts[String(row.user_id)].phone}`)}><Text style={styles.contact}>☎ {contacts[String(row.user_id)].phone}</Text></Pressable> : null}
               </View>
             </View>
             <Pressable accessibilityRole="button" accessibilityState={{ expanded: isOpen }} onPress={() => { setSelected(isOpen ? null : row); setRequestSubjects([]); setNote(''); setMessage(''); }} style={({ pressed }) => [styles.connectControl, compactCards && styles.connectControlCompact, pressed && styles.connectPressed]}>
