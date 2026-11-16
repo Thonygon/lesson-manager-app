@@ -24,6 +24,9 @@ jobs:
       - name: Verify public domain probe logic
         run: python3 -m unittest discover -s scripts -p 'test_public_domains.py'
 
+      - name: Verify synthetic restore comparison
+        run: python3 -m unittest discover -s scripts -p 'test_synthetic_restore.py'
+
       - name: Verify published legal sources
         run: |
           python3 -m unittest discover -s scripts -p 'test_privacy_notices.py'
@@ -132,6 +135,7 @@ jobs:
           node scripts/check-document-student-copy.cjs
           node scripts/check-teacher-record-copy.cjs
           node scripts/check-practice-pending-review.cjs
+          node scripts/check-student-draft-save-queue.cjs
 
       - name: Validate help screenshot boundaries
         run: |

@@ -1,14 +1,16 @@
 type Answers = Record<string, string>;
-type DraftState = { key: string; sessionId?: string; pending: Promise<string> | null; fingerprint: string };
+type DraftState = { key: string; generation: number; sessionId?: string; pending: Promise<string> | null; fingerprint: string };
 
 /** Serializes draft writes so an insert cannot race another insert or final submission. */
 export function createStudentDraftSaveQueue<T>(save: (material: T, answers: Answers, sessionId?: string) => Promise<string>) {
-  let current: DraftState = { key: '', pending: null, fingerprint: '' };
+  let current: DraftState = { key: '', generation: 0, pending: null, fingerprint: '' };
   return {
     reset(key: string, sessionId?: string, answers?: Answers) {
-      current = { key, sessionId, pending: null, fingerprint: answers ? JSON.stringify(answers) : '' };
+      current = { key, generation: current.generation + 1, sessionId, pending: null, fingerprint: answers ? JSON.stringify(answers) : '' };
     },
     key() { return current.key; },
+    generation() { return current.generation; },
+    isCurrent(key: string, generation: number) { return current.key === key && current.generation === generation; },
     enqueue(key: string, material: T, answers: Answers): Promise<string> | null {
       const state = current;
       const fingerprint = JSON.stringify(answers);

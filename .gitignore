@@ -16,4 +16,5 @@ streamlit/.streamlit/*
 node_modules/
 .expo/
 dist/
+*.restore-manifest.json
 .pnpm-store/
