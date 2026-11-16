@@ -584,7 +584,7 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 - [x] Streamlit-matched exercise presentation with section titles, one-time instructions/passages/vocabulary banks, stored visual supports, progress bar, and per-question feedback
 - [x] Matching and vocabulary selectors with stable shuffled choices plus legacy letter/number answer-key resolution
 - [x] Interactive coordinate-based vocabulary word search with generated/stored grids, forward/reverse selection, found-word highlighting, partial scoring, and responsive horizontal board scrolling
-- [x] Second-attempt draft isolation in Expo code: a late autosave from the first word-search attempt cannot set the new attempt's session ID. The regression fixture requires a distinct new session and runs in CI. **Live beta pending:** complete the same word search twice and verify separate history entries and scores.
+- [x] Second-attempt draft isolation in Expo, published via PR #180: a late autosave from the first word-search attempt cannot set the new attempt's session ID. The regression fixture requires a distinct new session and passed CI. **Live beta pending:** complete the same word search twice and verify separate history entries and scores.
 - [x] Streamlit-matched grading normalization for multilingual true/false, strict error correction, flexible open responses, writing heuristics, and weighted word-search totals
 - [x] Automatic draft saving, cross-session resume tray, compatibility with Streamlit-saved draft answers, review answers, try again, and finish controls
 - [x] Six-item History and My Progress pagination with video engagement rendered as watched/views rather than a failed assessment
