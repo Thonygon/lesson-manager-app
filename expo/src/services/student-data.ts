@@ -2,6 +2,7 @@ import { requireSupabase } from '@/lib/supabase';
 import type { ClassioRecord } from '@/services/classio-data';
 import { canonicalSubjectKey, canonicalSubjectLabel, type TranslationLookup } from '@/lib/subjects';
 import { extractResourceImageUrl } from '@/services/public-data';
+import { getCommunityTeacherContacts } from '@/services/teacher-public-profile';
 
 async function studentId() {
   const { data, error } = await requireSupabase().auth.getUser();
@@ -307,9 +308,16 @@ export async function setStudentNeedsMorePractice(assignmentId: string | number,
 
 export async function getCommunityProfiles() {
   const uid = await studentId();
-  const { data, error } = await requireSupabase().from('profiles').select('user_id,display_name,username,avatar_url,country,primary_subjects,custom_subjects,teaching_stages,teaching_languages,education_level,active_student_count,show_community_profile,role,primary_role,can_teach,can_study,last_active_mode').eq('show_community_profile', true).neq('user_id', uid).limit(1000);
+  const { data, error } = await requireSupabase().from('profiles').select('user_id,display_name,username,avatar_url,country,primary_subjects,custom_subjects,teaching_stages,teaching_languages,education_level,active_student_count,show_community_profile,show_community_contact,email,phone_number,role,primary_role,can_teach,can_study,last_active_mode').eq('show_community_profile', true).neq('user_id', uid).limit(1000);
   if (error) throw error;
-  return (data ?? []) as ClassioRecord[];
+  const rows = (data ?? []) as ClassioRecord[];
+  const teacherIds = rows.filter((row) => Boolean(row.can_teach) || ['teacher', 'tutor', 'school_admin', 'admin'].includes(String(row.primary_role || row.role))).map((row) => String(row.user_id));
+  const contacts = await getCommunityTeacherContacts(teacherIds);
+  return rows.map((row) => {
+    const contact = contacts[String(row.user_id)];
+    if (!contact) return row;
+    return { ...row, email: contact.email, phone_number: contact.phone, show_community_contact: Boolean(contact.email || contact.phone) };
+  });
 }
 
 export async function getCommunityProfileById(teacherId: string): Promise<ClassioRecord | null> {
