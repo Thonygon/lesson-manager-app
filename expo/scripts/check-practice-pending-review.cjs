@@ -15,6 +15,7 @@ const normalization = compiled('student-practice-answer-normalization.ts');
 const practice = compiled('student-practice.ts', (name) => {
   if (name.endsWith('/student-practice-progress')) return progress;
   if (name.endsWith('/student-practice-answer-normalization')) return normalization;
+  if (name.endsWith('/public-data')) return { extractResourceImageUrl: () => '' };
   return {};
 });
 const material = (teacherId) => ({ title: 'Names', sourceType: 'exam', sourceId: '7', assignmentId: teacherId ? '42' : undefined, teacherId,
@@ -93,4 +94,19 @@ assert.equal(weighted.correct, 2);
 assert.equal(weighted.rows[0].totalCount, 3);
 assert.equal(weighted.rows[0].correctCount, 2);
 assert.equal(weighted.evaluationStatus, 'pending_teacher');
-console.log('Practice answer-key match and pending-review boundaries: OK');
+const oldAssignedSnapshot = practice.exerciseDataForMaterial({ ...wordSearch, teacherId: undefined });
+const replay = practice.materialFromSession({ id: 643, source_type: 'worksheet', source_id: '624', title: 'Furniture', exercise_data: oldAssignedSnapshot });
+assert.equal(replay.assignmentId, '42');
+assert.equal(replay.teacherId, undefined);
+const recentReplay = practice.materialFromSession({ id: 644, source_type: 'worksheet', source_id: '624', title: 'Furniture', exercise_data: practice.exerciseDataForMaterial(wordSearch) });
+assert.equal(recentReplay.teacherId, 'teacher');
+let lookedUpAssignment = '';
+const assignmentClient = { from(table) {
+  assert.equal(table, 'teacher_assignments');
+  return { select(column) { assert.equal(column, 'teacher_id'); return { eq(key, id) { assert.equal(key, 'id'); lookedUpAssignment = id; return { maybeSingle: async () => ({ data: { teacher_id: 'authoritative-teacher' }, error: null }) }; } }; } };
+} };
+practice.teacherIdForPractice(replay, assignmentClient).then((teacherId) => {
+  assert.equal(lookedUpAssignment, '42');
+  assert.equal(teacherId, 'authoritative-teacher');
+  console.log('Practice answer-key match, retry owner recovery, and pending-review boundaries: OK');
+}).catch((error) => { console.error(error); process.exitCode = 1; });
