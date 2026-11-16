@@ -16,6 +16,8 @@ CHECKS = (
     ("https://masterclassio.com/", 200),
     ("https://masterclassio.com/classio-health-missing-page", 404),
     ("https://app.masterclassio.com/sign-in", 200),
+    # An anonymous request must never expose the privileged account workspace.
+    ("https://app.masterclassio.com/api/admin-workspace?section=accounts", 401),
 )
 
 USER_AGENT = "Classio-Health/1.0 (+https://masterclassio.com/)"

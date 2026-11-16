@@ -295,8 +295,9 @@ export default function StudentPracticeScreen() {
     const key = `${active.sourceType}:${active.assignmentId || active.sourceId}`;
     const timeout = setTimeout(() => {
       if (submitting.current) return;
+      const generation = draftSave.generation();
       const pending = draftSave.enqueue(key, active, answers);
-      if (pending) void pending.then((id) => { if (draftSave.key() === key) { setDraftSessionId(id); setMessageTone('success'); setMessage(t('student.practiceAutosaved')); } }).catch(() => { if (draftSave.key() === key) setMessageTone('error'); setMessage(t('student.practiceAutosaveFailed')); });
+      if (pending) void pending.then((id) => { if (draftSave.isCurrent(key, generation)) { setDraftSessionId(id); setMessageTone('success'); setMessage(t('student.practiceAutosaved')); } }).catch(() => { if (draftSave.isCurrent(key, generation)) { setMessageTone('error'); setMessage(t('student.practiceAutosaveFailed')); } });
     }, 900);
     return () => clearTimeout(timeout);
   }, [active, answers, result, busy, t]);

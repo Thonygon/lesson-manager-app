@@ -47,6 +47,13 @@ class PublicDomainHealthTest(unittest.TestCase):
     def test_expected_response(self):
         health.check_url("https://app.masterclassio.com/sign-in", 200, resolve=lambda *args, **kwargs: [(1,)], open_url=self.open_request)
 
+    def test_admin_route_requires_authentication(self):
+        self.assertIn(("https://app.masterclassio.com/api/admin-workspace?section=accounts", 401), health.CHECKS)
+        def denied(request, timeout):
+            assert request.get_header("Authorization") is None
+            return FakeResponse(401, request.full_url)
+        health.check_url(health.CHECKS[-1][0], 401, resolve=lambda *args, **kwargs: [(1,)], open_url=denied)
+
     def test_wrong_status_fails(self):
         with self.assertRaisesRegex(RuntimeError, "expected HTTP 404"):
             health.check_url("https://masterclassio.com/missing", 404, resolve=lambda *args, **kwargs: [(1,)], open_url=self.open_request)

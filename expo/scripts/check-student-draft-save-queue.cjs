@@ -35,6 +35,28 @@ async function main() {
   assert.equal(await queue.flush(), 'draft-92');
   assert.equal(queue.enqueue('worksheet:7', { id: 7 }, { '0': 'wrong-key' }), null);
 
+  // A completed attempt may finish an older autosave after Try Again. Its
+  // session ID must not be accepted by the new attempt with the same resource.
+  let finishOldAttempt;
+  let retrySaves = 0;
+  const repeated = createStudentDraftSaveQueue((_material, _answers, sessionId) => {
+    retrySaves += 1;
+    if (retrySaves === 1) return new Promise((resolve) => { finishOldAttempt = resolve; });
+    assert.equal(sessionId, undefined, 'a new attempt must insert its own session');
+    return Promise.resolve('second-attempt-session');
+  });
+  repeated.reset('worksheet:word-search');
+  const oldGeneration = repeated.generation();
+  const oldSave = repeated.enqueue('worksheet:word-search', {}, { '0': '["APPLE"]' });
+  await new Promise((resolve) => setImmediate(resolve));
+  repeated.reset('worksheet:word-search');
+  assert.equal(repeated.isCurrent('worksheet:word-search', oldGeneration), false);
+  finishOldAttempt('completed-session');
+  assert.equal(await oldSave, 'completed-session');
+  assert.equal(await repeated.flush(), undefined);
+  assert.equal(await repeated.enqueue('worksheet:word-search', {}, { '0': '["APPLE","PEAR"]' }), 'second-attempt-session');
+  assert.equal(await repeated.flush(), 'second-attempt-session');
+
   let attempts = 0;
   const recovery = createStudentDraftSaveQueue(async (_material, _answers, sessionId) => {
     attempts += 1;
