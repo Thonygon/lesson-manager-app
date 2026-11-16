@@ -136,7 +136,7 @@ export function hasUsablePracticeQuestions(material: PracticeMaterial | null): m
   return Boolean(material?.questions.length && material.questions.every((question) =>
     Boolean(question.prompt.trim()) && (question.exerciseType !== 'multiple_choice' || question.options.length >= 2)));
 }
-export function materialFromSession(row: ClassioRecord): PracticeMaterial | null { const data = record(row.exercise_data); const sourceType = text(row.source_type || data.source_type); if (sourceType !== 'worksheet' && sourceType !== 'exam') return null; const questions: PracticeQuestion[] = []; list(data.exercises).forEach((section, index) => addSection(questions, record(section), index)); if (!questions.length) return null; return { title: text(row.title || data.title), sourceType, sourceId: text(data.source_id || row.source_id || row.id), assignmentId: text(data.assignment_id) || undefined, learningProgramAssignmentId: Number(data.learning_program_assignment_id) || undefined, subject: text(row.subject), topic: text(row.topic), stage: text(row.learner_stage), level: text(row.level), raw: data, questions }; }
+export function materialFromSession(row: ClassioRecord): PracticeMaterial | null { const data = record(row.exercise_data); const sourceType = text(row.source_type || data.source_type); if (sourceType !== 'worksheet' && sourceType !== 'exam') return null; const questions: PracticeQuestion[] = []; list(data.exercises).forEach((section, index) => addSection(questions, record(section), index)); if (!questions.length) return null; return { title: text(row.title || data.title), sourceType, sourceId: text(data.source_id || row.source_id || row.id), assignmentId: text(data.assignment_id) || undefined, teacherId: text(data.teacher_id) || undefined, learningProgramAssignmentId: Number(data.learning_program_assignment_id) || undefined, subject: text(row.subject), topic: text(row.topic), stage: text(row.learner_stage), level: text(row.level), raw: data, questions }; }
 export async function loadPracticeReview(row: ClassioRecord) {
   // A structural edit may need teacher review. Keep the student's original
   // attempt readable even when automatic recalculation cannot be completed.
@@ -239,7 +239,17 @@ export function practiceAnswerProgress(graded: ReturnType<typeof gradePractice>,
 
 export const PRACTICE_RANKS = [{ threshold: 0, key: 'newcomer', emoji: '🌱' }, { threshold: 200, key: 'learner', emoji: '📖' }, { threshold: 1000, key: 'rising_star', emoji: '⭐' }, { threshold: 3000, key: 'achiever', emoji: '🏅' }, { threshold: 8000, key: 'expert', emoji: '🏆' }, { threshold: 16000, key: 'master', emoji: '👑' }, { threshold: 30000, key: 'legend', emoji: '🔥' }] as const;
 export function practiceRank(totalXp: number) { let index = 0; PRACTICE_RANKS.forEach((rank, rankIndex) => { if (totalXp >= rank.threshold) index = rankIndex; }); const rank = PRACTICE_RANKS[index]; const next = PRACTICE_RANKS[index + 1]; return { ...rank, next, into: totalXp - rank.threshold, span: next ? next.threshold - rank.threshold : 0, pct: next ? Math.min(100, Math.round((totalXp - rank.threshold) / (next.threshold - rank.threshold) * 100)) : 100 }; }
-export function exerciseDataForMaterial(material: PracticeMaterial, draftAnswers?: Record<string, string>) { return { title: material.title, source_type: material.sourceType, source_id: material.sourceId, assignment_id: material.assignmentId ? Number(material.assignmentId) : undefined, learning_program_assignment_id: material.learningProgramAssignmentId, draft_answers: draftAnswers, exercises: material.questions.reduce<Record<string, unknown>[]>((groups, question) => { const key = question.exerciseIndex; if (!groups[key]) groups[key] = { type: question.exerciseType, title: question.sectionTitle, instructions: question.instructions, source_text: question.sourceText, visual_support: question.visualSupportUrl ? { image_url: question.visualSupportUrl } : undefined, vocabulary_bank: question.vocabularyBank, questions: [], answers: [] }; (groups[key].questions as unknown[]).push(question.exerciseType === 'word_search_vocab' ? { text: question.prompt, grid: question.grid, words: question.words, placements: question.placements } : { text: question.prompt, options: question.options, accepted_answers: question.acceptedAnswers }); (groups[key].answers as unknown[]).push(question.exerciseType === 'word_search_vocab' ? question.words : question.answer); return groups; }, []) }; }
+export function exerciseDataForMaterial(material: PracticeMaterial, draftAnswers?: Record<string, string>) { return { title: material.title, source_type: material.sourceType, source_id: material.sourceId, assignment_id: material.assignmentId ? Number(material.assignmentId) : undefined, teacher_id: material.teacherId || undefined, learning_program_assignment_id: material.learningProgramAssignmentId, draft_answers: draftAnswers, exercises: material.questions.reduce<Record<string, unknown>[]>((groups, question) => { const key = question.exerciseIndex; if (!groups[key]) groups[key] = { type: question.exerciseType, title: question.sectionTitle, instructions: question.instructions, source_text: question.sourceText, visual_support: question.visualSupportUrl ? { image_url: question.visualSupportUrl } : undefined, vocabulary_bank: question.vocabularyBank, questions: [], answers: [] }; (groups[key].questions as unknown[]).push(question.exerciseType === 'word_search_vocab' ? { text: question.prompt, grid: question.grid, words: question.words, placements: question.placements } : { text: question.prompt, options: question.options, accepted_answers: question.acceptedAnswers }); (groups[key].answers as unknown[]).push(question.exerciseType === 'word_search_vocab' ? question.words : question.answer); return groups; }, []) }; }
+export async function teacherIdForPractice(material: PracticeMaterial, client = requireSupabase()): Promise<string | null> {
+  if (!material.assignmentId) return null;
+  // Older completed snapshots did not retain teacher_id. A retry opened from
+  // history must recover it from the student's assignment before the RPC checks
+  // the assignment owner. Never trust a stale snapshot for this authorization.
+  const { data, error } = await client.from('teacher_assignments').select('teacher_id').eq('id', material.assignmentId).maybeSingle();
+  if (error) throw error;
+  if (!data?.teacher_id) throw new Error('Assignment is unavailable for this learner.');
+  return String(data.teacher_id);
+}
 export async function savePracticeDraft(material: PracticeMaterial, answers: Record<string, string>, sessionId?: string) {
   const client = requireSupabase(); const auth = await client.auth.getUser(); const uid = auth.data.user?.id;
   if (!uid) throw new Error('Your session has expired.');
@@ -252,9 +262,12 @@ export async function savePracticeDraft(material: PracticeMaterial, answers: Rec
     if (!updated) {
       const { data: existing, error: readError } = await client.from('practice_sessions').select('status').eq('id', Number(savedId)).eq('user_id', uid).maybeSingle();
       if (readError || existing?.status !== 'completed') throw readError ?? new Error('Practice draft is unavailable.');
-      return savedId;
+      // A stale autosave must never turn a new attempt into a replay of the
+      // previous completed result. Create a fresh draft below.
+      savedId = undefined;
     }
-  } else {
+  }
+  if (!savedId) {
     const { data, error } = await client.from('practice_sessions').insert({ ...payload, user_id: uid, started_at: now, created_at: now }).select('id').single();
     if (error) throw error;
     savedId = String(data.id);
@@ -275,6 +288,7 @@ export async function savePracticeDraft(material: PracticeMaterial, answers: Rec
 export async function savePractice(material: PracticeMaterial, answers: Record<string, string>, draftSessionId?: string): Promise<PracticeResult> {
   const client = requireSupabase(); const auth = await client.auth.getUser(); const uid = auth.data.user?.id; if (!uid) throw new Error('Your session has expired.');
   const graded = gradePractice(material, answers);
+  const teacherId = await teacherIdForPractice(material, client);
   const sessionId = draftSessionId || await savePracticeDraft(material, answers);
   const progressGroups = aggregatePracticeProgress(graded.rows, graded.xp);
   const result = {
@@ -284,7 +298,7 @@ export async function savePractice(material: PracticeMaterial, answers: Record<s
     evaluated_count: graded.evaluatedCount, pending_count: graded.pendingCount,
     evaluation_status: graded.evaluationStatus,
     best_streak: graded.bestStreak, graded,
-    assignment_id: material.assignmentId || null, teacher_id: material.teacherId || null,
+    assignment_id: material.assignmentId || null, teacher_id: teacherId,
     learning_program_assignment_id: material.learningProgramAssignmentId || null,
     answers: graded.rows.map((row) => ({ exercise_index: row.exerciseIndex, question_index: row.questionIndex, exercise_type: row.exerciseType, student_answer: row.studentAnswer, correct_answer: row.answer, is_correct: row.isCorrect, evaluation_status: row.evaluationStatus })),
     progress: progressGroups.map((group) => ({ exercise_type: group.exerciseType, attempted: group.attempted, correct: group.correct, xp: group.xp })),
