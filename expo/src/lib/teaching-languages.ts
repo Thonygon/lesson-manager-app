@@ -1,12 +1,13 @@
 const ALIASES: Record<string, string> = {
-  en: 'en', eng: 'en', english: 'en', inglés: 'en', ingles: 'en', i̇ngilizce: 'en',
-  es: 'es', spa: 'es', spanish: 'es', español: 'es', espanol: 'es', i̇spanyolca: 'es',
+  en: 'en', eng: 'en', english: 'en', inglés: 'en', ingles: 'en', ingilizce: 'en', i̇ngilizce: 'en',
+  es: 'es', spa: 'es', spanish: 'es', español: 'es', espanol: 'es', ispanyolca: 'es', i̇spanyolca: 'es',
   tr: 'tr', tur: 'tr', turkish: 'tr', türkçe: 'tr', turkce: 'tr',
 };
 
 export function canonicalTeachingLanguage(value: unknown): string {
   const original = String(value ?? '').trim();
-  return ALIASES[original.toLocaleLowerCase()] || original.toLocaleLowerCase();
+  const key = original.toLowerCase();
+  return ALIASES[key] || key;
 }
 
 export function normalizeTeachingLanguages(value: unknown): string[] {
