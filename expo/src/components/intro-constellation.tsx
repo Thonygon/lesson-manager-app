@@ -80,8 +80,8 @@ export function IntroConstellation({ ready, tagline, sessionKey = SESSION_KEY, t
         {stars.map((star, index) => <Animated.View nativeID={`classio-intro-star-${index}`} key={`star-${index}`} style={[styles.star, light && styles.starLight, { left: 200 + star.x - 22, top: 200 + star.y - 22, borderColor: star.color, opacity: reveal, transform: [{ translateX: arrival.interpolate({ inputRange: [0, 1], outputRange: [star.x * .32, 0] }) }, { translateY: arrival.interpolate({ inputRange: [0, 1], outputRange: [star.y * .32, 0] }) }, { scale: arrival.interpolate({ inputRange: [0, 1], outputRange: [.55, 1] }) }] }]}><Text style={[styles.starIcon, { color: star.color }]}>{star.icon}</Text></Animated.View>)}
         <Animated.View nativeID="classio-intro-center" style={[styles.center, light && styles.centerLight, { opacity: reveal, transform: [{ scale: reveal.interpolate({ inputRange: [0, 1], outputRange: [.7, 1] }) }] }]}><Image source={require('../../assets/images/classio-logo.png')} resizeMode="contain" style={styles.logo} /></Animated.View>
       </View>
-      <Animated.Text style={[styles.tagline, light && styles.taglineLight, { opacity: reveal }]}>{tagline}</Animated.Text>
-      <Animated.View style={[styles.progressTrack, light && styles.progressTrackLight, { opacity: reveal }]}><Animated.View style={[styles.progressFill, { transform: [{ scaleX: arrival }] }]} /></Animated.View>
+      <Animated.Text nativeID="classio-intro-tagline" style={[styles.tagline, light && styles.taglineLight, { opacity: reveal }]}>{tagline}</Animated.Text>
+      <Animated.View nativeID="classio-intro-progress" style={[styles.progressTrack, light && styles.progressTrackLight, { opacity: reveal }]}><Animated.View style={[styles.progressFill, { transform: [{ scaleX: arrival }] }]} /></Animated.View>
     </Animated.View>
   );
 }
