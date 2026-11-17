@@ -3,9 +3,13 @@
 const { spawnSync } = require('node:child_process');
 
 const baseline = new Set([
-  'GHSA-qhr7-859c-m2p7', 'GHSA-6j4f-fj2g-mc7p', 'GHSA-86w9-cpqp-85rv',
+  'GHSA-qhr7-859c-m2p7', 'GHSA-6j4f-fj2g-mc7p',
   'GHSA-68fv-2mgg-jv7q', 'GHSA-pqg4-j6r4-53mv', 'GHSA-cg2g-xh64-v4q7',
   'GHSA-mrv2-3pqr-j5jr', 'GHSA-mrhx-c7xc-m3w5',
+  // No patched picomatch release exists as of 2026-11-17. Expo/Metro pulls it
+  // through build-tool globs; keep reporting it until an upstream fix ships.
+  // https://github.com/advisories/GHSA-fc5q-39xc-vjpf
+  'GHSA-fc5q-39xc-vjpf',
 ]);
 const result = spawnSync('pnpm', ['audit', '--prod', '--json'], { encoding: 'utf8', maxBuffer: 12 * 1024 * 1024, timeout: 120000 });
 if (result.error) throw result.error;
