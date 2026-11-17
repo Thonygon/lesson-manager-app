@@ -120,10 +120,23 @@ const assignmentClient = { from(table) {
   return { select(column) { assert.equal(column, 'teacher_id'); return { eq(key, id) { assert.equal(key, 'id'); lookedUpAssignment = id; return { maybeSingle: async () => ({ data: { teacher_id: 'authoritative-teacher' }, error: null }) }; } }; } };
 } };
 let completionPayload;
+let savedSnapshot;
+let completedRetry = false;
+let answerWrites = 0;
 const completionClient = {
   auth: { getUser: async () => ({ data: { user: { id: 'learner' } } }) },
-  rpc: async (name, args) => { assert.equal(name, 'classio_complete_student_practice'); completionPayload = args.p_result; return { data: 671, error: null }; },
-  from: (name) => { assert.equal(name, 'practice_sessions'); return { select: () => { const query = { eq: () => query, single: async () => ({ data: { id: 671, status: 'completed', total_questions: 9, correct_count: 9, score_pct: 100, xp_earned: 69, best_streak: 9, evaluated_count: 9, pending_count: 0, evaluation_status: 'final' }, error: null }) }; return query; } }; },
+  rpc: async (name, args) => { assert.equal(name, 'classio_complete_student_practice'); assert.ok(savedSnapshot, 'current snapshot must be saved before completion'); completionPayload = args.p_result; return { data: 671, error: null }; },
+  from: (name) => {
+    if (name === 'practice_answers') {
+      const deletion = { error: null, eq: () => deletion };
+      return { delete: () => { answerWrites += 1; return deletion; }, insert: async () => ({ error: null }) };
+    }
+    assert.equal(name, 'practice_sessions');
+    return {
+      update: (payload) => { savedSnapshot = payload.exercise_data; const query = { eq: () => query, select: () => query, maybeSingle: async () => ({ data: completedRetry ? null : { id: 671 }, error: null }) }; return query; },
+      select: () => { const query = { eq: () => query, maybeSingle: async () => ({ data: { status: 'completed' }, error: null }), single: async () => ({ data: { id: 671, status: 'completed', total_questions: 9, correct_count: 9, score_pct: 100, xp_earned: 69, best_streak: 9, evaluated_count: 9, pending_count: 0, evaluation_status: 'final' }, error: null }) }; return query; },
+    };
+  },
 };
 const practiceWithClient = compiled('student-practice.ts', (name) => {
   if (name.endsWith('/student-practice-progress')) return progress;
@@ -136,8 +149,15 @@ practice.teacherIdForPractice(replay, assignmentClient).then(async (teacherId) =
   assert.equal(lookedUpAssignment, '42');
   assert.equal(teacherId, 'authoritative-teacher');
   await practiceWithClient.savePractice({ ...illustrated, assignmentId: undefined, teacherId: undefined }, Object.fromEntries(illustrated.questions.map((_, index) => [String(index), 'His name is Alex'])), '671');
+  assert.equal(savedSnapshot.exercises[0].visual_support.image_url, artwork);
+  assert.equal(savedSnapshot.draft_answers['0'], 'His name is Alex');
   assert.equal(completionPayload.exercise_data, undefined);
   assert.ok(JSON.stringify(completionPayload).length < 30_000);
   assert.equal(completionPayload.graded.rows.length, 9);
+  completedRetry = true;
+  const writesBeforeRetry = answerWrites;
+  const priorSessionId = await practiceWithClient.savePracticeDraft({ ...illustrated, assignmentId: undefined, teacherId: undefined }, { 0: 'changed after submit' }, '671', { reuseCompleted: true });
+  assert.equal(priorSessionId, '671');
+  assert.equal(answerWrites, writesBeforeRetry);
   console.log('Practice answer-key match, retry owner recovery, and pending-review boundaries: OK');
 }).catch((error) => { console.error(error); process.exitCode = 1; });

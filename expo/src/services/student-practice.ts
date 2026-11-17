@@ -271,7 +271,7 @@ export async function teacherIdForPractice(material: PracticeMaterial, client = 
   if (!data?.teacher_id) throw new Error('Assignment is unavailable for this learner.');
   return String(data.teacher_id);
 }
-export async function savePracticeDraft(material: PracticeMaterial, answers: Record<string, string>, sessionId?: string) {
+export async function savePracticeDraft(material: PracticeMaterial, answers: Record<string, string>, sessionId?: string, options: { reuseCompleted?: boolean } = {}) {
   const client = requireSupabase(); const auth = await client.auth.getUser(); const uid = auth.data.user?.id;
   if (!uid) throw new Error('Your session has expired.');
   const now = new Date().toISOString();
@@ -283,6 +283,7 @@ export async function savePracticeDraft(material: PracticeMaterial, answers: Rec
     if (!updated) {
       const { data: existing, error: readError } = await client.from('practice_sessions').select('status').eq('id', Number(savedId)).eq('user_id', uid).maybeSingle();
       if (readError || existing?.status !== 'completed') throw readError ?? new Error('Practice draft is unavailable.');
+      if (options.reuseCompleted) return savedId;
       // A stale autosave must never turn a new attempt into a replay of the
       // previous completed result. Create a fresh draft below.
       savedId = undefined;
@@ -310,11 +311,14 @@ export async function savePractice(material: PracticeMaterial, answers: Record<s
   const client = requireSupabase(); const auth = await client.auth.getUser(); const uid = auth.data.user?.id; if (!uid) throw new Error('Your session has expired.');
   const graded = gradePractice(material, answers);
   const teacherId = await teacherIdForPractice(material, client);
-  const sessionId = draftSessionId || await savePracticeDraft(material, answers);
+  // A resumed draft can display newer assignment questions before the next
+  // autosave fires. Persist those exact questions and answers before the RPC
+  // uses the saved snapshot as the completed attempt's source of truth.
+  const sessionId = await savePracticeDraft(material, answers, draftSessionId, { reuseCompleted: true });
   const progressGroups = aggregatePracticeProgress(graded.rows, graded.xp);
   const result = {
     source_type: material.sourceType, source_id: String(material.assignmentId || material.sourceId),
-    // The draft already contains the full immutable question/image snapshot.
+    // The draft now contains the current question/image snapshot.
     // Re-sending it here duplicates large embedded artwork in the RPC request.
     material_source_id: String(material.sourceId),
     total: graded.total, correct: graded.correct, score: graded.score, xp: graded.xp,
