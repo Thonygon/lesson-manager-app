@@ -121,6 +121,8 @@
     {"name": "reserve_streamlit_against_pending_expo.sql", "sha256": "1fab74e993a8541380fb7f850af4c3d7a7d9e6c661c4cdefdfa4c103d52fc8da"},
     {"name": "admin_global_account_metrics.sql", "sha256": "40f1178570374d62d1f50f880ccbd955f04db6eb1c6e3f7bf1c686047624b007"},
     {"name": "enforce_admin_suspension.sql", "sha256": "682796ab44e7860441f18171cab05466536c8b7eb74a661bbd374b79a6ed8ac8"},
-    {"name": "classio_education_teacher_profiles.sql", "sha256": "7a675bb57c00de8402c6da5baf68f0831cf2095dee3f993ebbabcc446b0f1d4b"}
+    {"name": "classio_education_teacher_profiles.sql", "sha256": "7a675bb57c00de8402c6da5baf68f0831cf2095dee3f993ebbabcc446b0f1d4b"},
+    {"name": "classio_education_profile_normalization.sql", "sha256": "68bbb412a05b5b59c2c41df5536444eaedb87d7bc250f22be2fa2ac7bf5cc95c"},
+    {"name": "classio_education_profile_location_sync.sql", "sha256": "d559858e938afdc79e9243e198ed096f0ae0c651615386cdcfec559fce27ce40"}
   ]
 }

@@ -6,6 +6,7 @@ import { useAppPreferences } from '@/providers/app-preferences';
 import type { ClassioRecord } from '@/services/classio-data';
 import { getMyTeacherPublicProfile, saveMyTeacherPublicProfile, type TeacherPublicProfile } from '@/services/teacher-public-profile';
 import { privacyNoticeUrl } from '@/lib/privacy-notices';
+import { normalizeTeachingLanguages, teachingLanguageLabel } from '@/lib/teaching-languages';
 import { colors } from '@/theme';
 
 function values(value: unknown): string[] { return Array.isArray(value) ? value.map(String).filter(Boolean) : []; }
@@ -34,7 +35,7 @@ export function TeacherPublicProfileEditor({ account, communityVisible }: { acco
       setCard(saved || {
         professional_name: String(account.display_name || account.username || ''), headline: '', biography: '',
         subjects: [...new Set([...values(account.primary_subjects).filter((value) => value !== 'other'), ...values(account.custom_subjects)])],
-        teaching_stages: values(account.teaching_stages), teaching_languages: values(account.teaching_languages),
+        teaching_stages: values(account.teaching_stages), teaching_languages: normalizeTeachingLanguages(account.teaching_languages),
         modalities: ['online'], country: String(account.country || ''), city: '', education: String(account.education_level || ''),
         avatar_url: String(account.avatar_url || ''), contact_email: String(account.email || ''), contact_phone: String(account.phone_number || ''),
         show_community_email: Boolean(account.show_community_contact && account.email), show_community_phone: false, show_web_email: false, show_web_phone: false, published_web: false,
@@ -47,7 +48,8 @@ export function TeacherPublicProfileEditor({ account, communityVisible }: { acco
   const change = <K extends keyof TeacherPublicProfile>(key: K, value: TeacherPublicProfile[K]) => setCard((current) => current ? { ...current, [key]: value } : current);
   const choices = (key: 'subjects' | 'teaching_stages' | 'teaching_languages', available: string[]) => {
     if (!card) return null;
-    return <View style={styles.choices}>{[...new Set([...available, ...card[key]])].map((value) => <Toggle key={value} checked={card[key].includes(value)} label={readable(value)} onPress={() => change(key, card[key].includes(value) ? card[key].filter((item) => item !== value) : [...card[key], value])} />)}</View>;
+    const options = key === 'teaching_languages' ? normalizeTeachingLanguages([...available, ...card[key]]) : [...new Set([...available, ...card[key]])];
+    return <View style={styles.choices}>{options.map((value) => <Toggle key={value} checked={card[key].includes(value)} label={key === 'teaching_languages' ? teachingLanguageLabel(value, language) : readable(value)} onPress={() => change(key, card[key].includes(value) ? card[key].filter((item) => item !== value) : [...card[key], value])} />)}</View>;
   };
   const save = async () => {
     if (!card) return;
@@ -61,7 +63,7 @@ export function TeacherPublicProfileEditor({ account, communityVisible }: { acco
     if (card.published_web && !acknowledged) { setTone('error'); setMessage(t('education.notice')); return; }
     setSaving(true); setMessage('');
     try {
-      const id = await saveMyTeacherPublicProfile(card);
+      const id = await saveMyTeacherPublicProfile({ ...card, country: String(account.country || ''), city: '' });
       setPublicId(id); setAcknowledged(false); setTone('success'); setMessage(t('education.saved'));
     } catch (reason) {
       setTone('error'); setMessage(reason instanceof Error ? reason.message : t('education.saveFailed'));
@@ -72,13 +74,13 @@ export function TeacherPublicProfileEditor({ account, communityVisible }: { acco
     <Text style={styles.help}>{t('education.intro')}</Text>
     {!ready || !card ? <Text style={styles.help}>{t('common.loading')}</Text> : <>
       <Text style={styles.label}>{t('education.name')}</Text><Field value={card.professional_name} maxLength={100} onChangeText={(value) => change('professional_name', value)} />
-      <Text style={styles.label}>{t('education.headline')}</Text><Field value={card.headline} maxLength={160} onChangeText={(value) => change('headline', value)} />
-      <Text style={styles.label}>{t('education.bio')}</Text><Field value={card.biography} multiline numberOfLines={5} maxLength={1500} onChangeText={(value) => change('biography', value)} />
+      <Text style={styles.label}>{t('education.headline')} · {card.headline.length}/160</Text><Field value={card.headline} maxLength={160} onChangeText={(value) => change('headline', value)} />
+      <Text style={styles.label}>{t('education.bio')} · {card.biography.length}/1500</Text><Field value={card.biography} multiline numberOfLines={5} maxLength={1500} onChangeText={(value) => change('biography', value)} />
       <Text style={styles.help}>{t('education.subjectsHelp')}</Text>
       <Text style={styles.label}>{t('education.subjects')}</Text>{choices('subjects', [...values(account.primary_subjects).filter((value) => value !== 'other'), ...values(account.custom_subjects)])}
       <Text style={styles.label}>{t('education.stages')}</Text>{choices('teaching_stages', values(account.teaching_stages))}
-      <Text style={styles.label}>{t('education.languages')}</Text>{choices('teaching_languages', values(account.teaching_languages))}
-      <View style={styles.fields}><View style={styles.field}><Text style={styles.label}>{t('education.city')}</Text><Field value={card.city} maxLength={80} onChangeText={(value) => change('city', value)} /></View><View style={styles.field}><Text style={styles.label}>{t('education.country')}</Text><Field value={card.country} maxLength={80} onChangeText={(value) => change('country', value)} /></View></View>
+      <Text style={styles.label}>{t('education.languages')}</Text>{choices('teaching_languages', normalizeTeachingLanguages(account.teaching_languages))}
+      <Text style={styles.help}>{t('education.locationFromPreferences')}: {String(account.country || '—')}</Text>
       <Text style={styles.label}>{t('education.email')}</Text><Field value={card.contact_email} autoCapitalize="none" keyboardType="email-address" maxLength={254} onChangeText={(value) => change('contact_email', value)} />
       <Text style={styles.label}>{t('education.phone')}</Text><Field value={card.contact_phone} keyboardType="phone-pad" placeholder="+905551234567" maxLength={16} onChangeText={(value) => change('contact_phone', value.replace(/(?!^)\+/g, '').replace(/[^\d+]/g, ''))} />
       <Toggle checked={card.modalities.includes('online')} label={t('education.online')} onPress={() => change('modalities', card.modalities.includes('online') ? card.modalities.filter((value) => value !== 'online') : [...card.modalities, 'online'])} />
@@ -92,7 +94,7 @@ export function TeacherPublicProfileEditor({ account, communityVisible }: { acco
       <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(privacyNoticeUrl(language, 'app'))}><Text style={styles.link}>{t('education.readPrivacy')} ↗</Text></Pressable>
       <Toggle checked={card.published_web} label={t('education.publish')} onPress={() => { change('published_web', !card.published_web); setAcknowledged(false); }} />
       {card.published_web ? <Toggle checked={acknowledged} label={t('education.notice')} onPress={() => setAcknowledged((value) => !value)} /> : null}
-      <View style={styles.preview}><Text style={styles.label}>{t('education.preview')}</Text><Text style={styles.previewName}>{card.professional_name}</Text><Text style={styles.help}>{card.headline}</Text><Text style={styles.help}>{card.biography}</Text><Text style={styles.help}>{[card.subjects.join(', '), card.city, card.country].filter(Boolean).join(' · ')}</Text>{card.show_web_email ? <Text style={styles.help}>{card.contact_email}</Text> : null}{card.show_web_phone ? <Text style={styles.help}>{card.contact_phone}</Text> : null}<Text style={styles.help}>{t('education.contactViaClassio')}</Text></View>
+      <View style={styles.preview}><Text style={styles.label}>{t('education.preview')}</Text><Text style={styles.previewName}>{card.professional_name}</Text><Text style={styles.help}>{card.headline}</Text><Text style={styles.help}>{card.biography}</Text><Text style={styles.help}>{[card.subjects.join(', '), card.teaching_languages.map((value) => teachingLanguageLabel(value, language)).join(', '), String(account.country || '')].filter(Boolean).join(' · ')}</Text>{card.show_web_email ? <Text style={styles.help}>{card.contact_email}</Text> : null}{card.show_web_phone ? <Text style={styles.help}>{card.contact_phone}</Text> : null}<Text style={styles.help}>{t('education.contactViaClassio')}</Text></View>
       <Button disabled={saving} onPress={() => void save()}>{saving ? t('common.saving') : t('education.save')}</Button>
       {publicId && card.published_web ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(`https://masterclassio.com/education/teacher/?id=${encodeURIComponent(publicId)}`)}><Text style={styles.link}>{t('education.publicId')} ↗</Text></Pressable> : null}
     </>}
