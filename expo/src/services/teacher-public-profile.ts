@@ -1,4 +1,5 @@
 import { requireSupabase } from '@/lib/supabase';
+import { normalizeTeachingLanguages } from '@/lib/teaching-languages';
 
 export type TeacherPublicProfile = {
   public_id?: string;
@@ -28,11 +29,11 @@ export async function getMyTeacherPublicProfile(): Promise<TeacherPublicProfile 
   if (authError || !auth.user) throw authError ?? new Error('Session required');
   const { data, error } = await client.from('classio_teacher_public_profiles').select('*').eq('teacher_id', auth.user.id).maybeSingle();
   if (error) throw error;
-  return data as TeacherPublicProfile | null;
+  return data ? { ...(data as TeacherPublicProfile), teaching_languages: normalizeTeachingLanguages(data.teaching_languages) } : null;
 }
 
 export async function saveMyTeacherPublicProfile(profile: TeacherPublicProfile): Promise<string> {
-  const { data, error } = await requireSupabase().rpc('classio_save_teacher_public_profile', { p_profile: profile });
+  const { data, error } = await requireSupabase().rpc('classio_save_teacher_public_profile', { p_profile: { ...profile, teaching_languages: normalizeTeachingLanguages(profile.teaching_languages) } });
   if (error) throw error;
   return String(data);
 }

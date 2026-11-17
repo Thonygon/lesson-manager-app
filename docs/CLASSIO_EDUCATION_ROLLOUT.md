@@ -18,3 +18,9 @@ La búsqueda pública usa una RPC limitada que devuelve solo los campos de la fi
 ## Decisiones pendientes fuera del código
 
 El titular y su abogado revisarán el texto legal y las transferencias internacionales antes de una campaña pública amplia. Las pruebas con cuentas reales y la aprobación de la experiencia pertenecen a la beta. No hay un cobro ni una comisión de intermediación implementados en esta fase.
+
+## Ajuste de perfil y portal — 17-11-2026
+
+**Código y SQL cerrados; aceptación beta pendiente.** Los alias históricos `Spa`/`Es` y `Eng`/`En` se convierten en `es` y `en`, sin duplicados, al leer, guardar y consultar el perfil docente. La migración `classio_education_profile_normalization.sql` fue aplicada en Supabase producción y registrada con SHA-256 `68bbb412a05b5b59c2c41df5536444eaedb87d7bc250f22be2fa2ac7bf5cc95c`; la consulta posterior encontró cero perfiles públicos y cero cuentas con idiomas sin normalizar. Los nombres visibles de idiomas empiezan en mayúscula según el idioma de interfaz. El titular y la presentación ya tenían límites de 160 y 1500 caracteres, respectivamente; el editor ahora muestra el contador. El país público procede de la preferencia de cuenta; se retira el campo libre de ciudad porque no hay una preferencia estructurada de ciudad.
+
+La portada de `masterclassio.com` presenta las dos líneas con enlaces a `/education/` y `/technology/`; el contenido anterior de la app se conserva en `/technology/`. Las tres superficies comparten cabecera, controles y pie de página. Sites versión 20 se publicó y la portada respondió HTTP 200 en el dominio propio. **Pendiente en vivo:** confirmar los alias e idiomas con una cuenta docente real, la vista previa, las tres lenguas de interfaz, los temas claro/oscuro, las rutas y tamaños de pantalla. La aprobación legal y el consentimiento de publicación continúan con el titular.
