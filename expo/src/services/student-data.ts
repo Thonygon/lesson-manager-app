@@ -311,12 +311,12 @@ export async function getCommunityProfiles() {
   const { data, error } = await requireSupabase().from('profiles').select('user_id,display_name,username,avatar_url,country,primary_subjects,custom_subjects,teaching_stages,teaching_languages,education_level,active_student_count,show_community_profile,show_community_contact,email,phone_number,role,primary_role,can_teach,can_study,last_active_mode').eq('show_community_profile', true).neq('user_id', uid).limit(1000);
   if (error) throw error;
   const rows = (data ?? []) as ClassioRecord[];
-  const teacherIds = rows.filter((row) => Boolean(row.can_teach) || ['teacher', 'tutor', 'school_admin', 'admin'].includes(String(row.primary_role || row.role))).map((row) => String(row.user_id));
-  const contacts = await getCommunityTeacherContacts(teacherIds);
+  const teacherIds = new Set(rows.filter((row) => Boolean(row.can_teach) || ['teacher', 'tutor', 'school_admin', 'admin'].includes(String(row.primary_role || row.role))).map((row) => String(row.user_id)));
+  const contacts = await getCommunityTeacherContacts([...teacherIds]);
   return rows.map((row) => {
+    if (!teacherIds.has(String(row.user_id))) return row;
     const contact = contacts[String(row.user_id)];
-    if (!contact) return row;
-    return { ...row, email: contact.email, phone_number: contact.phone, show_community_contact: Boolean(contact.email || contact.phone) };
+    return { ...row, email: contact?.email || '', phone_number: contact?.phone || '', show_community_contact: Boolean(contact?.email || contact?.phone) };
   });
 }
 
