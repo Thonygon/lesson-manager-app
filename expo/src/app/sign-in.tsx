@@ -1,5 +1,5 @@
 import { BackLink } from '@/components/back-link';
-import { Redirect, router, type Href } from 'expo-router';
+import { Redirect, router, useLocalSearchParams, type Href } from 'expo-router';
 import Head from 'expo-router/head';
 import { useEffect, useState } from 'react';
 import { Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
@@ -15,8 +15,10 @@ import { useHomeIntro } from '@/providers/home-intro-provider';
 import { beginDirectGoogleSignIn, takeDirectGoogleResponse } from '@/lib/google-direct-sign-in';
 import { colors } from '@/theme';
 import { legalAgreementUrl, privacyNoticeUrl, storageNoticeUrl } from '@/lib/privacy-notices';
+import { currentEducationIntent, educationIntentDestination, rememberEducationIntent } from '@/lib/education-intent';
 
 export default function SignInScreen() {
+  const educationParams = useLocalSearchParams<{ education?: string; subject?: string }>();
   const { width } = useWindowDimensions();
   const [webWidth, setWebWidth] = useState<number | null>(null);
   // The OAuth redirect result is consumed once after browser navigation.
@@ -37,6 +39,16 @@ export default function SignInScreen() {
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState<string | null>(null); const [messageTone, setMessageTone] = useState<'success' | 'error'>('error'); const [messageContext, setMessageContext] = useState<'password' | 'magic' | 'google'>('password');
   const [submitting, setSubmitting] = useState(false);
+  useEffect(() => { if (educationParams.education) rememberEducationIntent(educationParams.education, educationParams.subject); }, [educationParams.education, educationParams.subject]);
+  const afterSignIn = () => educationIntentDestination() || '/home';
+  const educationRedirect = () => {
+    if (Platform.OS !== 'web') return undefined;
+    const intent = currentEducationIntent();
+    if (!intent) return undefined;
+    const query = new URLSearchParams({ education: intent.publicId });
+    if (intent.subject) query.set('subject', intent.subject);
+    return `${window.location.origin}/sign-in?${query}`;
+  };
 
   useEffect(() => {
     if (Platform.OS !== 'web' || loading) return;
@@ -55,7 +67,7 @@ export default function SignInScreen() {
     void signInWithGoogleIdToken(response.token, response.nonce).then((error) => {
       setSubmitting(false);
       if (error) { cancelHomeIntro(); setMessageTone('error'); setMessageContext('google'); setMessage(error); }
-      else router.replace('/home');
+      else router.replace(afterSignIn() as Href);
     });
   }, [cancelHomeIntro, loading, signInWithGoogleIdToken, startHomeIntro, user]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -63,16 +75,16 @@ export default function SignInScreen() {
   const submit = async () => {
     if (mode === 'sign-in') startHomeIntro();
     setSubmitting(true); setMessage(null);
-    const error = mode === 'sign-in' ? await signIn(email, password) : await signUp(email, password);
+    const error = mode === 'sign-in' ? await signIn(email, password) : await signUp(email, password, educationRedirect());
     setSubmitting(false);
     if (error) { cancelHomeIntro(); setMessageTone('error'); setMessageContext('password'); setMessage(error); }
     else if (mode === 'sign-up') { setMessageTone('success'); setMessageContext('password'); setMessage(t('auth.confirmEmail')); }
-    else router.replace('/home');
+    else router.replace(afterSignIn() as Href);
   };
 
   const sendMagicLink = async () => {
     setSubmitting(true); setMessage(null);
-    const error = await signInWithMagicLink(email);
+    const error = await signInWithMagicLink(email, educationRedirect());
     setSubmitting(false);
     setMessageTone(error ? 'error' : 'success'); setMessageContext('magic'); setMessage(error || t('auth.magicSent'));
   };
@@ -92,7 +104,7 @@ export default function SignInScreen() {
     setSubmitting(false);
   };
 
-  if (!loading && user) return <Redirect href={(requiresRoleSelection(profile) ? '/choose-role' : '/home') as Href} />;
+  if (!loading && user) return <Redirect href={(requiresRoleSelection(profile) ? '/choose-role' : afterSignIn()) as Href} />;
 
   return <ScrollView contentContainerStyle={[styles.page, { backgroundColor: 'transparent' }]} keyboardShouldPersistTaps="handled">
     <SafeAreaView style={styles.safe}>

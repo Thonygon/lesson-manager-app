@@ -11,10 +11,10 @@ type AuthContextValue = AuthState & {
   recoverySession: boolean;
   refreshProfile: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<string | null>;
-  signInWithMagicLink: (email: string) => Promise<string | null>;
+  signInWithMagicLink: (email: string, redirectTo?: string) => Promise<string | null>;
   signInWithGoogle: () => Promise<string | null>;
   signInWithGoogleIdToken: (token: string, nonce: string) => Promise<string | null>;
-  signUp: (email: string, password: string) => Promise<string | null>;
+  signUp: (email: string, password: string, redirectTo?: string) => Promise<string | null>;
   sendPasswordReset: (email: string) => Promise<string | null>;
   setAccountPassword: (password: string) => Promise<string | null>;
   updatePassword: (password: string) => Promise<string | null>;
@@ -129,19 +129,19 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return error?.message ?? null;
   }, []);
 
-  const signInWithMagicLink = useCallback(async (email: string) => {
+  const signInWithMagicLink = useCallback(async (email: string, redirectTo?: string) => {
     if (!supabase) return 'Supabase is not configured.';
-    const emailRedirectTo = typeof window === 'undefined' ? undefined : `${window.location.origin}/home`;
+    const emailRedirectTo = redirectTo || (typeof window === 'undefined' ? undefined : `${window.location.origin}/home`);
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim().toLowerCase(),
-      options: { emailRedirectTo, shouldCreateUser: false },
+      options: { emailRedirectTo, shouldCreateUser: Boolean(redirectTo) },
     });
     return error?.message ?? null;
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string) => {
+  const signUp = useCallback(async (email: string, password: string, redirectTo?: string) => {
     if (!supabase) return 'Supabase is not configured.';
-    const emailRedirectTo = typeof window === 'undefined' ? undefined : `${window.location.origin}/home`;
+    const emailRedirectTo = redirectTo || (typeof window === 'undefined' ? undefined : `${window.location.origin}/home`);
     const { error } = await supabase.auth.signUp({
       email: email.trim().toLowerCase(),
       password,
