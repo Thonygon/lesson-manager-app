@@ -237,6 +237,27 @@ export function practiceAnswerProgress(graded: ReturnType<typeof gradePractice>,
   return { answered, total: graded.total, ready };
 }
 
+/** Keep the attempt evidence while leaving artwork and source passages in the saved session. */
+export function compactPracticeGrade(graded: ReturnType<typeof gradePractice>) {
+  return {
+    total: graded.total,
+    correct: graded.correct,
+    score: graded.score,
+    evaluatedCount: graded.evaluatedCount,
+    pendingCount: graded.pendingCount,
+    evaluationStatus: graded.evaluationStatus,
+    rows: graded.rows.map((row) => ({
+      exerciseIndex: row.exerciseIndex,
+      questionIndex: row.questionIndex,
+      exerciseType: row.exerciseType,
+      isCorrect: row.isCorrect,
+      correctCount: row.correctCount,
+      totalCount: row.totalCount,
+      evaluationStatus: row.evaluationStatus,
+    })),
+  };
+}
+
 export const PRACTICE_RANKS = [{ threshold: 0, key: 'newcomer', emoji: '🌱' }, { threshold: 200, key: 'learner', emoji: '📖' }, { threshold: 1000, key: 'rising_star', emoji: '⭐' }, { threshold: 3000, key: 'achiever', emoji: '🏅' }, { threshold: 8000, key: 'expert', emoji: '🏆' }, { threshold: 16000, key: 'master', emoji: '👑' }, { threshold: 30000, key: 'legend', emoji: '🔥' }] as const;
 export function practiceRank(totalXp: number) { let index = 0; PRACTICE_RANKS.forEach((rank, rankIndex) => { if (totalXp >= rank.threshold) index = rankIndex; }); const rank = PRACTICE_RANKS[index]; const next = PRACTICE_RANKS[index + 1]; return { ...rank, next, into: totalXp - rank.threshold, span: next ? next.threshold - rank.threshold : 0, pct: next ? Math.min(100, Math.round((totalXp - rank.threshold) / (next.threshold - rank.threshold) * 100)) : 100 }; }
 export function exerciseDataForMaterial(material: PracticeMaterial, draftAnswers?: Record<string, string>) { return { title: material.title, source_type: material.sourceType, source_id: material.sourceId, assignment_id: material.assignmentId ? Number(material.assignmentId) : undefined, teacher_id: material.teacherId || undefined, learning_program_assignment_id: material.learningProgramAssignmentId, draft_answers: draftAnswers, exercises: material.questions.reduce<Record<string, unknown>[]>((groups, question) => { const key = question.exerciseIndex; if (!groups[key]) groups[key] = { type: question.exerciseType, title: question.sectionTitle, instructions: question.instructions, source_text: question.sourceText, visual_support: question.visualSupportUrl ? { image_url: question.visualSupportUrl } : undefined, vocabulary_bank: question.vocabularyBank, questions: [], answers: [] }; (groups[key].questions as unknown[]).push(question.exerciseType === 'word_search_vocab' ? { text: question.prompt, grid: question.grid, words: question.words, placements: question.placements } : { text: question.prompt, options: question.options, accepted_answers: question.acceptedAnswers }); (groups[key].answers as unknown[]).push(question.exerciseType === 'word_search_vocab' ? question.words : question.answer); return groups; }, []) }; }
@@ -293,11 +314,13 @@ export async function savePractice(material: PracticeMaterial, answers: Record<s
   const progressGroups = aggregatePracticeProgress(graded.rows, graded.xp);
   const result = {
     source_type: material.sourceType, source_id: String(material.assignmentId || material.sourceId),
-    material_source_id: String(material.sourceId), exercise_data: exerciseDataForMaterial(material),
+    // The draft already contains the full immutable question/image snapshot.
+    // Re-sending it here duplicates large embedded artwork in the RPC request.
+    material_source_id: String(material.sourceId),
     total: graded.total, correct: graded.correct, score: graded.score, xp: graded.xp,
     evaluated_count: graded.evaluatedCount, pending_count: graded.pendingCount,
     evaluation_status: graded.evaluationStatus,
-    best_streak: graded.bestStreak, graded,
+    best_streak: graded.bestStreak, graded: compactPracticeGrade(graded),
     assignment_id: material.assignmentId || null, teacher_id: teacherId,
     learning_program_assignment_id: material.learningProgramAssignmentId || null,
     answers: graded.rows.map((row) => ({ exercise_index: row.exerciseIndex, question_index: row.questionIndex, exercise_type: row.exerciseType, student_answer: row.studentAnswer, correct_answer: row.answer, is_correct: row.isCorrect, evaluation_status: row.evaluationStatus })),

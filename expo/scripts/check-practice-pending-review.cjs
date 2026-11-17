@@ -37,6 +37,20 @@ assert.equal(alternate.evaluatedCount, 1);
 assert.equal(alternate.score, 0);
 assert.equal(alternate.rows[1].evaluationStatus, 'pending_review');
 assert.deepEqual(progress.aggregatePracticeProgress(alternate.rows, alternate.xp).map((row) => row.exerciseType), ['true_false']);
+const artwork = `data:image/png;base64,${'A'.repeat(1_060_000)}`;
+const illustrated = { ...material('teacher'), questions: Array.from({ length: 9 }, (_, index) => ({
+  prompt: `Question ${index + 1}`, options: [], answer: 'His name is Alex',
+  exerciseIndex: 0, questionIndex: index, exerciseType: 'reading_comprehension',
+  sectionTitle: 'Reading', instructions: 'Read and answer', sourceText: 'Alex is a learner.', visualSupportUrl: artwork,
+})) };
+const illustratedGrade = practice.gradePractice(illustrated, Object.fromEntries(illustrated.questions.map((_, index) => [String(index), 'His name is Alex'])));
+const compact = practice.compactPracticeGrade(illustratedGrade);
+assert.ok(JSON.stringify(illustratedGrade).length > 9_000_000);
+assert.ok(JSON.stringify(compact).length < 20_000);
+assert.equal(compact.rows.length, 9);
+assert.equal(compact.rows[0].exerciseType, 'reading_comprehension');
+assert.equal(compact.rows[0].correctCount, 1);
+assert.ok(practice.exerciseDataForMaterial(illustrated).exercises[0].visual_support.image_url === artwork);
 const independent = practice.gradePractice(material(undefined), { 0: 'True', 1: 'His name is not Alex' });
 assert.equal(independent.evaluationStatus, 'unassessed');
 assert.equal(independent.rows[1].evaluationStatus, 'unassessed');
@@ -105,8 +119,25 @@ const assignmentClient = { from(table) {
   assert.equal(table, 'teacher_assignments');
   return { select(column) { assert.equal(column, 'teacher_id'); return { eq(key, id) { assert.equal(key, 'id'); lookedUpAssignment = id; return { maybeSingle: async () => ({ data: { teacher_id: 'authoritative-teacher' }, error: null }) }; } }; } };
 } };
-practice.teacherIdForPractice(replay, assignmentClient).then((teacherId) => {
+let completionPayload;
+const completionClient = {
+  auth: { getUser: async () => ({ data: { user: { id: 'learner' } } }) },
+  rpc: async (name, args) => { assert.equal(name, 'classio_complete_student_practice'); completionPayload = args.p_result; return { data: 671, error: null }; },
+  from: (name) => { assert.equal(name, 'practice_sessions'); return { select: () => { const query = { eq: () => query, single: async () => ({ data: { id: 671, status: 'completed', total_questions: 9, correct_count: 9, score_pct: 100, xp_earned: 69, best_streak: 9, evaluated_count: 9, pending_count: 0, evaluation_status: 'final' }, error: null }) }; return query; } }; },
+};
+const practiceWithClient = compiled('student-practice.ts', (name) => {
+  if (name.endsWith('/student-practice-progress')) return progress;
+  if (name.endsWith('/student-practice-answer-normalization')) return normalization;
+  if (name.endsWith('/public-data')) return { extractResourceImageUrl: () => '' };
+  if (name.endsWith('/lib/supabase')) return { requireSupabase: () => completionClient };
+  return {};
+});
+practice.teacherIdForPractice(replay, assignmentClient).then(async (teacherId) => {
   assert.equal(lookedUpAssignment, '42');
   assert.equal(teacherId, 'authoritative-teacher');
+  await practiceWithClient.savePractice({ ...illustrated, assignmentId: undefined, teacherId: undefined }, Object.fromEntries(illustrated.questions.map((_, index) => [String(index), 'His name is Alex'])), '671');
+  assert.equal(completionPayload.exercise_data, undefined);
+  assert.ok(JSON.stringify(completionPayload).length < 30_000);
+  assert.equal(completionPayload.graded.rows.length, 9);
   console.log('Practice answer-key match, retry owner recovery, and pending-review boundaries: OK');
 }).catch((error) => { console.error(error); process.exitCode = 1; });
