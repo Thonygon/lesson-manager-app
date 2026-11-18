@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { jsPDF } from 'jspdf/dist/jspdf.es.min.js';
 
 import { getBrandingSettings } from '@/services/branding';
 import { recordedDocumentExport, type DocumentKind } from '@/services/document-export-events';
@@ -593,8 +594,8 @@ function schoolFields(locale: DocumentLocale): [string, string, string] {
 
 async function savePdf(title: string, subtitle: string, sections: ReportSection[], filename: string, locale: DocumentLocale, worksheet = false, bulletLines = true, resourceKind: 'plan' | 'worksheet' | 'exam' | null = null, metaLine = '', profileDocument: 'cv' | 'letter' | null = null, profileImageUrl = '') {
   if (!browserReady()) throw new Error('PDF downloads are available in the web app.');
-  // The browser ESM build avoids jsPDF's Node-only optional html2canvas loader in Expo SSR.
-  const { jsPDF } = await import('jspdf/dist/jspdf.es.min.js');
+  // Keep the PDF engine in the page bundle. An open tab must not request a
+  // versioned PDF chunk that a later Expo Hosting deployment has removed.
   const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
   const branding = await loadBranding();
   const [regularFont, boldFont] = await loadPdfFontData(branding.font);
