@@ -1,11 +1,12 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import { createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 
 import { BackLink } from '@/components/back-link';
 import { AppShell } from '@/components/app-shell';
+import { YoutubeVideo } from '@/components/youtube-video';
 import { LessonPlanView } from '@/components/lesson-plan-view';
 import { Button, EmptyState, Field, LoadingState, Pagination, Panel } from '@/components/ui';
 import { useAppPreferences } from '@/providers/app-preferences';
@@ -36,7 +37,7 @@ function VideoAssignmentView({ detail, t }: { detail: ClassioRecord; t: (key: st
   const snapshot = (detail.content_snapshot || {}) as ClassioRecord;
   const url = videoAssignmentUrl(detail);
   const id = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([A-Za-z0-9_-]{6,})/)?.[1];
-  return <View style={styles.videoDetail}>{Platform.OS === 'web' && id ? createElement('iframe', { src: `https://www.youtube-nocookie.com/embed/${id}`, title: String(detail.title || 'Video'), allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture', allowFullScreen: true, style: { width: '100%', aspectRatio: '16 / 9', border: 0, borderRadius: 14 } }) : snapshot.thumbnail_url ? <Image source={{ uri: String(snapshot.thumbnail_url) }} style={styles.videoPoster} contentFit="cover" /> : null}{snapshot.description ? <Text style={styles.videoDescription}>{String(snapshot.description)}</Text> : null}{url ? <Button secondary onPress={() => void Linking.openURL(url)}>▶ {t('assignmentLabels.openVideo')}</Button> : <Text style={styles.emptyCopy}>{t('assignmentLabels.videoUnavailable')}</Text>}</View>;
+  return <View style={styles.videoDetail}>{id ? <YoutubeVideo videoId={id} title={String(detail.title || 'Video')} /> : snapshot.thumbnail_url ? <Image source={{ uri: String(snapshot.thumbnail_url) }} style={styles.videoPoster} contentFit="cover" /> : null}{snapshot.description ? <Text style={styles.videoDescription}>{String(snapshot.description)}</Text> : null}{url ? <Button secondary onPress={() => void Linking.openURL(url)}>▶ {t('assignmentLabels.openVideo')}</Button> : <Text style={styles.emptyCopy}>{t('assignmentLabels.videoUnavailable')}</Text>}</View>;
 }
 function Choice({ active, label, onPress, disabled = false }: { active: boolean; label: string; onPress: () => void; disabled?: boolean }) { return <Pressable disabled={disabled} onPress={onPress} style={[styles.choice, active && styles.choiceActive]}><Text style={[styles.choiceText, active && styles.choiceTextActive]}>{label}</Text></Pressable>; }
 

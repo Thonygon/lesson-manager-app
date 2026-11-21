@@ -906,3 +906,7 @@ Object.assign(tr, {
   'student.unassessedSummary': '{evaluated} yanıttan {correct} tanesi otomatik değerlendirildi. {pending} açık yanıt değerlendirilmedi ve yanlış sayılmadı. Bir öğretmenden inceleme isteyebilirsiniz.',
   'student.teacherReviewHelp': 'Yanıtlarınızı incelemesi için hesabınıza bağlı bir öğretmene başvurun.',
 });
+
+Object.assign(en, { 'resources.youtubeNoLongerAvailable': 'This video is no longer available on YouTube. It may have been removed or made private. Choose another resource or ask your teacher for a replacement.' });
+Object.assign(es, { 'resources.youtubeNoLongerAvailable': 'Este vídeo ya no está disponible en YouTube. Puede haber sido eliminado o cambiado a privado. Elige otro recurso o pide a tu docente que lo reemplace.' });
+Object.assign(tr, { 'resources.youtubeNoLongerAvailable': 'Bu video artık YouTube’da kullanılamıyor. Silinmiş veya gizli hale getirilmiş olabilir. Başka bir kaynak seçin ya da öğretmeninizden yenisini isteyin.' });

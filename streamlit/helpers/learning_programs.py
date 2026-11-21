@@ -3387,11 +3387,43 @@ def repair_learning_program_storage(program_id: int, *, apply: bool = False) -> 
     )
     existing_topics = _rows(
         sb.table("learning_program_topics")
-        .select("id,unit_id,unit_number,topic_number")
+        .select("id,unit_id,unit_number,topic_number,title")
         .eq("program_id", program_id)
         .order("id")
         .execute()
     )
+    # This repair fills missing positional rows; it must never append a new
+    # copy when a program was renumbered while old rows still carry progress.
+    # Reconcile those rows and their references in one database transaction.
+    if len(existing_topics) > len(topics_payload):
+        return {
+            "ok": False,
+            "error": "topic_structure_drift",
+            "program_id": program_id,
+            "stored_topics": len(existing_topics),
+            "document_topics": len(topics_payload),
+        }
+    stored_by_id = {int(row.get("id") or 0): row for row in existing_topics}
+    stored_by_title = {
+        (int(row.get("unit_number") or 0), str(row.get("title") or "").strip().casefold()): row
+        for row in existing_topics
+    }
+    source_titles: set[tuple[int, str]] = set()
+    for topic in topics_payload:
+        source_id = int(topic.get("existing_topic_id") or 0)
+        stored = stored_by_id.get(source_id)
+        key = (int(topic.get("unit_number") or 0), str(topic.get("title") or "").strip().casefold())
+        if key in source_titles:
+            return {"ok": False, "error": "topic_structure_drift", "program_id": program_id}
+        source_titles.add(key)
+        same_title = stored_by_title.get(key)
+        if same_title and int(same_title.get("topic_number") or 0) != int(topic.get("topic_number") or 0):
+            return {"ok": False, "error": "topic_structure_drift", "program_id": program_id}
+        if stored and (
+            int(stored.get("unit_number") or 0) != int(topic.get("unit_number") or 0)
+            or int(stored.get("topic_number") or 0) != int(topic.get("topic_number") or 0)
+        ):
+            return {"ok": False, "error": "topic_structure_drift", "program_id": program_id}
     units_by_number = {
         int(row.get("unit_number") or 0): int(row.get("id") or 0)
         for row in existing_units
