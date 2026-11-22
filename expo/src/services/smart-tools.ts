@@ -1,7 +1,7 @@
 import { hasCustomBranding } from '@/services/branding';
 import { requireSupabase } from '@/lib/supabase';
 import { programTopicRow, programUnitRow } from './program-storage';
-import { nextProgramSequenceOrder } from '../shared/program-structure';
+import { nextProgramLevel, nextProgramSequenceOrder } from '../shared/program-structure';
 import { mergePreviousProgramRows, previousProgramComplete, previousProgramFromStorage } from '../server/program-continuation';
 import { findGenerationMatches, type GenerationMatch } from '@/server/generation-reuse';
 import { programReady } from '../shared/program-completion';
@@ -201,7 +201,7 @@ export async function saveGeneratedMaterial(input: SmartToolInput, document: Rec
     const parentId = Number(input.previousProgramId);
     if (!Number.isSafeInteger(parentId) || parentId <= 0) throw new Error('Choose a valid previous program.');
     const { data: previous, error: previousError } = await client.from('learning_programs').select('id,sequence_group_id,sequence_order,subject,custom_subject_name,learner_stage,level_or_band,status').eq('id', parentId).eq('user_id', uid).maybeSingle();
-    if (previousError || !previous || previous.status === 'archived' || String(previous.subject) !== (input.subject === 'Other' ? 'other' : input.subject.toLowerCase().replaceAll(' ', '_')) || String(previous.learner_stage) !== input.stage || (input.subject === 'Other' && String(previous.custom_subject_name || '').toLowerCase() !== input.customSubject?.trim().toLowerCase())) throw previousError ?? new Error('The previous program is unavailable.');
+    if (previousError || !previous || previous.status === 'archived' || String(previous.subject) !== (input.subject === 'Other' ? 'other' : input.subject.toLowerCase().replaceAll(' ', '_')) || String(previous.learner_stage) !== input.stage || (input.subject === 'Other' && String(previous.custom_subject_name || '').toLowerCase() !== input.customSubject?.trim().toLowerCase()) || nextProgramLevel(String(previous.level_or_band || '')) !== input.level) throw previousError ?? new Error('The previous program does not lead to the selected level.');
     parent = { id: Number(previous.id), sequence_group_id: previous.sequence_group_id, sequence_order: previous.sequence_order, level_or_band: String(previous.level_or_band || '') };
   }
   const { data: program, error } = await client.from('learning_programs').insert({

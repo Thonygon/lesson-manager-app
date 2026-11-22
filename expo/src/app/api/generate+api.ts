@@ -7,7 +7,7 @@ import { lessonPlanQualityIssues } from '../../server/lesson-plan-quality';
 import { examQualityIssues, programQualityIssues, worksheetQualityIssues } from '../../server/resource-quality';
 import { normalizeWorksheetAnswerKey, repairExamAnswerKey } from '../../server/answer-key';
 import { worksheetHasSource, worksheetReferencesSource } from '../../lib/worksheet-source';
-import { clampProgramStructure } from '../../shared/program-structure';
+import { clampProgramStructure, nextProgramLevel } from '../../shared/program-structure';
 import { programSkeletonPrompts, programUnitPrompts, programSkeletonIssues, programUnitIssues } from '../../server/program-generation';
 import { programFallback, fallbackProgramUnit } from '../../server/program-fallback';
 import { programLanguageIssues } from '../../server/program-language-quality';
@@ -282,7 +282,7 @@ export async function POST(request: Request) {
       if (!previousId || guest) return json({ error: 'Choose a valid previous program.' }, 400);
       const previous = await readPreviousProgram(supabaseUrl, anonKey, token, userId, previousId);
       const expectedSubject = selectedSubject === 'Other' ? 'other' : subject;
-      if (!previous || previous.subject !== expectedSubject || previous.learner_stage !== stage || (selectedSubject === 'Other' && String(previous.subject_display).toLowerCase() !== subject.toLowerCase()) || !previousProgramComplete(previous)) return json({ error: 'The selected previous program is unavailable or incomplete.' }, 400);
+      if (!previous || previous.subject !== expectedSubject || previous.learner_stage !== stage || (selectedSubject === 'Other' && String(previous.subject_display).toLowerCase() !== subject.toLowerCase()) || nextProgramLevel(String(previous.level_or_band || '')) !== level || !previousProgramComplete(previous)) return json({ error: 'The selected previous program is unavailable, incomplete, or does not lead to the selected level.' }, 400);
       previousContext = summarizePreviousProgram(previous);
     }
     const fallbackProgram = () => {
