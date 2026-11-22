@@ -1,4 +1,5 @@
 import guidance from './source-generation-guidance.json';
+import { oralExercises, oralFamily } from '../shared/oral-presentation';
 
 // Keep the payload and user message aligned with
 // streamlit/helpers/lesson_planner.py:generate_ai_lesson_plan/_build_ai_prompts.
@@ -29,6 +30,7 @@ export function buildLessonPlanUserPrompt(input: LessonPlanPromptInput) {
     required_sections: REQUIRED_SECTIONS,
     core_material_required_keys: [...COMMON_CORE, ...SPECIFIC_CORE[engine]],
     student_profile: input.studentProfile || {},
+    available_oral_exercise_types: oralExercises(oralFamily(input.subject)),
   };
   const profileGuidance = (guidance as Record<string, string>)[`${subject}|${input.learnerStage}|${input.levelOrBand}|lesson_plan`] || '';
   const studentProfileBlock = input.studentProfileBlock || '';
@@ -46,6 +48,7 @@ Rules:
 - success_criteria must be a list of strings.
 - warm_up, main_activity, core_examples, guided_practice, practice_questions, freer_task, wrap_up, teacher_moves must be lists of strings.
 - extension_task and homework must be strings.
+- When a spoken response would meaningfully demonstrate the objective, add oral_practice as an object with exercise_type (one available_oral_exercise_types value), objective, and student_prompt. A teacher must assign and review the recording; do not promise automatic grading. Otherwise omit oral_practice.
 - core_material must be an object with subject-appropriate keys.
 - Student-facing text must stay in the requested student_material_language.
 - Do not mix scripts or inject stray characters from unrelated languages into student-facing content.

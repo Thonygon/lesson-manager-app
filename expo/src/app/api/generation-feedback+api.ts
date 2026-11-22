@@ -2,8 +2,8 @@ import { authorizeQualityFeedback, feedbackJson, insertRow, readRows, upsertRow 
 
 const uuid = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value) ? value : '';
 const reasons = new Set(['content', 'level', 'format', 'other']);
-const resourceTables: Record<string, string> = { plan: 'lesson_plans', worksheet: 'worksheets', exam: 'quick_exams', program: 'learning_programs' };
-const operationFeatures: Record<string, string[]> = { plan: ['generate_plan', 'quick_lesson_ai'], worksheet: ['generate_worksheet', 'quick_worksheet_ai'], exam: ['generate_exam', 'quick_exam_ai'], program: ['generate_program'] };
+const resourceTables: Record<string, string> = { plan: 'lesson_plans', worksheet: 'worksheets', exam: 'quick_exams', program: 'learning_programs', oral_presentation: 'oral_presentations' };
+const operationFeatures: Record<string, string[]> = { plan: ['generate_plan', 'quick_lesson_ai'], worksheet: ['generate_worksheet', 'quick_worksheet_ai'], exam: ['generate_exam', 'quick_exam_ai'], program: ['generate_program'], oral_presentation: ['generate_oral_presentation'] };
 
 export async function GET(request: Request) {
   try {
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
     const resourceType = url.searchParams.get('resourceType') || '';
     const resourceId = url.searchParams.get('resourceId') || '';
     if (!resourceTables[resourceType] || !/^\d{1,18}$/.test(resourceId)) return feedbackJson({ eligible: false });
-    const resources = await readRows(auth.base, auth.serverKey, resourceTables[resourceType], { id: `eq.${resourceId}`, user_id: `eq.${auth.userId}` }, resourceType === 'exam' ? 'id,created_at,updated_at' : 'id,created_at,updated_at,source_type');
+    const resources = await readRows(auth.base, auth.serverKey, resourceTables[resourceType], { id: `eq.${resourceId}`, user_id: `eq.${auth.userId}` }, ['exam', 'oral_presentation'].includes(resourceType) ? 'id,created_at,updated_at' : 'id,created_at,updated_at,source_type');
     if (!resources[0]) return feedbackJson({ eligible: false });
     const links = await readRows(auth.base, auth.serverKey, 'classio_generation_resources', { resource_type: `eq.${resourceType}`, resource_id: `eq.${resourceId}`, actor_user_id: `eq.${auth.userId}` }, 'generation_id,edited_at');
     let link = links[0];
@@ -23,7 +23,9 @@ export async function GET(request: Request) {
       const resource = resources[0];
       const created = Date.parse(String(resource.created_at || ''));
       const updated = Date.parse(String(resource.updated_at || ''));
-      const sourceIsAi = resourceType === 'exam' || String(resource.source_type || '') === 'ai';
+      // Oral resources already carry an explicit operation link. Never infer a
+      // match by creation time: template activities may be created nearby.
+      const sourceIsAi = resourceType === 'exam' || (resourceType !== 'oral_presentation' && String(resource.source_type || '') === 'ai');
       if (sourceIsAi && Number.isFinite(created) && Number.isFinite(updated) && Math.abs(updated - created) <= 60000) {
         const features = operationFeatures[resourceType];
         const candidates = await readRows(auth.base, auth.serverKey, 'classio_ai_operations', { actor_user_id: `eq.${auth.userId}`, status: 'eq.success', feature_name: `in.(${features.join(',')})`, finished_at: `gte.${new Date(created - 300000).toISOString()}`, order: 'finished_at.desc' }, 'operation_id,finished_at', 10);
@@ -84,7 +86,7 @@ export async function POST(request: Request) {
     }
     const operations = await readRows(auth.base, auth.serverKey, 'classio_ai_operations', { operation_id: `eq.${generationId}`, actor_user_id: `eq.${auth.userId}`, status: 'eq.success' }, 'operation_id,actor_user_id,source,feature_name,modality,started_at,finished_at');
     const operation = operations[0];
-    if (!operation || operation.modality !== 'text' || !['expo', 'streamlit'].includes(String(operation.source)) || !['generate_plan', 'generate_worksheet', 'generate_exam', 'generate_program', 'quick_lesson_ai', 'quick_worksheet_ai', 'quick_exam_ai'].includes(String(operation.feature_name))) return feedbackJson({ error: 'This generation is unavailable.' }, 404);
+    if (!operation || operation.modality !== 'text' || !['expo', 'streamlit'].includes(String(operation.source)) || !['generate_plan', 'generate_worksheet', 'generate_exam', 'generate_program', 'generate_oral_presentation', 'quick_lesson_ai', 'quick_worksheet_ai', 'quick_exam_ai'].includes(String(operation.feature_name))) return feedbackJson({ error: 'This generation is unavailable.' }, 404);
     if (action === 'bind') {
       const resourceType = String(body.resourceType || '');
       const resourceId = String(body.resourceId || '');

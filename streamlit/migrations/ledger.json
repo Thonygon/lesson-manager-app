@@ -130,6 +130,7 @@
     {"name": "oral_public_bookmarks_and_metadata.sql", "sha256": "fe712adbaa6159a2042c02d0af89dbbc9aafa48959e4f03a95bf6a02217a00c5"},
     {"name": "oral_upload_retry_isolation.sql", "sha256": "4f7c2f40101ee5da72ecdf6147383037d328ea59e70ee97f5cb40f87d384422f"},
     {"name": "oral_generation_admin_tracing.sql", "sha256": "7428fe06eb32ef2519b511e8d224d18254ec21e69eb098c74771256341979188"},
-    {"name": "oral_generation_preserve_cross_surface_quota.sql", "sha256": "88c20b14e26273d24774c02c6522e37d5fec905d901ee99a76ee364ef02820ab"}
+    {"name": "oral_generation_preserve_cross_surface_quota.sql", "sha256": "88c20b14e26273d24774c02c6522e37d5fec905d901ee99a76ee364ef02820ab"},
+    {"name": "oral_generation_feedback_and_exports.sql", "sha256": "9c4d7c30c6b9b96b1ba78905dd026887b7ca90b3a7d9acfbbf149d7af447fd05"}
   ]
 }

@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AppShell } from '@/components/app-shell';
 import { ResourceEditor } from '@/components/resource-editor';
+import { GenerationIntentQuestion } from '@/components/generation-intent-question';
 import { ActionFeedback, Button, Field, Panel, SelectField } from '@/components/ui';
 import { useAppPreferences } from '@/providers/app-preferences';
 import { colors } from '@/theme';
@@ -13,16 +14,19 @@ const SUBJECTS = ['English', 'Spanish', 'Turkish', 'Mathematics', 'Science', 'Mu
 const STAGES = ['Early primary', 'Upper primary', 'Lower secondary', 'Upper secondary', 'Adult'];
 const LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'Beginner', 'Intermediate', 'Advanced'];
 const LANGUAGES = ['en', 'es', 'tr'] as const;
+const STAGE_ALIASES: Record<string, string> = { early_primary: 'Early primary', upper_primary: 'Upper primary', lower_secondary: 'Lower secondary', upper_secondary: 'Upper secondary', adult_stage: 'Adult' };
+const LEVEL_ALIASES: Record<string, string> = { beginner_band: 'Beginner', intermediate_band: 'Intermediate', advanced_band: 'Advanced' };
 
 export default function OralPresentationsScreen() {
   const { t, language } = useAppPreferences();
-  const [subject, setSubject] = useState('English');
-  const [customSubject, setCustomSubject] = useState('');
-  const [topic, setTopic] = useState('');
-  const [stage, setStage] = useState('Adult');
-  const [level, setLevel] = useState('B1');
-  const [exerciseType, setExerciseType] = useState('monologue');
-  const [objective, setObjective] = useState('');
+  const params = useLocalSearchParams<{ subject?: string; customSubject?: string; topic?: string; stage?: string; level?: string; programId?: string; programTopicId?: string; objective?: string; oralExerciseType?: string }>();
+  const [subject, setSubject] = useState(() => SUBJECTS.includes(String(params.subject || '')) ? String(params.subject) : 'English');
+  const [customSubject, setCustomSubject] = useState(String(params.customSubject || ''));
+  const [topic, setTopic] = useState(String(params.topic || ''));
+  const [stage, setStage] = useState(() => STAGES.includes(String(params.stage || '')) ? String(params.stage) : STAGE_ALIASES[String(params.stage || '')] || 'Adult');
+  const [level, setLevel] = useState(() => LEVELS.includes(String(params.level || '')) ? String(params.level) : LEVEL_ALIASES[String(params.level || '')] || 'B1');
+  const [exerciseType, setExerciseType] = useState(String(params.oralExerciseType || 'monologue'));
+  const [objective, setObjective] = useState(String(params.objective || params.topic || ''));
   const [limit, setLimit] = useState('180');
   const [instructions, setInstructions] = useState('');
   const [studentLanguage, setStudentLanguage] = useState<'en' | 'es' | 'tr'>(language);
@@ -41,7 +45,7 @@ export default function OralPresentationsScreen() {
     kind: 'oral_presentation', subject, customSubject, topic: topic.trim(), stage, level,
     oralExerciseType: selectedExercise, objective: objective.trim(), maxDurationSeconds: Number(limit),
     language: studentLanguage, planLanguage: teacherLanguage, generationMode: mode,
-    duration: `${limit} seconds`, instructions, notes: '', visibility, reuseConfirmed,
+    duration: `${limit} seconds`, instructions, notes: '', visibility, reuseConfirmed, programId: String(params.programId || ''), programTopicId: String(params.programTopicId || ''),
   };
   const validation = !topic.trim() || !objective.trim() || (subject === 'Other' && !customSubject.trim()) ||
     !Number.isInteger(Number(limit)) || Number(limit) < 30 || Number(limit) > 600 ||
@@ -113,6 +117,7 @@ export default function OralPresentationsScreen() {
         {document.rubric.map((criterion) => <Text key={criterion.id} style={styles.body}>{criterion.label} · {criterion.max_score}</Text>)}
         <ResourceEditor document={generated!.document} onApply={(next) => void edit(next)} />
         {savedId ? <Button onPress={() => router.push({ pathname: '/resources', params: { kind: 'oral_presentation', scope: 'mine', resourceId: savedId, assign: '1' } })}>{t('resources.assignToStudent')}</Button> : <Button disabled={busy} onPress={() => void save()}>{t('smart.saveLibrary')}</Button>}
+        {savedId && mode === 'ai' ? <GenerationIntentQuestion resourceType="oral_presentation" resourceId={savedId} surface="generation_preview" /> : null}
       </Panel> : null}
     </ScrollView>
   </AppShell>;

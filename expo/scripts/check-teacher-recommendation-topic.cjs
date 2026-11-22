@@ -32,6 +32,7 @@ const { loadTeacherRecommendationModel, rankTeacherResources } = load('src/servi
   '@/services/resource-library': { getResourceLibrary: async () => ({ resources: [], unavailable: [] }) },
   '@/services/student-recommendation-topic-alignment': alignment,
   '@/services/student-recommendation-semantic': semantic,
+  '@/services/recommendation-governance': { learnedRecommendationApproved: () => true },
 });
 const resource = (id, kind = 'worksheet') => ({ id: String(id), kind, title: `Resource ${id}`, subject: 'Math', topic: 'Fractions', stage: '', level: '', description: '', raw: { user_id: 'teacher-1', title: `Resource ${id}`, topic: 'Fractions', subject: 'Math' } });
 
@@ -51,8 +52,8 @@ const resource = (id, kind = 'worksheet') => ({ id: String(id), kind, title: `Re
   const baseline = await loadTeacherRecommendationModel();
   assert.deepEqual(calls, ['learning_program_recommendation_events']);
   assert.equal(baseline.weights.bias, -0.2);
-  const ordered = rankTeacherResources([resource(1, 'exam'), resource(2, 'worksheet'), resource(3, 'video'), resource(4, 'plan')], { id: 'order', subject: 'Math', topic: 'Fractions', priority: 'high' }, baseline);
-  assert.deepEqual(ordered.map((item) => item.resource.kind), ['plan', 'video', 'worksheet', 'exam'], 'present each ML-ranked resource family in teaching order');
+  const ordered = rankTeacherResources([resource(1, 'exam'), resource(2, 'worksheet'), resource(3, 'video'), resource(4, 'plan'), resource(5, 'oral_presentation')], { id: 'order', subject: 'Math', topic: 'Fractions', priority: 'high' }, baseline);
+  assert.deepEqual(ordered.map((item) => item.resource.kind), ['plan', 'video', 'worksheet', 'exam', 'oral_presentation'], 'present each supported resource family in teaching order');
   calls.length = 0;
   eventReadError = true;
   const unavailable = await loadTeacherRecommendationModel();

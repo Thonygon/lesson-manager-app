@@ -12,7 +12,7 @@ export type RecommendationModel = { teacherId: string; weights: Record<string, n
 
 const BASE_WEIGHTS: Record<string, number> = {
   bias: -0.2, subject_match: 0.85, stage_match: 0.36, level_match: 0.42, topic_overlap: 0.9, title_match: 0.75, objective_match: 0.55, source_own: 0.18,
-  kind_plan: 0.22, kind_worksheet: 0.26, kind_exam: 0.14, kind_video: 0.18, bucket_next_topic: 0.2, bucket_review: 0.26, bucket_pending_gap: 0.18,
+  kind_plan: 0.22, kind_worksheet: 0.26, kind_exam: 0.14, kind_video: 0.18, kind_oral_presentation: 0.18, bucket_next_topic: 0.2, bucket_review: 0.26, bucket_pending_gap: 0.18,
   focus_needs_practice: 0.18, focus_reteach: 0.16, focus_reinforce: 0.12, focus_stretch: 0.08, topic_reference_present: 0.16, semantic_affinity: 0.52,
   exact_topic_match: 0.78, exact_topic_support: 0.32, direct_topic_link: 0.64, topic_kind_prior: 0.34, topic_match_ambiguity: -0.26,
   unsupervised_affinity: 0.38, prior_kind_success: 0.24, prior_bucket_success: 0.3, prior_focus_success: 0.22,
@@ -87,6 +87,7 @@ const searchFields: Record<string, string[]> = {
   worksheet: ['title', 'topic', 'worksheet_type', 'subject', 'learner_stage', 'level_or_band', 'author_name'],
   exam: ['title', 'topic', 'subject', 'learner_stage', 'level', 'exam_length', 'author_name'],
   video: ['title', 'topic', 'description', 'subject', 'learner_stage', 'level_or_band', 'author_name'],
+  oral_presentation: ['title', 'topic', 'subject', 'learner_stage', 'level_or_band', 'exercise_type'],
 };
 const levelDistance = (left: string, right: string) => {
   const a = searchText(left); const b = searchText(right);
@@ -114,7 +115,7 @@ function teacherResourceBucket(resource: PublicResource, need: RecommendationNee
   return 'related';
 }
 function teacherFocusBonus(focus: string, kind: string) {
-  if (focus === 'needs_practice') return kind === 'worksheet' ? 1.9 : kind === 'video' ? 1.1 : 0.3;
+  if (focus === 'needs_practice') return kind === 'worksheet' ? 1.9 : kind === 'video' ? 1.1 : kind === 'oral_presentation' ? 1.0 : 0.3;
   if (focus === 'reteach') return kind === 'video' ? 2.1 : kind === 'plan' ? 1.7 : 0.3;
   if (focus === 'stretch') return kind === 'plan' ? 1.8 : kind === 'exam' ? 1.1 : 0.2;
   if (focus === 'reinforce') return kind === 'worksheet' || kind === 'plan' ? 1.3 : kind === 'video' ? 0.9 : 0.3;
@@ -161,7 +162,7 @@ export function rankTeacherResources(resources: PublicResource[], need: Recommen
   // Python presents only candidates in the strongest available affinity bucket.
   const bucketPriority = { very_close: 0, close: 1, related: 2 } as const;
   const best = Math.min(...candidates.map((item) => bucketPriority[item.bucket as keyof typeof bucketPriority]));
-  const order = ['plan', 'video', 'worksheet', 'exam'];
+  const order = ['plan', 'video', 'worksheet', 'exam', 'oral_presentation'];
   const winning = candidates.filter((item) => bucketPriority[item.bucket as keyof typeof bucketPriority] === best)
     .sort((a, b) => Number(b.resource.raw.user_id === model.teacherId) - Number(a.resource.raw.user_id === model.teacherId) || b.displayScore - a.displayScore);
   return order.flatMap((kind) => winning.filter((item) => item.resource.kind === kind).slice(0, 3));

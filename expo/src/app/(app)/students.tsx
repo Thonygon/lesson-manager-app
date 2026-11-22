@@ -214,6 +214,10 @@ function LearningView({ workspace, studentName, linkedStudentId, rosterStudentId
   const assignRecommendedResource = async (recommendation: TeacherObjectiveRecommendation, resource: PublicResource, exposureId: string) => {
     const targetConnection = connection || activeConnection;
     if (!targetConnection || String(targetConnection.status) !== 'active' || resourceActionBusy) return;
+    if (resource.kind === 'oral_presentation') {
+      router.push({ pathname: '/resources', params: { scope: String(resource.raw.user_id) === recommendationModel?.teacherId ? 'mine' : 'community', kind: resource.kind, resourceId: String(resource.id), assign: '1', from: 'student-recommendations', student: studentUserId } });
+      return;
+    }
     setResourceActionBusy(true); setActionMessage('');
     try {
       const detail = await getResourceDetail(resource.kind, resource.id);
@@ -343,7 +347,7 @@ function LearningView({ workspace, studentName, linkedStudentId, rosterStudentId
           {recommendation.objective ? <Text style={styles.recommendationBody}>{recommendation.objective}</Text> : null}
           {evidence ? <Text style={styles.recommendationEvidence}>{evidence}</Text> : null}
           <Text style={styles.resourceSectionTitle}>{t('students.recommendedResources')}{recommendationLoading ? '' : ` · ${matches.length}`}</Text>
-          {matches.length ? <View>{(['plan', 'video', 'worksheet', 'exam'] as const).map((resourceKind) => {
+          {matches.length ? <View>{(['plan', 'video', 'worksheet', 'exam', 'oral_presentation'] as const).map((resourceKind) => {
             const group = matches.filter((resource) => resource.kind === resourceKind);
             return group.length ? <View key={resourceKind} style={styles.recommendationResourceGroup}>
               <Text style={styles.resourceGroupTitle}>{t(`students.recommendationGroup.${resourceKind}`)}</Text>
@@ -359,7 +363,7 @@ function LearningView({ workspace, studentName, linkedStudentId, rosterStudentId
                   </View>
                   {selected ? <View style={styles.recommendationResourceActions}>
                     <Button disabled={resourceActionBusy || assigned || !(connection || activeConnection)} onPress={() => void assignRecommendedResource(recommendation, resource, exposureId)}>{assigned ? t('students.recommendationAssigned') : t('resources.assignToStudent')}</Button>
-                    {resource.kind !== 'video' ? <><Button secondary disabled={resourceActionBusy} onPress={() => void downloadRecommendedResource(resource, 'pdf')}>{t('common.downloadPdf')}</Button><Button secondary disabled={resourceActionBusy} onPress={() => void downloadRecommendedResource(resource, 'docx')}>{t('common.downloadWord')}</Button></> : null}
+                    {resource.kind !== 'video' && resource.kind !== 'oral_presentation' ? <><Button secondary disabled={resourceActionBusy} onPress={() => void downloadRecommendedResource(resource, 'pdf')}>{t('common.downloadPdf')}</Button><Button secondary disabled={resourceActionBusy} onPress={() => void downloadRecommendedResource(resource, 'docx')}>{t('common.downloadWord')}</Button></> : null}
                     <Button secondary disabled={resourceActionBusy || !exposureId} onPress={() => setRejectingResource({ recommendation, resource, exposureId })}>{t('students.notRelevant')}</Button>
                   </View> : null}
                 </View>;
