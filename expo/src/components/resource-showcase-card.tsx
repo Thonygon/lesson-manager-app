@@ -9,7 +9,7 @@ import { useAppPreferences } from '@/providers/app-preferences';
 import { colors } from '@/theme';
 
 type ShowcaseResource = Omit<PublicResource, 'kind'> & { kind: PublicResource['kind'] | 'professional' };
-const KIND_ICON: Record<ShowcaseResource['kind'], string> = { program: '📚', plan: '📝', worksheet: '📋', exam: '🧪', video: '🎬', professional: '💼' };
+const KIND_ICON: Record<ShowcaseResource['kind'], string> = { program: '📚', plan: '📝', worksheet: '📋', exam: '🧪', video: '🎬', oral_presentation: '🎙️', professional: '💼' };
 
 function displayResourceDescription(value: string, t: (key: string) => string) { const code = value.trim(); if (!/^[a-z][a-z0-9_]*$/i.test(code)) return value; for (const key of [`resources.term.${code.toLowerCase()}`, `student.exercise.${code.toLowerCase()}`]) { const translated = t(key); if (translated !== key) return translated; } return code.includes('_') ? code.replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase()) : value; }
 

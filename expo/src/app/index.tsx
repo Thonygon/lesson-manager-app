@@ -44,12 +44,13 @@ const TOOLS = [
   { icon: '📚', title: 'toolProgram', badge: 'toolProgramBadge', copy: 'toolProgramBody', tint: colors.violetSoft, accent: colors.violet },
 ] as const;
 
-const RESOURCE_META: Record<PublicResourceKind, { label: 'kindProgram' | 'kindPlan' | 'kindWorksheet' | 'kindExam' | 'kindVideo'; icon: string; accent: string; tint: string }> = {
+const RESOURCE_META: Record<PublicResourceKind, { label: 'kindProgram' | 'kindPlan' | 'kindWorksheet' | 'kindExam' | 'kindVideo' | 'kindOral'; icon: string; accent: string; tint: string }> = {
   program: { label: 'kindProgram', icon: '📚', accent: colors.violet, tint: colors.violetSoft },
   plan: { label: 'kindPlan', icon: '📝', accent: colors.primary, tint: colors.primarySoft },
   worksheet: { label: 'kindWorksheet', icon: '📋', accent: colors.success, tint: colors.successSoft },
   exam: { label: 'kindExam', icon: '🧪', accent: colors.orange, tint: colors.orangeSoft },
   video: { label: 'kindVideo', icon: '🎬', accent: colors.pink, tint: colors.pinkSoft },
+  oral_presentation: { label: 'kindOral', icon: '🎙️', accent: colors.primary, tint: colors.primarySoft },
 };
 
 const currencySymbols: Partial<Record<IncomeCurrency, string>> = { USD: '$', EUR: '€', GBP: '£', TRY: '₺', JPY: '¥', BRL: 'R$', INR: '₹', KRW: '₩' };
@@ -107,8 +108,8 @@ export default function HomeScreen() {
   const [exerciseFilter, setExerciseFilter] = useState('All exercises');
   const [resourcePage, setResourcePage] = useState(1);
   const [selected, setSelected] = useState<PublicResource | null>(null);
-  const [openTool, setOpenTool] = useState<SmartToolKind | null>(null);
-  useEffect(() => { if (params.from === 'explorer' && !params.resourceId && ['plan', 'worksheet', 'exam', 'program'].includes(String(params.tool))) { pendingToolScroll.current = true; setOpenTool(params.tool as SmartToolKind); } }, [params.from, params.resourceId, params.tool]);
+  const [openTool, setOpenTool] = useState<Exclude<SmartToolKind, 'oral_presentation'> | null>(null);
+  useEffect(() => { if (params.from === 'explorer' && !params.resourceId && ['plan', 'worksheet', 'exam', 'program'].includes(String(params.tool))) { pendingToolScroll.current = true; setOpenTool(params.tool as Exclude<SmartToolKind, 'oral_presentation'>); } }, [params.from, params.resourceId, params.tool]);
   const [goalSubject, setGoalSubject] = useState<IncomeSubject>('English');
   const [modalities, setModalities] = useState<IncomeModality[]>(['Online']);
   const [audiences, setAudiences] = useState<IncomeAudience[]>(['Adults']);
@@ -123,7 +124,7 @@ export default function HomeScreen() {
     const sharedKind = String(params.resourceKind || ''); const sharedId = String(params.resourceId || '');
     if (!Object.hasOwn(RESOURCE_META, sharedKind) || !/^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[1-9]\d*)$/i.test(sharedId)) return;
     let active = true;
-    setAudienceView('teacher'); setKind(sharedKind as PublicResourceKind); setSharedResourceError(''); if (params.from === 'explorer' && ['plan', 'worksheet', 'exam', 'program'].includes(String(params.tool))) setOpenTool(params.tool as SmartToolKind);
+    setAudienceView('teacher'); setKind(sharedKind as PublicResourceKind); setSharedResourceError(''); if (params.from === 'explorer' && ['plan', 'worksheet', 'exam', 'program'].includes(String(params.tool))) setOpenTool(params.tool as Exclude<SmartToolKind, 'oral_presentation'>);
     void getPublicResourceDetail(sharedKind as PublicResourceKind, sharedId).then((resource) => { if (active) setSelected(resource); }).catch(() => { if (active) setSharedResourceError(copy.sharedUnavailable); });
     return () => { active = false; };
   }, [params.resourceId, params.resourceKind, params.from, params.tool, copy.sharedUnavailable]);
@@ -230,7 +231,7 @@ export default function HomeScreen() {
     { icon: '▦', title: explore.featureCalendar, body: explore.featureCalendarBody, accent: colors.violet, tint: colors.violetSoft },
     { icon: '▥', title: explore.featureAnalytics, body: explore.featureAnalyticsBody, accent: colors.pink, tint: colors.pinkSoft },
   ];
-  const openSmartTool = (next: SmartToolKind) => { pendingToolScroll.current = true; setOpenTool(next); if (openTool) requestAnimationFrame(() => scrollToSmartTool(selectedToolY.current)); };
+  const openSmartTool = (next: Exclude<SmartToolKind, 'oral_presentation'>) => { pendingToolScroll.current = true; setOpenTool(next); if (openTool) requestAnimationFrame(() => scrollToSmartTool(selectedToolY.current)); };
   const scrollToSmartTool = (y: number) => {
     if (!pendingToolScroll.current) return;
     pendingToolScroll.current = false;
@@ -316,7 +317,7 @@ export default function HomeScreen() {
           <View style={[styles.section, compact && styles.sectionCompact]} onLayout={(event) => { toolsY.current = event.nativeEvent.layout.y; }}>
             <SectionHeading eyebrow={copy.toolsEyebrow} title={copy.toolsTitle} body={copy.toolsBody} />
             <View style={styles.cardGrid}>
-              {TOOLS.map((tool, index) => { const toolKind = ['plan', 'worksheet', 'exam', 'program'][index] as SmartToolKind; return <Pressable key={tool.title} accessibilityRole="button" accessibilityState={{ selected: openTool === toolKind }} accessibilityLabel={copy[tool.title]} onPress={() => openSmartTool(toolKind)} style={(state) => [styles.toolCard, phone && styles.toolCardPhone, { backgroundColor: tool.tint, borderColor: openTool === toolKind ? tool.accent : colors.lineStrong }, pressableActive(state) && styles.toolCardHover]}><View pointerEvents="none" style={styles.toolWash} /><View pointerEvents="none" style={[styles.toolGlow, { backgroundColor: tool.tint }]} /><View pointerEvents="none" style={[styles.toolBar, { backgroundColor: tool.accent }]} /><View style={styles.toolTop}><View style={[styles.toolIconBubble, { backgroundColor: tool.tint, borderColor: tool.accent }]}><Text style={styles.toolIcon}>{tool.icon}</Text></View>{!phone ? <Text style={[styles.toolBadge, { color: tool.accent }]}>{copy[tool.badge]}</Text> : null}</View><Text style={[styles.toolTitle, phone && styles.toolTitlePhone]}>{copy[tool.title]}</Text>{!phone ? <Text style={styles.toolBody}>{copy[tool.copy]}</Text> : null}<Text style={[styles.toolAction, { color: tool.accent }]}>{copy.toolTry} →</Text></Pressable>; })}
+              {TOOLS.map((tool, index) => { const toolKind = ['plan', 'worksheet', 'exam', 'program'][index] as Exclude<SmartToolKind, 'oral_presentation'>; return <Pressable key={tool.title} accessibilityRole="button" accessibilityState={{ selected: openTool === toolKind }} accessibilityLabel={copy[tool.title]} onPress={() => openSmartTool(toolKind)} style={(state) => [styles.toolCard, phone && styles.toolCardPhone, { backgroundColor: tool.tint, borderColor: openTool === toolKind ? tool.accent : colors.lineStrong }, pressableActive(state) && styles.toolCardHover]}><View pointerEvents="none" style={styles.toolWash} /><View pointerEvents="none" style={[styles.toolGlow, { backgroundColor: tool.tint }]} /><View pointerEvents="none" style={[styles.toolBar, { backgroundColor: tool.accent }]} /><View style={styles.toolTop}><View style={[styles.toolIconBubble, { backgroundColor: tool.tint, borderColor: tool.accent }]}><Text style={styles.toolIcon}>{tool.icon}</Text></View>{!phone ? <Text style={[styles.toolBadge, { color: tool.accent }]}>{copy[tool.badge]}</Text> : null}</View><Text style={[styles.toolTitle, phone && styles.toolTitlePhone]}>{copy[tool.title]}</Text>{!phone ? <Text style={styles.toolBody}>{copy[tool.copy]}</Text> : null}<Text style={[styles.toolAction, { color: tool.accent }]}>{copy.toolTry} →</Text></Pressable>; })}
             </View>
             {openTool ? <View style={styles.selectedArea} onLayout={(event) => { selectedToolY.current = event.nativeEvent.layout.y; scrollToSmartTool(selectedToolY.current); }}><PublicSmartTool key={openTool} initial={openTool} onClose={() => setOpenTool(null)} /></View> : null}
           </View>

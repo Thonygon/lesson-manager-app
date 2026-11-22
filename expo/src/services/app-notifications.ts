@@ -1,6 +1,7 @@
 import type { Href } from 'expo-router';
 
 import { requireSupabase } from '@/lib/supabase';
+import { ORAL_AUDIO_REVIEW_WARNING_DAYS, oralAudioExpiresSoon } from '@/lib/oral-audio-expiry';
 
 export type AppNotification = {
   key: string;
@@ -51,7 +52,7 @@ export async function loadAppNotifications(userId: string, role: string, canHand
     const [assignmentResult, reviewResult, attemptResult] = await Promise.all([
       client.from('teacher_assignments').select('id,title,assignment_type,status,score_pct,due_at,assigned_at,created_at,graded_at,updated_at').eq('student_id', userId).neq('status', 'archived').order('created_at', { ascending: false }).limit(200),
       client.from('teacher_review_requests').select('id,assignment_id,practice_session_id,source_type,title,status,teacher_feedback,reviewed_at').eq('student_id', userId).eq('status', 'reviewed').order('reviewed_at', { ascending: false }).limit(50),
-      client.from('teacher_assignment_attempts').select('assignment_id,practice_session_id,teacher_feedback,graded_at,created_at').eq('student_id', userId).in('status', ['graded', 'completed']).not('practice_session_id', 'is', null).order('graded_at', { ascending: false, nullsFirst: false }).limit(500),
+      client.from('teacher_assignment_attempts').select('assignment_id,practice_session_id,teacher_feedback,graded_at,created_at').eq('student_id', userId).in('status', ['graded', 'completed']).order('graded_at', { ascending: false, nullsFirst: false }).limit(500),
     ]);
     if (assignmentResult.error || reviewResult.error || attemptResult.error) throw assignmentResult.error ?? reviewResult.error ?? attemptResult.error;
     const assignments = (assignmentResult.data ?? []) as Row[];
@@ -68,7 +69,9 @@ export async function loadAppNotifications(userId: string, role: string, canHand
       const status = value(row.status);
       const due = Date.parse(value(row.due_at));
       const kind = value(row.assignment_type);
-      const href: Href = kind === 'lesson_plan_topic'
+      const href: Href = kind === 'oral_presentation'
+        ? { pathname: '/oral-assignment', params: { assignmentId: id } }
+        : kind === 'lesson_plan_topic'
         ? { pathname: '/student-lesson-topic' as never, params: { assignmentId: id } }
         : { pathname: '/student-practice', params: { assignmentId: id, kind: kind || 'worksheet', returnTo: 'student-assignments' } };
       const detail = value(row.title);
@@ -84,7 +87,7 @@ export async function loadAppNotifications(userId: string, role: string, canHand
         const sessionId = value(attempt?.practice_session_id);
         const hasComment = Boolean(value(attempt?.teacher_feedback).trim());
         const notice = hasComment ? 'review' : 'grade';
-        items.push({ key: `student:${hasComment ? 'comment' : 'graded'}:${id}:${value(row.graded_at)}`, icon: hasComment ? '💬' : '📊', titleKey: hasComment ? 'student.notificationComment' : 'student.notificationGraded', titleParams: { count: 1 }, detail, href: sessionId ? { pathname: '/student-practice', params: { reviewSessionId: sessionId, assignmentId: id, kind: kind || 'worksheet', notice, returnTo: 'student-assignments' } } : { pathname: '/student-practice', params: { assignmentId: id, kind: kind || 'worksheet', gradeScore: value(row.score_pct), notice, returnTo: 'student-assignments' } } });
+        items.push({ key: `student:${hasComment ? 'comment' : 'graded'}:${id}:${value(row.graded_at)}`, icon: hasComment ? '💬' : '📊', titleKey: hasComment ? 'student.notificationComment' : 'student.notificationGraded', titleParams: { count: 1 }, detail, href: kind === 'oral_presentation' ? href : sessionId ? { pathname: '/student-practice', params: { reviewSessionId: sessionId, assignmentId: id, kind: kind || 'worksheet', notice, returnTo: 'student-assignments' } } : { pathname: '/student-practice', params: { assignmentId: id, kind: kind || 'worksheet', gradeScore: value(row.score_pct), notice, returnTo: 'student-assignments' } } });
       }
     }
     for (const row of reviews) {
@@ -101,11 +104,19 @@ export async function loadAppNotifications(userId: string, role: string, canHand
     return [...items, ...await helpReportUpdates(userId), ...incomingHelp];
   }
   if (role === 'teacher' || role === 'school_admin') {
-    const [reviewResult, practiceResult] = await Promise.all([
+    const now = Date.now();
+    const [reviewResult, practiceResult, oralResult, expiringOralResult] = await Promise.all([
       client.from('teacher_review_requests').select('id,student_id,assignment_id,status,requested_at').eq('teacher_id', userId).eq('status', 'requested').order('requested_at', { ascending: false }).limit(100),
       client.from('learning_program_progress').select('id,assignment_id,topic_id,updated_at,program_assignment:learning_program_assignments!inner(student_user_id,teacher_id)').eq('program_assignment.teacher_id', userId).eq('teacher_done', true).eq('student_done', true).order('updated_at', { ascending: false }).limit(100),
+      client.from('teacher_assignments').select('id,title,submitted_at').eq('teacher_id', userId).eq('assignment_type', 'oral_presentation').eq('status', 'submitted').order('submitted_at', { ascending: false }).limit(100),
+      client.from('classio_oral_recordings')
+        .select('id,assignment_id,expires_at,assignment:teacher_assignments!inner(title,status),attempt:teacher_assignment_attempts!inner(status)')
+        .eq('teacher_id', userId).eq('status', 'submitted').eq('assignment.status', 'submitted').eq('attempt.status', 'submitted')
+        .gt('expires_at', new Date(now).toISOString())
+        .lte('expires_at', new Date(now + ORAL_AUDIO_REVIEW_WARNING_DAYS * 86400000).toISOString())
+        .order('expires_at', { ascending: true }).limit(500),
     ]);
-    if (reviewResult.error || practiceResult.error) throw reviewResult.error ?? practiceResult.error;
+    if (reviewResult.error || practiceResult.error || oralResult.error || expiringOralResult.error) throw reviewResult.error ?? practiceResult.error ?? oralResult.error ?? expiringOralResult.error;
     const reviews = ((reviewResult.data ?? []) as Row[]).map((row): AppNotification => ({
       key: `teacher:review:${value(row.id)}:${value(row.requested_at)}`,
       icon: '📋', titleKey: 'dashboard.reviewNotification', titleParams: { count: 1 },
@@ -116,7 +127,19 @@ export async function loadAppNotifications(userId: string, role: string, canHand
       const studentId = value((assignment as Row | undefined)?.student_user_id);
       return { key: `teacher:practice:${value(row.id)}:${value(row.updated_at)}`, icon: '🧩', titleKey: 'dashboard.practiceNotification', titleParams: { count: 1 }, href: { pathname: '/students', params: { section: 'progress', learningTab: 'programs', student: studentId, programAssignment: value(row.assignment_id), programTopic: value(row.topic_id) } } };
     });
-    return [...reviews, ...practice, ...await helpReportUpdates(userId), ...incomingHelp];
+    const expiringRows = ((expiringOralResult.data ?? []) as Row[]).filter((row) => oralAudioExpiresSoon(row.expires_at, now));
+    const expiringAssignmentIds = new Set(expiringRows.map((row) => value(row.assignment_id)));
+    const expiringOral = expiringRows.map((row): AppNotification => {
+      const assignment = Array.isArray(row.assignment) ? row.assignment[0] : row.assignment;
+      return { key: `teacher:oral-expiring:${value(row.id)}:${value(row.expires_at)}`, icon: '⏰', titleKey: 'oral.expiryNotification',
+        detail: value((assignment as Row | undefined)?.title),
+        href: { pathname: '/oral-assignment', params: { assignmentId: value(row.assignment_id) } } };
+    });
+    const oral = ((oralResult.data ?? []) as Row[]).filter((row) => !expiringAssignmentIds.has(value(row.id))).map((row): AppNotification => ({
+      key: `teacher:oral:${value(row.id)}:${value(row.submitted_at)}`, icon: '🎙️', titleKey: 'oral.reviewNotification', detail: value(row.title),
+      href: { pathname: '/oral-assignment', params: { assignmentId: value(row.id) } },
+    }));
+    return [...expiringOral, ...oral, ...reviews, ...practice, ...await helpReportUpdates(userId), ...incomingHelp];
   }
   return [...await helpReportUpdates(userId), ...incomingHelp];
 }

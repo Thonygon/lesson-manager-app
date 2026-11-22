@@ -13,12 +13,13 @@ import type { PublicResource } from '@/services/public-data';
 import { getStudentAssignmentCardImages, getStudentTeacherConnections, getStudentWorkspace, type StudentWorkspace } from '@/services/student-data';
 import { colors } from '@/theme';
 
-type Kind = 'worksheet' | 'exam' | 'video';
+type Kind = 'worksheet' | 'exam' | 'video' | 'oral_presentation';
 type Filter = 'all' | 'not_started' | 'in_progress' | 'done';
 
 function assignmentState(row: ClassioRecord, attempts: ClassioRecord[], drafts: ClassioRecord[]): Exclude<Filter, 'all'> {
   const status = String(row.status || 'assigned');
   if (row.assignment_type === 'video') return ['submitted', 'graded', 'completed'].includes(status) || attempts.length > 0 ? 'done' : 'not_started';
+  if (row.assignment_type === 'oral_presentation') return ['graded', 'completed'].includes(status) ? 'done' : status === 'started' || status === 'submitted' ? 'in_progress' : 'not_started';
   if (['submitted', 'graded', 'completed', 'cancelled'].includes(status)) return 'done';
   if (status === 'started' || drafts.length > 0) return 'in_progress';
   return 'not_started';
@@ -41,7 +42,7 @@ function subjectLabels(value: unknown, t: (key: string) => string): string {
 export default function StudentAssignmentsScreen() {
   const { t } = useAppPreferences();
   const params = useLocalSearchParams<{ kind?: string; query?: string }>();
-  const initialKind: Kind = params.kind === 'exam' || params.kind === 'video' ? params.kind : 'worksheet';
+  const initialKind: Kind = params.kind === 'exam' || params.kind === 'video' || params.kind === 'oral_presentation' ? params.kind : 'worksheet';
   const [workspace, setWorkspace] = useState<StudentWorkspace | null>(null);
   const [connections, setConnections] = useState<ClassioRecord[]>([]);
   const [kind, setKind] = useState<Kind>(initialKind);
@@ -133,7 +134,7 @@ export default function StudentAssignmentsScreen() {
       {activeConnections.length ? <View style={styles.connectionGroup}><Text style={styles.detailHeading}>{t('student.myTeachers')}</Text>{activeConnections.map((row) => <Text key={String(row.id)} style={styles.detailLine}>{String(row.teacher_name || t('student.teacher'))}{subjectLabels(row.active_subjects, t) ? ` · ${subjectLabels(row.active_subjects, t)}` : ''}</Text>)}</View> : null}
       {pendingConnections.length ? <View style={styles.connectionGroup}><Text style={styles.detailHeading}>{t('student.teacherRequestsPending')}</Text>{pendingConnections.map((row) => <Text key={String(row.id)} style={styles.detailLine}>{String(row.teacher_name || t('student.teacher'))}{subjectLabels(row.requested_subjects, t) ? ` · ${subjectLabels(row.requested_subjects, t)}` : ''}</Text>)}</View> : null}
     </Panel> : null}
-    <TabRail accessibilityLabel={t('student.assignments')} value={kind} onChange={(value) => chooseKind(value as Kind)} items={[{ value: 'worksheet', label: `📋 ${t('student.worksheets')}` }, { value: 'exam', label: `🧪 ${t('student.exams')}` }, { value: 'video', label: `🎬 ${t('student.videos')}` }]} />
+    <TabRail accessibilityLabel={t('student.assignments')} value={kind} onChange={(value) => chooseKind(value as Kind)} items={[{ value: 'worksheet', label: `📋 ${t('student.worksheets')}` }, { value: 'exam', label: `🧪 ${t('student.exams')}` }, { value: 'video', label: `🎬 ${t('student.videos')}` }, { value: 'oral_presentation', label: `🎙 ${t('oral.title')}` }]} />
     <ResourceFilters query={query} onQueryChange={(value) => { setQuery(value); setPage(1); setScope(''); setSelectedId(''); }} searchLabel={t('common.search')} searchPlaceholder={t('student.searchAssignments')} count={filtered.length} facets={[{ key: 'status', label: t('students.filterStatus'), value: filter, allValue: 'all', allLabel: t('student.filter.all'), options: (['not_started', 'in_progress', 'done'] as const).map((value) => ({ value, label: t(`student.filter.${value}`) })), onChange: (value) => { setFilter(value as Filter); setPage(1); setScope(''); setSelectedId(''); } }]} />
     {groups.length > 1 ? <TabRail accessibilityLabel={t('student.assignments')} value={activeGroup.key} onChange={(value) => { setScope(value); setPage(1); setSelectedId(''); }} items={groups.map((group) => ({ value: group.key, label: `📚 ${group.label}` }))} /> : null}
     {loading ? <LoadingState /> : error ? <EmptyState title={t('student.loadFailed')} body={error} /> : !shown.length ? <EmptyState title={t('student.noAssignments')} body={t('student.noAssignmentsBody')} /> : <View style={styles.grid}>{shown.map((row) => {
@@ -145,8 +146,8 @@ export default function StudentAssignmentsScreen() {
       const status = assignmentState(row, attempts, draft);
       const teacher = String(workspace?.teacherNames?.[String(row.teacher_id)] || '');
       const archived = row.source_archived === true || String(row.source_archived) === 'true';
-      const reviewSessionId = kind !== 'video' && status === 'done' ? String(attempts.find((attempt) => attempt.practice_session_id)?.practice_session_id || '') : '';
-      const openPractice = () => router.push({ pathname: '/student-practice', params: { kind, assignmentId: id, returnTo: 'student-assignments', ...(reviewSessionId ? { reviewSessionId } : {}) } });
+      const reviewSessionId = kind !== 'video' && kind !== 'oral_presentation' && status === 'done' ? String(attempts.find((attempt) => attempt.practice_session_id)?.practice_session_id || '') : '';
+      const openPractice = () => kind === 'oral_presentation' ? router.push({ pathname: '/oral-assignment', params: { assignmentId: id } }) : router.push({ pathname: '/student-practice', params: { kind, assignmentId: id, returnTo: 'student-assignments', ...(reviewSessionId ? { reviewSessionId } : {}) } });
       const showDetails = status === 'done' || archived;
       return <View key={id} style={styles.resourceSlot}>
         <ResourceShowcaseCard compact item={assignmentPreview(row, kind, cardImages[id] || '', teacher, t('student.assignment'), canonicalSubjectLabel(row.subject_label || row.subject_key, t))} onPress={() => showDetails ? setSelectedId((current) => current === id ? '' : id) : openPractice()} eyebrow={draft.length ? `${t(`student.filter.${status}`)} · ${t('student.draftSaved')}` : t(`student.filter.${status}`)} description={String(row.topic || t('student.assignment'))} />
@@ -158,7 +159,7 @@ export default function StudentAssignmentsScreen() {
           {row.score_pct !== null && row.score_pct !== undefined ? <Text style={styles.detailLine}>{t('student.assignmentScore')}: {String(row.score_pct)}%</Text> : null}
           {latest ? <Text style={styles.attempt}>{t('student.latestAttempt', { number: Number(latest.attempt_number || 1), score: `${Number(latest.score_pct || 0)}%` })}</Text> : null}
           {review ? <Text style={styles.review}>{t(`student.reviewStatus.${String(review.status)}`)}{review.teacher_feedback ? ` · ${String(review.teacher_feedback)}` : ''}</Text> : null}
-          {archived ? <Text style={styles.archived}>{t('student.assignmentArchived')}</Text> : <Button onPress={openPractice}>{kind === 'video' ? t('student.watch') : reviewSessionId ? t('student.reviewAnswers') : t('student.openAssignment')}</Button>}
+          {archived ? <Text style={styles.archived}>{t('student.assignmentArchived')}</Text> : <Button onPress={openPractice}>{kind === 'video' ? t('student.watch') : kind === 'oral_presentation' ? t('oral.open') : reviewSessionId ? t('student.reviewAnswers') : t('student.openAssignment')}</Button>}
         </Panel> : null}
       </View>;
     })}</View>}

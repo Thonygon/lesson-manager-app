@@ -8,6 +8,7 @@ import { brandingTranslations } from '@/lib/branding-copy';
 import { helpTranslations } from '@/lib/help-copy';
 import { teacherRecordTranslations } from '@/lib/teacher-record-copy';
 import { educationTranslations } from '@/lib/education-copy';
+import { oralTranslations } from '@/lib/oral-copy';
 
 export type AppLanguage = 'en' | 'es' | 'tr';
 export type ThemePreference = 'auto' | 'light' | 'dark';
@@ -436,6 +437,9 @@ Object.assign(tr, { 'students.recommendationGroup.plan': 'Ders planları', 'stud
 Object.assign(en, { 'smart.aiFallback': 'AI could not produce a complete plan. Classio prepared a template instead; review it before saving.' });
 Object.assign(es, { 'smart.aiFallback': 'La IA no pudo crear un plan completo. Classio preparó una plantilla; revísala antes de guardarla.' });
 Object.assign(tr, { 'smart.aiFallback': 'Yapay zekâ eksiksiz bir plan oluşturamadı. Classio bunun yerine bir şablon hazırladı; kaydetmeden önce inceleyin.' });
+Object.assign(en, oralTranslations.en);
+Object.assign(es, oralTranslations.es);
+Object.assign(tr, oralTranslations.tr);
 
 type PreferencesValue = { language: AppLanguage; theme: ThemePreference; resolvedTheme: 'light' | 'dark'; setLanguage: (value: AppLanguage) => void; setTheme: (value: ThemePreference) => void; t: (key: string, params?: Params) => string };
 const PreferencesContext = createContext<PreferencesValue | null>(null); const LANGUAGE_KEY = 'classio.interfaceLanguage'; const THEME_KEY = 'classio.themePreference';

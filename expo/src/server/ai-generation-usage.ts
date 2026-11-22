@@ -1,6 +1,6 @@
-type Kind = 'plan' | 'worksheet' | 'exam' | 'program';
+type Kind = 'plan' | 'worksheet' | 'exam' | 'program' | 'oral_presentation';
 type Row = Record<string, unknown>;
-const FEATURES: Record<Kind, string> = { plan: 'quick_lesson_ai', worksheet: 'quick_worksheet_ai', exam: 'quick_exam_ai', program: 'learning_program_ai' };
+const FEATURES: Record<Kind, string> = { plan: 'quick_lesson_ai', worksheet: 'quick_worksheet_ai', exam: 'quick_exam_ai', program: 'learning_program_ai', oral_presentation: 'quick_worksheet_ai' };
 const DEFAULT_LIMITS: Record<string, number> = { free: 10, teacher_pro: 250, school: 2000, beta_lifetime: 1000 };
 
 export type UsageContext = { base: string; serverKey: string; userId: string; kind: Kind; profilePlan?: string };

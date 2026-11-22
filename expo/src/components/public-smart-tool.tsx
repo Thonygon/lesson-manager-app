@@ -21,7 +21,7 @@ import { programStructureRule } from '@/shared/program-structure';
 import { saveExplorerDraft } from '@/lib/explorer-draft-handoff';
 import { hostingApiUrl } from '@/lib/hosting-api-url';
 
-type Kind = SmartToolKind;
+type Kind = Exclude<SmartToolKind, 'oral_presentation'>;
 const kinds: { value: Kind; icon: string }[] = [{ value: 'plan', icon: '📝' }, { value: 'worksheet', icon: '📋' }, { value: 'exam', icon: '🧪' }, { value: 'program', icon: '📚' }];
 const SUBJECTS = ['english', 'spanish', 'mathematics', 'science', 'music', 'study_skills'];
 const STAGES = ['early_primary', 'upper_primary', 'lower_secondary', 'upper_secondary', 'adult_stage'];
