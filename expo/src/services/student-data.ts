@@ -299,6 +299,37 @@ export async function getStudentAssignmentCardImages(assignments: ClassioRecord[
   return images;
 }
 
+/** Read the type from the source when available, otherwise from the assigned copy. */
+export async function getStudentAssignmentWorksheetTypes(assignments: ClassioRecord[]): Promise<Record<string, string>> {
+  const worksheets = assignments.filter((row) => String(row.assignment_type) === 'worksheet');
+  if (!worksheets.length) return {};
+  const client = requireSupabase();
+  const uid = await studentId();
+  const sourceIds = [...new Set(worksheets.map((row) => String(row.source_record_id || '')).filter(Boolean))];
+  const sourceTypes = new Map<string, string>();
+  if (sourceIds.length) {
+    const { data, error } = await client.from('worksheets').select('id,worksheet_type').in('id', sourceIds).limit(sourceIds.length);
+    if (error) console.warn('Student worksheet types unavailable from sources', error);
+    else for (const row of data ?? []) sourceTypes.set(String(row.id), String(row.worksheet_type || '').trim());
+  }
+  const types: Record<string, string> = {};
+  for (const row of worksheets) {
+    const type = sourceTypes.get(String(row.source_record_id || ''));
+    if (type) types[String(row.id)] = type;
+  }
+  const missingIds = worksheets.map((row) => String(row.id)).filter((id) => !types[id]);
+  if (!missingIds.length) return types;
+  const { data, error } = await client.from('teacher_assignments').select('id,content_snapshot').eq('student_id', uid).in('id', missingIds).limit(missingIds.length);
+  if (error) throw error;
+  for (const row of data ?? []) {
+    const snapshot = row.content_snapshot && typeof row.content_snapshot === 'object' ? row.content_snapshot as Record<string, unknown> : {};
+    const worksheet = snapshot.worksheet && typeof snapshot.worksheet === 'object' ? snapshot.worksheet as Record<string, unknown> : snapshot;
+    const type = String(worksheet.worksheet_type || '').trim();
+    if (type) types[String(row.id)] = type;
+  }
+  return types;
+}
+
 export async function setStudentNeedsMorePractice(assignmentId: string | number, topicId: string | number, needsPractice: boolean) {
   const client = requireSupabase(); const uid = await studentId(); const { data: assignment, error: assignmentError } = await client.from('learning_program_assignments').select('id').eq('id', assignmentId).eq('student_user_id', uid).maybeSingle(); if (assignmentError || !assignment) throw assignmentError ?? new Error('This learning-program assignment is unavailable.');
   const now = new Date().toISOString(); const { data: current, error: currentError } = await client.from('learning_program_progress').select('id,teacher_done,note,completed_at').eq('assignment_id', assignmentId).eq('topic_id', topicId).maybeSingle(); if (currentError) throw currentError; if (!current?.teacher_done) throw new Error('Complete this topic with your teacher before requesting more practice.');

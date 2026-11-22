@@ -21,7 +21,7 @@ const ACTIONS = [
   { href: '/resources', icon: '🌐', title: 'nav.resources', body: 'home.actionResources', accent: colors.pink, tint: colors.pinkSoft },
   { href: '/community', icon: '🤝', title: 'nav.community', body: 'home.resourcesBody', accent: colors.violet, tint: colors.violetSoft },
 ] as const;
-const KINDS: Record<PublicResourceKind, { icon: string; label: string }> = { program: { icon: '📚', label: 'smart.program' }, plan: { icon: '📝', label: 'smart.plan' }, worksheet: { icon: '📋', label: 'smart.worksheet' }, exam: { icon: '🧪', label: 'smart.exam' }, video: { icon: '🎬', label: 'home.videos' }, oral_presentation: { icon: '🎙️', label: 'oral.title' } };
+const KINDS: Record<PublicResourceKind, { icon: string; label: string }> = { program: { icon: '📚', label: 'smart.program' }, plan: { icon: '📝', label: 'smart.plan' }, worksheet: { icon: '📋', label: 'smart.worksheet' }, exam: { icon: '🧪', label: 'smart.exam' }, oral_presentation: { icon: '🎙️', label: 'oral.title' }, video: { icon: '🎬', label: 'home.videos' } };
 const norm = (value: unknown) => String(value ?? '').trim().toLocaleLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
 
 export function TeacherHomeExtras() {

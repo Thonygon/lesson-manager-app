@@ -32,8 +32,9 @@ import { getProgramAssignmentTargets, getTeacherConnections, type TeacherConnect
 import { colors } from '@/theme';
 
 const KINDS: Record<PublicResourceKind, { label: string; icon: string; accent: string; tint: string }> = {
-  program: { label: 'resources.programs', icon: '📚', accent: colors.violet, tint: colors.violetSoft }, plan: { label: 'resources.lessonPlans', icon: '📝', accent: colors.primary, tint: colors.primarySoft }, worksheet: { label: 'resources.worksheets', icon: '📋', accent: colors.success, tint: colors.successSoft }, exam: { label: 'resources.exams', icon: '🧪', accent: colors.orange, tint: colors.orangeSoft }, video: { label: 'resources.videos', icon: '🎬', accent: colors.pink, tint: colors.pinkSoft },
+  program: { label: 'resources.programs', icon: '📚', accent: colors.violet, tint: colors.violetSoft }, plan: { label: 'resources.lessonPlans', icon: '📝', accent: colors.primary, tint: colors.primarySoft }, worksheet: { label: 'resources.worksheets', icon: '📋', accent: colors.success, tint: colors.successSoft }, exam: { label: 'resources.exams', icon: '🧪', accent: colors.orange, tint: colors.orangeSoft },
   oral_presentation: { label: 'oral.title', icon: '🎙️', accent: colors.primary, tint: colors.primarySoft },
+  video: { label: 'resources.videos', icon: '🎬', accent: colors.pink, tint: colors.pinkSoft },
 };
 type ResourceViewKind = PublicResourceKind | 'professional';
 // Retain the professional library and builders for a later release.
