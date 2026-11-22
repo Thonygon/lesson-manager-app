@@ -7,6 +7,7 @@ import { worksheetHasSource, worksheetReferencesSource } from '@/lib/worksheet-s
 import { canonicalSubjectKey, canonicalSubjectLabel } from '@/lib/subjects';
 import { youtubeVideoId } from '@/lib/youtube';
 import { canonicalChoice } from '@/services/student-practice-answer-normalization';
+import { oralFamily } from '@/shared/oral-presentation';
 import { extractResourceImageUrl, type PublicResource, type PublicResourceKind } from '@/services/public-data';
 import type { TeacherConnection } from '@/services/teacher-students';
 
@@ -331,6 +332,7 @@ export async function updateResourceMetadata(kind: PublicResourceKind, id: strin
   const payload: Record<string, unknown> = { title: updates.title.trim() };
   payload.topic = updates.topic?.trim() || '';
   payload.subject = updates.subject?.trim() || '';
+  if (kind === 'oral_presentation') payload.subject_family = oralFamily(String(payload.subject));
   payload.learner_stage = updates.learnerStage?.trim() || '';
   payload[kind === 'exam' ? 'level' : 'level_or_band'] = updates.level?.trim() || '';
   const { error } = await client.from(DEFINITIONS[kind].table).update(payload).eq('id', id).eq('user_id', userData.user.id); if (error) throw error;

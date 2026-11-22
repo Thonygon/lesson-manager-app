@@ -123,6 +123,10 @@
     {"name": "enforce_admin_suspension.sql", "sha256": "682796ab44e7860441f18171cab05466536c8b7eb74a661bbd374b79a6ed8ac8"},
     {"name": "classio_education_teacher_profiles.sql", "sha256": "7a675bb57c00de8402c6da5baf68f0831cf2095dee3f993ebbabcc446b0f1d4b"},
     {"name": "classio_education_profile_normalization.sql", "sha256": "68bbb412a05b5b59c2c41df5536444eaedb87d7bc250f22be2fa2ac7bf5cc95c"},
-    {"name": "classio_education_profile_location_sync.sql", "sha256": "d559858e938afdc79e9243e198ed096f0ae0c651615386cdcfec559fce27ce40"}
+    {"name": "classio_education_profile_location_sync.sql", "sha256": "d559858e938afdc79e9243e198ed096f0ae0c651615386cdcfec559fce27ce40"},
+    {"name": "reconcile_legacy_program_topics.sql", "sha256": "10483f76623b4048c0a30fd0aa6e5f152f298ad7d7c249681f413aec3e5ee7d1"},
+    {"name": "oral_presentations_beta.sql", "sha256": "bf5e10fcbd99294c069b9c3b531634bd1b5143e62475df39fd75b628f67abb69"},
+    {"name": "oral_legal_publications.sql", "sha256": "8bce2383f2e266fa8831ed8f26075f685bbb6ddcbd5e24751e72905901201c6f"},
+    {"name": "oral_public_bookmarks_and_metadata.sql", "sha256": "fe712adbaa6159a2042c02d0af89dbbc9aafa48959e4f03a95bf6a02217a00c5"}
   ]
 }
